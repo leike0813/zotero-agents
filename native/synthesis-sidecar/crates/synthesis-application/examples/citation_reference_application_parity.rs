@@ -12,9 +12,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use synthesis_application::citation_graph::{
-    CitationBuildOutput, CitationDirection, CitationGraphComputePort, CitationLayoutRequest,
-    CitationMetricsOutput, CitationMetricsPageRequest, CitationMetricsSort, CitationRebuildRequest,
-    CitationSliceRequest,
+    CitationBuildOutput, CitationDirection, CitationGraphComputePort, CitationGraphFilter,
+    CitationGraphNeighborhoodRequest, CitationLayoutRequest, CitationMetricsOutput,
+    CitationMetricsPageRequest, CitationMetricsSort, CitationRebuildRequest,
 };
 use synthesis_application::reference::{
     CanonicalReferenceMutation, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
@@ -126,7 +126,7 @@ impl CitationGraphComputePort for FixtureCitationCompute {
             target_literature_item_id: "paper:b".into(),
             reference_instance_id: "reference:1".into(),
             resolution_id: "resolution:1".into(),
-            edge_status: "matched".into(),
+            edge_status: "accepted".into(),
             roles_json: "[\"background\"]".into(),
             weight: 1.0,
             created_at: self.now.clone(),
@@ -147,7 +147,7 @@ impl CitationGraphComputePort for FixtureCitationCompute {
                     edge_id: "edge:1".into(),
                     reference_instance_id: "reference:1".into(),
                     target_literature_item_id: "paper:b".into(),
-                    edge_status: "matched".into(),
+                    edge_status: "accepted".into(),
                     updated_at: self.now.clone(),
                 }],
                 incoming_groups: vec![CitationIncomingGroupRecord {
@@ -155,7 +155,7 @@ impl CitationGraphComputePort for FixtureCitationCompute {
                     source_literature_item_id: "paper:a".into(),
                     edge_id: "edge:1".into(),
                     reference_instance_id: "reference:1".into(),
-                    edge_status: "matched".into(),
+                    edge_status: "accepted".into(),
                     updated_at: self.now.clone(),
                 }],
                 light_metrics: vec![
@@ -424,14 +424,15 @@ fn main() -> Result<(), String> {
         force: true,
         input: request.corpus.fixture.citation_input.clone(),
     });
-    let slice = citation.read_slice(CitationSliceRequest {
-        root_node_id: "paper:a".into(),
-        depth: 1,
+    let view = citation.read()?;
+    let slice = view.neighborhood(CitationGraphNeighborhoodRequest {
+        start_node_id: "paper:a".into(),
         direction: CitationDirection::Both,
         max_nodes: 80,
         max_edges: 160,
+        filter: CitationGraphFilter::default(),
     })?;
-    let metrics = citation.read_metrics(CitationMetricsPageRequest {
+    let metrics = view.metrics(CitationMetricsPageRequest {
         cursor: 0,
         limit: 1,
         sort_by: CitationMetricsSort::Foundation,
@@ -609,7 +610,7 @@ fn main() -> Result<(), String> {
             "unchanged": unchanged,
             "mismatch": mismatch,
             "slice": {"nodes": slice.nodes.len(), "edges": slice.edges.len()},
-            "metrics": {"returned": metrics.returned, "hasMore": metrics.has_more},
+            "metrics": {"returned": metrics.records.len(), "hasMore": metrics.next_cursor.is_some()},
             "layout": layout,
             "inspect": citation_inspect,
         },

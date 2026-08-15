@@ -1,7 +1,8 @@
 # synthesis-native-citation-graph-surface Specification
 
 ## Purpose
-TBD - created by archiving change complete-synthesis-native-citation-graph-surface. Update Purpose after archive.
+Defines the native Citation Graph surface: the public operation matrix, command decoding, coherent public projection, persisted layout format, bounded typed ports, retry, per-operation readiness, and basis-bound read/window/cursor/filter/neighborhood semantics for the Rust Citation Graph surface.
+
 ## Requirements
 ### Requirement: Citation Graph public operations SHALL be native and compatible
 
@@ -160,3 +161,17 @@ Each page SHALL obtain totals through aggregate queries and rows through bounded
 #### Scenario: A continuation page is requested
 - **WHEN** the runtime serves a later page for an unchanged basis
 - **THEN** repository reads are bounded to counts, requested rows, endpoint closure, and basis-scoped derived metadata
+
+### Requirement: Native Citation Graph surfaces SHALL consume application projections
+
+Native Graph page, continuation, neighborhood, metrics, and layout routes SHALL obtain their graph content from the typed Citation Graph application read interface. Runtime adapters SHALL validate and encode wire DTOs without independently assembling graph state from repository records.
+
+#### Scenario: A graph commit races with a surface read
+- **WHEN** a Graph surface read overlaps an atomic graph promotion
+- **THEN** the response contains graph rows, counts, metrics identity, layout identity, and cache status from one coherent basis
+- **AND** it preserves the existing bounded payload, stable cursor, and endpoint-closure behavior
+
+#### Scenario: Runtime translates an application read failure
+- **WHEN** the application reports an invalid request, basis mismatch, unavailable projection, or storage failure
+- **THEN** the runtime maps the typed outcome to the existing wire-compatible error
+- **AND** it does not retry through a direct repository read

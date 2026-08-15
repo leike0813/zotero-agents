@@ -112,31 +112,14 @@ refresh, and explicit metrics refresh use this one path. A superseded or failed
 result preserves previous metrics; graph structure remains readable while
 metrics report stale or missing state.
 
-Citation Graph structure construction crosses
-`SynthesisCitationGraphBuildEngine`. The Rust application captures active raw
-references, effective canonical ids, accepted bindings, and a durable-fact basis
-through bounded repository reads, obtains required Zotero metadata through the
-reverse-Host port, and computes outside the writer transaction. Full rebuild and
-source-slice promotion recapture the same basis before replacing rows. Large
-builds use authenticated canonical transfer pages and atomic attempt output;
-the worker has no repository, canonical-file, Host, or staging-path authority.
-Superseded, malformed, canceled, or oversized attempts preserve the last-good
-graph. Input pages, output sinks, and adopted publications carry typed byte
-reservations; moving ownership does not change the aggregate count, and
-dropping the final owner releases it once. Idle reaping skips active attempts.
-Absolute expiry, explicit cancel, and shutdown hide and cancel an active
-session first, then remove its files only after the attempt returns.
+Citation Graph structure construction crosses `SynthesisCitationGraphBuildEngine`. Runtime reads current Reference and cache facts, selects Full or Incremental mode, and prepares one application-owned graph attempt before reverse-Host collection. `finish_rebuild` consumes that attempt with canonical material or a typed collection failure. Build compute stays outside writer ownership. Full and source-slice promotion commit graph state/rows, `citation-graph:library=ready`, and the private attempt terminal together. Large builds use authenticated canonical transfer pages and atomic attempt output; the worker has no repository, canonical-file, Host, or staging-path authority. Superseded, malformed, canceled, collection-failed, or oversized attempts preserve the last-good graph. Input pages, output sinks, and adopted publications carry typed byte reservations; moving ownership does not change the aggregate count, and dropping the final owner releases it once. Idle reaping skips active attempts. Absolute expiry, explicit cancel, and shutdown hide and cancel an active session first, then remove its files only after the attempt returns.
 
-Workbench Citation Graph reads are repository-backed windows. The first Graph
+Workbench Citation Graph reads use an application-owned basis-bound view over repository windows. The first Graph
 surface response contains at most 200 ranked primary nodes, 400 primary edges,
 100 hover-only nodes, and 200 hover-only edges; the sidecar deterministically
 shrinks a page when its serialized graph payload would exceed 768 KiB. Each
 edge page is endpoint-closed. SQLite remains the source of graph structure,
-counts, filters, and stable ordering; layout/topic helper data is read against
-the selected graph basis and is only an optimization, never a correctness
-source. A versioned opaque cursor binds the graph hash and normalized query
-signature to the four repository offsets. A changed graph, filter, topic, or
-layout basis fails with `basis_mismatch` instead of mixing pages.
+counts, filters, and stable ordering. Graph layout data is read through the same view; cross-domain Topic scope stays runtime-owned. A versioned opaque cursor binds the graph hash and normalized query signature to the four repository offsets. Each page, continuation, neighborhood, metrics, or layout call opens a short reader transaction and rechecks graph/input/metrics identity. A changed graph, filter, topic, metrics, or layout basis fails with `basis_mismatch` instead of mixing results.
 
 While Graph is selected, the Host reads one page at a time and the iframe
 merges ID-keyed patches into the existing Graphology/Sigma instance. Page-only

@@ -1,15 +1,16 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 use synthesis_application::citation_graph::{
-    CitationLayoutRequest, CitationMutationResult, CitationMutationStatus, CitationRebuildRequest,
+    CitationGraphRebuildMaterial, CitationGraphRebuildMode, CitationLayoutRequest,
+    CitationMutationResult, CitationMutationStatus,
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    CacheBasisRecord, CanonicalReferenceRecord, OperationQuery, OperationRecord,
-    RawReferenceRecord, ReferenceBindingFactRecord, ReferenceRedirectFactRecord,
-    ReferenceRedirectGraph,
+    CacheBasisRecord, CanonicalReferenceRecord, RawReferenceRecord, ReferenceBindingFactRecord,
+    ReferenceRedirectFactRecord, ReferenceRedirectGraph,
 };
 
 use crate::runtime_host_collection::{
@@ -19,13 +20,10 @@ use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
 
 const CACHE_KEY: &str = "citation-graph:library";
-const FULL_INTENT: &str = "citation_graph_command_full";
-const INCREMENTAL_INTENT: &str = "citation_graph_command_incremental";
 const CONTRACT_VERSION: &str = "synthesis-citation-graph-build.v1";
 const SOURCE_LIMIT: usize = 25_000;
 const REFERENCE_LIMIT: usize = 1_250_000;
 const TARGET_LIMIT: usize = 750_000;
-static OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -81,15 +79,6 @@ enum RebuildIntent {
     Incremental,
 }
 
-impl RebuildIntent {
-    fn operation_type(self) -> &'static str {
-        match self {
-            Self::Full => FULL_INTENT,
-            Self::Incremental => INCREMENTAL_INTENT,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 struct StaleDelta {
     source_refs: BTreeSet<String>,
@@ -119,106 +108,13 @@ fn no_args(args: &[Value]) -> Result<(), String> {
     }
 }
 
+#[cfg(test)]
 fn now_string() -> String {
     synthesis_protocol::utc_now_iso8601()
 }
 
 fn wire(result: CitationMutationResult) -> Result<Value, String> {
     serde_json::to_value(result).map_err(|_| "production_projection_invalid".into())
-}
-
-fn begin_intent(
-    apps: &ProductionApplications,
-    intent: RebuildIntent,
-    scope_kind: &str,
-    source_refs: &[String],
-) -> Result<OperationRecord, String> {
-    let now = now_string();
-    let operation_id = format!(
-        "citation-graph-command:{}:{now}:{}",
-        match intent {
-            RebuildIntent::Full => "full",
-            RebuildIntent::Incremental => "incremental",
-        },
-        OPERATION_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    );
-    let record = OperationRecord {
-        operation_id,
-        operation_type: intent.operation_type().into(),
-        scope_kind: scope_kind.into(),
-        scope_ref: source_refs.join(","),
-        status: "running".into(),
-        label: "Citation graph cache rebuild".into(),
-        phase: "collect_host".into(),
-        progress_mode: "indeterminate".into(),
-        diagnostics_json: "[]".into(),
-        created_at: now.clone(),
-        started_at: now.clone(),
-        updated_at: now,
-        ..OperationRecord::default()
-    };
-    let owner = apps.repository.owner();
-    owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?
-        .upsert_operation(&record)?;
-    Ok(record)
-}
-
-fn finish_intent(
-    apps: &ProductionApplications,
-    record: &OperationRecord,
-    result: Result<&CitationMutationResult, &str>,
-) -> Result<(), String> {
-    let (status, phase, diagnostics) = match result {
-        Ok(result)
-            if matches!(
-                result.status,
-                CitationMutationStatus::Promoted | CitationMutationStatus::Unchanged
-            ) =>
-        {
-            ("completed", "completed", Vec::new())
-        }
-        Ok(result) => (
-            "failed",
-            "failed",
-            vec![format!("citation_graph_status:{:?}", result.status)],
-        ),
-        Err(error) => ("failed", "failed", vec![error.to_owned()]),
-    };
-    let owner = apps.repository.owner();
-    owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?
-        .update_operation_status(
-            &record.operation_id,
-            status,
-            phase,
-            &diagnostics,
-            &now_string(),
-        )?;
-    Ok(())
-}
-
-fn update_intent_scope(
-    apps: &ProductionApplications,
-    record: &OperationRecord,
-    scope_kind: &str,
-    source_refs: &[String],
-) -> Result<(), String> {
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    let mut current = repository
-        .get_operation(&record.operation_id)?
-        .ok_or_else(|| "operation_receipt_missing".to_owned())?;
-    current.scope_kind = scope_kind.into();
-    current.scope_ref = source_refs.join(",");
-    current.phase = "build".into();
-    current.total_count = source_refs.len() as i64;
-    current.updated_at = now_string();
-    repository.upsert_operation(&current)
 }
 
 fn current_graph_hash(apps: &ProductionApplications) -> Result<Option<String>, String> {
@@ -276,28 +172,26 @@ struct DurableFacts {
 }
 
 fn durable_facts(apps: &ProductionApplications) -> Result<DurableFacts, String> {
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    Ok(DurableFacts {
-        raw: repository
-            .list_raw_references()?
-            .into_iter()
-            .filter(|row| row.status == "active")
-            .collect(),
-        canonicals: repository
-            .list_canonical_references()?
-            .into_iter()
-            .filter(|row| row.status == "active")
-            .collect(),
-        bindings: repository
-            .list_reference_bindings()?
-            .into_iter()
-            .filter(|row| row.status == "accepted")
-            .collect(),
-        redirects: repository.list_reference_redirects()?,
-        cache_basis: repository.get_cache_basis(CACHE_KEY)?,
+    apps.repository.with_reader(|repository| {
+        Ok(DurableFacts {
+            raw: repository
+                .list_raw_references()?
+                .into_iter()
+                .filter(|row| row.status == "active")
+                .collect(),
+            canonicals: repository
+                .list_canonical_references()?
+                .into_iter()
+                .filter(|row| row.status == "active")
+                .collect(),
+            bindings: repository
+                .list_reference_bindings()?
+                .into_iter()
+                .filter(|row| row.status == "accepted")
+                .collect(),
+            redirects: repository.list_reference_redirects()?,
+            cache_basis: repository.get_cache_basis(CACHE_KEY)?,
+        })
     })
 }
 
@@ -501,178 +395,119 @@ fn build_input(
     }))
 }
 
-fn update_cache_basis(
-    apps: &ProductionApplications,
-    result: &CitationMutationResult,
-    input: &Value,
-    operation_id: &str,
-) -> Result<(), String> {
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    if matches!(
-        result.status,
-        CitationMutationStatus::Promoted | CitationMutationStatus::Unchanged
-    ) {
-        let now = now_string();
-        repository.upsert_cache_basis(&CacheBasisRecord {
-            cache_key: CACHE_KEY.into(),
-            cache_kind: "citation_graph".into(),
-            scope_kind: "library".into(),
-            status: "ready".into(),
-            basis_kind: "citation_graph_application".into(),
-            basis_value: result.graph_hash.clone().unwrap_or_default(),
-            source_hash: canonical_json_hash(input)?,
-            policy_version: "citation-graph-application-v1".into(),
-            active_operation_id: operation_id.into(),
-            refreshed_at: now.clone(),
-            diagnostics_json: "[]".into(),
-            updated_at: now,
-            ..CacheBasisRecord::default()
-        })?;
-    } else if repository.get_citation_graph_application_state()?.is_none()
-        && repository.get_cache_basis(CACHE_KEY)?.is_none()
-    {
-        repository.upsert_cache_basis(&CacheBasisRecord {
-            cache_key: CACHE_KEY.into(),
-            cache_kind: "citation_graph".into(),
-            scope_kind: "library".into(),
-            status: "failed".into(),
-            basis_kind: "citation_graph_application".into(),
-            active_operation_id: operation_id.into(),
-            diagnostics_json: format!("[\"citation_graph_status:{:?}\"]", result.status),
-            updated_at: now_string(),
-            ..CacheBasisRecord::default()
-        })?;
-    }
-    Ok(())
-}
-
 fn run_rebuild(
     apps: &ProductionApplications,
     intent: RebuildIntent,
     requested_source_refs: Option<Vec<String>>,
 ) -> Result<Value, String> {
-    let receipt = begin_intent(apps, intent, "pending", &[])?;
-    let outcome: Result<(CitationMutationResult, &'static str, Vec<String>), String> =
-        (|| -> Result<_, String> {
-            let facts = durable_facts(apps)?;
-            let (source_refs, kind, items) = match requested_source_refs {
-                Some(source_refs) => {
-                    let mut source_refs = source_refs
-                        .into_iter()
-                        .map(|value| value.trim().to_owned())
-                        .filter(|value| !value.is_empty())
-                        .collect::<BTreeSet<_>>()
-                        .into_iter()
-                        .collect::<Vec<_>>();
-                    source_refs.sort();
-                    let items = collect_items_by_ref(apps.host_items.as_ref(), &source_refs)?;
-                    (source_refs, "source_slice", items)
-                }
-                None if intent == RebuildIntent::Incremental => {
-                    let redirect_graph = ReferenceRedirectGraph::from_records(&facts.redirects)?;
-                    let delta = stale_delta(facts.cache_basis.as_ref());
-                    let source_refs = affected_source_refs(&facts, &delta)?;
-                    if source_refs.is_empty() || current_graph_hash(apps)?.is_none() {
-                        let items = collect_host_items(apps.host_items.as_ref())?;
-                        let source_refs = items
-                            .iter()
-                            .map(|item| item.paper_ref.clone())
-                            .collect::<Vec<_>>();
-                        (source_refs, "full", items)
-                    } else {
-                        let mut metadata_refs = source_refs.clone();
-                        for raw in facts
-                            .raw
-                            .iter()
-                            .filter(|raw| source_refs.binary_search(&raw.source_ref).is_ok())
-                        {
-                            let effective = redirect_graph.resolve(&raw.canonical_reference_id)?;
-                            if let Some(binding) = facts.bindings.iter().find(|binding| {
-                                redirect_graph
-                                    .resolve(&binding.canonical_reference_id)
-                                    .is_ok_and(|candidate| candidate == effective)
-                            }) {
-                                metadata_refs
-                                    .push(format!("{}:{}", binding.library_id, binding.item_key));
-                            }
-                        }
-                        metadata_refs.sort();
-                        metadata_refs.dedup();
-                        let items = collect_items_by_ref(apps.host_items.as_ref(), &metadata_refs)?;
-                        (source_refs, "source_slice", items)
+    let facts = durable_facts(apps)?;
+    let (mut source_refs, kind, collection_refs) = match requested_source_refs {
+        Some(source_refs) => {
+            let source_refs = source_refs
+                .into_iter()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            (source_refs.clone(), "source_slice", Some(source_refs))
+        }
+        None if intent == RebuildIntent::Incremental => {
+            let redirect_graph = ReferenceRedirectGraph::from_records(&facts.redirects)?;
+            let delta = stale_delta(facts.cache_basis.as_ref());
+            let source_refs = affected_source_refs(&facts, &delta)?;
+            if source_refs.is_empty() || current_graph_hash(apps)?.is_none() {
+                (Vec::new(), "full", None)
+            } else {
+                let mut metadata_refs = source_refs.clone();
+                for raw in facts
+                    .raw
+                    .iter()
+                    .filter(|raw| source_refs.binary_search(&raw.source_ref).is_ok())
+                {
+                    let effective = redirect_graph.resolve(&raw.canonical_reference_id)?;
+                    if let Some(binding) = facts.bindings.iter().find(|binding| {
+                        redirect_graph
+                            .resolve(&binding.canonical_reference_id)
+                            .is_ok_and(|candidate| candidate == effective)
+                    }) {
+                        metadata_refs.push(format!("{}:{}", binding.library_id, binding.item_key));
                     }
                 }
-                None => {
-                    let items = collect_host_items(apps.host_items.as_ref())?;
-                    let source_refs = items
-                        .iter()
-                        .map(|item| item.paper_ref.clone())
-                        .collect::<Vec<_>>();
-                    (source_refs, "full", items)
-                }
-            };
-            update_intent_scope(apps, &receipt, kind, &source_refs)?;
-            let input = build_input(&facts, items, &source_refs, kind)?;
-            let expected_graph_hash = current_graph_hash(apps)?;
-            let request = CitationRebuildRequest {
-                expected_graph_hash: expected_graph_hash.clone(),
-                force: true,
-                input: input.clone(),
-            };
-            let result = if kind == "source_slice" {
-                let Some(expected_graph_hash) = expected_graph_hash else {
-                    return Err("citation_graph_basis_missing".into());
-                };
-                let checkpoint = || promotion_checkpoint(apps);
-                apps.citations.rebuild_source_slice_with_checkpoint(
-                    CitationRebuildRequest {
-                        expected_graph_hash: Some(expected_graph_hash),
-                        ..request
-                    },
-                    &source_refs,
-                    &checkpoint,
-                )
-            } else {
-                let checkpoint = || promotion_checkpoint(apps);
-                apps.citations
-                    .rebuild_full_with_checkpoint(request, &checkpoint)
-            };
-            update_cache_basis(apps, &result, &input, &receipt.operation_id)?;
-            Ok((result, kind, source_refs))
-        })();
-    match outcome {
-        Ok((result, kind, source_refs)) => {
-            finish_intent(apps, &receipt, Ok(&result))?;
-            let should_sync = intent == RebuildIntent::Incremental
-                && kind == "source_slice"
-                && matches!(
-                    result.status,
-                    CitationMutationStatus::Promoted | CitationMutationStatus::Unchanged
-                );
-            let graph_hash = result.graph_hash.clone().unwrap_or_default();
-            let mut value = wire(result)?;
-            if should_sync {
-                let summary = apps.related_items.sync(&source_refs, &graph_hash);
-                let object = value
-                    .as_object_mut()
-                    .ok_or_else(|| "production_projection_invalid".to_owned())?;
-                object.insert("affected_source_refs".into(), json!(source_refs));
-                object.insert(
-                    "related_items_sync".into(),
-                    serde_json::to_value(summary)
-                        .map_err(|_| "production_projection_invalid".to_owned())?,
-                );
+                metadata_refs.sort();
+                metadata_refs.dedup();
+                (source_refs, "source_slice", Some(metadata_refs))
             }
-            Ok(value)
         }
+        None => (Vec::new(), "full", None),
+    };
+    let mode = if kind == "source_slice" {
+        CitationGraphRebuildMode::Incremental
+    } else {
+        CitationGraphRebuildMode::Full
+    };
+    let attempt = apps.citations.prepare_rebuild(mode)?;
+    let items = match collection_refs {
+        Some(refs) => collect_items_by_ref(apps.host_items.as_ref(), &refs),
+        None => collect_host_items(apps.host_items.as_ref()),
+    };
+    let items = match items {
+        Ok(items) => items,
         Err(error) => {
-            let _ = finish_intent(apps, &receipt, Err(&error));
-            Err(error)
+            let checkpoint = || promotion_checkpoint(apps);
+            return apps
+                .citations
+                .finish_rebuild(attempt, Err(error), &checkpoint)
+                .and_then(|_| Err("citation_graph_collection_failed".into()));
         }
+    };
+    if kind == "full" {
+        source_refs = items.iter().map(|item| item.paper_ref.clone()).collect();
     }
+    let input = match build_input(&facts, items, &source_refs, kind) {
+        Ok(input) => input,
+        Err(error) => {
+            let checkpoint = || promotion_checkpoint(apps);
+            return apps
+                .citations
+                .finish_rebuild(attempt, Err(error), &checkpoint)
+                .and_then(|_| Err("citation_graph_input_failed".into()));
+        }
+    };
+    let checkpoint = || promotion_checkpoint(apps);
+    let result = apps.citations.finish_rebuild(
+        attempt,
+        Ok(CitationGraphRebuildMaterial {
+            input,
+            source_ids: if mode == CitationGraphRebuildMode::Incremental {
+                source_refs.clone()
+            } else {
+                Vec::new()
+            },
+        }),
+        &checkpoint,
+    )?;
+    let should_sync = intent == RebuildIntent::Incremental
+        && mode == CitationGraphRebuildMode::Incremental
+        && matches!(
+            result.status,
+            CitationMutationStatus::Promoted | CitationMutationStatus::Unchanged
+        );
+    let graph_hash = result.graph_hash.clone().unwrap_or_default();
+    let mut value = wire(result)?;
+    if should_sync {
+        let summary = apps.related_items.sync(&source_refs, &graph_hash);
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?;
+        object.insert("affected_source_refs".into(), json!(source_refs));
+        object.insert(
+            "related_items_sync".into(),
+            serde_json::to_value(summary)
+                .map_err(|_| "production_projection_invalid".to_owned())?,
+        );
+    }
+    Ok(value)
 }
 
 fn start_update(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
@@ -689,16 +524,14 @@ fn start_update(apps: &ProductionApplications, args: &[Value]) -> Result<Value, 
         return Err("invalid_request".into());
     }
     if let Some(expected) = request.expected_reference_basis_hash.as_deref() {
-        let owner = apps.repository.owner();
-        let repository = owner
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        if repository
-            .get_cache_basis("reference-sidecar:library")?
-            .as_ref()
-            .map(|basis| basis.source_hash.as_str())
-            != Some(expected)
-        {
+        let matches = apps.repository.with_reader(|repository| {
+            Ok(repository
+                .get_cache_basis("reference-sidecar:library")?
+                .as_ref()
+                .map(|basis| basis.source_hash.as_str())
+                == Some(expected))
+        })?;
+        if !matches {
             return Err("reference_basis_mismatch".into());
         }
     }
@@ -742,10 +575,9 @@ fn recompute_layout(apps: &ProductionApplications, args: &[Value]) -> Result<Val
     if !request.force
         && apps
             .citations
-            .read_layout_window(&layout_key, &[])?
-            .is_some_and(|layout| {
-                layout.metadata.graph_hash == graph_hash && layout.metadata.status == "ready"
-            })
+            .read()?
+            .layout(&layout_key, &[])?
+            .is_some_and(|layout| layout.graph_hash == graph_hash && layout.status == "ready")
     {
         return wire(CitationMutationResult {
             status: CitationMutationStatus::Unchanged,
@@ -773,23 +605,31 @@ fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
 
 fn retry(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     no_args(args)?;
-    let owner = apps.repository.owner();
-    let failed = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?
-        .list_operations(&OperationQuery {
-            statuses: vec!["failed".into()],
-            operation_types: vec![FULL_INTENT.into(), INCREMENTAL_INTENT.into()],
-            include_completed: true,
-            limit: 1,
-            ..OperationQuery::default()
-        })?
-        .into_iter()
-        .next();
-    match failed.as_ref().map(|record| record.operation_type.as_str()) {
-        Some(FULL_INTENT) => run_rebuild(apps, RebuildIntent::Full, None),
-        Some(INCREMENTAL_INTENT) => run_rebuild(apps, RebuildIntent::Incremental, None),
-        _ => Err("citation_graph_retry_intent_missing".into()),
+    match apps.citations.latest_failed_rebuild_mode()? {
+        Some(CitationGraphRebuildMode::Full) => run_rebuild(apps, RebuildIntent::Full, None),
+        Some(CitationGraphRebuildMode::Incremental) => {
+            run_rebuild(apps, RebuildIntent::Incremental, None)
+        }
+        None => {
+            let facts = durable_facts(apps)?;
+            let status = facts
+                .cache_basis
+                .as_ref()
+                .map(|cache| cache.status.as_str());
+            if status == Some("ready") {
+                return Err("citation_graph_retry_intent_missing".into());
+            }
+            if !matches!(status, None | Some("missing" | "failed" | "stale")) {
+                return Err("citation_graph_retry_intent_missing".into());
+            }
+            let delta = stale_delta(facts.cache_basis.as_ref());
+            let has_delta = !delta.source_refs.is_empty() || !delta.canonical_ids.is_empty();
+            if current_graph_hash(apps)?.is_some() && status == Some("stale") && has_delta {
+                run_rebuild(apps, RebuildIntent::Incremental, None)
+            } else {
+                run_rebuild(apps, RebuildIntent::Full, None)
+            }
+        }
     }
 }
 
@@ -823,7 +663,7 @@ mod tests {
     use crate::runtime_worker_pool::NativeComputePool;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
-    use synthesis_application::CitationGraphRepositoryPort;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
     use synthesis_repository::{
         CitationEdgeRecord, CitationGraphApplicationStateRecord, CitationGraphReplacement,
@@ -933,7 +773,10 @@ mod tests {
         std::env::temp_dir().join(format!(
             "synthesis-citation-command-{}-{}",
             std::process::id(),
-            OPERATION_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
         ))
     }
 
@@ -993,11 +836,13 @@ mod tests {
         assert_eq!(layout["status"], "promoted");
         let persisted = apps
             .citations
-            .read_layout_window("workbench_overview:radial", &[])
+            .read()
+            .expect("read view")
+            .layout("workbench_overview:radial", &[])
             .expect("layout read")
             .expect("persisted layout");
-        assert_eq!(persisted.metadata.view_key, "workbench_overview");
-        assert_eq!(persisted.metadata.preset, "radial");
+        assert_eq!(persisted.view_key, "workbench_overview");
+        assert_eq!(persisted.preset, "radial");
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1027,34 +872,37 @@ mod tests {
             ..CitationEdgeRecord::default()
         };
         assert!(
-            CitationGraphRepositoryPort::replace(
-                apps.repository.as_ref(),
-                None,
-                &CitationGraphReplacement {
-                    state: CitationGraphApplicationStateRecord {
-                        graph_hash: graph_hash.clone(),
-                        input_hash: format!("sha256:{}", "b".repeat(64)),
-                        node_count: 3,
-                        edge_count: 2,
-                        updated_at: now_string(),
-                        ..CitationGraphApplicationStateRecord::default()
+            apps.repository
+                .owner()
+                .lock()
+                .expect("repository")
+                .replace_citation_graph_application_state(
+                    None,
+                    &CitationGraphReplacement {
+                        state: CitationGraphApplicationStateRecord {
+                            graph_hash: graph_hash.clone(),
+                            input_hash: format!("sha256:{}", "b".repeat(64)),
+                            node_count: 3,
+                            edge_count: 2,
+                            updated_at: now_string(),
+                            ..CitationGraphApplicationStateRecord::default()
+                        },
+                        nodes: vec![
+                            node("1:AAAA1111", true, "Paper A", "2024"),
+                            node("1:BBBB2222", true, "Paper B", "2025"),
+                            node("external:shared", false, " Shared external ", ""),
+                        ],
+                        edges: vec![
+                            edge("edge:a-shared", "1:AAAA1111"),
+                            edge("edge:b-shared", "1:BBBB2222"),
+                        ],
+                        ownership: Vec::new(),
+                        incoming_groups: Vec::new(),
+                        light_metrics: Vec::new(),
+                        complex_metrics: Vec::new(),
                     },
-                    nodes: vec![
-                        node("1:AAAA1111", true, "Paper A", "2024"),
-                        node("1:BBBB2222", true, "Paper B", "2025"),
-                        node("external:shared", false, " Shared external ", ""),
-                    ],
-                    edges: vec![
-                        edge("edge:a-shared", "1:AAAA1111"),
-                        edge("edge:b-shared", "1:BBBB2222"),
-                    ],
-                    ownership: Vec::new(),
-                    incoming_groups: Vec::new(),
-                    light_metrics: Vec::new(),
-                    complex_metrics: Vec::new(),
-                },
-            )
-            .expect("replace graph")
+                )
+                .expect("replace graph")
         );
 
         let result = dispatch(
@@ -1066,7 +914,9 @@ mod tests {
         assert_eq!(result["status"], "promoted");
         let persisted = apps
             .citations
-            .read_layout_window(
+            .read()
+            .expect("read view")
+            .layout(
                 "workbench_overview:radial",
                 &[
                     "1:AAAA1111".into(),
@@ -1083,7 +933,7 @@ mod tests {
                 .iter()
                 .all(|point| point.x.is_finite() && point.y.is_finite())
         );
-        assert_eq!(persisted.metadata.graph_hash, graph_hash);
+        assert_eq!(persisted.graph_hash, graph_hash);
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1119,10 +969,25 @@ mod tests {
         let incremental = dispatch(&apps, "client.refreshCitationGraphCacheIncrementalNow", &[])
             .expect("incremental");
         assert_eq!(incremental["status"], "promoted");
-        let node_ids = CitationGraphRepositoryPort::list_nodes(apps.repository.as_ref())
-            .expect("nodes")
+        let page = apps
+            .citations
+            .read()
+            .expect("read view")
+            .first_page(
+                synthesis_application::citation_graph::CitationGraphPageRequest {
+                    node_limit: 10,
+                    edge_limit: 10,
+                    hover_node_limit: 10,
+                    hover_edge_limit: 10,
+                    ..synthesis_application::citation_graph::CitationGraphPageRequest::default()
+                },
+            )
+            .expect("graph page");
+        let node_ids = page
+            .nodes
             .into_iter()
-            .map(|node| node.literature_item_id)
+            .filter(|node| node.has_zotero_binding)
+            .map(|node| node.node_id)
             .collect::<Vec<_>>();
         assert_eq!(node_ids, vec!["1:AAAA1111", "1:BBBB2222"]);
 
@@ -1134,14 +999,14 @@ mod tests {
         );
         assert_eq!(current_graph_hash(&apps).expect("graph hash"), last_good);
         assert_eq!(
-            apps.repository
-                .owner()
-                .lock()
-                .expect("repository")
-                .get_cache_basis(CACHE_KEY)
-                .expect("cache basis")
-                .expect("cache basis")
-                .status,
+            apps.citations
+                .read()
+                .expect("read view")
+                .first_page(
+                    synthesis_application::citation_graph::CitationGraphPageRequest::default()
+                )
+                .expect("graph page")
+                .cache_status,
             "ready",
         );
         drop(apps);
@@ -1183,23 +1048,7 @@ mod tests {
         let fallback = dispatch(&apps, "client.refreshCitationGraphCacheIncrementalNow", &[])
             .expect("full fallback");
         assert_eq!(fallback["status"], "promoted");
-        let latest = apps
-            .repository
-            .owner()
-            .lock()
-            .expect("repository")
-            .list_operations(&OperationQuery {
-                statuses: vec!["completed".into()],
-                operation_types: vec![INCREMENTAL_INTENT.into()],
-                include_completed: true,
-                limit: 1,
-                ..OperationQuery::default()
-            })
-            .expect("operations")
-            .into_iter()
-            .next()
-            .expect("incremental receipt");
-        assert_eq!(latest.scope_kind, "full");
+        assert!(fallback.get("affected_source_refs").is_none());
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1240,23 +1089,7 @@ mod tests {
         let retried =
             dispatch(&reopened, "client.retryCitationGraphCacheRebuild", &[]).expect("retry");
         assert_eq!(retried["status"], "promoted");
-        let receipt = reopened
-            .repository
-            .owner()
-            .lock()
-            .expect("repository")
-            .list_operations(&OperationQuery {
-                statuses: vec!["completed".into()],
-                operation_types: vec![INCREMENTAL_INTENT.into()],
-                include_completed: true,
-                limit: 1,
-                ..OperationQuery::default()
-            })
-            .expect("operations")
-            .into_iter()
-            .next()
-            .expect("receipt");
-        assert_eq!(receipt.scope_kind, "source_slice");
+        assert!(retried["affected_source_refs"].is_array());
         drop(reopened);
         let _ = std::fs::remove_dir_all(root);
     }

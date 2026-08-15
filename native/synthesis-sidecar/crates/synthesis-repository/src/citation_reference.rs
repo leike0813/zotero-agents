@@ -467,6 +467,32 @@ pub struct CitationGraphReplacement {
     pub complex_metrics: Vec<CitationComplexMetricsRecord>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum CitationGraphPromotion {
+    Full {
+        expected_graph_hash: Option<String>,
+        replacement: CitationGraphReplacement,
+    },
+    SourceSlice {
+        expected_graph_hash: String,
+        source_ids: Vec<String>,
+        replacement: CitationGraphReplacement,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CitationGraphPromotionCommit {
+    pub promotion: CitationGraphPromotion,
+    pub ready_cache: crate::CacheBasisRecord,
+    pub terminal_operation: crate::OperationRecord,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CitationGraphPromotionResult {
+    Promoted { graph_hash: String },
+    BasisMismatch,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CitationGraphWindowFilter {
     pub node_kinds: Vec<String>,
@@ -1785,6 +1811,63 @@ impl Repository {
                 ],
             )?;
             Ok(Some(graph_hash))
+        })
+    }
+
+    /// Atomically promotes Citation Graph rows, their ready cache basis, and
+    /// the terminal state of the private graph attempt that produced them.
+    pub fn commit_citation_graph_promotion(
+        &mut self,
+        commit: &CitationGraphPromotionCommit,
+    ) -> Result<CitationGraphPromotionResult, String> {
+        self.transaction(|repository| {
+            let graph_hash = match &commit.promotion {
+                CitationGraphPromotion::Full {
+                    expected_graph_hash,
+                    replacement,
+                } => {
+                    if !repository.replace_citation_graph_application_state(
+                        expected_graph_hash.as_deref(),
+                        replacement,
+                    )? {
+                        return Ok(CitationGraphPromotionResult::BasisMismatch);
+                    }
+                    replacement.state.graph_hash.clone()
+                }
+                CitationGraphPromotion::SourceSlice {
+                    expected_graph_hash,
+                    source_ids,
+                    replacement,
+                } => {
+                    let Some(graph_hash) = repository.replace_citation_graph_source_slice(
+                        expected_graph_hash,
+                        source_ids,
+                        replacement,
+                    )?
+                    else {
+                        return Ok(CitationGraphPromotionResult::BasisMismatch);
+                    };
+                    graph_hash
+                }
+            };
+            if commit.ready_cache.cache_key != "citation-graph:library"
+                || commit.ready_cache.cache_kind != "citation_graph"
+                || commit.ready_cache.status != "ready"
+                || commit.ready_cache.basis_kind != "graph_hash"
+            {
+                return Err("citation_graph_promotion_cache_invalid".into());
+            }
+            let mut ready_cache = commit.ready_cache.clone();
+            ready_cache.basis_value.clone_from(&graph_hash);
+            repository.upsert_cache_basis(&ready_cache)?;
+            let mut terminal_operation = commit.terminal_operation.clone();
+            terminal_operation.basis_value.clone_from(&graph_hash);
+            let (_, won_terminal) =
+                repository.finish_operation_if_nonterminal(&terminal_operation)?;
+            if !won_terminal {
+                return Err("citation_graph_promotion_operation_not_running".into());
+            }
+            Ok(CitationGraphPromotionResult::Promoted { graph_hash })
         })
     }
 
@@ -3916,7 +3999,7 @@ fn delete_not_in(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RepositoryIdentity;
+    use crate::{CacheBasisRecord, OperationRecord, RepositoryIdentity};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -4005,6 +4088,203 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["paper:1"]
         );
+        drop(repository);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn graph_promotion_rolls_back_graph_cache_and_operation_together() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        assert!(
+            repository
+                .replace_citation_graph_application_state(None, &graph("graph:1", "paper:1"))
+                .expect("initial replacement")
+        );
+        repository
+            .upsert_cache_basis(&CacheBasisRecord {
+                cache_key: "citation-graph:library".into(),
+                cache_kind: "citation_graph".into(),
+                scope_kind: "library".into(),
+                status: "ready".into(),
+                basis_kind: "graph_hash".into(),
+                basis_value: "graph:1".into(),
+                refreshed_at: "2026-07-26T00:00:00.000Z".into(),
+                updated_at: "2026-07-26T00:00:00.000Z".into(),
+                ..CacheBasisRecord::default()
+            })
+            .expect("initial cache basis");
+        let running = OperationRecord {
+            operation_id: "citation-graph-attempt:2".into(),
+            operation_type: "citation_graph_cache_rebuild".into(),
+            status: "running".into(),
+            phase: "promote".into(),
+            progress_mode: "indeterminate".into(),
+            diagnostics_json: "[]".into(),
+            created_at: "2026-07-26T00:00:01.000Z".into(),
+            started_at: "2026-07-26T00:00:01.000Z".into(),
+            updated_at: "2026-07-26T00:00:01.000Z".into(),
+            ..OperationRecord::default()
+        };
+        repository
+            .upsert_operation(&running)
+            .expect("running graph attempt");
+        repository
+            .execute(
+                "CREATE TRIGGER fail_citation_graph_attempt_terminal
+                 BEFORE UPDATE ON synt_operation
+                 WHEN NEW.operation_id='citation-graph-attempt:2' AND NEW.status='completed'
+                 BEGIN SELECT RAISE(ABORT, 'forced terminal failure'); END",
+                &[],
+            )
+            .expect("create terminal trigger");
+
+        let result = repository.commit_citation_graph_promotion(&CitationGraphPromotionCommit {
+            promotion: CitationGraphPromotion::Full {
+                expected_graph_hash: Some("graph:1".into()),
+                replacement: graph("graph:2", "paper:2"),
+            },
+            ready_cache: CacheBasisRecord {
+                cache_key: "citation-graph:library".into(),
+                cache_kind: "citation_graph".into(),
+                scope_kind: "library".into(),
+                status: "ready".into(),
+                basis_kind: "graph_hash".into(),
+                basis_value: "graph:2".into(),
+                refreshed_at: "2026-07-26T00:00:02.000Z".into(),
+                updated_at: "2026-07-26T00:00:02.000Z".into(),
+                ..CacheBasisRecord::default()
+            },
+            terminal_operation: OperationRecord {
+                status: "completed".into(),
+                phase: "completed".into(),
+                completed_at: "2026-07-26T00:00:02.000Z".into(),
+                updated_at: "2026-07-26T00:00:02.000Z".into(),
+                ..running.clone()
+            },
+        });
+        assert!(result.is_err());
+
+        assert_eq!(
+            repository
+                .get_citation_graph_application_state()
+                .expect("state")
+                .expect("active state")
+                .graph_hash,
+            "graph:1"
+        );
+        assert_eq!(
+            repository
+                .list_citation_nodes()
+                .expect("nodes")
+                .into_iter()
+                .map(|row| row.literature_item_id)
+                .collect::<Vec<_>>(),
+            ["paper:1"]
+        );
+        assert_eq!(
+            repository
+                .get_cache_basis("citation-graph:library")
+                .expect("cache basis")
+                .expect("citation graph cache")
+                .basis_value,
+            "graph:1"
+        );
+        assert_eq!(
+            repository
+                .get_operation("citation-graph-attempt:2")
+                .expect("operation")
+                .expect("graph attempt")
+                .status,
+            "running"
+        );
+        drop(repository);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn source_slice_promotion_publishes_its_computed_hash_atomically() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        assert!(
+            repository
+                .replace_citation_graph_application_state(None, &graph("graph:1", "paper:1"))
+                .expect("initial replacement")
+        );
+        let running = OperationRecord {
+            operation_id: "citation-graph-attempt:incremental".into(),
+            operation_type: "citation_graph_cache_incremental_refresh".into(),
+            status: "running".into(),
+            phase: "promote".into(),
+            progress_mode: "indeterminate".into(),
+            diagnostics_json: "[]".into(),
+            created_at: "2026-07-26T00:00:01.000Z".into(),
+            started_at: "2026-07-26T00:00:01.000Z".into(),
+            updated_at: "2026-07-26T00:00:01.000Z".into(),
+            ..OperationRecord::default()
+        };
+        repository
+            .upsert_operation(&running)
+            .expect("running graph attempt");
+
+        let result = repository
+            .commit_citation_graph_promotion(&CitationGraphPromotionCommit {
+                promotion: CitationGraphPromotion::SourceSlice {
+                    expected_graph_hash: "graph:1".into(),
+                    source_ids: vec!["paper:1".into()],
+                    replacement: graph("ignored-until-merge", "paper:2"),
+                },
+                ready_cache: CacheBasisRecord {
+                    cache_key: "citation-graph:library".into(),
+                    cache_kind: "citation_graph".into(),
+                    scope_kind: "library".into(),
+                    status: "ready".into(),
+                    basis_kind: "graph_hash".into(),
+                    refreshed_at: "2026-07-26T00:00:02.000Z".into(),
+                    updated_at: "2026-07-26T00:00:02.000Z".into(),
+                    ..CacheBasisRecord::default()
+                },
+                terminal_operation: OperationRecord {
+                    status: "completed".into(),
+                    phase: "completed".into(),
+                    completed_at: "2026-07-26T00:00:02.000Z".into(),
+                    updated_at: "2026-07-26T00:00:02.000Z".into(),
+                    ..running
+                },
+            })
+            .expect("source-slice promotion");
+        let CitationGraphPromotionResult::Promoted { graph_hash } = result else {
+            panic!("source-slice basis should match");
+        };
+        assert!(graph_hash.starts_with("sha256:"));
+        assert_eq!(
+            repository
+                .get_cache_basis("citation-graph:library")
+                .expect("cache basis")
+                .expect("citation graph cache")
+                .basis_value,
+            graph_hash
+        );
+        let operation = repository
+            .get_operation("citation-graph-attempt:incremental")
+            .expect("operation")
+            .expect("graph attempt");
+        assert_eq!(operation.status, "completed");
+        assert_eq!(operation.basis_value, graph_hash);
         drop(repository);
         let _ = std::fs::remove_dir_all(root);
     }

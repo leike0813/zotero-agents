@@ -192,7 +192,7 @@ and capped raw support as documented in
 
 ## Citation Graph Cache Refresh and Rebuild
 
-Full graph rebuild, source-slice incremental refresh, and sidecar-backed related-items fallback share `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical redirects, accepted bindings, and a deterministic durable-fact basis under the library lock, then releases the lock before Host metadata reads and graph assembly. The strict JSON-safe engine contract is capped at 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets and returns nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics. Full and source-slice writes recapture the same basis immediately before promotion; a superseded or failed build leaves the last-good graph and cache basis untouched. Related-items fallback reads accepted engine edges without persisting graph rows.
+Full graph rebuild, source-slice incremental refresh, and sidecar-backed related-items fallback share `SynthesisCitationGraphBuildEngine`. Runtime derives the requested mode from current cache and Reference facts, asks `CitationGraphApplication` to prepare a fresh opaque attempt, then collects current Host metadata and supplies canonical build material. The strict JSON-safe engine contract is capped at 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets and returns nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics. Host collection and graph assembly run outside writer ownership. A superseded, canceled, collection-failed, or compute-failed attempt leaves the last-good graph and cache basis untouched. Related-items fallback reads accepted engine edges without persisting graph rows.
 
 Production Graph build uses the authenticated paged-transfer path when the
 canonical input/output cannot fit the ordinary control envelope. Rust validates
@@ -200,12 +200,7 @@ pages, executes the bounded worker, atomically publishes attempt output,
 recaptures the durable basis, and promotes through the production repository.
 The worker has no repository, canonical, Host, or staging-path authority.
 
-The Rust production Citation Graph application owns full and source-slice
-builds, bounded slice/metrics/layout reads, explicit metrics/layout
-recomputation, and basis-guarded promotion over the live repository. Structure
-and light metrics promote together; complex metrics and layout promote only for
-the still-active graph. No plugin or Node fallback can read or replace the
-production graph repository.
+The Rust production Citation Graph application owns full and source-slice builds, basis-bound first-page/continuation/neighborhood reads, metrics and layout identity, explicit metrics/layout recomputation, and graph-specific persistence over the live repository. A read view contains only its graph/input/metrics basis; each method opens a short reader transaction and rejects a changed basis. Structure, light metrics, `citation-graph:library=ready`, and the private attempt terminal promote in one writer transaction. Complex metrics and layout promote only for the still-active graph. Runtime never acquires the production graph repository owner, and no plugin or Node fallback can read or replace it.
 
 Citation graph structure is derived from:
 
@@ -216,7 +211,7 @@ Citation graph structure is derived from:
 
 Graph cache has two maintenance modes. Source-slice incremental refresh rewrites only affected source outgoing edges, source ownership rows, incoming groups, related nodes, and affected light metrics. Full rebuild remains exposed as `rebuildCitationGraphCacheNow` in the service/host layer and replaces the whole graph cache.
 
-When another explicit operation marks `citation-graph:library` stale, it may record bounded incremental scope in cache-basis diagnostics: changed `source_refs`, canonical ids, binding canonical ids, and redirect canonical ids. Manual `refreshCitationGraphCacheIncrementalNow` consumes only that recorded stale delta; if no delta is recorded, the user-facing fallback is full rebuild.
+When another explicit operation marks `citation-graph:library` stale, it may record bounded incremental scope in cache-basis diagnostics: changed `source_refs`, canonical ids, binding canonical ids, and redirect canonical ids. Manual `refreshCitationGraphCacheIncrementalNow` consumes that current delta and falls back to Full when no usable delta or active graph exists. No-argument retry reads only the latest failed private attempt mode, creates a fresh attempt, and replans all concrete scope and Host material. Without a failed mode, missing/failed/stale cache may select current work; ready cache has no retry work. Canceled attempts are excluded.
 
 The graph cache primitive must not scan artifacts, extract references, repair bindings, rebuild layout, or run related-items sync. It reads active raw references, resolves effective canonical references, applies accepted bindings, writes graph nodes/edges/light metrics, and marks `citation-graph:library` ready in `synt_cache_basis` on success. The public manual stale graph refresh wrapper may run a scoped related-items sync after the graph primitive succeeds, using the primitive's final affected source refs.
 

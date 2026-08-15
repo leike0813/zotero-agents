@@ -1,8 +1,8 @@
 use crate::PromotionCheckpoint;
-use crate::ports::CitationGraphRepositoryPort;
+use crate::ports::RepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -10,11 +10,17 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    CITATION_GRAPH_DEFAULT_EDGE_MAX, CITATION_GRAPH_DEFAULT_NODE_MAX, CitationComplexMetricsRecord,
-    CitationEdgeRecord, CitationGraphReplacement, CitationLayoutRecord, CitationLayoutWindowRecord,
-    CitationMetricsPageQuery, CitationMetricsSort as RepositoryCitationMetricsSort,
-    CitationNodeRecord, OperationRecord,
+    CITATION_GRAPH_DEFAULT_EDGE_MAX, CITATION_GRAPH_DEFAULT_NODE_MAX, CacheBasisRecord,
+    CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphPromotion,
+    CitationGraphPromotionCommit, CitationGraphPromotionResult, CitationGraphReplacement,
+    CitationLayoutRecord, CitationNodeRecord, OperationRecord,
 };
+
+mod persistence;
+mod read;
+mod rebuild;
+pub use read::*;
+pub use rebuild::*;
 
 const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INPUT_NODES: usize = 250_000;
@@ -217,23 +223,6 @@ pub enum CitationDirection {
     Both,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CitationSliceRequest {
-    pub root_node_id: String,
-    pub depth: usize,
-    pub direction: CitationDirection,
-    pub max_nodes: usize,
-    pub max_edges: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CitationSliceResult {
-    pub nodes: Vec<CitationNodeRecord>,
-    pub edges: Vec<CitationEdgeRecord>,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CitationMetricsSort {
@@ -251,18 +240,6 @@ pub struct CitationMetricsPageRequest {
     pub sort_by: CitationMetricsSort,
     #[serde(default)]
     pub paper_refs: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CitationMetricsPage {
-    pub records: Vec<CitationComplexMetricsRecord>,
-    pub cursor: usize,
-    pub next_cursor: Option<usize>,
-    pub returned: usize,
-    pub total: usize,
-    pub has_more: bool,
-    pub stale: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,7 +292,7 @@ struct AdmissionState {
 }
 
 pub struct CitationGraphApplication {
-    repository: Arc<dyn CitationGraphRepositoryPort>,
+    repository: Arc<RepositoryPort>,
     compute: Arc<dyn CitationGraphComputePort>,
     now: Clock,
     operation_id: IdFactory,
@@ -336,7 +313,7 @@ impl Drop for ActiveMutation<'_> {
 
 impl CitationGraphApplication {
     pub fn new(
-        repository: Arc<dyn CitationGraphRepositoryPort>,
+        repository: Arc<RepositoryPort>,
         compute: Arc<dyn CitationGraphComputePort>,
     ) -> Self {
         let sequence = Arc::new(AtomicU64::new(0));
@@ -355,7 +332,7 @@ impl CitationGraphApplication {
     }
 
     pub fn with_factories(
-        repository: Arc<dyn CitationGraphRepositoryPort>,
+        repository: Arc<RepositoryPort>,
         compute: Arc<dyn CitationGraphComputePort>,
         now: Clock,
         operation_id: IdFactory,
@@ -374,10 +351,10 @@ impl CitationGraphApplication {
     }
 
     pub fn inspect(&self) -> Result<CitationInspectResult, String> {
-        let state = self.repository.get_state()?;
+        let state = persistence::state(&self.repository)?;
         let presets = state.as_ref().map_or_else(
             || Ok(Vec::new()),
-            |state| self.repository.list_ready_layout_presets(&state.graph_hash),
+            |state| persistence::ready_layout_presets(&self.repository, &state.graph_hash),
         )?;
         Ok(CitationInspectResult {
             graph_hash: state.as_ref().map(|state| state.graph_hash.clone()),
@@ -393,8 +370,20 @@ impl CitationGraphApplication {
         })
     }
 
+    pub fn read(&self) -> Result<CitationGraphReadView, String> {
+        let basis = self.repository.with_reader(|repository| {
+            repository
+                .get_citation_graph_application_state()
+                .map(CitationGraphBasis::from)
+        })?;
+        Ok(CitationGraphReadView::new(
+            Arc::clone(&self.repository),
+            basis,
+        ))
+    }
+
     pub fn rebuild_full(&self, request: CitationRebuildRequest) -> CitationMutationResult {
-        self.rebuild(request, None, None)
+        self.rebuild(request, None, None, None)
     }
 
     pub fn rebuild_full_with_checkpoint(
@@ -402,7 +391,7 @@ impl CitationGraphApplication {
         request: CitationRebuildRequest,
         checkpoint: &PromotionCheckpoint<'_>,
     ) -> CitationMutationResult {
-        self.rebuild(request, None, Some(checkpoint))
+        self.rebuild(request, None, Some(checkpoint), None)
     }
 
     pub fn rebuild_source_slice(
@@ -413,7 +402,7 @@ impl CitationGraphApplication {
         if source_ids.is_empty() || request.expected_graph_hash.is_none() {
             return self.result(CitationMutationStatus::InvalidRequest, Vec::new());
         }
-        self.rebuild(request, Some(source_ids), None)
+        self.rebuild(request, Some(source_ids), None, None)
     }
 
     pub fn rebuild_source_slice_with_checkpoint(
@@ -425,7 +414,98 @@ impl CitationGraphApplication {
         if source_ids.is_empty() || request.expected_graph_hash.is_none() {
             return self.result(CitationMutationStatus::InvalidRequest, Vec::new());
         }
-        self.rebuild(request, Some(source_ids), Some(checkpoint))
+        self.rebuild(request, Some(source_ids), Some(checkpoint), None)
+    }
+
+    pub fn prepare_rebuild(
+        &self,
+        mode: CitationGraphRebuildMode,
+    ) -> Result<CitationGraphRebuildAttempt, String> {
+        let expected_graph_hash = persistence::state(&self.repository)?
+            .map(|state| state.graph_hash)
+            .filter(|graph_hash| !graph_hash.is_empty());
+        let cancel = self
+            .reserve()
+            .map_err(|status| format!("citation_graph_prepare_{status:?}"))?;
+        let operation_id = (self.operation_id)();
+        let started_at = (self.now)();
+        let receipt = running_operation(
+            &operation_id,
+            match mode {
+                CitationGraphRebuildMode::Full => "citation_graph_cache_rebuild",
+                CitationGraphRebuildMode::Incremental => "citation_graph_cache_incremental_refresh",
+            },
+            &started_at,
+        );
+        if let Err(error) = persistence::insert_operation(&self.repository, &receipt) {
+            drop(self.claim(&cancel));
+            return Err(error);
+        }
+        Ok(CitationGraphRebuildAttempt {
+            operation_id,
+            started_at,
+            plan: CitationGraphCollectionPlan {
+                mode,
+                expected_graph_hash,
+            },
+            cancel,
+        })
+    }
+
+    pub fn latest_failed_rebuild_mode(&self) -> Result<Option<CitationGraphRebuildMode>, String> {
+        Ok(
+            match persistence::latest_failed_rebuild_type(&self.repository)?.as_deref() {
+                Some("citation_graph_cache_rebuild") => Some(CitationGraphRebuildMode::Full),
+                Some("citation_graph_cache_incremental_refresh") => {
+                    Some(CitationGraphRebuildMode::Incremental)
+                }
+                _ => None,
+            },
+        )
+    }
+
+    pub fn finish_rebuild(
+        &self,
+        attempt: CitationGraphRebuildAttempt,
+        material: Result<CitationGraphRebuildMaterial, String>,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<CitationMutationResult, String> {
+        let material = match material {
+            Ok(material) => material,
+            Err(error) => {
+                let _active = self
+                    .claim(&attempt.cancel)
+                    .map_err(|status| format!("citation_graph_finish_{status:?}"))?;
+                let mut warnings = Vec::new();
+                self.finish_operation(&attempt.operation_id, "failed", &error, &mut warnings);
+                return Err(error);
+            }
+        };
+        let source_ids = match attempt.plan.mode {
+            CitationGraphRebuildMode::Full if material.source_ids.is_empty() => None,
+            CitationGraphRebuildMode::Incremental if !material.source_ids.is_empty() => {
+                Some(material.source_ids.as_slice())
+            }
+            _ => {
+                let _active = self
+                    .claim(&attempt.cancel)
+                    .map_err(|status| format!("citation_graph_finish_{status:?}"))?;
+                let mut warnings = Vec::new();
+                self.finish_operation(
+                    &attempt.operation_id,
+                    "failed",
+                    "invalid_request",
+                    &mut warnings,
+                );
+                return Ok(self.result(CitationMutationStatus::InvalidRequest, warnings));
+            }
+        };
+        let request = CitationRebuildRequest {
+            expected_graph_hash: attempt.plan.expected_graph_hash.clone(),
+            force: true,
+            input: material.input,
+        };
+        Ok(self.rebuild(request, source_ids, Some(checkpoint), Some(attempt)))
     }
 
     fn rebuild(
@@ -433,45 +513,105 @@ impl CitationGraphApplication {
         request: CitationRebuildRequest,
         source_ids: Option<&[String]>,
         checkpoint: Option<&PromotionCheckpoint<'_>>,
+        prepared: Option<CitationGraphRebuildAttempt>,
     ) -> CitationMutationResult {
+        if prepared.is_none() {
+            let input_hash = match validate_rebuild(&request, source_ids) {
+                Ok(hash) => hash,
+                Err(_) => return self.result(CitationMutationStatus::InvalidRequest, Vec::new()),
+            };
+            let current = match persistence::state(&self.repository) {
+                Ok(state) => state,
+                Err(_) => return self.result(CitationMutationStatus::RepairRequired, Vec::new()),
+            };
+            if current.as_ref().map(|state| state.graph_hash.as_str())
+                != request.expected_graph_hash.as_deref()
+            {
+                return self.result(CitationMutationStatus::BasisMismatch, Vec::new());
+            }
+            if !request.force
+                && current
+                    .as_ref()
+                    .is_some_and(|state| state.input_hash == input_hash)
+            {
+                return self.result(CitationMutationStatus::Unchanged, Vec::new());
+            }
+        }
+        let (cancel, _active, operation_id, now, receipt, mut warnings) = match prepared {
+            Some(attempt) => {
+                let active = match self.claim(&attempt.cancel) {
+                    Ok(active) => active,
+                    Err(status) => return self.result(status, Vec::new()),
+                };
+                let receipt = running_operation(
+                    &attempt.operation_id,
+                    match attempt.plan.mode {
+                        CitationGraphRebuildMode::Full => "citation_graph_cache_rebuild",
+                        CitationGraphRebuildMode::Incremental => {
+                            "citation_graph_cache_incremental_refresh"
+                        }
+                    },
+                    &attempt.started_at,
+                );
+                (
+                    attempt.cancel,
+                    active,
+                    attempt.operation_id,
+                    attempt.started_at,
+                    receipt,
+                    Vec::new(),
+                )
+            }
+            None => {
+                let (cancel, active) = match self.admit() {
+                    Ok(active) => active,
+                    Err(status) => return self.result(status, Vec::new()),
+                };
+                let operation_id = (self.operation_id)();
+                let now = (self.now)();
+                let receipt = running_operation(
+                    &operation_id,
+                    if source_ids.is_some() {
+                        "citation_graph_cache_incremental_refresh"
+                    } else {
+                        "citation_graph_cache_rebuild"
+                    },
+                    &now,
+                );
+                let mut warnings = Vec::new();
+                if persistence::insert_operation(&self.repository, &receipt).is_err() {
+                    warnings.push("citation_graph_operation_receipt_failed".into());
+                }
+                (cancel, active, operation_id, now, receipt, warnings)
+            }
+        };
         let input_hash = match validate_rebuild(&request, source_ids) {
             Ok(hash) => hash,
-            Err(_) => return self.result(CitationMutationStatus::InvalidRequest, Vec::new()),
+            Err(_) => {
+                self.finish_operation(&operation_id, "failed", "invalid_request", &mut warnings);
+                return self.result(CitationMutationStatus::InvalidRequest, warnings);
+            }
         };
-        let current = match self.repository.get_state() {
+        let current = match persistence::state(&self.repository) {
             Ok(state) => state,
-            Err(_) => return self.result(CitationMutationStatus::RepairRequired, Vec::new()),
+            Err(_) => {
+                self.finish_operation(&operation_id, "failed", "state_read_failed", &mut warnings);
+                return self.result(CitationMutationStatus::RepairRequired, warnings);
+            }
         };
         if current.as_ref().map(|state| state.graph_hash.as_str())
             != request.expected_graph_hash.as_deref()
         {
-            return self.result(CitationMutationStatus::BasisMismatch, Vec::new());
+            self.finish_operation(&operation_id, "failed", "basis_mismatch", &mut warnings);
+            return self.result(CitationMutationStatus::BasisMismatch, warnings);
         }
         if !request.force
             && current
                 .as_ref()
                 .is_some_and(|state| state.input_hash == input_hash)
         {
-            return self.result(CitationMutationStatus::Unchanged, Vec::new());
-        }
-        let (cancel, _active) = match self.admit() {
-            Ok(active) => active,
-            Err(status) => return self.result(status, Vec::new()),
-        };
-        let operation_id = (self.operation_id)();
-        let now = (self.now)();
-        let receipt = running_operation(
-            &operation_id,
-            if source_ids.is_some() {
-                "citation_graph_cache_incremental_refresh"
-            } else {
-                "citation_graph_cache_rebuild"
-            },
-            &now,
-        );
-        let mut warnings = Vec::new();
-        if self.repository.upsert_operation(&receipt).is_err() {
-            warnings.push("citation_graph_operation_receipt_failed".into());
+            self.finish_operation(&operation_id, "completed", "unchanged", &mut warnings);
+            return self.result(CitationMutationStatus::Unchanged, warnings);
         }
         let build = match self.compute.build(&request.input, &cancel) {
             Ok(build) if build.replacement.nodes.len() <= MAX_RESULT_NODES => build,
@@ -488,7 +628,7 @@ impl CitationGraphApplication {
         let mut replacement = build.replacement;
         let graph_hash = build.graph_hash;
         replacement.state.graph_hash = graph_hash.clone();
-        replacement.state.input_hash = input_hash;
+        replacement.state.input_hash = input_hash.clone();
         replacement.state.metrics_hash = None;
         replacement.state.updated_at = now.clone();
         if checkpoint.is_some_and(|checkpoint| checkpoint().is_err()) {
@@ -500,50 +640,66 @@ impl CitationGraphApplication {
             );
             return self.result(CitationMutationStatus::Stopping, warnings);
         }
-        let promoted_hash = match source_ids {
-            Some(source_ids) => match self.repository.replace_source_slice(
-                request.expected_graph_hash.as_deref().unwrap_or_default(),
-                source_ids,
-                &replacement,
-            ) {
-                Ok(value) => value,
-                Err(_) => {
-                    self.finish_operation(
-                        &operation_id,
-                        "failed",
-                        "projection_failed",
-                        &mut warnings,
-                    );
-                    return self.result(CitationMutationStatus::RepairRequired, warnings);
-                }
+        let promotion = match source_ids {
+            None => CitationGraphPromotion::Full {
+                expected_graph_hash: request.expected_graph_hash.clone(),
+                replacement,
             },
-            None => match self
-                .repository
-                .replace(request.expected_graph_hash.as_deref(), &replacement)
-            {
-                Ok(true) => Some(graph_hash.clone()),
-                Ok(false) => None,
-                Err(_) => {
-                    self.finish_operation(
-                        &operation_id,
-                        "failed",
-                        "projection_failed",
-                        &mut warnings,
-                    );
-                    return self.result(CitationMutationStatus::RepairRequired, warnings);
-                }
+            Some(source_ids) => CitationGraphPromotion::SourceSlice {
+                expected_graph_hash: request.expected_graph_hash.clone().unwrap_or_default(),
+                source_ids: source_ids.to_vec(),
+                replacement,
             },
         };
-        let Some(promoted_hash) = promoted_hash else {
-            self.finish_operation(&operation_id, "failed", "basis_mismatch", &mut warnings);
-            return self.result(CitationMutationStatus::BasisMismatch, warnings);
+        let terminal = OperationRecord {
+            status: "completed".into(),
+            phase: "committed".into(),
+            progress_mode: "determinate".into(),
+            processed_count: 1,
+            total_count: 1,
+            basis_kind: "graph_hash".into(),
+            source_hash: input_hash.clone(),
+            completed_at: now.clone(),
+            updated_at: now.clone(),
+            ..receipt
+        };
+        let promotion = persistence::commit_graph(
+            &self.repository,
+            &CitationGraphPromotionCommit {
+                promotion,
+                ready_cache: CacheBasisRecord {
+                    cache_key: "citation-graph:library".into(),
+                    cache_kind: "citation_graph".into(),
+                    scope_kind: "library".into(),
+                    status: "ready".into(),
+                    basis_kind: "graph_hash".into(),
+                    source_hash: input_hash,
+                    policy_version: "citation-graph-application-v1".into(),
+                    active_operation_id: operation_id.clone(),
+                    refreshed_at: now.clone(),
+                    diagnostics_json: "[]".into(),
+                    updated_at: now,
+                    ..CacheBasisRecord::default()
+                },
+                terminal_operation: terminal,
+            },
+        );
+        let promoted_hash = match promotion {
+            Ok(CitationGraphPromotionResult::Promoted { graph_hash }) => graph_hash,
+            Ok(CitationGraphPromotionResult::BasisMismatch) => {
+                self.finish_operation(&operation_id, "failed", "basis_mismatch", &mut warnings);
+                return self.result(CitationMutationStatus::BasisMismatch, warnings);
+            }
+            Err(_) => {
+                self.finish_operation(&operation_id, "failed", "projection_failed", &mut warnings);
+                return self.result(CitationMutationStatus::RepairRequired, warnings);
+            }
         };
         if let Err(error) = self.refresh_metrics_inner(&promoted_hash, &cancel, None)
             && error != "basis_mismatch"
         {
             warnings.push("citation_graph_metrics_refresh_failed".into());
         }
-        self.finish_operation(&operation_id, "succeeded", "completed", &mut warnings);
         self.result(CitationMutationStatus::Promoted, warnings)
     }
 
@@ -589,12 +745,8 @@ impl CitationGraphApplication {
             Ok(active) => active,
             Err(status) => return self.result(status, Vec::new()),
         };
-        let nodes = match self.repository.list_nodes() {
-            Ok(nodes) => nodes,
-            Err(_) => return self.result(CitationMutationStatus::RepairRequired, Vec::new()),
-        };
-        let edges = match self.repository.list_edges() {
-            Ok(edges) => edges,
+        let (nodes, edges) = match persistence::graph(&self.repository) {
+            Ok(graph) => graph,
             Err(_) => return self.result(CitationMutationStatus::RepairRequired, Vec::new()),
         };
         let projection = project_citation_graph_default(nodes, edges);
@@ -610,130 +762,11 @@ impl CitationGraphApplication {
         if checkpoint().is_err() {
             return self.result(CitationMutationStatus::Stopping, Vec::new());
         }
-        match self
-            .repository
-            .promote_layout(&request.expected_graph_hash, &layout)
-        {
+        match persistence::promote_layout(&self.repository, &request.expected_graph_hash, &layout) {
             Ok(true) => self.result(CitationMutationStatus::Promoted, Vec::new()),
             Ok(false) => self.result(CitationMutationStatus::BasisMismatch, Vec::new()),
             Err(_) => self.result(CitationMutationStatus::RepairRequired, Vec::new()),
         }
-    }
-
-    pub fn read_slice(&self, request: CitationSliceRequest) -> Result<CitationSliceResult, String> {
-        if request.root_node_id.is_empty()
-            || !(1..=2).contains(&request.depth)
-            || request.max_nodes == 0
-            || request.max_nodes > 200
-            || request.max_edges == 0
-            || request.max_edges > 500
-        {
-            return Err("invalid_request".into());
-        }
-        let nodes = self.repository.list_nodes()?;
-        let edges = self.repository.list_edges()?;
-        let by_id = nodes
-            .into_iter()
-            .map(|node| (node.literature_item_id.clone(), node))
-            .collect::<HashMap<_, _>>();
-        if !by_id.contains_key(&request.root_node_id) {
-            return Ok(CitationSliceResult {
-                nodes: Vec::new(),
-                edges: Vec::new(),
-            });
-        }
-        let mut selected = BTreeSet::from([request.root_node_id.clone()]);
-        let mut queue = VecDeque::from([(request.root_node_id, 0usize)]);
-        while let Some((node, depth)) = queue.pop_front() {
-            if depth >= request.depth || selected.len() >= request.max_nodes {
-                continue;
-            }
-            for edge in &edges {
-                let candidate = match request.direction {
-                    CitationDirection::Outgoing if edge.source_literature_item_id == node => {
-                        Some(edge.target_literature_item_id.as_str())
-                    }
-                    CitationDirection::Incoming if edge.target_literature_item_id == node => {
-                        Some(edge.source_literature_item_id.as_str())
-                    }
-                    CitationDirection::Both if edge.source_literature_item_id == node => {
-                        Some(edge.target_literature_item_id.as_str())
-                    }
-                    CitationDirection::Both if edge.target_literature_item_id == node => {
-                        Some(edge.source_literature_item_id.as_str())
-                    }
-                    _ => None,
-                };
-                if let Some(candidate) = candidate
-                    && by_id.contains_key(candidate)
-                    && selected.insert(candidate.to_owned())
-                {
-                    queue.push_back((candidate.to_owned(), depth + 1));
-                    if selected.len() >= request.max_nodes {
-                        break;
-                    }
-                }
-            }
-        }
-        let selected_set = selected.iter().cloned().collect::<HashSet<_>>();
-        let result_nodes = selected
-            .into_iter()
-            .filter_map(|id| by_id.get(&id).cloned())
-            .collect();
-        let result_edges = edges
-            .into_iter()
-            .filter(|edge| {
-                selected_set.contains(&edge.source_literature_item_id)
-                    && selected_set.contains(&edge.target_literature_item_id)
-            })
-            .take(request.max_edges)
-            .collect();
-        Ok(CitationSliceResult {
-            nodes: result_nodes,
-            edges: result_edges,
-        })
-    }
-
-    pub fn read_metrics(
-        &self,
-        request: CitationMetricsPageRequest,
-    ) -> Result<CitationMetricsPage, String> {
-        if request.limit == 0 || request.limit > 100 || request.paper_refs.len() > 250 {
-            return Err("invalid_request".into());
-        }
-        let page = self
-            .repository
-            .read_metrics_page(&CitationMetricsPageQuery {
-                offset: request.cursor,
-                limit: request.limit,
-                sort_by: match request.sort_by {
-                    CitationMetricsSort::Foundation => RepositoryCitationMetricsSort::Foundation,
-                    CitationMetricsSort::Frontier => RepositoryCitationMetricsSort::Frontier,
-                    CitationMetricsSort::Pagerank => RepositoryCitationMetricsSort::Pagerank,
-                    CitationMetricsSort::InDegree => RepositoryCitationMetricsSort::InDegree,
-                },
-                paper_refs: request.paper_refs,
-            })?;
-        let records = page.records;
-        let next = request.cursor + records.len();
-        let has_more = next < page.total;
-        Ok(CitationMetricsPage {
-            returned: records.len(),
-            records,
-            cursor: request.cursor,
-            next_cursor: has_more.then_some(next),
-            has_more,
-            total: page.total,
-            stale: page.stale,
-        })
-    }
-
-    pub fn read_layout_window(
-        &self,
-        layout_key: &str,
-        node_ids: &[String],
-    ) -> Result<Option<CitationLayoutWindowRecord>, String> {
-        self.repository.read_layout_window(layout_key, node_ids)
     }
 
     pub fn stop_admission(&self) {
@@ -763,6 +796,12 @@ impl CitationGraphApplication {
     }
 
     fn admit(&self) -> Result<(Arc<AtomicBool>, ActiveMutation<'_>), CitationMutationStatus> {
+        let cancel = self.reserve()?;
+        let active = self.claim(&cancel)?;
+        Ok((cancel, active))
+    }
+
+    fn reserve(&self) -> Result<Arc<AtomicBool>, CitationMutationStatus> {
         let mut state = self
             .admission
             .lock()
@@ -775,7 +814,25 @@ impl CitationGraphApplication {
         }
         let cancel = Arc::new(AtomicBool::new(false));
         state.active = Some(Arc::clone(&cancel));
-        Ok((cancel, ActiveMutation(self)))
+        Ok(cancel)
+    }
+
+    fn claim(
+        &self,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<ActiveMutation<'_>, CitationMutationStatus> {
+        let state = self
+            .admission
+            .lock()
+            .map_err(|_| CitationMutationStatus::RepairRequired)?;
+        if !state
+            .active
+            .as_ref()
+            .is_some_and(|active| Arc::ptr_eq(active, cancel))
+        {
+            return Err(CitationMutationStatus::GraphApplicationBusy);
+        }
+        Ok(ActiveMutation(self))
     }
 
     fn refresh_metrics_inner(
@@ -784,22 +841,20 @@ impl CitationGraphApplication {
         canceled: &Arc<AtomicBool>,
         checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> Result<bool, String> {
-        if self
-            .repository
-            .get_state()?
+        if persistence::state(&self.repository)?
             .as_ref()
             .map(|state| state.graph_hash.as_str())
             != Some(graph_hash)
         {
             return Err("basis_mismatch".into());
         }
-        let nodes = self.repository.list_nodes()?;
-        let edges = self.repository.list_edges()?;
+        let (nodes, edges) = persistence::graph(&self.repository)?;
         let output = self.compute.metrics(graph_hash, &nodes, &edges, canceled)?;
         if checkpoint.is_some_and(|checkpoint| checkpoint().is_err()) {
             return Err("stopping".into());
         }
-        self.repository.promote_metrics(
+        persistence::promote_metrics(
+            &self.repository,
             graph_hash,
             &output.metrics_hash,
             &output.records,
@@ -814,10 +869,15 @@ impl CitationGraphApplication {
         phase: &str,
         warnings: &mut Vec<String>,
     ) {
-        if self
-            .repository
-            .update_operation(operation_id, status, phase, &[], &(self.now)())
-            .is_err()
+        if persistence::update_operation(
+            &self.repository,
+            operation_id,
+            status,
+            phase,
+            &[],
+            &(self.now)(),
+        )
+        .is_err()
             && !warnings
                 .iter()
                 .any(|warning| warning == "citation_graph_operation_receipt_failed")
@@ -831,7 +891,7 @@ impl CitationGraphApplication {
         status: CitationMutationStatus,
         warnings: Vec<String>,
     ) -> CitationMutationResult {
-        let state = self.repository.get_state().ok().flatten();
+        let state = persistence::state(&self.repository).ok().flatten();
         CitationMutationResult {
             status,
             graph_hash: state.as_ref().map(|state| state.graph_hash.clone()),
@@ -954,7 +1014,7 @@ mod tests {
                 source_literature_item_id: "paper:a".into(),
                 target_literature_item_id: "paper:b".into(),
                 reference_instance_id: "reference:1".into(),
-                edge_status: "matched".into(),
+                edge_status: "accepted".into(),
                 roles_json: "[]".into(),
                 weight: 1.0,
                 created_at: now.clone(),
@@ -972,7 +1032,7 @@ mod tests {
                         edge_id: "edge:1".into(),
                         reference_instance_id: "reference:1".into(),
                         target_literature_item_id: "paper:b".into(),
-                        edge_status: "matched".into(),
+                        edge_status: "accepted".into(),
                         updated_at: now,
                     }],
                     incoming_groups: Vec::new(),
@@ -1045,6 +1105,120 @@ mod tests {
             } else {
                 FixtureCompute.build(input, canceled)
             }
+        }
+
+        fn metrics(
+            &self,
+            graph_hash: &str,
+            nodes: &[CitationNodeRecord],
+            edges: &[CitationEdgeRecord],
+            canceled: &Arc<AtomicBool>,
+        ) -> Result<CitationMetricsOutput, String> {
+            FixtureCompute.metrics(graph_hash, nodes, edges, canceled)
+        }
+
+        fn layout(
+            &self,
+            request: &CitationLayoutRequest,
+            nodes: &[CitationNodeRecord],
+            edges: &[CitationEdgeRecord],
+            canceled: &Arc<AtomicBool>,
+        ) -> Result<CitationLayoutRecord, String> {
+            FixtureCompute.layout(request, nodes, edges, canceled)
+        }
+    }
+
+    struct VersionedCompute {
+        blocked_revision: Option<i64>,
+        gate: Arc<(Mutex<(bool, bool)>, Condvar)>,
+    }
+
+    impl VersionedCompute {
+        fn unblocked() -> Self {
+            Self {
+                blocked_revision: None,
+                gate: Arc::new((Mutex::new((false, false)), Condvar::new())),
+            }
+        }
+
+        fn blocking(revision: i64) -> Self {
+            Self {
+                blocked_revision: Some(revision),
+                gate: Arc::new((Mutex::new((false, false)), Condvar::new())),
+            }
+        }
+    }
+
+    impl CitationGraphComputePort for VersionedCompute {
+        fn build(
+            &self,
+            input: &Value,
+            _canceled: &Arc<AtomicBool>,
+        ) -> Result<CitationBuildOutput, String> {
+            let revision = input["revision"].as_i64().unwrap_or_default();
+            if self.blocked_revision == Some(revision) {
+                let (lock, ready) = &*self.gate;
+                let mut state = lock.lock().map_err(|_| "worker_crashed")?;
+                state.0 = true;
+                ready.notify_all();
+                while !state.1 {
+                    state = ready.wait(state).map_err(|_| "worker_crashed")?;
+                }
+            }
+            let now = "2026-07-26T00:00:00.000Z".to_owned();
+            let source = format!("paper:{revision}:a");
+            let target = format!("paper:{revision}:b");
+            Ok(CitationBuildOutput {
+                graph_hash: format!("sha256:graph-{revision}"),
+                replacement: CitationGraphReplacement {
+                    state: CitationGraphApplicationStateRecord::default(),
+                    nodes: vec![
+                        CitationNodeRecord {
+                            literature_item_id: source.clone(),
+                            node_status: "active".into(),
+                            has_zotero_binding: true,
+                            title: source.clone(),
+                            authors_json: "[]".into(),
+                            summary_json: "{}".into(),
+                            updated_at: now.clone(),
+                            ..CitationNodeRecord::default()
+                        },
+                        CitationNodeRecord {
+                            literature_item_id: target.clone(),
+                            node_status: "active".into(),
+                            has_zotero_binding: true,
+                            title: target.clone(),
+                            authors_json: "[]".into(),
+                            summary_json: "{}".into(),
+                            updated_at: now.clone(),
+                            ..CitationNodeRecord::default()
+                        },
+                    ],
+                    edges: vec![CitationEdgeRecord {
+                        edge_id: format!("edge:{revision}"),
+                        source_literature_item_id: source.clone(),
+                        target_literature_item_id: target.clone(),
+                        reference_instance_id: format!("reference:{revision}"),
+                        edge_status: "accepted".into(),
+                        roles_json: "[\"supports\"]".into(),
+                        weight: 1.0,
+                        created_at: now.clone(),
+                        updated_at: now.clone(),
+                        ..CitationEdgeRecord::default()
+                    }],
+                    ownership: vec![CitationSourceOwnershipRecord {
+                        source_literature_item_id: source,
+                        edge_id: format!("edge:{revision}"),
+                        reference_instance_id: format!("reference:{revision}"),
+                        target_literature_item_id: target,
+                        edge_status: "accepted".into(),
+                        updated_at: now,
+                    }],
+                    incoming_groups: Vec::new(),
+                    light_metrics: Vec::new(),
+                    complex_metrics: Vec::new(),
+                },
+            })
         }
 
         fn metrics(
@@ -1196,12 +1370,14 @@ mod tests {
         );
         assert_eq!(
             application
-                .read_slice(CitationSliceRequest {
-                    root_node_id: "paper:a".into(),
-                    depth: 1,
+                .read()
+                .expect("read view")
+                .neighborhood(CitationGraphNeighborhoodRequest {
+                    start_node_id: "paper:a".into(),
                     direction: CitationDirection::Both,
                     max_nodes: 10,
                     max_edges: 10,
+                    filter: CitationGraphFilter::default(),
                 })
                 .expect("slice")
                 .edges
@@ -1210,7 +1386,9 @@ mod tests {
         );
         assert_eq!(
             application
-                .read_metrics(CitationMetricsPageRequest {
+                .read()
+                .expect("read view")
+                .metrics(CitationMetricsPageRequest {
                     cursor: 0,
                     limit: 1,
                     sort_by: CitationMetricsSort::Foundation,
@@ -1285,6 +1463,234 @@ mod tests {
         assert_eq!(failed.status, CitationMutationStatus::WorkerFailed);
         assert_eq!(failed.graph_hash, last_good);
         assert_eq!(application.inspect().expect("inspect").node_count, 2);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_view_rejects_stale_continuations_and_keeps_endpoint_closed_identity() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        let port = Arc::new(
+            RepositoryPort::new_with_readers(Arc::new(Mutex::new(repository)), 2)
+                .expect("reader pool"),
+        );
+        let application = CitationGraphApplication::with_factories(
+            port,
+            Arc::new(VersionedCompute::unblocked()),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+            Arc::new(|| "citation:versioned".into()),
+        );
+        let first = application.rebuild_full(CitationRebuildRequest {
+            expected_graph_hash: None,
+            force: true,
+            input: serde_json::json!({"scope":{"kind":"full"},"revision":1}),
+        });
+        assert_eq!(first.status, CitationMutationStatus::Promoted);
+        let view = application.read().expect("read view");
+        let request = CitationGraphPageRequest {
+            node_limit: 1,
+            edge_limit: 1,
+            hover_node_limit: 1,
+            hover_edge_limit: 1,
+            ..CitationGraphPageRequest::default()
+        };
+        let page = view.first_page(request.clone()).expect("first page");
+        let endpoints = page
+            .edges
+            .iter()
+            .flat_map(|edge| [edge.source.as_str(), edge.target.as_str()])
+            .collect::<BTreeSet<_>>();
+        let returned = page
+            .nodes
+            .iter()
+            .chain(page.endpoint_nodes.iter())
+            .map(|node| node.node_id.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(endpoints.is_subset(&returned));
+        let cursor = page.next_cursor.expect("bounded continuation");
+        let metrics = view
+            .metrics(CitationMetricsPageRequest {
+                cursor: 0,
+                limit: 1,
+                sort_by: CitationMetricsSort::Foundation,
+                paper_refs: Vec::new(),
+            })
+            .expect("basis-bound metrics");
+        assert_eq!(metrics.basis, *view.basis());
+        assert_eq!(metrics.records.len(), 1);
+        assert_eq!(
+            application
+                .recompute_layout(CitationLayoutRequest {
+                    expected_graph_hash: view.basis().graph_hash.clone(),
+                    layout_key: "layout:force".into(),
+                    view_key: "overview".into(),
+                    preset: "force".into(),
+                })
+                .status,
+            CitationMutationStatus::Promoted
+        );
+        assert_eq!(
+            view.layout("layout:force", &[])
+                .expect("basis-bound layout")
+                .expect("ready layout")
+                .graph_hash,
+            view.basis().graph_hash
+        );
+
+        let second = application.rebuild_full(CitationRebuildRequest {
+            expected_graph_hash: first.graph_hash,
+            force: true,
+            input: serde_json::json!({"scope":{"kind":"full"},"revision":2}),
+        });
+        assert_eq!(second.status, CitationMutationStatus::Promoted);
+        assert_eq!(
+            view.continue_page(request, &cursor).unwrap_err(),
+            "basis_mismatch"
+        );
+        assert_eq!(
+            application.read().expect("current view").basis().graph_hash,
+            "sha256:graph-2"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn last_good_read_view_remains_available_while_rebuild_compute_is_blocked() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        let port = Arc::new(
+            RepositoryPort::new_with_readers(Arc::new(Mutex::new(repository)), 2)
+                .expect("reader pool"),
+        );
+        let compute = VersionedCompute::blocking(2);
+        let gate = Arc::clone(&compute.gate);
+        let application = Arc::new(CitationGraphApplication::with_factories(
+            port,
+            Arc::new(compute),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+            Arc::new(|| "citation:blocking".into()),
+        ));
+        let first = application.rebuild_full(CitationRebuildRequest {
+            expected_graph_hash: None,
+            force: true,
+            input: serde_json::json!({"scope":{"kind":"full"},"revision":1}),
+        });
+        let rebuilding = Arc::clone(&application);
+        let worker = std::thread::spawn(move || {
+            rebuilding.rebuild_full(CitationRebuildRequest {
+                expected_graph_hash: first.graph_hash,
+                force: true,
+                input: serde_json::json!({"scope":{"kind":"full"},"revision":2}),
+            })
+        });
+        {
+            let (lock, ready) = &*gate;
+            let mut state = lock.lock().expect("gate");
+            while !state.0 {
+                state = ready.wait(state).expect("wait for compute");
+            }
+        }
+
+        let view = application.read().expect("last-good view");
+        assert_eq!(view.basis().graph_hash, "sha256:graph-1");
+        let slice = view
+            .neighborhood(CitationGraphNeighborhoodRequest {
+                start_node_id: "paper:1:a".into(),
+                direction: CitationDirection::Both,
+                max_nodes: 10,
+                max_edges: 10,
+                filter: CitationGraphFilter::default(),
+            })
+            .expect("read during compute");
+        assert_eq!(slice.edges.len(), 1);
+
+        {
+            let (lock, ready) = &*gate;
+            let mut state = lock.lock().expect("gate");
+            state.1 = true;
+            ready.notify_all();
+        }
+        assert_eq!(
+            worker.join().expect("join").status,
+            CitationMutationStatus::Promoted
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_collection_releases_its_attempt_and_retry_prepares_from_current_graph() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        let application = CitationGraphApplication::new(
+            Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+            Arc::new(VersionedCompute::unblocked()),
+        );
+
+        let failed = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("first attempt");
+        assert!(failed.plan().expected_graph_hash.is_none());
+        assert_eq!(
+            application
+                .finish_rebuild(failed, Err("reverse_host_unavailable".into()), &|| Ok(()))
+                .expect_err("collection failure"),
+            "reverse_host_unavailable"
+        );
+        assert_eq!(
+            application
+                .latest_failed_rebuild_mode()
+                .expect("failed mode"),
+            Some(CitationGraphRebuildMode::Full)
+        );
+
+        let retry = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("fresh retry attempt");
+        let promoted = application
+            .finish_rebuild(
+                retry,
+                Ok(CitationGraphRebuildMaterial {
+                    input: serde_json::json!({"scope":{"kind":"full"},"revision":1}),
+                    source_ids: Vec::new(),
+                }),
+                &|| Ok(()),
+            )
+            .expect("finish retry");
+        assert_eq!(promoted.status, CitationMutationStatus::Promoted);
+
+        let next = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("next attempt");
+        assert_eq!(
+            next.plan().expected_graph_hash.as_deref(),
+            Some("sha256:graph-1")
+        );
+        assert!(
+            application
+                .finish_rebuild(next, Err("stop".into()), &|| Ok(()))
+                .is_err()
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }

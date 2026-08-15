@@ -25,10 +25,7 @@ use synthesis_repository::{
     TopicApplicationStateRecord,
 };
 use synthesis_repository::{
-    CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
-    CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationLayoutRecord,
-    CitationLayoutWindowRecord, CitationMetricsPageQuery, CitationMetricsPageRows,
-    CitationNodeRecord, LiteratureMatchingMetadataRecord, RawReferenceRecord,
+    CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, RawReferenceRecord,
     ReferenceApplicationStateRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
     ReferenceMatchProposalRecord, ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion,
     ReferenceMatchingStateRecord, ReferenceProjectionReplacement, ReferenceProjectionSnapshot,
@@ -46,54 +43,6 @@ use synthesis_repository::{
     DebugProjection, DurableBundleCapture, DurableImportApply, DurableImportCapture,
     DurableTopicBasis, KnowledgeCheckpointCapture, KnowledgeCheckpointReplacement,
 };
-
-pub trait CitationGraphRepositoryPort: Send + Sync {
-    fn get_state(&self) -> Result<Option<CitationGraphApplicationStateRecord>, String>;
-    fn list_nodes(&self) -> Result<Vec<CitationNodeRecord>, String>;
-    fn list_edges(&self) -> Result<Vec<CitationEdgeRecord>, String>;
-    fn read_metrics_page(
-        &self,
-        request: &CitationMetricsPageQuery,
-    ) -> Result<CitationMetricsPageRows, String>;
-    fn list_ready_layout_presets(&self, graph_hash: &str) -> Result<Vec<String>, String>;
-    fn read_layout_window(
-        &self,
-        layout_key: &str,
-        node_ids: &[String],
-    ) -> Result<Option<CitationLayoutWindowRecord>, String>;
-    fn replace(
-        &self,
-        expected_graph_hash: Option<&str>,
-        replacement: &CitationGraphReplacement,
-    ) -> Result<bool, String>;
-    fn replace_source_slice(
-        &self,
-        expected_graph_hash: &str,
-        source_ids: &[String],
-        replacement: &CitationGraphReplacement,
-    ) -> Result<Option<String>, String>;
-    fn promote_metrics(
-        &self,
-        expected_graph_hash: &str,
-        metrics_hash: &str,
-        records: &[CitationComplexMetricsRecord],
-        now: &str,
-    ) -> Result<bool, String>;
-    fn promote_layout(
-        &self,
-        expected_graph_hash: &str,
-        record: &CitationLayoutRecord,
-    ) -> Result<bool, String>;
-    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
-    fn update_operation(
-        &self,
-        operation_id: &str,
-        status: &str,
-        phase: &str,
-        diagnostics: &[String],
-        now: &str,
-    ) -> Result<(), String>;
-}
 
 pub trait RelatedItemsRepositoryPort: Send + Sync {
     fn list_accepted_edges(
@@ -515,6 +464,17 @@ impl RepositoryPort {
         };
         let reader = readers.acquire()?;
         reader.repository()?.read_transaction(operation)
+    }
+
+    pub(crate) fn with_writer<T>(
+        &self,
+        operation: impl FnOnce(&mut Repository) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut repository = self
+            .repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?;
+        operation(&mut repository)
     }
 
     pub fn reference_sources_are_empty(&self) -> Result<bool, String> {
@@ -1439,108 +1399,6 @@ impl WorkbenchRepositoryPort for RepositoryPort {
 
     fn list_operations(&self, query: &OperationQuery) -> Result<Vec<OperationRecord>, String> {
         self.with_reader(|repository| repository.list_operations(query))
-    }
-}
-
-impl CitationGraphRepositoryPort for RepositoryPort {
-    fn get_state(&self) -> Result<Option<CitationGraphApplicationStateRecord>, String> {
-        self.with_reader(Repository::get_citation_graph_application_state)
-    }
-
-    fn list_nodes(&self) -> Result<Vec<CitationNodeRecord>, String> {
-        self.with_reader(Repository::list_citation_nodes)
-    }
-
-    fn list_edges(&self) -> Result<Vec<CitationEdgeRecord>, String> {
-        self.with_reader(Repository::list_citation_edges)
-    }
-
-    fn read_metrics_page(
-        &self,
-        request: &CitationMetricsPageQuery,
-    ) -> Result<CitationMetricsPageRows, String> {
-        self.with_reader(|repository| repository.read_citation_metrics_page(request))
-    }
-
-    fn list_ready_layout_presets(&self, graph_hash: &str) -> Result<Vec<String>, String> {
-        self.with_reader(|repository| repository.list_ready_citation_layout_presets(graph_hash))
-    }
-
-    fn read_layout_window(
-        &self,
-        layout_key: &str,
-        node_ids: &[String],
-    ) -> Result<Option<CitationLayoutWindowRecord>, String> {
-        self.with_reader(|repository| repository.read_citation_layout_window(layout_key, node_ids))
-    }
-
-    fn replace(
-        &self,
-        expected_graph_hash: Option<&str>,
-        replacement: &CitationGraphReplacement,
-    ) -> Result<bool, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .replace_citation_graph_application_state(expected_graph_hash, replacement)
-    }
-
-    fn replace_source_slice(
-        &self,
-        expected_graph_hash: &str,
-        source_ids: &[String],
-        replacement: &CitationGraphReplacement,
-    ) -> Result<Option<String>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .replace_citation_graph_source_slice(expected_graph_hash, source_ids, replacement)
-    }
-
-    fn promote_metrics(
-        &self,
-        expected_graph_hash: &str,
-        metrics_hash: &str,
-        records: &[CitationComplexMetricsRecord],
-        now: &str,
-    ) -> Result<bool, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .promote_citation_complex_metrics(expected_graph_hash, metrics_hash, records, now)
-    }
-
-    fn promote_layout(
-        &self,
-        expected_graph_hash: &str,
-        record: &CitationLayoutRecord,
-    ) -> Result<bool, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .promote_citation_layout(expected_graph_hash, record)
-    }
-
-    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .upsert_operation(record)
-    }
-
-    fn update_operation(
-        &self,
-        operation_id: &str,
-        status: &str,
-        phase: &str,
-        diagnostics: &[String],
-        now: &str,
-    ) -> Result<(), String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .update_operation_status(operation_id, status, phase, diagnostics, now)?;
-        Ok(())
     }
 }
 

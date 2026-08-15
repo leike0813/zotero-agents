@@ -366,3 +366,4 @@ Rules:
 4. Durable user decisions win over transient review items and cache refresh output.
 5. Current Zotero Library reads win over cached Zotero metadata whenever correctness matters.
 6. Reference sidecar refresh, citation graph cache incremental refresh, and citation graph cache rebuild are different operations; layout rebuild is a fourth operation scoped to coordinates only.
+7. A Citation Graph public maintenance operation and its private graph attempt have separate identities. Runtime owns the public lifecycle; the application creates one fresh private attempt per dispatch and consumes it exactly once. Graph rows, ready cache basis, and the private terminal transition form one atomic domain effect.

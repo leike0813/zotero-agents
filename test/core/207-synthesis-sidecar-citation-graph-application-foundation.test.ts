@@ -229,6 +229,15 @@ describe("Synthesis sidecar Citation Graph application foundation", function () 
     assert.match(created.graphHash, /^sha256:/);
     assert.isTrue(application.inspect().metricsReady);
     assert.deepInclude(application.inspect(), { nodeCount: 2, edgeCount: 1 });
+    assert.deepInclude(first.store.getCacheBasis("citation-graph:library"), {
+      cacheKind: "citation_graph",
+      scopeKind: "library",
+      status: "ready",
+      basisKind: "graph_hash",
+      basisValue: created.graphHash,
+      sourceHash: created.inputHash,
+      policyVersion: "citation-graph-application-v1",
+    });
 
     const unchanged = await application.rebuildFull({
       expectedGraphHash: created.graphHash,

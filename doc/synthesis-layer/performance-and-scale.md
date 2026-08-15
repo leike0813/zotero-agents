@@ -54,11 +54,7 @@ four read-only connections for bounded UI/status reads. Startup validates the
 schema and reconciles orphaned running operations before readiness; health and
 handshake use maintained snapshots rather than table scans.
 
-Citation Graph mutations are admitted by their production operation controller.
-Graph reads use repository windows with query and DTO bounds independent of
-unrelated graph state. Structure, complex metrics, and layout compute remain
-outside the writer transaction, and promotion rechecks the active graph or
-durable-fact basis through the single writer.
+Citation Graph public mutations are admitted by the public maintenance controller; each dispatched graph build prepares one private application attempt before Host collection. Graph reads use basis-bound application views and short pooled-reader transactions with query and DTO bounds independent of unrelated graph state. Structure, complex metrics, and layout compute remain outside the writer transaction. Graph promotion keeps the writer section to graph replacement plus ready-cache/private-terminal commit, while metrics and layout promotion recheck the active graph through the single writer.
 
 Reference Refresh captures Host item and artifact identity once per operation,
 determines the changed source set, and processes source-keyed batches. At most

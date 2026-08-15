@@ -176,6 +176,15 @@
 - capability dispatch 只接收字段私有的 request context；resource ownership 和显式清理顺序留在 `runtime_service`。background task 或 HTTP handler 未在共享 deadline 内退出时，不得关闭其仍可能引用的 repository/canonical storage。
 - worker-pool 状态机测试必须使用 module 内私有 execution seam；真实 executable/protocol 证据走 process integration test。不得通过 `#[path]` 重编译生产 runtime 源码，也不得为测试扩大 production API。
 
+# Citation Graph Application 硬约束
+
+- `CitationGraphApplication` 是 graph snapshot、basis-bound page/continuation/neighborhood、metrics/layout identity、私有 rebuild attempt 与 graph-specific persistence 的唯一 owner；runtime 只保留 wire DTO、Reference/Host facts 收集、public maintenance checkpoint 和跨域 Workbench projection。
+- Citation Graph application 直接依赖本地 `RepositoryPort`，不得恢复 `CitationGraphRepositoryPort`、新增仅转发 repository 方法的 persistence trait，或向 runtime 暴露 repository record、SQLite owner、锁和 SQL。
+- 每个 read view 只保存 graph/input/metrics basis；每次读取必须开启短 reader transaction 并重新校验 basis，不得跨调用持有 transaction。旧 cursor、旧 view 或变化后的 metrics identity 必须以 `basis_mismatch` 失败。
+- 每次实际 rebuild dispatch 必须创建新的 opaque graph attempt。Public operation ID、retry key、predecessor、diagnostics storage 和 Host payload 不得进入 application seam；attempt 必须由 `finish_rebuild` 消费并在成功、收集失败、compute 失败、取消或 basis mismatch 时收敛。
+- Graph rows/state、`citation-graph:library` ready basis 与私有 attempt terminal 必须在同一个 repository transaction 中提交或回滚。Host 读取、graph build、metrics 和 layout compute 不得持有 writer。
+- 无参数 Citation Graph retry 只复用最近 failed attempt 的 Full/Incremental mode，随后按当前 cache、Reference 和 Host facts 重新规划。Canceled attempt 不属于 failed retry 来源；没有 failed mode 时，只有 missing/failed/stale cache 可形成当前工作，ready cache 必须返回 unavailable。
+
 # Synthesis Public Maintenance Operation 硬约束
 
 - `runtime_public_maintenance_operation` 是 public maintenance admission、dispatch、running/terminal transition、typed view/receipt、cancel/retry/continue 和 restart reconciliation 的唯一生命周期 owner；WebDAV surface 只负责 wire validation/encoding，production catalog 只提供已解析的不透明 maintenance route。

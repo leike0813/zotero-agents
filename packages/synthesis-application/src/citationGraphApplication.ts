@@ -41,6 +41,7 @@ import type {
   SynthesisCitationNodeRecord,
   SynthesisCitationSourceOwnershipRecord,
   SynthesisCitationIncomingGroupRecord,
+  SynthesisCacheBasisRecord,
   SynthesisOperationRecord,
   SynthesisOperationStatusUpdate,
 } from "../../synthesis-repository/src/index.js";
@@ -53,11 +54,13 @@ import {
 export type SynthesisCitationGraphApplicationRepository = {
   initializeCitationGraphApplication(): void;
   getCitationGraphApplicationState(): SynthesisCitationGraphApplicationStateRecord | null;
-  replaceCitationGraphApplicationState(args: {
+  commitCitationGraphPromotion(args: {
     expectedGraphHash: string | null;
     graphHash: string;
     inputHash: string;
     state: SynthesisCitationGraphStateReplacement;
+    readyCache: SynthesisCacheBasisRecord;
+    terminalOperation: SynthesisOperationRecord;
     now: string;
   }): boolean;
   promoteCitationGraphComplexMetrics(args: {
@@ -114,7 +117,6 @@ type Options = {
 };
 
 const warningMetrics = "citation_graph_metrics_refresh_failed";
-const warningReceipt = "citation_graph_operation_receipt_failed";
 
 function emptyMutation(
   status: SynthesisCitationGraphApplicationMutationResult["status"],
@@ -387,7 +389,23 @@ export function createSynthesisCitationGraphApplication(options: Options) {
       }
       const graphHash = hashSynthesisEngineCanonicalJson(result);
       try {
-        const promoted = repository.replaceCitationGraphApplicationState({
+        const terminalOperation: SynthesisOperationRecord = {
+          operationId,
+          operationType: "citation_graph_application_rebuild",
+          status: "completed",
+          phase: "committed",
+          progressMode: "determinate",
+          processedCount: 1,
+          totalCount: 1,
+          basisKind: "graph_hash",
+          basisValue: graphHash,
+          sourceHash: inputHash,
+          createdAt: timestamp,
+          startedAt: timestamp,
+          completedAt: timestamp,
+          updatedAt: timestamp,
+        };
+        const promoted = repository.commitCitationGraphPromotion({
           expectedGraphHash: request.expectedGraphHash,
           graphHash,
           inputHash,
@@ -396,6 +414,21 @@ export function createSynthesisCitationGraphApplication(options: Options) {
             result,
             timestamp,
           }),
+          readyCache: {
+            cacheKey: "citation-graph:library",
+            cacheKind: "citation_graph",
+            scopeKind: "library",
+            status: "ready",
+            basisKind: "graph_hash",
+            basisValue: graphHash,
+            sourceHash: inputHash,
+            policyVersion: "citation-graph-application-v1",
+            activeOperationId: operationId,
+            refreshedAt: timestamp,
+            diagnosticsJson: "[]",
+            updatedAt: timestamp,
+          },
+          terminalOperation,
           now: timestamp,
         });
         if (!promoted) {
@@ -427,15 +460,6 @@ export function createSynthesisCitationGraphApplication(options: Options) {
         if (!metricsHash) warnings.push(warningMetrics);
       } catch {
         warnings.push(warningMetrics);
-      }
-      try {
-        repository.updateOperationStatus?.({
-          operationId,
-          status: "completed",
-          phase: "complete",
-        });
-      } catch {
-        warnings.push(warningReceipt);
       }
       return emptyMutation(
         "promoted",

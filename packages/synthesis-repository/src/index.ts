@@ -197,6 +197,16 @@ export type SynthesisOperationStatusUpdate = {
   diagnosticsJson?: string;
 };
 
+export type SynthesisCitationGraphPromotionCommit = {
+  expectedGraphHash: string | null;
+  graphHash: string;
+  inputHash: string;
+  state: SynthesisCitationGraphStateReplacement;
+  readyCache: SynthesisCacheBasisRecord;
+  terminalOperation: SynthesisOperationRecord;
+  now: string;
+};
+
 export type SynthesisTopicApplicationStateRecord = {
   topicId: string;
   pathId: string;
@@ -824,6 +834,58 @@ export function updateSynthesisOperationStatus(
   };
   upsertSynthesisOperation(db, next, now);
   return next;
+}
+
+export function commitSynthesisCitationGraphPromotion(
+  db: SqlAdapter,
+  commit: SynthesisCitationGraphPromotionCommit,
+) {
+  return db.transaction(() => {
+    const promoted = replaceSynthesisCitationGraphApplicationState(db, {
+      expectedGraphHash: commit.expectedGraphHash,
+      graphHash: commit.graphHash,
+      inputHash: commit.inputHash,
+      state: commit.state,
+      now: commit.now,
+    });
+    if (!promoted) return false;
+
+    if (
+      commit.readyCache.cacheKey !== "citation-graph:library" ||
+      commit.readyCache.cacheKind !== "citation_graph" ||
+      commit.readyCache.status !== "ready" ||
+      commit.readyCache.basisKind !== "graph_hash"
+    ) {
+      throw new Error("citation_graph_promotion_cache_invalid");
+    }
+    upsertSynthesisCacheBasis(
+      db,
+      { ...commit.readyCache, basisValue: commit.graphHash },
+      () => commit.now,
+    );
+
+    const existing = getSynthesisOperation(
+      db,
+      commit.terminalOperation.operationId,
+    );
+    if (
+      !existing ||
+      (existing.status !== "pending" && existing.status !== "running") ||
+      commit.terminalOperation.status !== "completed"
+    ) {
+      throw new Error("citation_graph_promotion_operation_not_running");
+    }
+    upsertSynthesisOperation(
+      db,
+      {
+        ...existing,
+        ...commit.terminalOperation,
+        basisValue: commit.graphHash,
+      },
+      () => commit.now,
+    );
+    return true;
+  });
 }
 
 export function listSynthesisOperations(
@@ -1567,15 +1629,17 @@ export function createSynthesisRepositoryFoundationStore(options: {
       initializeCitationGraphApplication();
       return getSynthesisCitationGraphApplicationState(db);
     },
-    replaceCitationGraphApplicationState(args: {
+    commitCitationGraphPromotion(args: {
       expectedGraphHash: string | null;
       graphHash: string;
       inputHash: string;
       state: SynthesisCitationGraphStateReplacement;
+      readyCache: SynthesisCacheBasisRecord;
+      terminalOperation: SynthesisOperationRecord;
       now: string;
     }) {
       initializeCitationGraphApplication();
-      return replaceSynthesisCitationGraphApplicationState(db, args);
+      return commitSynthesisCitationGraphPromotion(db, args);
     },
     promoteCitationGraphComplexMetrics(args: {
       expectedGraphHash: string;

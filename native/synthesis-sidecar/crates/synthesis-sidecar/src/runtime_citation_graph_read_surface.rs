@@ -3,14 +3,15 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use synthesis_application::citation_graph::{
+    CitationGraphEdge as ApplicationCitationGraphEdge,
+    CitationGraphFilter as ApplicationCitationGraphFilter,
+    CitationGraphLayout as ApplicationCitationGraphLayout,
+    CitationGraphMetric as ApplicationCitationGraphMetric, CitationGraphNeighborhoodRequest,
+    CitationGraphNode as ApplicationCitationGraphNode, CitationGraphPage, CitationGraphPageRequest,
     CitationMetricsPageRequest, CitationMetricsSort as ApplicationCitationMetricsSort,
 };
 use synthesis_protocol::canonical_sha256;
-use synthesis_repository::{
-    CacheBasisRecord, CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphWindowFilter,
-    CitationGraphWindowNodeRecord, CitationGraphWindowQuery, CitationGraphWindowRows,
-    CitationLayoutWindowRecord, CitationLightMetricsRecord, CitationNodeRecord,
-};
+use synthesis_repository::{CitationEdgeRecord, CitationNodeRecord};
 
 const CACHE_KEY: &str = "citation-graph:library";
 const LAYOUT_VERSION: i64 = 2;
@@ -20,7 +21,6 @@ const DEFAULT_EDGE_LIMIT: usize = 400;
 const DEFAULT_HOVER_NODE_LIMIT: usize = 100;
 const DEFAULT_HOVER_EDGE_LIMIT: usize = 200;
 const GRAPH_RESPONSE_BUDGET_BYTES: usize = 768 * 1024;
-const GRAPH_CURSOR_MAX_LENGTH: usize = 4096;
 const DEFAULT_TOPIC_SCOPE_LIMIT: usize = 50;
 const MAX_TOPIC_SCOPE_LIMIT: usize = 250;
 
@@ -230,26 +230,13 @@ where
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct GraphWindowCursor {
-    node_offset: usize,
-    edge_offset: usize,
-    hover_node_offset: usize,
-    hover_edge_offset: usize,
-}
-
 #[derive(Clone, Debug)]
 struct GraphWindowRead {
-    graph_hash: String,
-    query_signature: String,
-    cursor: GraphWindowCursor,
-    rows: CitationGraphWindowRows,
+    page: CitationGraphPage,
     topic_scopes: Vec<Value>,
     topic_scope_cursor: usize,
     topic_scope_limit: usize,
     topic_scope_total: usize,
-    layout: Option<CitationLayoutWindowRecord>,
-    cache: Option<CacheBasisRecord>,
 }
 
 #[derive(Clone, Debug)]
@@ -461,46 +448,6 @@ pub(crate) fn project_review_graph(
     (nodes, edges)
 }
 
-fn ui_node(node: &ProjectedNode, metrics: Option<&CitationLightMetricsRecord>) -> Value {
-    let mut value = json!({
-        "id":node.record.literature_item_id,
-        "label":bounded_text(if node.record.title.is_empty() { &node.record.literature_item_id } else { &node.record.title }),
-        "kind":if node.record.has_zotero_binding { "library_paper" } else { "external_reference" },
-        "year":node.record.year,
-        "authors":authors(&node.record.authors_json),
-        "tags":[],
-        "collections":[],
-        "low_signal":false,
-        "visibility":node.visibility,
-        "display_tier":node.display_tier,
-    });
-    if let Some(degree) = node.external_degree {
-        value["external_degree"] = json!(degree);
-    }
-    if let Some(metrics) = metrics {
-        value["metrics"] = json!({
-            "internal_in_degree":metrics.incoming_count,
-            "internal_out_degree":metrics.outgoing_count,
-        });
-    }
-    value
-}
-
-fn ui_edge(edge: &CitationEdgeRecord, visibility: &str) -> Value {
-    let primary_role = roles(&edge.roles_json)
-        .first()
-        .map(|entry| entry.0.clone())
-        .unwrap_or_else(|| "unknown".into());
-    json!({
-        "id":edge.edge_id,
-        "source":edge.source_literature_item_id,
-        "target":edge.target_literature_item_id,
-        "primary_role":primary_role,
-        "mention_count":edge.weight.round().max(1.0) as i64,
-        "visibility":visibility,
-    })
-}
-
 fn string_array(request: &Map<String, Value>, name: &str) -> Vec<String> {
     request
         .get(name)
@@ -523,7 +470,7 @@ fn graph_request_object<'a>(request: &'a Map<String, Value>, name: &str) -> &'a 
         .unwrap_or(request)
 }
 
-fn normalized_filter(request: &Map<String, Value>) -> CitationGraphWindowFilter {
+fn normalized_filter(request: &Map<String, Value>) -> ApplicationCitationGraphFilter {
     let filter = graph_request_object(request, "filters");
     let topic_id = string_field(filter, &["topicId", "topic_id"])
         .filter(|value| *value != "all")
@@ -534,7 +481,7 @@ fn normalized_filter(request: &Map<String, Value>) -> CitationGraphWindowFilter 
     {
         roles.push(role.to_owned());
     }
-    CitationGraphWindowFilter {
+    ApplicationCitationGraphFilter {
         node_kinds: string_array(filter, "nodeKinds"),
         roles,
         include_low_signal: filter
@@ -550,7 +497,10 @@ fn normalized_filter(request: &Map<String, Value>) -> CitationGraphWindowFilter 
     }
 }
 
-fn query_signature(filter: &CitationGraphWindowFilter, algorithm: &str) -> Result<String, String> {
+fn query_signature(
+    filter: &ApplicationCitationGraphFilter,
+    algorithm: &str,
+) -> Result<String, String> {
     canonical_sha256(&json!({
         "nodeKinds":filter.node_kinds,
         "roles":filter.roles,
@@ -562,45 +512,10 @@ fn query_signature(filter: &CitationGraphWindowFilter, algorithm: &str) -> Resul
     .map_err(|_| "invalid_request".to_owned())
 }
 
-fn encode_cursor(graph_hash: &str, query_signature: &str, cursor: &GraphWindowCursor) -> String {
-    format!(
-        "cg1|{graph_hash}|{query_signature}|{}|{}|{}|{}",
-        cursor.node_offset, cursor.edge_offset, cursor.hover_node_offset, cursor.hover_edge_offset
-    )
-}
-
-fn decode_cursor(
-    value: &str,
-    graph_hash: &str,
-    query_signature: &str,
-) -> Result<GraphWindowCursor, String> {
-    if value.len() > GRAPH_CURSOR_MAX_LENGTH {
-        return Err("invalid_request".into());
-    }
-    let fields = value.split('|').collect::<Vec<_>>();
-    if fields.len() != 7 || fields[0] != "cg1" {
-        return Err("invalid_request".into());
-    }
-    if fields[1] != graph_hash || fields[2] != query_signature {
-        return Err("basis_mismatch".into());
-    }
-    let offset = |value: &str| {
-        value
-            .parse::<usize>()
-            .map_err(|_| "invalid_request".to_owned())
-    };
-    Ok(GraphWindowCursor {
-        node_offset: offset(fields[3])?,
-        edge_offset: offset(fields[4])?,
-        hover_node_offset: offset(fields[5])?,
-        hover_edge_offset: offset(fields[6])?,
-    })
-}
-
 fn resolve_topic_filter(
     repository: &synthesis_repository::Repository,
     request: &Map<String, Value>,
-    filter: &mut CitationGraphWindowFilter,
+    filter: &mut ApplicationCitationGraphFilter,
 ) -> Result<(), String> {
     let request_filter = graph_request_object(request, "filters");
     let Some(topic_id) =
@@ -634,14 +549,8 @@ fn read_graph_window(
     apps: &ProductionApplications,
     request: &Map<String, Value>,
 ) -> Result<GraphWindowRead, String> {
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    let graph_hash = repository
-        .get_citation_graph_application_state()?
-        .map(|state| state.graph_hash)
-        .unwrap_or_default();
+    let view = apps.citations.read()?;
+    let graph_hash = &view.basis().graph_hash;
     let expected_graph_hash = request
         .get("basis")
         .and_then(Value::as_object)
@@ -652,14 +561,10 @@ fn read_graph_window(
     }
     let algorithm = selected_algorithm(&Value::Object(request.clone())).to_owned();
     let mut filter = normalized_filter(request);
-    resolve_topic_filter(&repository, request, &mut filter)?;
-    let signature = query_signature(&filter, &algorithm)?;
+    apps.repository
+        .with_reader(|repository| resolve_topic_filter(repository, request, &mut filter))?;
     let cursor_value = string_field(request, &["windowCursor", "window_cursor"])
         .or_else(|| string_field(request, &["cursor"]).filter(|value| value.starts_with("cg1|")));
-    let cursor = cursor_value
-        .map(|value| decode_cursor(value, &graph_hash, &signature))
-        .transpose()?
-        .unwrap_or_default();
     let window = request
         .get("window")
         .and_then(Value::as_object)
@@ -695,56 +600,37 @@ fn read_graph_window(
         .max(1),
     );
     loop {
-        let query = CitationGraphWindowQuery {
-            node_offset: cursor.node_offset,
+        let query = CitationGraphPageRequest {
             node_limit: limits.0,
-            edge_offset: cursor.edge_offset,
             edge_limit: limits.1,
-            hover_node_offset: cursor.hover_node_offset,
             hover_node_limit: limits.2,
-            hover_edge_offset: cursor.hover_edge_offset,
             hover_edge_limit: limits.3,
+            layout_algorithm: algorithm.clone(),
             filter: filter.clone(),
         };
-        let rows = repository.read_citation_graph_window(&query)?;
+        let page = match cursor_value {
+            Some(cursor) => view.continue_page(query, cursor)?,
+            None => view.first_page(query)?,
+        };
         let candidate_size = serde_json::to_vec(&json!({
-            "nodes":rows.nodes.iter().map(window_public_node).collect::<Vec<_>>(),
-            "edges":rows.edges.iter().map(window_public_edge).collect::<Vec<_>>(),
-            "hover_only_nodes":rows.hover_nodes.iter().map(window_public_node).collect::<Vec<_>>(),
-            "hover_only_edges":rows.hover_edges.iter().map(window_public_edge).collect::<Vec<_>>(),
-            "endpoint_nodes":rows.endpoint_nodes.iter().map(window_public_node).collect::<Vec<_>>(),
+            "nodes":page.nodes.iter().map(window_public_node).collect::<Vec<_>>(),
+            "edges":page.edges.iter().map(window_public_edge).collect::<Vec<_>>(),
+            "hover_only_nodes":page.hover_nodes.iter().map(window_public_node).collect::<Vec<_>>(),
+            "hover_only_edges":page.hover_edges.iter().map(window_public_edge).collect::<Vec<_>>(),
+            "endpoint_nodes":page.endpoint_nodes.iter().map(window_public_node).collect::<Vec<_>>(),
         }))
         .map_err(|_| "response_invalid".to_owned())?
         .len();
         if candidate_size <= GRAPH_RESPONSE_BUDGET_BYTES {
-            let (topic_scopes, topic_scope_cursor, topic_scope_limit, topic_scope_total) =
-                read_topic_scopes(&repository, request)?;
-            let layout_node_ids = rows
-                .nodes
-                .iter()
-                .chain(
-                    rows.endpoint_nodes
-                        .iter()
-                        .filter(|node| node.visibility == "default"),
-                )
-                .map(|node| node.record.literature_item_id.clone())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
+            let (topic_scopes, topic_scope_cursor, topic_scope_limit, topic_scope_total) = apps
+                .repository
+                .with_reader(|repository| read_topic_scopes(repository, request))?;
             return Ok(GraphWindowRead {
-                graph_hash,
-                query_signature: signature,
-                cursor,
-                rows,
+                page,
                 topic_scopes,
                 topic_scope_cursor,
                 topic_scope_limit,
                 topic_scope_total,
-                layout: repository.read_citation_layout_window(
-                    &format!("workbench_overview:{algorithm}"),
-                    &layout_node_ids,
-                )?,
-                cache: repository.get_cache_basis(CACHE_KEY)?,
             });
         }
         if limits == (1, 1, 1, 1) {
@@ -759,73 +645,99 @@ fn read_graph_window(
     }
 }
 
-fn projected_window_node(row: &CitationGraphWindowNodeRecord) -> ProjectedNode {
-    ProjectedNode {
-        record: row.record.clone(),
-        external_degree: (!row.record.has_zotero_binding)
-            .then_some(row.external_degree.max(0) as usize),
-        visibility: if row.visibility == "hover_only" {
-            "hover_only"
-        } else {
-            "default"
-        },
-        display_tier: if row.record.has_zotero_binding {
-            "library"
-        } else if row.visibility == "hover_only" {
-            "single_external"
-        } else {
-            "shared_external"
-        },
+fn window_public_node(node: &ApplicationCitationGraphNode) -> Value {
+    let mut value = json!({
+        "node_id":node.node_id,
+        "kind":if node.has_zotero_binding { "library_paper" } else { "external_reference" },
+        "target_state":if node.has_zotero_binding { "library" } else { "external" },
+        "aliases":[node.node_id],
+        "title":bounded_text(&node.title),
+        "year":node.year,
+        "authors":node.authors,
+        "low_signal":false,
+        "visibility":node.visibility,
+        "display_tier":if node.has_zotero_binding { "library" } else if node.visibility == "hover_only" { "single_external" } else { "shared_external" },
+    });
+    if let Some(degree) = node.external_degree {
+        value["external_degree"] = json!(degree);
     }
+    if node.has_zotero_binding {
+        if let Some((library_id, item_key)) = node.node_id.split_once(':') {
+            value["library_id"] = library_id.parse::<i64>().map_or(Value::Null, Value::from);
+            value["item_key"] = json!(item_key);
+        }
+    } else {
+        value["provisional_key"] = json!(node.node_id);
+    }
+    value
 }
 
-fn window_public_node(row: &CitationGraphWindowNodeRecord) -> Value {
-    public_node(&projected_window_node(row))
+fn window_ui_node(node: &ApplicationCitationGraphNode) -> Value {
+    let public = window_public_node(node);
+    let metrics = node.light_metrics.as_ref();
+    json!({
+        "id":public["node_id"],"label":public["title"],"title":public["title"],
+        "kind":public["kind"],"targetState":public["target_state"],"paperRef":public["node_id"],
+        "year":public["year"],"authors":public["authors"],"lowSignal":public["low_signal"],
+        "visibility":public["visibility"],"displayTier":public["display_tier"],
+        "externalDegree":public.get("external_degree").cloned().unwrap_or(Value::Null),
+        "outgoingCount":metrics.map(|value| value.outgoing_count).unwrap_or_default(),
+        "incomingCount":metrics.map(|value| value.incoming_count).unwrap_or_default(),
+        "matchedOutgoingCount":metrics.map(|value| value.matched_outgoing_count).unwrap_or_default(),
+        "unresolvedOutgoingCount":metrics.map(|value| value.unresolved_outgoing_count).unwrap_or_default(),
+        "ambiguousOutgoingCount":metrics.map(|value| value.ambiguous_outgoing_count).unwrap_or_default(),
+        "localDegree":metrics.map(|value| value.local_degree).unwrap_or_default(),
+    })
 }
 
-fn window_ui_node(row: &CitationGraphWindowNodeRecord) -> Value {
-    ui_node(&projected_window_node(row), row.light_metrics.as_ref())
+fn window_public_edge(edge: &ApplicationCitationGraphEdge) -> Value {
+    let primary = edge
+        .roles
+        .first()
+        .map(|entry| entry.role.as_str())
+        .unwrap_or("unknown");
+    let evidence = edge
+        .roles
+        .iter()
+        .map(|entry| json!({"role":entry.role,"count":entry.count}))
+        .collect::<Vec<_>>();
+    json!({
+        "edge_id":edge.edge_id,"source":edge.source,"target":edge.target,"kind":"citation",
+        "mention_count":edge.weight.round().max(1.0) as i64,"primary_role":primary,
+        "aux_roles":evidence.iter().skip(1).cloned().collect::<Vec<_>>(),"role_evidence":evidence,
+        "source_refs":[edge.reference_instance_id],"visibility":edge.visibility,
+    })
 }
 
-fn window_public_edge(row: &synthesis_repository::CitationGraphWindowEdgeRecord) -> Value {
-    public_edge(&row.record, &row.visibility)
-}
-
-fn window_ui_edge(row: &synthesis_repository::CitationGraphWindowEdgeRecord) -> Value {
-    ui_edge(&row.record, &row.visibility)
-}
-
-fn next_window_cursor(window: &GraphWindowRead) -> (GraphWindowCursor, bool) {
-    let next = GraphWindowCursor {
-        node_offset: window.cursor.node_offset + window.rows.nodes.len(),
-        edge_offset: window.cursor.edge_offset + window.rows.edges.len(),
-        hover_node_offset: window.cursor.hover_node_offset + window.rows.hover_nodes.len(),
-        hover_edge_offset: window.cursor.hover_edge_offset + window.rows.hover_edges.len(),
-    };
-    let has_more = next.node_offset < window.rows.total_nodes
-        || next.edge_offset < window.rows.total_edges
-        || next.hover_node_offset < window.rows.total_hover_nodes
-        || next.hover_edge_offset < window.rows.total_hover_edges;
-    (next, has_more)
+fn window_ui_edge(edge: &ApplicationCitationGraphEdge) -> Value {
+    let public = window_public_edge(edge);
+    json!({
+        "id":public["edge_id"],"source":public["source"],"target":public["target"],
+        "kind":public["kind"],"role":public["primary_role"],"primaryRole":public["primary_role"],
+        "auxRoles":public["aux_roles"],"roleEvidence":public["role_evidence"],
+        "mentionCount":public["mention_count"],"sourceRefs":public["source_refs"],
+        "visibility":public["visibility"],
+    })
 }
 
 fn window_page_metadata(window: &GraphWindowRead, layout_status: &str) -> Value {
-    let (next, has_more) = next_window_cursor(window);
+    let page = &window.page;
+    let has_more = page.next_cursor.is_some();
     json!({
-        "nextCursor":if has_more { encode_cursor(&window.graph_hash, &window.query_signature, &next) } else { String::new() },
+        "nextCursor":page.next_cursor.clone().unwrap_or_default(),
         "hasMore":has_more,
-        "totalNodes":window.rows.total_nodes,
-        "totalEdges":window.rows.total_edges,
-        "totalHoverNodes":window.rows.total_hover_nodes,
-        "totalHoverEdges":window.rows.total_hover_edges,
-        "returnedNodes":window.rows.nodes.len(),
-        "returnedEdges":window.rows.edges.len(),
-        "returnedHoverNodes":window.rows.hover_nodes.len(),
-        "returnedHoverEdges":window.rows.hover_edges.len(),
-        "querySignature":window.query_signature,
+        "totalNodes":page.total_nodes,
+        "totalEdges":page.total_edges,
+        "totalHoverNodes":page.total_hover_nodes,
+        "totalHoverEdges":page.total_hover_edges,
+        "returnedNodes":page.nodes.len(),
+        "returnedEdges":page.edges.len(),
+        "returnedHoverNodes":page.hover_nodes.len(),
+        "returnedHoverEdges":page.hover_edges.len(),
+        "querySignature":page.query_signature,
         "layoutStatus":layout_status,
         "windowStatus":if has_more { "loading" } else { "complete" },
-        "roleOptions":window.rows.role_options,
+        "roleOptions":page.role_options,
         "responseBudgetBytes":GRAPH_RESPONSE_BUDGET_BYTES,
     })
 }
@@ -842,7 +754,7 @@ fn selected_algorithm(state: &Value) -> &str {
 }
 
 fn layout_status(
-    record: Option<&CitationLayoutWindowRecord>,
+    record: Option<&ApplicationCitationGraphLayout>,
     graph_hash: &str,
     node_ids: &[String],
     has_nodes: bool,
@@ -850,14 +762,14 @@ fn layout_status(
     if !has_nodes {
         return "missing";
     }
-    match record.map(|record| record.metadata.status.as_str()) {
+    match record.map(|record| record.status.as_str()) {
         None => "missing",
         Some("running") => "refreshing",
         Some("failed") => "failed",
         Some("ready")
             if record.is_some_and(|record| {
-                record.metadata.graph_hash == graph_hash
-                    && record.metadata.layout_version == LAYOUT_VERSION
+                record.graph_hash == graph_hash
+                    && record.layout_version == LAYOUT_VERSION
                     && node_ids.iter().all(|node_id| {
                         record.points.iter().any(|point| {
                             point.node_id == *node_id && point.x.is_finite() && point.y.is_finite()
@@ -879,32 +791,32 @@ pub(crate) fn workbench_graph_surface(
     let window = read_graph_window(apps, &request)?;
     let mut seen_node_ids = HashSet::new();
     let mut nodes = window
-        .rows
+        .page
         .nodes
         .iter()
         .chain(
             window
-                .rows
+                .page
                 .endpoint_nodes
                 .iter()
                 .filter(|node| node.visibility == "default"),
         )
-        .filter(|node| seen_node_ids.insert(node.record.literature_item_id.clone()))
+        .filter(|node| seen_node_ids.insert(node.node_id.clone()))
         .map(window_ui_node)
         .collect::<Vec<_>>();
     let mut seen_hover_node_ids = HashSet::new();
     let hover_nodes = window
-        .rows
+        .page
         .hover_nodes
         .iter()
         .chain(
             window
-                .rows
+                .page
                 .endpoint_nodes
                 .iter()
                 .filter(|node| node.visibility == "hover_only"),
         )
-        .filter(|node| seen_hover_node_ids.insert(node.record.literature_item_id.clone()))
+        .filter(|node| seen_hover_node_ids.insert(node.node_id.clone()))
         .map(window_ui_node)
         .collect::<Vec<_>>();
     let node_ids = nodes
@@ -912,13 +824,13 @@ pub(crate) fn workbench_graph_surface(
         .filter_map(|node| node["id"].as_str().map(str::to_owned))
         .collect::<Vec<_>>();
     let status = layout_status(
-        window.layout.as_ref(),
-        &window.graph_hash,
+        window.page.layout.as_ref(),
+        &window.page.basis.graph_hash,
         &node_ids,
         !nodes.is_empty(),
     );
     if status == "ready"
-        && let Some(layout) = &window.layout
+        && let Some(layout) = &window.page.layout
     {
         let coordinates = layout
             .points
@@ -936,36 +848,31 @@ pub(crate) fn workbench_graph_surface(
         }
     }
     let edges = window
-        .rows
+        .page
         .edges
         .iter()
         .map(window_ui_edge)
         .collect::<Vec<_>>();
     let hover_edges = window
-        .rows
+        .page
         .hover_edges
         .iter()
         .map(window_ui_edge)
         .collect::<Vec<_>>();
-    let cache_status = window
-        .cache
-        .as_ref()
-        .map(|cache| cache.status.as_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("missing");
+    let cache_status = window.page.cache_status.as_str();
     let topic_scope_returned = window.topic_scopes.len();
     let graph = json!({
-        "graph_hash":window.graph_hash,
+        "graph_hash":window.page.basis.graph_hash,
         "layoutStatus":status,
         "page":window_page_metadata(&window, status),
         "diagnostics":{
             "storage":"sqlite",
             "bounded":true,
             "semantic_slice":"library_and_shared_external",
-            "displayed_node_count":window.rows.total_nodes,
-            "hover_only_external_count":window.rows.total_hover_nodes,
-            "displayed_edge_count":window.rows.total_edges,
-            "hover_only_edge_count":window.rows.total_hover_edges,
+            "displayed_node_count":window.page.total_nodes,
+            "hover_only_external_count":window.page.total_hover_nodes,
+            "displayed_edge_count":window.page.total_edges,
+            "hover_only_edge_count":window.page.total_hover_edges,
             "cache_status":cache_status,
             "cache_key":CACHE_KEY,
             "layout_status":status,
@@ -1024,42 +931,42 @@ fn bounded_overview(
     let window = read_graph_window(apps, request)?;
     let mut seen_node_ids = HashSet::new();
     let nodes = window
-        .rows
+        .page
         .nodes
         .iter()
-        .chain(window.rows.endpoint_nodes.iter())
+        .chain(window.page.endpoint_nodes.iter())
         .filter(|node| node.visibility == "default")
-        .filter(|node| seen_node_ids.insert(node.record.literature_item_id.clone()))
+        .filter(|node| seen_node_ids.insert(node.node_id.clone()))
         .map(window_public_node)
         .collect::<Vec<_>>();
     let mut seen_hover_node_ids = HashSet::new();
     let hover_nodes = window
-        .rows
+        .page
         .hover_nodes
         .iter()
-        .chain(window.rows.endpoint_nodes.iter())
+        .chain(window.page.endpoint_nodes.iter())
         .filter(|node| node.visibility == "hover_only")
-        .filter(|node| seen_hover_node_ids.insert(node.record.literature_item_id.clone()))
+        .filter(|node| seen_hover_node_ids.insert(node.node_id.clone()))
         .map(window_public_node)
         .collect::<Vec<_>>();
     let page = window_page_metadata(&window, "missing");
     let result = json!({
         "schema_id":"synthesis.unified_citation_graph",
         "schema_version":"1.0.0",
-        "graph_hash":window.graph_hash,
+        "graph_hash":window.page.basis.graph_hash,
         "nodes":nodes,
-        "edges":window.rows.edges.iter().map(window_public_edge).collect::<Vec<_>>(),
+        "edges":window.page.edges.iter().map(window_public_edge).collect::<Vec<_>>(),
         "hover_only_nodes":hover_nodes,
-        "hover_only_edges":window.rows.hover_edges.iter().map(window_public_edge).collect::<Vec<_>>(),
+        "hover_only_edges":window.page.hover_edges.iter().map(window_public_edge).collect::<Vec<_>>(),
         "summary":{
             "semantic_slice":"library_and_shared_external",
-            "displayed_node_count":window.rows.total_nodes,
-            "displayed_edge_count":window.rows.total_edges,
-            "hover_only_node_count":window.rows.total_hover_nodes,
-            "hover_only_edge_count":window.rows.total_hover_edges,
+            "displayed_node_count":window.page.total_nodes,
+            "displayed_edge_count":window.page.total_edges,
+            "hover_only_node_count":window.page.total_hover_nodes,
+            "hover_only_edge_count":window.page.total_hover_edges,
         },
         "pagination":{
-            "cursor":encode_cursor(&window.graph_hash,&window.query_signature,&window.cursor),
+            "cursor":window.page.cursor,
             "nextCursor":page["nextCursor"],
             "hasMore":page["hasMore"],
         },
@@ -1088,29 +995,34 @@ fn bounded_slice(
     let direction = string_field(request, &["direction"]).unwrap_or("both");
     let max_nodes = usize_field(request, &["maxNodes", "max_nodes"], 25, 100).max(1);
     let max_edges = usize_field(request, &["maxEdges", "max_edges"], 50, 200);
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    let graph_hash = repository
-        .get_citation_graph_application_state()?
-        .map(|state| state.graph_hash)
-        .unwrap_or_default();
+    let view = apps.citations.read()?;
+    let graph_hash = &view.basis().graph_hash;
     if string_field(request, &["expectedGraphHash", "expected_graph_hash"])
         .is_some_and(|expected| expected != graph_hash)
     {
         return Err("basis_mismatch".into());
     }
     let mut filter = normalized_filter(request);
-    resolve_topic_filter(&repository, request, &mut filter)?;
+    apps.repository
+        .with_reader(|repository| resolve_topic_filter(repository, request, &mut filter))?;
     let signature = query_signature(&filter, selected_algorithm(&Value::Object(request.clone())))?;
     if string_field(request, &["querySignature", "query_signature"])
         .is_some_and(|expected| expected != signature)
     {
         return Err("basis_mismatch".into());
     }
-    let rows = repository
-        .read_citation_graph_neighborhood(start, direction, max_nodes, max_edges, &filter)?;
+    let rows = view.neighborhood(CitationGraphNeighborhoodRequest {
+        start_node_id: start.into(),
+        direction: match direction {
+            "incoming" => synthesis_application::citation_graph::CitationDirection::Incoming,
+            "outgoing" => synthesis_application::citation_graph::CitationDirection::Outgoing,
+            "both" => synthesis_application::citation_graph::CitationDirection::Both,
+            _ => return Err("invalid_request".into()),
+        },
+        max_nodes,
+        max_edges,
+        filter,
+    })?;
     let result = json!({
         "ok":!rows.nodes.is_empty(),
         "graph_hash":graph_hash,
@@ -1139,9 +1051,7 @@ fn bounded_slice(
     Ok(result)
 }
 
-fn public_metric(record: &CitationComplexMetricsRecord) -> Value {
-    let hints = serde_json::from_str::<Value>(&record.synthesis_role_hints_json)
-        .unwrap_or_else(|_| json!([]));
+fn public_metric(record: &ApplicationCitationGraphMetric) -> Value {
     json!({
         "node_id":record.node_id,"paper_ref":record.paper_ref,"item_key":record.item_key,
         "title":bounded_text(&record.title),"year":record.year,
@@ -1150,7 +1060,7 @@ fn public_metric(record: &CitationComplexMetricsRecord) -> Value {
         "internal_pagerank":record.internal_pagerank,"component_id":record.component_id,"component_size":record.component_size,
         "is_isolated":record.is_isolated,"age_norm":record.age_norm,"recency_norm":record.recency_norm,
         "in_degree_norm":record.in_degree_norm,"out_degree_norm":record.out_degree_norm,"pagerank_norm":record.pagerank_norm,
-        "foundation_score":record.foundation_score,"frontier_score":record.frontier_score,"synthesis_role_hints":hints,
+        "foundation_score":record.foundation_score,"frontier_score":record.frontier_score,"synthesis_role_hints":record.synthesis_role_hints,
     })
 }
 
@@ -1173,7 +1083,7 @@ fn metrics(apps: &ProductionApplications, request: &Map<String, Value>) -> Resul
     if paper_refs.len() > 250 {
         return Err("invalid_request".into());
     }
-    let page = apps.citations.read_metrics(CitationMetricsPageRequest {
+    let page = apps.citations.read()?.metrics(CitationMetricsPageRequest {
         cursor,
         limit,
         sort_by: match sort {
@@ -1185,19 +1095,8 @@ fn metrics(apps: &ProductionApplications, request: &Map<String, Value>) -> Resul
         },
         paper_refs: paper_refs.into_iter().map(str::to_owned).collect(),
     })?;
-    let state = apps
-        .repository
-        .owner()
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?
-        .get_citation_graph_application_state()?;
-    let graph_hash = state
-        .as_ref()
-        .map(|state| state.graph_hash.clone())
-        .unwrap_or_default();
-    let metrics_hash = state
-        .and_then(|state| state.metrics_hash)
-        .unwrap_or_default();
+    let graph_hash = page.basis.graph_hash.clone();
+    let metrics_hash = page.basis.metrics_hash.clone().unwrap_or_default();
     let items = page.records.iter().map(public_metric).collect::<Vec<_>>();
     let status = if page.total == 0 {
         "missing"
@@ -1210,7 +1109,7 @@ fn metrics(apps: &ProductionApplications, request: &Map<String, Value>) -> Resul
         "ok":true,"graph_hash":graph_hash,"metrics_hash":metrics_hash,"status":status,
         "items":items,"cursor":page.cursor.to_string(),
         "nextCursor":page.next_cursor.map(|value| value.to_string()).unwrap_or_default(),
-        "hasMore":page.has_more,"returned":page.returned,"total":page.total,"limit":limit,
+        "hasMore":page.next_cursor.is_some(),"returned":page.records.len(),"total":page.total,"limit":limit,
         "diagnostics":{"snapshot_found":!graph_hash.is_empty(),"metrics_found":page.total>0,
           "stale":page.stale,"total_library_nodes":page.total,"returned_count":items.len(),
           "limits":{"limit":limit,"maxLimit":100},"warnings":[]},
@@ -1317,31 +1216,21 @@ fn layout_result(
     }
 
     let layout_key = format!("{view_key}:{algorithm}");
-    let initial_layout = apps.citations.read_layout_window(&layout_key, &[])?;
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    let graph_hash = repository
-        .get_citation_graph_application_state()?
-        .map(|state| state.graph_hash)
-        .unwrap_or_default();
+    let view = apps.citations.read()?;
+    let initial_layout = view.layout(&layout_key, &[])?;
+    let graph_hash = view.basis().graph_hash.clone();
     let layout_found = initial_layout.is_some();
     let layout_hash = initial_layout
         .as_ref()
-        .map(|layout| layout.metadata.layout_hash.as_str())
+        .map(|layout| layout.layout_hash.as_str())
         .unwrap_or("");
-    let layout_status = match initial_layout
-        .as_ref()
-        .map(|layout| layout.metadata.status.as_str())
-    {
+    let layout_status = match initial_layout.as_ref().map(|layout| layout.status.as_str()) {
         None => "missing",
         Some("running") => "refreshing",
         Some("failed") => "failed",
         Some("ready")
             if initial_layout.as_ref().is_some_and(|layout| {
-                layout.metadata.graph_hash == graph_hash
-                    && layout.metadata.layout_version == LAYOUT_VERSION
+                layout.graph_hash == graph_hash && layout.layout_version == LAYOUT_VERSION
             }) =>
         {
             "ready"
@@ -1365,48 +1254,50 @@ fn layout_result(
     if layout_status != "ready" {
         return Ok(empty_layout_result(layout_status, false, layout_basis));
     }
-    let filter = CitationGraphWindowFilter {
+    let filter = ApplicationCitationGraphFilter {
         include_low_signal: request
             .get("includeLowSignal")
             .or_else(|| request.get("include_low_signal"))
             .and_then(Value::as_bool)
             .unwrap_or(false),
         roles: string_list_field(request, &["roleFilter", "role_filter"])?,
-        ..CitationGraphWindowFilter::default()
+        ..ApplicationCitationGraphFilter::default()
     };
     let (mut selected_nodes, mut selected_edges, mut truncated) = match scope {
         "slice" => {
             let direction = string_field(request, &["direction"]).unwrap_or("both");
-            let rows = repository.read_citation_graph_neighborhood(
-                start.as_deref().unwrap_or_default(),
-                direction,
-                max_nodes.saturating_add(1),
-                max_edges.saturating_add(1),
-                &filter,
-            )?;
+            let rows = view.neighborhood(CitationGraphNeighborhoodRequest {
+                start_node_id: start.clone().unwrap_or_default(),
+                direction: match direction {
+                    "incoming" => {
+                        synthesis_application::citation_graph::CitationDirection::Incoming
+                    }
+                    "outgoing" => {
+                        synthesis_application::citation_graph::CitationDirection::Outgoing
+                    }
+                    "both" => synthesis_application::citation_graph::CitationDirection::Both,
+                    _ => return Err("invalid_request".into()),
+                },
+                max_nodes: max_nodes.saturating_add(1),
+                max_edges: max_edges.saturating_add(1),
+                filter: filter.clone(),
+            })?;
             (rows.nodes, rows.edges, rows.truncated)
         }
         "explicit" => {
             if explicit.len() > 100 {
                 return Ok(empty_layout_result("too_large", true, layout_basis));
             }
-            let rows = repository.read_citation_graph_explicit(
-                &explicit,
-                max_edges.saturating_add(1),
-                &filter,
-            )?;
+            let rows = view.explicit(&explicit, max_edges.saturating_add(1), &filter)?;
             (rows.nodes, rows.edges, rows.truncated)
         }
         _ => {
-            let rows = repository.read_citation_graph_window(&CitationGraphWindowQuery {
-                node_offset: 0,
+            let rows = view.first_page(CitationGraphPageRequest {
                 node_limit: max_nodes.saturating_add(1),
-                edge_offset: 0,
                 edge_limit: max_edges.saturating_add(1),
-                hover_node_offset: 0,
                 hover_node_limit: 1,
-                hover_edge_offset: 0,
                 hover_edge_limit: 1,
+                layout_algorithm: algorithm.into(),
                 filter,
             })?;
             let too_large = rows.total_nodes > max_nodes || rows.total_edges > max_edges;
@@ -1425,17 +1316,14 @@ fn layout_result(
     selected_nodes.truncate(max_nodes);
     let retained = selected_nodes
         .iter()
-        .map(|node| node.record.literature_item_id.clone())
+        .map(|node| node.node_id.clone())
         .collect::<BTreeSet<_>>();
-    selected_edges.retain(|edge| {
-        retained.contains(&edge.record.source_literature_item_id)
-            && retained.contains(&edge.record.target_literature_item_id)
-    });
+    selected_edges
+        .retain(|edge| retained.contains(&edge.source) && retained.contains(&edge.target));
     selected_edges.truncate(max_edges);
-    drop(repository);
 
     let node_ids = retained.into_iter().collect::<Vec<_>>();
-    let Some(layout) = apps.citations.read_layout_window(&layout_key, &node_ids)? else {
+    let Some(layout) = view.layout(&layout_key, &node_ids)? else {
         return Ok(empty_layout_result(
             "missing",
             truncated,
@@ -1447,12 +1335,12 @@ fn layout_result(
             },
         ));
     };
-    let status = match layout.metadata.status.as_str() {
+    let status = match layout.status.as_str() {
         "running" => "refreshing",
         "failed" => "failed",
         "ready"
-            if layout.metadata.graph_hash == graph_hash
-                && layout.metadata.layout_version == LAYOUT_VERSION
+            if layout.graph_hash == graph_hash
+                && layout.layout_version == LAYOUT_VERSION
                 && layout.points.len() == node_ids.len() =>
         {
             "ready"
@@ -1499,7 +1387,7 @@ fn layout_result(
     };
     let result = json!({
         "ok":status=="ready","status":status,"scope":scope,"graph_hash":graph_hash,
-        "layout_hash":layout.metadata.layout_hash,"layout_status":status,"preset":algorithm,
+        "layout_hash":layout.layout_hash,"layout_status":status,"preset":algorithm,
         "view_key":view_key,"nodes":layout_nodes,"edges":layout_edges,
         "diagnostics":{"snapshot_found":!graph_hash.is_empty(),"layout_found":true,
           "node_count":layout_nodes.len(),"edge_count":layout_edges.len(),"truncated":truncated,
@@ -1551,58 +1439,28 @@ mod tests {
     #[test]
     fn layout_window_requires_matching_basis_version_and_complete_coordinates() {
         let ids = vec!["1:A".to_owned(), "1:B".to_owned()];
-        let stale = CitationLayoutWindowRecord {
-            metadata: synthesis_repository::CitationLayoutMetadataRecord {
-                graph_hash: "graph:1".into(),
-                status: "ready".into(),
-                layout_version: 1,
-                ..synthesis_repository::CitationLayoutMetadataRecord::default()
-            },
+        let stale = ApplicationCitationGraphLayout {
+            graph_hash: "graph:1".into(),
+            status: "ready".into(),
+            layout_version: 1,
             points: Vec::new(),
+            ..ApplicationCitationGraphLayout::default()
         };
         assert_eq!(layout_status(Some(&stale), "graph:1", &ids, true), "stale");
-        let ready = CitationLayoutWindowRecord {
-            metadata: synthesis_repository::CitationLayoutMetadataRecord {
-                layout_version: LAYOUT_VERSION,
-                ..stale.metadata.clone()
-            },
+        let ready = ApplicationCitationGraphLayout {
+            layout_version: LAYOUT_VERSION,
             points: ids
                 .iter()
-                .map(|id| synthesis_repository::CitationLayoutPointRecord {
-                    node_id: id.clone(),
-                    x: 1.0,
-                    y: 2.0,
-                })
+                .map(
+                    |id| synthesis_application::citation_graph::CitationGraphLayoutPoint {
+                        node_id: id.clone(),
+                        x: 1.0,
+                        y: 2.0,
+                    },
+                )
                 .collect(),
+            ..stale.clone()
         };
         assert_eq!(layout_status(Some(&ready), "graph:1", &ids, true), "ready");
-    }
-
-    #[test]
-    fn graph_window_cursor_is_versioned_deterministic_and_basis_bound() {
-        let cursor = GraphWindowCursor {
-            node_offset: 200,
-            edge_offset: 400,
-            hover_node_offset: 100,
-            hover_edge_offset: 200,
-        };
-        let encoded = encode_cursor("graph:1", "sha256:query", &cursor);
-        assert_eq!(
-            decode_cursor(&encoded, "graph:1", "sha256:query").expect("cursor"),
-            cursor
-        );
-        assert_eq!(
-            decode_cursor(&encoded, "graph:2", "sha256:query").expect_err("stale graph"),
-            "basis_mismatch"
-        );
-        assert_eq!(
-            decode_cursor(&encoded, "graph:1", "sha256:other").expect_err("stale query"),
-            "basis_mismatch"
-        );
-        assert_eq!(
-            decode_cursor(&"x".repeat(GRAPH_CURSOR_MAX_LENGTH + 1), "graph:1", "query")
-                .expect_err("oversized cursor"),
-            "invalid_request"
-        );
     }
 }

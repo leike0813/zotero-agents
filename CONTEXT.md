@@ -23,3 +23,7 @@ _Avoid_: Match row, proposal record
 **Reference Projection**:
 A derived, readable view of current Reference facts for indexing, ranking, attention, or review.
 _Avoid_: Reference JSON, read model row
+
+**Citation Graph Application**:
+The deep module that owns basis-bound Citation Graph reads, graph rebuild attempts, metrics and layout identity, and atomic graph/cache/attempt promotion over the local repository.
+_Avoid_: Citation graph repository facade, runtime graph store
