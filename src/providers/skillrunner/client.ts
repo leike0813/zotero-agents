@@ -20,13 +20,8 @@ import {
   type MultipartZipPart,
   type ZipFileEntry,
 } from "./zipTransport";
-import {
-  buildTempBundlePath,
-  removeFileIfExists,
-  writeBytes,
-} from "../../modules/workflowExecution/bundleIO";
+import { openRunResultBundleReader } from "../../modules/workflowExecution/bundleIO";
 import { unwrapSkillRunnerResultJson } from "../../modules/workflowExecution/resultEnvelope";
-import { ZipBundleReader } from "../../workflows/zipBundleReader";
 import {
   isWaiting,
   normalizeStatus,
@@ -865,9 +860,11 @@ export class SkillRunnerClient {
     bundleBytes: Uint8Array;
     responseJson?: unknown;
   }) {
-    const bundlePath = buildTempBundlePath(args.requestId);
-    await writeBytes(bundlePath, args.bundleBytes);
-    const bundleReader = new ZipBundleReader(bundlePath);
+    const bundleResource = await openRunResultBundleReader({
+      result: { bundleBytes: args.bundleBytes },
+      requestId: args.requestId,
+    });
+    const bundleReader = bundleResource.bundleReader;
     const candidates = collectResultJsonPathCandidates({
       skillId: args.skillId,
       responseJson: args.responseJson,
@@ -895,7 +892,7 @@ export class SkillRunnerClient {
         `SkillRunner bundle result JSON not found for request ${args.requestId}; candidates=${JSON.stringify(candidates)}; errors=${JSON.stringify(errors.slice(0, 5))}`,
       );
     } finally {
-      await removeFileIfExists(bundlePath);
+      await bundleResource.dispose();
     }
   }
 

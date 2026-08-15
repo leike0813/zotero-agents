@@ -4,14 +4,9 @@ import {
   type WorkflowMessageFormatter,
 } from "../workflowExecuteMessage";
 import { executeApplyResult } from "../../workflows/runtime";
-import { ZipBundleReader } from "../../workflows/zipBundleReader";
-import type { BundleReader } from "./bundleIO";
 import {
-  buildTempBundlePath,
   createUnavailableBundleReader,
-  createDirectoryBundleReader,
-  removeFileIfExists,
-  writeBytes,
+  openRunResultBundleReader,
 } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
 import {
@@ -148,16 +143,16 @@ function isAcpRecoverableNonTerminalResult(args: {
   );
 }
 
+type RunResultBundleHandle = Awaited<
+  ReturnType<typeof openRunResultBundleReader>
+>;
+
 type ApplySeamDeps = {
   appendRuntimeLog: typeof appendRuntimeLog;
   normalizeErrorMessage: typeof normalizeErrorMessage;
   executeApplyResult: typeof executeApplyResult;
-  buildTempBundlePath: typeof buildTempBundlePath;
-  writeBytes: typeof writeBytes;
-  removeFileIfExists: typeof removeFileIfExists;
+  openRunResultBundleReader: typeof openRunResultBundleReader;
   createUnavailableBundleReader: typeof createUnavailableBundleReader;
-  createDirectoryBundleReader: typeof createDirectoryBundleReader;
-  createZipBundleReader: (bundlePath: string) => BundleReader;
   createWorkflowResultContext: typeof createWorkflowResultContext;
   collectSkillRunFeedback: typeof collectSkillRunFeedbackSidecar;
   resolveWorkflowJobTerminalResolution: typeof resolveWorkflowJobTerminalResolution;
@@ -167,35 +162,12 @@ const defaultApplySeamDeps: ApplySeamDeps = {
   appendRuntimeLog,
   normalizeErrorMessage,
   executeApplyResult,
-  buildTempBundlePath,
-  writeBytes,
-  removeFileIfExists,
+  openRunResultBundleReader,
   createUnavailableBundleReader,
-  createDirectoryBundleReader,
-  createZipBundleReader: (bundlePath) => new ZipBundleReader(bundlePath),
   createWorkflowResultContext,
   collectSkillRunFeedback: collectSkillRunFeedbackSidecar,
   resolveWorkflowJobTerminalResolution,
 };
-
-async function createBundleReaderForRunResult(args: {
-  result: RunResultLike;
-  requestId: string;
-  deps: ApplySeamDeps;
-}) {
-  let bundlePath = "";
-  let bundleReader: BundleReader = args.deps.createUnavailableBundleReader(
-    args.requestId,
-  );
-  if (args.result.bundleBytes && args.result.bundleBytes.length > 0) {
-    bundlePath = args.deps.buildTempBundlePath(args.requestId);
-    await args.deps.writeBytes(bundlePath, args.result.bundleBytes);
-    bundleReader = args.deps.createZipBundleReader(bundlePath);
-  } else if (args.result.bundleDir) {
-    bundleReader = args.deps.createDirectoryBundleReader(args.result.bundleDir);
-  }
-  return { bundleReader, bundlePath };
-}
 
 function getSequenceSteps(result: RunResultLike) {
   const steps = result.sequence?.steps;
@@ -237,7 +209,7 @@ async function createSequenceApplyContext(args: {
   result: RunResultLike;
   manifest: WorkflowRunState["workflow"]["manifest"];
   deps: ApplySeamDeps;
-  cleanupPaths: string[];
+  resources: RunResultBundleHandle[];
 }) {
   const steps = getSequenceSteps(args.result);
   if (steps.length === 0) {
@@ -260,14 +232,11 @@ async function createSequenceApplyContext(args: {
       String(stepResult.requestId || "").trim() ||
       String(step.request_id || "").trim() ||
       "sequence-step";
-    const resource = await createBundleReaderForRunResult({
+    const resource = await args.deps.openRunResultBundleReader({
       result: stepResult,
       requestId,
-      deps: args.deps,
     });
-    if (resource.bundlePath) {
-      args.cleanupPaths.push(resource.bundlePath);
-    }
+    args.resources.push(resource);
     const resultContext = await args.deps.createWorkflowResultContext({
       runResult: stepResult,
       bundleReader: resource.bundleReader,
@@ -711,8 +680,8 @@ export async function runWorkflowApplySeam(
       continue;
     }
 
-    let bundlePath = "";
-    const sequenceBundlePaths: string[] = [];
+    let bundleResource: RunResultBundleHandle | undefined;
+    const sequenceBundleResources: RunResultBundleHandle[] = [];
     const isForegroundSkillRunnerSingleJob = isSkillRunnerSingleJobRequest({
       workflow: args.runState.workflow,
       request: args.runState.requests[i],
@@ -761,12 +730,10 @@ export async function runWorkflowApplySeam(
           },
         });
       }
-      const bundleResource = await createBundleReaderForRunResult({
+      bundleResource = await resolved.openRunResultBundleReader({
         result,
         requestId: result.requestId,
-        deps: resolved,
       });
-      bundlePath = bundleResource.bundlePath;
       const bundleReader = bundleResource.bundleReader;
       const resultContext = await resolved.createWorkflowResultContext({
         runResult: result,
@@ -797,7 +764,7 @@ export async function runWorkflowApplySeam(
         result,
         manifest: args.runState.workflow.manifest,
         deps: resolved,
-        cleanupPaths: sequenceBundlePaths,
+        resources: sequenceBundleResources,
       });
       const enrichedRunResult = {
         ...(job.result as Record<string, unknown>),
@@ -953,11 +920,9 @@ export async function runWorkflowApplySeam(
         });
       }
     } finally {
-      if (bundlePath) {
-        await resolved.removeFileIfExists(bundlePath);
-      }
-      for (const path of sequenceBundlePaths) {
-        await resolved.removeFileIfExists(path);
+      await bundleResource?.dispose();
+      for (const resource of sequenceBundleResources) {
+        await resource.dispose();
       }
     }
   }
@@ -1048,7 +1013,7 @@ export async function runWorkflowApplySeam(
         Awaited<ReturnType<typeof resolved.createWorkflowResultContext>>
       >["aggregate"]
     >["children"] = [];
-    const cleanupPaths: string[] = [];
+    const cleanupResources: RunResultBundleHandle[] = [];
     const failedChild = aggregate.requestIndexes.find((requestIndex) => {
       const jobId = args.runState.jobIds[requestIndex];
       const job = jobId ? args.runState.queue.getJob(jobId) : null;
@@ -1080,14 +1045,11 @@ export async function runWorkflowApplySeam(
         const job = args.runState.queue.getJob(jobId);
         const result = job!.result as RunResultLike;
         const preflight = args.runState.preflight?.requestUnits[requestIndex];
-        const bundleResource = await createBundleReaderForRunResult({
+        const bundleResource = await resolved.openRunResultBundleReader({
           result,
           requestId: result.requestId || `aggregate-${aggregate.id}`,
-          deps: resolved,
         });
-        if (bundleResource.bundlePath) {
-          cleanupPaths.push(bundleResource.bundlePath);
-        }
+        cleanupResources.push(bundleResource);
         const childResultContext = await resolved.createWorkflowResultContext({
           runResult: result,
           bundleReader: bundleResource.bundleReader,
@@ -1205,8 +1167,8 @@ export async function runWorkflowApplySeam(
         error,
       });
     } finally {
-      for (const path of cleanupPaths) {
-        await resolved.removeFileIfExists(path);
+      for (const resource of cleanupResources) {
+        await resource.dispose();
       }
     }
   }

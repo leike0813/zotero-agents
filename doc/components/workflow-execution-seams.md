@@ -256,6 +256,13 @@ terminal or apply state.
 Bundle readers normalize entry paths, reject traversal, and expose a common read
 interface to workflow apply hooks.
 
+`openRunResultBundleReader` owns the run-result-to-reader policy and the temp
+zip lifecycle. Non-empty `bundleBytes` write a temp zip and return a handle
+whose `dispose()` removes that temp file; `bundleDir` opens a directory reader
+without a temp file; anything else opens an unavailable reader. Callers keep
+handles open through apply and dispose them in `finally`. Extracted zip
+directories remain `ZipBundleReader` state and are not removed by `dispose()`.
+
 SkillRunner bundle settlement records:
 
 - normalized result JSON

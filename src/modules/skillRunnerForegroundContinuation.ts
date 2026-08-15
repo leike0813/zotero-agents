@@ -7,7 +7,6 @@ import { maybeObserveSkillRunnerAutoReplyRun } from "./skillRunnerAutoReplyObser
 import { executeWithProvider as executeWithProviderFromRegistry } from "../providers/registry";
 import type { ProviderExecutionResult } from "../providers/contracts";
 import { executeApplyResult } from "../workflows/runtime";
-import { ZipBundleReader } from "../workflows/zipBundleReader";
 import type { LoadedWorkflow } from "../workflows/types";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
@@ -31,14 +30,7 @@ import {
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
-import {
-  buildTempBundlePath,
-  createDirectoryBundleReader,
-  createUnavailableBundleReader,
-  removeFileIfExists,
-  writeBytes,
-  type BundleReader,
-} from "./workflowExecution/bundleIO";
+import { openRunResultBundleReader } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
 import {
@@ -268,24 +260,6 @@ function setRequestState(args: {
   }
 }
 
-async function createBundleReaderForRunResult(args: {
-  result: Extract<ProviderExecutionResult, { status: "succeeded" }>;
-  requestId: string;
-}) {
-  let bundlePath = "";
-  let bundleReader: BundleReader = createUnavailableBundleReader(
-    args.requestId,
-  );
-  if (args.result.bundleBytes?.length) {
-    bundlePath = buildTempBundlePath(args.requestId);
-    await writeBytes(bundlePath, args.result.bundleBytes);
-    bundleReader = new ZipBundleReader(bundlePath);
-  } else if (args.result.bundleDir) {
-    bundleReader = createDirectoryBundleReader(args.result.bundleDir);
-  }
-  return { bundleReader, bundlePath };
-}
-
 function buildTerminalRunResult(args: {
   record: SkillRunnerRunRecord;
   backend: BackendInstance;
@@ -318,23 +292,25 @@ async function applyWorkflowResult(args: {
   };
 }) {
   const requestId = normalizeString(args.runResult.requestId);
-  let bundlePath = "";
+  let bundleResource:
+    | Awaited<ReturnType<typeof openRunResultBundleReader>>
+    | undefined;
   try {
-    const bundleResource = await createBundleReaderForRunResult({
+    bundleResource = await openRunResultBundleReader({
       result: args.runResult,
       requestId: requestId || args.jobId || "skillrunner-run",
     });
-    bundlePath = bundleResource.bundlePath;
+    const bundleReader = bundleResource.bundleReader;
     const resultContext = await createWorkflowResultContext({
       runResult: args.runResult,
-      bundleReader: bundleResource.bundleReader,
+      bundleReader,
       manifest: args.workflow.manifest,
     });
     args.runResult.resultJson = resultContext.resultJson;
     const applied = await executeApplyResult({
       workflow: args.workflow,
       parent: args.parent,
-      bundleReader: bundleResource.bundleReader,
+      bundleReader,
       resultContext,
       request: args.request,
       runResult: args.runResult,
@@ -345,16 +321,14 @@ async function applyWorkflowResult(args: {
       request: args.request,
       runResult: args.runResult,
       resultContext,
-      bundleReader: bundleResource.bundleReader,
+      bundleReader,
       jobId: args.jobId,
       sequenceStep: args.sequenceStep,
       appendRuntimeLog,
     });
     return applied;
   } finally {
-    if (bundlePath) {
-      await removeFileIfExists(bundlePath);
-    }
+    await bundleResource?.dispose();
   }
 }
 
