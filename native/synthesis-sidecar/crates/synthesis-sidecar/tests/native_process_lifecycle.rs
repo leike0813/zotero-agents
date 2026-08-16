@@ -326,15 +326,21 @@ fn wait_for_exit(child: &mut Child) -> ExitStatus {
     }
 }
 
-fn shutdown(port: u16, lifecycle_token: &str) -> Value {
+fn call(
+    port: u16,
+    lifecycle_token: &str,
+    request_id: &str,
+    capability: &str,
+    payload: Value,
+) -> Value {
     let body = serde_json::to_vec(&json!({
         "protocol":"synthesis-sidecar.v1",
-        "requestId":"shutdown-1",
+        "requestId":request_id,
         "profileId":"1".repeat(64),
-        "capability":"system.shutdown",
-        "payload":{}
+        "capability":capability,
+        "payload":payload
     }))
-    .expect("shutdown request");
+    .expect("call request");
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("sidecar connection");
     write!(
         stream,
@@ -343,17 +349,25 @@ fn shutdown(port: u16, lifecycle_token: &str) -> Value {
     )
     .and_then(|_| stream.write_all(&body))
     .and_then(|_| stream.flush())
-    .expect("send shutdown");
+    .expect("send call");
     let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .expect("shutdown response");
+    stream.read_to_end(&mut response).expect("call response");
     let body = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .map(|index| &response[index + 4..])
-        .expect("shutdown response body");
-    serde_json::from_slice(body).expect("shutdown response json")
+        .expect("call response body");
+    serde_json::from_slice(body).expect("call response json")
+}
+
+fn shutdown(port: u16, lifecycle_token: &str) -> Value {
+    call(
+        port,
+        lifecycle_token,
+        "shutdown-1",
+        "system.shutdown",
+        json!({}),
+    )
 }
 
 #[test]
@@ -545,4 +559,45 @@ fn discovery_is_the_ready_commit_and_shutdown_receipt_precedes_terminal_cleanup(
 
     drop(reverse_host);
     fs::remove_dir_all(root).expect("remove lifecycle root");
+}
+
+#[test]
+fn canonical_inspect_serves_the_raw_topic_descriptor_shape() {
+    let root = test_root("canonical-inspect");
+    let reverse_host = ReverseHost::start();
+    let (config_path, discovery_path, lifecycle_token) =
+        write_launch_config(&root, reverse_host.port);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_synthesis-sidecar"))
+        .arg("serve")
+        .arg("--config")
+        .arg(&config_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("spawn sidecar");
+
+    let discovery = wait_for_discovery(&mut child, &discovery_path);
+    let port = discovery["port"].as_u64().expect("discovery port") as u16;
+
+    let inspected = call(
+        port,
+        &"7".repeat(64),
+        "inspect-1",
+        "topics.canonical.inspect",
+        json!({"topicId":"r7-canary"}),
+    );
+    assert_eq!(inspected["ok"], true);
+    assert_eq!(inspected["data"]["status"], "absent");
+    assert_eq!(inspected["data"]["topicId"], "r7-canary");
+    assert_eq!(inspected["data"]["pathId"], "r7-canary");
+    assert_eq!(inspected["data"]["manifestHash"], Value::Null);
+    assert_eq!(inspected["data"]["sections"], json!([]));
+    assert_eq!(inspected["data"]["diagnostics"], json!([]));
+
+    assert_eq!(shutdown(port, &lifecycle_token)["ok"], true);
+    assert!(wait_for_exit(&mut child).success());
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove canonical inspect root");
 }

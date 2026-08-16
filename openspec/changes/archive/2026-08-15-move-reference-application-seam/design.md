@@ -17,22 +17,22 @@ The runtime must preserve sixteen public Reference/Canonical operations and rema
 **Non-Goals:**
 
 - Change public operation identifiers, wire DTOs, error vocabulary, schemas, durable formats, or maintenance lifecycle ownership.
-- Merge the existing Refresh and Matching persistence protocols into a generic repository interface.
+- Merge the remaining Refresh persistence protocol into a generic repository interface.
 - Introduce a compatibility facade, alternative production execution path, automatic downstream rebuild, or new dependency.
 
 ## Decisions
 
 ### Use one grouped Reference application interface
 
-The external interface groups `read`, `refresh`, `match_references`, `mutate_canonicals`, and `quiesce`. Each group accepts and returns closed typed semantic DTOs. This keeps the interface aligned with stable use-case families rather than current route names.
+The external interface centers on `read`, `refresh`, `match_references`, `mutate_canonicals`, and `quiesce`, plus typed command methods for match proposal review, canonical revision review, canonical merge, and literature digest application. These methods accept and return closed typed semantic DTOs. Alongside them, the projection methods (`sidecar_index`, `workbench_index`, `rank_external_references`, `attention_queue`, `workbench_review`) return wire-ready `Value` projections, because their only callers are runtime wire codecs rather than typed consumers. This keeps the interface aligned with stable use-case families rather than current route names.
 
 A two-method `query/execute` design was rejected because its request/result enums would become a second dispatcher whose variant pairing callers must learn. A method-per-route facade was rejected because it would mirror wire policy and turn route additions into interface growth.
 
-### Keep three independent internal use cases and persistence interfaces
+### Depend on the shared repository port without reference-specific persistence traits
 
-Refresh, Matching/Review, and Canonical Mutation retain separate modules and high-level persistence interfaces. Their atomic operations differ materially; combining their existing methods would create a broad repository-shaped interface. The canonical interface accepts typed aggregate reads and atomic mutation commands and never exposes repository owners, locks, transaction closures, SQL records, or generic CRUD.
+Refresh, Matching/Review, and Canonical Mutation retain separate modules. The Reference application depends directly on the crate-local `RepositoryPort`, matching the Citation Graph application pattern: no reference-specific projection, job, mutation, or persistence trait sits between the application and the repository. Repository records, SQLite owners, locks, and transaction closures stay crate-internal; the public crate API exposes neither records nor owners.
 
-The production repository adapter may implement all three interfaces, but each internal module sees only its own persistence knowledge. SQLite transaction mechanics remain in the adapter; validation, planning, idempotency semantics, and result projection remain in the application module.
+Archive and metadata-update domain rules (blocker computation, redirect resolution, missing/bound determination, idempotent receipt construction) live in the application module beside merge and revision review. The persistence layer contributes atomic reads and writes plus the transaction boundary; validation, planning, idempotency semantics, and result projection remain in the application module. Refresh retains its own persistence port because its tests rely on a counting decorator implementation.
 
 ### Put typed Host access and semantic projection behind the application seam
 
@@ -53,8 +53,8 @@ Implementation proceeds in vertical TDD slices, but production composition switc
 ## Risks / Trade-offs
 
 - [Typed DTO migration accidentally changes wire shape] → Keep wire codecs in runtime, retain strict route tests, and compare the existing parity corpus.
-- [Canonical persistence adapter absorbs domain rules] → Pass typed mutation plans into atomic adapter operations; keep validation and outcome projection in the application module.
-- [The grouped interface becomes a route registry] → Add variants only to stable use-case-family commands and reject string or `Value` dispatch.
+- [Canonical persistence adapter absorbs domain rules] → The adapter contributes only the transaction boundary and atomic reads/writes; blocker computation, redirect resolution, missing/bound determination, and receipt construction live in the application module.
+- [The grouped interface becomes a route registry] → Add methods only to stable use-case-family commands; projection methods may return wire-ready `Value` because their callers are wire codecs, but no string or `Value` dispatch selects behavior.
 - [Checkpoint threading misses a write path] → Require it in every durable-write method and search for repository mutations without a checkpoint before completion.
 - [Behavior tests are duplicated rather than moved] → Establish each behavior at the new interface, then delete the superseded owner/SQL assertions in the same slice.
 - [A large file is merely relocated] → Separate canonical mutation implementation from the root orchestration while retaining existing Refresh and Matching modules.

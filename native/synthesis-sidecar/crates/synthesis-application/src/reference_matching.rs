@@ -1,5 +1,5 @@
 use crate::PromotionCheckpoint;
-use crate::ports::ReferenceMatchingRepositoryPort;
+use crate::ports::RepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -252,7 +252,7 @@ type Clock = Arc<dyn Fn() -> String + Send + Sync>;
 type IdFactory = Arc<dyn Fn() -> String + Send + Sync>;
 
 pub struct ReferenceMatchingApplication {
-    repository: Arc<dyn ReferenceMatchingRepositoryPort>,
+    repository: Arc<RepositoryPort>,
     matcher: Arc<dyn ReferenceMatcherPort>,
     now: Clock,
     preparation_id: IdFactory,
@@ -272,10 +272,7 @@ impl Drop for ActiveOperation<'_> {
 }
 
 impl ReferenceMatchingApplication {
-    pub fn new(
-        repository: Arc<dyn ReferenceMatchingRepositoryPort>,
-        matcher: Arc<dyn ReferenceMatcherPort>,
-    ) -> Self {
+    pub fn new(repository: Arc<RepositoryPort>, matcher: Arc<dyn ReferenceMatcherPort>) -> Self {
         let sequence = Arc::new(AtomicU64::new(0));
         let id_sequence = Arc::clone(&sequence);
         Self::with_factories(
@@ -292,7 +289,7 @@ impl ReferenceMatchingApplication {
     }
 
     pub fn with_factories(
-        repository: Arc<dyn ReferenceMatchingRepositoryPort>,
+        repository: Arc<RepositoryPort>,
         matcher: Arc<dyn ReferenceMatcherPort>,
         now: Clock,
         preparation_id: IdFactory,

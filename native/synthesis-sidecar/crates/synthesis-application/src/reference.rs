@@ -274,16 +274,88 @@ pub struct CanonicalMutationReceipt {
     pub blockers: Vec<String>,
 }
 
-pub trait CanonicalMutationPort: Send + Sync {
-    fn commit(
-        &self,
-        mutation: CanonicalReferenceMutation,
-    ) -> Result<CanonicalMutationReceipt, ReferenceApplicationError>;
-}
-
 pub const HOST_PAGE_LIMIT: usize = 100;
 pub const MAX_HOST_PAGES: usize = 1_000;
 pub const MAX_HOST_ROWS: usize = 100_000;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostCollectionError {
+    Host(String),
+    InvalidPage,
+    PageCycle,
+    InputTooLarge,
+    PageLimitExceeded,
+}
+
+pub fn validate_host_items_page(
+    requested_cursor: &str,
+    expected_revision: Option<&str>,
+    page: &ReferenceHostItemsPage,
+) -> Result<(), HostCollectionError> {
+    if page.cursor != requested_cursor
+        || page.limit == 0
+        || page.limit > HOST_PAGE_LIMIT
+        || page.returned != page.items.len()
+        || page.returned > page.limit
+        || page.snapshot_revision.is_empty()
+        || expected_revision.is_some_and(|revision| revision != page.snapshot_revision)
+        || (page.has_more && (page.next_cursor.is_empty() || page.next_cursor == requested_cursor))
+        || (!page.has_more && !page.next_cursor.is_empty())
+    {
+        return Err(HostCollectionError::InvalidPage);
+    }
+    Ok(())
+}
+
+pub fn collect_host_item_pages(
+    mut fetch_page: impl FnMut(&str, usize) -> Result<ReferenceHostItemsPage, String>,
+    max_rows: usize,
+    allow_truncation: bool,
+) -> Result<Vec<ReferenceHostItem>, HostCollectionError> {
+    if allow_truncation && max_rows == 0 {
+        return Ok(Vec::new());
+    }
+    let mut cursor = String::new();
+    let mut revision: Option<String> = None;
+    let mut seen_cursors = HashSet::new();
+    let mut items = Vec::new();
+    for _ in 0..MAX_HOST_PAGES {
+        let page = fetch_page(&cursor, HOST_PAGE_LIMIT).map_err(HostCollectionError::Host)?;
+        validate_host_items_page(&cursor, revision.as_deref(), &page)?;
+        if !seen_cursors.insert(page.cursor.clone()) {
+            return Err(HostCollectionError::PageCycle);
+        }
+        revision.get_or_insert_with(|| page.snapshot_revision.clone());
+        let remaining = max_rows.saturating_sub(items.len());
+        if allow_truncation {
+            items.extend(page.items.into_iter().take(remaining));
+        } else {
+            items.extend(page.items);
+        }
+        if items.len() > max_rows {
+            return Err(HostCollectionError::InputTooLarge);
+        }
+        if (allow_truncation && items.len() >= max_rows) || !page.has_more {
+            items.sort_by(|left, right| {
+                left.paper_ref
+                    .cmp(&right.paper_ref)
+                    .then_with(|| left.item_key.cmp(&right.item_key))
+            });
+            if items
+                .iter()
+                .map(|item| item.paper_ref.as_str())
+                .collect::<HashSet<_>>()
+                .len()
+                != items.len()
+            {
+                return Err(HostCollectionError::InvalidPage);
+            }
+            return Ok(items);
+        }
+        cursor = page.next_cursor;
+    }
+    Err(HostCollectionError::PageLimitExceeded)
+}
 
 pub(crate) fn collect_host_items(
     host: &dyn ReferenceHostPort,
@@ -303,62 +375,19 @@ fn collect_host_items_with_limit(
     max_rows: usize,
     allow_truncation: bool,
 ) -> Result<Vec<ReferenceHostItem>, ReferenceApplicationError> {
-    if allow_truncation && max_rows == 0 {
-        return Ok(Vec::new());
-    }
-    let mut cursor = String::new();
-    let mut revision: Option<String> = None;
-    let mut seen_cursors = HashSet::new();
-    let mut items = Vec::new();
-    for _ in 0..MAX_HOST_PAGES {
-        let page = host
-            .list_items_page(&cursor, HOST_PAGE_LIMIT)
-            .map_err(|_| ReferenceApplicationError::Unavailable)?;
-        if page.cursor != cursor
-            || page.limit == 0
-            || page.limit > HOST_PAGE_LIMIT
-            || page.returned != page.items.len()
-            || page.returned > page.limit
-            || page.snapshot_revision.is_empty()
-            || revision
-                .as_deref()
-                .is_some_and(|expected| expected != page.snapshot_revision)
-            || (page.has_more && (page.next_cursor.is_empty() || page.next_cursor == cursor))
-            || (!page.has_more && !page.next_cursor.is_empty())
-            || !seen_cursors.insert(page.cursor.clone())
-        {
-            return Err(ReferenceApplicationError::HostResultInvalid);
+    collect_host_item_pages(
+        |cursor, limit| host.list_items_page(cursor, limit),
+        max_rows,
+        allow_truncation,
+    )
+    .map_err(|error| match error {
+        HostCollectionError::Host(_) => ReferenceApplicationError::Unavailable,
+        HostCollectionError::InvalidPage | HostCollectionError::PageCycle => {
+            ReferenceApplicationError::HostResultInvalid
         }
-        revision.get_or_insert_with(|| page.snapshot_revision.clone());
-        let remaining = max_rows.saturating_sub(items.len());
-        if allow_truncation {
-            items.extend(page.items.into_iter().take(remaining));
-        } else {
-            items.extend(page.items);
-        }
-        if items.len() > MAX_HOST_ROWS {
-            return Err(ReferenceApplicationError::HostInputTooLarge);
-        }
-        if (allow_truncation && items.len() >= max_rows) || !page.has_more {
-            items.sort_by(|left, right| {
-                left.paper_ref
-                    .cmp(&right.paper_ref)
-                    .then_with(|| left.item_key.cmp(&right.item_key))
-            });
-            if items
-                .iter()
-                .map(|item| item.paper_ref.as_str())
-                .collect::<HashSet<_>>()
-                .len()
-                != items.len()
-            {
-                return Err(ReferenceApplicationError::HostResultInvalid);
-            }
-            return Ok(items);
-        }
-        cursor = page.next_cursor;
-    }
-    Err(ReferenceApplicationError::HostPageLimitExceeded)
+        HostCollectionError::InputTooLarge => ReferenceApplicationError::HostInputTooLarge,
+        HostCollectionError::PageLimitExceeded => ReferenceApplicationError::HostPageLimitExceeded,
+    })
 }
 
 pub(crate) fn validate_page_metadata(

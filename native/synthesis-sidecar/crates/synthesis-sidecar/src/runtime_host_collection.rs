@@ -1,15 +1,14 @@
-use std::collections::HashSet;
 use std::sync::Arc;
+use synthesis_application::reference::{
+    HOST_PAGE_LIMIT, HostCollectionError, MAX_HOST_ROWS, collect_host_item_pages,
+    validate_host_items_page,
+};
 pub(crate) use synthesis_application::reference::{
     ReferenceHostItem, ReferenceHostItemsByRef, ReferenceHostItemsPage,
 };
 use synthesis_application::{
     TopicLibraryItem, TopicLibraryItemsByRef, TopicLibraryPage, TopicLibraryQueryPort,
 };
-
-pub(crate) const HOST_PAGE_LIMIT: usize = 100;
-pub(crate) const MAX_HOST_PAGES: usize = 1_000;
-pub(crate) const MAX_HOST_ROWS: usize = 100_000;
 
 pub(crate) trait HostItemCollectionPort: Send + Sync {
     fn list_items_page(&self, cursor: &str, limit: usize)
@@ -34,7 +33,8 @@ impl TopicLibraryQueryPort for TopicLibraryQueryAdapter {
             return Err("invalid_request".into());
         }
         let page = self.host.list_items_page(cursor, limit)?;
-        validate_item_page(cursor, None, &page)?;
+        validate_host_items_page(cursor, None, &page)
+            .map_err(|_| "reverse_host_result_invalid".to_owned())?;
         Ok(TopicLibraryPage {
             items: page.items.into_iter().map(topic_library_item).collect(),
             cursor: page.cursor,
@@ -68,99 +68,21 @@ fn topic_library_item(item: ReferenceHostItem) -> TopicLibraryItem {
     }
 }
 
-pub(crate) fn validate_page_metadata(
-    requested_cursor: &str,
-    returned_cursor: &str,
-    returned: usize,
-    limit: usize,
-    has_more: bool,
-    next_cursor: &str,
-) -> Result<(), String> {
-    if returned_cursor != requested_cursor
-        || limit == 0
-        || limit > HOST_PAGE_LIMIT
-        || returned > limit
-        || (has_more && (next_cursor.is_empty() || next_cursor == requested_cursor))
-        || (!has_more && !next_cursor.is_empty())
-    {
-        return Err("reverse_host_result_invalid".into());
-    }
-    Ok(())
-}
-
-fn validate_item_page(
-    requested_cursor: &str,
-    expected_revision: Option<&str>,
-    page: &ReferenceHostItemsPage,
-) -> Result<(), String> {
-    validate_page_metadata(
-        requested_cursor,
-        &page.cursor,
-        page.returned,
-        page.limit,
-        page.has_more,
-        &page.next_cursor,
-    )?;
-    if page.returned != page.items.len()
-        || page.snapshot_revision.is_empty()
-        || expected_revision.is_some_and(|revision| revision != page.snapshot_revision)
-    {
-        return Err("reverse_host_result_invalid".into());
-    }
-    Ok(())
-}
-
 pub(crate) fn collect_host_items(
     host: &dyn HostItemCollectionPort,
 ) -> Result<Vec<ReferenceHostItem>, String> {
-    collect_host_items_with_limit(host, MAX_HOST_ROWS, false)
-}
-
-fn collect_host_items_with_limit(
-    host: &dyn HostItemCollectionPort,
-    max_rows: usize,
-    allow_truncation: bool,
-) -> Result<Vec<ReferenceHostItem>, String> {
-    let mut cursor = String::new();
-    let mut revision: Option<String> = None;
-    let mut seen_cursors = HashSet::new();
-    let mut items = Vec::new();
-    for _ in 0..MAX_HOST_PAGES {
-        let page = host.list_items_page(&cursor, HOST_PAGE_LIMIT)?;
-        validate_item_page(&cursor, revision.as_deref(), &page)?;
-        if !seen_cursors.insert(page.cursor.clone()) {
-            return Err("reverse_host_page_cycle".into());
-        }
-        revision.get_or_insert_with(|| page.snapshot_revision.clone());
-        let remaining = max_rows.saturating_sub(items.len());
-        if allow_truncation {
-            items.extend(page.items.into_iter().take(remaining));
-        } else {
-            items.extend(page.items);
-        }
-        if items.len() > max_rows {
-            return Err("reverse_host_input_too_large".into());
-        }
-        if (allow_truncation && items.len() >= max_rows) || !page.has_more {
-            items.sort_by(|left, right| {
-                left.paper_ref
-                    .cmp(&right.paper_ref)
-                    .then_with(|| left.item_key.cmp(&right.item_key))
-            });
-            if items
-                .iter()
-                .map(|item| item.paper_ref.as_str())
-                .collect::<HashSet<_>>()
-                .len()
-                != items.len()
-            {
-                return Err("reverse_host_result_invalid".into());
-            }
-            return Ok(items);
-        }
-        cursor = page.next_cursor;
-    }
-    Err("reverse_host_page_limit_exceeded".into())
+    collect_host_item_pages(
+        |cursor, limit| host.list_items_page(cursor, limit),
+        MAX_HOST_ROWS,
+        false,
+    )
+    .map_err(|error| match error {
+        HostCollectionError::Host(code) => code,
+        HostCollectionError::InvalidPage => "reverse_host_result_invalid".to_owned(),
+        HostCollectionError::PageCycle => "reverse_host_page_cycle".to_owned(),
+        HostCollectionError::InputTooLarge => "reverse_host_input_too_large".to_owned(),
+        HostCollectionError::PageLimitExceeded => "reverse_host_page_limit_exceeded".to_owned(),
+    })
 }
 
 #[cfg(test)]

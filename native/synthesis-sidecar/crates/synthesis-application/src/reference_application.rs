@@ -1,4 +1,5 @@
 use crate::PromotionCheckpoint;
+use crate::ports::RepositoryPort;
 use crate::reference_matching::{
     ReferenceHostCandidate, ReferenceMatchingApplication, ReferenceMatchingPrepareRequest,
     ReferenceMatchingStatus, ReferenceReviewAction, ReferenceReviewDecision,
@@ -20,21 +21,20 @@ use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    CacheBasisRecord, CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, OperationRecord,
+    CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, OperationRecord,
     RawReferenceRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
     ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, ReferenceRedirectGraph,
-    ReferenceRevisionReviewRecord, Repository, ReviewPage, ReviewPageQuery,
+    ReferenceRevisionReviewRecord, Repository, ReviewPageQuery,
 };
 
 const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 4;
 use crate::reference::{
-    CanonicalMutationPort, CanonicalMutationReceipt, CanonicalMutationStatus,
-    CanonicalReferenceMutation, HOST_PAGE_LIMIT, MAX_HOST_PAGES, MAX_HOST_ROWS,
-    NoopReferenceObservationPort, ReferenceApplicationError, ReferenceHostArtifact,
-    ReferenceHostArtifactRead, ReferenceHostItem, ReferenceHostPort, ReferenceIndexProjection,
-    ReferenceIndexQuery, ReferenceIndexReference, ReferenceIndexRow, ReferenceObservation,
-    ReferenceObservationPort, ReferenceProjection, ReferenceQuery, collect_host_items,
-    collect_host_items_bounded, validate_page_metadata,
+    CanonicalMutationReceipt, CanonicalMutationStatus, CanonicalReferenceMutation, HOST_PAGE_LIMIT,
+    MAX_HOST_PAGES, MAX_HOST_ROWS, NoopReferenceObservationPort, ReferenceApplicationError,
+    ReferenceHostArtifact, ReferenceHostArtifactRead, ReferenceHostItem, ReferenceHostPort,
+    ReferenceIndexProjection, ReferenceIndexQuery, ReferenceIndexReference, ReferenceIndexRow,
+    ReferenceObservation, ReferenceObservationPort, ReferenceProjection, ReferenceQuery,
+    collect_host_items, collect_host_items_bounded, validate_page_metadata,
 };
 const REFRESH_JOB_ID: &str = "reference-job:refresh";
 const MATCHING_JOB_ID: &str = "reference-job:advanced-matching";
@@ -284,8 +284,7 @@ pub struct CanonicalMergeBatchRequest {
     pub requests: Vec<CanonicalMergePair>,
 }
 
-#[doc(hidden)]
-pub enum CanonicalPersistenceCommand {
+pub(crate) enum CanonicalPersistenceCommand {
     RevisionReview {
         request: CanonicalRevisionReviewRequest,
         operation_id: String,
@@ -337,75 +336,8 @@ enum MergeFailure {
     RequiresConfirmation,
 }
 
-pub trait ReferenceProjectionPort: Send + Sync {
-    fn reference_sources_are_empty(&self) -> Result<bool, String>;
-    fn reference_basis_hashes(&self) -> Result<(String, String), String>;
-    fn reference_cache_basis(&self) -> Result<Option<CacheBasisRecord>, String>;
-    fn reference_rank_facts(
-        &self,
-    ) -> Result<
-        (
-            Vec<CanonicalReferenceRecord>,
-            Vec<RawReferenceRecord>,
-            Vec<ReferenceBindingFactRecord>,
-            String,
-            String,
-        ),
-        String,
-    >;
-    fn reference_attention_facts(
-        &self,
-    ) -> Result<(bool, Vec<ReferenceMatchProposalRecord>, String, String), String>;
-    fn reference_review_facts(
-        &self,
-        query: &ReviewPageQuery,
-    ) -> Result<
-        (
-            ReviewPage<ReferenceRevisionReviewRecord>,
-            ReviewPage<ReferenceMatchProposalRecord>,
-            Vec<CanonicalReferenceRecord>,
-            Vec<CanonicalReferenceRecord>,
-            usize,
-            usize,
-        ),
-        String,
-    >;
-    fn reference_index_facts(
-        &self,
-        source_refs: &[String],
-    ) -> Result<
-        (
-            Vec<ReferenceArtifactRecord>,
-            Vec<RawReferenceRecord>,
-            Vec<ReferenceRedirectFactRecord>,
-            Vec<ReferenceBindingFactRecord>,
-        ),
-        String,
-    >;
-}
-
-pub trait ReferenceJobPort: Send + Sync {
-    fn reference_operation(&self, operation_id: &str) -> Result<Option<OperationRecord>, String>;
-    fn write_reference_operation(&self, record: &OperationRecord) -> Result<(), String>;
-    fn reference_proposal_review_snapshot(
-        &self,
-        operation_id: &str,
-        decisions: &[ReferenceReviewDecision],
-    ) -> Result<(Option<Value>, String, String), String>;
-}
-
-pub trait CanonicalPersistencePort: Send + Sync {
-    fn commit_reference_canonical(
-        &self,
-        command: CanonicalPersistenceCommand,
-    ) -> Result<Value, String>;
-}
-
 pub struct ReferenceApplication {
-    projections: Arc<dyn ReferenceProjectionPort>,
-    jobs: Arc<dyn ReferenceJobPort>,
-    canonical_mutations: Arc<dyn CanonicalMutationPort>,
-    canonical_batches: Arc<dyn CanonicalPersistencePort>,
+    repository: Arc<RepositoryPort>,
     refresh: ReferenceRefreshApplication,
     matching: ReferenceMatchingApplication,
     host: Arc<dyn ReferenceHostPort>,
@@ -414,24 +346,14 @@ pub struct ReferenceApplication {
 }
 
 impl ReferenceApplication {
-    pub fn new<P>(
-        repository: Arc<P>,
+    pub fn new(
+        repository: Arc<RepositoryPort>,
         refresh: ReferenceRefreshApplication,
         matching: ReferenceMatchingApplication,
         host: Arc<dyn ReferenceHostPort>,
-    ) -> Self
-    where
-        P: ReferenceProjectionPort
-            + ReferenceJobPort
-            + CanonicalMutationPort
-            + CanonicalPersistencePort
-            + 'static,
-    {
+    ) -> Self {
         Self {
-            projections: repository.clone(),
-            jobs: repository.clone(),
-            canonical_mutations: repository.clone(),
-            canonical_batches: repository,
+            repository,
             refresh,
             matching,
             host,
@@ -467,6 +389,11 @@ impl ReferenceApplication {
             return Err(ReferenceApplicationError::InvalidRequest);
         }
         let mutation = match mutation {
+            CanonicalReferenceMutation::Archive {
+                canonical_reference_id,
+            } => CanonicalReferenceMutation::Archive {
+                canonical_reference_id: canonical_reference_id.trim().to_owned(),
+            },
             CanonicalReferenceMutation::UpdateMetadata {
                 canonical_reference_id,
                 title,
@@ -498,7 +425,7 @@ impl ReferenceApplication {
                 let normalized_title =
                     normalized_title.or_else(|| title.as_deref().map(normalize_title));
                 CanonicalReferenceMutation::UpdateMetadata {
-                    canonical_reference_id,
+                    canonical_reference_id: canonical_reference_id.trim().to_owned(),
                     title: title.map(|value| value.trim().to_owned()),
                     normalized_title,
                     normalized_title_derived,
@@ -507,7 +434,6 @@ impl ReferenceApplication {
                     identifiers,
                 }
             }
-            mutation => mutation,
         };
         if checkpoint().is_err() {
             return Ok(CanonicalMutationReceipt {
@@ -517,7 +443,7 @@ impl ReferenceApplication {
                 blockers: Vec::new(),
             });
         }
-        self.canonical_mutations.commit(mutation)
+        self.commit_canonical_mutation(&mutation)
     }
 
     pub fn quiesce(&self, timeout: Duration) -> Result<(), String> {
@@ -545,7 +471,7 @@ impl ReferenceApplication {
             Ok(items) => items,
             Err(error) if error == "reverse_host_unavailable" => {
                 if self
-                    .projections
+                    .repository
                     .reference_sources_are_empty()
                     .map_err(|_| ReferenceApplicationError::Unavailable)?
                 {
@@ -593,11 +519,11 @@ impl ReferenceApplication {
             .collect::<Vec<_>>();
         let next = query.cursor.saturating_add(rows.len());
         let (repository_basis_hash, canonical_basis_hash) = self
-            .projections
+            .repository
             .reference_basis_hashes()
             .map_err(|_| ReferenceApplicationError::Unavailable)?;
         let cache_ready = self
-            .projections
+            .repository
             .reference_cache_basis()
             .map_err(|_| ReferenceApplicationError::Unavailable)?
             .is_some_and(|row| row.status != "missing");
@@ -631,7 +557,7 @@ impl ReferenceApplication {
         )?;
         let operation_id = format!("literature-digest:{source_hash}");
         {
-            if let Some(receipt) = self.jobs.reference_operation(&operation_id)?
+            if let Some(receipt) = self.repository.reference_operation(&operation_id)?
                 && matches!(receipt.status.as_str(), "completed" | "succeeded")
             {
                 let mut result = receipt_result_value(&receipt)?;
@@ -794,7 +720,7 @@ impl ReferenceApplication {
         }
         let result = {
             let receipt = self
-                .jobs
+                .repository
                 .reference_operation(&operation_id)?
                 .ok_or_else(|| "operation_receipt_missing".to_owned())?;
             receipt_result_value(&receipt)?
@@ -950,7 +876,7 @@ impl ReferenceApplication {
             .sort_by
             .unwrap_or(ExternalReferenceRankSort::ExternalDegree);
         let (canonicals, raw, bindings, basis, canonical_basis) =
-            self.projections.reference_rank_facts()?;
+            self.repository.reference_rank_facts()?;
         let bound = bindings
             .iter()
             .filter(|binding| binding.status != "revoked")
@@ -1037,7 +963,7 @@ impl ReferenceApplication {
     pub fn attention_queue(&self, request: &ReferenceAttentionRequest) -> Result<Value, String> {
         let query = checked_limit(request.limit, 25, 100)?;
         let (index_ready, proposals, repository_basis, canonical_basis) =
-            self.projections.reference_attention_facts()?;
+            self.repository.reference_attention_facts()?;
         let mut items = Vec::new();
         if !index_ready {
             items.push(json!({
@@ -1098,7 +1024,7 @@ impl ReferenceApplication {
             target_candidates,
             reference_open,
             cleanup_open,
-        ) = self.projections.reference_review_facts(&query)?;
+        ) = self.repository.reference_review_facts(&query)?;
         let cleanup_proposals = cleanup_page
             .records
             .iter()
@@ -1244,7 +1170,7 @@ impl ReferenceApplication {
         let request = serde_json::to_value(decisions).map_err(|_| "invalid_request")?;
         let operation_id = operation_id("reference-proposal-review", &request)?;
         let (existing, basis, source_hash) = self
-            .jobs
+            .repository
             .reference_proposal_review_snapshot(&operation_id, decisions)?;
         if let Some(result) = existing {
             return Ok(with_idempotent(result));
@@ -1313,12 +1239,10 @@ impl ReferenceApplication {
             }),
         )?;
         checkpoint()?;
-        self.canonical_batches.commit_reference_canonical(
-            CanonicalPersistenceCommand::RevisionReview {
-                request,
-                operation_id,
-            },
-        )
+        self.commit_canonical_persistence(CanonicalPersistenceCommand::RevisionReview {
+            request,
+            operation_id,
+        })
     }
 
     pub fn merge_canonical(
@@ -1333,11 +1257,10 @@ impl ReferenceApplication {
         let request_value = serde_json::to_value(&request).map_err(|_| "invalid_request")?;
         let operation_id = operation_id("canonical-merge", &request_value)?;
         checkpoint()?;
-        self.canonical_batches
-            .commit_reference_canonical(CanonicalPersistenceCommand::Merge {
-                request,
-                operation_id,
-            })
+        self.commit_canonical_persistence(CanonicalPersistenceCommand::Merge {
+            request,
+            operation_id,
+        })
     }
 
     pub fn merge_canonical_batch(
@@ -1356,11 +1279,10 @@ impl ReferenceApplication {
             serde_json::to_value(&request.requests).map_err(|_| "invalid_request".to_owned())?;
         let operation_id = operation_id("canonical-merge-batch", &request_value)?;
         checkpoint()?;
-        self.canonical_batches
-            .commit_reference_canonical(CanonicalPersistenceCommand::MergeBatch {
-                request,
-                operation_id,
-            })
+        self.commit_canonical_persistence(CanonicalPersistenceCommand::MergeBatch {
+            request,
+            operation_id,
+        })
     }
 
     fn run_refresh(
@@ -1955,7 +1877,7 @@ impl ReferenceApplication {
             .map(|item| item.paper_ref.clone())
             .collect::<Vec<_>>();
         let (artifacts, raw_references, redirects, bindings) =
-            self.projections.reference_index_facts(&source_refs)?;
+            self.repository.reference_index_facts(&source_refs)?;
         let redirect_graph = ReferenceRedirectGraph::from_records(&redirects)?;
 
         let artifact_by_key = artifacts
@@ -2048,7 +1970,7 @@ impl ReferenceApplication {
     }
 
     fn reference_cache_status(&self) -> Result<Value, String> {
-        let basis = self.projections.reference_cache_basis()?;
+        let basis = self.repository.reference_cache_basis()?;
         let status = basis
             .as_ref()
             .map(|row| row.status.as_str())
@@ -2258,11 +2180,32 @@ impl ReferenceApplication {
     }
 
     fn read_job(&self, operation_id: &str) -> Result<Option<OperationRecord>, String> {
-        self.jobs.reference_operation(operation_id)
+        self.repository.reference_operation(operation_id)
     }
 
     fn write_job(&self, record: &OperationRecord) -> Result<(), String> {
-        self.jobs.write_reference_operation(record)
+        self.repository.write_reference_operation(record)
+    }
+
+    fn commit_canonical_persistence(
+        &self,
+        command: CanonicalPersistenceCommand,
+    ) -> Result<Value, String> {
+        self.repository.with_writer(|repository| {
+            repository.transaction(|repository| execute_canonical_persistence(repository, command))
+        })
+    }
+
+    fn commit_canonical_mutation(
+        &self,
+        mutation: &CanonicalReferenceMutation,
+    ) -> Result<CanonicalMutationReceipt, ReferenceApplicationError> {
+        self.repository
+            .with_writer(|repository| {
+                repository
+                    .transaction(|repository| execute_canonical_mutation(repository, mutation))
+            })
+            .map_err(|_| ReferenceApplicationError::Unavailable)
     }
 }
 pub(crate) fn execute_canonical_persistence(
@@ -2547,6 +2490,216 @@ fn execute_canonical_merge_batch(
         &result,
     )?)?;
     Ok(result)
+}
+
+fn execute_canonical_mutation(
+    repository: &mut Repository,
+    mutation: &CanonicalReferenceMutation,
+) -> Result<CanonicalMutationReceipt, String> {
+    match mutation {
+        CanonicalReferenceMutation::Archive {
+            canonical_reference_id,
+        } => execute_canonical_archive(repository, canonical_reference_id),
+        CanonicalReferenceMutation::UpdateMetadata {
+            canonical_reference_id,
+            title,
+            normalized_title,
+            normalized_title_derived,
+            year,
+            authors,
+            identifiers,
+        } => execute_canonical_metadata_update(
+            repository,
+            canonical_reference_id,
+            title.as_deref(),
+            normalized_title.as_deref(),
+            *normalized_title_derived,
+            year.as_deref(),
+            authors.as_ref(),
+            identifiers.as_ref(),
+        ),
+    }
+}
+
+fn execute_canonical_archive(
+    repository: &mut Repository,
+    canonical_reference_id: &str,
+) -> Result<CanonicalMutationReceipt, String> {
+    let operation_id = operation_id(
+        "canonical-archive",
+        &json!({"canonicalReferenceId":canonical_reference_id}),
+    )?;
+    if repository
+        .get_operation(&operation_id)?
+        .is_some_and(|receipt| matches!(receipt.status.as_str(), "completed" | "succeeded"))
+    {
+        return Ok(CanonicalMutationReceipt {
+            canonical_reference_id: canonical_reference_id.to_owned(),
+            status: CanonicalMutationStatus::Archived,
+            idempotent: true,
+            blockers: Vec::new(),
+        });
+    }
+    let basis = canonical_basis_hash(repository)?;
+    let blockers = canonical_archive_blockers(repository, canonical_reference_id)?;
+    if !blockers.is_empty() {
+        return Ok(CanonicalMutationReceipt {
+            canonical_reference_id: canonical_reference_id.to_owned(),
+            status: CanonicalMutationStatus::Blocked,
+            idempotent: false,
+            blockers,
+        });
+    }
+    let Some(mut canonical) =
+        repository
+            .list_canonical_references()?
+            .into_iter()
+            .find(|canonical| {
+                canonical.canonical_reference_id == canonical_reference_id
+                    && canonical.status == "active"
+            })
+    else {
+        return Ok(CanonicalMutationReceipt {
+            canonical_reference_id: canonical_reference_id.to_owned(),
+            status: CanonicalMutationStatus::MissingCanonical,
+            idempotent: false,
+            blockers: Vec::new(),
+        });
+    };
+    let now = now_string();
+    canonical.status = "archived".into();
+    canonical.updated_at = now;
+    repository.upsert_canonical_reference_record(&canonical)?;
+    repository.upsert_operation(&completed_receipt(
+        &operation_id,
+        "canonical_reference_archive",
+        &basis,
+        &json!({
+            "ok":true,
+            "status":"archived",
+            "canonical_reference_id":canonical_reference_id,
+        }),
+    )?)?;
+    Ok(CanonicalMutationReceipt {
+        canonical_reference_id: canonical_reference_id.to_owned(),
+        status: CanonicalMutationStatus::Archived,
+        idempotent: false,
+        blockers: Vec::new(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_canonical_metadata_update(
+    repository: &mut Repository,
+    canonical_reference_id: &str,
+    title: Option<&str>,
+    normalized_title: Option<&str>,
+    normalized_title_derived: bool,
+    year: Option<&str>,
+    authors: Option<&Vec<String>>,
+    identifiers: Option<&BTreeMap<String, String>>,
+) -> Result<CanonicalMutationReceipt, String> {
+    let request_normalized_title = if normalized_title_derived {
+        Value::Null
+    } else {
+        serde_json::to_value(normalized_title).map_err(|_| "serialization_failed".to_owned())?
+    };
+    let request = json!({
+        "canonicalReferenceId":canonical_reference_id,
+        "patch":{
+            "title":title,
+            "normalizedTitle":request_normalized_title,
+            "year":year,
+            "authors":authors,
+            "identifiers":identifiers,
+        },
+    });
+    let operation_id = operation_id("canonical-metadata", &request)?;
+    if repository
+        .get_operation(&operation_id)?
+        .is_some_and(|receipt| matches!(receipt.status.as_str(), "completed" | "succeeded"))
+    {
+        return Ok(CanonicalMutationReceipt {
+            canonical_reference_id: canonical_reference_id.to_owned(),
+            status: CanonicalMutationStatus::Updated,
+            idempotent: true,
+            blockers: Vec::new(),
+        });
+    }
+    let basis = canonical_basis_hash(repository)?;
+    let Some(mut canonical) =
+        repository
+            .list_canonical_references()?
+            .into_iter()
+            .find(|canonical| {
+                canonical.canonical_reference_id == canonical_reference_id
+                    && canonical.status == "active"
+            })
+    else {
+        return Ok(CanonicalMutationReceipt {
+            canonical_reference_id: canonical_reference_id.to_owned(),
+            status: CanonicalMutationStatus::MissingCanonical,
+            idempotent: false,
+            blockers: Vec::new(),
+        });
+    };
+    if repository.list_reference_bindings()?.iter().any(|binding| {
+        binding.canonical_reference_id == canonical_reference_id && binding.status != "revoked"
+    }) {
+        return Ok(CanonicalMutationReceipt {
+            canonical_reference_id: canonical_reference_id.to_owned(),
+            status: CanonicalMutationStatus::BoundToZotero,
+            idempotent: false,
+            blockers: vec!["binding".into()],
+        });
+    }
+    if let Some(title) = title {
+        canonical.title = title.into();
+        if normalized_title.is_none() {
+            canonical.normalized_title = normalize_title(title);
+        }
+    }
+    if let Some(normalized_title) = normalized_title {
+        canonical.normalized_title = normalized_title.into();
+    }
+    if let Some(year) = year {
+        canonical.year = year.into();
+    }
+    if let Some(authors) = authors {
+        canonical.authors_json =
+            serde_json::to_string(authors).map_err(|_| "serialization_failed".to_owned())?;
+    }
+    if let Some(identifiers) = identifiers {
+        canonical.identifiers_json =
+            serde_json::to_string(identifiers).map_err(|_| "serialization_failed".to_owned())?;
+    }
+    canonical.metadata_hash = canonical_json_hash(&json!({
+        "title":canonical.title,
+        "normalizedTitle":canonical.normalized_title,
+        "year":canonical.year,
+        "authors":serde_json::from_str::<Value>(&canonical.authors_json).unwrap_or(json!([])),
+        "identifiers":serde_json::from_str::<Value>(&canonical.identifiers_json).unwrap_or(json!({})),
+    }))?;
+    let now = now_string();
+    canonical.updated_at = now.clone();
+    repository.upsert_canonical_reference_record(&canonical)?;
+    repository.mark_reference_dependent_caches_stale("canonical_metadata_update", &now)?;
+    repository.upsert_operation(&completed_receipt(
+        &operation_id,
+        "canonical_reference_metadata",
+        &basis,
+        &json!({
+            "ok":true,
+            "status":"updated",
+            "canonical_reference_id":canonical_reference_id,
+        }),
+    )?)?;
+    Ok(CanonicalMutationReceipt {
+        canonical_reference_id: canonical_reference_id.to_owned(),
+        status: CanonicalMutationStatus::Updated,
+        idempotent: false,
+        blockers: Vec::new(),
+    })
 }
 
 fn operation_result_event(
@@ -3754,7 +3907,9 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
     use synthesis_repository::{
-        CanonicalReferenceRecord, ReferenceRevisionReviewRecord, RepositoryIdentity,
+        CanonicalReferenceRecord, RawReferenceRecord, ReferenceBindingFactRecord,
+        ReferenceProjectionReplacement, ReferenceProjectionScope, ReferenceRevisionReviewRecord,
+        RepositoryIdentity,
     };
 
     #[derive(Clone)]
@@ -4671,6 +4826,164 @@ mod tests {
             .expect("archive replay");
         assert_eq!(replayed.status, CanonicalMutationStatus::Archived);
         assert!(replayed.idempotent);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn update_metadata_trims_canonical_reference_id_like_archive() {
+        let root = test_root("canonical-metadata-trim");
+        let host = Arc::new(FakeHost::new());
+        let fail = Arc::new(AtomicBool::new(false));
+        seed_canonical_review_fixture(&root);
+        let app = application(&root, host, fail);
+
+        let updated = app
+            .mutate_canonicals(
+                CanonicalReferenceMutation::UpdateMetadata {
+                    canonical_reference_id: "  e  ".into(),
+                    title: Some("Trimmed E".into()),
+                    normalized_title: None,
+                    normalized_title_derived: false,
+                    year: None,
+                    authors: None,
+                    identifiers: None,
+                },
+                &|| Ok(()),
+            )
+            .expect("padded metadata update");
+        assert_eq!(updated.status, CanonicalMutationStatus::Updated);
+        assert_eq!(updated.canonical_reference_id, "e");
+
+        let replayed = app
+            .mutate_canonicals(
+                CanonicalReferenceMutation::UpdateMetadata {
+                    canonical_reference_id: "e".into(),
+                    title: Some("Trimmed E".into()),
+                    normalized_title: None,
+                    normalized_title_derived: false,
+                    year: None,
+                    authors: None,
+                    identifiers: None,
+                },
+                &|| Ok(()),
+            )
+            .expect("trimmed replay");
+        assert_eq!(replayed.status, CanonicalMutationStatus::Updated);
+        assert!(replayed.idempotent);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn seed_canonical_mutation_fixture(root: &Path) {
+        let mut repository = Repository::open(
+            root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("repository fixture");
+        repository
+            .replace_reference_projection(&ReferenceProjectionReplacement {
+                expected_reference_hash: None,
+                reference_hash: format!("sha256:{}", "9".repeat(64)),
+                input_hash: format!("sha256:{}", "8".repeat(64)),
+                scope: ReferenceProjectionScope::Sources,
+                raw_references: vec![RawReferenceRecord {
+                    raw_reference_id: "raw:1".into(),
+                    source_ref: "1:AAAA1111".into(),
+                    canonical_reference_id: "raw-bound".into(),
+                    status: "active".into(),
+                    ..RawReferenceRecord::default()
+                }],
+                canonicals: vec![canonical("raw-bound"), canonical("zotero-bound")],
+                bindings: vec![ReferenceBindingFactRecord {
+                    binding_id: "binding:1".into(),
+                    canonical_reference_id: "zotero-bound".into(),
+                    library_id: 1,
+                    item_key: "AAAA1111".into(),
+                    status: "active".into(),
+                    reviewer: "fixture".into(),
+                    ..ReferenceBindingFactRecord::default()
+                }],
+                now: "1".into(),
+                ..ReferenceProjectionReplacement::default()
+            })
+            .expect("mutation fixture projection");
+    }
+
+    #[test]
+    fn canonical_mutations_report_blocked_bound_and_missing_outcomes() {
+        let root = test_root("canonical-mutation-outcomes");
+        seed_canonical_mutation_fixture(&root);
+        let app = application(
+            &root,
+            Arc::new(FakeHost::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let blocked = app
+            .mutate_canonicals(
+                CanonicalReferenceMutation::Archive {
+                    canonical_reference_id: "raw-bound".into(),
+                },
+                &|| Ok(()),
+            )
+            .expect("blocked archive");
+        assert_eq!(blocked.status, CanonicalMutationStatus::Blocked);
+        assert!(
+            blocked
+                .blockers
+                .iter()
+                .any(|blocker| blocker == "raw_reference")
+        );
+
+        let bound = app
+            .mutate_canonicals(
+                CanonicalReferenceMutation::UpdateMetadata {
+                    canonical_reference_id: "zotero-bound".into(),
+                    title: Some("Retitled".into()),
+                    normalized_title: None,
+                    normalized_title_derived: false,
+                    year: None,
+                    authors: None,
+                    identifiers: None,
+                },
+                &|| Ok(()),
+            )
+            .expect("bound metadata update");
+        assert_eq!(bound.status, CanonicalMutationStatus::BoundToZotero);
+        assert!(bound.blockers.iter().any(|blocker| blocker == "binding"));
+
+        let missing_archive = app
+            .mutate_canonicals(
+                CanonicalReferenceMutation::Archive {
+                    canonical_reference_id: "absent".into(),
+                },
+                &|| Ok(()),
+            )
+            .expect("missing archive");
+        assert_eq!(
+            missing_archive.status,
+            CanonicalMutationStatus::MissingCanonical
+        );
+        let missing_update = app
+            .mutate_canonicals(
+                CanonicalReferenceMutation::UpdateMetadata {
+                    canonical_reference_id: "absent".into(),
+                    title: Some("Retitled".into()),
+                    normalized_title: None,
+                    normalized_title_derived: false,
+                    year: None,
+                    authors: None,
+                    identifiers: None,
+                },
+                &|| Ok(()),
+            )
+            .expect("missing metadata update");
+        assert_eq!(
+            missing_update.status,
+            CanonicalMutationStatus::MissingCanonical
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 

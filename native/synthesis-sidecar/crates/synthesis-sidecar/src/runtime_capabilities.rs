@@ -5,7 +5,7 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use synthesis_application::{CanonicalStorePort, debug_maintenance::DebugCanonicalPort};
+use synthesis_application::CanonicalStorePort;
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
 use crate::runtime_diagnostics::{
@@ -655,8 +655,12 @@ pub(crate) fn handle_connection(
                 let Some(topic_id) = call.payload["topicId"].as_str() else {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 };
-                let data = serde_json::to_value(state.canonical.inspect(topic_id)?)
-                    .map_err(|_| "canonical_inspection_invalid".to_owned())?;
+                let data = state
+                    .canonical
+                    .owner()
+                    .lock()
+                    .map_err(|_| "canonical_store_unavailable".to_owned())?
+                    .inspect(topic_id)?;
                 bounded_response(
                     &mut stream,
                     200,
