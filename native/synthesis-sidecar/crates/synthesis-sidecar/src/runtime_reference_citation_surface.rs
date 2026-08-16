@@ -87,6 +87,19 @@ fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
     checkpoint_current_before_promotion(apps)
 }
 
+fn command_failure(status: &str, code: &str, message: &str, details: Value) -> Value {
+    json!({
+        "ok":false,
+        "status":status,
+        "diagnostics":[{
+            "code":code,
+            "severity":"error",
+            "message":message,
+            "details":details,
+        }],
+    })
+}
+
 fn reference_review_decision(
     decision: ReferenceReviewDecisionWire,
 ) -> Result<ReferenceReviewDecision, String> {
@@ -256,22 +269,18 @@ pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry]
                 "status":"updated",
                 "canonical_reference_id":receipt.canonical_reference_id,
             }),
-            CanonicalMutationStatus::MissingCanonical => json!({
-                "ok":false,
-                "status":"missing_canonical",
-                "error":{
-                    "code":"canonical_metadata_missing_canonical",
-                    "details":{"canonicalReferenceId":receipt.canonical_reference_id},
-                },
-            }),
-            CanonicalMutationStatus::BoundToZotero => json!({
-                "ok":false,
-                "status":"bound_to_zotero",
-                "error":{
-                    "code":"canonical_metadata_bound_to_zotero",
-                    "details":{"canonicalReferenceId":receipt.canonical_reference_id},
-                },
-            }),
+            CanonicalMutationStatus::MissingCanonical => command_failure(
+                "missing_canonical",
+                "canonical_metadata_missing_canonical",
+                "Canonical reference must be active.",
+                json!({"canonicalReferenceId":receipt.canonical_reference_id}),
+            ),
+            CanonicalMutationStatus::BoundToZotero => command_failure(
+                "bound_to_zotero",
+                "canonical_metadata_bound_to_zotero",
+                "Bound canonical references inherit Zotero display facts and cannot be edited here.",
+                json!({"canonicalReferenceId":receipt.canonical_reference_id}),
+            ),
             CanonicalMutationStatus::Stopping => return Err("operation_canceled".into()),
             _ => return Err("canonical_mutation_result_invalid".into()),
         };
@@ -298,25 +307,21 @@ pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry]
                 "status":"archived",
                 "canonical_reference_id":receipt.canonical_reference_id,
             }),
-            CanonicalMutationStatus::Blocked => json!({
-                "ok":false,
-                "status":"blocked",
-                "error":{
-                    "code":"canonical_archive_blocked",
-                    "details":{
-                        "canonicalReferenceId":receipt.canonical_reference_id,
-                        "blockers":receipt.blockers,
-                    },
-                },
-            }),
-            CanonicalMutationStatus::MissingCanonical => json!({
-                "ok":false,
-                "status":"missing_canonical",
-                "error":{
-                    "code":"canonical_archive_missing_canonical",
-                    "details":{"canonicalReferenceId":receipt.canonical_reference_id},
-                },
-            }),
+            CanonicalMutationStatus::Blocked => command_failure(
+                "blocked",
+                "canonical_archive_blocked",
+                "Canonical reference is not empty and cannot be archived.",
+                json!({
+                    "canonicalReferenceId":receipt.canonical_reference_id,
+                    "blockers":receipt.blockers,
+                }),
+            ),
+            CanonicalMutationStatus::MissingCanonical => command_failure(
+                "missing_canonical",
+                "canonical_archive_missing_canonical",
+                "Canonical reference must be active.",
+                json!({"canonicalReferenceId":receipt.canonical_reference_id}),
+            ),
             CanonicalMutationStatus::Stopping => return Err("operation_canceled".into()),
             CanonicalMutationStatus::Updated | CanonicalMutationStatus::BoundToZotero => {
                 return Err("canonical_mutation_result_invalid".into());
@@ -593,6 +598,27 @@ mod tests {
             ),
             Err("invalid_request".into()),
         );
+        for (capability, args, expected_code) in [
+            (
+                "client.updateCanonicalReferenceMetadata",
+                json!({
+                    "canonicalReferenceId":"canonical:missing",
+                    "patch":{"title":"Title"},
+                }),
+                "canonical_metadata_missing_canonical",
+            ),
+            (
+                "client.archiveCanonicalReference",
+                json!({"canonicalReferenceId":"canonical:missing"}),
+                "canonical_archive_missing_canonical",
+            ),
+        ] {
+            let result = dispatch_owned(&apps, capability, &[args]).expect("command result");
+            assert_eq!(result["ok"], false);
+            assert!(result.get("error").is_none());
+            assert_eq!(result["diagnostics"][0]["code"], expected_code);
+            assert_eq!(result["diagnostics"][0]["severity"], "error");
+        }
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }

@@ -51,7 +51,8 @@ None.
 - `synthesis-sidecar-stage1-node-milestone-gate`: Replace the transitional
   development-only Node allowance with a zero-Node source/build/runtime rule.
 - `synthesis-sidecar-runtime-packaging`: Remove Node-era build and inventory
-  surfaces and retain only manifest-v2 Rust delivery.
+  surfaces and retain only manifest-v3 Rust bundle delivery through the fixed
+  XPI `current` installation.
 - `synthesis-worker-source-build-parity`: Retire TypeScript/Node worker build
   parity and make Rust source/build/operation parity the only worker gate.
 - `synthesis-sidecar-service-boundary`: Make the Rust executable the sole

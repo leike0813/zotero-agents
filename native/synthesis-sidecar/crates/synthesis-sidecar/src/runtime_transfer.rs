@@ -1,13 +1,20 @@
+use crate::runtime_background_tasks::BackgroundTaskOwner;
+use crate::runtime_contract::current_time_ms;
+use crate::runtime_diagnostics::{
+    NativeDiagnosticEvent, child_observation_context, emit_debug, with_observation_context,
+};
+use crate::runtime_lifecycle::StopSignal;
 use crate::runtime_worker_pool::{
-    PagedInputFrame, PagedInputSource, PagedOutputCommit, PagedOutputFrame, PagedOutputSink,
+    NativeComputePool, PagedInputFrame, PagedInputSource, PagedOutputCommit, PagedOutputFrame,
+    PagedOutputSink, WorkerOperation,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use synthesis_protocol::{
     CITATION_GRAPH_BUILD_TRANSFER_OPERATION, PageDescriptor, canonical_json, canonical_sha256,
     paged_request_hash,
@@ -336,6 +343,142 @@ pub(crate) struct TransferExecution {
     pub(crate) status: Value,
     pub(crate) source: TransferInputSource,
     pub(crate) sink: TransferOutputSink,
+}
+
+pub(crate) fn dispatch_transfer_action(
+    transfer: &Arc<Mutex<NativeTransferOwner>>,
+    compute_pool: &Arc<NativeComputePool>,
+    background_tasks: &Arc<BackgroundTaskOwner>,
+    stop_signal: &StopSignal,
+    action: Value,
+) -> Result<Value, String> {
+    emit_debug(|| {
+        NativeDiagnosticEvent::new("batch", "dispatch", "started")
+            .capability("compute.citation_graph_build_transfer")
+    });
+    let dispatch = transfer
+        .lock()
+        .map_err(|_| "transfer_unavailable".to_owned())?
+        .handle(action, current_time_ms()?);
+    emit_debug(|| {
+        let event = NativeDiagnosticEvent::new(
+            "batch",
+            "dispatch-terminal",
+            if dispatch.is_ok() {
+                "succeeded"
+            } else {
+                "failed"
+            },
+        )
+        .capability("compute.citation_graph_build_transfer");
+        match &dispatch {
+            Ok(_) => event,
+            Err(code) => event.code(code),
+        }
+    });
+    match dispatch? {
+        TransferDispatch::Response(data) => Ok(data),
+        TransferDispatch::Execute(execution) => queue_transfer_execution(
+            transfer,
+            compute_pool,
+            background_tasks,
+            stop_signal,
+            *execution,
+        ),
+    }
+}
+
+fn queue_transfer_execution(
+    transfer: &Arc<Mutex<NativeTransferOwner>>,
+    compute_pool: &Arc<NativeComputePool>,
+    background_tasks: &Arc<BackgroundTaskOwner>,
+    stop_signal: &StopSignal,
+    execution: TransferExecution,
+) -> Result<Value, String> {
+    let TransferExecution {
+        status,
+        mut source,
+        mut sink,
+    } = execution;
+    let (session_id, attempt) = source.identity();
+    let session_id = session_id.to_owned();
+    let cancellation = source.cancellation();
+    let mut reservation = match compute_pool.reserve() {
+        Ok(reservation) => reservation,
+        Err(code) => {
+            if let Ok(mut owner) = transfer.lock() {
+                owner.reject_queued(&session_id, attempt, current_time_ms().unwrap_or_default());
+            }
+            return Err(code.to_owned());
+        }
+    };
+    let transfer_for_attempt = Arc::clone(transfer);
+    let compute_pool_for_attempt = Arc::clone(compute_pool);
+    let stop_signal_for_attempt = stop_signal.clone();
+    let attempt_trace = child_observation_context();
+    let attempt_cancellation = Arc::clone(&cancellation);
+    let session_id_for_attempt = session_id.clone();
+    let spawn_result = background_tasks.spawn(
+        format!("synthesis-transfer-{attempt}"),
+        attempt_cancellation,
+        move || {
+            with_observation_context(attempt_trace.as_ref(), || {
+                emit_debug(|| {
+                    NativeDiagnosticEvent::new("batch", "attempt", "started")
+                        .capability("compute.citation_graph_build_transfer")
+                });
+                let result = match reservation
+                    .wait(stop_signal_for_attempt.stopping_flag(), &cancellation)
+                {
+                    Ok(()) => {
+                        let now_ms = current_time_ms().unwrap_or_default();
+                        if let Ok(mut owner) = transfer_for_attempt.lock() {
+                            owner.mark_executing(&session_id_for_attempt, attempt, now_ms);
+                        }
+                        compute_pool_for_attempt.run_paged(
+                            WorkerOperation::CitationGraphBuildTransfer,
+                            &mut source,
+                            &mut sink,
+                            &cancellation,
+                        )
+                    }
+                    Err(code) => Err(code.to_owned()),
+                };
+                drop(reservation);
+                emit_debug(|| {
+                    let event = NativeDiagnosticEvent::new(
+                        "batch",
+                        "attempt-terminal",
+                        if result.is_ok() {
+                            "succeeded"
+                        } else {
+                            "failed"
+                        },
+                    )
+                    .capability("compute.citation_graph_build_transfer");
+                    match &result {
+                        Ok(_) => event,
+                        Err(code) => event.code(code),
+                    }
+                });
+                if let Ok(mut owner) = transfer_for_attempt.lock() {
+                    owner.finish_attempt(
+                        &session_id_for_attempt,
+                        attempt,
+                        result,
+                        current_time_ms().unwrap_or_default(),
+                    );
+                }
+            })
+        },
+    );
+    if let Err(code) = spawn_result {
+        if let Ok(mut owner) = transfer.lock() {
+            owner.reject_queued(&session_id, attempt, current_time_ms().unwrap_or_default());
+        }
+        return Err(code);
+    }
+    Ok(status)
 }
 
 #[derive(Clone)]

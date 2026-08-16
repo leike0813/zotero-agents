@@ -372,6 +372,30 @@ pub struct RepositoryPort {
     readers: Option<Arc<RepositoryReadPool>>,
 }
 
+type ReferenceRankFacts = (
+    Vec<CanonicalReferenceRecord>,
+    Vec<RawReferenceRecord>,
+    Vec<ReferenceBindingFactRecord>,
+    String,
+    String,
+);
+
+type ReferenceReviewFacts = (
+    ReviewPage<ReferenceRevisionReviewRecord>,
+    ReviewPage<ReferenceMatchProposalRecord>,
+    Vec<CanonicalReferenceRecord>,
+    Vec<CanonicalReferenceRecord>,
+    usize,
+    usize,
+);
+
+type ReferenceIndexFacts = (
+    Vec<ReferenceArtifactRecord>,
+    Vec<RawReferenceRecord>,
+    Vec<ReferenceRedirectFactRecord>,
+    Vec<ReferenceBindingFactRecord>,
+);
+
 impl RepositoryPort {
     pub fn new(repository: Arc<Mutex<Repository>>) -> Self {
         Self {
@@ -490,18 +514,7 @@ impl RepositoryPort {
             .upsert_operation(record)
     }
 
-    pub(crate) fn reference_rank_facts(
-        &self,
-    ) -> Result<
-        (
-            Vec<CanonicalReferenceRecord>,
-            Vec<RawReferenceRecord>,
-            Vec<ReferenceBindingFactRecord>,
-            String,
-            String,
-        ),
-        String,
-    > {
+    pub(crate) fn reference_rank_facts(&self) -> Result<ReferenceRankFacts, String> {
         self.with_reader(|repository| {
             Ok((
                 repository.list_canonical_references()?,
@@ -529,17 +542,7 @@ impl RepositoryPort {
     pub(crate) fn reference_review_facts(
         &self,
         query: &ReviewPageQuery,
-    ) -> Result<
-        (
-            ReviewPage<ReferenceRevisionReviewRecord>,
-            ReviewPage<ReferenceMatchProposalRecord>,
-            Vec<CanonicalReferenceRecord>,
-            Vec<CanonicalReferenceRecord>,
-            usize,
-            usize,
-        ),
-        String,
-    > {
+    ) -> Result<ReferenceReviewFacts, String> {
         self.with_reader(|repository| {
             let cleanup_page = repository.list_reference_revision_reviews_for_review(query)?;
             let match_page = repository.list_reference_match_proposals_for_review(query)?;
@@ -590,15 +593,7 @@ impl RepositoryPort {
     pub(crate) fn reference_index_facts(
         &self,
         source_refs: &[String],
-    ) -> Result<
-        (
-            Vec<ReferenceArtifactRecord>,
-            Vec<RawReferenceRecord>,
-            Vec<ReferenceRedirectFactRecord>,
-            Vec<ReferenceBindingFactRecord>,
-        ),
-        String,
-    > {
+    ) -> Result<ReferenceIndexFacts, String> {
         self.with_reader(|repository| {
             let artifacts = repository.list_reference_artifacts(source_refs)?;
             let raw_references = repository
@@ -1343,6 +1338,20 @@ pub struct CanonicalStorePort {
 impl CanonicalStorePort {
     pub fn new(store: Arc<Mutex<CanonicalStore>>) -> Self {
         Self { store }
+    }
+
+    pub fn store_id(&self) -> Result<String, String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())
+            .map(|store| store.store_id().to_owned())
+    }
+
+    pub fn inspect_descriptor(&self, topic_id: &str) -> Result<Value, String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .inspect(topic_id)
     }
 
     pub fn owner(&self) -> Arc<Mutex<CanonicalStore>> {

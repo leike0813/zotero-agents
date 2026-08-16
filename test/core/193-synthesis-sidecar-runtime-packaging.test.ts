@@ -460,6 +460,32 @@ describe("Synthesis sidecar native runtime packaging", function () {
     );
   });
 
+  it("finalizes the release through the seven-target runtime synchronizer", function () {
+    const workflow = parseYaml(
+      fs.readFileSync(
+        path.join(ROOT, ".github/workflows/release-synthesis-sidecar.yml"),
+        "utf8",
+      ),
+    ) as {
+      jobs?: {
+        materialize?: {
+          steps?: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const finalize = workflow.jobs?.materialize?.steps?.find(
+      (step) => step.name === "Finalize source main",
+    );
+
+    assert.exists(finalize);
+    assert.include(
+      finalize?.run,
+      "npm run sync:synthesis-sidecar-runtime-prebuilds",
+    );
+    assert.include(finalize?.run, "--addon-root=.finalize/addon/bin");
+    assert.notInclude(finalize?.run, "cp -a addon/bin/synthesis-sidecar");
+  });
+
   it("binds and synchronizes an exact content-addressed seven-target set transactionally", async function () {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-prebuild-set-"));
     const input = path.join(root, "input");

@@ -78,10 +78,11 @@ jobs:
           git worktree add .finalize origin/main
           changed="$(git -C .finalize diff --name-only '${{ inputs.source_sha }}..HEAD' -- native/synthesis-sidecar packages/synthesis-contracts/src/sidecarRuntimeBundle.ts scripts/synthesis-sidecar-runtime-* .github/workflows/prebuild-synthesis-sidecar-runtime.yml)"
           test -z "$changed"
-          cp -a addon/bin/synthesis-sidecar .finalize/addon/bin/
+          aggregate="$(jq -r .prebuild.aggregate synthesis-sidecar/release-set.json)"
+          npm run sync:synthesis-sidecar-runtime-prebuilds -- --aggregate="$aggregate" --store-root=prebuild-store --result=prebuild-result.json --repo="$GITHUB_REPOSITORY" --source-sha="${{ inputs.source_sha }}" --addon-root=.finalize/addon/bin
           mkdir -p .finalize/synthesis-sidecar
           cp synthesis-sidecar/release-set.json synthesis-sidecar/latest-complete-release-receipt.json .finalize/synthesis-sidecar/
-          git -C .finalize add addon/bin/synthesis-sidecar synthesis-sidecar
+          git -C .finalize add -A addon/bin synthesis-sidecar
           git -C .finalize diff --cached --check
           git -C .finalize config user.name github-actions[bot]
           git -C .finalize config user.email 41898282+github-actions[bot]@users.noreply.github.com

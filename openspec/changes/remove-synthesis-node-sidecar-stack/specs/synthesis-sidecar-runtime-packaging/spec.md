@@ -8,7 +8,7 @@ SBOM/license inventory, and product license for each supported target. They
 MUST exclude Node/npm executables or archives, JavaScript service/package
 trees, Node manifests or entrypoints, D3 runtime files, undeclared binaries,
 and implementation selectors. Per-target compressed runtime size MUST remain
-at or below 15 MiB, the five-target total at or below 75 MiB, and final
+at or below 15 MiB, the seven-target aggregate at or below 75 MiB, and final
 universal XPI size at or below 100 MiB.
 
 #### Scenario: Native XPI inventory is inspected

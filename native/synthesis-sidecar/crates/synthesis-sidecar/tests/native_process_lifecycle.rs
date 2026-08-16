@@ -13,6 +13,7 @@ use synthesis_canonical_store::{
     CanonicalIdentity, CanonicalStore, CanonicalTopicDraft, PreparedCanonicalPromotion,
     prepare_topic,
 };
+use synthesis_protocol::{canonical_json, canonical_sha256};
 use synthesis_repository::{DurableImportApply, DurableTopicBasis, Repository, RepositoryIdentity};
 use synthesis_sidecar::{ServePhase, serve};
 
@@ -600,4 +601,127 @@ fn canonical_inspect_serves_the_raw_topic_descriptor_shape() {
 
     drop(reverse_host);
     fs::remove_dir_all(root).expect("remove canonical inspect root");
+}
+
+#[test]
+fn transfer_execution_completes_through_the_real_http_lifecycle() {
+    let root = test_root("transfer-execution");
+    let reverse_host = ReverseHost::start();
+    let (config_path, discovery_path, lifecycle_token) =
+        write_launch_config(&root, reverse_host.port);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_synthesis-sidecar"))
+        .arg("serve")
+        .arg("--config")
+        .arg(&config_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("spawn sidecar");
+
+    let discovery = wait_for_discovery(&mut child, &discovery_path);
+    let port = discovery["port"].as_u64().expect("discovery port") as u16;
+    let client_token = "7".repeat(64);
+    let empty_rows = json!([]);
+    let empty_rows_bytes = canonical_json(&empty_rows)
+        .expect("canonical empty rows")
+        .len();
+    let empty_rows_hash = canonical_sha256(&empty_rows).expect("empty rows hash");
+    let pages = ["library_nodes", "references"].map(|kind| {
+        json!({
+            "descriptor":{
+                "kind":kind,
+                "pageIndex":0,
+                "rowCount":0,
+                "byteLength":empty_rows_bytes,
+                "sha256":empty_rows_hash,
+            },
+            "rows":empty_rows,
+        })
+    });
+    let manifest_body = json!({
+        "transferVersion":"synthesis-citation-graph-build-transfer.v1",
+        "encoding":"canonical_json_rows.v1",
+        "direction":"input",
+        "header":{
+            "contractVersion":"synthesis-citation-graph-build.v1",
+            "scope":{"kind":"full","sourceIds":[]},
+            "rolePriority":[],
+        },
+        "pages":pages.iter().map(|page| page["descriptor"].clone()).collect::<Vec<_>>(),
+    });
+    let mut manifest = manifest_body.clone();
+    manifest["rootSha256"] =
+        Value::String(canonical_sha256(&manifest_body).expect("canonical manifest hash"));
+    let begun = call(
+        port,
+        &client_token,
+        "transfer-begin",
+        "compute.citation_graph_build_transfer",
+        json!({
+            "action":"begin",
+            "idempotencyKey":"native-process-lifecycle",
+            "manifest":manifest,
+        }),
+    );
+    assert_eq!(begun["ok"], true, "begin response: {begun}");
+    let session_id = begun["data"]["sessionId"]
+        .as_str()
+        .expect("transfer session id");
+    for (page_index, page) in pages.into_iter().enumerate() {
+        let staged = call(
+            port,
+            &client_token,
+            &format!("transfer-page-{page_index}"),
+            "compute.citation_graph_build_transfer",
+            json!({"action":"put_input_page","sessionId":session_id,"page":page}),
+        );
+        assert_eq!(staged["ok"], true, "stage response: {staged}");
+    }
+    let sealed = call(
+        port,
+        &client_token,
+        "transfer-seal",
+        "compute.citation_graph_build_transfer",
+        json!({"action":"seal_input","sessionId":session_id}),
+    );
+    assert_eq!(sealed["data"]["state"], "input_sealed");
+    let accepted = call(
+        port,
+        &client_token,
+        "transfer-execute",
+        "compute.citation_graph_build_transfer",
+        json!({"action":"execute","sessionId":session_id}),
+    );
+    assert_eq!(accepted["ok"], true);
+    assert!(matches!(
+        accepted["data"]["state"].as_str(),
+        Some("queued" | "executing" | "publishing" | "completed")
+    ));
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = call(
+            port,
+            &client_token,
+            "transfer-status",
+            "compute.citation_graph_build_transfer",
+            json!({"action":"status","sessionId":session_id}),
+        );
+        if status["data"]["state"] == "completed" {
+            assert_eq!(status["data"]["execution"]["lastFailure"], Value::Null);
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "transfer completion deadline; last status: {status}"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(shutdown(port, &lifecycle_token)["ok"], true);
+    assert!(wait_for_exit(&mut child).success());
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove transfer lifecycle root");
 }

@@ -37,3 +37,16 @@ returning the failure.
 - **WHEN** an artifact read fails after `prepare_refresh`
 - **THEN** the preparation operation is no longer running
 - **AND** retry in the same sidecar process can prepare and promote normally
+
+### Requirement: Canonical inspection SHALL remain behind the application port
+
+The authenticated runtime ingress SHALL obtain canonical store identity and raw
+topic descriptors through narrow `CanonicalStorePort` operations. It SHALL NOT
+acquire the canonical storage owner or lock. This internal seam change SHALL
+preserve the existing `topics.canonical.inspect` request, result, error, and
+response-bound behavior.
+
+#### Scenario: A raw topic descriptor is inspected
+- **WHEN** an authenticated caller inspects an existing or absent topic
+- **THEN** the result preserves the current raw descriptor fields and bounded response behavior
+- **AND** the runtime adapter does not need canonical storage ownership

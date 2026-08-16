@@ -51,6 +51,7 @@ function assertOwnership(root: string) {
   const pool = read("runtime_worker_pool.rs");
   const service = read("runtime_service.rs");
   const transport = read("runtime_server_loop.rs");
+  const capabilities = read("runtime_capabilities.rs");
   const library = read("lib.rs");
   const main = read("main.rs");
   const workerPoolTest = fs.readFileSync(
@@ -111,6 +112,12 @@ function assertOwnership(root: string) {
     !transport.includes("fn drain")
   ) {
     errors.push("transport_missing_bounded_connection_ownership");
+  }
+  if (/canonical\s*\.owner\s*\(/u.test(capabilities)) {
+    errors.push("capability_ingress_acquires_canonical_owner");
+  }
+  if (capabilities.includes("TransferDispatch::Execute")) {
+    errors.push("capability_ingress_owns_transfer_execution");
   }
   if (
     !library.includes("mod runtime_service;") ||

@@ -47,8 +47,8 @@ gates that make future changes safe.
   code before deleting it.
 - Prune environment-neutral TypeScript packages by current reachability while
   retaining contracts and pure plugin-required logic.
-- Make Rust source/build/operation parity and native manifest-v2 packaging the
-  only service/worker delivery path.
+- Make Rust source/build/operation parity and native manifest-v3 bundles in the
+  fixed XPI `current` installation the only service/worker delivery path.
 - Prove final source, package, and XPI inventories exclude Node, npm,
   JavaScript service, D3 runtime, and implementation toggles.
 - Define and pass the full R9/Stage-1 cross-platform and real-machine acceptance
@@ -165,13 +165,13 @@ guard. Final source/package/XPI checks fail on:
 
 - `apps/synthesis-service` or another JavaScript service entrypoint;
 - Node/npm executables, archives, package trees, v1 manifests, `nodeVersion`,
-  JavaScript `entrypoint`, or Node active/previous pointers;
+  JavaScript `entrypoint`, or the legacy active/previous pointer mechanism;
 - D3 runtime packages or copied runtime assets;
 - legacy implementation selectors or fallback configuration;
 - undeclared/missing/stale Rust binaries, manifests, provenance, SBOM/license
   files, signatures where required, or fingerprint mismatch;
-- per-target compressed size above 15 MiB, five-target total above 75 MiB, or
-  final XPI above 100 MiB.
+- per-target compressed size above 15 MiB, seven-target aggregate above 75 MiB,
+  or final XPI above 100 MiB.
 
 The check expresses current native-only policy and does not preserve Node-era
 inventory formats.

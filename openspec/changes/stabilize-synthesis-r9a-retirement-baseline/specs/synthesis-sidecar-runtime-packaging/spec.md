@@ -29,5 +29,5 @@ path object rooted at `runtime/synthesis/service-runtime`.
 
 #### Scenario: Production runtime starts
 - **WHEN** the packaged bundle is installed and a profile session is created
-- **THEN** active pointers, versions, profiles, sessions, and discovery use the same single runtime root
+- **THEN** the fixed `current` installation, profiles, sessions, and discovery use the same single runtime root
 - **AND** no `synthesis/service-runtime/synthesis/service-runtime` path is read or written

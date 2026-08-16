@@ -37,6 +37,13 @@ This change is the non-destructive prerequisite for both R9b deletion changes.
 It does not remove retained implementations and does not publish or dispatch a
 release workflow.
 
+Later application-seam deepening changed the Rust source identity after the
+original candidate was recorded. Before collecting replacement evidence, the
+remaining HTTP ingress shall stop reaching through `CanonicalStorePort` to its
+raw owner and the formal release finalizer shall use the current platform-first
+asset layout. These are bounded current-state repairs, not a new lifecycle or
+ownership model.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -245,6 +252,26 @@ canonical source and target Zotero item identity. The application sorts and
 checks the combined two-pass result by `semanticKey`, so an exact duplicate
 fails before preparation persistence but different semantic actions for one
 pair remain eligible for atomic promotion.
+
+### 12. Close the current Rust ingress and release-finalization seams before rebinding evidence
+
+`runtime_capabilities` remains a private authenticated ingress adapter. It may
+use narrow methods on the existing application ports, but it must not acquire a
+canonical-store owner or storage lock. Raw canonical topic inspection therefore
+stays behind `CanonicalStorePort`, while retaining the current public JSON
+descriptor and stable error behavior. Transfer reservation, execution, and
+terminal bookkeeping stay in the existing transfer module; no new context,
+manager, repository facade, or forwarding trait is introduced.
+
+Formal release finalization copies only the seven verified
+`addon/bin/<target>/synthesis-sidecar/` directories into the source-main
+worktree. Host Bridge siblings remain untouched. A dry-run test must exercise
+the same structured path-selection logic without committing or pushing.
+
+Any source or contract edit invalidates the earlier candidate identity. Local
+parity, performance, package, and production-build gates must be rerun first;
+only then may a replacement seven-platform candidate and clean-machine evidence
+be recorded for the exact frozen source.
 
 ## Risks / Trade-offs
 

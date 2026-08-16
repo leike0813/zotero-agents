@@ -37,6 +37,13 @@ native owner can be re-verified from current-state contracts alone.
 - Repair the clean-profile production bootstrap, default-client cutover
   lifecycle, and runtime-root composition defects found by the representative
   Zotero check.
+- Rebind the pre-deletion decision gate after later Rust application deepening:
+  keep canonical-store inspection behind its existing application port, keep
+  transfer execution behind the transfer module, and rerun all local evidence
+  before a new seven-platform candidate is accepted.
+- Repair formal release finalization so it advances the seven platform-first
+  sidecar bundle directories without referring to the removed sidecar-first
+  asset root or overwriting sibling native binaries.
 
 ## Capabilities
 
@@ -58,6 +65,9 @@ None.
   shared `addon/bin/<target>/` native asset layout.
 - `synthesis-sidecar-prebuild-release`: Treat the workflow-emitted v2 result
   document and its cache summary as the synchronization authorization boundary.
+- `synthesis-sidecar-debug-observability`: Keep raw canonical topic inspection
+  available through the application port without exposing its storage owner or
+  lock to the HTTP ingress adapter.
 
 ## Impact
 

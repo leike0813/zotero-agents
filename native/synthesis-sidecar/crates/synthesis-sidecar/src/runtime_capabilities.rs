@@ -9,14 +9,13 @@ use synthesis_application::CanonicalStorePort;
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
 use crate::runtime_diagnostics::{
-    NativeDiagnosticEvent, TraceContext, child_observation_context, emit_debug,
-    with_observation_context,
+    NativeDiagnosticEvent, TraceContext, emit_debug, with_observation_context,
 };
 use crate::runtime_http::{HttpRequest, read_http, response};
 use crate::runtime_lifecycle::{StopReason, StopSignal};
 use crate::runtime_production_client::{ProductionClientRuntime, production_client_error_status};
 use crate::runtime_production_ports::ProductionApplications;
-use crate::runtime_transfer::{NativeTransferOwner, TransferDispatch};
+use crate::runtime_transfer::{NativeTransferOwner, dispatch_transfer_action};
 use crate::runtime_worker_pool::{NativeComputePool, WorkerOperation};
 
 const MAX_READ_BODY_BYTES: usize = 1024 * 1024;
@@ -202,13 +201,7 @@ fn repository_snapshot(state: &RequestContext) -> Value {
 }
 
 fn canonical_snapshot(state: &RequestContext) -> Result<Value, String> {
-    let store_id = state
-        .canonical
-        .owner()
-        .lock()
-        .map_err(|_| "canonical_store_unavailable".to_owned())?
-        .store_id()
-        .to_owned();
+    let store_id = state.canonical.store_id()?;
     Ok(json!({
         "state":if state.stop_signal.is_stopping() {"stopping"} else {"ready"},
         "schemaVersion":"synthesis-topic-canonical-store.v1",
@@ -437,142 +430,20 @@ pub(crate) fn handle_connection(
                 }
             }
             "compute.citation_graph_build_transfer" => {
-                emit_debug(|| {
-                    NativeDiagnosticEvent::new("batch", "dispatch", "started")
-                        .capability("compute.citation_graph_build_transfer")
-                });
-                let result = state
-                    .transfer
-                    .lock()
-                    .map_err(|_| "transfer_unavailable".to_owned())?
-                    .handle(call.payload, current_time_ms()?);
-                emit_debug(|| {
-                    let event = NativeDiagnosticEvent::new(
-                        "batch",
-                        "dispatch-terminal",
-                        if result.is_ok() {
-                            "succeeded"
-                        } else {
-                            "failed"
-                        },
-                    )
-                    .capability("compute.citation_graph_build_transfer");
-                    match &result {
-                        Ok(_) => event,
-                        Err(code) => event.code(code),
-                    }
-                });
+                let result = dispatch_transfer_action(
+                    &state.transfer,
+                    &state.compute_pool,
+                    &state.background_tasks,
+                    &state.stop_signal,
+                    call.payload,
+                );
                 match result {
-                    Ok(TransferDispatch::Response(data)) => bounded_response(
+                    Ok(data) => bounded_response(
                         &mut stream,
                         200,
                         call_response(&call.request_id, &state.service_instance_id, data),
                         MAX_READ_RESPONSE_BYTES * 8,
                     ),
-                    Ok(TransferDispatch::Execute(execution)) => {
-                        let crate::runtime_transfer::TransferExecution {
-                            status,
-                            mut source,
-                            mut sink,
-                        } = *execution;
-                        let (session_id, attempt) = source.identity();
-                        let session_id = session_id.to_owned();
-                        let cancellation = source.cancellation();
-                        let mut reservation = match state.compute_pool.reserve() {
-                            Ok(reservation) => reservation,
-                            Err(code) => {
-                                if let Ok(mut transfer) = state.transfer.lock() {
-                                    transfer.reject_queued(
-                                        &session_id,
-                                        attempt,
-                                        current_time_ms().unwrap_or_default(),
-                                    );
-                                }
-                                return response(&mut stream, 503, error_response(code));
-                            }
-                        };
-                        let state_for_attempt = Arc::clone(&state);
-                        let attempt_trace = child_observation_context();
-                        let attempt_cancellation = Arc::clone(&cancellation);
-                        let session_id_for_attempt = session_id.clone();
-                        let spawn_result = state.background_tasks.spawn(
-                            format!("synthesis-transfer-{attempt}"),
-                            attempt_cancellation,
-                            move || {
-                                with_observation_context(attempt_trace.as_ref(), || {
-                                    emit_debug(|| {
-                                        NativeDiagnosticEvent::new("batch", "attempt", "started")
-                                            .capability("compute.citation_graph_build_transfer")
-                                    });
-                                    let result = match reservation.wait(
-                                        state_for_attempt.stop_signal.stopping_flag(),
-                                        &cancellation,
-                                    ) {
-                                        Ok(()) => {
-                                            let now_ms = current_time_ms().unwrap_or_default();
-                                            if let Ok(mut transfer) =
-                                                state_for_attempt.transfer.lock()
-                                            {
-                                                transfer.mark_executing(
-                                                    &session_id_for_attempt,
-                                                    attempt,
-                                                    now_ms,
-                                                );
-                                            }
-                                            state_for_attempt.compute_pool.run_paged(
-                                                WorkerOperation::CitationGraphBuildTransfer,
-                                                &mut source,
-                                                &mut sink,
-                                                &cancellation,
-                                            )
-                                        }
-                                        Err(code) => Err(code.to_owned()),
-                                    };
-                                    drop(reservation);
-                                    emit_debug(|| {
-                                        let event = NativeDiagnosticEvent::new(
-                                            "batch",
-                                            "attempt-terminal",
-                                            if result.is_ok() {
-                                                "succeeded"
-                                            } else {
-                                                "failed"
-                                            },
-                                        )
-                                        .capability("compute.citation_graph_build_transfer");
-                                        match &result {
-                                            Ok(_) => event,
-                                            Err(code) => event.code(code),
-                                        }
-                                    });
-                                    if let Ok(mut transfer) = state_for_attempt.transfer.lock() {
-                                        transfer.finish_attempt(
-                                            &session_id_for_attempt,
-                                            attempt,
-                                            result,
-                                            current_time_ms().unwrap_or_default(),
-                                        );
-                                    }
-                                })
-                            },
-                        );
-                        if let Err(code) = spawn_result {
-                            if let Ok(mut transfer) = state.transfer.lock() {
-                                transfer.reject_queued(
-                                    &session_id,
-                                    attempt,
-                                    current_time_ms().unwrap_or_default(),
-                                );
-                            }
-                            return response(&mut stream, 503, error_response(&code));
-                        }
-                        bounded_response(
-                            &mut stream,
-                            200,
-                            call_response(&call.request_id, &state.service_instance_id, status),
-                            MAX_READ_RESPONSE_BYTES * 8,
-                        )
-                    }
                     Err(code) => {
                         let status = match code.as_str() {
                             "transfer_busy" => 429,
@@ -581,7 +452,13 @@ pub(crate) fn handle_connection(
                             | "transfer_incomplete"
                             | "transfer_output_not_ready" => 409,
                             "transfer_limit_exceeded" => 413,
-                            "transfer_stopping" => 503,
+                            "transfer_stopping"
+                            | "worker_busy"
+                            | "worker_unavailable"
+                            | "worker_canceled"
+                            | "background_task_owner_unavailable"
+                            | "background_task_stopping"
+                            | "background_task_spawn_failed" => 503,
                             _ => 400,
                         };
                         response(&mut stream, status, error_response(&code))
@@ -655,12 +532,7 @@ pub(crate) fn handle_connection(
                 let Some(topic_id) = call.payload["topicId"].as_str() else {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 };
-                let data = state
-                    .canonical
-                    .owner()
-                    .lock()
-                    .map_err(|_| "canonical_store_unavailable".to_owned())?
-                    .inspect(topic_id)?;
+                let data = state.canonical.inspect_descriptor(topic_id)?;
                 bounded_response(
                     &mut stream,
                     200,

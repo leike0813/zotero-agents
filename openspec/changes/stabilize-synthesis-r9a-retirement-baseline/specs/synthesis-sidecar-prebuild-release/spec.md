@@ -27,3 +27,8 @@ set path, cache-hit targets, cache-miss targets, and cache source runs.
   `linux-arm`
 - **THEN** it SHALL use the recipe-pinned Zig and cargo-zigbuild construction
   path without installing `gcc-multilib` or `gcc-arm-linux-gnueabihf`
+
+#### Scenario: A verified set is finalized into source main
+- **WHEN** formal release finalization restores the exact seven-target set
+- **THEN** it SHALL update only `addon/bin/<target>/synthesis-sidecar/` for the seven declared targets
+- **AND** it SHALL preserve sibling native binaries and reject the obsolete sidecar-first root
