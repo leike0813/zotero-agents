@@ -2869,6 +2869,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
       helpers: {
         resolveItemRef: () => parentItem,
         getAttachmentFilePath: (entry: any) => String(entry.filePath || ""),
+        // The hook re-inspects readiness and compares mode/evidenceHash
+        // across calls, so the stub must return a constant value.
+        inspectGeneratedNoteReadiness: async () => ({
+          accepted: true,
+          mode: "full",
+          evidenceHash: "test-readiness-evidence",
+        }),
       },
       hostApi: {
         synthesis: {
@@ -2919,6 +2926,12 @@ describe("skillrunner.sequence.v1 runtime", function () {
       },
     };
 
+    const manifest = JSON.parse(
+      await fs.readFile(
+        "workflows_builtin/literature-workbench-package/literature-analysis/workflow.json",
+        "utf8",
+      ),
+    );
     const digestOnly = (await buildLiteratureDigestRequest({
       selectionContext,
       executionOptions: {
@@ -2927,6 +2940,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           auto_tag_regulator: false,
         },
       },
+      manifest,
       runtime,
     })) as any;
     assert.equal(digestOnly.kind, "skillrunner.sequence.v1");
@@ -2947,6 +2961,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           auto_tag_infer_tag: false,
         },
       },
+      manifest,
       runtime,
     })) as any;
     assert.equal(withTag.final_step_id, "tag-regulator");
@@ -2988,6 +3003,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           auto_tag_regulator: true,
         },
       },
+      manifest,
       runtime: emptyVocabularyRuntime,
     })) as any;
     const pureInferenceTagStep = withPureInferenceTag.steps[1];

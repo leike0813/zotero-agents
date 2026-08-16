@@ -62,10 +62,14 @@ import {
 } from "./hostBridgeWriteAutoApprovalRegistry";
 import { type AssistantWorkspaceTranscriptMutationEvent } from "./assistantWorkspaceTranscriptPublication";
 import {
+  configureAcpSkillRunPersistenceHost,
+  configureAcpSkillRunTranscriptMirrorHost,
+  configureAcpSkillRunWorkspaceDataPlaneHost,
+} from "./acpSkillRunHosts";
+import {
   clearAcpSkillRunTranscriptMirrorLru,
   cloneAcpSkillRunTranscriptItem,
   completeAcpSkillRunOpenStreamingTextItems,
-  configureAcpSkillRunTranscriptMirrorHost,
   forgetColdAcpSkillRunTranscriptMirror,
   getAcpSkillRunTranscriptMirrorCacheDiagnostics,
   hydrateAcpSkillRunTranscriptMirror,
@@ -77,7 +81,6 @@ import {
 import {
   cleanupExpiredAcpSkillRunsForRetention,
   cloneRuntimeCatalog,
-  configureAcpSkillRunPersistenceHost,
   deriveAcpSkillRunRuntimeFileMetadata,
   ensureAcpSkillRunStoreHydrated,
   flushAcpSkillRunRuntimeFileWrites,
@@ -93,7 +96,6 @@ import {
 } from "./acpSkillRunPersistence";
 import {
   acpSkillRunWorkspaceChange,
-  configureAcpSkillRunWorkspaceDataPlaneHost,
   createAcpSkillRunWorkspaceChange,
   emitWorkspaceChanged,
   listAcpSkillRunSummaries,

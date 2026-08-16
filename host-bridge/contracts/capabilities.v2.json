@@ -1588,7 +1588,11 @@
             "type": "object",
             "properties": {
               "kind": { "const": "papers" },
-              "paper_count": { "type": "integer", "minimum": 1, "maximum": 500 },
+              "paper_count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500
+              },
               "topic_count": { "const": 0 },
               "warning_count": { "type": "integer", "minimum": 0 }
             },
@@ -3422,7 +3426,11 @@
             "type": "object",
             "properties": {
               "kind": { "const": "topics" },
-              "paper_count": { "type": "integer", "minimum": 0, "maximum": 500 },
+              "paper_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
               "topic_count": { "type": "integer", "minimum": 1, "maximum": 20 },
               "warning_count": { "type": "integer", "minimum": 0 }
             },

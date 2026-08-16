@@ -16,6 +16,7 @@ import {
 } from "./acpExecutionProgress";
 import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
 import { isAcpTranscriptHardBoundaryUpdate } from "./acpTranscriptBoundary";
+import { getAcpSkillRunTranscriptMirrorHost } from "./acpSkillRunHosts";
 import type { AcpToolCall, SessionNotification } from "./acpProtocol";
 import type {
   AcpSkillRunRecord,
@@ -195,52 +196,24 @@ export type AcpSkillRunTranscriptMirrorHandle = {
   live: AcpSkillRunTranscriptLiveState;
 };
 
-// Host services owned by acpSkillRunStore (run registry, live-state table,
-// selection, persistence, workspace-change emission). Injected once at
-// module load so this driver never imports the workspace data-plane or the
-// store's runtime code.
-export type AcpSkillRunTranscriptMirrorHost = {
-  ensureHydrated(): void;
-  resolveRunRecord(requestId: string): AcpSkillRunRecord | undefined;
-  getTranscriptLiveState(
-    record: AcpSkillRunRecord,
-  ): AcpSkillRunTranscriptLiveState;
-  peekTranscriptLiveState(
-    requestId: string,
-  ): AcpSkillRunTranscriptLiveState | undefined;
-  listTranscriptLiveStates(): Iterable<
-    readonly [string, AcpSkillRunTranscriptLiveState]
-  >;
-  getSelectedRequestId(): string;
-  isLifecycleOpen(record: AcpSkillRunRecord): boolean;
-  setAcpSkillRunRecord(record: AcpSkillRunRecord): void;
-  persistRun(record: AcpSkillRunRecord): void;
-  scheduleSoftRunPersist(record: AcpSkillRunRecord): void;
-  emitWorkspaceChanged(change?: AcpSkillRunWorkspaceChange): void;
-  scheduleWorkspaceChangedEmit(change?: AcpSkillRunWorkspaceChange): void;
-  acpSkillRunWorkspaceChange(
-    requestId: string,
-    kinds: AcpSkillRunWorkspaceChangeKind[],
-  ): AcpSkillRunWorkspaceChange;
-};
-
-let host: AcpSkillRunTranscriptMirrorHost;
-
-export function configureAcpSkillRunTranscriptMirrorHost(
-  nextHost: AcpSkillRunTranscriptMirrorHost,
-) {
-  host = nextHost;
-}
+// The host slot lives in the acpSkillRunHosts leaf module so that importing
+// this module before the store cannot hit a TDZ on the slot.
+export type { AcpSkillRunTranscriptMirrorHost } from "./acpSkillRunHosts";
 
 function handleForRecord(
   record: AcpSkillRunRecord,
 ): AcpSkillRunTranscriptMirrorHandle {
-  return { record, live: host.getTranscriptLiveState(record) };
+  return {
+    record,
+    live: getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(record),
+  };
 }
 
 function hasDurableAcpSkillRunTranscript(
   record: AcpSkillRunRecord,
-  state = host.peekTranscriptLiveState(record.requestId),
+  state = getAcpSkillRunTranscriptMirrorHost().peekTranscriptLiveState(
+    record.requestId,
+  ),
 ) {
   return (
     !!normalizeString(record.runtimeDir) &&
@@ -257,8 +230,9 @@ function hasDurableAcpSkillRunTranscript(
 
 function shouldRetainAcpSkillRunTranscriptMirror(record: AcpSkillRunRecord) {
   return (
-    record.requestId === host.getSelectedRequestId() ||
-    host.isLifecycleOpen(record) ||
+    record.requestId ===
+      getAcpSkillRunTranscriptMirrorHost().getSelectedRequestId() ||
+    getAcpSkillRunTranscriptMirrorHost().isLifecycleOpen(record) ||
     acpSkillRunTranscriptMirrorLru.has(record.requestId)
   );
 }
@@ -351,17 +325,25 @@ const acpSkillRunTranscriptMirrorDescriptor: AssistantTranscriptMirrorOwnerDescr
 > = {
   core: (handle) => handle.live,
   ownerKey: (handle) => handle.record.requestId,
-  isLive: (handle) => host.isLifecycleOpen(handle.record),
+  isLive: (handle) =>
+    getAcpSkillRunTranscriptMirrorHost().isLifecycleOpen(handle.record),
   isForeground: (handle) =>
-    handle.record.requestId === host.getSelectedRequestId(),
+    handle.record.requestId ===
+    getAcpSkillRunTranscriptMirrorHost().getSelectedRequestId(),
   resolveOwnerState: (requestId) => {
-    const record = host.resolveRunRecord(requestId);
-    const live = host.peekTranscriptLiveState(requestId);
+    const record =
+      getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId);
+    const live =
+      getAcpSkillRunTranscriptMirrorHost().peekTranscriptLiveState(requestId);
     return record && live ? { record, live } : undefined;
   },
   listOwnerStates: function* () {
-    for (const [requestId, live] of host.listTranscriptLiveStates()) {
-      const record = host.resolveRunRecord(requestId);
+    for (const [
+      requestId,
+      live,
+    ] of getAcpSkillRunTranscriptMirrorHost().listTranscriptLiveStates()) {
+      const record =
+        getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId);
       if (record) {
         yield { record, live };
       }
@@ -536,7 +518,8 @@ const acpSkillRunTranscriptMirrorDescriptor: AssistantTranscriptMirrorOwnerDescr
     handle.live.transcriptHydrateState = undefined;
     handle.live.transcriptHydrateError = undefined;
   },
-  shouldReleaseOnEvict: (handle) => !host.isLifecycleOpen(handle.record),
+  shouldReleaseOnEvict: (handle) =>
+    !getAcpSkillRunTranscriptMirrorHost().isLifecycleOpen(handle.record),
   persistEvent: (handle, args) => {
     const { record, live } = handle;
     const runtimeDir = normalizeString(record.runtimeDir);
@@ -584,7 +567,7 @@ const acpSkillRunTranscriptMirrorDescriptor: AssistantTranscriptMirrorOwnerDescr
   },
   shouldSkipHydrate: () => false,
   onMirrorHydrated: (handle) => {
-    host.setAcpSkillRunRecord(handle.record);
+    getAcpSkillRunTranscriptMirrorHost().setAcpSkillRunRecord(handle.record);
   },
   onHydrateFailed: (handle, error) => {
     appendRuntimeLog({
@@ -598,8 +581,11 @@ const acpSkillRunTranscriptMirrorDescriptor: AssistantTranscriptMirrorOwnerDescr
     });
   },
   onHydrateCompleted: (handle) => {
-    host.emitWorkspaceChanged(
-      host.acpSkillRunWorkspaceChange(handle.record.requestId, ["transcript"]),
+    getAcpSkillRunTranscriptMirrorHost().emitWorkspaceChanged(
+      getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(
+        handle.record.requestId,
+        ["transcript"],
+      ),
     );
   },
   errorText: (error) => errorText(error),
@@ -631,8 +617,12 @@ export function forgetColdAcpSkillRunTranscriptMirror(requestIdRaw: string) {
 }
 
 export function pruneInactiveAcpSkillRunTranscriptMirrors() {
-  for (const [requestId, live] of host.listTranscriptLiveStates()) {
-    const record = host.resolveRunRecord(requestId);
+  for (const [
+    requestId,
+    live,
+  ] of getAcpSkillRunTranscriptMirrorHost().listTranscriptLiveStates()) {
+    const record =
+      getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId);
     if (!record || shouldRetainAcpSkillRunTranscriptMirror(record)) {
       continue;
     }
@@ -654,7 +644,7 @@ export function queueAcpSkillRunTranscriptEvent(
 export function nextAcpSkillRunTranscriptItemId(
   record: AcpSkillRunRecord,
   prefix: string,
-  state = host.getTranscriptLiveState(record),
+  state = getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(record),
 ) {
   return `acp-skill-${prefix}-${state.transcriptItemCount + 1}`;
 }
@@ -759,7 +749,8 @@ function upsertTranscriptToolCall(
   now: string,
   boundary: AssistantWorkspaceTranscriptBoundary,
 ) {
-  const liveState = host.getTranscriptLiveState(record);
+  const liveState =
+    getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(record);
   const toolCallId =
     normalizeString(update.toolCallId) ||
     normalizeString(update.title) ||
@@ -833,13 +824,14 @@ export function recordAcpSkillRunSessionUpdate(
   runRequestIdRaw: string,
   event: SessionNotification,
 ) {
-  host.ensureHydrated();
+  getAcpSkillRunTranscriptMirrorHost().ensureHydrated();
   const requestId = normalizeString(runRequestIdRaw);
   if (!requestId) {
     return;
   }
   const now = nowIso();
-  const existing = host.resolveRunRecord(requestId);
+  const existing =
+    getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId);
   if (!existing) {
     return;
   }
@@ -852,7 +844,7 @@ export function recordAcpSkillRunSessionUpdate(
       const used = Number((update as { used?: unknown }).used || 0);
       const size = Number((update as { size?: unknown }).size || 0);
       if (Number.isFinite(used) && Number.isFinite(size)) {
-        host.setAcpSkillRunRecord({
+        getAcpSkillRunTranscriptMirrorHost().setAcpSkillRunRecord({
           ...existing,
           messageCounts,
           usage: {
@@ -864,13 +856,17 @@ export function recordAcpSkillRunSessionUpdate(
     }
     if (progressChange.countChanged) {
       const next = {
-        ...(host.resolveRunRecord(requestId) || existing),
+        ...(getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId) ||
+          existing),
         messageCounts,
       };
-      host.setAcpSkillRunRecord(next);
-      host.scheduleSoftRunPersist(next);
-      host.emitWorkspaceChanged(
-        host.acpSkillRunWorkspaceChange(requestId, ["progress"]),
+      getAcpSkillRunTranscriptMirrorHost().setAcpSkillRunRecord(next);
+      getAcpSkillRunTranscriptMirrorHost().scheduleSoftRunPersist(next);
+      getAcpSkillRunTranscriptMirrorHost().emitWorkspaceChanged(
+        getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(
+          requestId,
+          ["progress"],
+        ),
       );
     }
     return;
@@ -940,7 +936,7 @@ export function recordAcpSkillRunSessionUpdate(
       };
     }
   }
-  host.setAcpSkillRunRecord(next);
+  getAcpSkillRunTranscriptMirrorHost().setAcpSkillRunRecord(next);
   const softToolUpdate =
     kind === "tool_call_update" &&
     inferToolCallState(update as AcpToolCall) === "pending";
@@ -948,17 +944,20 @@ export function recordAcpSkillRunSessionUpdate(
     isTextChunkUpdate || kind === "usage_update" || softToolUpdate;
   if (isTextChunkUpdate) {
     if (!canPublishAssistantWorkspaceLiveUpdates()) {
-      host.scheduleSoftRunPersist(next);
+      getAcpSkillRunTranscriptMirrorHost().scheduleSoftRunPersist(next);
       if (progressChange.countChanged) {
-        host.emitWorkspaceChanged(
-          host.acpSkillRunWorkspaceChange(requestId, ["progress"]),
+        getAcpSkillRunTranscriptMirrorHost().emitWorkspaceChanged(
+          getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(
+            requestId,
+            ["progress"],
+          ),
         );
       }
       return;
     }
-    host.scheduleSoftRunPersist(next);
-    host.emitWorkspaceChanged(
-      host.acpSkillRunWorkspaceChange(
+    getAcpSkillRunTranscriptMirrorHost().scheduleSoftRunPersist(next);
+    getAcpSkillRunTranscriptMirrorHost().emitWorkspaceChanged(
+      getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(
         requestId,
         progressChange.countChanged
           ? ["transcript", "progress"]
@@ -969,12 +968,12 @@ export function recordAcpSkillRunSessionUpdate(
   }
   if (kind === "tool_call" || kind === "tool_call_update" || kind === "plan") {
     if (softPersist) {
-      host.scheduleSoftRunPersist(next);
+      getAcpSkillRunTranscriptMirrorHost().scheduleSoftRunPersist(next);
     } else {
-      host.persistRun(next);
+      getAcpSkillRunTranscriptMirrorHost().persistRun(next);
     }
-    host.emitWorkspaceChanged(
-      host.acpSkillRunWorkspaceChange(
+    getAcpSkillRunTranscriptMirrorHost().emitWorkspaceChanged(
+      getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(
         requestId,
         kind === "plan"
           ? progressChange.countChanged
@@ -988,32 +987,38 @@ export function recordAcpSkillRunSessionUpdate(
     return;
   }
   if (softPersist) {
-    host.scheduleSoftRunPersist(next);
+    getAcpSkillRunTranscriptMirrorHost().scheduleSoftRunPersist(next);
   } else {
-    host.persistRun(next);
+    getAcpSkillRunTranscriptMirrorHost().persistRun(next);
   }
   if (kind === "usage_update") {
     if (canPublishAssistantWorkspaceLiveUpdates()) {
-      host.scheduleWorkspaceChangedEmit(
-        host.acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
+      getAcpSkillRunTranscriptMirrorHost().scheduleWorkspaceChangedEmit(
+        getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(
+          requestId,
+          ["runtime-options"],
+        ),
       );
     }
     return;
   }
-  host.scheduleWorkspaceChangedEmit(
-    host.acpSkillRunWorkspaceChange(requestId, ["run"]),
+  getAcpSkillRunTranscriptMirrorHost().scheduleWorkspaceChangedEmit(
+    getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(requestId, [
+      "run",
+    ]),
   );
 }
 
 export function completeAcpSkillRunTranscriptTurnBoundary(
   runRequestIdRaw: string,
 ) {
-  host.ensureHydrated();
+  getAcpSkillRunTranscriptMirrorHost().ensureHydrated();
   const requestId = normalizeString(runRequestIdRaw);
   if (!requestId) {
     return;
   }
-  const existing = host.resolveRunRecord(requestId);
+  const existing =
+    getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId);
   if (!existing) {
     return;
   }
@@ -1028,10 +1033,12 @@ export function completeAcpSkillRunTranscriptTurnBoundary(
   if (!completeAcpSkillRunOpenStreamingTextItems(next, now)) {
     return;
   }
-  host.setAcpSkillRunRecord(next);
-  host.persistRun(next);
-  host.emitWorkspaceChanged(
-    host.acpSkillRunWorkspaceChange(requestId, ["transcript"]),
+  getAcpSkillRunTranscriptMirrorHost().setAcpSkillRunRecord(next);
+  getAcpSkillRunTranscriptMirrorHost().persistRun(next);
+  getAcpSkillRunTranscriptMirrorHost().emitWorkspaceChanged(
+    getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(requestId, [
+      "transcript",
+    ]),
   );
 }
 
@@ -1041,12 +1048,13 @@ export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
   hardTimeoutSource?: string;
   recovered?: boolean;
 }) {
-  host.ensureHydrated();
+  getAcpSkillRunTranscriptMirrorHost().ensureHydrated();
   const requestId = normalizeString(args.requestId);
   if (!requestId) {
     return;
   }
-  const existing = host.resolveRunRecord(requestId);
+  const existing =
+    getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId);
   if (!existing) {
     return;
   }
@@ -1060,7 +1068,8 @@ export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
       },
     },
   );
-  const state = host.getTranscriptLiveState(existing);
+  const state =
+    getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(existing);
   const last = state.lastStatus;
   if (last && last.label === "hard-timeout-disconnect" && last.text === text) {
     return;
@@ -1094,10 +1103,12 @@ export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
     createdAt: now,
     newItem: true,
   });
-  host.setAcpSkillRunRecord(next);
-  host.persistRun(next);
-  host.emitWorkspaceChanged(
-    host.acpSkillRunWorkspaceChange(requestId, ["transcript"]),
+  getAcpSkillRunTranscriptMirrorHost().setAcpSkillRunRecord(next);
+  getAcpSkillRunTranscriptMirrorHost().persistRun(next);
+  getAcpSkillRunTranscriptMirrorHost().emitWorkspaceChanged(
+    getAcpSkillRunTranscriptMirrorHost().acpSkillRunWorkspaceChange(requestId, [
+      "transcript",
+    ]),
   );
 }
 
@@ -1173,13 +1184,16 @@ function readUiVisibleTranscriptMirrorPage(args: {
 }
 
 export async function hydrateAcpSkillRunTranscriptMirror(requestIdRaw: string) {
-  host.ensureHydrated();
+  getAcpSkillRunTranscriptMirrorHost().ensureHydrated();
   const requestId = normalizeString(requestIdRaw);
-  const record = requestId ? host.resolveRunRecord(requestId) : undefined;
+  const record = requestId
+    ? getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId)
+    : undefined;
   if (!record) {
     return null;
   }
-  const live = host.getTranscriptLiveState(record);
+  const live =
+    getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(record);
   await hydrateAssistantTranscriptMirror(
     { record, live },
     acpSkillRunTranscriptMirrorDescriptor,
@@ -1195,11 +1209,14 @@ export async function hydrateAcpSkillRunTranscriptMirror(requestIdRaw: string) {
 
 function scheduleAcpSkillRunTranscriptHydrate(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
-  const record = requestId ? host.resolveRunRecord(requestId) : undefined;
+  const record = requestId
+    ? getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId)
+    : undefined;
   if (!record) {
     return;
   }
-  const state = host.getTranscriptLiveState(record);
+  const state =
+    getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(record);
   if (
     state.transcriptMirrorLoaded ||
     state.transcriptHydratePromise ||
@@ -1214,7 +1231,8 @@ function transcriptLoadForRun(record: AcpSkillRunRecord | undefined) {
   if (!record) {
     return { status: "idle" as const, error: null };
   }
-  const state = host.getTranscriptLiveState(record);
+  const state =
+    getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(record);
   if (
     state.transcriptMirrorLoaded ||
     !hasDurableAcpSkillRunTranscript(record, state)
@@ -1242,7 +1260,9 @@ async function readSelectedTranscriptPageFromStore(
     const { items, eventSeq } =
       await acpSkillRunTranscriptMirrorDescriptor.readFullTranscript({
         record,
-        live: host.getTranscriptLiveState(record),
+        live: getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(
+          record,
+        ),
       });
     const itemsById = new Map(
       items.map((item) => [String(item.id || ""), item]),
@@ -1309,7 +1329,7 @@ function transcriptPageForRun(
   }
   const page = readUiVisibleTranscriptMirrorPage({
     requestId: record.requestId,
-    state: host.getTranscriptLiveState(record),
+    state: getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(record),
     cursor: request?.cursor,
     limit: request?.limit,
   });
@@ -1367,15 +1387,18 @@ export async function readAcpSkillRunTranscriptRegion(args: {
   transcriptPage?: AcpSkillRunTranscriptPageRequest;
   transcriptReadMode?: AcpSkillRunTranscriptReadMode;
 }): Promise<AssistantWorkspaceTranscriptRegion> {
-  host.ensureHydrated();
+  getAcpSkillRunTranscriptMirrorHost().ensureHydrated();
   const requestId = normalizeString(args.requestId);
-  const record = requestId ? host.resolveRunRecord(requestId) : undefined;
+  const record = requestId
+    ? getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId)
+    : undefined;
   if (!record) return createIdleTranscriptRegion();
   const owner = createAcpSkillsWorkspaceOwner(requestId);
   if (args.transcriptReadMode === "loading-first") {
     return createLoadingTranscriptRegion(owner);
   }
-  const state = host.getTranscriptLiveState(record);
+  const state =
+    getAcpSkillRunTranscriptMirrorHost().getTranscriptLiveState(record);
   try {
     const page =
       !state.transcriptMirrorLoaded &&
@@ -1403,9 +1426,11 @@ export function readAcpSkillRunTranscriptRegionFromMemoryForTests(args: {
   requestId: string;
   transcriptPage?: AcpSkillRunTranscriptPageRequest;
 }): AssistantWorkspaceTranscriptRegion {
-  host.ensureHydrated();
+  getAcpSkillRunTranscriptMirrorHost().ensureHydrated();
   const requestId = normalizeString(args.requestId);
-  const record = requestId ? host.resolveRunRecord(requestId) : undefined;
+  const record = requestId
+    ? getAcpSkillRunTranscriptMirrorHost().resolveRunRecord(requestId)
+    : undefined;
   return buildAcpSkillsTranscriptRegion(
     record,
     transcriptPageForRun(record, args.transcriptPage),
