@@ -38,3 +38,25 @@ None.
 - Updates the workflow execution architecture document and project glossary.
 - Does not change persistence formats, lifecycle-store write ownership,
   workflow manifests, provider protocols, or subscription ownership.
+
+## Post-hoc Disclosure
+
+The landing commit (`fa962b39`) carried payload beyond this record's declared
+Impact section:
+
+- Host Bridge skill version bumps: `addon/content/host-bridge-skills/manifest.json`
+  plus the seven `runner.json` assets under `addon/content/host-bridge-skills/`
+  and their mirrors under `profiles/hermes/zotero-librarian/skills/`, and
+  `profiles/hermes/zotero-librarian/distribution.yaml` (0.5.3→0.5.4 and
+  0.5.4→0.5.5 lines).
+- A citation-graph synthesis UI feature: Audit Aliases / Keep Alias /
+  Remove Alias i18n keys in
+  `skills_src/literature-deep-reading/renderer/templates/citation-graph-synthesis-i18n.json`
+  and the rebuilt `citation-graph-synthesis-app.js` bundle.
+- A `CONTEXT.md` note.
+
+These changes were already effective on the shared branch when the omission was
+identified during review, so the history was left intact and recorded here
+instead. Release-material version bumps and unrelated features should ship in
+their own declared changes, not ride a refactor commit.
+

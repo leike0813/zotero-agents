@@ -46,7 +46,80 @@ function normalizeJobState(state: unknown): WorkflowJobSlotStatus {
     normalized === "failed" ||
     normalized === "canceled"
     ? normalized
-    : "running";
+    : // Fail closed: an unrecognized persisted job state must not masquerade
+      // as live work.
+      "failed";
+}
+
+type ProviderTerminalEvidence = Readonly<{
+  status: string | undefined;
+  error: string | undefined;
+  applyState: string | undefined;
+  applyError: string | undefined;
+}>;
+
+function resolveProviderTerminalCascade(args: {
+  evidence: ProviderTerminalEvidence | null;
+  canonicalSlotStatus: WorkflowJobSlotStatus;
+  terminalRequestId: string | undefined;
+  localSucceededReady: boolean;
+  isSequenceRequest: boolean;
+  succeededApplyStates: readonly string[];
+}): WorkflowJobTerminalResolution | null {
+  const { evidence } = args;
+  const requestIdPart = args.terminalRequestId
+    ? { requestId: args.terminalRequestId }
+    : {};
+  const status = evidence?.status;
+  if (status === "failed" || status === "canceled") {
+    return {
+      kind: "canonical-ready",
+      slotStatus: status,
+      outcome: {
+        terminalState: status,
+        ...requestIdPart,
+        reason: evidence?.error || `provider ${status}`,
+      },
+    };
+  }
+  if (evidence?.applyState === "failed") {
+    return {
+      kind: "canonical-ready",
+      slotStatus: "failed",
+      outcome: {
+        terminalState: "failed",
+        ...requestIdPart,
+        reason:
+          evidence.applyError || evidence.error || "workflow apply failed",
+      },
+    };
+  }
+  if (args.localSucceededReady) {
+    return {
+      kind: "local-ready",
+      slotStatus: args.canonicalSlotStatus,
+    };
+  }
+  if (
+    status === "succeeded" &&
+    args.succeededApplyStates.includes(evidence?.applyState || "")
+  ) {
+    return {
+      kind: "canonical-ready",
+      slotStatus: "succeeded",
+      outcome: {
+        terminalState: "succeeded",
+        ...requestIdPart,
+      },
+    };
+  }
+  if (args.isSequenceRequest) {
+    return {
+      kind: "pending",
+      slotStatus: args.canonicalSlotStatus,
+    };
+  }
+  return null;
 }
 
 function resolveSequenceSlotStatus(args: {
@@ -186,105 +259,47 @@ export function resolveWorkflowJobTerminalResolution(args: {
     canonicalSlotStatus =
       (isSequenceRequest ? record?.status : runKeyRecord?.status) ||
       "unobserved";
-    const terminalRequestId = record?.requestId || requestId || undefined;
-    if (record?.status === "failed" || record?.status === "canceled") {
-      return {
-        kind: "canonical-ready",
-        slotStatus: record.status,
-        outcome: {
-          terminalState: record.status,
-          ...(terminalRequestId ? { requestId: terminalRequestId } : {}),
-          reason: record.error || `provider ${record.status}`,
-        },
-      };
-    }
-    if (record?.apply.state === "failed") {
-      return {
-        kind: "canonical-ready",
-        slotStatus: "failed",
-        outcome: {
-          terminalState: "failed",
-          ...(terminalRequestId ? { requestId: terminalRequestId } : {}),
-          reason: record.apply.error || record.error || "workflow apply failed",
-        },
-      };
-    }
-    if (localSucceededReady) {
-      return {
-        kind: "local-ready",
-        slotStatus: canonicalSlotStatus,
-      };
-    }
-    if (
-      record?.status === "succeeded" &&
-      (record.apply.state === "succeeded" || record.apply.state === "skipped")
-    ) {
-      return {
-        kind: "canonical-ready",
-        slotStatus: "succeeded",
-        outcome: {
-          terminalState: "succeeded",
-          ...(terminalRequestId ? { requestId: terminalRequestId } : {}),
-        },
-      };
-    }
-    if (isSequenceRequest) {
-      return {
-        kind: "pending",
-        slotStatus: canonicalSlotStatus,
-      };
+    const resolution = resolveProviderTerminalCascade({
+      evidence: record
+        ? {
+            status: record.status,
+            error: record.error,
+            applyState: record.apply.state,
+            applyError: record.apply.error,
+          }
+        : null,
+      canonicalSlotStatus,
+      terminalRequestId: record?.requestId || requestId || undefined,
+      localSucceededReady,
+      isSequenceRequest,
+      succeededApplyStates: ["succeeded", "skipped"],
+    });
+    if (resolution) {
+      return resolution;
     }
   }
 
   if (backendType === "acp") {
     const record = requestId ? getAcpSkillRunRecord(requestId) : null;
-    canonicalSlotStatus = requestId
-      ? record?.status || "unobserved"
-      : "unobserved";
+    canonicalSlotStatus = record?.status || "unobserved";
     if (requestId) {
-      if (record?.status === "failed" || record?.status === "canceled") {
-        return {
-          kind: "canonical-ready",
-          slotStatus: record.status,
-          outcome: {
-            terminalState: record.status,
-            requestId,
-            reason: record.error || `provider ${record.status}`,
-          },
-        };
-      }
-      if (record?.applyResultState === "failed") {
-        return {
-          kind: "canonical-ready",
-          slotStatus: "failed",
-          outcome: {
-            terminalState: "failed",
-            requestId,
-            reason: record.error || "workflow apply failed",
-          },
-        };
-      }
-      if (localSucceededReady) {
-        return {
-          kind: "local-ready",
-          slotStatus: canonicalSlotStatus,
-        };
-      }
-      if (
-        record?.status === "succeeded" &&
-        record.applyResultState === "succeeded"
-      ) {
-        return {
-          kind: "canonical-ready",
-          slotStatus: "succeeded",
-          outcome: { terminalState: "succeeded", requestId },
-        };
-      }
-      if (isSequenceRequest) {
-        return {
-          kind: "pending",
-          slotStatus: canonicalSlotStatus,
-        };
+      const resolution = resolveProviderTerminalCascade({
+        evidence: record
+          ? {
+              status: record.status,
+              error: record.error,
+              applyState: record.applyResultState,
+              applyError: undefined,
+            }
+          : null,
+        canonicalSlotStatus,
+        terminalRequestId: requestId,
+        localSucceededReady,
+        isSequenceRequest,
+        succeededApplyStates: ["succeeded"],
+      });
+      if (resolution) {
+        return resolution;
       }
     }
   }

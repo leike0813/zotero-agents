@@ -1,34 +1,54 @@
-export type AcpSkillRunWorkspaceSelectionHost = {
-  select: (...args: any[]) => any;
-  ensureSelection: (...args: any[]) => any;
-  getSelected: (...args: any[]) => any;
-};
+import { ensureAcpSkillRunStoreHydrated } from "./acpSkillRunStore";
+import { pruneInactiveAcpSkillRunTranscriptMirrors } from "./acpSkillRunTranscriptMirror";
+import {
+  acpSkillRunWorkspaceChange,
+  createAcpSkillRunWorkspaceChange,
+  emitWorkspaceChanged,
+  listAcpSkillRunSummaries,
+} from "./acpSkillRunWorkspaceDataPlane";
+import {
+  acpSkillRunRecords as runRecords,
+  getAcpSkillRunSelectedRequestId,
+  normalizeString,
+  setAcpSkillRunSelectedRequestId,
+} from "./acpSkillRunState";
 
-let host: AcpSkillRunWorkspaceSelectionHost | undefined;
-
-export function configureAcpSkillRunWorkspaceSelectionHost(
-  nextHost: AcpSkillRunWorkspaceSelectionHost,
-) {
-  host = nextHost;
+function applyAcpSkillRunSelection(requestIdRaw: string) {
+  setAcpSkillRunSelectedRequestId(normalizeString(requestIdRaw));
+  pruneInactiveAcpSkillRunTranscriptMirrors();
+  const selectedRequestId = getAcpSkillRunSelectedRequestId();
+  emitWorkspaceChanged(
+    selectedRequestId
+      ? acpSkillRunWorkspaceChange(selectedRequestId, ["selection"])
+      : createAcpSkillRunWorkspaceChange({ kinds: ["selection"] }),
+  );
 }
 
-function requireAcpSkillRunWorkspaceSelectionHost() {
-  if (!host) {
-    throw new Error(
-      "ACP Skill Run workspace selection host is not configured.",
-    );
-  }
-  return host;
-}
-
-export async function selectAcpSkillRun(requestId: string) {
-  await requireAcpSkillRunWorkspaceSelectionHost().select(requestId);
+export async function selectAcpSkillRun(requestIdRaw: string) {
+  ensureAcpSkillRunStoreHydrated();
+  applyAcpSkillRunSelection(requestIdRaw);
 }
 
 export function ensureAcpSkillRunWorkspaceSelection() {
-  return requireAcpSkillRunWorkspaceSelectionHost().ensureSelection();
+  ensureAcpSkillRunStoreHydrated();
+  const current = normalizeString(getAcpSkillRunSelectedRequestId());
+  if (current) {
+    const record = runRecords.get(current);
+    if (record && !record.removedAt && !record.archivedAt) {
+      return current;
+    }
+  }
+  const implicit = listAcpSkillRunSummaries({
+    includeArchived: false,
+    limit: 1,
+  })[0]?.requestId;
+  if (implicit && implicit !== current) {
+    applyAcpSkillRunSelection(implicit);
+  }
+  return implicit || "";
 }
 
 export function getSelectedAcpSkillRunRequestId() {
-  return requireAcpSkillRunWorkspaceSelectionHost().getSelected();
+  ensureAcpSkillRunStoreHydrated();
+  return getAcpSkillRunSelectedRequestId();
 }

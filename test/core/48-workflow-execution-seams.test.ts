@@ -408,6 +408,12 @@ describe("workflow execution seams", function () {
         expected: "pending",
         slotStatus: "succeeded",
       },
+      {
+        state: "bogus-corrupt-state",
+        resultStatus: "",
+        expected: "pending",
+        slotStatus: "failed",
+      },
     ] as const;
 
     for (const entry of cases) {

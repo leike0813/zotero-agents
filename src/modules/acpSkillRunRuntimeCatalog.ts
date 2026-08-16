@@ -1,37 +1,66 @@
-import type { AcpSkillRunRuntimeCatalog } from "./acpSkillRunStore";
-
-export type AcpSkillRunRuntimeCatalogHost = {
-  setCatalog: (...args: any[]) => any;
-  getCatalog: (...args: any[]) => any;
-  updateSelection: (...args: any[]) => any;
-};
-
-let host: AcpSkillRunRuntimeCatalogHost | undefined;
-
-export function configureAcpSkillRunRuntimeCatalogHost(
-  nextHost: AcpSkillRunRuntimeCatalogHost,
-) {
-  host = nextHost;
-}
-
-function requireAcpSkillRunRuntimeCatalogHost() {
-  if (!host) {
-    throw new Error("ACP Skill Run runtime catalog host is not configured.");
-  }
-  return host;
-}
+import {
+  runtimeCatalogForRun,
+  upsertAcpSkillRun,
+  type AcpSkillRunEvent,
+  type AcpSkillRunRuntimeCatalog,
+} from "./acpSkillRunStore";
+import {
+  ensureAcpSkillRunStoreHydrated,
+  normalizeSelectableOptions,
+} from "./acpSkillRunPersistence";
+import {
+  acpSkillRunWorkspaceChange,
+  scheduleWorkspaceChangedEmit,
+} from "./acpSkillRunWorkspaceDataPlane";
+import {
+  acpSkillRunRecords as runRecords,
+  acpSkillRunRuntimeCatalogByRequestId as runtimeCatalogByRequestId,
+  normalizeString,
+} from "./acpSkillRunState";
 
 export function setAcpSkillRunRuntimeCatalog(
-  requestId: string,
+  requestIdRaw: string,
   options: Partial<AcpSkillRunRuntimeCatalog> | null | undefined,
 ) {
-  requireAcpSkillRunRuntimeCatalogHost().setCatalog(requestId, options);
+  const requestId = normalizeString(requestIdRaw);
+  if (!requestId) {
+    return;
+  }
+  if (!options) {
+    runtimeCatalogByRequestId.delete(requestId);
+    scheduleWorkspaceChangedEmit(
+      acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
+    );
+    return;
+  }
+  const normalized: AcpSkillRunRuntimeCatalog = {
+    modeOptions: normalizeSelectableOptions(options.modeOptions),
+    modelOptions: normalizeSelectableOptions(options.modelOptions),
+    displayModelOptions: normalizeSelectableOptions(
+      options.displayModelOptions,
+    ),
+    reasoningEffortOptions: normalizeSelectableOptions(
+      options.reasoningEffortOptions,
+    ),
+    reasoningSource:
+      options.reasoningSource === "explicit" ||
+      options.reasoningSource === "model-derived"
+        ? options.reasoningSource
+        : "none",
+  };
+  runtimeCatalogByRequestId.set(requestId, normalized);
+  scheduleWorkspaceChangedEmit(
+    acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
+  );
 }
 
 export function getAcpSkillRunRuntimeCatalog(
-  requestId: string,
-): import("./acpSkillRunStore").AcpSkillRunRuntimeCatalog | null {
-  return requireAcpSkillRunRuntimeCatalogHost().getCatalog(requestId);
+  requestIdRaw: string,
+): AcpSkillRunRuntimeCatalog | null {
+  ensureAcpSkillRunStoreHydrated();
+  const requestId = normalizeString(requestIdRaw);
+  const run = requestId ? runRecords.get(requestId) : undefined;
+  return run ? runtimeCatalogForRun(run) : null;
 }
 
 export function updateAcpSkillRunRuntimeSelection(args: {
@@ -42,7 +71,16 @@ export function updateAcpSkillRunRuntimeSelection(args: {
     rawModelId?: string;
     reasoningEffort?: string | null;
   };
-  event?: any;
+  event?: Omit<AcpSkillRunEvent, "ts"> & { ts?: string };
 }) {
-  return requireAcpSkillRunRuntimeCatalogHost().updateSelection(args);
+  return upsertAcpSkillRun({
+    requestId: args.requestId,
+    acpModeId: args.selection.modeId,
+    acpModelId: args.selection.modelId,
+    acpRawModelId: args.selection.rawModelId,
+    ...(Object.prototype.hasOwnProperty.call(args.selection, "reasoningEffort")
+      ? { acpReasoningEffort: args.selection.reasoningEffort }
+      : {}),
+    event: args.event,
+  });
 }
