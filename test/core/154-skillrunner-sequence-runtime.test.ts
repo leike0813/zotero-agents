@@ -38,10 +38,8 @@ import {
 } from "../../src/modules/pluginStateStore";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
+  applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
-  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   buildSkillRunnerForegroundContinuationStepJobForTests,
@@ -174,33 +172,38 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
       requestId: args.requestId,
     },
   };
-  const run = createSkillRunnerRun({
-    backendId: "skillrunner-backend",
-    workflowId: args.workflowId,
-    workflowRunId: args.workflowRunId,
-    jobId: job.id,
-    taskName: `Sequence Workflow / ${args.stepId}`,
-    skillId: args.skillId,
-    sequenceRunId: args.sequenceRunId,
-    sequenceJobId: args.sequenceJobId,
-    sequenceStepId: args.stepId,
-    requestPayload,
-    fetchType: "result",
-    executionMode:
-      args.executionMode === "interactive" ? "interactive" : "auto",
-    createdAt: job.createdAt,
-    updatedAt: job.updatedAt,
+  const run = applySkillRunnerRunEvent({
+    type: "submit.local_created",
+    init: {
+      backendId: "skillrunner-backend",
+      workflowId: args.workflowId,
+      workflowRunId: args.workflowRunId,
+      jobId: job.id,
+      taskName: `Sequence Workflow / ${args.stepId}`,
+      skillId: args.skillId,
+      sequenceRunId: args.sequenceRunId,
+      sequenceJobId: args.sequenceJobId,
+      sequenceStepId: args.stepId,
+      requestPayload,
+      fetchType: "result",
+      executionMode:
+        args.executionMode === "interactive" ? "interactive" : "auto",
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    },
   });
   if (!run) {
     return;
   }
   const attached =
-    attachSkillRunnerRequestId({
+    applySkillRunnerRunEvent({
+      type: "request.created",
       runKey: run.runKey,
       requestId: args.requestId,
       updatedAt: job.updatedAt,
     }) || run;
-  updateSkillRunnerRunStateByRunKey({
+  applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     runKey: attached.runKey,
     state: "request_ready",
     backendStatus: "running",
@@ -646,24 +649,28 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(task.inputUnitIdentity, "zotero:item:42");
     assert.equal(task.skillName, "Finalize Skill");
 
-    const createdFinalizeRun = createSkillRunnerRun({
-      backendId: backend.id,
-      workflowId: job!.workflowId,
-      workflowRunId: sequenceRunId,
-      jobId: job!.id,
-      taskName: String(job!.meta.taskName || job!.id),
-      skillId: String(job!.meta.skillId || ""),
-      sequenceRunId,
-      sequenceJobId,
-      sequenceStepId: "finalize",
-      requestPayload: job!.request,
-      fetchType: "result",
-      executionMode: "auto",
-      createdAt: job!.createdAt,
-      updatedAt: job!.updatedAt,
+    const createdFinalizeRun = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: backend.id,
+        workflowId: job!.workflowId,
+        workflowRunId: sequenceRunId,
+        jobId: job!.id,
+        taskName: String(job!.meta.taskName || job!.id),
+        skillId: String(job!.meta.skillId || ""),
+        sequenceRunId,
+        sequenceJobId,
+        sequenceStepId: "finalize",
+        requestPayload: job!.request,
+        fetchType: "result",
+        executionMode: "auto",
+        createdAt: job!.createdAt,
+        updatedAt: job!.updatedAt,
+      },
     });
     const runRecord = createdFinalizeRun
-      ? attachSkillRunnerRequestId({
+      ? applySkillRunnerRunEvent({
+          type: "request.created",
           runKey: createdFinalizeRun.runKey,
           requestId: "finalize-request",
           updatedAt: job!.updatedAt,

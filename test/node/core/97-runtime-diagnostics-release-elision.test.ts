@@ -52,7 +52,7 @@ describe("runtime diagnostics release elision", function () {
       /function scheduleSoftRunPersist[\s\S]*?function flushSoftRunPersists/.exec(
         sources[0],
       )?.[0],
-      /function scheduleWorkspaceChangedEmit[\s\S]*?export function inspectSyntheticAcpSkillRunReplayTimers/.exec(
+      /function scheduleWorkspaceChangedEmit[\s\S]*?export function inspectAcpSkillRunTimers/.exec(
         sources[1],
       )?.[0],
       /function schedulePersistenceFlush[\s\S]*?function scheduleWorkspaceChange/.exec(

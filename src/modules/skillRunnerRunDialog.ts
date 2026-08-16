@@ -47,13 +47,12 @@ import {
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import {
-  archiveSkillRunnerRunRecordByRunKey,
   getSkillRunnerRunRecord,
   getSkillRunnerRunRecordByRequest,
   getSkillRunnerRunProjection,
+  applySkillRunnerRunEvent,
   listSkillRunnerRunProjections,
   subscribeSkillRunnerRunStore,
-  updateSkillRunnerRunMessageCounts,
   type SkillRunnerRunApplyState,
 } from "./skillRunnerRunStore";
 import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
@@ -2271,8 +2270,10 @@ function resolveRunWorkspaceTranscriptMessages(args: {
   ) {
     nextCounts.revision = previousCounts.revision + 1;
     args.entry.messageCounts = nextCounts;
-    updateSkillRunnerRunMessageCounts({
+    applySkillRunnerRunEvent({
+      type: "run.message_counts_updated",
       runKey: args.entry.key,
+      backendId: getSkillRunnerRunRecord(args.entry.key)?.backendId || "",
       messageCounts: nextCounts,
     });
   } else {
@@ -4687,7 +4688,11 @@ async function handleRunWorkspaceAction(envelope: RunWorkspaceActionEnvelope) {
       : undefined;
     const record = runKey ? getSkillRunnerRunRecord(runKey) : null;
     if (record && isTerminal(record.status)) {
-      archiveSkillRunnerRunRecordByRunKey({ runKey });
+      applySkillRunnerRunEvent({
+        type: "run.archived",
+        runKey,
+        backendId: record.backendId,
+      });
       await refreshWorkspaceSnapshot({
         clearSelection: true,
       });
@@ -4697,7 +4702,11 @@ async function handleRunWorkspaceAction(envelope: RunWorkspaceActionEnvelope) {
       task.canArchiveLocalRun !== false
     ) {
       if (runKey) {
-        archiveSkillRunnerRunRecordByRunKey({ runKey });
+        applySkillRunnerRunEvent({
+          type: "run.archived",
+          runKey,
+          backendId: record?.backendId || "",
+        });
       }
       await refreshWorkspaceSnapshot({
         clearSelection: true,

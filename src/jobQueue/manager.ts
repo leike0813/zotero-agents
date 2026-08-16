@@ -13,8 +13,8 @@ import {
 } from "../modules/skillRunnerRecoverableState";
 import { settleSkillRunnerRunAsFailed } from "../modules/skillRunnerRunSettlement";
 import {
+  applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
-  recordSkillRunnerObserverFailure,
 } from "../modules/skillRunnerRunStore";
 
 export type JobState =
@@ -576,8 +576,11 @@ export class JobQueueManager {
           requestId,
         });
         if (runRecord) {
-          recordSkillRunnerObserverFailure({
+          applySkillRunnerRunEvent({
+            type: "run.observer_detached",
             runKey: runRecord.runKey,
+            backendId: runRecord.backendId,
+            requestId,
             error,
             source: "job-queue-dispatch",
             updatedAt: job.updatedAt,

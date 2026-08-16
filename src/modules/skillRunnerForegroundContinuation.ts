@@ -11,15 +11,10 @@ import type { LoadedWorkflow } from "../workflows/types";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
 import {
-  createSkillRunnerRun,
+  applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
   listSkillRunnerRunRecords,
   projectSkillRunnerRun,
-  recordSkillRunnerObserverFailure,
-  recordSkillRunnerProgress,
-  updateSkillRunnerRunApplyState,
-  updateSkillRunnerRunResult,
-  updateSkillRunnerRunStateByRunKey,
   type SkillRunnerRunRecord,
 } from "./skillRunnerRunStore";
 import { isNonRecoverableSkillRunnerFailure } from "./skillRunnerRecoverableState";
@@ -236,22 +231,35 @@ function setRequestState(args: {
   source: string;
 }) {
   const updatedAt = nowIso();
-  const updated = updateSkillRunnerRunStateByRunKey({
-    runKey: args.record.runKey,
-    state: args.state,
-    error: args.error,
-    updatedAt,
-    eventType:
-      args.state === "succeeded" ||
+  const updated = applySkillRunnerRunEvent(
+    args.state === "succeeded" ||
       args.state === "failed" ||
       args.state === "canceled"
-        ? "backend.terminal"
-        : "backend.snapshot",
-    eventPayload: {
-      source: args.source,
-      state: args.state,
-    },
-  });
+      ? {
+          type: "backend.terminal",
+          runKey: args.record.runKey,
+          backendId: args.record.backendId,
+          status: args.state as "succeeded" | "failed" | "canceled",
+          error: args.error,
+          updatedAt,
+          payload: {
+            source: args.source,
+            state: args.state,
+          },
+        }
+      : {
+          type: "backend.snapshot",
+          runKey: args.record.runKey,
+          backendId: args.record.backendId,
+          state: args.state,
+          error: args.error,
+          updatedAt,
+          payload: {
+            source: args.source,
+            state: args.state,
+          },
+        },
+  );
   if (updated) {
     syncWorkflowTaskFromSkillRunnerProjection(
       projectSkillRunnerRun({ run: updated }),
@@ -358,13 +366,13 @@ async function applySingleTerminalSuccess(args: {
     backend: args.backend,
     result: args.result,
   });
-  updateSkillRunnerRunApplyState({
+  applySkillRunnerRunEvent({
+    type: "apply.started",
     backendId: args.record.backendId,
     requestId: args.record.requestId || "",
-    state: "running",
     updatedAt: nowIso(),
-    eventType: "apply.started",
-    eventPayload: {
+    source: args.source,
+    payload: {
       source: args.source,
       foreground: true,
     },
@@ -377,40 +385,41 @@ async function applySingleTerminalSuccess(args: {
       runResult,
       jobId: args.record.jobId,
     });
-    updateSkillRunnerRunResult({
+    applySkillRunnerRunEvent({
+      type: "result.fetched",
       backendId: args.record.backendId,
       requestId: args.record.requestId || "",
       resultJson: runResult.resultJson,
       resultJsonPath: runResult.resultJsonPath,
       workspaceDir: runResult.workspaceDir,
       updatedAt: nowIso(),
-      eventPayload: {
+      payload: {
         source: args.source,
         foreground: true,
       },
     });
-    updateSkillRunnerRunApplyState({
+    applySkillRunnerRunEvent({
+      type: "apply.succeeded",
       backendId: args.record.backendId,
       requestId: args.record.requestId || "",
-      state: "succeeded",
       attempt: 0,
       updatedAt: nowIso(),
-      eventType: "apply.succeeded",
-      eventPayload: {
+      source: args.source,
+      payload: {
         source: args.source,
         foreground: true,
       },
     });
   } catch (error) {
     const message = compactError(error);
-    updateSkillRunnerRunApplyState({
+    applySkillRunnerRunEvent({
+      type: "apply.failed",
       backendId: args.record.backendId,
       requestId: args.record.requestId || "",
-      state: "failed",
       error: message,
       updatedAt: nowIso(),
-      eventType: "apply.failed",
-      eventPayload: {
+      source: args.source,
+      payload: {
         source: args.source,
         foreground: true,
       },
@@ -486,6 +495,124 @@ function buildContinuationStepJob(args: {
   } satisfies JobRecord;
 }
 
+function applyContinuationStepProgressEvent(args: {
+  record: SkillRunnerRunRecord;
+  backend: BackendInstance;
+  event: Record<string, unknown>;
+  updatedAt: string;
+}) {
+  const event = args.event;
+  const type = normalizeString(event.type);
+  const requestId = normalizeString(event.requestId) || args.record.requestId;
+  if (type === "request-created") {
+    return applySkillRunnerRunEvent({
+      type: "request.created",
+      runKey: args.record.runKey,
+      backendId: args.record.backendId,
+      requestId: normalizeString(event.requestId),
+      updatedAt: args.updatedAt,
+    });
+  }
+  if (type === "request-creating" || type === "sequence-step-started") {
+    return applySkillRunnerRunEvent({
+      type: "submit.request_creating",
+      runKey: args.record.runKey,
+      backendId: args.record.backendId,
+      requestId,
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "request-uploading") {
+    return applySkillRunnerRunEvent({
+      type: "submit.uploading",
+      runKey: args.record.runKey,
+      backendId: args.record.backendId,
+      requestId,
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "request-ready") {
+    return applySkillRunnerRunEvent({
+      type: "request.ready",
+      runKey: args.record.runKey,
+      backendId: args.record.backendId,
+      requestId,
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "sequence-step-deferred") {
+    if (normalizeString(event.detachReason) === "observer_failure") {
+      return applySkillRunnerRunEvent({
+        type: "run.observer_detached",
+        runKey: args.record.runKey,
+        backendId: args.record.backendId,
+        requestId: normalizeString(event.requestId) || args.record.requestId,
+        error: normalizeString(event.error) || "observer failure",
+        source: "sequence-step-deferred",
+        updatedAt: args.updatedAt,
+      });
+    }
+    return applySkillRunnerRunEvent({
+      type: "backend.snapshot",
+      runKey: args.record.runKey,
+      backendId: args.record.backendId,
+      state:
+        normalizeString(event.backendStatus) === "queued" ||
+        normalizeString(event.backendStatus) === "waiting_user" ||
+        normalizeString(event.backendStatus) === "waiting_auth"
+          ? (normalizeString(event.backendStatus) as JobState)
+          : "running",
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "sequence-step-succeeded") {
+    return applySkillRunnerRunEvent({
+      type: "sequence.step.settled",
+      runKey: args.record.runKey,
+      backendId: args.record.backendId,
+      requestId,
+      status: "succeeded",
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "sequence-step-failed") {
+    return applySkillRunnerRunEvent({
+      type: "sequence.step.settled",
+      runKey: args.record.runKey,
+      backendId: args.record.backendId,
+      requestId,
+      status: "failed",
+      error: normalizeString(event.error) || undefined,
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "sequence-step-canceled") {
+    return applySkillRunnerRunEvent({
+      type: "sequence.step.settled",
+      runKey: args.record.runKey,
+      backendId: args.record.backendId,
+      requestId,
+      status: "canceled",
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  return applySkillRunnerRunEvent({
+    type: "backend.snapshot",
+    runKey: args.record.runKey,
+    backendId: args.record.backendId,
+    state: args.record.status,
+    updatedAt: args.updatedAt,
+    payload: event,
+  });
+}
+
 function persistContinuationStepJob(args: {
   record: SkillRunnerRunRecord;
   sequenceState: SequenceRunState;
@@ -496,34 +623,40 @@ function persistContinuationStepJob(args: {
   if (!job) {
     return null;
   }
-  const runRecord = createSkillRunnerRun({
+  const runRecord = applySkillRunnerRunEvent({
+    type: "submit.local_created",
     backendId: args.backend.id,
-    workflowId: args.sequenceState.workflowId,
-    workflowRunId: args.sequenceState.workflowRunId,
-    jobId: job.id,
-    taskName: normalizeString(job.meta.taskName) || job.id,
-    skillId: normalizeString(job.meta.skillId) || undefined,
-    sequenceRunId: args.sequenceState.sequenceRunId,
-    sequenceJobId: args.sequenceState.jobId,
-    sequenceStepId: normalizeString(args.event.sequenceStepId) || undefined,
-    requestPayload: buildSkillRunnerRunRecordRequestPayload({
-      request: job.request,
-      providerOptions: resolveContinuationProviderOptions({
-        record: args.record,
-        sequenceState: args.sequenceState,
-      }),
-    }),
-    fetchType: resolveFetchType({
-      record: args.record,
-      request: job.request,
-    }),
-    executionMode: resolveExecutionModeFromRequest(job.request),
     updatedAt: job.updatedAt,
+    init: {
+      backendId: args.backend.id,
+      workflowId: args.sequenceState.workflowId,
+      workflowRunId: args.sequenceState.workflowRunId,
+      jobId: job.id,
+      taskName: normalizeString(job.meta.taskName) || job.id,
+      skillId: normalizeString(job.meta.skillId) || undefined,
+      sequenceRunId: args.sequenceState.sequenceRunId,
+      sequenceJobId: args.sequenceState.jobId,
+      sequenceStepId: normalizeString(args.event.sequenceStepId) || undefined,
+      requestPayload: buildSkillRunnerRunRecordRequestPayload({
+        request: job.request,
+        providerOptions: resolveContinuationProviderOptions({
+          record: args.record,
+          sequenceState: args.sequenceState,
+        }),
+      }),
+      fetchType: resolveFetchType({
+        record: args.record,
+        request: job.request,
+      }),
+      executionMode: resolveExecutionModeFromRequest(job.request),
+      updatedAt: job.updatedAt,
+    },
   });
   const nextRunRecord = runRecord
-    ? recordSkillRunnerProgress({
-        runKey: runRecord.runKey,
-        event: args.event as any,
+    ? applyContinuationStepProgressEvent({
+        record: runRecord,
+        backend: args.backend,
+        event: args.event,
         updatedAt: job.updatedAt,
       }) || runRecord
     : null;
@@ -571,28 +704,69 @@ function updateSequenceRootApplyState(args: {
   error?: string;
   reason?: string;
 }) {
-  updateSkillRunnerRunApplyState({
-    backendId: args.backend.id,
-    requestId: args.requestId,
-    state: args.state,
-    error: args.error,
-    updatedAt: nowIso(),
-    eventType:
-      args.state === "running"
-        ? "apply.started"
-        : args.state === "succeeded"
-          ? "apply.succeeded"
-          : args.state === "failed"
-            ? "apply.failed"
-            : "apply.skipped",
-    eventPayload: {
-      source: args.source,
-      foreground: true,
-      sequenceRunId: args.sequenceState.sequenceRunId,
-      workflowRunId: args.sequenceState.workflowRunId,
-      reason: normalizeString(args.reason) || undefined,
-    },
-  });
+  applySkillRunnerRunEvent(
+    args.state === "running"
+      ? {
+          type: "apply.started",
+          backendId: args.backend.id,
+          requestId: args.requestId,
+          updatedAt: nowIso(),
+          source: args.source,
+          payload: {
+            source: args.source,
+            foreground: true,
+            sequenceRunId: args.sequenceState.sequenceRunId,
+            workflowRunId: args.sequenceState.workflowRunId,
+            reason: normalizeString(args.reason) || undefined,
+          },
+        }
+      : args.state === "succeeded"
+        ? {
+            type: "apply.succeeded",
+            backendId: args.backend.id,
+            requestId: args.requestId,
+            updatedAt: nowIso(),
+            source: args.source,
+            payload: {
+              source: args.source,
+              foreground: true,
+              sequenceRunId: args.sequenceState.sequenceRunId,
+              workflowRunId: args.sequenceState.workflowRunId,
+              reason: normalizeString(args.reason) || undefined,
+            },
+          }
+        : args.state === "failed"
+          ? {
+              type: "apply.failed",
+              backendId: args.backend.id,
+              requestId: args.requestId,
+              error: args.error,
+              updatedAt: nowIso(),
+              source: args.source,
+              payload: {
+                source: args.source,
+                foreground: true,
+                sequenceRunId: args.sequenceState.sequenceRunId,
+                workflowRunId: args.sequenceState.workflowRunId,
+                reason: normalizeString(args.reason) || undefined,
+              },
+            }
+          : {
+              type: "apply.skipped",
+              backendId: args.backend.id,
+              requestId: args.requestId,
+              error: args.error,
+              updatedAt: nowIso(),
+              source: args.source,
+              payload: {
+                source: args.source,
+                foreground: true,
+                sequenceRunId: args.sequenceState.sequenceRunId,
+                workflowRunId: args.sequenceState.workflowRunId,
+                reason: normalizeString(args.reason) || undefined,
+              },
+            },
+  );
 }
 
 async function applySequenceRootResultIfNeeded(args: {
@@ -693,14 +867,15 @@ async function applySequenceTerminalStep(args: {
   if (stepIndex < 0 || !step) {
     return;
   }
-  updateSkillRunnerRunResult({
+  applySkillRunnerRunEvent({
+    type: "result.fetched",
     backendId: args.record.backendId,
     requestId,
     resultJson: args.result.resultJson,
     resultJsonPath: args.result.resultJsonPath,
     workspaceDir: args.result.workspaceDir,
     updatedAt: nowIso(),
-    eventPayload: {
+    payload: {
       source: args.source,
       foreground: true,
       sequenceStepId: step.id,
@@ -923,8 +1098,11 @@ async function continueSkillRunnerForegroundRunNow(args: {
   } catch (error) {
     const message = compactError(error);
     if (!isNonRecoverableSkillRunnerFailure(error)) {
-      recordSkillRunnerObserverFailure({
+      applySkillRunnerRunEvent({
+        type: "run.observer_detached",
         runKey: record.runKey,
+        backendId: record.backendId,
+        requestId: record.requestId,
         error,
         source,
       });

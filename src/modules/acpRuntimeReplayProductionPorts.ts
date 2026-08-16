@@ -42,10 +42,8 @@ import {
   inspectAcpChatSessionTimers,
 } from "./acpSessionManager";
 import { inspectAcpSyntheticConnectionAdapterTimers } from "./acpSyntheticConnectionAdapter";
-import {
-  getSelectedAcpSkillRunRequestId,
-  inspectSyntheticAcpSkillRunReplayTimers,
-} from "./acpSkillRunStore";
+import { getSelectedAcpSkillRunRequestId } from "./acpSkillRunStore";
+import { inspectAcpSkillRunTimers } from "./acpSkillRunWorkspaceDataPlane";
 
 export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
   surface: "closed" | "open-inactive" | "target-active";
@@ -75,7 +73,7 @@ export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
             }),
           ]
         : [
-            inspectSyntheticAcpSkillRunReplayTimers({
+            inspectAcpSkillRunTimers({
               requestIds: [...requestIds],
             }),
           ];

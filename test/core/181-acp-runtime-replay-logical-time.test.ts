@@ -10,13 +10,13 @@ import {
 } from "../../src/modules/acpSessionManager";
 import {
   appendAcpSkillRunUserReply,
-  cleanupSyntheticAcpSkillRunReplay,
+  deleteAcpSkillRunRecords,
   getAcpSkillRunRecord,
   getSelectedAcpSkillRunRequestId,
-  inspectSyntheticAcpSkillRunReplayTimers,
   readAcpSkillRunTranscriptRegion,
   selectAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
+import { inspectAcpSkillRunTimers } from "../../src/modules/acpSkillRunWorkspaceDataPlane";
 import {
   createAcpChatRuntimeReplayTarget,
   createAcpWorkflowRuntimeReplayTarget,
@@ -76,7 +76,7 @@ describe("ACP runtime replay logical time", function () {
       backendId: "acp-replay",
       conversationId: "logical-chat-conversation",
     }).catch(() => undefined);
-    await cleanupSyntheticAcpSkillRunReplay(["logical-skill-request"]);
+    await deleteAcpSkillRunRecords(["logical-skill-request"]);
     setDebugModeOverrideForTests();
   });
 
@@ -334,7 +334,7 @@ describe("ACP runtime replay logical time", function () {
       owner: skillEvent.owner,
       transcriptBoundary: "soft-side-channel",
     });
-    const skillInspection = inspectSyntheticAcpSkillRunReplayTimers({
+    const skillInspection = inspectAcpSkillRunTimers({
       requestIds: ["logical-skill-request"],
     });
     assert.includeMembers(
@@ -342,8 +342,7 @@ describe("ACP runtime replay logical time", function () {
       ["acp-skill-run-soft-persist"],
     );
     assert.include(
-      inspectSyntheticAcpSkillRunReplayTimers({ requestIds: ["foreign"] })
-        .warnings[0],
+      inspectAcpSkillRunTimers({ requestIds: ["foreign"] }).warnings[0],
       "logical-timer-contamination",
     );
 
@@ -355,6 +354,67 @@ describe("ACP runtime replay logical time", function () {
     await chat.cleanup();
     await skill.drain();
     await skill.cleanup();
+  });
+
+  it("routes synthetic ACP Skills permissions through the standard permission queue", async function () {
+    const target = await createAcpWorkflowRuntimeReplayTarget({
+      syntheticRootId: "logical-skill-permission",
+    });
+    const owner = {
+      rootId: "logical-skill-permission",
+      requestId: "logical-skill-permission-request",
+    };
+    const requestStart: AcpRuntimeSemanticTraceEvent = {
+      record: "event",
+      seq: 1,
+      monotonicOffsetMs: 0,
+      sourceKind: "acp-workflow-execution",
+      kind: "request-start",
+      owner,
+      payload: {},
+    };
+    await target.apply({ event: requestStart, owner });
+    const permissionPayload = {
+      requestId: "permission-1",
+      sessionId: "logical-skill-session",
+      toolCallId: "permission-1",
+      toolTitle: "Zotero MCP: write",
+      approvalKind: "zotero-write",
+      source: "zotero-mcp-write",
+      summary: "Write an item",
+      requestedAt: "2026-08-15T12:00:00.000Z",
+      options: [
+        { optionId: "approve", kind: "allow_once", name: "Approve" },
+        { optionId: "deny", kind: "reject_once", name: "Deny" },
+      ],
+    };
+    await target.apply({
+      event: {
+        ...requestStart,
+        seq: 2,
+        kind: "permission-request",
+        payload: permissionPayload,
+      },
+      owner,
+      transcriptBoundary: "hard-boundary",
+    });
+    assert.equal(
+      getAcpSkillRunRecord(owner.requestId)?.pendingPermission?.requestId,
+      "permission-1",
+    );
+
+    await target.apply({
+      event: {
+        ...requestStart,
+        seq: 3,
+        kind: "permission-outcome",
+        payload: { outcome: "selected", optionId: "approve" },
+      },
+      owner,
+      transcriptBoundary: "hard-boundary",
+    });
+    assert.isNull(getAcpSkillRunRecord(owner.requestId)?.pendingPermission);
+    await target.cleanup();
   });
 
   it("activates and restores the Workflow synthetic request idempotently", async function () {

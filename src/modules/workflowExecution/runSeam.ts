@@ -48,15 +48,13 @@ import { maybeObserveSkillRunnerAutoReplyRun } from "../skillRunnerAutoReplyObse
 import { buildSkillRunnerRunRecordRequestPayload } from "../skillRunnerInteractiveAutoReply";
 import { resolveSkillRunnerSkillDisplay } from "../skillRunnerSubmissionContext";
 import {
+  applySkillRunnerRunEvent,
   buildSkillRunnerSequenceRunKey,
   buildSkillRunnerSingleRunKey,
-  createSkillRunnerRun,
   getSkillRunnerRunProjection,
-  recordSkillRunnerProgress,
+  getSkillRunnerRunRecord,
   registerSkillRunnerSkillDisplaySnapshot,
-  settleSkillRunnerRun,
   subscribeSkillRunnerRunStore,
-  updateSkillRunnerRunStateByRequest,
 } from "../skillRunnerRunStore";
 import { subscribeSequenceRunStateStore } from "./sequenceStateStore";
 import { isDebugModeEnabled } from "../debugMode";
@@ -183,6 +181,125 @@ function executionModeFromRequest(request: unknown) {
     : "auto";
 }
 
+function applySkillRunnerProgressEvent(args: {
+  runKey: string;
+  backendId: string;
+  event: ProviderProgressEvent;
+  updatedAt: string;
+}) {
+  const event = args.event as Record<string, unknown>;
+  const type = normalizeText(event.type);
+  const requestId = normalizeText(event.requestId);
+  const existing = getSkillRunnerRunRecord(args.runKey);
+  if (type === "request-created") {
+    return applySkillRunnerRunEvent({
+      type: "request.created",
+      runKey: args.runKey,
+      backendId: args.backendId,
+      requestId,
+      updatedAt: args.updatedAt,
+    });
+  }
+  if (type === "request-creating" || type === "sequence-step-started") {
+    return applySkillRunnerRunEvent({
+      type: "submit.request_creating",
+      runKey: args.runKey,
+      backendId: args.backendId,
+      requestId,
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "request-uploading") {
+    return applySkillRunnerRunEvent({
+      type: "submit.uploading",
+      runKey: args.runKey,
+      backendId: args.backendId,
+      requestId,
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "request-ready") {
+    return applySkillRunnerRunEvent({
+      type: "request.ready",
+      runKey: args.runKey,
+      backendId: args.backendId,
+      requestId,
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "sequence-step-deferred") {
+    if (normalizeText(event.detachReason) === "observer_failure") {
+      return applySkillRunnerRunEvent({
+        type: "run.observer_detached",
+        runKey: args.runKey,
+        backendId: args.backendId,
+        requestId: normalizeText(event.requestId) || existing?.requestId,
+        error: normalizeText(event.error) || "observer failure",
+        source: "sequence-step-deferred",
+        updatedAt: args.updatedAt,
+      });
+    }
+    return applySkillRunnerRunEvent({
+      type: "backend.snapshot",
+      runKey: args.runKey,
+      backendId: args.backendId,
+      state:
+        normalizeText(event.backendStatus) === "queued" ||
+        normalizeText(event.backendStatus) === "waiting_user" ||
+        normalizeText(event.backendStatus) === "waiting_auth"
+          ? (normalizeText(event.backendStatus) as any)
+          : "running",
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "sequence-step-succeeded") {
+    return applySkillRunnerRunEvent({
+      type: "sequence.step.settled",
+      runKey: args.runKey,
+      backendId: args.backendId,
+      requestId,
+      status: "succeeded",
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "sequence-step-failed") {
+    return applySkillRunnerRunEvent({
+      type: "sequence.step.settled",
+      runKey: args.runKey,
+      backendId: args.backendId,
+      requestId,
+      status: "failed",
+      error: normalizeText(event.error) || undefined,
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  if (type === "sequence-step-canceled") {
+    return applySkillRunnerRunEvent({
+      type: "sequence.step.settled",
+      runKey: args.runKey,
+      backendId: args.backendId,
+      requestId,
+      status: "canceled",
+      updatedAt: args.updatedAt,
+      payload: event,
+    });
+  }
+  return applySkillRunnerRunEvent({
+    type: "backend.snapshot",
+    runKey: args.runKey,
+    backendId: args.backendId,
+    state: existing?.status || "running",
+    updatedAt: args.updatedAt,
+    payload: event,
+  });
+}
+
 function recordSingleSkillRunnerProgress(args: {
   job: JobRecord;
   event: ProviderProgressEvent;
@@ -195,8 +312,9 @@ function recordSingleSkillRunnerProgress(args: {
   if (!runKey) {
     return null;
   }
-  return recordSkillRunnerProgress({
+  return applySkillRunnerProgressEvent({
     runKey,
+    backendId: normalizeText(args.job.meta.backendId),
     event: args.event,
     updatedAt: new Date().toISOString(),
   });
@@ -225,37 +343,42 @@ function recordSequenceStepSkillRunnerProgress(args: {
   const stepRequest = isRecord(eventRecord.sequenceStepRequest)
     ? eventRecord.sequenceStepRequest
     : {};
-  const created = createSkillRunnerRun({
-    runKey,
+  const created = applySkillRunnerRunEvent({
+    type: "submit.local_created",
     backendId: args.backendId,
-    workflowId: args.workflowId,
-    workflowRunId,
-    submissionId: args.submissionId,
-    submissionUnitId: args.submissionUnitId,
-    jobId: `${sequenceJobId}:${sequenceStepId}`,
-    taskName:
-      normalizeText(eventRecord.sequenceStepTaskName) ||
-      `${args.workflowId} / ${sequenceStepId}`,
-    skillId:
-      normalizeText(eventRecord.sequenceStepSkillId) ||
-      resolveSkillIdFromRequest(stepRequest) ||
-      undefined,
-    sequenceRunId: workflowRunId,
-    sequenceJobId,
-    sequenceStepId,
-    requestPayload: buildSkillRunnerRunRecordRequestPayload({
-      request: stepRequest,
-      providerOptions: args.providerOptions,
-    }),
-    fetchType: resolveSkillRunnerFetchTypeFromRequest(stepRequest),
-    executionMode: executionModeFromRequest(stepRequest),
+    init: {
+      runKey,
+      backendId: args.backendId,
+      workflowId: args.workflowId,
+      workflowRunId,
+      submissionId: args.submissionId,
+      submissionUnitId: args.submissionUnitId,
+      jobId: `${sequenceJobId}:${sequenceStepId}`,
+      taskName:
+        normalizeText(eventRecord.sequenceStepTaskName) ||
+        `${args.workflowId} / ${sequenceStepId}`,
+      skillId:
+        normalizeText(eventRecord.sequenceStepSkillId) ||
+        resolveSkillIdFromRequest(stepRequest) ||
+        undefined,
+      sequenceRunId: workflowRunId,
+      sequenceJobId,
+      sequenceStepId,
+      requestPayload: buildSkillRunnerRunRecordRequestPayload({
+        request: stepRequest,
+        providerOptions: args.providerOptions,
+      }),
+      fetchType: resolveSkillRunnerFetchTypeFromRequest(stepRequest),
+      executionMode: executionModeFromRequest(stepRequest),
+    },
   });
   if (!created) {
     return null;
   }
   return (
-    recordSkillRunnerProgress({
+    applySkillRunnerProgressEvent({
       runKey,
+      backendId: args.backendId,
       event: args.event,
       updatedAt: new Date().toISOString(),
     }) || created
@@ -724,9 +847,11 @@ export function runWorkflowExecutionSeam(
             job.state === "canceled")
         ) {
           const result = isRecord(job.result) ? job.result : {};
-          settleSkillRunnerRun({
+          applySkillRunnerRunEvent({
+            type: "backend.terminal",
             runKey,
-            status: job.state,
+            backendId: executionContext.backend.id,
+            status: job.state as "succeeded" | "failed" | "canceled",
             error: job.error,
             result: {
               resultJson: result.resultJson,
@@ -734,13 +859,14 @@ export function runWorkflowExecutionSeam(
               workspaceDir: normalizeText(result.workspaceDir) || undefined,
             },
             updatedAt: job.updatedAt,
-            eventPayload: {
+            payload: {
               source: "workflowExecution.runSeam.onJobUpdated",
               state: job.state,
             },
           });
         } else if (requestId) {
-          updateSkillRunnerRunStateByRequest({
+          applySkillRunnerRunEvent({
+            type: "backend.snapshot",
             backendId: executionContext.backend.id,
             requestId,
             state: job.state,
@@ -750,8 +876,7 @@ export function runWorkflowExecutionSeam(
             ) as any,
             error: job.error,
             updatedAt: job.updatedAt,
-            eventType: "backend.snapshot",
-            eventPayload: {
+            payload: {
               source: "workflowExecution.runSeam.onJobUpdated",
               state: job.state,
             },
@@ -837,21 +962,25 @@ export function runWorkflowExecutionSeam(
       args.prepared.executionContext.requestKind === "skillrunner.job.v1" &&
       args.prepared.executionContext.backend.type === DEFAULT_BACKEND_TYPE
     ) {
-      createSkillRunnerRun({
+      applySkillRunnerRunEvent({
+        type: "submit.local_created",
         backendId: args.prepared.executionContext.backend.id,
-        workflowId: args.prepared.workflow.manifest.id,
-        workflowRunId: runId,
-        submissionId: args.submissionLineage?.submissionId,
-        submissionUnitId: args.submissionLineage?.submissionUnitId,
-        jobId,
-        taskName,
-        skillId: skillId || undefined,
-        requestPayload: buildSkillRunnerRunRecordRequestPayload({
-          request,
-          providerOptions: args.prepared.executionContext.providerOptions,
-        }),
-        fetchType: resolveSkillRunnerFetchTypeFromRequest(request),
-        executionMode: executionModeFromRequest(request),
+        init: {
+          backendId: args.prepared.executionContext.backend.id,
+          workflowId: args.prepared.workflow.manifest.id,
+          workflowRunId: runId,
+          submissionId: args.submissionLineage?.submissionId,
+          submissionUnitId: args.submissionLineage?.submissionUnitId,
+          jobId,
+          taskName,
+          skillId: skillId || undefined,
+          requestPayload: buildSkillRunnerRunRecordRequestPayload({
+            request,
+            providerOptions: args.prepared.executionContext.providerOptions,
+          }),
+          fetchType: resolveSkillRunnerFetchTypeFromRequest(request),
+          executionMode: executionModeFromRequest(request),
+        },
       });
     }
     return jobId;

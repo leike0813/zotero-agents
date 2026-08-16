@@ -21,7 +21,7 @@ import {
 } from "../helpers/sidebarDomEnv";
 import { startSkillRunnerWorkspaceSnapshotHarness } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
 import { createChromePanelRenderer } from "../../src/sidebar/components/chromeRenderer";
-import { updateSkillRunnerRunApplyState } from "../../src/modules/skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "../../src/modules/skillRunnerRunStore";
 import { clearPref, setPref } from "../../src/utils/prefs";
 
 // Mirrors the ACP child's chrome wiring: region marking via the shared
@@ -1134,17 +1134,17 @@ describe("Assistant Workspace ACP UI v1", function () {
         requestId: "req-smoke-apply-failed",
         status: "succeeded",
       });
-      updateSkillRunnerRunApplyState({
+      applySkillRunnerRunEvent({
+        type: "apply.succeeded",
         backendId: harness.backendId,
         requestId: applied.requestId,
-        state: "succeeded",
         attempt: 1,
         updatedAt: "2026-07-18T00:02:01.000Z",
       });
-      updateSkillRunnerRunApplyState({
+      applySkillRunnerRunEvent({
+        type: "apply.failed",
         backendId: harness.backendId,
         requestId: applyFailed.requestId,
-        state: "failed",
         attempt: 1,
         error: "apply write failed",
         updatedAt: "2026-07-18T00:02:02.000Z",
@@ -1212,10 +1212,10 @@ describe("Assistant Workspace ACP UI v1", function () {
       const stableSubtrees = captureRegionSubtrees(stableRegions);
       const transcriptSentinel = childWindow.transcript.firstChild;
 
-      updateSkillRunnerRunApplyState({
+      applySkillRunnerRunEvent({
+        type: "apply.skipped",
         backendId: harness.backendId,
         requestId: applyTarget.requestId,
-        state: "skipped",
         attempt: 1,
         updatedAt: "2026-07-18T00:02:03.000Z",
       });

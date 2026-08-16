@@ -18,13 +18,8 @@ import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/mod
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import {
-  archiveSkillRunnerRunRecordByRequest,
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
+  applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
-  recordSkillRunnerObserverFailure,
-  updateSkillRunnerRunStateByRequest,
-  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import { buildSkillRunnerRunRecordRequestPayload } from "../../src/modules/skillRunnerInteractiveAutoReply";
 import { resetTaskDashboardHistory } from "../../src/modules/taskDashboardHistory";
@@ -83,35 +78,41 @@ function recordWaitingRun(requestId = "sr-auto-reply") {
     request: job.request,
     providerOptions: job.meta.providerOptions,
   });
-  const run = createSkillRunnerRun({
-    backendId: backend.id,
-    workflowId: job.workflowId,
-    workflowRunId: String(job.meta.runId || ""),
-    jobId: job.id,
-    taskName: String(job.meta.taskName || job.id),
-    skillId: String(job.meta.skillId || "") || undefined,
-    requestPayload,
-    fetchType: "result",
-    executionMode: "interactive",
-    createdAt: job.createdAt,
-    updatedAt: job.updatedAt,
+  const run = applySkillRunnerRunEvent({
+    type: "submit.local_created",
+    init: {
+      backendId: backend.id,
+      workflowId: job.workflowId,
+      workflowRunId: String(job.meta.runId || ""),
+      jobId: job.id,
+      taskName: String(job.meta.taskName || job.id),
+      skillId: String(job.meta.skillId || "") || undefined,
+      requestPayload,
+      fetchType: "result",
+      executionMode: "interactive",
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    },
   });
   if (!run) {
     return null;
   }
   const attached =
-    attachSkillRunnerRequestId({
+    applySkillRunnerRunEvent({
+      type: "request.created",
       runKey: run.runKey,
       requestId,
       updatedAt: job.updatedAt,
     }) || run;
-  updateSkillRunnerRunStateByRunKey({
+  applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     runKey: attached.runKey,
     state: "request_ready",
     backendStatus: "running",
     updatedAt: job.updatedAt,
   });
-  return updateSkillRunnerRunStateByRunKey({
+  return applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     runKey: attached.runKey,
     state: "waiting_user",
     backendStatus: "waiting_user",
@@ -157,7 +158,8 @@ describe("SkillRunner auto-reply observer", function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
     const run = recordWaitingRun("sr-detached-waiting");
     assert.isOk(run);
-    recordSkillRunnerObserverFailure({
+    applySkillRunnerRunEvent({
+      type: "run.observer_detached",
       runKey: run!.runKey,
       error: new Error("network detached"),
       source: "test",
@@ -323,7 +325,8 @@ describe("SkillRunner auto-reply observer", function () {
       requestId: "sr-local-terminal",
       source: "test",
     });
-    updateSkillRunnerRunStateByRequest({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId: backend.id,
       requestId: "sr-local-terminal",
       state: "succeeded",
@@ -355,7 +358,8 @@ describe("SkillRunner auto-reply observer", function () {
       requestId: "sr-archived",
       source: "test",
     });
-    archiveSkillRunnerRunRecordByRequest({
+    applySkillRunnerRunEvent({
+      type: "run.archived",
       backendId: backend.id,
       requestId: "sr-archived",
     });

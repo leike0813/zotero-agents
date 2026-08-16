@@ -125,7 +125,6 @@ export {
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
   getAcpSkillRunWorkspaceDetailsReadModel,
   getAcpSkillRunWorkspaceReadModel,
-  inspectSyntheticAcpSkillRunReplayTimers,
   listAcpSkillRuns,
   listAcpSkillRunSummaries,
   resetAcpSkillRunSummaryDiagnosticsForTests,
@@ -3612,48 +3611,7 @@ export function getSelectedAcpSkillRunRequestId() {
   return selectedRequestId;
 }
 
-export function prepareSyntheticAcpSkillRunReplay(args: {
-  requestId: string;
-  workflowId?: string;
-  workflowRunId?: string;
-  jobId?: string;
-  stageId?: string;
-}) {
-  return upsertAcpSkillRun({
-    requestId: args.requestId,
-    status: "running",
-    statusReason: "start",
-    backendId: "acp-replay",
-    backendType: "acp",
-    workflowId: args.workflowId,
-    runId: args.workflowRunId,
-    jobId: args.jobId,
-    sequenceStepId: args.stageId,
-    taskName: "ACP replay",
-    skillId: "acp-replay",
-    conversationState: "active",
-    activePrompt: true,
-  });
-}
-
-export function applySyntheticAcpSkillRunReplayPermission(args: {
-  requestId: string;
-  request: AcpPendingPermissionRequest | null;
-}) {
-  return upsertAcpSkillRun({
-    requestId: args.requestId,
-    ...(args.request
-      ? {
-          status: "waiting_user" as const,
-          statusReason: "waiting_user" as const,
-        }
-      : {}),
-    pendingPermission: args.request,
-    conversationState: "active",
-  });
-}
-
-export async function cleanupSyntheticAcpSkillRunReplay(requestIds: string[]) {
+export async function deleteAcpSkillRunRecords(requestIds: string[]) {
   await flushAcpSkillRunRuntimeFileWrites();
   for (const requestId of requestIds) {
     deletePluginRunStoreEntry("acp", requestId);

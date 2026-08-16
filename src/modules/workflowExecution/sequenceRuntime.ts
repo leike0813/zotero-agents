@@ -25,7 +25,7 @@ import {
   type SequenceRunState,
 } from "./sequenceStateStore";
 import { getDotPath } from "./valuePath";
-import { updateSkillRunnerRunApplyState } from "../skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "../skillRunnerRunStore";
 import { isNonRecoverableSkillRunnerFailure } from "../skillRunnerRecoverableState";
 import { isDebugModeEnabled } from "../debugMode";
 import { getAcpSkillRunRecord } from "../acpSkillRunStore";
@@ -727,14 +727,22 @@ function syncSkillRunnerSequenceStepApplyState(args: {
   if (!requestId) {
     return;
   }
-  updateSkillRunnerRunApplyState({
+  const eventType =
+    args.applyState === "running"
+      ? "apply.started"
+      : args.applyState === "succeeded"
+        ? "apply.succeeded"
+        : args.applyState === "failed"
+          ? "apply.failed"
+          : "apply.skipped";
+  applySkillRunnerRunEvent({
+    type: eventType,
     backendId: args.backend.id,
     requestId,
-    state: args.applyState,
     error: args.error,
     updatedAt: nowIso(),
-    eventType: sequenceStepApplyEventType(args.applyState),
-    eventPayload: {
+    source: args.source,
+    payload: {
       source: args.source,
       sequenceRunId: args.state.sequenceRunId,
       workflowRunId: args.state.workflowRunId,
@@ -743,7 +751,7 @@ function syncSkillRunnerSequenceStepApplyState(args: {
       applyWorkflowId: normalizeString(args.applyWorkflowId) || undefined,
       reason: normalizeString(args.reason) || undefined,
     },
-  });
+  } as any);
 }
 
 async function applySequenceStepIfNeeded(args: {

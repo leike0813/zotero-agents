@@ -33,25 +33,28 @@ import {
   type AcpSyntheticConnectionAdapter,
 } from "./acpSyntheticConnectionAdapter";
 import {
-  applySyntheticAcpSkillRunReplayPermission,
-  cleanupSyntheticAcpSkillRunReplay,
   completeAcpSkillRunTranscriptTurnBoundary,
+  deleteAcpSkillRunRecords,
   flushAcpSkillRunRuntimeFileWrites,
   getSelectedAcpSkillRunRequestId,
-  prepareSyntheticAcpSkillRunReplay,
   recordAcpSkillRunSessionUpdate,
+  resolveAcpSkillRunPermissionRequest,
   selectAcpSkillRun,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
+import { handleAcpSkillRunPermissionRequest } from "./acpSkillRunExecutionSupport";
+import type { AcpSkillRunPermissionRequestWithResolver } from "./acpSkillRunPermissionFacade";
 import { createAcpRuntimeReplayOwnerIdentity } from "./acpRuntimeReplayIdentity";
 
-function pendingPermission(payload: unknown): AcpPendingPermissionRequest {
+function pendingPermission(
+  payload: unknown,
+): AcpSkillRunPermissionRequestWithResolver {
   const request = payload as AcpPendingPermissionRequest;
   return {
     ...request,
     options: Array.isArray(request?.options) ? request.options : [],
     resolve: (_outcome: RequestPermissionOutcome) => undefined,
-  } as AcpPendingPermissionRequest;
+  } as AcpSkillRunPermissionRequestWithResolver;
 }
 
 function mappedSessionNotification(
@@ -265,15 +268,23 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
   let previousRequestId: string | undefined;
   let activated = false;
   let cleaned = false;
-  const ensureRequest = (owner: AcpRuntimeTraceOwner) => {
+  const ensureRequest = (owner: Partial<AcpRuntimeTraceOwner> = {}) => {
     const requestId = identity.workflow.requestId;
     if (!requestIds.has(requestId)) {
-      prepareSyntheticAcpSkillRunReplay({
+      upsertAcpSkillRun({
         requestId,
+        status: "running",
+        statusReason: "start",
+        backendId: "acp-replay",
+        backendType: "acp",
         workflowId: owner.workflowId,
-        workflowRunId: owner.workflowRunId,
+        runId: owner.workflowRunId,
         jobId: owner.jobId,
-        stageId: owner.stageId,
+        sequenceStepId: owner.stageId,
+        taskName: "ACP replay",
+        skillId: "acp-replay",
+        conversationState: "active",
+        activePrompt: true,
       });
       requestIds.add(requestId);
     }
@@ -285,10 +296,7 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
     activate: async () => {
       if (activated) return;
       previousRequestId = getSelectedAcpSkillRunRequestId();
-      prepareSyntheticAcpSkillRunReplay({
-        requestId: identity.workflow.requestId,
-      });
-      requestIds.add(identity.workflow.requestId);
+      ensureRequest();
       await selectAcpSkillRun(identity.workflow.requestId);
       activated = true;
     },
@@ -317,21 +325,31 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
           );
           return "applied";
         case "permission-request":
-          applySyntheticAcpSkillRunReplayPermission({
+          handleAcpSkillRunPermissionRequest({
             requestId: ensureRequest(context.owner),
             request: pendingPermission(context.event.payload),
           });
           return "applied";
-        case "permission-outcome":
-          applySyntheticAcpSkillRunReplayPermission({
-            requestId: ensureRequest(context.owner),
-            request: null,
+        case "permission-outcome": {
+          const requestId = ensureRequest(context.owner);
+          const outcome = (context.event.payload || {
+            outcome: "cancelled",
+          }) as RequestPermissionOutcome;
+          resolveAcpSkillRunPermissionRequest({
+            runRequestId: requestId,
+            outcome: outcome.outcome === "selected" ? "selected" : "cancelled",
+            optionId: outcome.outcome === "selected" ? outcome.optionId : "",
           });
           return "applied";
+        }
         case "request-end":
         case "terminal": {
           const requestId = ensureRequest(context.owner);
           completeAcpSkillRunTranscriptTurnBoundary(requestId);
+          resolveAcpSkillRunPermissionRequest({
+            runRequestId: requestId,
+            outcome: "cancelled",
+          });
           const status = String(
             (context.event.payload as { status?: unknown })?.status || "",
           );
@@ -376,7 +394,7 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
         firstError = error;
       }
       try {
-        await cleanupSyntheticAcpSkillRunReplay(Array.from(requestIds));
+        await deleteAcpSkillRunRecords(Array.from(requestIds));
       } catch (error) {
         firstError ||= error;
       }

@@ -32,15 +32,10 @@ import {
 import { WorkflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
   listSkillRunnerRunRecords,
   projectSkillRunnerRun,
-  recordSkillRunnerProgress,
   resetSkillRunnerRunStoreForTests,
-  settleSkillRunnerRun,
-  updateSkillRunnerRunApplyState,
-  updateSkillRunnerRunStateByRequest,
+  applySkillRunnerRunEvent,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
@@ -535,12 +530,15 @@ describe("workflow execution seams", function () {
         jobId,
       });
     const createRun = () => {
-      const run = createSkillRunnerRun({
-        backendId,
-        workflowId: "resolution-skillrunner-workflow",
-        workflowRunId,
-        jobId,
-        taskName: "Resolution SkillRunner Job",
+      const run = applySkillRunnerRunEvent({
+        type: "submit.local_created",
+        init: {
+          backendId,
+          workflowId: "resolution-skillrunner-workflow",
+          workflowRunId,
+          jobId,
+          taskName: "Resolution SkillRunner Job",
+        },
       });
       assert.isOk(run);
       return run!;
@@ -548,7 +546,8 @@ describe("workflow execution seams", function () {
 
     resetSkillRunnerRunStoreForTests();
     const localRun = createRun();
-    settleSkillRunnerRun({
+    applySkillRunnerRunEvent({
+      type: "backend.terminal",
       runKey: localRun.runKey,
       status: "canceled",
       error: "stopped before request identity",
@@ -564,16 +563,21 @@ describe("workflow execution seams", function () {
 
     resetSkillRunnerRunStoreForTests();
     const succeededRun = createRun();
-    attachSkillRunnerRequestId({ runKey: succeededRun.runKey, requestId });
-    settleSkillRunnerRun({
+    applySkillRunnerRunEvent({
+      type: "request.created",
+      runKey: succeededRun.runKey,
+      requestId,
+    });
+    applySkillRunnerRunEvent({
+      type: "backend.terminal",
       runKey: succeededRun.runKey,
       status: "succeeded",
       backendStatus: "succeeded",
     });
-    updateSkillRunnerRunApplyState({
+    applySkillRunnerRunEvent({
+      type: "apply.skipped",
       backendId,
       requestId,
-      state: "skipped",
     });
     job.meta.requestId = requestId;
     job.result.requestId = requestId;
@@ -590,10 +594,10 @@ describe("workflow execution seams", function () {
       slotStatus: "succeeded",
     });
 
-    updateSkillRunnerRunApplyState({
+    applySkillRunnerRunEvent({
+      type: "apply.failed",
       backendId,
       requestId,
-      state: "failed",
       error: "SkillRunner apply failed",
     });
     assert.deepEqual(resolve(), {
@@ -673,16 +677,24 @@ describe("workflow execution seams", function () {
       slotStatus: "unobserved",
     });
 
-    const run = createSkillRunnerRun({
-      backendId,
-      workflowId: "resolution-skillrunner-slot-workflow",
-      workflowRunId,
-      jobId,
-      taskName: "Resolution SkillRunner Slot Job",
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId,
+        workflowId: "resolution-skillrunner-slot-workflow",
+        workflowRunId,
+        jobId,
+        taskName: "Resolution SkillRunner Slot Job",
+      },
     });
     assert.isOk(run);
-    attachSkillRunnerRequestId({ runKey: run!.runKey, requestId });
-    updateSkillRunnerRunStateByRequest({
+    applySkillRunnerRunEvent({
+      type: "request.created",
+      runKey: run!.runKey,
+      requestId,
+    });
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId,
       requestId,
       state: "waiting_auth",
@@ -768,23 +780,28 @@ describe("workflow execution seams", function () {
       slotStatus: "unobserved",
     });
 
-    const run = createSkillRunnerRun({
-      backendId,
-      workflowId: "resolution-sequence-slot-workflow",
-      workflowRunId: sequenceRunId,
-      jobId: `${jobId}:prepare`,
-      taskName: "Resolution Sequence Slot / prepare",
-      skillId: "prepare-skill",
-      sequenceRunId,
-      sequenceJobId: jobId,
-      sequenceStepId: "prepare",
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId,
+        workflowId: "resolution-sequence-slot-workflow",
+        workflowRunId: sequenceRunId,
+        jobId: `${jobId}:prepare`,
+        taskName: "Resolution Sequence Slot / prepare",
+        skillId: "prepare-skill",
+        sequenceRunId,
+        sequenceJobId: jobId,
+        sequenceStepId: "prepare",
+      },
     });
     assert.isOk(run);
-    attachSkillRunnerRequestId({
+    applySkillRunnerRunEvent({
+      type: "request.created",
       runKey: run!.runKey,
       requestId: stepRequestId,
     });
-    updateSkillRunnerRunStateByRequest({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId,
       requestId: stepRequestId,
       state: "waiting_user",
@@ -3678,33 +3695,40 @@ describe("workflow execution seams", function () {
           conversationRecoveryState: "unavailable",
         });
       } else {
-        const run = createSkillRunnerRun({
-          backendId,
-          workflowId: `${backendType}-observer-workflow`,
-          workflowRunId: sequenceRunId,
-          jobId: `${jobId}:prepare`,
-          taskName: "Observer Workflow / prepare",
-          skillId: "prepare-skill",
-          sequenceRunId,
-          sequenceJobId: jobId,
-          sequenceStepId: "prepare",
+        const run = applySkillRunnerRunEvent({
+          type: "submit.local_created",
+          init: {
+            backendId,
+            workflowId: `${backendType}-observer-workflow`,
+            workflowRunId: sequenceRunId,
+            jobId: `${jobId}:prepare`,
+            taskName: "Observer Workflow / prepare",
+            skillId: "prepare-skill",
+            sequenceRunId,
+            sequenceJobId: jobId,
+            sequenceStepId: "prepare",
+          },
         });
         assert.isOk(run);
-        attachSkillRunnerRequestId({
+        applySkillRunnerRunEvent({
+          type: "request.created",
           runKey: run!.runKey,
           requestId,
         });
-        recordSkillRunnerProgress({
+        applySkillRunnerRunEvent({
+          type: "sequence.step.settled",
           runKey: run!.runKey,
-          event: {
+          requestId,
+          status: "succeeded",
+          payload: {
             type: "sequence-step-succeeded",
             requestId,
-          } as any,
+          },
         });
-        updateSkillRunnerRunApplyState({
+        applySkillRunnerRunEvent({
+          type: "apply.succeeded",
           backendId,
           requestId,
-          state: "succeeded",
         });
       }
       await flushMicrotasks();
@@ -3776,27 +3800,32 @@ describe("workflow execution seams", function () {
       );
       if (backendType === "skillrunner") {
         resetSkillRunnerRunStoreForTests();
-        const syntheticRootRun = createSkillRunnerRun({
-          backendId,
-          workflowId: `${backendType}-observer-workflow`,
-          workflowRunId: runState.runId,
-          jobId,
-          taskName: "Synthetic sequence root",
+        const syntheticRootRun = applySkillRunnerRunEvent({
+          type: "submit.local_created",
+          init: {
+            backendId,
+            workflowId: `${backendType}-observer-workflow`,
+            workflowRunId: runState.runId,
+            jobId,
+            taskName: "Synthetic sequence root",
+          },
         });
         assert.isOk(syntheticRootRun);
-        attachSkillRunnerRequestId({
+        applySkillRunnerRunEvent({
+          type: "request.created",
           runKey: syntheticRootRun!.runKey,
           requestId: "synthetic-root-request",
         });
-        settleSkillRunnerRun({
+        applySkillRunnerRunEvent({
+          type: "backend.terminal",
           runKey: syntheticRootRun!.runKey,
           status: "succeeded",
           backendStatus: "succeeded",
         });
-        updateSkillRunnerRunApplyState({
+        applySkillRunnerRunEvent({
+          type: "apply.succeeded",
           backendId,
           requestId: "synthetic-root-request",
-          state: "succeeded",
         });
         assert.deepEqual(
           resolveWorkflowJobTerminalResolution({

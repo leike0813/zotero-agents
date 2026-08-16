@@ -330,7 +330,7 @@ export function resetAcpSkillRunWorkspaceDataPlaneForTests() {
   workspaceListeners.clear();
 }
 
-export function inspectSyntheticAcpSkillRunReplayTimers(args: {
+export function inspectAcpSkillRunTimers(args: {
   requestIds: readonly string[];
 }): AcpRuntimeReplayLogicalTimerInspection {
   if (

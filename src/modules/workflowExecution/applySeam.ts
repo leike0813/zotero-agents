@@ -13,11 +13,7 @@ import {
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
 } from "../acpSkillRunStore";
-import {
-  updateSkillRunnerRunApplyState,
-  updateSkillRunnerRunResult,
-  updateSkillRunnerRunStateByRequest,
-} from "../skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "../skillRunnerRunStore";
 import type { WorkflowApplySummary, WorkflowRunState } from "./contracts";
 import {
   resolveTargetParentIDFromRequest,
@@ -707,24 +703,24 @@ export async function runWorkflowApplySeam(
       });
       if (isForegroundSkillRunnerSingleJob) {
         const updatedAt = new Date().toISOString();
-        updateSkillRunnerRunStateByRequest({
+        applySkillRunnerRunEvent({
+          type: "backend.terminal",
           backendId: skillRunnerBackendId,
           requestId: result.requestId,
-          state: "succeeded",
+          status: "succeeded",
           updatedAt,
-          eventType: "backend.terminal",
-          eventPayload: {
+          payload: {
             source: "workflowExecution.applySeam",
             foreground: true,
           },
         });
-        updateSkillRunnerRunApplyState({
+        applySkillRunnerRunEvent({
+          type: "apply.started",
           backendId: skillRunnerBackendId,
           requestId: result.requestId,
-          state: "running",
           updatedAt,
-          eventType: "apply.started",
-          eventPayload: {
+          source: "workflowExecution.applySeam",
+          payload: {
             source: "workflowExecution.applySeam",
             foreground: true,
           },
@@ -741,7 +737,8 @@ export async function runWorkflowApplySeam(
         manifest: args.runState.workflow.manifest,
       });
       if (isForegroundSkillRunnerSingleJob) {
-        updateSkillRunnerRunResult({
+        applySkillRunnerRunEvent({
+          type: "result.fetched",
           backendId: skillRunnerBackendId,
           requestId: result.requestId,
           resultJson: resultContext.resultJson,
@@ -754,7 +751,7 @@ export async function runWorkflowApplySeam(
               ? result.workspaceDir
               : undefined,
           updatedAt: new Date().toISOString(),
-          eventPayload: {
+          payload: {
             source: "workflowExecution.applySeam",
             foreground: true,
           },
@@ -810,14 +807,14 @@ export async function runWorkflowApplySeam(
         });
       }
       if (isForegroundSkillRunnerSingleJob) {
-        updateSkillRunnerRunApplyState({
+        applySkillRunnerRunEvent({
+          type: "apply.succeeded",
           backendId: skillRunnerBackendId,
           requestId: result.requestId,
-          state: "succeeded",
           attempt: 0,
           updatedAt: new Date().toISOString(),
-          eventType: "apply.succeeded",
-          eventPayload: {
+          source: "workflowExecution.applySeam",
+          payload: {
             source: "workflowExecution.applySeam",
             foreground: true,
           },
@@ -906,14 +903,14 @@ export async function runWorkflowApplySeam(
         });
       }
       if (isForegroundSkillRunnerSingleJob) {
-        updateSkillRunnerRunApplyState({
+        applySkillRunnerRunEvent({
+          type: "apply.failed",
           backendId: skillRunnerBackendId,
           requestId: result.requestId,
-          state: "failed",
           error: reason,
           updatedAt: new Date().toISOString(),
-          eventType: "apply.failed",
-          eventPayload: {
+          source: "workflowExecution.applySeam",
+          payload: {
             source: "workflowExecution.applySeam",
             foreground: true,
           },

@@ -33,9 +33,8 @@ import {
   resolveSkillRunnerHostBridgePermissionRequest,
 } from "../../src/modules/skillRunnerHostBridgePermissionRegistry";
 import {
-  createSkillRunnerRun,
+  applySkillRunnerRunEvent,
   resetSkillRunnerRunStoreForTests,
-  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   hasHostBridgeUploadedFileLease,
@@ -2815,20 +2814,24 @@ describe("host bridge workflow control", function () {
       workflowRunId: "run-sequence",
       jobId: "job-1",
     });
-    const run = createSkillRunnerRun({
-      backendId: "backend-1",
-      workflowId: "literature-analysis",
-      workflowRunId: "run-sequence",
-      jobId: "job-1:digest",
-      taskName: "Digest",
-      sequenceRunId: "run-sequence",
-      sequenceJobId: "job-1",
-      sequenceStepId: "digest",
-      createdAt: now,
-      updatedAt: now,
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "backend-1",
+        workflowId: "literature-analysis",
+        workflowRunId: "run-sequence",
+        jobId: "job-1:digest",
+        taskName: "Digest",
+        sequenceRunId: "run-sequence",
+        sequenceJobId: "job-1",
+        sequenceStepId: "digest",
+        createdAt: now,
+        updatedAt: now,
+      },
     });
     assert.isNotNull(run);
-    updateSkillRunnerRunStateByRunKey({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       runKey: run!.runKey,
       state: "running",
       updatedAt: now,
@@ -3790,18 +3793,22 @@ describe("host bridge workflow control", function () {
   it("returns stable errors for unsupported or non-waiting skill-run interactions", async function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     const now = new Date().toISOString();
-    const skillRunnerRun = createSkillRunnerRun({
-      runKey: "skillrunner-run-1",
-      backendId: "backend-sr",
-      workflowId: "bridge-workflow",
-      workflowRunId: "run-skillrunner-1",
-      jobId: "job-skillrunner",
-      taskName: "SkillRunner Task",
-      createdAt: now,
-      updatedAt: now,
+    const skillRunnerRun = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        runKey: "skillrunner-run-1",
+        backendId: "backend-sr",
+        workflowId: "bridge-workflow",
+        workflowRunId: "run-skillrunner-1",
+        jobId: "job-skillrunner",
+        taskName: "SkillRunner Task",
+        createdAt: now,
+        updatedAt: now,
+      },
     });
     assert.isNotNull(skillRunnerRun);
-    updateSkillRunnerRunStateByRunKey({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       runKey: "skillrunner-run-1",
       state: "waiting_user",
       updatedAt: now,
