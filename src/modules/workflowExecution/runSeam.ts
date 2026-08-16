@@ -16,9 +16,8 @@ import { requestAcpSkillRunForeground } from "../acpSkillRunForeground";
 import type { BuiltPreparedWorkflowUnit, WorkflowRunState } from "./contracts";
 import {
   resolveInputUnitIdentityFromRequest,
-  resolveInputUnitLabelFromRequest,
-  resolveTargetParentIDFromRequest,
   resolveTaskNameFromRequest,
+  resolveTargetParentIDFromRequest,
 } from "./requestMeta";
 import { resolveWorkflowDispatchConcurrency } from "./runConcurrency";
 import {
@@ -895,7 +894,7 @@ export function runWorkflowExecutionSeam(
   const jobIds = args.prepared.requests.map((request, index) => {
     const taskName = resolveTaskNameFromRequest(request, index);
     const inputUnitIdentity = resolveInputUnitIdentityFromRequest(request);
-    const inputUnitLabel = resolveInputUnitLabelFromRequest(request, index);
+    const inputUnitLabel = resolveTaskNameFromRequest(request, index);
     const inputMemberIdentities =
       args.prepared.unit?.memberIdentities?.length > 0
         ? [...args.prepared.unit.memberIdentities]

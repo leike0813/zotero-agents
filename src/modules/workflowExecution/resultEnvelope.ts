@@ -43,7 +43,3 @@ export function unwrapSkillRunnerResultJson(value: unknown): unknown {
   }
   return value;
 }
-
-export function canonicalizeWorkflowResultJson(value: unknown): unknown {
-  return unwrapSkillRunnerResultJson(value);
-}

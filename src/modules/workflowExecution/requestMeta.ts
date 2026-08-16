@@ -113,10 +113,3 @@ export function resolveInputUnitIdentityFromRequest(request: unknown) {
 
   return "";
 }
-
-export function resolveInputUnitLabelFromRequest(
-  request: unknown,
-  index: number,
-) {
-  return resolveTaskNameFromRequest(request, index);
-}
