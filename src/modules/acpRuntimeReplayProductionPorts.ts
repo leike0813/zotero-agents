@@ -42,7 +42,7 @@ import {
   inspectAcpChatSessionTimers,
 } from "./acpSessionManager";
 import { inspectAcpSyntheticConnectionAdapterTimers } from "./acpSyntheticConnectionAdapter";
-import { getSelectedAcpSkillRunRequestId } from "./acpSkillRunStore";
+import { getSelectedAcpSkillRunRequestId } from "./acpSkillRunWorkspaceSelection";
 import { inspectAcpSkillRunTimers } from "./acpSkillRunWorkspaceDataPlane";
 
 export function createAcpRuntimeReplayProductionLogicalTimePort(args: {

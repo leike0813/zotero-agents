@@ -23,9 +23,7 @@ import {
 } from "../../src/modules/taskDashboardHistory";
 import {
   getAcpSkillRunRecord,
-  registerAcpSkillRunController,
   resetAcpSkillRunsForTests,
-  resolveAcpSkillRunPermissionRequest,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -87,6 +85,8 @@ import {
   markHostBridgeOperationOutcomeUnknown,
   reserveHostBridgeOperation,
 } from "../../src/modules/hostBridgeOperationStore";
+import { registerAcpSkillRunController } from "../../src/modules/acpSkillRunControllerRegistry";
+import { resolveAcpSkillRunPermissionRequest } from "../../src/modules/acpSkillRunPermissionQueue";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");

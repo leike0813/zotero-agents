@@ -36,15 +36,17 @@ import {
   completeAcpSkillRunTranscriptTurnBoundary,
   deleteAcpSkillRunRecords,
   flushAcpSkillRunRuntimeFileWrites,
-  getSelectedAcpSkillRunRequestId,
   recordAcpSkillRunSessionUpdate,
-  resolveAcpSkillRunPermissionRequest,
-  selectAcpSkillRun,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
 import { handleAcpSkillRunPermissionRequest } from "./acpSkillRunExecutionSupport";
 import type { AcpSkillRunPermissionRequestWithResolver } from "./acpSkillRunPermissionFacade";
 import { createAcpRuntimeReplayOwnerIdentity } from "./acpRuntimeReplayIdentity";
+import {
+  getSelectedAcpSkillRunRequestId,
+  selectAcpSkillRun,
+} from "./acpSkillRunWorkspaceSelection";
+import { resolveAcpSkillRunPermissionRequest } from "./acpSkillRunPermissionQueue";
 
 function pendingPermission(
   payload: unknown,

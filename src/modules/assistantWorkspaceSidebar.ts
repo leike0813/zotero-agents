@@ -27,9 +27,7 @@ import {
 
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
-  getSelectedAcpSkillRunRequestId,
   listAcpSkillRunSummaries,
-  selectAcpSkillRun,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
 
@@ -120,6 +118,10 @@ import {
   scheduleSkillRunnerPublications,
   transcriptRebasePageRequest,
 } from "./assistantWorkspacePublicationHost";
+import {
+  getSelectedAcpSkillRunRequestId,
+  selectAcpSkillRun,
+} from "./acpSkillRunWorkspaceSelection";
 
 // Decision 3/4 re-exports: publication coordination now lives in
 // ./assistantWorkspacePublicationHost and host action routing (formerly the

@@ -21,20 +21,10 @@ import {
 } from "../../src/modules/acpAgentFamilyResolver";
 import {
   appendAcpSkillRunUserReply,
-  cancelAcpSkillRun,
-  archiveAcpSkillRun,
-  connectAcpSkillRun,
-  disconnectAcpSkillRun,
-  endAcpSkillRunSession,
   flushAcpSkillRunRuntimeFileWritesForTests,
   getAcpSkillRunRecord,
-  getAcpSkillRunRuntimeCatalog,
-  getSelectedAcpSkillRunRequestId,
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
-  hasAcpSkillRunController,
   hydrateAcpSkillRunTranscriptMirror,
-  interruptAcpSkillRunCurrentTurn,
-  isEligibleForPostTerminalAcpSkillRunConversation,
   listAcpSkillRunSummaries,
   listAcpSkillRuns,
   projectAcpSkillRunOutputEnvelopeToTranscript,
@@ -42,18 +32,8 @@ import {
   readAcpSkillRunTranscriptRegionFromMemoryForTests,
   recordAcpSkillRunSessionUpdate,
   reconcileAcpSkillRunWorkflowTasksOnStartup,
-  registerAcpSkillRunController,
-  replyAcpSkillRun,
-  resolveAcpSkillRunPermissionRequest,
   resetAcpSkillRunsForTests,
-  selectAcpSkillRun,
-  setAcpSkillRunMode,
-  setAcpSkillRunModel,
   setAcpSkillRunRecoveryHandlerForTests,
-  setAcpSkillRunPermissionRequest,
-  setAcpSkillRunReasoningEffort,
-  setAcpSkillRunRuntimeCatalog,
-  shutdownAcpSkillRunConversations,
   subscribeAcpSkillRunWorkspaceChanges,
   type AcpSkillRunWorkspaceChange,
   upsertAcpSkillRun,
@@ -167,6 +147,36 @@ import {
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
 import type { JobRecord } from "../../src/jobQueue/manager";
+import {
+  cancelAcpSkillRun,
+  archiveAcpSkillRun,
+  connectAcpSkillRun,
+  disconnectAcpSkillRun,
+  endAcpSkillRunSession,
+  interruptAcpSkillRunCurrentTurn,
+  replyAcpSkillRun,
+  setAcpSkillRunMode,
+  setAcpSkillRunModel,
+  setAcpSkillRunReasoningEffort,
+  shutdownAcpSkillRunConversations,
+} from "../../src/modules/acpSkillRunActions";
+import {
+  getAcpSkillRunRuntimeCatalog,
+  setAcpSkillRunRuntimeCatalog,
+} from "../../src/modules/acpSkillRunRuntimeCatalog";
+import {
+  getSelectedAcpSkillRunRequestId,
+  selectAcpSkillRun,
+} from "../../src/modules/acpSkillRunWorkspaceSelection";
+import {
+  hasAcpSkillRunController,
+  registerAcpSkillRunController,
+} from "../../src/modules/acpSkillRunControllerRegistry";
+import { isEligibleForPostTerminalAcpSkillRunConversation } from "../../src/modules/acpSkillRunStatus";
+import {
+  resolveAcpSkillRunPermissionRequest,
+  setAcpSkillRunPermissionRequest,
+} from "../../src/modules/acpSkillRunPermissionQueue";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-skillrunner-"));

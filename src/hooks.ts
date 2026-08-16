@@ -113,10 +113,7 @@ import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
 import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
 import { initializeWorkflowProductStorage } from "./modules/workflowProductStore";
 import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
-import {
-  reconcileAcpSkillRunWorkflowTasksOnStartup,
-  shutdownAcpSkillRunConversations,
-} from "./modules/acpSkillRunStore";
+import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acpSkillRunStore";
 import {
   cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
@@ -191,6 +188,7 @@ import {
   preflightRuntimeProcessControlOnStartup,
   type RuntimeProcessControlSnapshot,
 } from "./platform/processControl";
+import { shutdownAcpSkillRunConversations } from "./modules/acpSkillRunActions";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;

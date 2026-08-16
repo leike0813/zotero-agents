@@ -49,22 +49,13 @@ import {
   appendAcpSkillRunUserReply,
   appendAcpSkillRunHardTimeoutTranscriptNotice,
   completeAcpSkillRunTranscriptTurnBoundary,
-  detachAcpSkillRunControllerAfterApplyResult,
   flushAcpSkillRunRuntimeFileWrites,
   getAcpSkillRunRecord,
   hydrateAcpSkillRunTranscriptMirror,
-  isEligibleForPostTerminalAcpSkillRunConversation,
-  isRecoverablePromptFailure,
-  markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
-  registerAcpSkillRunController,
-  registerAcpSkillRunSetupController,
   recordAcpSkillRunOutputRevision,
   recordAcpSkillRunSessionUpdate,
-  resolveAcpSkillRunPermissionRequest,
   upsertAcpSkillRun,
-  unregisterAcpSkillRunController,
-  unregisterAcpSkillRunSetupController,
   type AcpSkillRunReplyRequest,
   type AcpSkillRunSetupController,
 } from "./acpSkillRunStore";
@@ -141,6 +132,21 @@ import type {
   runPrompt as orchestratorRunPrompt,
   AcpPromptFailureError as OrchestratorPromptFailureError,
 } from "./acpSkillRunnerOrchestrator";
+import {
+  detachAcpSkillRunControllerAfterApplyResult,
+  markAcpSkillRunApplyResult,
+} from "./acpSkillRunActions";
+import {
+  isEligibleForPostTerminalAcpSkillRunConversation,
+  isRecoverablePromptFailure,
+} from "./acpSkillRunStatus";
+import {
+  registerAcpSkillRunController,
+  registerAcpSkillRunSetupController,
+  unregisterAcpSkillRunController,
+  unregisterAcpSkillRunSetupController,
+} from "./acpSkillRunControllerRegistry";
+import { resolveAcpSkillRunPermissionRequest } from "./acpSkillRunPermissionQueue";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();

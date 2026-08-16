@@ -11,10 +11,7 @@ import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
-import {
-  selectAcpSkillRun,
-  subscribeAcpSkillRunWorkspaceChanges,
-} from "../acpSkillRunStore";
+import { subscribeAcpSkillRunWorkspaceChanges } from "../acpSkillRunStore";
 import { requestAcpSkillRunForeground } from "../acpSkillRunForeground";
 import type { BuiltPreparedWorkflowUnit, WorkflowRunState } from "./contracts";
 import {
@@ -65,6 +62,7 @@ import {
   finishAcpRuntimeSemanticTraceRoot,
   settleAcpRuntimeSemanticTraceOpenRequests,
 } from "../acpRuntimeSemanticTraceRecorder";
+import { selectAcpSkillRun } from "../acpSkillRunWorkspaceSelection";
 
 type RunSeamDeps = {
   createQueue: (

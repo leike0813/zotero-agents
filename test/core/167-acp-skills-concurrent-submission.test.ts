@@ -5,18 +5,10 @@ import path from "node:path";
 import type { BackendInstance } from "../../src/backends/types";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import {
-  cancelAcpSkillRun,
-  connectAcpSkillRun,
-  disconnectAcpSkillRun,
   getAcpSkillRunRecord,
-  hasAcpSkillRunController,
   listAcpSkillRuns,
-  registerAcpSkillRunController,
-  registerAcpSkillRunSetupController,
   resetAcpSkillRunsForTests,
-  replyAcpSkillRun,
   setAcpSkillRunRecoveryHandlerForTests,
-  unregisterAcpSkillRunSetupController,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -32,6 +24,18 @@ import { flushAcpSkillRunAuditTrailWritesForTests } from "../../src/modules/acpS
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import { workflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
+import {
+  cancelAcpSkillRun,
+  connectAcpSkillRun,
+  disconnectAcpSkillRun,
+  replyAcpSkillRun,
+} from "../../src/modules/acpSkillRunActions";
+import {
+  hasAcpSkillRunController,
+  registerAcpSkillRunController,
+  registerAcpSkillRunSetupController,
+  unregisterAcpSkillRunSetupController,
+} from "../../src/modules/acpSkillRunControllerRegistry";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

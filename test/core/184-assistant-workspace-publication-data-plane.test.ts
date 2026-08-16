@@ -36,9 +36,7 @@ import {
   recordAcpSkillRunSessionUpdate,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   resetAcpSkillRunsForTests,
-  selectAcpSkillRun,
   readAcpSkillRunTranscriptRegionFromMemoryForTests,
-  registerAcpSkillRunController,
 } from "../../src/modules/acpSkillRunStore";
 import {
   ACP_SKILLS_WORKSPACE_ADAPTER,
@@ -65,6 +63,8 @@ import {
   startNewAcpConversation,
   waitForAcpConversationSnapshot,
 } from "../helpers/acpSessionManagerHarness";
+import { selectAcpSkillRun } from "../../src/modules/acpSkillRunWorkspaceSelection";
+import { registerAcpSkillRunController } from "../../src/modules/acpSkillRunControllerRegistry";
 
 const expectedKinds = [
   "owner-navigation",

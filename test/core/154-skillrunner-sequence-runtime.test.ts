@@ -25,7 +25,6 @@ import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpS
 import { joinPath, normalizeNativeLocalPath } from "../../src/utils/path";
 import {
   getAcpSkillRunRecord,
-  markAcpSkillRunApplyResult,
   resetAcpSkillRunsForTests,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
@@ -47,6 +46,7 @@ import {
 } from "../../src/modules/skillRunnerForegroundContinuation";
 import { mkTempDir } from "./workflow-test-utils";
 import { buildRequest as buildLiteratureDigestRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
+import { markAcpSkillRunApplyResult } from "../../src/modules/acpSkillRunActions";
 
 let previousZotero: any;
 

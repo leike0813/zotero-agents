@@ -20,10 +20,7 @@ import {
   refreshAcpConversationBackends,
   type AcpChatWorkspaceChange,
 } from "./acpSessionManager";
-import {
-  getSelectedAcpSkillRunRequestId,
-  type AcpSkillRunWorkspaceChange,
-} from "./acpSkillRunStore";
+import { type AcpSkillRunWorkspaceChange } from "./acpSkillRunStore";
 import {
   getSkillRunnerWorkspaceSelectedOwner,
   refreshSkillRunnerSidebarHostSnapshot,
@@ -55,6 +52,7 @@ import {
 } from "../shared/assistantWireContract";
 import type { AcpSidebarTarget } from "./acpTypes";
 import type { AssistantWorkspaceHostRuntime } from "./assistantWorkspaceSidebar";
+import { getSelectedAcpSkillRunRequestId } from "./acpSkillRunWorkspaceSelection";
 
 // Shell services owned by assistantWorkspaceSidebar (debug logging, shell
 // message posting, shell window resolution, SkillRunner attach, host registry

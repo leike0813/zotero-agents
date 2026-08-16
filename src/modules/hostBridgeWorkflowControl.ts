@@ -11,13 +11,8 @@ import {
 } from "./taskDashboardHistory";
 import { isAcpSkillRunTask } from "./dashboardActiveTasks";
 import {
-  cancelAcpSkillRun,
-  connectAcpSkillRun,
   getAcpSkillRunRecord,
-  isEligibleForPostTerminalAcpSkillRunConversation,
-  isPostTerminalAcpSkillRunConversationConnected,
   listAcpSkillRunSummaries,
-  replyAcpSkillRun,
   type AcpSkillRunSummary,
 } from "./acpSkillRunStore";
 import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
@@ -127,6 +122,15 @@ import {
   type HostBridgeNotificationFilters,
   type HostBridgeNotificationListResult,
 } from "./hostBridgeNotificationInbox";
+import {
+  cancelAcpSkillRun,
+  connectAcpSkillRun,
+  replyAcpSkillRun,
+} from "./acpSkillRunActions";
+import {
+  isEligibleForPostTerminalAcpSkillRunConversation,
+  isPostTerminalAcpSkillRunConversationConnected,
+} from "./acpSkillRunStatus";
 
 const BROAD_NOTIFICATION_HISTORY_PROJECTION_TTL_MS = 1000;
 let broadNotificationHistoryProjectedAt = 0;

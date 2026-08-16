@@ -9,10 +9,7 @@ import {
   openRunResultBundleReader,
 } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
-import {
-  detachAcpSkillRunControllerAfterApplyResult,
-  markAcpSkillRunApplyResult,
-} from "../acpSkillRunStore";
+import {} from "../acpSkillRunStore";
 import { applySkillRunnerRunEvent } from "../skillRunnerRunStore";
 import type { WorkflowApplySummary, WorkflowRunState } from "./contracts";
 import {
@@ -30,6 +27,10 @@ import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
 import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
 import { sequenceTerminalStepOwnsApply } from "./sequenceRuntime";
 import { resolveWorkflowJobTerminalResolution } from "./terminalResolution";
+import {
+  detachAcpSkillRunControllerAfterApplyResult,
+  markAcpSkillRunApplyResult,
+} from "../acpSkillRunActions";
 
 type RunResultLike = {
   status?: string;

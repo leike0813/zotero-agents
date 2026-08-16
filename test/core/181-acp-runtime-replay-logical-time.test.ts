@@ -12,9 +12,7 @@ import {
   appendAcpSkillRunUserReply,
   deleteAcpSkillRunRecords,
   getAcpSkillRunRecord,
-  getSelectedAcpSkillRunRequestId,
   readAcpSkillRunTranscriptRegion,
-  selectAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import { inspectAcpSkillRunTimers } from "../../src/modules/acpSkillRunWorkspaceDataPlane";
 import {
@@ -29,6 +27,10 @@ import { createAcpRuntimeReplayProductionLogicalTimePort } from "../../src/modul
 import { replayAcpRuntimeSemanticTrace } from "../../src/modules/acpRuntimeReplayProfiler";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { inspectAssistantWorkspaceReplayPostSnapshotTimer } from "../../src/modules/assistantWorkspaceSidebar";
+import {
+  getSelectedAcpSkillRunRequestId,
+  selectAcpSkillRun,
+} from "../../src/modules/acpSkillRunWorkspaceSelection";
 
 type FakeTimer = {
   token: object;

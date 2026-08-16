@@ -66,18 +66,12 @@ import {
   appendAcpSkillRunHardTimeoutTranscriptNotice,
   completeAcpSkillRunTranscriptTurnBoundary,
   getAcpSkillRunRecord,
-  isRecoverablePromptFailure,
   projectAcpSkillRunOutputEnvelopeToTranscript,
-  registerAcpSkillRunController,
-  registerAcpSkillRunSetupController,
   recordAcpSkillRunOutputRevision,
   recordAcpSkillRunSessionUpdate,
-  resolveAcpSkillRunPermissionRequest,
   setAcpSkillRunRecoveryHandler,
   type AcpSkillRunSetupController,
   type AcpSkillRunStatus,
-  unregisterAcpSkillRunController,
-  unregisterAcpSkillRunSetupController,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
 import { type AcpSkillRunForegroundDeps } from "./acpSkillRunForeground";
@@ -137,6 +131,14 @@ import {
   resolveRecoveredWorkflowIdFromTask,
   resolveWorkflowSkillName,
 } from "./acpSkillRunRecovery";
+import { isRecoverablePromptFailure } from "./acpSkillRunStatus";
+import {
+  registerAcpSkillRunController,
+  registerAcpSkillRunSetupController,
+  unregisterAcpSkillRunController,
+  unregisterAcpSkillRunSetupController,
+} from "./acpSkillRunControllerRegistry";
+import { resolveAcpSkillRunPermissionRequest } from "./acpSkillRunPermissionQueue";
 
 export {
   reapplyAcpSkillRunResult,

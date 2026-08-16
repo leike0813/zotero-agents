@@ -1,8 +1,8 @@
+import type { SequenceStepLifecycleAdapter } from "./sequenceRuntime";
 import {
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
-} from "../acpSkillRunStore";
-import type { SequenceStepLifecycleAdapter } from "./sequenceRuntime";
+} from "../acpSkillRunActions";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();

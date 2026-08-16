@@ -44,21 +44,22 @@ import type {
   AcpConnectionNewSessionResult,
 } from "./acpConnectionAdapter";
 import type { AcpSkillOutputConvergenceResult } from "./acpSkillOutputConvergence";
-import {
-  autoApproveAcpSkillRunPermissionRequest,
-  getAcpSkillRunRecord,
-  getAcpSkillRunRuntimeCatalog,
-  setAcpSkillRunRuntimeCatalog,
-  setAcpSkillRunPermissionRequest,
-  updateAcpSkillRunRuntimeSelection,
-  upsertAcpSkillRun,
-} from "./acpSkillRunStore";
+import { getAcpSkillRunRecord, upsertAcpSkillRun } from "./acpSkillRunStore";
 import type { AcpSkillRunnerWorkspace } from "./acpSkillRunnerWorkspace";
 import type {
   AcpPromptOutcome,
   AcpSkillRunnerDependencies,
   AcpSkillRunnerRunContext,
 } from "./acpSkillRunnerOrchestrator";
+import {
+  autoApproveAcpSkillRunPermissionRequest,
+  setAcpSkillRunPermissionRequest,
+} from "./acpSkillRunPermissionQueue";
+import {
+  getAcpSkillRunRuntimeCatalog,
+  setAcpSkillRunRuntimeCatalog,
+  updateAcpSkillRunRuntimeSelection,
+} from "./acpSkillRunRuntimeCatalog";
 
 const DEFAULT_ACP_SKILL_HARD_TIMEOUT_SECONDS = 1200;
 export const DEFAULT_ACP_PROMPT_INTERRUPT_GRACE_MS = 10_000;

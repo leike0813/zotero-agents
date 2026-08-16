@@ -90,9 +90,7 @@ import {
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import {
-  cancelAcpSkillRun,
   listAcpSkillRunSummaries,
-  selectAcpSkillRun,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
@@ -115,6 +113,8 @@ import {
   recordBackgroundRefreshRead,
   registerBackgroundRefreshTimer,
 } from "./backgroundRefreshGovernance";
+import { cancelAcpSkillRun } from "./acpSkillRunActions";
+import { selectAcpSkillRun } from "./acpSkillRunWorkspaceSelection";
 
 type DashboardState = {
   backends: BackendInstance[];

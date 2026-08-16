@@ -56,6 +56,13 @@ import {
   registerAcpSkillRunPermissionRequestHandler,
   type AcpSkillRunPermissionRequestWithResolver,
 } from "./acpSkillRunPermissionFacade";
+
+import { configureAcpSkillRunActionsHost } from "./acpSkillRunActions";
+import { configureAcpSkillRunControllerRegistryHost } from "./acpSkillRunControllerRegistry";
+import { configureAcpSkillRunPermissionQueueHost } from "./acpSkillRunPermissionQueue";
+import { configureAcpSkillRunRuntimeCatalogHost } from "./acpSkillRunRuntimeCatalog";
+import { configureAcpSkillRunStatusHost } from "./acpSkillRunStatus";
+import { configureAcpSkillRunWorkspaceSelectionHost } from "./acpSkillRunWorkspaceSelection";
 import {
   registerAcpSkillRunAutoApprovalResolver,
   revokeHostBridgeWriteAutoApprovalGrantsForRun,
@@ -629,6 +636,61 @@ const runtimeCatalogByRequestId = new Map<string, AcpSkillRunRuntimeCatalog>();
 const setupControllers = new Map<string, AcpSkillRunSetupController>();
 const permissionQueuesByRunRequestId = new Map<string, AcpPermissionQueue>();
 
+configureAcpSkillRunStatusHost({
+  isTerminal: isTerminalAcpSkillRunStatus,
+  isActive: isActiveAcpSkillRunStatus,
+  isRecoverable: isRecoverableAcpSkillRunStatus,
+  isEligibleForPostTerminalConversation:
+    isEligibleForPostTerminalAcpSkillRunConversation,
+  isPostTerminalConversationConnected:
+    isPostTerminalAcpSkillRunConversationConnected,
+  isRecoverablePromptFailure: isRecoverablePromptFailure,
+});
+
+configureAcpSkillRunControllerRegistryHost({
+  registerController: registerAcpSkillRunController,
+  unregisterController: unregisterAcpSkillRunController,
+  registerSetupController: registerAcpSkillRunSetupController,
+  unregisterSetupController: unregisterAcpSkillRunSetupController,
+  hasController: hasAcpSkillRunController,
+});
+
+configureAcpSkillRunPermissionQueueHost({
+  setRequest: setAcpSkillRunPermissionRequest,
+  autoApprove: autoApproveAcpSkillRunPermissionRequest,
+  resolve: resolveAcpSkillRunPermissionRequest,
+});
+
+configureAcpSkillRunRuntimeCatalogHost({
+  setCatalog: setAcpSkillRunRuntimeCatalog,
+  getCatalog: getAcpSkillRunRuntimeCatalog,
+  updateSelection: updateAcpSkillRunRuntimeSelection,
+});
+
+configureAcpSkillRunWorkspaceSelectionHost({
+  select: selectAcpSkillRun,
+  ensureSelection: ensureAcpSkillRunWorkspaceSelection,
+  getSelected: getSelectedAcpSkillRunRequestId,
+});
+
+configureAcpSkillRunActionsHost({
+  cancel: cancelAcpSkillRun,
+  interruptCurrentTurn: interruptAcpSkillRunCurrentTurn,
+  archive: archiveAcpSkillRun,
+  reply: replyAcpSkillRun,
+  connect: connectAcpSkillRun,
+  disconnect: disconnectAcpSkillRun,
+  endSession: endAcpSkillRunSession,
+  setMode: setAcpSkillRunMode,
+  setModel: setAcpSkillRunModel,
+  setReasoningEffort: setAcpSkillRunReasoningEffort,
+  detachControllerAfterApplyResult: detachAcpSkillRunControllerAfterApplyResult,
+  markApplyResult: markAcpSkillRunApplyResult,
+  shutdownConversations: shutdownAcpSkillRunConversations,
+  isPromptActive: isAcpSkillRunPromptActive,
+  canEditModelConfiguration: canEditAcpSkillRunModelConfiguration,
+});
+
 configureAcpSkillRunTranscriptMirrorHost({
   ensureHydrated: () => ensureAcpSkillRunStoreHydrated(),
   resolveRunRecord: (requestId) => runRecords.get(requestId),
@@ -771,13 +833,13 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-export function isTerminalAcpSkillRunStatus(
+function isTerminalAcpSkillRunStatus(
   status: AcpSkillRunStatus,
 ): status is "succeeded" | "failed" | "canceled" {
   return status === "succeeded" || status === "failed" || status === "canceled";
 }
 
-export function isActiveAcpSkillRunStatus(status: AcpSkillRunStatus) {
+function isActiveAcpSkillRunStatus(status: AcpSkillRunStatus) {
   return (
     status === "queued" ||
     status === "running" ||
@@ -787,7 +849,7 @@ export function isActiveAcpSkillRunStatus(status: AcpSkillRunStatus) {
   );
 }
 
-export function isRecoverableAcpSkillRunStatus(status: AcpSkillRunStatus) {
+function isRecoverableAcpSkillRunStatus(status: AcpSkillRunStatus) {
   return (
     status === "running" ||
     status === "waiting_user" ||
@@ -810,7 +872,7 @@ type PostTerminalConversationEligibilityRecord = Pick<
   | "outputConvergenceState"
 >;
 
-export function isEligibleForPostTerminalAcpSkillRunConversation(
+function isEligibleForPostTerminalAcpSkillRunConversation(
   record: PostTerminalConversationEligibilityRecord | null | undefined,
 ) {
   if (
@@ -840,9 +902,7 @@ export function isEligibleForPostTerminalAcpSkillRunConversation(
   );
 }
 
-export function isPostTerminalAcpSkillRunConversationConnected(
-  requestIdRaw: string,
-) {
+function isPostTerminalAcpSkillRunConversationConnected(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   return (
     !!requestId &&
@@ -861,7 +921,7 @@ function isLegacyRecoverableAcpRecoveryState(state: AcpSkillRunRecoveryState) {
   return isRecoverableAcpRecoveryState(state) || state === "failed";
 }
 
-export function isRecoverablePromptFailure(
+function isRecoverablePromptFailure(
   record: Pick<
     AcpSkillRunRecord,
     "sessionId" | "conversationRecoveryState" | "removedAt" | "archivedAt"
@@ -2093,7 +2153,7 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
   );
 }
 
-export function registerAcpSkillRunController(
+function registerAcpSkillRunController(
   requestIdRaw: string,
   controller: AcpSkillRunController | null,
   setupController?: AcpSkillRunSetupController,
@@ -2141,7 +2201,7 @@ export function registerAcpSkillRunController(
   return true;
 }
 
-export function unregisterAcpSkillRunController(
+function unregisterAcpSkillRunController(
   requestIdRaw: string,
   controller: AcpSkillRunController,
 ) {
@@ -2152,7 +2212,7 @@ export function unregisterAcpSkillRunController(
   return registerAcpSkillRunController(requestId, null);
 }
 
-export function registerAcpSkillRunSetupController(
+function registerAcpSkillRunSetupController(
   requestIdRaw: string,
   controller: AcpSkillRunSetupController | null,
 ) {
@@ -2167,7 +2227,7 @@ export function registerAcpSkillRunSetupController(
   setupControllers.set(requestId, controller);
 }
 
-export function unregisterAcpSkillRunSetupController(
+function unregisterAcpSkillRunSetupController(
   requestIdRaw: string,
   controller: AcpSkillRunSetupController,
 ) {
@@ -2190,12 +2250,12 @@ export function setAcpSkillRunRecoveryHandler(
   recoveryHandler = handler;
 }
 
-export function hasAcpSkillRunController(requestIdRaw: string) {
+function hasAcpSkillRunController(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   return !!requestId && controllers.has(requestId);
 }
 
-export function setAcpSkillRunRuntimeCatalog(
+function setAcpSkillRunRuntimeCatalog(
   requestIdRaw: string,
   options: Partial<AcpSkillRunRuntimeCatalog> | null | undefined,
 ) {
@@ -2272,7 +2332,7 @@ function acpSkillRunPermissionRequestedMessage(
   return `Permission requested: ${normalizeString(request.toolTitle) || permissionRequestId}`;
 }
 
-export function setAcpSkillRunPermissionRequest(
+function setAcpSkillRunPermissionRequest(
   runRequestIdRaw: string,
   request: AcpSkillRunPermissionRequestWithResolver,
 ) {
@@ -2374,7 +2434,7 @@ function cancelAcpSkillRunPermissionQueue(
   return cancelledCount;
 }
 
-export function autoApproveAcpSkillRunPermissionRequest(args: {
+function autoApproveAcpSkillRunPermissionRequest(args: {
   runRequestId: string;
   request: AcpSkillRunPermissionRequestWithResolver;
   optionId: string;
@@ -2513,7 +2573,7 @@ function clearStaleAcpSkillRunPermissionRequest(args: {
   return true;
 }
 
-export function resolveAcpSkillRunPermissionRequest(args: {
+function resolveAcpSkillRunPermissionRequest(args: {
   runRequestId?: string;
   permissionRequestId?: string;
   outcome?: "selected" | "cancelled";
@@ -2588,7 +2648,7 @@ export function resolveAcpSkillRunPermissionRequest(args: {
   });
 }
 
-export async function cancelAcpSkillRun(requestIdRaw: string) {
+async function cancelAcpSkillRun(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
     throw new Error("requestId is required");
@@ -2656,7 +2716,7 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
   });
 }
 
-export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
+async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
     throw new Error("requestId is required");
@@ -2699,7 +2759,7 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   }
 }
 
-export function archiveAcpSkillRun(requestIdRaw: string) {
+function archiveAcpSkillRun(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
     throw new Error("requestId is required");
@@ -2742,7 +2802,7 @@ export function archiveAcpSkillRun(requestIdRaw: string) {
   });
 }
 
-export async function replyAcpSkillRun(args: {
+async function replyAcpSkillRun(args: {
   requestId: string;
   message?: string;
   displayMessage?: string;
@@ -2916,7 +2976,7 @@ function getAcpSkillRunSlotCoordinator(requestId: string) {
     : null;
 }
 
-export function isAcpSkillRunPromptActive(
+function isAcpSkillRunPromptActive(
   run: Pick<AcpSkillRunRecord, "activePrompt" | "replyState">,
 ) {
   return (
@@ -2926,7 +2986,7 @@ export function isAcpSkillRunPromptActive(
   );
 }
 
-export function canEditAcpSkillRunModelConfiguration(
+function canEditAcpSkillRunModelConfiguration(
   run: Pick<AcpSkillRunRecord, "status" | "activePrompt" | "replyState">,
 ) {
   return (
@@ -2962,14 +3022,14 @@ function runtimeCatalogForRun(run: AcpSkillRunRecord) {
       };
 }
 
-export function getAcpSkillRunRuntimeCatalog(requestIdRaw: string) {
+function getAcpSkillRunRuntimeCatalog(requestIdRaw: string) {
   ensureAcpSkillRunStoreHydrated();
   const requestId = normalizeString(requestIdRaw);
   const run = requestId ? runRecords.get(requestId) : undefined;
   return run ? runtimeCatalogForRun(run) : null;
 }
 
-export function updateAcpSkillRunRuntimeSelection(args: {
+function updateAcpSkillRunRuntimeSelection(args: {
   requestId: string;
   selection: {
     modeId?: string;
@@ -3003,10 +3063,7 @@ function resolveEffortIdFromRawModel(
   return normalizeString(parsed?.effortId) || fallback;
 }
 
-export async function setAcpSkillRunMode(args: {
-  requestId: string;
-  modeId: string;
-}) {
+async function setAcpSkillRunMode(args: { requestId: string; modeId: string }) {
   const requestId = normalizeString(args.requestId);
   const modeId = normalizeString(args.modeId);
   if (!requestId || !modeId) {
@@ -3037,7 +3094,7 @@ export async function setAcpSkillRunMode(args: {
   });
 }
 
-export async function setAcpSkillRunModel(args: {
+async function setAcpSkillRunModel(args: {
   requestId: string;
   modelId: string;
 }) {
@@ -3100,7 +3157,7 @@ export async function setAcpSkillRunModel(args: {
   });
 }
 
-export async function setAcpSkillRunReasoningEffort(args: {
+async function setAcpSkillRunReasoningEffort(args: {
   requestId: string;
   effortId: string;
 }) {
@@ -3186,7 +3243,7 @@ export async function setAcpSkillRunReasoningEffort(args: {
   });
 }
 
-export async function connectAcpSkillRun(requestIdRaw: string) {
+async function connectAcpSkillRun(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
     throw new Error("requestId is required");
@@ -3305,7 +3362,7 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
   }
 }
 
-export async function disconnectAcpSkillRun(requestIdRaw: string) {
+async function disconnectAcpSkillRun(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
     throw new Error("requestId is required");
@@ -3372,7 +3429,7 @@ export async function disconnectAcpSkillRun(requestIdRaw: string) {
   });
 }
 
-export async function endAcpSkillRunSession(requestIdRaw: string) {
+async function endAcpSkillRunSession(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
     throw new Error("requestId is required");
@@ -3487,7 +3544,7 @@ async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
   }
 }
 
-export async function detachAcpSkillRunControllerAfterApplyResult(args: {
+async function detachAcpSkillRunControllerAfterApplyResult(args: {
   requestId: string;
   state: "succeeded" | "failed";
 }) {
@@ -3514,7 +3571,7 @@ export async function detachAcpSkillRunControllerAfterApplyResult(args: {
   }
 }
 
-export function markAcpSkillRunApplyResult(args: {
+function markAcpSkillRunApplyResult(args: {
   requestId?: string;
   state: "pending" | "succeeded" | "failed";
   error?: string;
@@ -3582,12 +3639,12 @@ function applyAcpSkillRunSelection(requestIdRaw: string) {
   );
 }
 
-export async function selectAcpSkillRun(requestIdRaw: string) {
+async function selectAcpSkillRun(requestIdRaw: string) {
   ensureAcpSkillRunStoreHydrated();
   applyAcpSkillRunSelection(requestIdRaw);
 }
 
-export function ensureAcpSkillRunWorkspaceSelection() {
+function ensureAcpSkillRunWorkspaceSelection() {
   ensureAcpSkillRunStoreHydrated();
   const current = normalizeString(selectedRequestId);
   if (current) {
@@ -3606,7 +3663,7 @@ export function ensureAcpSkillRunWorkspaceSelection() {
   return implicit || "";
 }
 
-export function getSelectedAcpSkillRunRequestId() {
+function getSelectedAcpSkillRunRequestId() {
   ensureAcpSkillRunStoreHydrated();
   return selectedRequestId;
 }
@@ -3649,7 +3706,7 @@ registerAcpSkillRunAutoApprovalResolver((requestId) => {
   );
 });
 
-export async function shutdownAcpSkillRunConversations() {
+async function shutdownAcpSkillRunConversations() {
   const setupEntries = Array.from(setupControllers.entries());
   await Promise.allSettled(
     setupEntries.map(async ([requestId, controller]) => {
