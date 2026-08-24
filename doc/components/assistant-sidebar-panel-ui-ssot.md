@@ -58,6 +58,43 @@ SHOULD then own the four body rows: `conversation window`, `plan widget`,
 semantic model; it prevents ACP Chat, ACP Skills, and SkillRunner from drifting
 in body sizing, reply alignment, and plan/hint height behavior.
 
+### Region Collapse Under Limited Height
+
+The `shell toolbar`, `banner`, and `reply zone` regions SHALL be collapsible
+so the conversation window keeps vertical space when the panel viewport height
+is small. Region collapse is a pure chrome presentation state owned by the
+child panel runtime (`src/sidebar/assistantRegionCollapse.ts`): it toggles the
+`is-region-collapsed` class on the region container and a
+`data-collapse-stage` attribute on the panel root, and it SHALL NOT enter any
+region render key, any region signature selection, or the panel DTO, and it
+SHALL NOT trigger a transcript or non-transcript region re-render. Each region
+exposes a chevron toggle button appended to the region container (outside the
+Preact managed mount), labelled through shared localized labels.
+
+The trigger model is manual-first with an automatic fallback:
+
+- A viewport-height observer derives an auto stage with hysteresis. Stage 1
+  (height at or below 620px, recovering above 680px) collapses the banner;
+  stage 2 (at or below 540px, recovering above 600px) additionally compacts
+  the reply zone; stage 3 (at or below 440px, recovering above 500px)
+  additionally collapses the shell toolbar.
+- Clicking a region toggle pins a manual override for that region; toggling
+  back to the auto-suggested value clears the override and returns the region
+  to the auto stage. Collapse state is session-scoped and SHALL NOT persist.
+
+The collapsed forms are:
+
+- `shell toolbar`: action groups are hidden; only a slim strip with the
+  expand toggle remains.
+- `banner`: only the title row remains; subtitle, metadata pills, status row,
+  indicators, selectors, and context actions are hidden, except that
+  warning/danger notices and the new-conversation `+` action stay visible.
+- `reply zone`: the textarea compacts to a single line and the footer becomes
+  a single row holding the runtime selectors (Mode/Model/Reasoning on ACP
+  panels) and the Send button; the hint text and usage gauge are hidden. The
+  textarea element itself is restyled, never replaced, so draft, focus, and
+  caret survive collapse transitions.
+
 ### Empty-State Chrome
 
 ACP Chat, ACP Skills, and SkillRunner SHALL keep the same toolbar, banner,

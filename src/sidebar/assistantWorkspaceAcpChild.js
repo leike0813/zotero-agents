@@ -16,6 +16,7 @@ import {
   renderTranscriptRegion,
   renderTranscriptRegionReset,
 } from "./components/chromeRenderer";
+import { createRegionCollapseController } from "./assistantRegionCollapse";
 import {
   ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY,
   ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS,
@@ -1226,6 +1227,7 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
   let labels = {};
   let actionRegistry = {};
   let actionSequence = 0;
+  let regionCollapse = null;
 
   function selectedOwner(state) {
     const owner = state && state.selection && state.selection.owner;
@@ -1814,6 +1816,7 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
       payload && payload.labels && typeof payload.labels === "object"
         ? payload.labels
         : {};
+    if (regionCollapse) regionCollapse.refreshLabels();
     renderPanel();
   }
 
@@ -1849,6 +1852,19 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
 
   renderPanel();
   renderTranscript();
+  // Chrome-only collapse state for toolbar/banner/composer: container-class
+  // driven, outside the region render pipeline and signature boundaries.
+  regionCollapse = createRegionCollapseController({
+    root: elements.root,
+    regions: {
+      toolbar: elements.toolbar,
+      banner: elements.banner,
+      composer: elements.composer,
+    },
+    getLabels: function () {
+      return labels && labels.assistantPanel && labels.assistantPanel.collapse;
+    },
+  });
   ready();
   return { applyPublication: controller.applyPublication };
 }
