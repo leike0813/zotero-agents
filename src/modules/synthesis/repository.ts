@@ -263,6 +263,8 @@ export type SynthesisTopicDiscoveryHintRecord = {
   method?: string;
   matchingFieldsJson?: string;
   status?: string;
+  basisHash?: string;
+  outcomeJson?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -644,10 +646,12 @@ function normalizeTopicDiscoveryHintStatus(value: unknown) {
   if (normalized === "filtered") {
     return "rejected";
   }
-  if (normalized === "accepted") {
-    return "open";
-  }
-  if (normalized === "rejected" || normalized === "superseded") {
+  if (
+    normalized === "accepted" ||
+    normalized === "screened_out" ||
+    normalized === "rejected" ||
+    normalized === "superseded"
+  ) {
     return normalized;
   }
   return "open";
@@ -2451,6 +2455,8 @@ function ensureSchema(db: SqlAdapter) {
       method TEXT NOT NULL DEFAULT 'discovery.apply_time_token_overlap.v1',
       matching_fields_json TEXT NOT NULL DEFAULT '{}',
       status TEXT NOT NULL DEFAULT 'open',
+      basis_hash TEXT NOT NULL DEFAULT '',
+      outcome_json TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT '',
       UNIQUE(topic_id, literature_item_id, method)
@@ -2460,6 +2466,10 @@ function ensureSchema(db: SqlAdapter) {
   applyOptionalMigration(
     db,
     "ALTER TABLE synt_topic_graph_node ADD COLUMN definition TEXT NOT NULL DEFAULT ''",
+  );
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_topic_graph_node ADD COLUMN planning_json TEXT NOT NULL DEFAULT '{}'",
   );
   if (tableColumnExists(db, "synt_topic_graph_node", "description")) {
     db.run(`
@@ -3113,6 +3123,8 @@ function rowToTopicDiscoveryHint(
     method: cleanString(row.method) || "discovery.apply_time_token_overlap.v1",
     matchingFieldsJson: cleanString(row.matching_fields_json) || "{}",
     status: normalizeTopicDiscoveryHintStatus(row.status),
+    basisHash: cleanString(row.basis_hash) || undefined,
+    outcomeJson: cleanString(row.outcome_json) || undefined,
     createdAt: cleanString(row.created_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
@@ -3594,6 +3606,29 @@ function scoreDiscoveryPair(args: {
       seed_boost_applied: isSeedLiterature && score > normalizedScore,
     },
   };
+  const basisHash = `discovery-basis:${stableShortKey({
+    method: args.method,
+    minScore: args.minScore,
+    topic: {
+      id: args.topic.topicId,
+      metadataHash: args.topic.metadataHash,
+      sourceArtifactHash: args.topic.sourceArtifactHash,
+      includeTermsJson: args.topic.includeTermsJson,
+      mustHaveTermsJson: args.topic.mustHaveTermsJson,
+      methodsJson: args.topic.methodsJson,
+      excludeTermsJson: args.topic.excludeTermsJson,
+    },
+    literature: {
+      id: args.literature.literatureItemId,
+      metadataHash: args.literature.metadataHash,
+      sourceArtifactHash: args.literature.sourceArtifactHash,
+      keyTermsJson: args.literature.keyTermsJson,
+      methodsJson: args.literature.methodsJson,
+      problemsJson: args.literature.problemsJson,
+      datasetsJson: args.literature.datasetsJson,
+      excludeTermsJson: args.literature.excludeTermsJson,
+    },
+  })}`;
   return {
     hintId: `topic-discovery:${stableShortKey({
       topicId: args.topic.topicId,
@@ -3606,6 +3641,7 @@ function scoreDiscoveryPair(args: {
     method: args.method,
     matchingFieldsJson: JSON.stringify(matchingFields),
     status: "open",
+    basisHash,
     createdAt: args.timestamp,
     updatedAt: args.timestamp,
   };
@@ -5008,6 +5044,8 @@ export class SynthesisRepository {
           method,
           matching_fields_json,
           status,
+          basis_hash,
+          outcome_json,
           created_at,
           updated_at
         )
@@ -5019,6 +5057,8 @@ export class SynthesisRepository {
           @method,
           @matching_fields_json,
           @status,
+          @basis_hash,
+          @outcome_json,
           @created_at,
           @updated_at
         )
@@ -5037,6 +5077,8 @@ export class SynthesisRepository {
         method,
         matching_fields_json: cleanString(record.matchingFieldsJson) || "{}",
         status: normalizeTopicDiscoveryHintStatus(record.status),
+        basis_hash: cleanString(record.basisHash),
+        outcome_json: cleanString(record.outcomeJson),
         created_at: cleanString(record.createdAt) || timestamp,
         updated_at: cleanString(record.updatedAt) || timestamp,
       },
@@ -6065,7 +6107,12 @@ export class SynthesisRepository {
     return row ? rowToTopicDiscoveryHint(row) : null;
   }
 
-  updateTopicDiscoveryHintStatus(args: { hintId: string; status: string }) {
+  updateTopicDiscoveryHintOutcome(args: {
+    hintId: string;
+    status: string;
+    basisHash?: string;
+    outcome?: unknown;
+  }) {
     const existing = this.getTopicDiscoveryHint(args.hintId);
     if (!existing) {
       return null;
@@ -6073,9 +6120,18 @@ export class SynthesisRepository {
     this.upsertTopicDiscoveryHint({
       ...existing,
       status: normalizeTopicDiscoveryHintStatus(args.status),
+      basisHash: cleanString(args.basisHash) || existing.basisHash,
+      outcomeJson:
+        args.outcome === undefined
+          ? existing.outcomeJson
+          : JSON.stringify(args.outcome),
       updatedAt: this.now(),
     });
     return this.getTopicDiscoveryHint(existing.hintId);
+  }
+
+  updateTopicDiscoveryHintStatus(args: { hintId: string; status: string }) {
+    return this.updateTopicDiscoveryHintOutcome(args);
   }
 
   rejectTopicDiscoveryHint(hintId: string) {
@@ -6190,7 +6246,7 @@ export class SynthesisRepository {
       this.listTopicDiscoveryHints({
         topicIds: args.topicIds,
         literatureItemIds: args.literatureItemIds,
-        statuses: ["accepted", "rejected"],
+        statuses: ["accepted", "screened_out", "rejected"],
         method,
       }).map((hint) => [
         `${hint.topicId}\u0000${hint.literatureItemId}\u0000${hint.method || method}`,
@@ -6214,12 +6270,21 @@ export class SynthesisRepository {
           if (terminal?.status === "accepted") {
             continue;
           }
+          if (
+            terminal?.status === "screened_out" &&
+            terminal.basisHash !== hint.basisHash
+          ) {
+            hints.push(hint);
+            continue;
+          }
           hints.push(
             terminal
               ? {
                   ...hint,
                   hintId: terminal.hintId || hint.hintId,
                   status: terminal.status,
+                  basisHash: terminal.basisHash || hint.basisHash,
+                  outcomeJson: terminal.outcomeJson,
                   createdAt: terminal.createdAt || hint.createdAt,
                 }
               : hint,
@@ -6277,6 +6342,7 @@ export class SynthesisRepository {
           title,
           definition,
           aliases_json,
+          planning_json,
           node_type,
           definition_status,
           current_artifact_path,
@@ -6292,6 +6358,7 @@ export class SynthesisRepository {
           @title,
           @definition,
           @aliases_json,
+          @planning_json,
           @node_type,
           @definition_status,
           @current_artifact_path,
@@ -6308,6 +6375,7 @@ export class SynthesisRepository {
         title: cleanString(record.title) || topicId,
         definition: cleanString(record.definition),
         aliases_json: cleanString(record.aliasesJson) || "[]",
+        planning_json: cleanString(record.planningJson) || "{}",
         node_type: cleanString(record.nodeType) || "placeholder",
         definition_status: cleanString(record.definitionStatus),
         current_artifact_path: cleanString(record.currentArtifactPath),

@@ -138,10 +138,10 @@ describe("skillrunner sidebar host runtime", function () {
       "src/modules/skillRunnerForegroundContinuation.ts",
     );
 
-    assert.include(runSeam, "createSkillRunnerRun({");
-    assert.include(runSeam, "recordSkillRunnerProgress({");
-    assert.include(foregroundContinuation, "createSkillRunnerRun({");
-    assert.include(foregroundContinuation, "recordSkillRunnerProgress({");
+    assert.include(runSeam, `type: "submit.local_created"`);
+    assert.include(runSeam, `type: "submit.request_creating"`);
+    assert.include(foregroundContinuation, `type: "submit.local_created"`);
+    assert.include(foregroundContinuation, `type: "submit.request_creating"`);
   });
 
   it("hosts SkillRunner management UI inside the Dashboard backend tab", async function () {

@@ -40,21 +40,8 @@ import {
   toggleAcpConversationStatusDetails,
 } from "./acpSessionManager";
 import {
-  archiveAcpSkillRun,
-  cancelAcpSkillRun,
-  connectAcpSkillRun,
-  disconnectAcpSkillRun,
-  endAcpSkillRunSession,
   getAcpSkillRunDiagnostics,
   getAcpSkillRunWorkspaceReadModel,
-  getSelectedAcpSkillRunRequestId,
-  interruptAcpSkillRunCurrentTurn,
-  replyAcpSkillRun,
-  resolveAcpSkillRunPermissionRequest,
-  selectAcpSkillRun,
-  setAcpSkillRunMode,
-  setAcpSkillRunModel,
-  setAcpSkillRunReasoningEffort,
 } from "./acpSkillRunStore";
 import { deterministicInteractionResponseText } from "../shared/assistantInteractionContract";
 import {
@@ -89,6 +76,23 @@ import type {
 } from "../shared/assistantActionContract";
 import type { AcpSidebarTarget } from "./acpTypes";
 import type { AssistantWorkspaceHostRuntime } from "./assistantWorkspaceSidebar";
+import {
+  archiveAcpSkillRun,
+  cancelAcpSkillRun,
+  connectAcpSkillRun,
+  disconnectAcpSkillRun,
+  endAcpSkillRunSession,
+  interruptAcpSkillRunCurrentTurn,
+  replyAcpSkillRun,
+  setAcpSkillRunMode,
+  setAcpSkillRunModel,
+  setAcpSkillRunReasoningEffort,
+} from "./acpSkillRunActions";
+import {
+  getSelectedAcpSkillRunRequestId,
+  selectAcpSkillRun,
+} from "./acpSkillRunWorkspaceSelection";
+import { resolveAcpSkillRunPermissionRequest } from "./acpSkillRunPermissionQueue";
 
 // Shell services owned by assistantWorkspaceSidebar (debug logging, sidebar
 // close, tab normalization, shell window resolution). Injected once at module

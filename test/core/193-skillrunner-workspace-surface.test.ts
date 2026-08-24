@@ -22,10 +22,7 @@ import {
   type AssistantWorkspacePublicationKind,
 } from "../../src/modules/assistantWorkspacePublication";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
-import {
-  attachSkillRunnerRequestId,
-  updateSkillRunnerRunStateByRunKey,
-} from "../../src/modules/skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "../../src/modules/skillRunnerRunStore";
 import { workflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { markSkillRunnerBackendHealthFailure } from "../../src/modules/skillRunnerBackendHealthRegistry";
 import { buildAssistantWorkspacePublicationLabels } from "../../src/modules/assistantWorkspacePublicationLabels";
@@ -1101,17 +1098,20 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
           },
         ],
       });
-      attachSkillRunnerRequestId({
+      applySkillRunnerRunEvent({
+        type: "request.created",
         runKey: local.runKey,
         requestId: "req-graduate",
         updatedAt: "2026-07-18T00:01:40.000Z",
       });
-      updateSkillRunnerRunStateByRunKey({
+      applySkillRunnerRunEvent({
+        type: "backend.snapshot",
         runKey: local.runKey,
         state: "request_ready",
         updatedAt: "2026-07-18T00:01:41.000Z",
       });
-      updateSkillRunnerRunStateByRunKey({
+      applySkillRunnerRunEvent({
+        type: "backend.snapshot",
         runKey: local.runKey,
         state: "waiting_user",
         backendStatus: "waiting_user",

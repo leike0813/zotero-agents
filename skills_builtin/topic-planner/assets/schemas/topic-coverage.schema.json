@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["library_index_hash", "entries", "overlaps"],
+  "properties": {
+    "library_index_hash": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["paper_ref", "state", "topic_ids", "reason"],
+        "properties": {
+          "paper_ref": { "type": "string", "minLength": 1 },
+          "state": { "enum": ["materialized_covered", "planned_covered", "uncovered", "indeterminate"] },
+          "topic_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "overlaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["paper_ref", "topic_ids"],
+        "properties": {
+          "paper_ref": { "type": "string", "minLength": 1 },
+          "topic_ids": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+        }
+      }
+    }
+  }
+}

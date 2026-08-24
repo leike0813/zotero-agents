@@ -11,23 +11,23 @@ Auto-assemble a read-only Research Bundle in Dashboard Products from existing Zo
 | `paperTitle` | Yes | Working manuscript title used to find research materials. |
 | `researchContent` | Yes | Research problem, methods, scope, and intended contribution. |
 | `articleType` | No | Manuscript type (default: `original research`). |
-| `maxTopics` | No | Maximum number of relevant topics to include, range 0–5 (default: 5). |
-| `maxCorePapers` | No | Maximum number of core papers, range 1–20 (default: 20). |
-| `maxRelatedPapers` | No | Maximum total related papers including core, range 1–80 (default: 80). |
+| `maxTopics` | No | Maximum number of relevant topics to include, range 0–10 (default: 5). |
+| `maxCorePapers` | No | Maximum number of core papers, range 1–50 (default: 20). |
+| `maxRelatedPapers` | No | Maximum number of additional non-Topic papers, range 1–200 (default: 80). Papers resolved from selected Topics are retained beyond this limit. |
 
 No Zotero item selection is required.
 
 ## Behavior
 
 1. Receive the paper intent parameters from the user.
-2. Discover candidate materials from existing Synthesis Topics, Zotero library items, and available citation graph context.
+2. Discover candidate materials from existing Synthesis Topics and bounded Zotero metadata anchors. Library matching covers indexed metadata such as titles, creators, years, publication titles, and tags; it is not full-text semantic search.
 3. Perform bounded evaluation to distinguish core papers from related papers.
 4. Export all successfully materialized core and related papers to root `references.bib`, preferring Better BibTeX and falling back to Zotero BibTeX.
 5. Assemble the Research Bundle with topic reports, bibliographic metadata, and available v2 analysis artifacts (digests, references, citation analyses, conversation content).
 6. For core papers, prefer Markdown source with local images; fall back to PDF; record a warning if neither is available.
 7. Register the bundle as a read-only product in Dashboard Products.
 
-Topic, graph, analysis artifact, or source unavailability degrades gracefully — the workflow continues with whatever evidence is still readable and records diagnostics and warnings. If no papers meet the criteria, the run ends without registering a product.
+Topic, graph, analysis artifact, or source unavailability degrades gracefully — the workflow continues with whatever evidence is still readable and records diagnostics and warnings. Zero candidates with unavailable or malformed discovery evidence remains a retryable Stage 40 error; it is not reported as `no_related_literature`. The run ends without registering a product only after confirmed-empty discovery or completed assessments find no qualifying papers.
 
 ## Output And Apply
 

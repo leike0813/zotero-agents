@@ -60,6 +60,26 @@ There is no safe default for source inclusion, topic identity, maintenance scope
 
 ## Workflow
 
+### Choose synthesis or direct delivery
+
+Use the direct research-bundle branch when the user wants portable files for already identified Zotero papers or existing Topics and does not ask for a new research selection, manuscript-oriented Product, analysis generation, or model refresh. Paper bundles aggregate the requested items and include portable metadata, preferred source Markdown with its valid local images or PDF fallback, and each available digest, references, citation-analysis, and literature-score artifact. Topic bundles include each current report and one globally deduplicated digest per associated canonical `libraryId:itemKey`; the exported report copy links validated bibliography markers to those digest paths without changing the stored Topic report.
+
+Stable item refs or Topic IDs are required. If the request supplies titles, a fuzzy phrase, or an ambiguous selection, hand identity resolution to Query and continue only with its verified ordered selectors. Do not use the direct branch to discover papers, produce missing analysis, refresh a stale Topic, or create the broader manuscript-oriented Research Bundle Product. Missing optional source/artifact content is a manifest warning; an unresolved selector is a request failure.
+
+For a local Host connection, require an absent or empty destination directory and verify the resulting `manifest.json`, `index.md`, requested report/paper inventory, and diagnostics. For a remote connection, do not send a client-local output path: retain the returned bridge-download handle, execute the supplied download step, verify returned size/checksum evidence, and unpack only after byte verification. Do not report completion from handle issuance alone. On expiry, repeat the read-only export with the same verified selectors; on a non-empty local destination, choose a new or emptied destination rather than overwriting it.
+
+### Plan a library topic structure before synthesis
+
+When the user wants help organizing the current library, or wants several related Topics that should share one coherent graph, run the live-described Topic Planner workflow before creating any Topic synthesis. The planner owns the library-wide comparison: it reads a complete current planning context, measures every library paper against materialized and Planned Topics, and returns one atomic reconciliation of Planned Topic definitions and relation proposals. A Planned Topic is a reusable skeleton with a stable topic ID, definition, scope, resolver, revision, basis, and lifecycle. It does not contain provisional paper membership and it is not evidence that a synthesis report exists.
+
+Treat a truncated inline planning context as incomplete. Request the workflow's supported complete-file delivery, verify the library-index and Topic Graph basis hashes, and preserve the coverage manifest. Apply the planner result only through its workflow result hook. Graph compare-and-swap conflict means that no part of the plan was applied: obtain a fresh planning context and rerun the planner. Library drift may leave an otherwise valid graph reconciliation applied with stale coverage; report that state and rerun planning before relying on the old denominator. Verify the resulting Planned Topic identities, lifecycle states, and suggested relations from a fresh read.
+
+After one plan has been persisted, separate Create Topic Synthesis runs may materialize its active Planned Topics independently, including in parallel. Each run must select the Planned Topic identity, reread its current definition and resolver, resolve membership at execution time, and materialize that same topic ID. Do not copy the Planned Topic into a new ad hoc identity. A stale Planned Topic is not fillable until a later planner reconciliation reactivates it. Ad hoc creation remains appropriate for one isolated user-supplied seed; it must not silently substitute for a requested library-wide plan.
+
+Treat a free Create Topic Synthesis seed as topic intent, not proof that a new topic identity is needed. The prepare stage must inspect the complete topic inventory before resolving that intent: cancel when a materialized Topic already represents the same identity; otherwise automatically select the best active Planned Topic whose definition and scope can accept the intent without broadening, narrowing, or rewriting it; create from scratch only when neither match exists. Related Topics and parent or child scopes are not interchangeable identity matches. If several active Planned Topics pass the same-identity test, prefer the best definition-and-scope match and use aliases and title only as secondary evidence. The runtime must reread a selected Planned Topic immediately before resolver execution; if it is no longer active or complete, cancel and rerun from current state instead of falling back to ad hoc creation.
+
+The planner may recommend updates to materialized Topics but cannot rewrite them. Route each accepted recommendation through Update Topic Synthesis. An update remains meaningful when no papers were added: changed digests, literature scores, dependencies, resolver results, or triage state can still require recomputation. Verify the updated report and Topic Graph result independently of planner, Create, or Update terminal run state.
+
 ### Establish source and model boundary
 
 1. State the research question, inclusion and exclusion rule, required freshness, and intended deliverable. Resolve every source ref and the exact topic, graph, index, resolver selector, artifact, Product, or schema used.
@@ -136,6 +156,7 @@ Output:
 - Themes, claims, relationships, gaps, and disagreements trace to evidence.
 - Missing coverage is distinguished from a supported research gap.
 - Every promised Product or artifact is inspected and, when requested, downloaded and verified.
+- A direct bundle names its selector scope, delivery mode, manifest inventory, warning set, and verified local directory or downloaded file; missing optional entries are not reported as generated.
 - Persistence or apply-back has its own authority and receipt.
 
 Near misses:

@@ -8,7 +8,15 @@
       "value": {
         "graphHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "algorithm": "radial",
-        "nodes": [{ "nodeId": "paper:A", "kind": "library_paper", "title": "A", "initialX": 0, "initialY": 0 }],
+        "nodes": [
+          {
+            "nodeId": "paper:A",
+            "kind": "library_paper",
+            "title": "A",
+            "initialX": 0,
+            "initialY": 0
+          }
+        ],
         "edges": []
       }
     },
@@ -19,17 +27,42 @@
       "value": {
         "graphHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "metricsVersion": 2,
-        "params": { "pagerankDamping": 0.85, "pagerankIterations": 50, "foundationFormula": "v2", "frontierFormula": "v2" },
+        "params": {
+          "pagerankDamping": 0.85,
+          "pagerankIterations": 50,
+          "foundationFormula": "v2",
+          "frontierFormula": "v2"
+        },
         "graphYear": 2026,
-        "libraryNodeMetrics": [{
-          "nodeId": "paper:A", "internalInDegree": 0, "internalOutDegree": 0,
-          "externalReferenceCount": 0, "unresolvedReferenceCount": 0,
-          "internalPagerank": 1, "componentId": "component:0", "componentSize": 1,
-          "isIsolated": true, "ageNorm": 1, "recencyNorm": 1, "inDegreeNorm": 0,
-          "outDegreeNorm": 0, "pagerankNorm": 1, "foundationScore": 1,
-          "frontierScore": 1, "synthesisRoleHints": ["isolated"]
-        }],
-        "diagnostics": { "libraryNodeCount": 1, "externalReferenceCount": 0, "unresolvedReferenceCount": 0, "componentCount": 1, "isolatedLibraryNodeCount": 1, "missingYearCount": 0 }
+        "libraryNodeMetrics": [
+          {
+            "nodeId": "paper:A",
+            "internalInDegree": 0,
+            "internalOutDegree": 0,
+            "externalReferenceCount": 0,
+            "unresolvedReferenceCount": 0,
+            "internalPagerank": 1,
+            "componentId": "component:0",
+            "componentSize": 1,
+            "isIsolated": true,
+            "ageNorm": 1,
+            "recencyNorm": 1,
+            "inDegreeNorm": 0,
+            "outDegreeNorm": 0,
+            "pagerankNorm": 1,
+            "foundationScore": 1,
+            "frontierScore": 1,
+            "synthesisRoleHints": ["isolated"]
+          }
+        ],
+        "diagnostics": {
+          "libraryNodeCount": 1,
+          "externalReferenceCount": 0,
+          "unresolvedReferenceCount": 0,
+          "componentCount": 1,
+          "isolatedLibraryNodeCount": 1,
+          "missingYearCount": 0
+        }
       }
     },
     {
@@ -39,7 +72,15 @@
       "value": {
         "graphHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "algorithm": "force",
-        "nodes": [{ "nodeId": "paper:A", "kind": "library_paper", "initialX": 0, "initialY": 0, "payload": {} }],
+        "nodes": [
+          {
+            "nodeId": "paper:A",
+            "kind": "library_paper",
+            "initialX": 0,
+            "initialY": 0,
+            "payload": {}
+          }
+        ],
         "edges": []
       }
     },
@@ -50,10 +91,23 @@
       "value": {
         "graphHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "metricsVersion": 2,
-        "params": { "pagerankDamping": 0.85, "pagerankIterations": 50, "foundationFormula": "v2", "frontierFormula": "v2" },
+        "params": {
+          "pagerankDamping": 0.85,
+          "pagerankIterations": 50,
+          "foundationFormula": "v2",
+          "frontierFormula": "v2"
+        },
         "graphYear": null,
         "libraryNodeMetrics": [],
-        "diagnostics": { "libraryNodeCount": 0, "externalReferenceCount": 0, "unresolvedReferenceCount": 0, "componentCount": 0, "isolatedLibraryNodeCount": 0, "missingYearCount": 0, "extra": {} }
+        "diagnostics": {
+          "libraryNodeCount": 0,
+          "externalReferenceCount": 0,
+          "unresolvedReferenceCount": 0,
+          "componentCount": 0,
+          "isolatedLibraryNodeCount": 0,
+          "missingYearCount": 0,
+          "extra": {}
+        }
       }
     }
   ]

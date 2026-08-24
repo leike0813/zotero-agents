@@ -6,7 +6,7 @@ import {
 import { localizeWorkflowText } from "./messageFormatter";
 import {
   resolveInputUnitIdentityFromRequest,
-  resolveInputUnitLabelFromRequest,
+  resolveTaskNameFromRequest,
 } from "./requestMeta";
 import { workflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
 import type { PreparedWorkflowUnit } from "./contracts";
@@ -291,7 +291,7 @@ export async function runWorkflowDuplicateGuardSeam(
       allowedRequests.push(request);
       continue;
     }
-    const taskLabel = resolveInputUnitLabelFromRequest(request, index);
+    const taskLabel = resolveTaskNameFromRequest(request, index);
     const duplicates = findRunningDuplicates({
       workflowId: args.workflowId,
       inputUnitIdentity,

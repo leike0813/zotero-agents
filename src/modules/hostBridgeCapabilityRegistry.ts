@@ -67,6 +67,10 @@ import {
 } from "../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import {
+  createDirectResearchBundleApplication,
+  type DirectResearchBundleApplication,
+} from "./researchBundleService";
+import {
   getHostBridgeCapabilityContract,
   listHostBridgeCapabilityContractEntries,
   validateHostBridgeCapabilityInput,
@@ -79,6 +83,9 @@ export type HostBridgeCapabilityContext = {
   connectionMode: HostBridgeConnectionMode;
   resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+  resolveDirectResearchBundleApplication?: () =>
+    | DirectResearchBundleApplication
+    | Promise<DirectResearchBundleApplication>;
 };
 
 export type ZoteroHostCapabilityBrokerApis = ReturnType<
@@ -1128,12 +1135,12 @@ async function debugStatus(
   context: HostBridgeCapabilityContext,
 ) {
   const object = asObject(input);
-  const [taskRuntime, acpSkillRunDashboard] = await Promise.all([
+  const [taskRuntime, acpSkillRunStore] = await Promise.all([
     import("./taskRuntime"),
-    import("./acpSkillRunDashboardFacade"),
+    import("./acpSkillRunStore"),
   ]);
   const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
-  const { listAcpSkillRunSummaries } = acpSkillRunDashboard;
+  const { listAcpSkillRunSummaries } = acpSkillRunStore;
   const tasks = listWorkflowTasks();
   const activeTasks = listActiveWorkflowTaskSummaries();
   const runs = listAcpSkillRunSummaries();
@@ -1185,12 +1192,12 @@ async function debugPersistenceSnapshot(input: unknown) {
 async function debugTasksSnapshot(input: unknown) {
   const object = asObject(input);
   const limit = debugLimit(object);
-  const [taskRuntime, acpSkillRunDashboard] = await Promise.all([
+  const [taskRuntime, acpSkillRunStore] = await Promise.all([
     import("./taskRuntime"),
-    import("./acpSkillRunDashboardFacade"),
+    import("./acpSkillRunStore"),
   ]);
   const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
-  const { listAcpSkillRunSummaries } = acpSkillRunDashboard;
+  const { listAcpSkillRunSummaries } = acpSkillRunStore;
   const tasks = listWorkflowTasks();
   const activeTasks = listActiveWorkflowTaskSummaries({ limit });
   const runs = listAcpSkillRunSummaries({ limit });
@@ -1383,6 +1390,67 @@ function synthesisCapability(
       normalizedInput,
       { mode: context.connectionMode },
     );
+    return applySynthesisOutputBoundary(name, normalizedInput, result);
+  });
+}
+
+async function resolveDirectResearchBundleApplication(
+  context: HostBridgeCapabilityContext,
+) {
+  const injected = context.resolveDirectResearchBundleApplication?.();
+  if (injected) return injected;
+  const [client, apis] = await Promise.all([
+    context.resolveSynthesisClient?.() || getDefaultSynthesisClient(),
+    resolveHostBridgeApis(context),
+  ]);
+  return createDirectResearchBundleApplication({
+    client,
+    host: {
+      async resolveItems(selectors) {
+        const papers = [];
+        for (const selector of selectors) {
+          const detail = await apis.library.getItemDetail(
+            selector as ZoteroHostItemRefInput,
+          );
+          if (!detail) continue;
+          const attachments = await apis.library.getItemAttachments({
+            key: detail.key,
+            libraryId: detail.libraryId,
+          });
+          papers.push({
+            paperRef: `${detail.libraryId}:${detail.key}`,
+            libraryId: detail.libraryId,
+            itemKey: detail.key,
+            title: detail.title,
+            metadata: detail,
+            attachments: attachments
+              .filter((attachment) => String(attachment.path || "").trim())
+              .map((attachment) => ({
+                path: attachment.path,
+                filename: attachment.filename,
+                contentType: attachment.contentType,
+              })),
+          });
+        }
+        return papers;
+      },
+    },
+  });
+}
+
+function directResearchBundleCapability(
+  name: "items.export_research_bundle" | "topics.export_research_bundle",
+  method: "exportPapers" | "exportTopics",
+): HostBridgeCapabilityDefinition {
+  return capability(name, async (input, context) => {
+    const normalizedInput = normalizeSynthesisCapabilityInput(
+      name,
+      asObject(input),
+    ) as SynthesisJsonObject;
+    const application = await resolveDirectResearchBundleApplication(context);
+    const result = await application[method](normalizedInput, {
+      mode: context.connectionMode,
+    });
     return applySynthesisOutputBoundary(name, normalizedInput, result);
   });
 }
@@ -1750,6 +1818,10 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),
   synthesisCapability("topics.get_context", "getTopicContext"),
   synthesisCapability("topics.get_report", "getTopicReport"),
+  directResearchBundleCapability(
+    "topics.export_research_bundle",
+    "exportTopics",
+  ),
   synthesisCapability("schemas.get", "getSchemas"),
   synthesisCapability("concepts.query", "queryConceptKb"),
   synthesisCapability(
@@ -1789,6 +1861,10 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "getPaperArtifactManifest",
   ),
   synthesisCapability("paper_artifacts.read", "readPaperArtifacts"),
+  directResearchBundleCapability(
+    "items.export_research_bundle",
+    "exportPapers",
+  ),
   synthesisCapability(
     "paper_artifacts.export_filtered",
     "exportFilteredPaperArtifacts",

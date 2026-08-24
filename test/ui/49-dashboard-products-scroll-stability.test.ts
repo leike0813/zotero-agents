@@ -33,10 +33,11 @@ function makeProductSnapshot(args: {
   products: Product[];
   selectedProduct: Product;
   selectedAssetId?: string;
+  isExporting?: boolean;
 }) {
   return {
     title: "Products",
-    labels: {},
+    labels: { productsOpenWorkspace: "Export Product" },
     selectedTabKey: "products",
     tabs: [{ key: "products", label: "Products" }],
     productStorageView: {
@@ -61,6 +62,7 @@ function makeProductSnapshot(args: {
       feedbackSkillOptions: [],
       feedbackSkillFilter: "",
       selectedFeedbackProductIds: [],
+      isExporting: args.isExporting === true,
     },
   };
 }
@@ -168,6 +170,39 @@ describe("Dashboard Products scroll stability", function () {
     assert.equal(
       await page.locator(".product-list").evaluate((node) => node.scrollTop),
       feedbackScrollTop,
+    );
+  });
+
+  it("marks the Product export button busy and restores it", async function () {
+    const product = makeProduct("product-export", 1);
+    await postSnapshot(
+      page,
+      makeProductSnapshot({
+        products: [product],
+        selectedProduct: product,
+        isExporting: true,
+      }),
+    );
+
+    const exportButton = page.getByRole("button", { name: "Export Product" });
+    assert.isTrue(await exportButton.isDisabled());
+    assert.equal(await exportButton.getAttribute("aria-busy"), "true");
+    assert.include((await exportButton.getAttribute("class")) || "", "is-busy");
+
+    await postSnapshot(
+      page,
+      makeProductSnapshot({
+        products: [product],
+        selectedProduct: product,
+        isExporting: false,
+      }),
+    );
+
+    assert.isFalse(await exportButton.isDisabled());
+    assert.equal(await exportButton.getAttribute("aria-busy"), "false");
+    assert.notInclude(
+      (await exportButton.getAttribute("class")) || "",
+      "is-busy",
     );
   });
 

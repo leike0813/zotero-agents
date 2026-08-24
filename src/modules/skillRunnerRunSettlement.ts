@@ -6,7 +6,7 @@ import {
   normalizeStatus,
   type SkillRunnerProviderState,
 } from "./skillRunnerProviderStateMachine";
-import { updateSkillRunnerRunStateByRequest } from "./skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "./skillRunnerRunStore";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -139,14 +139,14 @@ export function settleSkillRunnerRunAsFailed(args: {
     normalizeString(args.reason) ||
     stringifyError(args.error) ||
     "SkillRunner run is unavailable";
-  const updatedRun = !!updateSkillRunnerRunStateByRequest({
+  const updatedRun = !!applySkillRunnerRunEvent({
+    type: "run.terminal_client_error",
     backendId,
     requestId,
-    state: "failed",
     error,
     updatedAt,
-    eventType: "run.terminal_client_error",
-    eventPayload: {
+    source: args.source,
+    payload: {
       source: args.source,
       reason: error,
     },

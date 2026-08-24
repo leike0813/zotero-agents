@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "f5482a23d1b20cb4264d6dd5083122885f64506f32a2875b97bb08a08bf5d9f0",
+  "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984",
   "commands": [
     {
       "approvalContract": {
@@ -6237,6 +6237,409 @@
         {
           "kind": "capability",
           "target": "library.search_items"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "No Zotero UI approval; local filesystem destination rules and remote handle delivery still apply.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "One to 100 Zotero item refs as a JSON array, file path, @file, or '-' for stdin",
+          "id": "items",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": true,
+          "takesValue": true,
+          "token": "--items",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        },
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Absent or empty destination directory for local profiles; omit for remote profiles",
+          "id": "output_dir",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--output-dir",
+          "valueNames": [
+            "DIR"
+          ]
+        }
+      ],
+      "argv": [
+        "library",
+        "items",
+        "export-research-bundle"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "items",
+          "required": true,
+          "takesValue": true,
+          "token": "--items",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        },
+        {
+          "kind": "option",
+          "property": "output-dir",
+          "required": false,
+          "takesValue": true,
+          "token": "--output-dir",
+          "valueNames": [
+            "DIR"
+          ]
+        }
+      ],
+      "binding": "object",
+      "category": "read",
+      "command": "library items export-research-bundle",
+      "composition": {
+        "constants": {},
+        "mappings": [
+          {
+            "argument": "items",
+            "field": "items",
+            "required": true,
+            "transform": "identity"
+          },
+          {
+            "argument": "output_dir",
+            "field": "output_dir",
+            "required": false,
+            "transform": "path-string"
+          }
+        ]
+      },
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Reads Zotero content and either writes a caller-selected local directory or produces a temporary remote download handle.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Produced only by a remote profile after the ZIP is registered.",
+          "direction": "produce",
+          "handle": "fileId",
+          "lifetime": "short-lived",
+          "required": false
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "items": {
+          "examples": [
+            {
+              "description": "One key-based Zotero item selector.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Replace the example with one to 100 Zotero item refs valid in the target library."
+              ],
+              "value": [
+                {
+                  "key": "ABCD1234",
+                  "libraryId": 1
+                }
+              ]
+            }
+          ],
+          "required": true,
+          "requiredWhen": [],
+          "schema": {
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": [
+                        "integer",
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "libraryId": {
+                      "type": [
+                        "integer",
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "schemaSource": "composition",
+          "token": "--items"
+        },
+        "output_dir": {
+          "examples": [
+            {
+              "description": "Local bundle destination directory.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Use an absent or empty directory on the Host filesystem for a local profile."
+              ],
+              "value": "research-bundle"
+            }
+          ],
+          "required": false,
+          "requiredWhen": [
+            "Required for connectionMode local; forbidden for connectionMode remote."
+          ],
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schemaSource": "composition",
+          "token": "--output-dir"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "One to 100 Zotero item refs as a JSON array, file path, @file, or '-' for stdin",
+            "type": "string"
+          },
+          "output-dir": {
+            "description": "Absent or empty destination directory for local profiles; omit for remote profiles",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "library items export-research-bundle",
+        "library",
+        "items",
+        "export-research-bundle",
+        "JSON_OR_FILE",
+        "output_dir",
+        "output-dir",
+        "DIR",
+        "paper research bundle"
+      ],
+      "outputBoundary": {
+        "fileField": "data.delivery.bundle",
+        "strategy": "file"
+      },
+      "pagination": "file",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": [
+                        "integer",
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "libraryId": {
+                      "type": [
+                        "integer",
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "outputDir": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "output_dir": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Correct invalid selectors or destination state; for a returned fileId, rerun the supplied file download command while the handle remains valid.",
+          "nextCommand": "surface describe",
+          "requiresHandles": [],
+          "stateCheck": "command-result",
+          "when": "Materialization fails, a local destination is not empty, or a remote download is interrupted."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "items.export_research_bundle"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "delivery": {
+                "additionalProperties": false,
+                "properties": {
+                  "bundle": {
+                    "type": "object"
+                  },
+                  "bytesWritten": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "downloadCommand": {
+                    "type": "string"
+                  },
+                  "fileCount": {
+                    "maximum": 5000,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "manifestFile": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "enum": [
+                      "local",
+                      "bridge-download"
+                    ]
+                  },
+                  "outputName": {
+                    "type": "string"
+                  },
+                  "unpackHint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "type": "object"
+              },
+              "manifest_file": {
+                "const": "manifest.json"
+              },
+              "summary": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "papers"
+                  },
+                  "paper_count": {
+                    "maximum": 500,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "topic_count": {
+                    "const": 0
+                  },
+                  "warning_count": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "paper_count",
+                  "topic_count",
+                  "warning_count"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "manifest_file",
+              "summary",
+              "delivery"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "Export one or more papers as a research bundle",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "items.export_research_bundle"
         }
       ]
     },
@@ -26624,6 +27027,364 @@
         {
           "kind": "capability",
           "target": "schemas.get"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "No Zotero UI approval; local filesystem destination rules and remote handle delivery still apply.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Stable Topic id; repeat to aggregate multiple Topics",
+          "id": "topic_ids",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": true,
+          "required": true,
+          "takesValue": true,
+          "token": "--topic-id",
+          "valueNames": [
+            "TOPIC_IDS"
+          ]
+        },
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Absent or empty destination directory for local profiles; omit for remote profiles",
+          "id": "output_dir",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--output-dir",
+          "valueNames": [
+            "DIR"
+          ]
+        }
+      ],
+      "argv": [
+        "synthesis",
+        "topic",
+        "export-research-bundle"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "topic-id",
+          "required": true,
+          "takesValue": true,
+          "token": "--topic-id",
+          "valueNames": [
+            "TOPIC_IDS"
+          ]
+        },
+        {
+          "kind": "option",
+          "property": "output-dir",
+          "required": false,
+          "takesValue": true,
+          "token": "--output-dir",
+          "valueNames": [
+            "DIR"
+          ]
+        }
+      ],
+      "binding": "object",
+      "category": "read",
+      "command": "synthesis topic export-research-bundle",
+      "composition": {
+        "constants": {},
+        "mappings": [
+          {
+            "argument": "topic_ids",
+            "field": "topic_ids",
+            "required": true,
+            "transform": "identity"
+          },
+          {
+            "argument": "output_dir",
+            "field": "output_dir",
+            "required": false,
+            "transform": "path-string"
+          }
+        ]
+      },
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Reads Topic reports and paper digests and either writes a caller-selected local directory or produces a temporary remote download handle.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Produced only by a remote profile after the ZIP is registered.",
+          "direction": "produce",
+          "handle": "fileId",
+          "lifetime": "short-lived",
+          "required": false
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "output_dir": {
+          "examples": [
+            {
+              "description": "Local bundle destination directory.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Use an absent or empty directory on the Host filesystem for a local profile."
+              ],
+              "value": "topic-research-bundle"
+            }
+          ],
+          "required": false,
+          "requiredWhen": [
+            "Required for connectionMode local; forbidden for connectionMode remote."
+          ],
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schemaSource": "composition",
+          "token": "--output-dir"
+        },
+        "topic_ids": {
+          "examples": [
+            {
+              "description": "Repeated Topic selectors for one aggregate bundle.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Use one to 20 stable Topic ids returned by synthesis topic list."
+              ],
+              "value": [
+                "topic-one",
+                "topic-two"
+              ]
+            }
+          ],
+          "required": true,
+          "requiredWhen": [],
+          "schema": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "schemaSource": "composition",
+          "token": "--topic-id"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "output-dir": {
+            "description": "Absent or empty destination directory for local profiles; omit for remote profiles",
+            "type": "string"
+          },
+          "topic-id": {
+            "description": "Stable Topic id; repeat to aggregate multiple Topics",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "topic-id"
+        ],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "synthesis topic export-research-bundle",
+        "synthesis",
+        "topic",
+        "export-research-bundle",
+        "topic_ids",
+        "topic-id",
+        "TOPIC_ID",
+        "output_dir",
+        "output-dir",
+        "DIR",
+        "Topic research bundle"
+      ],
+      "outputBoundary": {
+        "fileField": "data.delivery.bundle",
+        "strategy": "file"
+      },
+      "pagination": "file",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "topic_ids"
+            ]
+          },
+          {
+            "required": [
+              "topicIds"
+            ]
+          }
+        ],
+        "properties": {
+          "outputDir": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "output_dir": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "topicIds": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "topic_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Refresh the Topic id or destination state; for a returned fileId, rerun the supplied file download command while the handle remains valid.",
+          "nextCommand": "synthesis topic list",
+          "requiresHandles": [],
+          "stateCheck": "command-result",
+          "when": "A Topic/report cannot be resolved, a local destination is not empty, or a remote download is interrupted."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "topics.export_research_bundle"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "delivery": {
+                "additionalProperties": false,
+                "properties": {
+                  "bundle": {
+                    "type": "object"
+                  },
+                  "bytesWritten": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "downloadCommand": {
+                    "type": "string"
+                  },
+                  "fileCount": {
+                    "maximum": 5000,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "manifestFile": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "enum": [
+                      "local",
+                      "bridge-download"
+                    ]
+                  },
+                  "outputName": {
+                    "type": "string"
+                  },
+                  "unpackHint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "type": "object"
+              },
+              "manifest_file": {
+                "const": "manifest.json"
+              },
+              "summary": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "topics"
+                  },
+                  "paper_count": {
+                    "maximum": 500,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "topic_count": {
+                    "maximum": 20,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "warning_count": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "paper_count",
+                  "topic_count",
+                  "warning_count"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "manifest_file",
+              "summary",
+              "delivery"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "Export one or more Topic research bundles",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "topics.export_research_bundle"
         }
       ]
     },

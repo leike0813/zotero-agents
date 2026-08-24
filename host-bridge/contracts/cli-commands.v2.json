@@ -2767,6 +2767,121 @@
       "pagination": "none",
       "payloadSchemaSource": "target-capability"
     },
+    "library items export-research-bundle": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "items": {
+          "token": "--items",
+          "required": true,
+          "requiredWhen": [],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": [{ "key": "ABCD1234", "libraryId": 1 }],
+              "prerequisites": [
+                "Replace the example with one to 100 Zotero item refs valid in the target library."
+              ],
+              "description": "One key-based Zotero item selector."
+            }
+          ],
+          "schemaSource": "composition"
+        },
+        "output_dir": {
+          "token": "--output-dir",
+          "required": false,
+          "requiredWhen": [
+            "Required for connectionMode local; forbidden for connectionMode remote."
+          ],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": "research-bundle",
+              "prerequisites": [
+                "Use an absent or empty directory on the Host filesystem for a local profile."
+              ],
+              "description": "Local bundle destination directory."
+            }
+          ],
+          "schemaSource": "composition"
+        }
+      },
+      "outputBoundary": {
+        "strategy": "file",
+        "fileField": "data.delivery.bundle"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "items.export_research_bundle",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "object",
+      "composition": {
+        "constants": {},
+        "mappings": [
+          {
+            "argument": "items",
+            "field": "items",
+            "transform": "identity",
+            "required": true
+          },
+          {
+            "argument": "output_dir",
+            "field": "output_dir",
+            "transform": "path-string",
+            "required": false
+          }
+        ]
+      },
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads Zotero content and either writes a caller-selected local directory or produces a temporary remote download handle."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; local filesystem destination rules and remote handle delivery still apply."
+      },
+      "handleTransitions": [
+        {
+          "handle": "fileId",
+          "direction": "produce",
+          "required": false,
+          "condition": "Produced only by a remote profile after the ZIP is registered.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "Materialization fails, a local destination is not empty, or a remote download is interrupted.",
+          "stateCheck": "command-result",
+          "requiresHandles": [],
+          "action": "Correct invalid selectors or destination state; for a returned fileId, rerun the supplied file download command while the handle remains valid.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "operationalAliases": [
+        "library items export-research-bundle",
+        "library",
+        "items",
+        "export-research-bundle",
+        "JSON_OR_FILE",
+        "output_dir",
+        "output-dir",
+        "DIR",
+        "paper research bundle"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "file",
+      "payloadSchemaSource": "target-capability"
+    },
     "library items list": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {
@@ -8779,6 +8894,123 @@
       ],
       "hiddenFromIntentSearch": false,
       "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "synthesis topic export-research-bundle": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "topic_ids": {
+          "token": "--topic-id",
+          "required": true,
+          "requiredWhen": [],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": ["topic-one", "topic-two"],
+              "prerequisites": [
+                "Use one to 20 stable Topic ids returned by synthesis topic list."
+              ],
+              "description": "Repeated Topic selectors for one aggregate bundle."
+            }
+          ],
+          "schemaSource": "composition"
+        },
+        "output_dir": {
+          "token": "--output-dir",
+          "required": false,
+          "requiredWhen": [
+            "Required for connectionMode local; forbidden for connectionMode remote."
+          ],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": "topic-research-bundle",
+              "prerequisites": [
+                "Use an absent or empty directory on the Host filesystem for a local profile."
+              ],
+              "description": "Local bundle destination directory."
+            }
+          ],
+          "schemaSource": "composition"
+        }
+      },
+      "outputBoundary": {
+        "strategy": "file",
+        "fileField": "data.delivery.bundle"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "topics.export_research_bundle",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "object",
+      "composition": {
+        "constants": {},
+        "mappings": [
+          {
+            "argument": "topic_ids",
+            "field": "topic_ids",
+            "transform": "identity",
+            "required": true
+          },
+          {
+            "argument": "output_dir",
+            "field": "output_dir",
+            "transform": "path-string",
+            "required": false
+          }
+        ]
+      },
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads Topic reports and paper digests and either writes a caller-selected local directory or produces a temporary remote download handle."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; local filesystem destination rules and remote handle delivery still apply."
+      },
+      "handleTransitions": [
+        {
+          "handle": "fileId",
+          "direction": "produce",
+          "required": false,
+          "condition": "Produced only by a remote profile after the ZIP is registered.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "A Topic/report cannot be resolved, a local destination is not empty, or a remote download is interrupted.",
+          "stateCheck": "command-result",
+          "requiresHandles": [],
+          "action": "Refresh the Topic id or destination state; for a returned fileId, rerun the supplied file download command while the handle remains valid.",
+          "nextCommand": "synthesis topic list"
+        }
+      ],
+      "operationalAliases": [
+        "synthesis topic export-research-bundle",
+        "synthesis",
+        "topic",
+        "export-research-bundle",
+        "topic_ids",
+        "topic-id",
+        "TOPIC_ID",
+        "output_dir",
+        "output-dir",
+        "DIR",
+        "Topic research bundle"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "file",
       "payloadSchemaSource": "target-capability"
     },
     "synthesis topic find-by-paper-ref": {

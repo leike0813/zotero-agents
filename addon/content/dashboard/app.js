@@ -1565,16 +1565,22 @@
 
   function validateNumberFieldValue(args) {
     const raw = String(args.rawValue == null ? "" : args.rawValue).trim();
-    if (!raw) {
-      return { ok: true, remove: true };
-    }
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) {
+    const contract = window.zoteroAgentsWorkflowNumberFields.validate({
+      entry: args.entry,
+      rawValue: raw,
+    });
+    if (!contract.valid) {
       return {
         ok: false,
-        message: labelText(args.labels, "workflowSettingsNumberInvalid"),
+        message:
+          contract.message ||
+          labelText(args.labels, "workflowSettingsNumberInvalid"),
       };
     }
+    if (contract.remove) {
+      return { ok: true, remove: true };
+    }
+    const parsed = contract.value;
     if (isNonNegativeIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed < 0) {
         return {
@@ -1625,8 +1631,10 @@
       isWarningProviderOptionKey(args.entry.key)
         ? "workflow-settings-field-label workflow-settings-field-label-warning"
         : "workflow-settings-field-label",
-      (args.entry.title || args.entry.key) +
-        (args.entry.required === true ? " *" : ""),
+      window.zoteroAgentsWorkflowNumberFields.formatLabel({
+        ...args.entry,
+        title: args.entry.title || args.entry.key,
+      }) + (args.entry.required === true ? " *" : ""),
     );
     row.appendChild(label);
     if (args.entry.disabled === true) {
@@ -1774,6 +1782,12 @@
       control.className = "workflow-settings-field-control";
       if (args.entry.type === "number") {
         control.classList.add("numeric");
+        control.setAttribute(
+          "inputmode",
+          args.entry.integer === true || isPositiveIntegerField(args.entry)
+            ? "numeric"
+            : "decimal",
+        );
       }
     }
     const errorNode = el("div", "workflow-settings-field-error");
@@ -1837,6 +1851,7 @@
     control.addEventListener("input", function () {
       if (args.entry.type === "number") {
         setFieldError("");
+        return;
       }
       args.values[args.entry.key] = control.value;
     });
@@ -2318,6 +2333,7 @@
       : [];
     const selectedFeedbackIds = new Set(view.selectedFeedbackProductIds || []);
     const selected = view.selectedProduct;
+    const isExporting = view.isExporting === true;
     const toolbar = el("div", "toolbar");
     toolbar.appendChild(
       el("h2", "page-title", labelText(labels, "tabProducts")),
@@ -2345,7 +2361,18 @@
         "btn",
         labelText(labels, "productsOpenWorkspace"),
       );
+      openFolder.disabled = isExporting;
+      openFolder.classList.toggle("is-busy", isExporting);
+      openFolder.setAttribute("aria-busy", isExporting ? "true" : "false");
+      if (isExporting) {
+        const spinner = el("span", "dashboard-button-spinner");
+        spinner.setAttribute("aria-hidden", "true");
+        openFolder.insertBefore(spinner, openFolder.firstChild);
+      }
       openFolder.addEventListener("click", function () {
+        if (isExporting) {
+          return;
+        }
         sendAction("open-product-folder", { productId: selected.productId });
       });
       actions.appendChild(openFolder);
@@ -3727,6 +3754,26 @@
       contextWrap.appendChild(clearCtxBtn);
     }
     toolbar.appendChild(contextWrap);
+
+    const budget = view.budget || {};
+    const budgetValue = [
+      "warn/error " +
+        Number(budget.importantEntryCount || 0) +
+        "/" +
+        Number(budget.maxImportantEntries || 0),
+      "total " +
+        Number(view.totalEntries || 0) +
+        "/" +
+        Number(budget.maxEntries || 0),
+    ].join(" · ");
+    const budgetText = labelText(
+      labels,
+      "runtimeLogsBudget",
+      "Budget: { $value }",
+    ).replace("{ $value }", budgetValue);
+    const budgetStatus = el("div", "logs-budget-status", budgetText);
+    budgetStatus.dataset.runtimeLogBudget = "true";
+    toolbar.appendChild(budgetStatus);
 
     // Action Buttons
     const actionWrap = el("div", "logs-action-wrap");

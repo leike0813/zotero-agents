@@ -6,8 +6,21 @@
       "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection",
       "valid": true,
       "value": {
-        "descriptor": { "section": "entries", "pageIndex": 0, "rowCount": 1, "byteLength": 78, "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-        "rows": [{ "tag": "field:ai", "facet": "field", "aliases": ["AI"], "abbrev": ["AI"] }]
+        "descriptor": {
+          "section": "entries",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 78,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "tag": "field:ai",
+            "facet": "field",
+            "aliases": ["AI"],
+            "abbrev": ["AI"]
+          }
+        ]
       }
     },
     {
@@ -15,8 +28,23 @@
       "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexInputSection",
       "valid": true,
       "value": {
-        "descriptor": { "section": "aliases", "pageIndex": 0, "rowCount": 1, "byteLength": 130, "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
-        "rows": [{ "aliasId": "alias:ai", "alias": "AI", "normalized": "ai", "conceptId": "concept:ai", "status": "active", "confidence": "high" }]
+        "descriptor": {
+          "section": "aliases",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 130,
+          "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "rows": [
+          {
+            "aliasId": "alias:ai",
+            "alias": "AI",
+            "normalized": "ai",
+            "conceptId": "concept:ai",
+            "status": "active",
+            "confidence": "high"
+          }
+        ]
       }
     },
     {
@@ -24,8 +52,22 @@
       "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection",
       "valid": false,
       "value": {
-        "descriptor": { "section": "entries", "pageIndex": 0, "rowCount": 1, "byteLength": 78, "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-        "rows": [{ "tag": "field:ai", "facet": "field", "aliases": [], "abbrev": [], "legacy": true }]
+        "descriptor": {
+          "section": "entries",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 78,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "tag": "field:ai",
+            "facet": "field",
+            "aliases": [],
+            "abbrev": [],
+            "legacy": true
+          }
+        ]
       }
     },
     {
@@ -33,8 +75,23 @@
       "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexInputSection",
       "valid": false,
       "value": {
-        "descriptor": { "section": "aliases", "pageIndex": 0, "rowCount": 1, "byteLength": 130, "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
-        "rows": [{ "aliasId": "alias:ai", "alias": "AI", "normalized": "ai", "conceptId": "concept:ai", "status": "active", "confidence": 1 }]
+        "descriptor": {
+          "section": "aliases",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 130,
+          "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "rows": [
+          {
+            "aliasId": "alias:ai",
+            "alias": "AI",
+            "normalized": "ai",
+            "conceptId": "concept:ai",
+            "status": "active",
+            "confidence": 1
+          }
+        ]
       }
     }
   ]

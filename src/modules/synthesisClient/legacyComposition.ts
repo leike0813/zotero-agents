@@ -430,6 +430,9 @@ function createLegacyPort(
     async rebuildConceptKbIndex() {
       return resolveService().rebuildConceptKbIndex();
     },
+    async auditConceptAliases() {
+      return resolveService().auditConceptAliases();
+    },
     async updateConceptDisplayText(request) {
       return resolveService().updateConceptDisplayText(request);
     },

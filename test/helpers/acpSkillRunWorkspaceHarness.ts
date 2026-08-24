@@ -1,13 +1,15 @@
 import {
   getAcpSkillRunRecord,
-  getSelectedAcpSkillRunRequestId,
   listAcpSkillRunSummaries,
   readAcpSkillRunTranscriptRegion,
   readAcpSkillRunTranscriptRegionFromMemoryForTests,
-  selectAcpSkillRun,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "../../src/modules/acpSkillRunStore";
 import { snapshotAcpMessageCounts } from "../../src/modules/acpExecutionProgress";
+import {
+  getSelectedAcpSkillRunRequestId,
+  selectAcpSkillRun,
+} from "../../src/modules/acpSkillRunWorkspaceSelection";
 
 export function buildAcpSkillRunPanelSnapshot(
   args: {

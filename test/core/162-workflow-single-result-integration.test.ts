@@ -35,12 +35,9 @@ import {
   resetTaskDashboardHistory,
 } from "../../src/modules/taskDashboardHistory";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
   getSkillRunnerRunRecordByRequest,
   resetSkillRunnerRunStoreForTests,
-  updateSkillRunnerRunStateByRequest,
-  updateSkillRunnerRunStateByRunKey,
+  applySkillRunnerRunEvent,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
@@ -586,34 +583,39 @@ function findRequestReadyUpdate(run: IntegrationRun, requestId: string) {
 }
 
 function seedRequestReadySkillRunnerRun(requestId: string) {
-  const run = createSkillRunnerRun({
-    backendId: SKILLRUNNER_BACKEND.id,
-    workflowId: SINGLE_RESULT_WORKFLOW_ID,
-    workflowRunId: `run-${requestId}`,
-    jobId: `job-${requestId}`,
-    taskName: "debug-apply-single-result",
-    skillId: "debug-apply-contract",
-    requestPayload: {
-      kind: "skillrunner.job.v1",
-      skill_id: "debug-apply-contract",
-      fetch_type: "result",
-      poll: {
-        interval_ms: 1,
-        timeout_ms: 1,
+  const run = applySkillRunnerRunEvent({
+    type: "submit.local_created",
+    init: {
+      backendId: SKILLRUNNER_BACKEND.id,
+      workflowId: SINGLE_RESULT_WORKFLOW_ID,
+      workflowRunId: `run-${requestId}`,
+      jobId: `job-${requestId}`,
+      taskName: "debug-apply-single-result",
+      skillId: "debug-apply-contract",
+      requestPayload: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-apply-contract",
+        fetch_type: "result",
+        poll: {
+          interval_ms: 1,
+          timeout_ms: 1,
+        },
       },
+      fetchType: "result",
+      executionMode: "auto",
+      createdAt: "2026-06-22T00:00:00.000Z",
+      updatedAt: "2026-06-22T00:00:00.000Z",
     },
-    fetchType: "result",
-    executionMode: "auto",
-    createdAt: "2026-06-22T00:00:00.000Z",
-    updatedAt: "2026-06-22T00:00:00.000Z",
   });
   assert.isOk(run);
-  attachSkillRunnerRequestId({
+  applySkillRunnerRunEvent({
+    type: "request.created",
     runKey: run!.runKey,
     requestId,
     updatedAt: "2026-06-22T00:00:01.000Z",
   });
-  updateSkillRunnerRunStateByRunKey({
+  applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     runKey: run!.runKey,
     state: "request_ready" as any,
     backendStatus: "running",

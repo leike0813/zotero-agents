@@ -2,10 +2,10 @@
   "schemaVersion": 2,
   "id": "create-topic-synthesis",
   "label": "Create Topic Synthesis",
-  "description": "Create a new topic synthesis from a natural-language seed using the current library, reference, and citation-graph evidence.",
+  "description": "Materialize an active Planned Topic or resolve a natural-language seed to an existing Planned Topic before creating a new synthesis topic.",
   "executionModes": ["auto"],
   "provider": "skillrunner",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "display": {
     "core": true,
     "emoji": "🧩"
@@ -23,10 +23,39 @@
     }
   },
   "parameters": {
+    "usePlannedTopic": {
+      "type": "boolean",
+      "title": "Use Planned Topic",
+      "description": "Materialize an active Planned Topic instead of starting from an ad-hoc seed.",
+      "required": true,
+      "default": false
+    },
+    "plannedTopicId": {
+      "type": "string",
+      "title": "Planned Topic",
+      "description": "Active Planned Topic whose stored definition and resolver will be materialized.",
+      "required": true,
+      "visible_if": {
+        "parameter": "usePlannedTopic",
+        "equals": true
+      },
+      "allowCustom": false,
+      "optionsSource": {
+        "kind": "synthesis.topics",
+        "valueFormat": "topicId",
+        "labelFormat": "title",
+        "filter": "planned"
+      }
+    },
     "topicSeed": {
       "type": "string",
       "title": "Topic Seed",
-      "description": "Natural-language topic seed for a new synthesis topic."
+      "description": "Natural-language topic seed; a same-identity active Planned Topic is reused before a new topic is created.",
+      "required": true,
+      "visible_if": {
+        "parameter": "usePlannedTopic",
+        "equals": false
+      }
     },
     "language": {
       "type": "string",

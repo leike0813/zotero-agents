@@ -438,7 +438,11 @@ export type SynthesisUiConceptOverlayEntry = {
 export type SynthesisUiConceptReviewItem = {
   review_id: string;
   status: "open" | "approved" | "merged" | "rejected";
-  reason: "low_confidence_concept" | "ambiguous_concept_match";
+  reason:
+    | "low_confidence_concept"
+    | "ambiguous_concept_match"
+    | "alias_conflict"
+    | "alias_equivalence_audit";
   topic_id: string;
   label: string;
   short_definition?: string;
@@ -450,6 +454,13 @@ export type SynthesisUiConceptReviewItem = {
   diagnostics?: unknown[];
   confidence: "high" | "medium" | "low";
   candidate_concept_ids: string[];
+  audit_alias?: {
+    alias_id: string;
+    alias: string;
+    normalized: string;
+    concept_id: string;
+    sense_id?: string;
+  };
 };
 
 export type SynthesisUiGraphNode = {
@@ -1026,6 +1037,7 @@ export type SynthesisUiHostCommandName =
   | "clearStagedTagSuggestions"
   | "rebuildTagVocabularyIndex"
   | "rebuildConceptKbIndex"
+  | "auditConceptAliases"
   | "deleteConceptEntry"
   | "applyConceptReviewAction"
   | "updateConceptDisplayText"
@@ -1119,6 +1131,7 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "clearStagedTagSuggestions",
   "rebuildTagVocabularyIndex",
   "rebuildConceptKbIndex",
+  "auditConceptAliases",
   "deleteConceptEntry",
   "applyConceptReviewAction",
   "updateConceptDisplayText",
@@ -1177,6 +1190,7 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   clearStagedTagSuggestions: "Clear staged tags",
   rebuildTagVocabularyIndex: "Rebuild tag index",
   rebuildConceptKbIndex: "Rebuild concept index",
+  auditConceptAliases: "Audit concept aliases",
   deleteConceptEntry: "Delete concept",
   applyConceptReviewAction: "Apply concept review",
   updateConceptDisplayText: "Update concept text",
@@ -1840,7 +1854,7 @@ function deriveUpdateIntent(row: {
       topicId: row.id,
       language,
       updateScope: "discovery",
-      updateMode: "update_patch",
+      updateMode: "update_full",
       updateReason: "discovery_candidates",
       actionLabel: "Update",
       changedSections: [],
@@ -3046,9 +3060,15 @@ function normalizeConceptReviewStatus(
 function normalizeConceptReviewReason(
   value: unknown,
 ): SynthesisUiConceptReviewItem["reason"] {
-  return cleanString(value) === "ambiguous_concept_match"
-    ? "ambiguous_concept_match"
-    : "low_confidence_concept";
+  const reason = cleanString(value);
+  if (
+    reason === "ambiguous_concept_match" ||
+    reason === "alias_conflict" ||
+    reason === "alias_equivalence_audit"
+  ) {
+    return reason;
+  }
+  return "low_confidence_concept";
 }
 
 function normalizeConceptReviewItems(
@@ -3057,24 +3077,50 @@ function normalizeConceptReviewItems(
     | undefined,
 ) {
   return [...(rows || [])]
-    .map((row) => ({
-      review_id: cleanString(row.review_id),
-      status: normalizeConceptReviewStatus(row.status),
-      reason: normalizeConceptReviewReason(row.reason),
-      topic_id: cleanString(row.topic_id),
-      label: cleanString(row.label) || cleanString(row.review_id),
-      short_definition: cleanString((row as any).short_definition) || undefined,
-      definition: cleanString((row as any).definition) || undefined,
-      concept_type: cleanString((row as any).concept_type) || undefined,
-      domain: cleanString((row as any).domain) || undefined,
-      topic_relevance: (row as any).topic_relevance,
-      evidence: (row as any).evidence,
-      diagnostics: Array.isArray((row as any).diagnostics)
-        ? (row as any).diagnostics
-        : [],
-      confidence: normalizeConceptConfidence(row.confidence),
-      candidate_concept_ids: normalizeStringList(row.candidate_concept_ids),
-    }))
+    .map((row) => {
+      const proposal =
+        (row as any).proposal && typeof (row as any).proposal === "object"
+          ? (row as any).proposal
+          : {};
+      const auditAlias = (row as any).audit_alias || proposal.audit_alias;
+      return {
+        review_id: cleanString(row.review_id),
+        status: normalizeConceptReviewStatus(row.status),
+        reason: normalizeConceptReviewReason(row.reason),
+        topic_id: cleanString(row.topic_id),
+        label: cleanString(row.label) || cleanString(row.review_id),
+        short_definition:
+          cleanString(
+            (row as any).short_definition || proposal.short_definition,
+          ) || undefined,
+        definition:
+          cleanString((row as any).definition || proposal.definition) ||
+          undefined,
+        concept_type:
+          cleanString((row as any).concept_type || proposal.concept_type) ||
+          undefined,
+        domain:
+          cleanString((row as any).domain || proposal.domain) || undefined,
+        topic_relevance:
+          (row as any).topic_relevance || proposal.topic_relevance,
+        evidence: (row as any).evidence || proposal.evidence,
+        diagnostics: Array.isArray((row as any).diagnostics)
+          ? (row as any).diagnostics
+          : [],
+        confidence: normalizeConceptConfidence(row.confidence),
+        candidate_concept_ids: normalizeStringList(row.candidate_concept_ids),
+        audit_alias:
+          auditAlias && typeof auditAlias === "object"
+            ? {
+                alias_id: cleanString(auditAlias.alias_id),
+                alias: cleanString(auditAlias.alias),
+                normalized: cleanString(auditAlias.normalized),
+                concept_id: cleanString(auditAlias.concept_id),
+                sense_id: cleanString(auditAlias.sense_id) || undefined,
+              }
+            : undefined,
+      };
+    })
     .filter((row) => row.review_id)
     .sort(
       (left, right) =>

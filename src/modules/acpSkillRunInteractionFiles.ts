@@ -24,10 +24,8 @@ import {
   loadAcpRuntimePromptTemplate,
   renderAcpRuntimePromptTemplate,
 } from "./acpRuntimePromptTemplates";
-import {
-  getAcpSkillRunWorkspaceReadModel,
-  replyAcpSkillRun,
-} from "./acpSkillRunStore";
+import { getAcpSkillRunWorkspaceReadModel } from "./acpSkillRunStore";
+import { replyAcpSkillRun } from "./acpSkillRunActions";
 
 export type AssistantInteractionFileSelection = {
   slot: string;

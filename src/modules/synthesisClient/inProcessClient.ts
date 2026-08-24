@@ -314,6 +314,7 @@ export interface SynthesisClientPort {
     "archiveCanonicalReference"
   >;
   rebuildConceptKbIndex?: ClientMethod<"concepts", "rebuildConceptKbIndex">;
+  auditConceptAliases?: ClientMethod<"concepts", "auditConceptAliases">;
   updateConceptDisplayText?: ClientMethod<
     "concepts",
     "updateConceptDisplayText"
@@ -1429,6 +1430,14 @@ export function createSynthesisClientFromPort(
               "concepts.rebuildConceptKbIndex",
             )(),
           ),
+        );
+      },
+      async auditConceptAliases() {
+        return runLegacy(() =>
+          requireLegacyPort(
+            legacy.auditConceptAliases,
+            "concepts.auditConceptAliases",
+          )(),
         );
       },
       async updateConceptDisplayText(request) {

@@ -2,7 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/compute.schema.json",
   "$defs": {
-    "NodeKind": { "enum": ["library_paper", "external_reference", "unresolved_reference"] },
+    "NodeKind": {
+      "enum": ["library_paper", "external_reference", "unresolved_reference"]
+    },
     "LayoutAlgorithm": { "enum": ["force", "radial", "components"] },
     "LayoutRequestNode": {
       "type": "object",
@@ -40,99 +42,378 @@
     "ForceParams": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["theta", "ka", "kg", "kr", "lin_log", "strong_gravity", "prevent_overlapping", "speed", "node_radius", "iterations", "isolated_radius", "isolated_gap"],
+      "required": [
+        "theta",
+        "ka",
+        "kg",
+        "kr",
+        "lin_log",
+        "strong_gravity",
+        "prevent_overlapping",
+        "speed",
+        "node_radius",
+        "iterations",
+        "isolated_radius",
+        "isolated_gap"
+      ],
       "properties": {
-        "theta": { "type": "number" }, "ka": { "type": "number" }, "kg": { "type": "number" }, "kr": { "type": "number" },
-        "lin_log": { "const": "false" }, "strong_gravity": { "const": "false" }, "prevent_overlapping": { "type": "number" },
-        "speed": { "type": "number" }, "node_radius": { "type": "number" }, "iterations": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "isolated_radius": { "type": "number" }, "isolated_gap": { "type": "number" }
+        "theta": { "type": "number" },
+        "ka": { "type": "number" },
+        "kg": { "type": "number" },
+        "kr": { "type": "number" },
+        "lin_log": { "const": "false" },
+        "strong_gravity": { "const": "false" },
+        "prevent_overlapping": { "type": "number" },
+        "speed": { "type": "number" },
+        "node_radius": { "type": "number" },
+        "iterations": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "isolated_radius": { "type": "number" },
+        "isolated_gap": { "type": "number" }
       }
     },
     "RadialParams": {
-      "type": "object", "additionalProperties": false,
-      "required": ["library_radius_step", "external_offset", "fallback_radius_step", "golden_angle"],
-      "properties": { "library_radius_step": { "type": "number" }, "external_offset": { "type": "number" }, "fallback_radius_step": { "type": "number" }, "golden_angle": { "type": "number" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "library_radius_step",
+        "external_offset",
+        "fallback_radius_step",
+        "golden_angle"
+      ],
+      "properties": {
+        "library_radius_step": { "type": "number" },
+        "external_offset": { "type": "number" },
+        "fallback_radius_step": { "type": "number" },
+        "golden_angle": { "type": "number" }
+      }
     },
     "ComponentParams": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["component_gap", "node_gap", "golden_angle"],
-      "properties": { "component_gap": { "type": "number" }, "node_gap": { "type": "number" }, "golden_angle": { "type": "number" } }
+      "properties": {
+        "component_gap": { "type": "number" },
+        "node_gap": { "type": "number" },
+        "golden_angle": { "type": "number" }
+      }
     },
     "CitationGraphLayoutRequest": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["graphHash", "algorithm", "nodes", "edges"],
       "properties": {
         "graphHash": { "$ref": "common.schema.json#/$defs/sha256" },
         "algorithm": { "$ref": "#/$defs/LayoutAlgorithm" },
-        "nodes": { "type": "array", "minItems": 1, "maxItems": 20000, "items": { "$ref": "#/$defs/LayoutRequestNode" } },
-        "edges": { "type": "array", "maxItems": 80000, "items": { "$ref": "#/$defs/LayoutRequestEdge" } }
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/LayoutRequestNode" }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 80000,
+          "items": { "$ref": "#/$defs/LayoutRequestEdge" }
+        }
       }
     },
     "CitationGraphLayoutResult": {
-      "type": "object", "additionalProperties": false,
-      "required": ["graphHash", "algorithm", "layoutEngine", "layoutVersion", "params", "nodes"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "graphHash",
+        "algorithm",
+        "layoutEngine",
+        "layoutVersion",
+        "params",
+        "nodes"
+      ],
       "properties": {
         "graphHash": { "$ref": "common.schema.json#/$defs/sha256" },
         "algorithm": { "$ref": "#/$defs/LayoutAlgorithm" },
-        "layoutEngine": { "enum": ["forceatlas2-rust", "radial-rust", "components-rust"] },
+        "layoutEngine": {
+          "enum": ["forceatlas2-rust", "radial-rust", "components-rust"]
+        },
         "layoutVersion": { "const": 2 },
-        "params": { "oneOf": [{ "$ref": "#/$defs/ForceParams" }, { "$ref": "#/$defs/RadialParams" }, { "$ref": "#/$defs/ComponentParams" }] },
-        "nodes": { "type": "array", "maxItems": 20000, "items": { "$ref": "#/$defs/LayoutResultNode" } }
+        "params": {
+          "oneOf": [
+            { "$ref": "#/$defs/ForceParams" },
+            { "$ref": "#/$defs/RadialParams" },
+            { "$ref": "#/$defs/ComponentParams" }
+          ]
+        },
+        "nodes": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/LayoutResultNode" }
+        }
       }
     },
     "MetricsRequestNode": {
-      "type": "object", "additionalProperties": false, "required": ["nodeId", "kind"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "kind"],
       "properties": {
-        "nodeId": { "$ref": "common.schema.json#/$defs/identifier" }, "kind": { "$ref": "#/$defs/NodeKind" },
-        "libraryId": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-        "itemKey": { "type": "string", "maxLength": 4096 }, "title": { "type": "string", "maxLength": 4096 }, "year": { "type": "string", "maxLength": 64 }
+        "nodeId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "kind": { "$ref": "#/$defs/NodeKind" },
+        "libraryId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "itemKey": { "type": "string", "maxLength": 4096 },
+        "title": { "type": "string", "maxLength": 4096 },
+        "year": { "type": "string", "maxLength": 64 }
       }
     },
     "MetricsRequestEdge": {
-      "type": "object", "additionalProperties": false, "required": ["edgeId", "source", "target", "mentionCount"],
-      "properties": { "edgeId": { "$ref": "common.schema.json#/$defs/identifier" }, "source": { "$ref": "common.schema.json#/$defs/identifier" }, "target": { "$ref": "common.schema.json#/$defs/identifier" }, "mentionCount": { "type": "number", "exclusiveMinimum": 0 } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edgeId", "source", "target", "mentionCount"],
+      "properties": {
+        "edgeId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "source": { "$ref": "common.schema.json#/$defs/identifier" },
+        "target": { "$ref": "common.schema.json#/$defs/identifier" },
+        "mentionCount": { "type": "number", "exclusiveMinimum": 0 }
+      }
     },
     "MetricsParams": {
-      "type": "object", "additionalProperties": false,
-      "required": ["pagerankDamping", "pagerankIterations", "foundationFormula", "frontierFormula"],
-      "properties": { "pagerankDamping": { "type": "number" }, "pagerankIterations": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "foundationFormula": { "type": "string", "maxLength": 4096 }, "frontierFormula": { "type": "string", "maxLength": 4096 } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pagerankDamping",
+        "pagerankIterations",
+        "foundationFormula",
+        "frontierFormula"
+      ],
+      "properties": {
+        "pagerankDamping": { "type": "number" },
+        "pagerankIterations": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "foundationFormula": { "type": "string", "maxLength": 4096 },
+        "frontierFormula": { "type": "string", "maxLength": 4096 }
+      }
     },
     "MetricsResultNode": {
-      "type": "object", "additionalProperties": false,
-      "required": ["nodeId", "internalInDegree", "internalOutDegree", "externalReferenceCount", "unresolvedReferenceCount", "internalPagerank", "componentId", "componentSize", "isIsolated", "ageNorm", "recencyNorm", "inDegreeNorm", "outDegreeNorm", "pagerankNorm", "foundationScore", "frontierScore", "synthesisRoleHints"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "internalInDegree",
+        "internalOutDegree",
+        "externalReferenceCount",
+        "unresolvedReferenceCount",
+        "internalPagerank",
+        "componentId",
+        "componentSize",
+        "isIsolated",
+        "ageNorm",
+        "recencyNorm",
+        "inDegreeNorm",
+        "outDegreeNorm",
+        "pagerankNorm",
+        "foundationScore",
+        "frontierScore",
+        "synthesisRoleHints"
+      ],
       "properties": {
-        "nodeId": { "$ref": "common.schema.json#/$defs/identifier" }, "paperRef": { "$ref": "common.schema.json#/$defs/identifier" }, "itemKey": { "type": "string", "maxLength": 4096 }, "title": { "type": "string", "maxLength": 4096 }, "year": { "type": "string", "maxLength": 64 },
-        "internalInDegree": { "type": "number" }, "internalOutDegree": { "type": "number" }, "externalReferenceCount": { "type": "number" }, "unresolvedReferenceCount": { "type": "number" }, "internalPagerank": { "type": "number" },
-        "componentId": { "$ref": "common.schema.json#/$defs/identifier" }, "componentSize": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "isIsolated": { "type": "boolean" },
-        "ageNorm": { "type": "number" }, "recencyNorm": { "type": "number" }, "inDegreeNorm": { "type": "number" }, "outDegreeNorm": { "type": "number" }, "pagerankNorm": { "type": "number" }, "foundationScore": { "type": "number" }, "frontierScore": { "type": "number" },
-        "synthesisRoleHints": { "type": "array", "maxItems": 5, "uniqueItems": true, "items": { "enum": ["core", "external-heavy", "foundation", "frontier", "isolated"] } }
+        "nodeId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "paperRef": { "$ref": "common.schema.json#/$defs/identifier" },
+        "itemKey": { "type": "string", "maxLength": 4096 },
+        "title": { "type": "string", "maxLength": 4096 },
+        "year": { "type": "string", "maxLength": 64 },
+        "internalInDegree": { "type": "number" },
+        "internalOutDegree": { "type": "number" },
+        "externalReferenceCount": { "type": "number" },
+        "unresolvedReferenceCount": { "type": "number" },
+        "internalPagerank": { "type": "number" },
+        "componentId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "componentSize": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "isIsolated": { "type": "boolean" },
+        "ageNorm": { "type": "number" },
+        "recencyNorm": { "type": "number" },
+        "inDegreeNorm": { "type": "number" },
+        "outDegreeNorm": { "type": "number" },
+        "pagerankNorm": { "type": "number" },
+        "foundationScore": { "type": "number" },
+        "frontierScore": { "type": "number" },
+        "synthesisRoleHints": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "core",
+              "external-heavy",
+              "foundation",
+              "frontier",
+              "isolated"
+            ]
+          }
+        }
       }
     },
     "MetricsDiagnostics": {
-      "type": "object", "additionalProperties": false,
-      "required": ["libraryNodeCount", "externalReferenceCount", "unresolvedReferenceCount", "componentCount", "isolatedLibraryNodeCount", "missingYearCount"],
-      "properties": { "libraryNodeCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "externalReferenceCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "unresolvedReferenceCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "componentCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "isolatedLibraryNodeCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "missingYearCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "libraryNodeCount",
+        "externalReferenceCount",
+        "unresolvedReferenceCount",
+        "componentCount",
+        "isolatedLibraryNodeCount",
+        "missingYearCount"
+      ],
+      "properties": {
+        "libraryNodeCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "externalReferenceCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "unresolvedReferenceCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "componentCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "isolatedLibraryNodeCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "missingYearCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
     },
     "CitationGraphMetricsRequest": {
-      "type": "object", "additionalProperties": false, "required": ["graphHash", "nodes", "edges"],
-      "properties": { "graphHash": { "$ref": "common.schema.json#/$defs/sha256" }, "nodes": { "type": "array", "minItems": 1, "maxItems": 10000, "items": { "$ref": "#/$defs/MetricsRequestNode" } }, "edges": { "type": "array", "maxItems": 20000, "items": { "$ref": "#/$defs/MetricsRequestEdge" } } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graphHash", "nodes", "edges"],
+      "properties": {
+        "graphHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/MetricsRequestNode" }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/MetricsRequestEdge" }
+        }
+      }
     },
     "CitationGraphMetricsResult": {
-      "type": "object", "additionalProperties": false,
-      "required": ["graphHash", "metricsVersion", "params", "graphYear", "libraryNodeMetrics", "diagnostics"],
-      "properties": { "graphHash": { "$ref": "common.schema.json#/$defs/sha256" }, "metricsVersion": { "const": 2 }, "params": { "$ref": "#/$defs/MetricsParams" }, "graphYear": { "type": ["integer", "null"], "minimum": 1500, "maximum": 2199 }, "libraryNodeMetrics": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/MetricsResultNode" } }, "diagnostics": { "$ref": "#/$defs/MetricsDiagnostics" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "graphHash",
+        "metricsVersion",
+        "params",
+        "graphYear",
+        "libraryNodeMetrics",
+        "diagnostics"
+      ],
+      "properties": {
+        "graphHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "metricsVersion": { "const": 2 },
+        "params": { "$ref": "#/$defs/MetricsParams" },
+        "graphYear": {
+          "type": ["integer", "null"],
+          "minimum": 1500,
+          "maximum": 2199
+        },
+        "libraryNodeMetrics": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/MetricsResultNode" }
+        },
+        "diagnostics": { "$ref": "#/$defs/MetricsDiagnostics" }
+      }
     },
     "CitationGraphBuildRequest": {
-      "type": "object", "additionalProperties": false,
-      "required": ["contractVersion", "scope", "rolePriority", "libraryNodes", "references"],
-      "properties": { "contractVersion": { "const": "synthesis-citation-graph-build.v1" }, "scope": { "$ref": "transfer.schema.json#/$defs/Scope" }, "rolePriority": { "$ref": "transfer.schema.json#/$defs/StringArray" }, "libraryNodes": { "type": "array", "maxItems": 25000, "items": { "$ref": "transfer.schema.json#/$defs/LibraryNode" } }, "references": { "type": "array", "maxItems": 1250000, "items": { "$ref": "transfer.schema.json#/$defs/ReferenceRow" } } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "scope",
+        "rolePriority",
+        "libraryNodes",
+        "references"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-citation-graph-build.v1" },
+        "scope": { "$ref": "transfer.schema.json#/$defs/Scope" },
+        "rolePriority": { "$ref": "transfer.schema.json#/$defs/StringArray" },
+        "libraryNodes": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "transfer.schema.json#/$defs/LibraryNode" }
+        },
+        "references": {
+          "type": "array",
+          "maxItems": 1250000,
+          "items": { "$ref": "transfer.schema.json#/$defs/ReferenceRow" }
+        }
+      }
     },
     "CitationGraphBuildResult": {
-      "type": "object", "additionalProperties": false,
-      "required": ["contractVersion", "scope", "nodes", "resolvedEdges", "aggregateEdges", "sourceOwnership", "incomingGroups", "lightMetrics", "diagnostics"],
-      "properties": { "contractVersion": { "const": "synthesis-citation-graph-build.v1" }, "scope": { "$ref": "transfer.schema.json#/$defs/Scope" }, "nodes": { "type": "array", "items": { "$ref": "transfer.schema.json#/$defs/GraphNode" } }, "resolvedEdges": { "type": "array", "items": { "$ref": "transfer.schema.json#/$defs/ResolvedEdge" } }, "aggregateEdges": { "type": "array", "items": { "$ref": "transfer.schema.json#/$defs/AggregateEdge" } }, "sourceOwnership": { "type": "array", "items": { "$ref": "transfer.schema.json#/$defs/Ownership" } }, "incomingGroups": { "type": "array", "items": { "$ref": "transfer.schema.json#/$defs/Ownership" } }, "lightMetrics": { "type": "array", "items": { "$ref": "transfer.schema.json#/$defs/LightMetric" } }, "diagnostics": { "$ref": "transfer.schema.json#/$defs/GraphDiagnostics" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "scope",
+        "nodes",
+        "resolvedEdges",
+        "aggregateEdges",
+        "sourceOwnership",
+        "incomingGroups",
+        "lightMetrics",
+        "diagnostics"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-citation-graph-build.v1" },
+        "scope": { "$ref": "transfer.schema.json#/$defs/Scope" },
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "transfer.schema.json#/$defs/GraphNode" }
+        },
+        "resolvedEdges": {
+          "type": "array",
+          "items": { "$ref": "transfer.schema.json#/$defs/ResolvedEdge" }
+        },
+        "aggregateEdges": {
+          "type": "array",
+          "items": { "$ref": "transfer.schema.json#/$defs/AggregateEdge" }
+        },
+        "sourceOwnership": {
+          "type": "array",
+          "items": { "$ref": "transfer.schema.json#/$defs/Ownership" }
+        },
+        "incomingGroups": {
+          "type": "array",
+          "items": { "$ref": "transfer.schema.json#/$defs/Ownership" }
+        },
+        "lightMetrics": {
+          "type": "array",
+          "items": { "$ref": "transfer.schema.json#/$defs/LightMetric" }
+        },
+        "diagnostics": {
+          "$ref": "transfer.schema.json#/$defs/GraphDiagnostics"
+        }
+      }
     },
-    "CitationGraphBuildTransferRequest": { "$ref": "transfer.schema.json#/$defs/TransferContentRequest" },
-    "CitationGraphBuildTransferResult": { "$ref": "transfer.schema.json#/$defs/TransferContentResult" }
+    "CitationGraphBuildTransferRequest": {
+      "$ref": "transfer.schema.json#/$defs/TransferContentRequest"
+    },
+    "CitationGraphBuildTransferResult": {
+      "$ref": "transfer.schema.json#/$defs/TransferContentResult"
+    }
   }
 }

@@ -2,168 +2,672 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/client-tag.schema.json",
   "$defs": {
-    "NoArgs": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "maxItems": 0 } } },
+    "NoArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": { "args": { "type": "array", "maxItems": 0 } }
+    },
     "NonEmptyString": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "OptionalString": { "type": "string", "maxLength": 4096 },
-    "NullableHash": { "anyOf": [{ "$ref": "common.schema.json#/$defs/sha256" }, { "type": "null" }] },
-    "StringList": { "type": "array", "maxItems": 25000, "uniqueItems": true, "items": { "$ref": "#/$defs/NonEmptyString" } },
-    "StringMap": { "type": "object", "maxProperties": 50000, "propertyNames": { "$ref": "#/$defs/NonEmptyString" }, "patternProperties": { "^[^\\u0000-\\u001f\\u007f]+$": { "$ref": "#/$defs/NonEmptyString" } }, "additionalProperties": false },
+    "NullableHash": {
+      "anyOf": [
+        { "$ref": "common.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "StringList": {
+      "type": "array",
+      "maxItems": 25000,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/NonEmptyString" }
+    },
+    "StringMap": {
+      "type": "object",
+      "maxProperties": 50000,
+      "propertyNames": { "$ref": "#/$defs/NonEmptyString" },
+      "patternProperties": {
+        "^[^\\u0000-\\u001f\\u007f]+$": { "$ref": "#/$defs/NonEmptyString" }
+      },
+      "additionalProperties": false
+    },
     "HostItemRef": {
-      "type": "object", "additionalProperties": false, "required": ["libraryId", "itemKey"],
-      "properties": { "libraryId": { "type": "integer", "minimum": 1 }, "itemKey": { "$ref": "#/$defs/NonEmptyString" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "itemKey"],
+      "properties": {
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "itemKey": { "$ref": "#/$defs/NonEmptyString" }
+      }
     },
     "TagEntry": {
-      "type": "object", "additionalProperties": false, "required": ["tag", "facet"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "facet"],
       "properties": {
-        "tag": { "$ref": "#/$defs/NonEmptyString" }, "facet": { "$ref": "#/$defs/NonEmptyString" },
-        "note": { "$ref": "#/$defs/NonEmptyString" }, "source": { "$ref": "#/$defs/NonEmptyString" },
-        "deprecated": { "type": "boolean" }, "replacement": { "$ref": "#/$defs/NonEmptyString" },
-        "aliases": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/NonEmptyString" } },
-        "abbrev": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/NonEmptyString" } },
-        "usage_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "tag": { "$ref": "#/$defs/NonEmptyString" },
+        "facet": { "$ref": "#/$defs/NonEmptyString" },
+        "note": { "$ref": "#/$defs/NonEmptyString" },
+        "source": { "$ref": "#/$defs/NonEmptyString" },
+        "deprecated": { "type": "boolean" },
+        "replacement": { "$ref": "#/$defs/NonEmptyString" },
+        "aliases": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        },
+        "abbrev": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        },
+        "usage_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "last_synced_at": { "$ref": "#/$defs/NonEmptyString" }
       }
     },
     "TagProtocol": {
-      "type": "object", "additionalProperties": false, "required": ["version", "tag_pattern", "max_tag_length", "facets"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "tag_pattern", "max_tag_length", "facets"],
       "properties": {
-        "version": { "$ref": "#/$defs/NonEmptyString" }, "tag_pattern": { "$ref": "#/$defs/NonEmptyString" },
+        "version": { "$ref": "#/$defs/NonEmptyString" },
+        "tag_pattern": { "$ref": "#/$defs/NonEmptyString" },
         "max_tag_length": { "type": "integer", "minimum": 1, "maximum": 4096 },
-        "facets": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/NonEmptyString" } }
+        "facets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        }
       }
     },
     "TagValidationWarning": {
-      "type": "object", "additionalProperties": false, "required": ["code", "severity", "message"],
-      "properties": { "code": { "$ref": "#/$defs/NonEmptyString" }, "severity": { "enum": ["warning", "error"] }, "tag": { "$ref": "#/$defs/NonEmptyString" }, "message": { "$ref": "#/$defs/NonEmptyString" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/NonEmptyString" },
+        "severity": { "enum": ["warning", "error"] },
+        "tag": { "$ref": "#/$defs/NonEmptyString" },
+        "message": { "$ref": "#/$defs/NonEmptyString" }
+      }
     },
     "TagManifest": {
-      "type": "object", "additionalProperties": false,
-      "required": ["manifest_hash", "entry_count", "tag_count", "active_count", "updated_at", "source_protocol_version", "projection_target"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_hash",
+        "entry_count",
+        "tag_count",
+        "active_count",
+        "updated_at",
+        "source_protocol_version",
+        "projection_target"
+      ],
       "properties": {
         "manifest_hash": { "$ref": "common.schema.json#/$defs/sha256" },
-        "entry_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "tag_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "active_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "updated_at": { "$ref": "#/$defs/OptionalString" }, "source_protocol_version": { "$ref": "#/$defs/NonEmptyString" }, "projection_target": { "$ref": "#/$defs/NonEmptyString" }
+        "entry_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "tag_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "active_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "updated_at": { "$ref": "#/$defs/OptionalString" },
+        "source_protocol_version": { "$ref": "#/$defs/NonEmptyString" },
+        "projection_target": { "$ref": "#/$defs/NonEmptyString" }
       }
     },
     "TagSnapshot": {
-      "type": "object", "additionalProperties": false, "required": ["entries", "aliases", "abbrev", "protocol", "manifest", "validation_warnings"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entries",
+        "aliases",
+        "abbrev",
+        "protocol",
+        "manifest",
+        "validation_warnings"
+      ],
       "properties": {
-        "entries": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/TagEntry" } },
-        "aliases": { "$ref": "#/$defs/StringMap" }, "abbrev": { "$ref": "#/$defs/StringMap" },
-        "protocol": { "$ref": "#/$defs/TagProtocol" }, "manifest": { "$ref": "#/$defs/TagManifest" },
-        "validation_warnings": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/TagValidationWarning" } }
+        "entries": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TagEntry" }
+        },
+        "aliases": { "$ref": "#/$defs/StringMap" },
+        "abbrev": { "$ref": "#/$defs/StringMap" },
+        "protocol": { "$ref": "#/$defs/TagProtocol" },
+        "manifest": { "$ref": "#/$defs/TagManifest" },
+        "validation_warnings": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TagValidationWarning" }
+        }
       }
     },
     "TagSaveRequest": {
-      "type": "object", "additionalProperties": false, "required": ["entries", "aliases", "abbrev", "protocol"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries", "aliases", "abbrev", "protocol"],
       "properties": {
-        "entries": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/TagEntry" } },
-        "aliases": { "$ref": "#/$defs/StringMap" }, "abbrev": { "$ref": "#/$defs/StringMap" }, "protocol": { "oneOf": [{ "$ref": "#/$defs/TagProtocol" }, { "type": "null" }] },
+        "entries": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TagEntry" }
+        },
+        "aliases": { "$ref": "#/$defs/StringMap" },
+        "abbrev": { "$ref": "#/$defs/StringMap" },
+        "protocol": {
+          "oneOf": [{ "$ref": "#/$defs/TagProtocol" }, { "type": "null" }]
+        },
         "transactionId": { "$ref": "#/$defs/NonEmptyString" }
       }
     },
     "ParentBinding": {
-      "type": "object", "additionalProperties": false, "required": ["libraryId", "itemKey"],
-      "properties": { "libraryId": { "type": "integer", "minimum": 1 }, "itemKey": { "$ref": "#/$defs/NonEmptyString" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "itemKey"],
+      "properties": {
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "itemKey": { "$ref": "#/$defs/NonEmptyString" }
+      }
     },
     "SuggestionInput": {
-      "type": "object", "additionalProperties": false, "required": ["tag", "facet", "note", "source_flow", "parent_bindings"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "facet", "note", "source_flow", "parent_bindings"],
       "properties": {
-        "tag": { "$ref": "#/$defs/NonEmptyString" }, "facet": { "$ref": "#/$defs/NonEmptyString" }, "note": { "type": "string", "maxLength": 4096 },
+        "tag": { "$ref": "#/$defs/NonEmptyString" },
+        "facet": { "$ref": "#/$defs/NonEmptyString" },
+        "note": { "type": "string", "maxLength": 4096 },
         "source_flow": { "type": "string", "maxLength": 4096 },
-        "parent_bindings": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/ParentBinding" } }
+        "parent_bindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/ParentBinding" }
+        }
       }
     },
     "StagedSuggestion": {
-      "type": "object", "additionalProperties": false, "required": ["tag", "facet", "source_flow", "parent_bindings", "created_at", "updated_at"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "facet",
+        "source_flow",
+        "parent_bindings",
+        "created_at",
+        "updated_at"
+      ],
       "properties": {
-        "tag": { "$ref": "#/$defs/NonEmptyString" }, "facet": { "$ref": "#/$defs/NonEmptyString" }, "note": { "$ref": "#/$defs/NonEmptyString" },
+        "tag": { "$ref": "#/$defs/NonEmptyString" },
+        "facet": { "$ref": "#/$defs/NonEmptyString" },
+        "note": { "$ref": "#/$defs/NonEmptyString" },
         "source_flow": { "type": "string", "maxLength": 4096 },
-        "parent_bindings": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/ParentBinding" } },
-        "created_at": { "$ref": "#/$defs/NonEmptyString" }, "updated_at": { "$ref": "#/$defs/NonEmptyString" }
+        "parent_bindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/ParentBinding" }
+        },
+        "created_at": { "$ref": "#/$defs/NonEmptyString" },
+        "updated_at": { "$ref": "#/$defs/NonEmptyString" }
       }
     },
-    "StageResult": { "type": "object", "additionalProperties": false, "required": ["staged"], "properties": { "staged": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/StagedSuggestion" } } } },
+    "StageResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staged"],
+      "properties": {
+        "staged": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/StagedSuggestion" }
+        }
+      }
+    },
     "TagDiagnostic": {
-      "type": "object", "additionalProperties": false, "required": ["code", "message", "details"],
-      "properties": { "code": { "$ref": "#/$defs/NonEmptyString" }, "message": { "$ref": "#/$defs/NonEmptyString" }, "details": { "$ref": "#/$defs/StringMap" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "details"],
+      "properties": {
+        "code": { "$ref": "#/$defs/NonEmptyString" },
+        "message": { "$ref": "#/$defs/NonEmptyString" },
+        "details": { "$ref": "#/$defs/StringMap" }
+      }
     },
     "MutationDiagnostic": {
-      "type": "object", "additionalProperties": false, "required": ["code", "severity"],
-      "properties": { "code": { "$ref": "#/$defs/NonEmptyString" }, "severity": { "enum": ["warning", "error"] } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity"],
+      "properties": {
+        "code": { "$ref": "#/$defs/NonEmptyString" },
+        "severity": { "enum": ["warning", "error"] }
+      }
     },
     "MutationResult": {
-      "type": "object", "additionalProperties": false, "required": ["status", "vocabularyHash", "stagedRevision", "changedTags", "warnings", "diagnostics"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "vocabularyHash",
+        "stagedRevision",
+        "changedTags",
+        "warnings",
+        "diagnostics"
+      ],
       "properties": {
-        "status": { "enum": ["committed", "unchanged", "not_found", "conflict", "basis_mismatch", "tag_vocabulary_busy", "invalid_request", "engine_failed", "worker_failed", "stopping", "repair_required"] },
-        "vocabularyHash": { "$ref": "#/$defs/NullableHash" }, "stagedRevision": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "changedTags": { "$ref": "#/$defs/StringList" }, "warnings": { "$ref": "#/$defs/StringList" },
-        "diagnostics": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/MutationDiagnostic" } },
+        "status": {
+          "enum": [
+            "committed",
+            "unchanged",
+            "not_found",
+            "conflict",
+            "basis_mismatch",
+            "tag_vocabulary_busy",
+            "invalid_request",
+            "engine_failed",
+            "worker_failed",
+            "stopping",
+            "repair_required"
+          ]
+        },
+        "vocabularyHash": { "$ref": "#/$defs/NullableHash" },
+        "stagedRevision": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "changedTags": { "$ref": "#/$defs/StringList" },
+        "warnings": { "$ref": "#/$defs/StringList" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/MutationDiagnostic" }
+        },
         "previewDigest": { "$ref": "common.schema.json#/$defs/sha256" }
       }
     },
     "ImportConflict": {
-      "type": "object", "additionalProperties": false, "required": ["tag", "local", "imported"],
-      "properties": { "tag": { "$ref": "#/$defs/NonEmptyString" }, "local": { "$ref": "#/$defs/TagEntry" }, "imported": { "$ref": "#/$defs/TagEntry" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "local", "imported"],
+      "properties": {
+        "tag": { "$ref": "#/$defs/NonEmptyString" },
+        "local": { "$ref": "#/$defs/TagEntry" },
+        "imported": { "$ref": "#/$defs/TagEntry" }
+      }
     },
     "ImportPreview": {
-      "type": "object", "additionalProperties": false, "required": ["action", "builtins", "additions", "unchanged", "conflicts", "warnings", "previewDigest"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "builtins",
+        "additions",
+        "unchanged",
+        "conflicts",
+        "warnings",
+        "previewDigest"
+      ],
       "properties": {
-        "action": { "const": "preview" }, "builtins": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/ImportConflict" } },
-        "additions": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/TagEntry" } },
-        "unchanged": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/TagEntry" } },
-        "conflicts": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/ImportConflict" } },
-        "warnings": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/TagValidationWarning" } },
+        "action": { "const": "preview" },
+        "builtins": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ImportConflict" }
+        },
+        "additions": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TagEntry" }
+        },
+        "unchanged": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TagEntry" }
+        },
+        "conflicts": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ImportConflict" }
+        },
+        "warnings": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TagValidationWarning" }
+        },
         "previewDigest": { "$ref": "common.schema.json#/$defs/sha256" }
       }
     },
-    "InitializeBuiltinTagPolicyRequest": { "$ref": "#/$defs/NoArgs" }, "InitializeBuiltinTagPolicyResult": { "$ref": "#/$defs/TagSnapshot" },
-    "IsBuiltinTagPolicyInitializedRequest": { "$ref": "#/$defs/NoArgs" }, "IsBuiltinTagPolicyInitializedResult": { "type": "boolean" },
-    "LoadTagVocabularyRequest": { "$ref": "#/$defs/NoArgs" }, "LoadTagVocabularyResult": { "$ref": "#/$defs/TagSnapshot" },
-    "SaveTagVocabularyRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/TagSaveRequest" } } } }, "SaveTagVocabularyResult": { "$ref": "#/$defs/MutationResult" },
-    "ValidateTagVocabularyRequest": { "$ref": "#/$defs/NoArgs" }, "ValidateTagVocabularyResult": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/TagValidationWarning" } },
-    "RebuildTagVocabularyIndexRequest": { "$ref": "#/$defs/NoArgs" }, "RebuildTagVocabularyIndexResult": { "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation" },
-    "ExportTagVocabularyForRegulatorRequest": { "$ref": "#/$defs/NoArgs" }, "ExportTagVocabularyForRegulatorResult": { "$ref": "#/$defs/StringList" },
-    "ListStagedTagSuggestionsRequest": { "$ref": "#/$defs/NoArgs" }, "ListStagedTagSuggestionsResult": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/StagedSuggestion" } },
-    "StageTagSuggestionsPayload": { "type": "object", "additionalProperties": false, "required": ["entries"], "properties": { "entries": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/SuggestionInput" } } } },
-    "StageTagSuggestionsRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/StageTagSuggestionsPayload" } } } }, "StageTagSuggestionsResult": { "$ref": "#/$defs/StageResult" },
-    "UpdateStagedTagSuggestionPayload": {
-      "type": "object", "additionalProperties": false, "required": ["originalTag", "tag", "facet", "note", "sourceFlow", "parentBindings"],
-      "properties": { "originalTag": { "$ref": "#/$defs/NonEmptyString" }, "tag": { "$ref": "#/$defs/NonEmptyString" }, "facet": { "$ref": "#/$defs/NonEmptyString" }, "note": { "type": "string", "maxLength": 4096 }, "sourceFlow": { "type": "string", "maxLength": 4096 }, "parentBindings": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/HostItemRef" } } }
+    "InitializeBuiltinTagPolicyRequest": { "$ref": "#/$defs/NoArgs" },
+    "InitializeBuiltinTagPolicyResult": { "$ref": "#/$defs/TagSnapshot" },
+    "IsBuiltinTagPolicyInitializedRequest": { "$ref": "#/$defs/NoArgs" },
+    "IsBuiltinTagPolicyInitializedResult": { "type": "boolean" },
+    "LoadTagVocabularyRequest": { "$ref": "#/$defs/NoArgs" },
+    "LoadTagVocabularyResult": { "$ref": "#/$defs/TagSnapshot" },
+    "SaveTagVocabularyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/TagSaveRequest" }
+        }
+      }
     },
-    "UpdateStagedTagSuggestionRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/UpdateStagedTagSuggestionPayload" } } } },
+    "SaveTagVocabularyResult": { "$ref": "#/$defs/MutationResult" },
+    "ValidateTagVocabularyRequest": { "$ref": "#/$defs/NoArgs" },
+    "ValidateTagVocabularyResult": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/$defs/TagValidationWarning" }
+    },
+    "RebuildTagVocabularyIndexRequest": { "$ref": "#/$defs/NoArgs" },
+    "RebuildTagVocabularyIndexResult": {
+      "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation"
+    },
+    "ExportTagVocabularyForRegulatorRequest": { "$ref": "#/$defs/NoArgs" },
+    "ExportTagVocabularyForRegulatorResult": { "$ref": "#/$defs/StringList" },
+    "ListStagedTagSuggestionsRequest": { "$ref": "#/$defs/NoArgs" },
+    "ListStagedTagSuggestionsResult": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/StagedSuggestion" }
+    },
+    "StageTagSuggestionsPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/SuggestionInput" }
+        }
+      }
+    },
+    "StageTagSuggestionsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/StageTagSuggestionsPayload" }
+        }
+      }
+    },
+    "StageTagSuggestionsResult": { "$ref": "#/$defs/StageResult" },
+    "UpdateStagedTagSuggestionPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "originalTag",
+        "tag",
+        "facet",
+        "note",
+        "sourceFlow",
+        "parentBindings"
+      ],
+      "properties": {
+        "originalTag": { "$ref": "#/$defs/NonEmptyString" },
+        "tag": { "$ref": "#/$defs/NonEmptyString" },
+        "facet": { "$ref": "#/$defs/NonEmptyString" },
+        "note": { "type": "string", "maxLength": 4096 },
+        "sourceFlow": { "type": "string", "maxLength": 4096 },
+        "parentBindings": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/HostItemRef" }
+        }
+      }
+    },
+    "UpdateStagedTagSuggestionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/UpdateStagedTagSuggestionPayload" }
+        }
+      }
+    },
     "UpdateStagedTagSuggestionResult": { "$ref": "#/$defs/StageResult" },
     "UpdateTagVocabularyEntryPayload": {
-      "type": "object", "additionalProperties": false, "required": ["originalTag", "tag", "facet", "note"],
-      "properties": { "originalTag": { "$ref": "#/$defs/NonEmptyString" }, "tag": { "$ref": "#/$defs/NonEmptyString" }, "facet": { "$ref": "#/$defs/NonEmptyString" }, "note": { "type": "string", "maxLength": 4096 } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["originalTag", "tag", "facet", "note"],
+      "properties": {
+        "originalTag": { "$ref": "#/$defs/NonEmptyString" },
+        "tag": { "$ref": "#/$defs/NonEmptyString" },
+        "facet": { "$ref": "#/$defs/NonEmptyString" },
+        "note": { "type": "string", "maxLength": 4096 }
+      }
     },
-    "UpdateTagVocabularyEntryRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/UpdateTagVocabularyEntryPayload" } } } },
-    "UpdateTagVocabularyEntryResult": { "type": "object", "additionalProperties": false, "required": ["mutated"], "properties": { "mutated": { "type": "boolean" }, "updated": { "$ref": "#/$defs/TagEntry" }, "diagnostic": { "$ref": "#/$defs/TagDiagnostic" } } },
-    "DeleteTagVocabularyEntryPayload": { "type": "object", "additionalProperties": false, "required": ["originalTag"], "properties": { "originalTag": { "$ref": "#/$defs/NonEmptyString" } } },
-    "DeleteTagVocabularyEntryRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/DeleteTagVocabularyEntryPayload" } } } },
-    "DeleteTagVocabularyEntryResult": { "type": "object", "additionalProperties": false, "required": ["mutated", "deleted"], "properties": { "mutated": { "type": "boolean" }, "deleted": { "$ref": "#/$defs/StringList" } } },
-    "TagSelectionPayload": { "type": "object", "additionalProperties": false, "required": ["tags"], "properties": { "tags": { "$ref": "#/$defs/StringList" } } },
-    "PromoteStagedTagSuggestionsRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/TagSelectionPayload" } } } },
-    "PromoteStagedTagSuggestionsResult": { "type": "object", "additionalProperties": false, "required": ["promoted", "skipped"], "properties": { "promoted": { "$ref": "#/$defs/StringList" }, "skipped": { "$ref": "#/$defs/StringList" } } },
-    "DiscardStagedTagSuggestionsRequest": { "$ref": "#/$defs/PromoteStagedTagSuggestionsRequest" },
-    "DiscardStagedTagSuggestionsResult": { "type": "object", "additionalProperties": false, "required": ["discarded"], "properties": { "discarded": { "$ref": "#/$defs/StringList" } } },
-    "ClearStagedTagSuggestionsRequest": { "$ref": "#/$defs/NoArgs" }, "ClearStagedTagSuggestionsResult": { "$ref": "#/$defs/DiscardStagedTagSuggestionsResult" },
-    "ImportPreviewPayload": { "type": "object", "additionalProperties": false, "required": ["payload"], "properties": { "payload": { "type": "string", "minLength": 2, "maxLength": 1048576 } } },
-    "PreviewTagVocabularyImportRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/ImportPreviewPayload" } } } },
+    "UpdateTagVocabularyEntryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/UpdateTagVocabularyEntryPayload" }
+        }
+      }
+    },
+    "UpdateTagVocabularyEntryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mutated"],
+      "properties": {
+        "mutated": { "type": "boolean" },
+        "updated": { "$ref": "#/$defs/TagEntry" },
+        "diagnostic": { "$ref": "#/$defs/TagDiagnostic" }
+      }
+    },
+    "DeleteTagVocabularyEntryPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["originalTag"],
+      "properties": { "originalTag": { "$ref": "#/$defs/NonEmptyString" } }
+    },
+    "DeleteTagVocabularyEntryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/DeleteTagVocabularyEntryPayload" }
+        }
+      }
+    },
+    "DeleteTagVocabularyEntryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mutated", "deleted"],
+      "properties": {
+        "mutated": { "type": "boolean" },
+        "deleted": { "$ref": "#/$defs/StringList" }
+      }
+    },
+    "TagSelectionPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tags"],
+      "properties": { "tags": { "$ref": "#/$defs/StringList" } }
+    },
+    "PromoteStagedTagSuggestionsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/TagSelectionPayload" }
+        }
+      }
+    },
+    "PromoteStagedTagSuggestionsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["promoted", "skipped"],
+      "properties": {
+        "promoted": { "$ref": "#/$defs/StringList" },
+        "skipped": { "$ref": "#/$defs/StringList" }
+      }
+    },
+    "DiscardStagedTagSuggestionsRequest": {
+      "$ref": "#/$defs/PromoteStagedTagSuggestionsRequest"
+    },
+    "DiscardStagedTagSuggestionsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discarded"],
+      "properties": { "discarded": { "$ref": "#/$defs/StringList" } }
+    },
+    "ClearStagedTagSuggestionsRequest": { "$ref": "#/$defs/NoArgs" },
+    "ClearStagedTagSuggestionsResult": {
+      "$ref": "#/$defs/DiscardStagedTagSuggestionsResult"
+    },
+    "ImportPreviewPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payload"],
+      "properties": {
+        "payload": { "type": "string", "minLength": 2, "maxLength": 1048576 }
+      }
+    },
+    "PreviewTagVocabularyImportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/ImportPreviewPayload" }
+        }
+      }
+    },
     "PreviewTagVocabularyImportResult": { "$ref": "#/$defs/ImportPreview" },
-    "ImportApplyPayload": { "type": "object", "additionalProperties": false, "required": ["payload", "action"], "properties": { "payload": { "type": "string", "minLength": 2, "maxLength": 1048576 }, "action": { "enum": ["use-imported", "merge-non-conflicting"] } } },
-    "ApplyTagVocabularyImportRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/ImportApplyPayload" } } } },
+    "ImportApplyPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payload", "action"],
+      "properties": {
+        "payload": { "type": "string", "minLength": 2, "maxLength": 1048576 },
+        "action": { "enum": ["use-imported", "merge-non-conflicting"] }
+      }
+    },
+    "ApplyTagVocabularyImportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/ImportApplyPayload" }
+        }
+      }
+    },
     "ApplyTagVocabularyImportResult": { "$ref": "#/$defs/MutationResult" },
     "ReplaceTagAuditRecordsPayload": {
-      "type": "object", "additionalProperties": false, "required": ["libraryId", "entries"],
-      "properties": { "libraryId": { "type": "integer", "minimum": 1 }, "entries": { "type": "array", "maxItems": 10000, "items": { "type": "object", "additionalProperties": false, "required": ["itemKey", "compliant", "nonCompliantTags"], "properties": { "itemKey": { "$ref": "#/$defs/NonEmptyString" }, "compliant": { "type": "boolean" }, "nonCompliantTags": { "$ref": "#/$defs/StringList" } } } } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "entries"],
+      "properties": {
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "entries": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["itemKey", "compliant", "nonCompliantTags"],
+            "properties": {
+              "itemKey": { "$ref": "#/$defs/NonEmptyString" },
+              "compliant": { "type": "boolean" },
+              "nonCompliantTags": { "$ref": "#/$defs/StringList" }
+            }
+          }
+        }
+      }
     },
-    "ReplaceTagAuditRecordsRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/ReplaceTagAuditRecordsPayload" } } } },
-    "ReplaceTagAuditRecordsResult": { "type": "object", "additionalProperties": false, "required": ["libraryId", "audited"], "properties": { "libraryId": { "type": "integer", "minimum": 1 }, "audited": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" } } },
-    "ClearTagAuditRecordPayload": { "type": "object", "additionalProperties": false, "required": ["libraryId", "itemKey"], "properties": { "libraryId": { "type": "integer", "minimum": 1 }, "itemKey": { "$ref": "#/$defs/NonEmptyString" } } },
-    "ClearTagAuditRecordRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/ClearTagAuditRecordPayload" } } } },
-    "ClearTagAuditRecordResult": { "type": "object", "additionalProperties": false, "required": ["ok"], "properties": { "ok": { "const": true } } }
+    "ReplaceTagAuditRecordsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/ReplaceTagAuditRecordsPayload" }
+        }
+      }
+    },
+    "ReplaceTagAuditRecordsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "audited"],
+      "properties": {
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "audited": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
+    },
+    "ClearTagAuditRecordPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "itemKey"],
+      "properties": {
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "itemKey": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "ClearTagAuditRecordRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/ClearTagAuditRecordPayload" }
+        }
+      }
+    },
+    "ClearTagAuditRecordResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok"],
+      "properties": { "ok": { "const": true } }
+    }
   }
 }

@@ -378,6 +378,51 @@ describe("workflow settings domain", function () {
     );
   });
 
+  it("requires only workflow parameters whose boolean visibility condition is active", function () {
+    const manifest = {
+      id: "conditional-required-contract",
+      label: "Conditional Required Contract",
+      hooks: { applyResult: "hooks/applyResult.js" },
+      parameters: {
+        usePlannedTopic: {
+          type: "boolean",
+          required: true,
+          default: true,
+        },
+        plannedTopicId: {
+          type: "string",
+          required: true,
+          visible_if: { parameter: "usePlannedTopic", equals: true },
+        },
+        topicSeed: {
+          type: "string",
+          required: true,
+          visible_if: { parameter: "usePlannedTopic", equals: false },
+        },
+      },
+    } as WorkflowManifest;
+
+    assert.deepEqual(
+      listMissingRequiredWorkflowParameters(manifest, {
+        usePlannedTopic: true,
+      }),
+      ["plannedTopicId"],
+    );
+    assert.deepEqual(
+      listMissingRequiredWorkflowParameters(manifest, {
+        usePlannedTopic: false,
+      }),
+      ["topicSeed"],
+    );
+    assert.deepEqual(
+      listMissingRequiredWorkflowParameters(manifest, {
+        usePlannedTopic: true,
+        plannedTopicId: "topic:planned",
+      }),
+      [],
+    );
+  });
+
   it("builds dialog initial state with run-once defaults cloned from persisted values", function () {
     const saved: WorkflowExecutionOptions = {
       backendId: "skillrunner-local",

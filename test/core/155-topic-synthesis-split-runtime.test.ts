@@ -415,6 +415,21 @@ const papers = (input.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({
 if (command === "synthesis topic get-context") {
   if (input.topicId === "missing-topic") {
     reply({ ok: false, status: "not_found", topic_id: input.topicId });
+  } else if (input.topicId === "planned-detr" && input.view === "semantic") {
+    reply({ schema_id: "synthesis.topic_context", view: "semantic", topic_id: input.topicId, semantic: {
+      topic_id: input.topicId,
+      lifecycle: "planned",
+      topic_definition: {
+        id: input.topicId,
+        title: "Planned DETR",
+        definition: "Query-based object detectors.",
+        aliases: ["DETR family"],
+        scope_include: ["object detection"],
+        scope_exclude: ["language modeling"]
+      },
+      topic_resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
+      planning: { lifecycle: "planned", revision: 2 }
+    } });
   } else if (input.view === "digest") {
     reply({ schema_id: "synthesis.topic_context", view: "digest", topic_id: input.topicId, digest: {
       topic_id: input.topicId,
@@ -440,6 +455,12 @@ if (command === "synthesis topic get-context") {
         caveats: []
       }
     };
+    const discoveryHints = input.topicId === "detr-topic"
+      ? [
+          { hint_id: "hint:dino", literature_item_id: "1:DINO", basis_hash: "basis:dino" },
+          { hint_id: "hint:sam", literature_item_id: "1:SAM", basis_hash: "basis:sam" }
+        ]
+      : [{ hint_id: "hint:dino", literature_item_id: "1:DINO", basis_hash: "basis:dino" }];
     reply({ schema_id: "synthesis.topic_context", view: "audit", topic_id: input.topicId, audit: {
       topic_id: input.topicId,
       language: "zh-CN",
@@ -460,7 +481,7 @@ if (command === "synthesis topic get-context") {
       })),
       source_paper_triage: savedTriage,
       source_materials: { status: "complete", percent: 100 },
-      discovery: { status: "candidates", candidate_count: 1, hints: [{ literature_item_id: "1:DINO" }] }
+      discovery: { status: "candidates", candidate_count: discoveryHints.length, hints: discoveryHints }
     } });
   } else {
     reply({ ok: false, status: "invalid_view" });
@@ -611,8 +632,9 @@ describe("topic synthesis split skill runtime", function () {
           reason: "Fixture audit found one new candidate.",
           message: "Proceeding with update.",
         },
-        resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
-        resolver_reasoning: "Fixture update resolver keeps DETR and adds DINO.",
+        resolver: { paper_refs: ["1:DETR"], combine: "union" },
+        resolver_reasoning:
+          "Fixture update resolver preserves the base set; discovery carries DINO separately.",
       },
     );
     const gate1 = runGate(
@@ -666,6 +688,7 @@ describe("topic synthesis split skill runtime", function () {
     assert.equal(updateContextOutput.stage, "stage_10_update_topic_context");
     assert.deepEqual(updateContextOutput.result.triage_required_refs, [
       "1:DINO",
+      "1:SAM",
     ]);
     assert.equal(updateContextOutput.result.triage_mode, "missing_triage");
 
@@ -676,7 +699,7 @@ describe("topic synthesis split skill runtime", function () {
       env,
     );
     assertStage30HardRules(gate2);
-    assert.deepEqual(gate2.triage_required_refs, ["1:DINO"]);
+    assert.deepEqual(gate2.triage_required_refs, ["1:DINO", "1:SAM"]);
     const resolverManifest = await readJson<any>(
       path.join(runRoot, "runtime/payloads/resolver.json"),
     );
@@ -685,7 +708,11 @@ describe("topic synthesis split skill runtime", function () {
       manifest: "sha256:manifest",
       metadata: "sha256:metadata",
     });
-    assert.deepEqual(resolverManifest.resolve_diff.added_refs, ["1:DINO"]);
+    assert.deepEqual(resolverManifest.resolve_diff.added_refs, []);
+    assert.deepEqual(
+      resolverManifest.source_membership.discovery_candidate_refs,
+      ["1:DINO", "1:SAM"],
+    );
 
     const gate3 = runGate(
       packages.updatePrepare,
@@ -700,9 +727,16 @@ describe("topic synthesis split skill runtime", function () {
         assessments: [
           {
             paper_ref: "1:DINO",
-            relevance_level: "core",
+            relevance_level: "related",
             relevance_reason: "Representative update candidate.",
             core_digest: "DINO adds update evidence.",
+            caveats: [],
+          },
+          {
+            paper_ref: "1:SAM",
+            relevance_level: "external",
+            relevance_reason: "Useful background but outside the topic scope.",
+            core_digest: "SAM is external background evidence.",
             caveats: [],
           },
         ],
@@ -723,6 +757,43 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.equal(prepareOutput.result.handoff.kind, "topic_synthesis_handoff");
     assert.equal(prepareOutput.result.handoff.operation, "update_full");
+    const finalizedResolverManifest = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
+    );
+    assert.deepEqual(
+      finalizedResolverManifest.source_membership.accepted_added_refs,
+      ["1:DINO"],
+    );
+    assert.deepEqual(
+      finalizedResolverManifest.source_membership.effective_refs,
+      ["1:DETR", "1:DINO"],
+    );
+    assert.deepInclude(
+      finalizedResolverManifest.source_membership.discovery_candidates[0],
+      {
+        hint_id: "hint:dino",
+        paper_ref: "1:DINO",
+        basis_hash: "basis:dino",
+        outcome: "accepted",
+        relevance_level: "related",
+      },
+    );
+    assert.deepInclude(
+      finalizedResolverManifest.source_membership.discovery_candidates[1],
+      {
+        hint_id: "hint:sam",
+        paper_ref: "1:SAM",
+        basis_hash: "basis:sam",
+        outcome: "screened_out",
+        relevance_level: "external",
+      },
+    );
+    assert.deepEqual(
+      finalizedResolverManifest.source_membership.screened_refs.map(
+        (entry: any) => entry.paper_ref,
+      ),
+      ["1:SAM"],
+    );
 
     for (const filePath of [
       "runtime/payloads/resolver.json",
@@ -934,7 +1005,7 @@ describe("topic synthesis split skill runtime", function () {
     ]);
   });
 
-  it("cancels update prepare when the updated resolver adds no papers", async function () {
+  it("continues update prepare when stable changes exist without added papers", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
     );
@@ -991,26 +1062,22 @@ describe("topic synthesis split skill runtime", function () {
       ],
       env,
     );
-    assert.equal(updateOutput.result.status, "canceled");
-    assert.equal(
-      updateOutput.result.canceled_output.reason,
-      "no_new_resolved_papers",
-    );
     assert.deepEqual(updateOutput.result.resolve_diff.added_refs, []);
+    assert.equal(updateOutput.result.paper_count, 2);
+    assert.equal(updateOutput.result.triage_mode, "missing_triage");
+    assert.deepEqual(updateOutput.result.triage_required_refs, ["1:DINO"]);
 
-    const completedOutput = runGate(
+    const nextOutput = runGate(
       packages.updatePrepare,
       runRoot,
       ["--db", dbPath],
       env,
     );
-    assert.equal(completedOutput.stage, "completed");
-    assert.equal(completedOutput.output.kind, "topic_synthesis_canceled");
-    assert.equal(completedOutput.output.reason, "no_new_resolved_papers");
-    assert.isFalse(
+    assert.equal(nextOutput.stage, "stage_30_prepare_analysis_context");
+    assert.isTrue(
       await exists(path.join(runRoot, "runtime/payloads/resolver.json")),
     );
-    assert.isFalse(
+    assert.isTrue(
       await exists(
         path.join(
           runRoot,
@@ -1024,8 +1091,281 @@ describe("topic synthesis split skill runtime", function () {
         "synthesis topic get-context",
         "synthesis topic get-context",
         "synthesis resolver resolve",
+        "synthesis graph get-metrics",
+        "synthesis artifact export-filtered",
       ],
     );
+  });
+
+  it("materializes a Planned Topic by re-running its stored resolver", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
+    );
+    const runRoot = path.join(
+      tempRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "planned-create",
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const harness = await createBridgeHarness(runRoot);
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      parameter: {
+        usePlannedTopic: true,
+        plannedTopicId: "planned-detr",
+        language: "en-US",
+      },
+    });
+
+    runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env);
+    const setup = runGate(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      harness.env,
+    );
+    assert.equal(setup.result.mode, "planned_topic");
+    assert.equal(setup.result.topic_id, "planned-detr");
+    assert.equal(setup.result.planning_revision, 2);
+    assert.deepEqual(setup.result.paper_refs, ["1:DETR", "1:DINO"]);
+
+    const next = runGate(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath],
+      harness.env,
+    );
+    assert.equal(next.stage, "stage_30_prepare_analysis_context");
+    assert.deepEqual(
+      (await readJson(path.join(runRoot, "runtime/payloads/resolver.json")))
+        .resolver,
+      { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
+    );
+    assert.deepEqual(
+      (await readBridgeCalls(runRoot)).map((call) => call.command),
+      [
+        "synthesis topic get-context",
+        "synthesis resolver resolve",
+        "synthesis graph get-metrics",
+        "synthesis artifact export-filtered",
+      ],
+    );
+  });
+
+  it("prefers the selected same-identity Planned Topic for an ad-hoc seed", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
+    );
+    const runRoot = path.join(
+      tempRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "seed-matched-planned-create",
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const harness = await createBridgeHarness(runRoot);
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      parameter: {
+        usePlannedTopic: false,
+        topicSeed: "query-based DETR object detectors",
+        language: "en-US",
+      },
+    });
+
+    runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env);
+    const setup = runGate(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      harness.env,
+    );
+    assert.equal(setup.result.mode, "ad_hoc");
+
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/create-topic-context.json"),
+      {
+        topic_title: "DETR-style Object Detection",
+        aliases: ["DETR"],
+        definition: "Query-based object detectors derived from DETR.",
+        scope_include: ["object detection"],
+        scope_exclude: ["language modeling"],
+        target_decision: {
+          action: "use_planned_topic",
+          selected_topic_id: "planned-detr",
+          candidate_topic_ids: ["planned-detr-alt", "planned-detr"],
+          reason:
+            "The selected definition and scope are the best same-identity match.",
+        },
+      },
+    );
+    const selection = runGate(
+      packages.prepare,
+      runRoot,
+      [
+        "--db",
+        dbPath,
+        "--action",
+        "submit",
+        "--payload",
+        "runtime/payloads/create-topic-context.json",
+      ],
+      harness.env,
+    );
+    assert.equal(selection.result.mode, "planned_topic");
+    assert.equal(selection.result.topic_id, "planned-detr");
+    assert.equal(selection.result.selection_source, "topic_seed_match");
+
+    const next = runGate(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath],
+      harness.env,
+    );
+    assert.equal(next.stage, "stage_30_prepare_analysis_context");
+    assert.deepEqual(
+      (await readJson(path.join(runRoot, "runtime/payloads/resolver.json")))
+        .resolver,
+      { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
+    );
+  });
+
+  it("cancels when a seed-selected Planned Topic changed before materialization", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-planned-race-"),
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const harness = await createBridgeHarness(runRoot);
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      parameter: {
+        usePlannedTopic: false,
+        topicSeed: "missing planned topic",
+      },
+    });
+    runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env);
+    runGate(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      harness.env,
+    );
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/create-topic-context.json"),
+      {
+        topic_title: "Missing Planned Topic",
+        aliases: [],
+        definition: "A topic whose matching plan changed concurrently.",
+        scope_include: [],
+        scope_exclude: [],
+        target_decision: {
+          action: "use_planned_topic",
+          selected_topic_id: "missing-topic",
+          candidate_topic_ids: ["missing-topic"],
+          reason: "It was active in the topic inventory snapshot.",
+        },
+      },
+    );
+
+    const submitted = runGate(
+      packages.prepare,
+      runRoot,
+      [
+        "--db",
+        dbPath,
+        "--action",
+        "submit",
+        "--payload",
+        "runtime/payloads/create-topic-context.json",
+      ],
+      harness.env,
+    );
+    assert.equal(submitted.result.status, "canceled");
+    assert.equal(
+      submitted.result.canceled_output.reason,
+      "planned_topic_unavailable",
+    );
+    assert.isTrue(submitted.result.canceled_output.retryable);
+    assert.equal(
+      runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env).output
+        .reason,
+      "planned_topic_unavailable",
+    );
+    assert.deepEqual(
+      (await readBridgeCalls(runRoot)).map((call) => call.command),
+      ["synthesis topic get-context"],
+    );
+  });
+
+  it("cancels an ad-hoc seed that duplicates a materialized topic", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-materialized-duplicate-"),
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const harness = await createBridgeHarness(runRoot);
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      parameter: {
+        usePlannedTopic: false,
+        topicSeed: "DETR",
+      },
+    });
+    runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env);
+    runGate(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      harness.env,
+    );
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/create-topic-context.json"),
+      {
+        topic_title: "DETR-style Object Detection",
+        aliases: ["DETR"],
+        definition: "Query-based object detection methods derived from DETR.",
+        scope_include: ["object detection"],
+        scope_exclude: [],
+        target_decision: {
+          action: "cancel_materialized_duplicate",
+          selected_topic_id: "detr-topic",
+          candidate_topic_ids: ["detr-topic", "planned-detr"],
+          reason: "The materialized topic already represents this identity.",
+        },
+      },
+    );
+
+    const submitted = runGate(
+      packages.prepare,
+      runRoot,
+      [
+        "--db",
+        dbPath,
+        "--action",
+        "submit",
+        "--payload",
+        "runtime/payloads/create-topic-context.json",
+      ],
+      harness.env,
+    );
+    assert.equal(submitted.result.status, "canceled");
+    assert.equal(submitted.result.canceled_output.reason, "duplicate_topic");
+    assert.equal(
+      submitted.result.canceled_output.duplicate_topic_id,
+      "detr-topic",
+    );
+    assert.equal(submitted.result.canceled_output.topic_seed, "DETR");
+    assert.deepEqual(await readBridgeCalls(runRoot), []);
   });
 
   it("runs the create split-skill path through the minimal runtime contract", async function () {
@@ -1063,9 +1403,12 @@ describe("topic synthesis split skill runtime", function () {
         definition: "Query-based object detection methods derived from DETR.",
         scope_include: ["DETR"],
         scope_exclude: [],
-        duplicate_status: "maybe",
-        duplicate_candidate_ids: [],
-        duplicate_reason: "Invalid enum fixture.",
+        target_decision: {
+          action: "use_planned_topic",
+          selected_topic_id: "planned-detr",
+          candidate_topic_ids: ["planned-detr-alt"],
+          reason: "Selected topic is not one of the candidates.",
+        },
       },
     );
     assert.equal(
@@ -1089,6 +1432,44 @@ describe("topic synthesis split skill runtime", function () {
       "stage_10_create_topic_context",
     );
 
+    for (const [name, targetDecision] of [
+      [
+        "unknown-action",
+        {
+          action: "guess",
+          candidate_topic_ids: [],
+          reason: "Invalid action fixture.",
+        },
+      ],
+      [
+        "missing-selection",
+        {
+          action: "use_planned_topic",
+          candidate_topic_ids: ["planned-detr"],
+          reason: "Missing selected topic fixture.",
+        },
+      ],
+    ] as const) {
+      const payloadPath = `runtime/payloads/create-topic-context-${name}.json`;
+      await writeJson(path.join(runRoot, payloadPath), {
+        topic_title: "DETR-style Object Detection",
+        aliases: ["DETR"],
+        definition: "Query-based object detection methods derived from DETR.",
+        scope_include: ["DETR"],
+        scope_exclude: [],
+        target_decision: targetDecision,
+      });
+      assert.equal(
+        runGateStatus(
+          packages.prepare,
+          runRoot,
+          ["--db", dbPath, "--action", "submit", "--payload", payloadPath],
+          env,
+        ),
+        2,
+      );
+    }
+
     await writeJson(
       path.join(runRoot, "runtime/payloads/create-topic-context.json"),
       {
@@ -1097,9 +1478,11 @@ describe("topic synthesis split skill runtime", function () {
         definition: "Query-based object detection methods derived from DETR.",
         scope_include: ["DETR"],
         scope_exclude: [],
-        duplicate_status: "none",
-        duplicate_candidate_ids: [],
-        duplicate_reason: "No existing topic in fixture.",
+        target_decision: {
+          action: "create_new",
+          candidate_topic_ids: [],
+          reason: "No existing topic in fixture.",
+        },
       },
     );
     const gate1 = runGate(packages.prepare, runRoot, ["--db", dbPath], env);
@@ -1942,7 +2325,11 @@ describe("topic synthesis split skill runtime", function () {
     assert.equal(detrSourcePaper?.literature_quality?.quality_prior, 0.5);
     assert.notProperty(detrSourcePaper, "quality");
     assert.deepEqual(detrSourcePaper?.caveats, []);
-    assert.notProperty(detrSourcePaper, "triage");
+    assert.deepInclude(detrSourcePaper?.triage, {
+      paper_ref: "1:DETR",
+      relevance_level: "core",
+      relevance_reason: "Baseline.",
+    });
     assert.deepEqual((sections.statistics as any).time_span, {
       earliest: "2020",
       latest: "2022",
@@ -2050,9 +2437,11 @@ describe("topic synthesis split skill runtime", function () {
         aliases: ["Detection"],
         scope_include: ["DETR"],
         scope_exclude: ["segmentation"],
-        duplicate_status: "none",
-        duplicate_candidate_ids: [],
-        duplicate_reason: "No existing topic in fixture.",
+        target_decision: {
+          action: "create_new",
+          candidate_topic_ids: [],
+          reason: "No existing topic in fixture.",
+        },
       },
     );
     runGate(

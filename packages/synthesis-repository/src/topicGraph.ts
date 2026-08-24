@@ -26,6 +26,7 @@ export type SynthesisTopicGraphNodeRecord = {
   title: string;
   definition?: string;
   aliasesJson?: string;
+  planningJson?: string;
   nodeType: string;
   definitionStatus?: string;
   currentArtifactPath?: string;
@@ -148,6 +149,7 @@ export function rebuildSynthesisTopicGraphNodeRow(
     title: required(row.title, "repository_topic_graph_node_invalid"),
     definition: clean(row.definition),
     aliasesJson: json(row.aliases_json),
+    planningJson: json(row.planning_json, "{}"),
     nodeType: required(row.node_type, "repository_topic_graph_node_invalid"),
     definitionStatus: clean(row.definition_status),
     currentArtifactPath: clean(row.current_artifact_path),
@@ -230,7 +232,7 @@ export function ensureSynthesisTopicGraphApplicationRepositorySchema(
 
 export function ensureSynthesisTopicGraphRowsSchema(db: SqlAdapter) {
   db.run(
-    `CREATE TABLE IF NOT EXISTS synt_topic_graph_node (topic_id TEXT PRIMARY KEY, title TEXT NOT NULL, definition TEXT NOT NULL DEFAULT '', aliases_json TEXT NOT NULL DEFAULT '[]', node_type TEXT NOT NULL, definition_status TEXT NOT NULL DEFAULT '', current_artifact_path TEXT NOT NULL DEFAULT '', is_root INTEGER NOT NULL DEFAULT 0, level TEXT NOT NULL DEFAULT '', paper_count INTEGER NOT NULL DEFAULT 0, last_synthesis_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')`,
+    `CREATE TABLE IF NOT EXISTS synt_topic_graph_node (topic_id TEXT PRIMARY KEY, title TEXT NOT NULL, definition TEXT NOT NULL DEFAULT '', aliases_json TEXT NOT NULL DEFAULT '[]', planning_json TEXT NOT NULL DEFAULT '{}', node_type TEXT NOT NULL, definition_status TEXT NOT NULL DEFAULT '', current_artifact_path TEXT NOT NULL DEFAULT '', is_root INTEGER NOT NULL DEFAULT 0, level TEXT NOT NULL DEFAULT '', paper_count INTEGER NOT NULL DEFAULT 0, last_synthesis_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')`,
   );
   db.run(
     `CREATE TABLE IF NOT EXISTS synt_topic_graph_edge (edge_id TEXT PRIMARY KEY, source_topic_id TEXT NOT NULL, target_topic_id TEXT NOT NULL, relation TEXT NOT NULL, status TEXT NOT NULL, confidence REAL, provenance_json TEXT NOT NULL DEFAULT '[]', evidence_refs_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '', UNIQUE(source_topic_id,target_topic_id,relation))`,
@@ -286,6 +288,7 @@ function insertRows(db: SqlAdapter, state: SynthesisTopicGraphStateRecords) {
       title: raw.title,
       definition: raw.definition ?? "",
       aliases_json: raw.aliasesJson ?? "[]",
+      planning_json: raw.planningJson ?? "{}",
       node_type: raw.nodeType,
       definition_status: raw.definitionStatus ?? "",
       current_artifact_path: raw.currentArtifactPath ?? "",
@@ -297,12 +300,13 @@ function insertRows(db: SqlAdapter, state: SynthesisTopicGraphStateRecords) {
       updated_at: raw.updatedAt ?? "",
     });
     db.run(
-      `INSERT INTO synt_topic_graph_node VALUES(@topic_id,@title,@definition,@aliases_json,@node_type,@definition_status,@current_artifact_path,@is_root,@level,@paper_count,@last_synthesis_at,@created_at,@updated_at)`,
+      `INSERT INTO synt_topic_graph_node(topic_id,title,definition,aliases_json,planning_json,node_type,definition_status,current_artifact_path,is_root,level,paper_count,last_synthesis_at,created_at,updated_at) VALUES(@topic_id,@title,@definition,@aliases_json,@planning_json,@node_type,@definition_status,@current_artifact_path,@is_root,@level,@paper_count,@last_synthesis_at,@created_at,@updated_at)`,
       {
         topic_id: row.topicId,
         title: row.title,
         definition: row.definition,
         aliases_json: row.aliasesJson,
+        planning_json: row.planningJson,
         node_type: row.nodeType,
         definition_status: row.definitionStatus,
         current_artifact_path: row.currentArtifactPath,

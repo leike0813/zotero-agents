@@ -94,6 +94,292 @@ describe("Synthesis topic graph", function () {
     assert.equal(repository.countRows("synt_topic_graph_edge"), 1);
   });
 
+  it("persists Planned Topic definitions and reconciles a whole plan atomically", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-08-12T00:00:00.000Z",
+    });
+    const before = await service.loadTopicGraph();
+    const plan = {
+      kind: "topic_plan" as const,
+      operation: "reconcile" as const,
+      base_graph_hash: before.manifest.manifest_hash,
+      library_index_hash: "library-v1",
+      coverage_manifest_path: "coverage/manifest.json",
+      recommended_updates: [],
+      topic_actions: [
+        {
+          action: "create" as const,
+          topic_id: "topic-vision",
+          title: "Vision Models",
+          definition: "Models for visual understanding.",
+          aliases: ["visual models"],
+          scope: { include: ["vision"], exclude: ["medical imaging"] },
+          resolver: { kind: "metadata_query", query: "tag:vision" },
+          revision: 1,
+          basis: [{ kind: "library-index", hash: "library-v1" }],
+        },
+        {
+          action: "create" as const,
+          topic_id: "topic-detection",
+          title: "Object Detection",
+          definition: "Object localization and classification.",
+          aliases: [],
+          scope: { include: ["detection"], exclude: [] },
+          resolver: { kind: "metadata_query", query: "tag:detection" },
+          revision: 1,
+          basis: [{ kind: "library-index", hash: "library-v1" }],
+        },
+      ],
+      relation_proposals: [
+        {
+          source_topic_id: "topic-vision",
+          target_topic_id: "topic-detection",
+          relation: "broader_than" as const,
+          confidence: 0.9,
+          provenance: [{ producer: "topic-planner" }],
+          evidence_refs: [{ kind: "coverage", ref: "coverage/manifest.json" }],
+        },
+      ],
+    };
+
+    const applied = await service.reconcileTopicPlan({
+      plan,
+      currentLibraryIndexHash: "library-v1",
+    });
+    assert.equal(applied.status, "persisted");
+    assert.isFalse(applied.coverage_stale);
+
+    const snapshot = await service.loadTopicGraph();
+    assert.equal(snapshot.nodes.length, 2);
+    const vision = snapshot.nodes.find(
+      (node) => node.topic_id === "topic-vision",
+    );
+    assert.equal(vision?.planning?.lifecycle, "planned");
+    assert.deepEqual(vision?.planning?.resolver, {
+      kind: "metadata_query",
+      query: "tag:vision",
+    });
+    assert.notProperty(vision?.planning || {}, "paper_ids");
+    assert.equal(snapshot.edges[0]?.status, "suggested");
+    assert.deepInclude(snapshot.edges[0]?.provenance, {
+      producer: "topic-planner",
+    });
+    const replay = await service.reconcileTopicPlan({
+      plan,
+      currentLibraryIndexHash: "library-v1",
+    });
+    assert.equal(replay.status, "already_applied");
+    assert.equal(
+      (await service.loadTopicGraph()).manifest.manifest_hash,
+      snapshot.manifest.manifest_hash,
+    );
+  });
+
+  it("rejects stale graph plans but allows library drift with a coverage warning", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+    const before = await service.loadTopicGraph();
+    const plan = {
+      kind: "topic_plan" as const,
+      operation: "reconcile" as const,
+      base_graph_hash: before.manifest.manifest_hash,
+      library_index_hash: "library-old",
+      topic_actions: [
+        {
+          action: "create" as const,
+          topic_id: "topic-a",
+          title: "Alpha",
+          definition: "Alpha definition",
+          resolver: { kind: "metadata_query", query: "alpha" },
+          revision: 1,
+          basis: [],
+        },
+      ],
+      relation_proposals: [],
+      recommended_updates: [],
+    };
+
+    const applied = await service.reconcileTopicPlan({
+      plan,
+      currentLibraryIndexHash: "library-new",
+    });
+    assert.equal(applied.status, "persisted");
+    assert.isTrue(applied.coverage_stale);
+
+    const conflict = await service.reconcileTopicPlan({
+      plan: {
+        ...plan,
+        topic_actions: [
+          {
+            ...plan.topic_actions[0],
+            topic_id: "topic-b",
+            title: "Beta",
+          },
+        ],
+      },
+      currentLibraryIndexHash: "library-new",
+    });
+    assert.equal(conflict.status, "conflict");
+    assert.notInclude(
+      (await service.loadTopicGraph()).nodes.map((node) => node.topic_id),
+      "topic-b",
+    );
+  });
+
+  it("allows only one concurrent reconciliation to commit against the same graph hash", async function () {
+    const root = await makeRuntimeRoot();
+    const firstService = createSynthesisTopicGraphService({ root });
+    const secondService = createSynthesisTopicGraphService({ root });
+    const before = await firstService.loadTopicGraph();
+    const makePlan = (topicId: string) => ({
+      kind: "topic_plan" as const,
+      operation: "reconcile" as const,
+      base_graph_hash: before.manifest.manifest_hash,
+      library_index_hash: "library-v1",
+      topic_actions: [
+        {
+          action: "create" as const,
+          topic_id: topicId,
+          title: topicId,
+          definition: `${topicId} definition`,
+          resolver: { paper_refs: [`1:${topicId}`] },
+          revision: 1,
+        },
+      ],
+      relation_proposals: [],
+      recommended_updates: [],
+    });
+
+    const results = await Promise.all([
+      firstService.reconcileTopicPlan({
+        plan: makePlan("topic-a"),
+        currentLibraryIndexHash: "library-v1",
+      }),
+      secondService.reconcileTopicPlan({
+        plan: makePlan("topic-b"),
+        currentLibraryIndexHash: "library-v1",
+      }),
+    ]);
+
+    assert.sameMembers(
+      results.map((result) => result.status),
+      ["persisted", "conflict"],
+    );
+    assert.lengthOf((await firstService.loadTopicGraph()).nodes, 1);
+  });
+
+  it("rejects provisional membership fields and cyclic broader relations atomically", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+    await service.saveTopicGraph({
+      nodes: [
+        { topic_id: "topic-a", title: "Alpha", node_type: "placeholder" },
+        { topic_id: "topic-b", title: "Beta", node_type: "placeholder" },
+      ],
+      edges: [
+        {
+          source_topic_id: "topic-a",
+          target_topic_id: "topic-b",
+          relation: "broader_than",
+        },
+      ],
+    });
+    const before = await service.loadTopicGraph();
+    const result = await service.reconcileTopicPlan({
+      currentLibraryIndexHash: "library-v1",
+      plan: {
+        kind: "topic_plan",
+        operation: "reconcile",
+        base_graph_hash: before.manifest.manifest_hash,
+        library_index_hash: "library-v1",
+        topic_actions: [
+          {
+            action: "update",
+            topic_id: "topic-a",
+            definition: "Alpha definition",
+            resolver: { paper_refs: ["1:A"] },
+            revision: 1,
+            paper_ids: ["1:A"],
+          } as never,
+        ],
+        relation_proposals: [
+          {
+            source_topic_id: "topic-b",
+            target_topic_id: "topic-a",
+            relation: "broader_than",
+          },
+        ],
+        recommended_updates: ["topic-a"],
+      },
+    });
+
+    assert.equal(result.status, "conflict");
+    assert.includeMembers(
+      result.diagnostics.map((diagnostic) => diagnostic.code),
+      [
+        "planned_topic_membership_forbidden",
+        "broader_cycle_rejected",
+        "recommended_update_requires_materialized_topic",
+      ],
+    );
+    assert.equal(
+      (await service.loadTopicGraph()).manifest.manifest_hash,
+      before.manifest.manifest_hash,
+    );
+  });
+
+  it("preserves reviewed relation decisions while merging producer provenance", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+    await service.saveTopicGraph({
+      nodes: [
+        { topic_id: "topic-a", title: "Alpha", node_type: "placeholder" },
+        { topic_id: "topic-b", title: "Beta", node_type: "placeholder" },
+      ],
+      edges: [
+        {
+          source_topic_id: "topic-a",
+          target_topic_id: "topic-b",
+          relation: "related_to",
+          status: "confirmed",
+          provenance: [{ producer: "topic-planner" }],
+        },
+      ],
+    });
+    const before = await service.loadTopicGraph();
+
+    const result = await service.reconcileTopicPlan({
+      currentLibraryIndexHash: "library-v1",
+      plan: {
+        kind: "topic_plan",
+        operation: "reconcile",
+        base_graph_hash: before.manifest.manifest_hash,
+        library_index_hash: "library-v1",
+        topic_actions: [],
+        recommended_updates: [],
+        relation_proposals: [
+          {
+            source_topic_id: "topic-b",
+            target_topic_id: "topic-a",
+            relation: "related_to",
+            provenance: [{ producer: "topic-synthesis" }],
+            evidence_refs: [{ paper_ref: "zotero://select/items/1_A" }],
+          },
+        ],
+      },
+    });
+
+    assert.equal(result.status, "persisted");
+    const edge = (await service.loadTopicGraph()).edges[0];
+    assert.equal(edge?.status, "confirmed");
+    assert.deepInclude(edge?.provenance || [], { producer: "topic-planner" });
+    assert.deepInclude(edge?.provenance || [], {
+      producer: "topic-synthesis",
+    });
+  });
+
   it("exports topic graph JSON only through an explicit checkpoint", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisTopicGraphService({

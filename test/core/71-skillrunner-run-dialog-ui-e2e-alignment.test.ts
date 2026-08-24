@@ -30,8 +30,8 @@ import {
   getSkillRunnerWorkspaceReadModel,
 } from "../../src/modules/skillRunnerRunDialog";
 import {
+  applySkillRunnerRunEvent,
   getSkillRunnerRunRecord,
-  updateSkillRunnerRunApplyState,
 } from "../../src/modules/skillRunnerRunStore";
 import { clearPref, setPref } from "../../src/utils/prefs";
 import type { AssistantWorkspacePublication } from "../../src/modules/assistantWorkspacePublication";
@@ -580,24 +580,24 @@ describe("skillrunner workspace publication behavior contract", function () {
       requestId: "req-card-not-required",
       status: "succeeded",
     });
-    updateSkillRunnerRunApplyState({
+    applySkillRunnerRunEvent({
+      type: "apply.succeeded",
       backendId: harness.backendId,
       requestId: applied.requestId,
-      state: "succeeded",
       attempt: 1,
       updatedAt: "2026-07-18T00:01:01.000Z",
     });
-    updateSkillRunnerRunApplyState({
+    applySkillRunnerRunEvent({
+      type: "apply.skipped",
       backendId: harness.backendId,
       requestId: skipped.requestId,
-      state: "skipped",
       attempt: 1,
       updatedAt: "2026-07-18T00:01:02.000Z",
     });
-    updateSkillRunnerRunApplyState({
+    applySkillRunnerRunEvent({
+      type: "apply.failed",
       backendId: harness.backendId,
       requestId: applyFailed.requestId,
-      state: "failed",
       attempt: 2,
       nextRetryAt: "2026-07-18T00:03:03.000Z",
       error: "apply write failed",

@@ -74,7 +74,7 @@ import {
   type WorkflowSettingsUiDescriptor,
 } from "./workflowSettings";
 import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
-import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
   isWorkflowSettingsStructuralRefreshChange,
@@ -97,9 +97,7 @@ import {
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import {
-  cancelAcpSkillRun,
   listAcpSkillRunSummaries,
-  selectAcpSkillRun,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
@@ -122,6 +120,8 @@ import {
   recordBackgroundRefreshRead,
   registerBackgroundRefreshTimer,
 } from "./backgroundRefreshGovernance";
+import { cancelAcpSkillRun } from "./acpSkillRunActions";
+import { selectAcpSkillRun } from "./acpSkillRunWorkspaceSelection";
 
 type DashboardState = {
   backends: BackendInstance[];
@@ -156,6 +156,7 @@ type DashboardState = {
   selectedFeedbackProductId: string;
   feedbackSkillFilter: string;
   selectedFeedbackProductIds: Set<string>;
+  productExportInProgress: boolean;
   homeWorkflowDocCacheByWorkflowId: Map<
     string,
     {
@@ -274,6 +275,7 @@ type DashboardSnapshot = {
     selectedFeedbackProduct?: ReturnType<typeof getWorkflowProduct>;
     selectedFeedbackProductIds?: string[];
     selectedFeedbackPreview?: WorkflowProductPreview;
+    isExporting?: boolean;
   };
   homeWorkflowDocView?: {
     workflowId: string;
@@ -326,6 +328,8 @@ type DashboardSnapshot = {
         expired: number;
       };
       retentionMode: string;
+      maxImportantEntries: number;
+      importantEntryCount: number;
     };
     logs: DashboardLogRow[];
     selectedEntryIds: string[];
@@ -1865,6 +1869,7 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-diagnostic-mode",
       "Diagnostic Mode",
     ),
+    runtimeLogsBudget: localize("log-viewer-budget", "Budget: { $value }"),
     runtimeLogsClearContext: localize(
       "task-dashboard-runtime-logs-clear-context",
       "Clear Context",
@@ -2255,6 +2260,7 @@ async function buildDashboardSnapshot(args: {
         args.state.selectedFeedbackProductIds,
       ),
       selectedFeedbackPreview,
+      isExporting: args.state.productExportInProgress,
     };
     return finalizeDashboardSnapshot(snapshot);
   }
@@ -2306,6 +2312,8 @@ async function buildDashboardSnapshot(args: {
         droppedEntries: logSummary.droppedEntries,
         droppedByReason: logSummary.droppedByReason,
         retentionMode: logSummary.retentionMode,
+        maxImportantEntries: logSummary.maxImportantEntries,
+        importantEntryCount: logSummary.importantEntryCount,
       },
       logs: rawLogs.map((entry) => mapLogRow(entry)),
       selectedEntryIds: Array.from(args.state.runtimeLogSelectedIdSet),
@@ -2642,6 +2650,7 @@ export async function openTaskManagerDialog(args?: {
     selectedFeedbackProductId: "",
     feedbackSkillFilter: "",
     selectedFeedbackProductIds: new Set(),
+    productExportInProgress: false,
     homeWorkflowDocCacheByWorkflowId: new Map(),
   };
   const initialBackendId = fromBackendTabKey(state.selectedTabKey);
@@ -3511,19 +3520,22 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
     if (action === "open-product-folder") {
+      if (state.productExportInProgress) return;
       const product = getWorkflowProduct(
         String(payload.productId || "").trim(),
       );
       if (!product) return;
-      const selected = await openRuntimeFilePicker({
-        title: localize(
-          "task-dashboard-products-export-title",
-          "Select Product export directory",
-        ),
-        mode: "folder",
-      });
-      if (typeof selected === "string") {
-        try {
+      state.productExportInProgress = true;
+      refresh("user-action");
+      try {
+        const selected = await openRuntimeFilePicker({
+          title: localize(
+            "task-dashboard-products-export-title",
+            "Select Product export directory",
+          ),
+          mode: "folder",
+        });
+        if (typeof selected === "string") {
           await exportWorkflowProductToDirectory({
             productId: product.productId,
             outputDir: selected,
@@ -3531,15 +3543,18 @@ export async function openTaskManagerDialog(args?: {
           openFolderInSystemFileManager(selected, {
             label: "product export folder",
           });
-        } catch (error) {
-          alertRuntimeWindow(
-            localize(
-              "task-dashboard-products-export-failed",
-              "Failed to export Product: {error}",
-              { args: { error: compactError(error) } },
-            ),
-          );
         }
+      } catch (error) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-products-export-failed",
+            "Failed to export Product: {error}",
+            { args: { error: compactError(error) } },
+          ),
+        );
+      } finally {
+        state.productExportInProgress = false;
+        refresh("user-action");
       }
       return;
     }

@@ -8,7 +8,6 @@ import {
 import {
   getAcpSkillRunRecord,
   resetAcpSkillRunsForTests,
-  shutdownAcpSkillRunConversations,
 } from "../../src/modules/acpSkillRunStore";
 import { executeAcpSkillRunnerJob } from "../../src/modules/acpSkillRunnerOrchestrator";
 import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
@@ -26,6 +25,7 @@ import {
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { shutdownAcpWebSocketBridgeService } from "../../src/modules/acpWebSocketBridgeService";
 import { joinPath } from "../../src/utils/path";
+import { shutdownAcpSkillRunConversations } from "../../src/modules/acpSkillRunActions";
 
 function hasRealZoteroRuntime() {
   const runtime = globalThis as {

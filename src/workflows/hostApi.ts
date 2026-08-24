@@ -48,8 +48,13 @@ import {
 } from "../modules/synthesis/builtinTagPolicy";
 
 import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
+import {
+  materializeResearchBundlePapers,
+  type DirectResearchBundlePaper,
+  type ResearchBundleWarning,
+} from "../modules/researchBundleService";
 
-export const WORKFLOW_HOST_API_VERSION = 10;
+export const WORKFLOW_HOST_API_VERSION = 11;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -948,6 +953,84 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     library: zoteroBroker.library,
     mutations: zoteroBroker.mutations,
     metadata: zoteroBroker.metadata,
+    researchBundles: {
+      async materializePapers(args) {
+        const papers: DirectResearchBundlePaper[] = [];
+        const warnings: ResearchBundleWarning[] = [];
+        const seen = new Set<string>();
+        for (const selected of Array.isArray(args?.papers) ? args.papers : []) {
+          const paperRef = String(selected?.paperRef || "").trim();
+          if (!paperRef || seen.has(paperRef)) continue;
+          seen.add(paperRef);
+          const match = paperRef.match(/^(\d+):(.+)$/);
+          const libraryId = Number(match?.[1]);
+          const itemKey = String(match?.[2] || "").trim();
+          if (!Number.isInteger(libraryId) || libraryId <= 0 || !itemKey) {
+            warnings.push({
+              code: "paper_missing",
+              paper_ref: paperRef,
+              reason: "invalid_paper_ref",
+            });
+            continue;
+          }
+          const item = resolveHostZotero().Items.getByLibraryAndKey(
+            libraryId,
+            itemKey,
+          );
+          if (!item) {
+            warnings.push({ code: "paper_missing", paper_ref: paperRef });
+            continue;
+          }
+          const attachments = await zoteroBroker.library.getItemAttachments({
+            key: itemKey,
+            libraryId,
+          });
+          papers.push({
+            paperRef,
+            libraryId,
+            itemKey,
+            title: String(item.getField?.("title") || "").trim(),
+            metadata: handlers.item.exportPortableJson(item),
+            attachments: attachments
+              .filter((attachment) => String(attachment.path || "").trim())
+              .map((attachment) => ({
+                path: attachment.path,
+                filename: attachment.filename,
+                contentType: attachment.contentType,
+              })),
+          });
+        }
+        if (!papers.length) {
+          return { entries: [], papers: [], warnings };
+        }
+        const client = await getDefaultSynthesisClient();
+        const materialized = await materializeResearchBundlePapers({
+          papers,
+          readArtifacts: (paperRefs) =>
+            client.artifacts.readPaperArtifacts({
+              paper_refs: paperRefs,
+              artifact_types: [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score",
+              ],
+            }),
+          sourcePaperRefs: args.sourcePaperRefs,
+        });
+        return {
+          ...materialized,
+          warnings: [
+            ...warnings,
+            ...materialized.warnings.map((warning) =>
+              warning.code === "source_missing"
+                ? { ...warning, code: "core_source_missing" }
+                : warning,
+            ),
+          ],
+        };
+      },
+    },
     prefs: {
       get(key, global = true) {
         return resolveHostZotero().Prefs.get(
@@ -1108,6 +1191,7 @@ export function summarizeWorkflowHostApiCapabilities(
     library: !!hostApi?.library,
     mutations: !!hostApi?.mutations,
     metadata: !!hostApi?.metadata,
+    researchBundles: !!hostApi?.researchBundles,
     synthesis: !!hostApi?.synthesis,
   };
 }

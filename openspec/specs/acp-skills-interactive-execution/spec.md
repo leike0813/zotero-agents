@@ -531,3 +531,89 @@ post-terminal-conversation controller.
 - **WHEN** a reply is attempted through that controller
 - **THEN** the reply SHALL be rejected until explicit Connect installs a new
   post-terminal controller.
+
+### Requirement: ACP Skills setup SHALL publish readiness only after a usable session exists
+
+ACP Skills SHALL keep a run in setup while acquiring its launch lease, starting transport, initializing ACP, attaching or creating the session, and applying the initial mode, model, and configuration. Each phase SHALL have an independent 60-second timeout. `connected` SHALL mean the session and initial runtime configuration are usable.
+
+#### Scenario: Adapter exists before session readiness
+
+- **WHEN** an adapter has been allocated but initialize, session setup, or initial runtime configuration is still pending
+- **THEN** the run SHALL NOT publish `connected`
+- **AND** cancellation SHALL remain available through the setup controller.
+
+#### Scenario: Startup phase exceeds its limit
+
+- **WHEN** one startup phase remains unsettled for 60 seconds
+- **THEN** the run SHALL become `failed`
+- **AND** diagnostics SHALL identify that phase and the 60-second timeout
+- **AND** a late phase result SHALL NOT send a prompt or restore a controller.
+
+### Requirement: ACP Skills task cancellation SHALL converge before backend cleanup
+
+Task cancellation SHALL publish the run's terminal `canceled` state, cancel pending resumption, and notify workflow observers before awaiting backend cleanup. Cleanup SHALL be bounded and SHALL NOT delay UI convergence or Host settlement.
+
+#### Scenario: Controller cancel never returns
+
+- **WHEN** a user cancels a non-terminal ACP Skills task and its controller never settles
+- **THEN** the run SHALL synchronously become `canceled`
+- **AND** Host settlement SHALL be able to release the unit and submission identity
+- **AND** cleanup timeout SHALL only produce diagnostics.
+
+#### Scenario: Disconnect cleanup never returns
+
+- **WHEN** a user disconnects a recoverable non-terminal run and local cleanup never settles
+- **THEN** local detachment SHALL complete within the cleanup watchdog
+- **AND** the run SHALL preserve its recoverable remote identity
+- **AND** disconnect SHALL NOT settle the workflow unit as terminal.
+
+### Requirement: ACP Skill run records SHALL support generic hard deletion
+
+The ACP skill-run store SHALL expose a generic hard-delete operation that
+flushes pending runtime writes, removes persisted and in-memory run records,
+clears selection for deleted request ids, and emits the archive workspace
+change. Replay cleanup SHALL use this operation instead of replay-specific
+store helpers.
+
+#### Scenario: Hard deletion removes every owned record atomically
+
+- **WHEN** one or more ACP skill-run request ids are hard-deleted
+- **THEN** persisted run rows and in-memory records SHALL be removed
+- **AND** selection SHALL be cleared when it references a deleted request
+- **AND** one archive workspace change SHALL be emitted for the deleted ids
+
+#### Scenario: Hard deletion does not change archive or retention semantics
+
+- **WHEN** archive or retention cleanup runs
+- **THEN** their existing lifecycle behavior SHALL remain unchanged
+- **AND** the hard-delete operation SHALL NOT become the default user-facing
+  removal path
+
+### Requirement: ACP Skill run interactive concerns SHALL be separated
+
+Controller registry, permission queue, runtime catalog, conversation actions,
+and workspace selection SHALL each expose one narrow interface. Callers SHALL
+import the focused module instead of the store facade.
+
+#### Scenario: Controller registry owns controller lifecycle
+
+- **WHEN** a controller or setup controller is registered or removed
+- **THEN** the registry seam SHALL be implemented by the store host without exposing controller maps
+
+#### Scenario: Permission queue owns per-run ordering
+
+- **WHEN** permission requests are queued or resolved
+- **THEN** the permission module SHALL preserve arrival order and resolver
+  callbacks
+
+#### Scenario: Runtime catalog owns selection state
+
+- **WHEN** mode, model, or reasoning effort is read or changed
+- **THEN** the runtime catalog seam SHALL expose that state through the store host and reset with it
+
+#### Scenario: Actions orchestrate without owning persistence
+
+- **WHEN** cancel, archive, reply, connect, disconnect, or session end runs
+- **THEN** the actions module SHALL use store callbacks for record reads and
+  writes
+- **AND** SHALL NOT own the run record map

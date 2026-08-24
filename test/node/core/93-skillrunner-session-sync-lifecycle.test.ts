@@ -75,7 +75,7 @@ describe("skillrunner session sync lifecycle", function () {
       appendRuntimeLog: () => {
         calls.push("log");
       },
-      updateSkillRunnerRunStateByRequest: () => {
+      applySkillRunnerRunEvent: () => {
         calls.push("run-store");
         return null;
       },
@@ -136,7 +136,7 @@ describe("skillrunner session sync lifecycle", function () {
       appendRuntimeLog: () => {
         calls.push("log");
       },
-      updateSkillRunnerRunStateByRequest: () => null,
+      applySkillRunnerRunEvent: () => null,
       updateWorkflowTaskStateByRequest: () => undefined,
       updateTaskDashboardHistoryStateByRequest: () => undefined,
     });
@@ -183,7 +183,7 @@ describe("skillrunner session sync lifecycle", function () {
       markSkillRunnerBackendHealthSuccess: () => undefined,
       markSkillRunnerBackendHealthFailure: () => undefined,
       appendRuntimeLog: () => undefined,
-      updateSkillRunnerRunStateByRequest: () => null,
+      applySkillRunnerRunEvent: () => null,
       updateWorkflowTaskStateByRequest: () => undefined,
       updateTaskDashboardHistoryStateByRequest: () => undefined,
     });

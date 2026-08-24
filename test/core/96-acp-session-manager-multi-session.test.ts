@@ -71,7 +71,6 @@ import {
   clearHostBridgePluginSkillBundleMaterializationForTests,
   materializeHostBridgePluginSkillBundle,
 } from "../../src/modules/hostBridgePluginSkillBundle";
-import { HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED } from "../../src/shared/hostBridgePluginSkillBundleContract";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
@@ -655,7 +654,7 @@ describe("acp session manager", function () {
     assert.deepEqual(harness.lastAdapter?.sessionIds, []);
   });
 
-  it("refuses to restore a persisted remote session after the plugin Skill bundle identity changes", async function () {
+  it("restores a persisted remote session after plugin Skill bundle materialization", async function () {
     this.timeout(10_000);
     await sendAcpConversationPrompt({ message: "Persist old bundle context" });
     const conversationId = getAcpConversationSnapshot().conversationId;
@@ -675,23 +674,13 @@ describe("acp session manager", function () {
       });
 
       await setActiveAcpConversation({ conversationId });
-      let failure: unknown;
-      try {
-        await reconnectAcpConversation();
-      } catch (error) {
-        failure = error;
-      }
+      await reconnectAcpConversation();
 
-      assert.strictEqual(
-        (failure as { code?: string })?.code,
-        HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED,
-      );
-      assert.deepEqual(harness.lastAdapter?.resumeSessionIds, []);
+      const snapshot = getAcpConversationSnapshot();
+      assert.equal(snapshot.sessionId, "session-1");
+      assert.equal(snapshot.remoteSessionRestoreStatus, "resumed");
+      assert.deepEqual(harness.lastAdapter?.resumeSessionIds, ["session-1"]);
       assert.deepEqual(harness.lastAdapter?.sessionIds, []);
-      assert.strictEqual(
-        getAcpConversationSnapshot().lastError,
-        HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED,
-      );
     } finally {
       clearHostBridgePluginSkillBundleMaterializationForTests();
       await fs.rm(runtimeRoot, { recursive: true, force: true });

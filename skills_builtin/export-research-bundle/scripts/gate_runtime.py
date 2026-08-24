@@ -24,14 +24,14 @@ STAGE_CONTRACT = {
     },
     "stage_10_intent_query_plan": {
         "kind": "payload",
-        "task": "Derive research dimensions and 2-8 precise Zotero library queries from the manuscript intent.",
+        "task": "Derive research dimensions and 2-8 metadata anchors with bounded fallback anchors from the manuscript intent.",
         "payload": "runtime/payloads/intent-query-plan.json",
         "schema": "assets/schemas/stage-10-intent-query-plan.schema.json",
         "required_reads": [],
     },
     "stage_20_discovery_collect": {
         "kind": "command",
-        "task": "Page through Topic inventory and execute the submitted bounded library queries.",
+        "task": "Page through the current Topic inventory.",
     },
     "stage_30_topic_assessment": {
         "kind": "payload",
@@ -42,7 +42,7 @@ STAGE_CONTRACT = {
     },
     "stage_40_evidence_prepare": {
         "kind": "command",
-        "task": "Collect Topic review inputs, graph neighbors, reference diagnostics, digests, and assessment packets.",
+        "task": "Read selected Topics' current source papers, record degraded Topic diagnostics, page bounded Zotero metadata anchors, merge canonical candidates, and prepare assessment evidence.",
     },
     "stage_50_paper_assessment": {
         "kind": "payload",
@@ -89,12 +89,14 @@ def instruction(db_path: str, input_path: str | None) -> dict:
         stage = "stage_00_runtime_setup"
         final_output = None
         pending_delivery = {}
+        discovery_summary = {}
     else:
         conn = connect(db)
         try:
             stage = current_stage(conn)
             final_output = get_meta(conn, "final_output", None)
             pending_delivery = get_meta(conn, "pending_delivery", {})
+            discovery_summary = get_meta(conn, "discovery_summary", {})
             packet_path = next_assessment_packet(conn) if stage == "stage_50_paper_assessment" else ""
         finally:
             conn.close()
@@ -140,6 +142,8 @@ def instruction(db_path: str, input_path: str | None) -> dict:
     }
     if contract["kind"] == "command":
         result["command"] = script_command(str(db), input_path, "run")
+        if stage == "stage_40_evidence_prepare" and discovery_summary:
+            result["discovery_summary"] = discovery_summary
     else:
         relative_payload = contract["payload"]
         if stage == "stage_50_paper_assessment" and packet_path:

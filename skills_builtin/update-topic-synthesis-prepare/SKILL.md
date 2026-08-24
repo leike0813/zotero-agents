@@ -175,7 +175,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 常见错误：
 
 - 不要在非 ACP run workspace 中尝试修补 Host Bridge artifact export。
-- 不要跳过 setup 直接写 Stage 10 payload。
+- 不要自行跳过 setup 或 gate 当前返回的 stage；Planned Topic 模式下 runtime 会自动完成定义与 resolver stages，并把 gate 推进到 Stage 30。
 
 ### stage_10_update_topic_context
 
@@ -230,7 +230,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 - 如果 `update_decision.action` 是 `cancel`，不要附带 resolver。
 - 如果 `update_decision.action` 是 `continue`，必须附带 resolver 和 resolver_reasoning。
 - resolver proposal 删除或改写 current_resolver 既有简化 selector 内容时，gate 会拒绝提交。
-- 如果 continue 后 runtime 执行 updated resolver 得到的 `resolve_diff.added_refs` 为空，这是 update prepare 的 no-op 硬取消条件：直接输出 `topic_synthesis_canceled`，不进入 Stage 30。
+- continue 后即使 `resolve_diff.added_refs` 为空，也要保留该 diff 并继续；artifact、score、dependency 或已有 triage 缺口可以独立构成稳定更新理由。
 
 质量检查：
 
@@ -240,7 +240,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 常见错误：
 
 - 不要手写旧基线或 updated resolve；旧基线来自 current_linked_papers，updated resolve 只由本 stage submit 后 runtime 调 Host Bridge 生成。
-- 不要在 `added_refs=0` 时为了补旧 triage 覆盖而继续 Stage 30；最新规则是没有新增 resolved papers 就取消本次 update。
+- 不要把 `added_refs` 当作唯一更新信号；是否 continue 以 audit report 中稳定的 artifact、score、dependency、discovery 和 triage 状态为准。
 - 不要在本 stage 做 paper triage。
 
 Payload JSON 示例（可提交结构样例）：

@@ -65,6 +65,82 @@ async function makeAcpRunRoot() {
   return runRoot;
 }
 
+function directBundleArtifactNotes() {
+  return [
+    {
+      key: "N-DIGEST",
+      title: "Digest",
+      html: renderPayloadBlock({
+        payloadType: "digest-markdown",
+        payload: "## Direct Digest\n\nDigest body.",
+        payloadFormat: "text",
+      }),
+    },
+    {
+      key: "N-REFERENCES",
+      title: "References",
+      html: renderPayloadBlock({
+        payloadType: "references-json",
+        payload: {
+          references: [
+            {
+              id: "ref-1",
+              year: "2024",
+              authors: ["Alpha Author"],
+              title: "Referenced Work",
+            },
+          ],
+        },
+      }),
+    },
+    {
+      key: "N-CITATIONS",
+      title: "Citation analysis",
+      html: renderPayloadBlock({
+        payloadType: "citation-analysis-json",
+        payload: {
+          citation_analysis: {
+            report_md:
+              "## Citation Analysis\n\n### Mapped Citations\nMapped body.",
+          },
+        },
+      }),
+    },
+    {
+      key: "N-SCORE",
+      title: "Literature score",
+      html: renderPayloadBlock({
+        payloadType: "literature-score-json",
+        payload: {
+          literature_score: {
+            schema: "literature_score.v1",
+            rubric_id: "literature-analysis-rubric.v1",
+            paper_type: "empirical",
+            paper_type_reason: "The paper reports an empirical study.",
+            overall_score: 82,
+            confidence: 0.75,
+            confidence_adjusted_score: 75,
+            dimensions: [
+              "methodological_rigor",
+              "evidence_completeness",
+              "reproducibility",
+              "innovation_signals",
+              "research_impact_potential",
+              "writing_quality",
+            ].map((dimensionKey) => ({
+              dimension_key: dimensionKey,
+              name: dimensionKey,
+              score: 82,
+              confidence: 0.75,
+              summary: `${dimensionKey} assessment`,
+            })),
+          },
+        },
+      }),
+    },
+  ];
+}
+
 describe("Synthesis MCP tools", function () {
   it("uses the Host Bridge catalog as the only MCP tool registry", async function () {
     const source = await fs.readFile(
@@ -106,6 +182,8 @@ describe("Synthesis MCP tools", function () {
       "citation_graph.rank_library_papers",
       "paper_artifacts.get_manifest",
       "paper_artifacts.export_filtered",
+      "items.export_research_bundle",
+      "topics.export_research_bundle",
       "paper_artifacts.resolve_topic_digest",
       "concepts.query",
       "citation_graph.query_cluster",

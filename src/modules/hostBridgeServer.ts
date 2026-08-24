@@ -18,6 +18,7 @@ import {
   SynthesisClientError,
   type SynthesisClient,
 } from "../../packages/synthesis-contracts/src/index";
+import type { DirectResearchBundleApplication } from "./researchBundleService";
 import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
 import {
   describeHostBridgeWorkflow,
@@ -267,6 +268,11 @@ let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
 let synthesisClientResolverForTests:
   | (() => SynthesisClient | Promise<SynthesisClient>)
+  | undefined = undefined;
+let directResearchBundleApplicationResolverForTests:
+  | (() =>
+      | DirectResearchBundleApplication
+      | Promise<DirectResearchBundleApplication>)
   | undefined = undefined;
 let serverGeneration = 0;
 const acceptedConnections = new Set<AcceptedHostConnection>();
@@ -1621,6 +1627,12 @@ async function callCapability(
         connectionMode: parseConnectionModeHeader(request, transportContext),
         ...(synthesisClientResolverForTests
           ? { resolveSynthesisClient: synthesisClientResolverForTests }
+          : {}),
+        ...(directResearchBundleApplicationResolverForTests
+          ? {
+              resolveDirectResearchBundleApplication:
+                directResearchBundleApplicationResolverForTests,
+            }
           : {}),
       },
     );
@@ -4003,6 +4015,12 @@ async function getSynthesisCacheStatus(
         ...(synthesisClientResolverForTests
           ? { resolveSynthesisClient: synthesisClientResolverForTests }
           : {}),
+        ...(directResearchBundleApplicationResolverForTests
+          ? {
+              resolveDirectResearchBundleApplication:
+                directResearchBundleApplicationResolverForTests,
+            }
+          : {}),
       },
     );
     return response(200, "OK", hostBridgeOk(data));
@@ -5194,6 +5212,7 @@ export function resetHostBridgeServerForTests() {
   startingPromise = null;
   serverSocketFactory = createServerSocket;
   synthesisClientResolverForTests = undefined;
+  directResearchBundleApplicationResolverForTests = undefined;
   acceptedConnections.clear();
   resetHostBridgeWriteAutoApprovalScopesForTests();
   resetHostBridgeAgentRunStoreForTests();
@@ -5208,6 +5227,9 @@ export function configureHostBridgeServerForTests(
     lanEnabled?: boolean;
     portMode?: HostBridgePortMode;
     resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+    resolveDirectResearchBundleApplication?: () =>
+      | DirectResearchBundleApplication
+      | Promise<DirectResearchBundleApplication>;
   } = {},
 ) {
   const lanEnabled = args.lanEnabled === true;
@@ -5228,6 +5250,8 @@ export function configureHostBridgeServerForTests(
     lastError: "",
   });
   synthesisClientResolverForTests = args.resolveSynthesisClient;
+  directResearchBundleApplicationResolverForTests =
+    args.resolveDirectResearchBundleApplication;
   return token;
 }
 

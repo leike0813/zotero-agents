@@ -11,12 +11,12 @@ import {
   isWaiting,
 } from "./skillRunnerProviderStateMachine";
 import {
+  applySkillRunnerRunEvent,
   buildSkillRunnerRunKey,
   listSkillRunnerRunProjections,
   projectSkillRunnerRun,
   resetSkillRunnerRunStoreForTests,
   subscribeSkillRunnerRunStore,
-  updateSkillRunnerRunStateByRequest,
 } from "./skillRunnerRunStore";
 
 export type WorkflowTaskRecord = {
@@ -1110,21 +1110,35 @@ export function updateWorkflowTaskStateByRequest(args: {
   let updated = 0;
   const backendType = String(args.backendType || "").trim();
   if (!backendType || backendType === DEFAULT_BACKEND_TYPE) {
-    const storedRun = updateSkillRunnerRunStateByRequest({
-      backendId,
-      requestId,
-      state: nextState,
-      backendStatus: args.backendStatus as JobState | undefined,
-      error: nextError,
-      updatedAt: nextUpdatedAt,
-      eventType: isTerminal(nextState)
-        ? "backend.terminal"
-        : "backend.snapshot",
-      eventPayload: {
-        source: "taskRuntime.updateWorkflowTaskStateByRequest",
-        state: nextState,
-      },
-    });
+    const storedRun = applySkillRunnerRunEvent(
+      isTerminal(nextState)
+        ? {
+            type: "backend.terminal",
+            backendId,
+            requestId,
+            status: nextState as "succeeded" | "failed" | "canceled",
+            backendStatus: args.backendStatus as JobState | undefined,
+            error: nextError,
+            updatedAt: nextUpdatedAt,
+            payload: {
+              source: "taskRuntime.updateWorkflowTaskStateByRequest",
+              state: nextState,
+            },
+          }
+        : {
+            type: "backend.snapshot",
+            backendId,
+            requestId,
+            state: nextState,
+            backendStatus: args.backendStatus as JobState | undefined,
+            error: nextError,
+            updatedAt: nextUpdatedAt,
+            payload: {
+              source: "taskRuntime.updateWorkflowTaskStateByRequest",
+              state: nextState,
+            },
+          },
+    );
     if (storedRun) {
       const projection = projectSkillRunnerRun({ run: storedRun });
       mergeSkillRunnerProjection(taskRecords, projection);

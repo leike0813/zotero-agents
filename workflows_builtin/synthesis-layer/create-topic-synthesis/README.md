@@ -21,7 +21,12 @@
 
 ## 怎么输入？
 
-**无需选中任何条目**。从 Dashboard 中直接运行此 workflow，输入主题种子描述即可。
+**无需选中任何条目**。从 Dashboard 中直接运行此 workflow，可选择两种入口：
+
+- 使用 Topic Planner 已建立的有效 Planned Topic。workflow 会读取其定义与 resolver，在执行时重新解析文献集合，并以同一个 Topic ID 生成正式综述。
+- 直接输入 `topicSeed`。准备阶段会先查找同一主题身份：若已有正式 Topic 则取消重复创建；若存在合适的有效 Planned Topic，则自动沿用其 ID、定义和 resolver；只有找不到同一身份 Topic 时才从零创建。
+
+如果要组织一批相互关联的主题，先运行 Topic Planner。规划完成后，各 Planned Topic 的创建任务可以独立执行；它们之间的关系已由同一份原子计划统一提出。
 
 ## 执行方式
 
@@ -53,7 +58,9 @@
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `topicSeed` | string | — | 主题种子描述，用自然语言描述你想创建的主题 |
+| `usePlannedTopic` | boolean | `false` | 是否从已有 Planned Topic 创建综述 |
+| `plannedTopicId` | string | — | `usePlannedTopic=true` 时必填，只列出有效、未 stale 的 Planned Topic |
+| `topicSeed` | string | — | `usePlannedTopic=false` 时必填；自由输入仍会优先复用同一身份的有效 Planned Topic |
 | `language` | string | `zh-CN` | 输出语言，支持 zh-CN / en-US / ja-JP / ko-KR / de-DE / fr-FR / es-ES / ru-RU |
 
 ## 模型建议
@@ -72,4 +79,5 @@
 - [Literature Analysis](../literature-workbench-package/literature-analysis/README.md) — 为文献建立结构化知识基础
 - [Tag Regulator](../literature-workbench-package/tag-regulator/README.md) — 规范化文献标签
 - [Update Topic Synthesis](update-topic-synthesis/README.md) — 更新已有主题
+- [Topic Planner](../topic-planner/README.md) — 总览文献库并建立 Planned Topic 与主题关系
 - [Manuscript Literature Framing](../manuscript-literature-framing/README.md) — 基于 Topic 撰写论文

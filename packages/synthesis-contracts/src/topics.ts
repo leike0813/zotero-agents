@@ -23,7 +23,7 @@ export type SynthesisWorkflowTopicOption = {
   label: string;
   description: string;
   meta: {
-    kind: "synthesis.topic";
+    kind: "synthesis.topic" | "synthesis.planned-topic";
     topicId: string;
     title: string;
     status?: string;
@@ -31,6 +31,8 @@ export type SynthesisWorkflowTopicOption = {
     actionLabel?: "Update";
     freshness?: SynthesisTopicFreshness;
     sourceMaterialsStatus?: SynthesisTopicSourceMaterialsStatus;
+    lifecycle?: "planned";
+    revision?: number;
   };
 };
 

@@ -808,3 +808,309 @@ When execution is non-interactive, the workflow runtime SHALL reject picker, edi
 - **WHEN** a non-interactive hook requests a file or directory picker
 - **THEN** the hook SHALL fail without opening Zotero UI
 - **AND** the workflow result SHALL identify the interaction boundary that was reached
+
+### Requirement: Workflow seams SHALL honor explicit ACP and sequence terminal facts
+
+Terminal observation and result application SHALL inspect the canonical ACP run and sequence state even when the local provider job or promise still reports `running`. An explicit `failed` or `canceled` state SHALL produce the matching workflow outcome and SHALL prevent result application.
+
+#### Scenario: ACP run cancels before provider promise returns
+
+- **WHEN** the ACP run store records `canceled` while the provider promise is still pending
+- **THEN** the terminal observer SHALL report canceled
+- **AND** the apply seam SHALL skip result application and return a canceled outcome.
+
+#### Scenario: Sequence child publishes ACP failure
+
+- **WHEN** the active ACP sequence step records `failed` or `canceled`
+- **THEN** the step and parent sequence SHALL synchronously enter the same terminal class
+- **AND** no downstream sequence step SHALL start.
+
+#### Scenario: ACP terminal error reaches sequence catch
+
+- **WHEN** an ACP step throws after its canonical run record is terminal
+- **THEN** sequence error handling SHALL preserve that ACP terminal classification
+- **AND** it SHALL NOT classify the error as a SkillRunner observer failure.
+
+### Requirement: Sequence workflow completion MUST be root-owned
+
+Workflow terminal observation, result application, and finish-summary settlement for `skillrunner.sequence.v1` SHALL be owned by the sequence root for both ACP and SkillRunner backends. A concrete step lifecycle record MUST NOT independently terminalize its parent workflow.
+
+#### Scenario: Non-final step does not settle the workflow
+
+- **WHEN** a non-final sequence step reaches execution success and its step-level apply state is terminal
+- **THEN** the parent workflow SHALL remain non-terminal while the sequence root is running
+- **AND** the workflow SHALL NOT invoke outer result application or emit its finish summary
+
+#### Scenario: Completed root applies and summarizes once
+
+- **WHEN** the sequence root reaches `completed` with a final applicable result
+- **THEN** the workflow SHALL invoke outer result application exactly once
+- **AND** it SHALL emit exactly one finish summary after application settles
+
+#### Scenario: Output repair does not change completion ownership
+
+- **WHEN** an ACP sequence final step reaches valid final output after zero or more output-repair rounds
+- **THEN** workflow completion SHALL follow the same root-owned application and summary rules
+- **AND** repair metadata SHALL NOT act as a terminal boundary
+
+#### Scenario: Failed or canceled root prevents application
+
+- **WHEN** the sequence root reaches `failed` or `canceled`
+- **THEN** the workflow SHALL settle with the matching terminal class
+- **AND** it SHALL NOT invoke outer result application
+
+#### Scenario: Short-circuited root uses its actual terminal step
+
+- **WHEN** a sequence short-circuits and the root records `completed` before the declared final step runs
+- **THEN** workflow settlement SHALL use the last step that actually executed
+- **AND** it SHALL still apply and summarize at most once
+
+### Requirement: Sequence root completion SHALL precede outer result apply
+
+Sequence execution and workflow result application SHALL remain distinct
+transactions for normal and recovered execution.
+
+#### Scenario: Terminal step completes the root before outer apply
+
+- **WHEN** the actual terminal sequence step completes its step apply and
+  lifecycle barrier
+- **THEN** the sequence runtime SHALL persist root `completed`
+- **AND** the owning workflow caller SHALL invoke outer result apply afterward.
+
+#### Scenario: Outer apply failure does not reopen sequence execution
+
+- **WHEN** outer workflow apply fails after sequence root completion
+- **THEN** workflow and task projection SHALL expose a failed main outcome
+- **AND** backend status SHALL remain succeeded
+- **AND** sequence root status SHALL remain completed.
+
+### Requirement: Actual terminal step SHALL determine outer apply ownership
+
+The outer apply seam SHALL use the step that actually produced the sequence
+terminal result rather than an unexecuted declared final step.
+
+#### Scenario: Declared final step completes normally
+
+- **WHEN** the declared final step is the actual terminal step
+- **THEN** outer apply SHALL be skipped exactly when that step declares
+  `apply_result`.
+
+#### Scenario: Earlier step short-circuits the sequence
+
+- **WHEN** a successful earlier step short-circuits the sequence
+- **THEN** result metadata SHALL identify that step as `terminal_step_id`
+- **AND** outer apply ownership SHALL be determined from that step
+- **AND** an unexecuted declared final step SHALL NOT suppress outer apply.
+
+### Requirement: Workflow jobs SHALL have one terminal resolution seam
+
+Workflow terminal observation and result application SHALL use one synchronous
+Workflow Job Terminal Resolution seam to interpret local queue execution,
+sequence-root state, canonical SkillRunner or ACP lifecycle state, and terminal
+apply evidence. The seam SHALL classify each admitted workflow job as missing,
+pending, locally ready, or canonically ready and SHALL return one normalized
+slot status with every classification, without owning lifecycle writes,
+subscriptions, or apply execution. The run seam SHALL map slot statuses to
+submission-slot actions and SHALL NOT read sequence, SkillRunner, or ACP stores
+for slot sampling.
+
+#### Scenario: Local terminal execution remains locally ready
+
+- **WHEN** a non-deferred queue job reaches succeeded, failed, or canceled
+- **AND** no earlier canonical terminal fact owns its outcome
+- **THEN** terminal resolution SHALL classify the job as locally ready
+- **AND** the apply seam SHALL retain its existing local reduction and apply behavior
+- **AND** canonical success evidence SHALL NOT bypass apply behavior for a locally succeeded, non-deferred result
+
+#### Scenario: Deferred execution waits for canonical lifecycle evidence
+
+- **WHEN** a queue job has a deferred result
+- **AND** its canonical lifecycle and terminal apply evidence are incomplete
+- **THEN** terminal resolution SHALL classify the job as pending
+- **AND** terminal observation SHALL continue waiting
+
+#### Scenario: Missing admitted job becomes an explicit failure
+
+- **WHEN** terminal observation can no longer read an admitted queue job
+- **THEN** terminal resolution SHALL classify the job as missing
+- **AND** terminal observation SHALL settle instead of waiting indefinitely
+- **AND** the apply seam SHALL report its existing explicit job-missing failure
+
+#### Scenario: One projection carries normalized slot status
+
+- **WHEN** terminal resolution classifies a workflow job
+- **THEN** the classification SHALL include one normalized slot status
+- **AND** the slot status vocabulary SHALL be missing, unobserved, queued, running, waiting_user, waiting_auth, failed_retriable, repairing, succeeded, failed, or canceled
+
+#### Scenario: Slot sampling preserves legacy canonical paths
+
+- **WHEN** terminal resolution classifies a job as pending or locally ready
+- **THEN** slot status SHALL sample the same canonical records as the terminal interpretation
+- **AND** backend canonical paths with no resolvable record SHALL return unobserved instead of a local fallback
+- **AND** local queue job state SHALL remain the fallback only for paths that previously used it, such as pass-through and SkillRunner sequences without a materialized step request
+- **AND** a sequence state SHALL contribute request identity without projecting its own status
+
+#### Scenario: Canonical terminal outcomes own slot status
+
+- **WHEN** terminal resolution classifies a job as canonically ready
+- **THEN** slot status SHALL match the canonical terminal outcome
+
+#### Scenario: Run seam consumes the one projection
+
+- **WHEN** the run seam observes workflow jobs
+- **THEN** it SHALL call terminal resolution once per job per observation pass
+- **AND** it SHALL map returned slot statuses to submission-slot actions
+- **AND** it SHALL NOT read sequence, SkillRunner, or ACP stores for slot sampling
+
+#### Scenario: Resolution failures remain visible
+
+- **WHEN** a lifecycle getter, persisted record parser, or terminal invariant fails
+- **THEN** terminal resolution SHALL propagate the failure
+- **AND** it SHALL NOT convert the failure into pending evidence
+
+### Requirement: Canonical terminal resolution SHALL preserve lifecycle authority
+
+Canonical terminal resolution SHALL derive request identity and terminal state
+from sequence, SkillRunner, and ACP lifecycle facts without accepting a caller
+override or merging their persistence ownership.
+
+#### Scenario: Running sequence root gates terminal child evidence
+
+- **WHEN** a concrete sequence step is terminal
+- **AND** its sequence root is missing or non-terminal
+- **THEN** terminal resolution SHALL remain pending
+
+#### Scenario: Completed sequence root selects the materialized terminal step
+
+- **WHEN** a sequence root reaches completed
+- **THEN** terminal resolution SHALL inspect the last step with a materialized request identity
+- **AND** missing or non-terminal evidence for that step SHALL remain pending
+- **AND** the root SHALL NOT be treated as successful by itself
+
+#### Scenario: Canonical execution failure wins over stale apply evidence
+
+- **WHEN** a sequence root or canonical run record is failed or canceled
+- **AND** stale simultaneous apply-failure evidence also exists
+- **THEN** terminal resolution SHALL preserve the canonical failed or canceled class
+
+#### Scenario: Apply failure overrides backend success
+
+- **WHEN** canonical backend execution succeeded
+- **AND** required apply reached failed
+- **THEN** terminal resolution SHALL classify the job as canonically ready and failed
+- **AND** the backend lifecycle success fact SHALL remain unchanged
+
+### Requirement: Run-result bundle readers SHALL open through one Bundle I/O seam
+
+Workflow apply paths and SkillRunner bundle settlement SHALL open run-result
+bundle readers through one Bundle I/O entry that chooses the temp zip,
+directory, or unavailable branch and returns a handle with reader and dispose.
+
+#### Scenario: Bundle bytes open a temp zip with dispose cleanup
+
+- **WHEN** a run result carries non-empty `bundleBytes`
+- **THEN** Bundle I/O SHALL write the bytes to a temp zip path and open a zip reader
+- **AND** the returned handle SHALL expose the bundle path
+- **AND** `dispose()` SHALL remove only that temp zip file
+- **AND** repeated `dispose()` calls SHALL be safe no-ops
+
+#### Scenario: Bundle directory opens without temp file
+
+- **WHEN** a run result carries `bundleDir` and no non-empty `bundleBytes`
+- **THEN** Bundle I/O SHALL open a directory reader for that directory
+- **AND** the handle bundle path SHALL be empty
+- **AND** `dispose()` SHALL NOT remove the directory
+
+#### Scenario: Missing bundle source opens an unavailable reader
+
+- **WHEN** a run result carries no non-empty `bundleBytes` and no `bundleDir`
+- **THEN** Bundle I/O SHALL open an unavailable reader
+- **AND** the handle bundle path SHALL be empty
+
+#### Scenario: Callers hold handles through apply and dispose them
+
+- **WHEN** an apply path or SkillRunner bundle settlement opens a run-result reader
+- **THEN** the owning scope SHALL dispose the handle after apply or settlement completes
+- **AND** failure paths SHALL dispose through `finally`
+
+### Requirement: Callers SHALL import owning modules instead of one-line re-export facades
+
+Workflow execution callers SHALL import the owning module directly when a
+facade would only re-export one function. Single-function re-export facades
+SHALL NOT be added; import-site aliases SHALL be used for compatibility naming.
+
+#### Scenario: Dynamic single-function consumers target the owning module
+
+- **WHEN** a caller needs a lazy single-function import
+- **THEN** the dynamic import SHALL target the owning module
+- **AND** the caller SHALL NOT route the import through a one-line re-export module.
+
+#### Scenario: Static policy consumers target the owning module
+
+- **WHEN** workflow seams consume selection policy functions
+- **THEN** import statements SHALL target the owning trigger policy module directly
+- **AND** compatibility aliases SHALL live at the import site.
+
+#### Scenario: Deleted facades leave owning exports intact
+
+- **WHEN** a shallow re-export facade is removed
+- **THEN** the owning module SHALL keep its exported functions unchanged
+- **AND** no caller-visible function SHALL disappear.
+
+### Requirement: Sequence run state SHALL be written through fact events
+
+Sequence run state writers SHALL submit fact events to one sequence state
+write seam. The state module SHALL derive step status, run status, root
+request identity, and terminal step identity from the event payload and the
+stored sequence request. Callers SHALL NOT write `completed` directly.
+
+#### Scenario: Completed state is derived from a terminal step success
+
+- **WHEN** a successful step event matches the declared final step or a
+  short-circuit rule
+- **THEN** the sequence state reducer SHALL derive run status `completed`
+- **AND** SHALL record the terminal step identity
+- **AND** callers SHALL NOT submit an explicit completed event
+
+#### Scenario: Request identity conflicts remain visible
+
+- **WHEN** a request-created or succeeded event carries a request id that
+  differs from the materialized step request identity
+- **THEN** the reducer SHALL throw
+- **AND** SHALL NOT persist a conflicting state
+
+#### Scenario: Terminal writes remain idempotent
+
+- **WHEN** a sequence run already reached completed, failed, or canceled
+- **THEN** subsequent run terminal events SHALL preserve the existing terminal
+  state
+
+#### Scenario: Recovery writers use the event seam
+
+- **WHEN** ACP or SkillRunner recovery observes a waiting or terminal fact
+- **THEN** the recovery module SHALL submit the corresponding step or run fact
+  event
+- **AND** SHALL NOT mutate sequence state fields directly
+
+### Requirement: Execution seam modules SHALL expose one name per concept
+
+Execution seam modules SHALL NOT export aliases or internal-only helpers when
+deleting the export moves no complexity into callers.
+
+#### Scenario: Internal concurrency predicate stays private
+
+- **WHEN** the full-parallel provider predicate is used
+- **THEN** it SHALL remain a private helper inside the concurrency module
+- **AND** SHALL NOT be part of the module interface
+
+#### Scenario: Result envelope exposes one unwrap entry point
+
+- **WHEN** workflow result JSON is normalized
+- **THEN** callers SHALL use `unwrapSkillRunnerResultJson`
+- **AND** no canonicalize alias SHALL exist
+
+#### Scenario: Request metadata exposes one task-name resolver
+
+- **WHEN** an input unit label is needed
+- **THEN** callers SHALL use `resolveTaskNameFromRequest`
+- **AND** no label alias SHALL exist

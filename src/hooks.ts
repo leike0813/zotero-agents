@@ -113,10 +113,7 @@ import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
 import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
 import { initializeWorkflowProductStorage } from "./modules/workflowProductStore";
 import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
-import {
-  reconcileAcpSkillRunWorkflowTasksOnStartup,
-  shutdownAcpSkillRunConversations,
-} from "./modules/acpSkillRunStore";
+import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acpSkillRunStore";
 import {
   cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
@@ -191,6 +188,7 @@ import {
   startDefaultSynthesisProductionOwner,
   stopDefaultSynthesisProductionOwner,
 } from "./modules/synthesisProductionOwner";
+import { shutdownAcpSkillRunConversations } from "./modules/acpSkillRunActions";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -1396,10 +1394,10 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           ? Math.floor(data.limit)
           : 12;
       const limit = Math.max(1, Math.min(50, limitRaw));
-      const [activeTasks, acpSkillRuns, filter, displayName] =
+      const [activeTasks, acpSkillRunStore, filter, displayName] =
         await Promise.all([
           import("./modules/taskRuntime"),
-          import("./modules/acpSkillRunDashboardFacade"),
+          import("./modules/acpSkillRunStore"),
           import("./modules/dashboardActiveTasks"),
           import("./backends/displayName"),
         ]);
@@ -1414,7 +1412,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       return filter
         .projectDashboardActiveTasks({
           activeTasks: activeTasks.listActiveWorkflowTaskSummaries({ limit }),
-          acpSkillRuns: acpSkillRuns.listAcpSkillRunSummaries({
+          acpSkillRuns: acpSkillRunStore.listAcpSkillRunSummaries({
             activeOnly: true,
             limit,
           }),

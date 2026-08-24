@@ -21,12 +21,9 @@ import {
   projectDashboardActiveTasks,
 } from "../../src/modules/dashboardActiveTasks";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
   getSkillRunnerRunStoreReadDiagnosticsForTests,
   resetSkillRunnerRunStoreReadDiagnosticsForTests,
-  updateSkillRunnerRunStateByRequest,
-  updateSkillRunnerRunStateByRunKey,
+  applySkillRunnerRunEvent,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   getWorkflowTaskReadDiagnosticsForTests,
@@ -124,7 +121,8 @@ function seedSkillRunnerRuns(count: number) {
     const backendId = index % 2 === 0 ? "skillrunner-a" : "skillrunner-b";
     recordSkillRunnerRunFromJob(makeSkillRunnerJob(index, backendId));
     if (index % 3 === 0) {
-      updateSkillRunnerRunStateByRequest({
+      applySkillRunnerRunEvent({
+        type: "backend.snapshot",
         backendId,
         requestId: `governance-request-${index}`,
         state: "succeeded",
@@ -135,26 +133,29 @@ function seedSkillRunnerRuns(count: number) {
 }
 
 function recordSkillRunnerRunFromJob(job: JobRecord) {
-  const run = createSkillRunnerRun({
-    backendId: String(job.meta.backendId || ""),
-    workflowId: job.workflowId,
-    workflowRunId: String(job.meta.workflowRunId || job.meta.runId || ""),
-    jobId: job.id,
-    taskName: String(job.meta.taskName || job.id),
-    skillId: String(job.meta.skillId || "") || undefined,
-    sequenceRunId:
-      String(job.meta.sequenceRunId || job.meta.workflowRunId || "") ||
-      undefined,
-    sequenceJobId: String(job.meta.sequenceJobId || "") || undefined,
-    sequenceStepId: String(job.meta.sequenceStepId || "") || undefined,
-    requestPayload: job.request,
-    fetchType: "result",
-    executionMode:
-      String(job.meta.executionMode || "") === "interactive"
-        ? "interactive"
-        : "auto",
-    createdAt: job.createdAt,
-    updatedAt: job.updatedAt,
+  const run = applySkillRunnerRunEvent({
+    type: "submit.local_created",
+    init: {
+      backendId: String(job.meta.backendId || ""),
+      workflowId: job.workflowId,
+      workflowRunId: String(job.meta.workflowRunId || job.meta.runId || ""),
+      jobId: job.id,
+      taskName: String(job.meta.taskName || job.id),
+      skillId: String(job.meta.skillId || "") || undefined,
+      sequenceRunId:
+        String(job.meta.sequenceRunId || job.meta.workflowRunId || "") ||
+        undefined,
+      sequenceJobId: String(job.meta.sequenceJobId || "") || undefined,
+      sequenceStepId: String(job.meta.sequenceStepId || "") || undefined,
+      requestPayload: job.request,
+      fetchType: "result",
+      executionMode:
+        String(job.meta.executionMode || "") === "interactive"
+          ? "interactive"
+          : "auto",
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    },
   });
   if (!run) {
     return null;
@@ -165,7 +166,8 @@ function recordSkillRunnerRunFromJob(job: JobRecord) {
       "",
   ).trim();
   const attached = requestId
-    ? attachSkillRunnerRequestId({
+    ? applySkillRunnerRunEvent({
+        type: "request.created",
         runKey: run.runKey,
         requestId,
         updatedAt: job.updatedAt,
@@ -173,7 +175,8 @@ function recordSkillRunnerRunFromJob(job: JobRecord) {
     : run;
   if (job.meta.skillRunnerRequestReady) {
     return (
-      updateSkillRunnerRunStateByRunKey({
+      applySkillRunnerRunEvent({
+        type: "backend.snapshot",
         runKey: attached.runKey,
         state: "request_ready",
         backendStatus: job.state,
@@ -182,7 +185,8 @@ function recordSkillRunnerRunFromJob(job: JobRecord) {
     );
   }
   return (
-    updateSkillRunnerRunStateByRunKey({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       runKey: attached.runKey,
       state: job.state,
       backendStatus: job.state,
@@ -515,7 +519,8 @@ describe("background refresh governance", function () {
 
   it("keeps dashboard, sidebar, and popover summary reads off full SkillRunner payloads", function () {
     seedSkillRunnerRuns(36);
-    updateSkillRunnerRunStateByRequest({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId: "skillrunner-b",
       requestId: "governance-request-1",
       state: "waiting_user",

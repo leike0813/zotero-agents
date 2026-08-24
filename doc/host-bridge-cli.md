@@ -33,6 +33,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 
 | Capability | Category | Approval | Input | CLI exposure | Flags |
 | --- | --- | --- | --- | --- | --- |
+| `items.export_research_bundle` | items | `none` | `object required` | `library items export-research-bundle` | response:file-output, mcp-mirror |
 | `workflow_products.export` | workflow_products | `none` | `object required` | `product download` | response:file-output, mcp-mirror |
 | `workflow_products.get` | workflow_products | `none` | `object required` | `product get` | response:selector-bounded, mcp-mirror |
 | `workflow_products.list` | workflow_products | `none` | `object` | `product list` | response:paged, mcp-mirror |
@@ -51,6 +52,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | response:paged, mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `library item search` | response:limit-bounded, mcp-mirror |
 | `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | response:paged, mcp-mirror |
+| `topics.export_research_bundle` | topics | `none` | `object` | `synthesis topic export-research-bundle` | response:file-output, mcp-mirror |
 | `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | response:selector-bounded, mcp-mirror |
 | `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | response:file-output, mcp-mirror |
 | `topics.get_report` | topics | `none` | `object` | `synthesis topic get-report` | response:selector-bounded, mcp-mirror |
@@ -98,6 +100,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `library item get` | `library.get_item_detail` | capability | - |
 | `library item notes` | `library.get_item_notes` | capability | - |
 | `library item search` | `library.search_items` | capability | - |
+| `library items export-research-bundle` | `items.export_research_bundle` | capability | - |
 | `library items list` | `library.list_items` | capability | - |
 | `library note get` | `library.get_note_detail` | capability | - |
 | `library note payload` | `library.get_note_payload` | capability | - |
@@ -130,6 +133,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `synthesis insight attention-queue` | `insights.get_attention_queue` | capability | - |
 | `synthesis resolver resolve` | `resolvers.resolve` | capability | - |
 | `synthesis schema get` | `schemas.get` | capability | - |
+| `synthesis topic export-research-bundle` | `topics.export_research_bundle` | capability | - |
 | `synthesis topic find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
 | `synthesis topic get-context` | `topics.get_context` | capability | - |
 | `synthesis topic get-report` | `topics.get_report` | capability | - |

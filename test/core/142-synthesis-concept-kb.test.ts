@@ -139,7 +139,7 @@ describe("Synthesis concept KB", function () {
 
     assert.lengthOf(result.concepts, 1);
     assert.lengthOf(result.senses, 1);
-    assert.lengthOf(result.aliases, 2);
+    assert.lengthOf(result.aliases, 1);
     assert.lengthOf(result.topic_links, 1);
 
     const paths = buildSynthesisKnowledgeGraphPaths(root);
@@ -203,7 +203,7 @@ describe("Synthesis concept KB", function () {
     );
   });
 
-  it("merges exact alias matches and downgrades low-confidence proposals to review diagnostics", async function () {
+  it("merges exact canonical label matches and downgrades low-confidence proposals to review diagnostics", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisConceptKbService({ root });
 
@@ -258,6 +258,170 @@ describe("Synthesis concept KB", function () {
     assert.include(diagnostics, "low_confidence_concept");
     assert.notInclude(diagnostics, root);
     assert.notInclude(diagnostics, "abc123");
+  });
+
+  it("preflights alias conflicts against the complete batch independent of proposal order", async function () {
+    async function ingest(cards: unknown[]) {
+      const root = await makeRuntimeRoot();
+      const service = createSynthesisConceptKbService({ root });
+      await service.ingestConceptCardProposals({
+        topicId: "topic-batch",
+        payload: { cards },
+      });
+      const snapshot = await service.loadConceptKb();
+      return {
+        concepts: snapshot.concepts.map((entry) => entry.label).sort(),
+        reviews: snapshot.review_items
+          .map((entry) => [entry.label, entry.reason])
+          .sort(),
+      };
+    }
+    const broader = {
+      label: "Computer Vision",
+      aliases: ["Object Detection"],
+      concept_type: "field",
+      domain: "computer vision",
+      short_definition: "Visual computing field.",
+      definition: "Research field covering visual perception.",
+      confidence: 0.9,
+    };
+    const task = {
+      label: "Object Detection",
+      aliases: [],
+      concept_type: "task",
+      domain: "computer vision",
+      short_definition: "Detect and localize objects.",
+      definition: "A visual recognition task.",
+      confidence: 0.9,
+    };
+
+    const forward = await ingest([broader, task]);
+    const reverse = await ingest([task, broader]);
+
+    assert.deepEqual(forward, reverse);
+    assert.deepEqual(forward.concepts, []);
+    assert.deepEqual(forward.reviews, [
+      ["Computer Vision", "alias_conflict"],
+      ["Object Detection", "alias_conflict"],
+    ]);
+  });
+
+  it("audits structural alias conflicts and applies explicit keep/remove decisions without deleting concepts or senses", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisConceptKbService({
+      root,
+      now: () => "2026-05-25T00:00:00.000Z",
+    });
+    await service.saveConceptKb({
+      concepts: [
+        {
+          concept_id: "concept:cv:field",
+          label: "Computer Vision",
+          aliases: ["Object Detection", "Image Segmentation"],
+          concept_type: "field",
+          domain: "computer vision",
+          status: "active",
+          sense_ids: ["sense:cv:field"],
+          created_at: "2026-05-25T00:00:00.000Z",
+          updated_at: "2026-05-25T00:00:00.000Z",
+        },
+        {
+          concept_id: "concept:cv:detection",
+          label: "Object Detection",
+          aliases: [],
+          concept_type: "task",
+          domain: "computer vision",
+          status: "active",
+          sense_ids: [],
+          created_at: "2026-05-25T00:00:00.000Z",
+          updated_at: "2026-05-25T00:00:00.000Z",
+        },
+        {
+          concept_id: "concept:cv:segmentation",
+          label: "Image Segmentation",
+          aliases: [],
+          concept_type: "task",
+          domain: "computer vision",
+          status: "active",
+          sense_ids: [],
+          created_at: "2026-05-25T00:00:00.000Z",
+          updated_at: "2026-05-25T00:00:00.000Z",
+        },
+      ],
+      senses: [
+        {
+          sense_id: "sense:cv:field",
+          concept_id: "concept:cv:field",
+          label: "Computer Vision",
+          aliases: ["Object Detection", "Image Segmentation"],
+          domain: "computer vision",
+          short_definition: "Visual computing field.",
+          definition: "Research field covering visual perception.",
+          confidence: "high",
+          source_topic_ids: ["topic-cv"],
+          evidence: [],
+          created_at: "2026-05-25T00:00:00.000Z",
+          updated_at: "2026-05-25T00:00:00.000Z",
+        },
+      ],
+      aliases: [
+        {
+          alias_id: "alias:object-detection",
+          alias: "Object Detection",
+          normalized: "object detection",
+          concept_id: "concept:cv:field",
+          sense_id: "sense:cv:field",
+          status: "active",
+          confidence: "high",
+          created_at: "2026-05-25T00:00:00.000Z",
+          updated_at: "2026-05-25T00:00:00.000Z",
+        },
+        {
+          alias_id: "alias:image-segmentation",
+          alias: "Image Segmentation",
+          normalized: "image segmentation",
+          concept_id: "concept:cv:field",
+          sense_id: "sense:cv:field",
+          status: "active",
+          confidence: "high",
+          created_at: "2026-05-25T00:00:00.000Z",
+          updated_at: "2026-05-25T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const audit = await service.auditConceptAliases();
+    assert.equal(audit.created_review_count, 2);
+    const reviews = (await service.loadConceptKb()).review_items;
+    const keptReview = reviews.find(
+      (entry) => entry.audit_alias?.alias === "Object Detection",
+    )!;
+    const removedReview = reviews.find(
+      (entry) => entry.audit_alias?.alias === "Image Segmentation",
+    )!;
+    assert.equal(keptReview.reason, "alias_conflict");
+
+    const kept = await service.applyConceptReviewAction({
+      reviewId: keptReview.review_id,
+      action: "keep_alias",
+    });
+    assert.equal(kept.review_item?.status, "approved");
+
+    const result = await service.applyConceptReviewAction({
+      reviewId: removedReview.review_id,
+      action: "remove_alias",
+    });
+
+    assert.equal(result.review_item?.status, "rejected");
+    const snapshot = await service.loadConceptKb();
+    assert.lengthOf(snapshot.concepts, 3);
+    assert.lengthOf(snapshot.senses, 1);
+    assert.deepEqual(
+      snapshot.aliases.map((entry) => entry.alias),
+      ["Object Detection"],
+    );
+    assert.deepEqual(snapshot.concepts[0]?.aliases, ["Object Detection"]);
+    assert.deepEqual(snapshot.senses[0]?.aliases, ["Object Detection"]);
   });
 
   it("approves low-confidence concept review items as new concepts", async function () {
@@ -508,6 +672,7 @@ describe("Synthesis concept KB", function () {
         cards: [
           {
             label: "Stable Concept",
+            aliases: ["Stable Alias"],
             concept_type: "task",
             domain: "computer vision",
             short_definition: "Stable.",
@@ -590,7 +755,7 @@ describe("Synthesis concept KB", function () {
         {
           label: "Object Detection",
           exact: 1,
-          aliases: 1,
+          aliases: 0,
           senses: 1,
           ambiguous: false,
         },

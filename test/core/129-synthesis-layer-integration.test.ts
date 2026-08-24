@@ -1201,6 +1201,7 @@ describe("Synthesis Layer v1 integration service", function () {
       title: "Alpha Topic",
       definition: "Semantic scope for Alpha.",
       aliases: ["Alpha", "A topic"],
+      lifecycle: "materialized",
       updated_at: "2026-05-12T00:00:00.000Z",
       prospective_topic_relation_proposals: [],
     });
@@ -1655,6 +1656,7 @@ describe("Synthesis Layer v1 integration service", function () {
       title: "topic-beta",
       definition: "Beta semantic scope.",
       aliases: ["Beta"],
+      lifecycle: "materialized",
       updated_at: "2026-05-12T01:00:00.000Z",
       prospective_topic_relation_proposals: [],
     });
@@ -4769,6 +4771,79 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     });
   });
 
+  it("commits exact discovery membership outcomes only after a successful structured apply", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:accepted",
+      topicId: "object-detection",
+      literatureItemId: "1:DETR",
+      score: 0.9,
+      status: "open",
+      basisHash: "basis:accepted",
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:screened",
+      topicId: "object-detection",
+      literatureItemId: "lit:background",
+      score: 0.8,
+      status: "open",
+      basisHash: "basis:screened",
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      now: () => "2026-05-16T00:00:00.000Z",
+    });
+    const context = v2SectionContext(v2SectionsWithEvidence("sha256:digest"), {
+      "runtime/payloads/resolver.json": {
+        resolver: { paper_refs: ["1:DETR"], combine: "union" },
+        resolved_paper_set: {
+          papers: [{ paper_ref: "1:DETR", match_reasons: ["paper_refs"] }],
+        },
+        source_membership: {
+          effective_refs: ["1:DETR"],
+          discovery_candidates: [
+            {
+              hint_id: "hint:accepted",
+              paper_ref: "1:DETR",
+              basis_hash: "basis:accepted",
+              outcome: "accepted",
+              relevance_level: "core",
+              outcome_reason: "Core evidence.",
+            },
+            {
+              hint_id: "hint:screened",
+              paper_ref: "lit:background",
+              basis_hash: "basis:screened",
+              outcome: "screened_out",
+              relevance_level: "external",
+              outcome_reason: "Background only.",
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await service.applyTopicSynthesisResult(
+      v2TopicBundle(),
+      context,
+    );
+
+    assert.equal(result.status, "persisted");
+    assert.deepInclude(repository.getTopicDiscoveryHint("hint:accepted"), {
+      status: "accepted",
+      basisHash: "basis:accepted",
+    });
+    const screened = repository.getTopicDiscoveryHint("hint:screened")!;
+    assert.equal(screened.status, "screened_out");
+    assert.deepInclude(JSON.parse(screened.outcomeJson || "{}"), {
+      relevance_level: "external",
+      reason: "Background only.",
+    });
+  });
+
   it("rejects stale full updates before reading run workspace artifacts", async function () {
     await withMockZoteroPrefs(async () => {
       const root = await makeRoot();
@@ -4782,6 +4857,14 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
         v2TopicBundle(),
         v2SectionContext(v2SectionsWithEvidence("sha256:digest")),
       );
+      const repository = createSynthesisRepository({ runtimeRoot: root });
+      repository.upsertTopicDiscoveryHint({
+        hintId: "hint:conflict",
+        topicId: "object-detection",
+        literatureItemId: "lit:conflict",
+        score: 0.8,
+        status: "open",
+      });
       const result = await service.applyTopicSynthesisResult(
         v2TopicBundle({
           operation: "update_full",
@@ -4798,6 +4881,10 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       assert.sameDeepMembers(
         (result as any).mismatches.map((entry: any) => entry.name),
         ["artifact", "manifest", "metadata"],
+      );
+      assert.equal(
+        repository.getTopicDiscoveryHint("hint:conflict")?.status,
+        "open",
       );
     });
   });
@@ -5220,19 +5307,19 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     ]);
     assert.deepEqual(
       hints.map((hint) => hint.literatureItemId),
-      ["1:DETR", "lit:candidate"],
+      ["lit:candidate"],
     );
     assert.deepEqual(
       acceptedHints.map((hint) => hint.literatureItemId),
-      ["1:DETR", "lit:candidate"],
+      ["1:DETR"],
     );
     assert.equal(state.freshness, "fresh");
     assert.equal(state.known_dependency_status, "fresh");
     assert.equal(state.discovery_status, "candidates");
-    assert.equal(state.candidate_count, 2);
+    assert.equal(state.candidate_count, 1);
     assert.equal(snapshotRow?.freshness, "fresh");
     assert.equal(snapshotRow?.discovery_status, "candidates");
-    assert.equal(snapshotRow?.candidate_count, 2);
+    assert.equal(snapshotRow?.candidate_count, 1);
     assert.deepInclude(snapshotRow?.updateIntent || {}, {
       topicId: "object-detection",
       updateMode: "update_patch",
@@ -5243,7 +5330,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(topicContext.freshness?.discovery_status, "candidates");
     assert.deepEqual(
       (topicContext.discovery_hints || []).map((hint) => hint.literatureItemId),
-      ["1:DETR", "lit:candidate"],
+      ["lit:candidate"],
     );
 
     repository.upsertLiteratureMatchingMetadata({
@@ -5265,14 +5352,14 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(refreshedState.freshness, "fresh");
     assert.equal(refreshedState.known_dependency_status, "fresh");
     assert.equal(refreshedState.discovery_status, "candidates");
-    assert.equal(refreshedState.candidate_count, 2);
+    assert.equal(refreshedState.candidate_count, 1);
     assert.deepEqual(
       refreshedHints.map((hint) => hint.literatureItemId),
-      ["1:DETR", "lit:candidate"],
+      ["lit:candidate"],
     );
     assert.deepEqual(
       refreshedAcceptedHints.map((hint) => hint.literatureItemId),
-      ["1:DETR", "lit:candidate"],
+      ["1:DETR"],
     );
 
     repository.upsertTopicGraphNode({
@@ -5313,13 +5400,13 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       (cascadedContext.discovery_hints || []).map(
         (hint) => hint.literatureItemId,
       ),
-      ["1:DETR", "lit:candidate", "lit:child-new"],
+      ["lit:candidate", "lit:child-new"],
     );
     const cascadedSnapshot = await service.getSynthesisSnapshot();
     const cascadedSnapshotRow = cascadedSnapshot.artifacts.rows.find(
       (row) => row.id === "object-detection",
     );
-    assert.equal(cascadedSnapshotRow?.candidate_count, 3);
+    assert.equal(cascadedSnapshotRow?.candidate_count, 2);
     assert.deepEqual(
       repository
         .listTopicDiscoveryHints({
@@ -5390,6 +5477,16 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       assert.notProperty(digestContext.digest, "current_hashes");
 
       assert.equal(semanticContext.view, "semantic");
+      assert.deepEqual(
+        semanticContext.semantic.source_papers.map(
+          (paper: any) => paper.paper_ref,
+        ),
+        ["1:DETR"],
+      );
+      assert.notDeepEqual(
+        semanticContext.semantic.source_papers,
+        semanticContext.semantic.resolved_paper_set.papers,
+      );
       assert.include(
         semanticContext.semantic.markdown,
         "DETR introduced a set-prediction framing",
@@ -5913,5 +6010,80 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(calls.assembleArtifact, 1);
     assert.equal(calls.validateArtifact, 1);
     assert.equal(calls.applySectionPatch, 0);
+  });
+  it("returns one bounded planning context and exposes only active Planned Topics as workflow options", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({ itemKey: "A", tag: "topic:vision" }),
+        registryInput({ itemKey: "B", tag: "topic:detection" }),
+      ],
+    });
+    const graph = createSynthesisTopicGraphService({ root });
+    const initial = await graph.loadTopicGraph();
+    const applied = await service.applyTopicPlan({
+      kind: "topic_plan",
+      operation: "reconcile",
+      base_graph_hash: initial.manifest.manifest_hash,
+      library_index_hash: "stale-on-purpose",
+      topic_actions: [
+        {
+          action: "create",
+          topic_id: "topic-vision",
+          title: "Vision Models",
+          definition: "Models for visual understanding.",
+          resolver: { tag: { and: ["topic:vision"] }, combine: "union" },
+          revision: 1,
+          basis: [],
+        },
+      ],
+      relation_proposals: [],
+      recommended_updates: [],
+    });
+    assert.equal(applied.status, "persisted");
+    assert.isTrue(applied.coverage_stale);
+
+    const context = (await service.getTopicPlanningContext({
+      limit: 1,
+    })) as any;
+    assert.equal(context.schema_id, "synthesis.topic_planning_context");
+    assert.equal(context.library.total_papers, 2);
+    assert.lengthOf(context.library.papers, 1);
+    assert.isTrue(context.diagnostics.truncated);
+    assert.equal(
+      context.topic_graph.manifest.manifest_hash,
+      applied.graph_hash,
+    );
+    assert.deepInclude(context.topics[0], {
+      topic_id: "topic-vision",
+      lifecycle: "planned",
+      node_type: "placeholder",
+    });
+
+    const options = await service.listWorkflowTopicOptions({
+      filter: "planned",
+    });
+    assert.deepEqual(
+      options.options.map((option) => option.value),
+      ["topic-vision"],
+    );
+    await graph.reconcileTopicPlan({
+      currentLibraryIndexHash: context.library.index_hash,
+      plan: {
+        kind: "topic_plan",
+        operation: "reconcile",
+        base_graph_hash: applied.graph_hash,
+        library_index_hash: context.library.index_hash,
+        topic_actions: [{ action: "mark_stale", topic_id: "topic-vision" }],
+        relation_proposals: [],
+        recommended_updates: [],
+      },
+    });
+    assert.deepEqual(
+      (await service.listWorkflowTopicOptions({ filter: "planned" })).options,
+      [],
+    );
   });
 });

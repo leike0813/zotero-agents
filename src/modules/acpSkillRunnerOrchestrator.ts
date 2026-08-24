@@ -66,17 +66,12 @@ import {
   appendAcpSkillRunHardTimeoutTranscriptNotice,
   completeAcpSkillRunTranscriptTurnBoundary,
   getAcpSkillRunRecord,
-  isRecoverablePromptFailure,
   projectAcpSkillRunOutputEnvelopeToTranscript,
-  registerAcpSkillRunController,
-  registerAcpSkillRunSetupController,
   recordAcpSkillRunOutputRevision,
   recordAcpSkillRunSessionUpdate,
-  resolveAcpSkillRunPermissionRequest,
   setAcpSkillRunRecoveryHandler,
   type AcpSkillRunSetupController,
   type AcpSkillRunStatus,
-  unregisterAcpSkillRunSetupController,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
 import { type AcpSkillRunForegroundDeps } from "./acpSkillRunForeground";
@@ -91,9 +86,15 @@ import {
   writeAcpSkillRunAuditStderrTail,
 } from "./acpSkillRunAuditTrail";
 import {
+  BoundedWaitError,
+  createCancellationController,
+  waitForBoundedPromise,
   watchPromiseSettlement,
+  type BoundedWaitStartupOptions,
   type PromiseSettlementWatchdog,
 } from "../utils/wait";
+
+const ACP_SKILL_STARTUP_PHASE_TIMEOUT_MS = 60_000;
 import {
   CONFIRMED_ACP_SKILL_PROMPT_INTERRUPTION_STATE,
   DEFAULT_ACP_PROMPT_INTERRUPT_GRACE_MS,
@@ -130,6 +131,14 @@ import {
   resolveRecoveredWorkflowIdFromTask,
   resolveWorkflowSkillName,
 } from "./acpSkillRunRecovery";
+import { isRecoverablePromptFailure } from "./acpSkillRunStatus";
+import {
+  registerAcpSkillRunController,
+  registerAcpSkillRunSetupController,
+  unregisterAcpSkillRunController,
+  unregisterAcpSkillRunSetupController,
+} from "./acpSkillRunControllerRegistry";
+import { resolveAcpSkillRunPermissionRequest } from "./acpSkillRunPermissionQueue";
 
 export {
   reapplyAcpSkillRunResult,
@@ -369,6 +378,7 @@ export async function runPrompt(args: {
   sessionId?: string;
   prepareSession?: (sessionId: string) => Promise<void>;
   onPromptReady?: (sessionId: string) => void | Promise<void>;
+  startup?: BoundedWaitStartupOptions;
 }): Promise<{
   sessionId: string;
   stopReason: string;
@@ -379,7 +389,34 @@ export async function runPrompt(args: {
 }> {
   let sessionId = String(args.sessionId || "").trim();
   if (!sessionId) {
-    const session = await args.adapter.newSession();
+    const startup = {
+      timeoutMs: args.startup?.timeoutMs ?? ACP_SKILL_STARTUP_PHASE_TIMEOUT_MS,
+      signal: args.startup?.signal,
+    };
+    await waitForBoundedPromise(args.adapter.initialize(), {
+      phase: "acp-initialize",
+      ...startup,
+    });
+    const transportLifecycle =
+      args.adapter.getTransportSnapshot?.()?.transportLifecycle;
+    await recordAcpSkillRunnerSetupStage({
+      requestId: args.requestId,
+      runtimeDir: getAcpSkillRunRecord(args.requestId)?.runtimeDir,
+      stage: "transport-spawned",
+      message: "ACP transport ownership is available for this run.",
+      details: transportLifecycle
+        ? {
+            transportKind: transportLifecycle.transportKind,
+            spawnId: transportLifecycle.spawnId,
+            bridgePid: transportLifecycle.bridgePid,
+            childPid: transportLifecycle.childPid,
+          }
+        : undefined,
+    });
+    const session = await waitForBoundedPromise(args.adapter.newSession(), {
+      phase: "acp-session-new",
+      ...startup,
+    });
     sessionId = session.sessionId;
     refreshAcpSkillRunRuntimeCatalogFromSession({
       requestId: args.requestId,
@@ -418,13 +455,19 @@ export async function runPrompt(args: {
       details: { sessionId },
       projectRunEvent: false,
     });
-    await applyAcpSkillRunRuntimeSelection({
-      adapter: args.adapter,
-      backend: args.backend,
-      requestId: args.requestId,
-      sessionId,
-      sessionCurrentModelId: session.models?.currentModelId || "",
-    });
+    await waitForBoundedPromise(
+      applyAcpSkillRunRuntimeSelection({
+        adapter: args.adapter,
+        backend: args.backend,
+        requestId: args.requestId,
+        sessionId,
+        sessionCurrentModelId: session.models?.currentModelId || "",
+      }),
+      {
+        phase: "acp-runtime-configuration",
+        ...startup,
+      },
+    );
   } else {
     upsertAcpSkillRun({
       requestId: args.requestId,
@@ -445,6 +488,12 @@ export async function runPrompt(args: {
     });
   }
   await args.onPromptReady?.(sessionId);
+  if (args.startup?.signal?.aborted) {
+    throw new BoundedWaitError({
+      kind: "canceled",
+      phase: "acp-prompt-ready",
+    });
+  }
   await recordAcpSkillRunnerSetupStage({
     requestId: args.requestId,
     runtimeDir: getAcpSkillRunRecord(args.requestId)?.runtimeDir,
@@ -551,6 +600,8 @@ export async function executeAcpSkillRunnerJob(args: {
 }): Promise<ProviderExecutionResult> {
   const request = assertAcpSkillRunRequest(args.request);
   let cancellationRequested = false;
+  const setupAbortController = createCancellationController();
+  let setupAdapter: AcpConnectionAdapter | undefined;
   const workspaceFactory =
     args.dependencies?.createWorkspace || createAcpSkillRunnerWorkspace;
   const workflowId =
@@ -624,6 +675,8 @@ export async function executeAcpSkillRunnerJob(args: {
   const setupController: AcpSkillRunSetupController = {
     cancel: async () => {
       cancellationRequested = true;
+      setupAbortController.abort();
+      void setupAdapter?.close().catch(() => undefined);
       upsertAcpSkillRun({
         requestId: workspace.requestId,
         event: {
@@ -635,11 +688,15 @@ export async function executeAcpSkillRunnerJob(args: {
     },
   };
   registerAcpSkillRunSetupController(workspace.requestId, setupController);
+  args.onProgress?.({
+    type: "request-created",
+    requestId: workspace.requestId,
+  });
   const settleSetupCancellation = async (
     adapter?: AcpConnectionAdapter,
   ): Promise<ProviderExecutionResult> => {
     if (adapter) {
-      await adapter.close().catch(() => undefined);
+      void adapter.close().catch(() => undefined);
     }
     unregisterAcpSkillRunSetupController(workspace.requestId, setupController);
     upsertAcpSkillRun({
@@ -710,10 +767,6 @@ export async function executeAcpSkillRunnerJob(args: {
   rememberAcpSkillRunRuntimeCatalog({
     requestId: workspace.requestId,
     backend: args.backend,
-  });
-  args.onProgress?.({
-    type: "request-created",
-    requestId: workspace.requestId,
   });
   args.onProgress?.({
     type: "acp-skillrunner-stage",
@@ -1085,6 +1138,10 @@ export async function executeAcpSkillRunnerJob(args: {
       workspaceDir: workspace.workspaceDir,
       runtimeDir: workspace.runtimeDir,
       performanceProfileRequestId: workspace.requestId,
+      startup: {
+        signal: setupAbortController.signal,
+        timeoutMs: ACP_SKILL_STARTUP_PHASE_TIMEOUT_MS,
+      },
       ...(__acp_runtime_semantic_trace_recorder_enabled__ &&
       (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
@@ -1113,7 +1170,11 @@ export async function executeAcpSkillRunnerJob(args: {
           }
         : undefined,
     });
+    setupAdapter = adapter;
   } catch (error) {
+    if (cancellationRequested) {
+      return settleSetupCancellation();
+    }
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
     upsertAcpSkillRun({
@@ -1134,27 +1195,11 @@ export async function executeAcpSkillRunnerJob(args: {
   if (canceledAfterAdapter) {
     return canceledAfterAdapter;
   }
-  const transportLifecycle =
-    adapter.getTransportSnapshot?.()?.transportLifecycle;
   await recordAcpSkillRunnerSetupStage({
     requestId: workspace.requestId,
     runtimeDir: workspace.runtimeDir,
     stage: "adapter-created",
     message: "ACP connection adapter is ready.",
-  });
-  await recordAcpSkillRunnerSetupStage({
-    requestId: workspace.requestId,
-    runtimeDir: workspace.runtimeDir,
-    stage: "transport-spawned",
-    message: "ACP transport ownership is available for this run.",
-    details: transportLifecycle
-      ? {
-          transportKind: transportLifecycle.transportKind,
-          spawnId: transportLifecycle.spawnId,
-          bridgePid: transportLifecycle.bridgePid,
-          childPid: transportLifecycle.childPid,
-        }
-      : { transportKind: "adapter-managed" },
   });
   const canceledAfterAdapterAudit = await settleIfSetupCanceled(adapter);
   if (canceledAfterAdapterAudit) {
@@ -1215,6 +1260,9 @@ export async function executeAcpSkillRunnerJob(args: {
     typeof createAcpHardTimeoutMonitor
   > | null = null;
   const pendingPermissionPauseIds = new Set<string>();
+  let promoteLiveController: ((sessionId: string) => Promise<void>) | null =
+    null;
+  let liveControllerPromoted = false;
   let autoHardTimeoutStarted = false;
   let activePromptTimeoutDrain: Promise<unknown> | null = null;
   let interruptWatchdog: PromiseSettlementWatchdog | null = null;
@@ -1245,7 +1293,7 @@ export async function executeAcpSkillRunnerJob(args: {
       clearInterval(workspaceActivityTimer);
       workspaceActivityTimer = null;
     }
-    registerAcpSkillRunController(workspace.requestId, null);
+    unregisterAcpSkillRunController(workspace.requestId, liveController);
     const latest = getAcpSkillRunRecord(workspace.requestId);
     const recoverableTerminalSession =
       !!normalizeString(latest?.sessionId) &&
@@ -1517,7 +1565,14 @@ export async function executeAcpSkillRunnerJob(args: {
         requestId: workspace.requestId,
         message,
         sessionId: liveSessionId,
-        onPromptReady: () => {
+        startup: {
+          signal: setupAbortController.signal,
+          timeoutMs: ACP_SKILL_STARTUP_PHASE_TIMEOUT_MS,
+        },
+        onPromptReady: async (sessionId) => {
+          if (!liveControllerPromoted) {
+            await promoteLiveController?.(sessionId);
+          }
           if (executionMode === "interactive") {
             hardTimeoutMonitor?.start();
           } else if (!autoHardTimeoutStarted) {
@@ -1577,6 +1632,33 @@ export async function executeAcpSkillRunnerJob(args: {
         interruptionRequested ||
         disconnectRequested
       ) {
+        throw error;
+      }
+      if (error instanceof BoundedWaitError) {
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status: "failed",
+          statusReason: "prompt_failed_terminal",
+          activePrompt: false,
+          conversationState: "error",
+          conversationRecoveryState: "unavailable",
+          error: error.message,
+          event: {
+            stage: "startup-failed",
+            message: error.message,
+            level: "error",
+            details: {
+              phase: error.phase,
+              timeoutMs: error.timeoutMs,
+              reason: error.kind,
+            },
+          },
+        });
+        void cleanupLiveSession({
+          conversationState: "error",
+          conversationError: error.message,
+          closeAdapter: true,
+        }).catch(() => undefined);
         throw error;
       }
       await failCurrentAcpPrompt(classifyAcpPromptError(error));
@@ -1949,14 +2031,27 @@ export async function executeAcpSkillRunnerJob(args: {
       (await adapter.setConfigOption?.({ sessionId, category, value })) ===
       true,
   } satisfies NonNullable<Parameters<typeof registerAcpSkillRunController>[1]>;
-  const liveControllerRegistered = registerAcpSkillRunController(
-    workspace.requestId,
-    liveController,
-    setupController,
-  );
-  if (!liveControllerRegistered) {
-    return settleSetupCancellation(adapter);
-  }
+  promoteLiveController = async (sessionId) => {
+    liveSessionId = sessionId;
+    if (cancellationRequested || setupAbortController.signal.aborted) {
+      throw new BoundedWaitError({
+        kind: "canceled",
+        phase: "acp-live-controller-promotion",
+      });
+    }
+    const registered = registerAcpSkillRunController(
+      workspace.requestId,
+      liveController,
+      setupController,
+    );
+    if (!registered) {
+      throw new BoundedWaitError({
+        kind: "canceled",
+        phase: "acp-live-controller-promotion",
+      });
+    }
+    liveControllerPromoted = true;
+  };
   unsubscribePermission = adapter.onPermissionRequest((request) => {
     const wrappedRequest = wrapAcpSkillRunPermissionRequestForTimeoutPause({
       request,

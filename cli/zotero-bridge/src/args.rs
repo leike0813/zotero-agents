@@ -596,6 +596,29 @@ pub enum LibraryItemsCommand {
         long_about = "Call Zotero capability library.list_items. Use --query for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query."
     )]
     List(BridgeQueryArgs),
+
+    #[command(
+        about = "Export one or more papers as a research bundle",
+        long_about = "Call Zotero capability items.export_research_bundle. --items accepts a JSON array or JSON file containing {id} or {key,libraryId?} refs. Local profiles require --output-dir and write the bundle directory atomically; remote profiles omit --output-dir and return a downloadable ZIP handle."
+    )]
+    ExportResearchBundle(DirectPaperResearchBundleArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DirectPaperResearchBundleArgs {
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "One to 100 Zotero item refs as a JSON array, file path, @file, or '-' for stdin"
+    )]
+    pub items: String,
+
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Absent or empty destination directory for local profiles; omit for remote profiles"
+    )]
+    pub output_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -827,6 +850,30 @@ pub enum TopicsCommand {
         long_about = "Call Zotero capability topics.get_review_input."
     )]
     GetReviewInput(BridgeQueryArgs),
+
+    #[command(
+        about = "Export one or more Topic research bundles",
+        long_about = "Call Zotero capability topics.export_research_bundle. Repeat --topic-id for up to 20 Topics. Local profiles require --output-dir and write the bundle directory atomically; remote profiles omit --output-dir and return a downloadable ZIP handle."
+    )]
+    ExportResearchBundle(DirectTopicResearchBundleArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DirectTopicResearchBundleArgs {
+    #[arg(
+        long = "topic-id",
+        required = true,
+        action = clap::ArgAction::Append,
+        help = "Stable Topic id; repeat to aggregate multiple Topics"
+    )]
+    pub topic_ids: Vec<String>,
+
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Absent or empty destination directory for local profiles; omit for remote profiles"
+    )]
+    pub output_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2873,6 +2920,7 @@ mod tests {
                     LibraryItemsCommand::List(input) => {
                         assert_eq!(input.query.as_deref(), Some("{\"limit\":50}"));
                     }
+                    _ => panic!("expected library items list"),
                 },
                 _ => panic!("expected library items"),
             },
@@ -3875,6 +3923,60 @@ mod tests {
                 _ => panic!("expected product download"),
             },
             _ => panic!("expected product command"),
+        }
+    }
+
+    #[test]
+    fn parses_direct_paper_research_bundle_export() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "library",
+            "items",
+            "export-research-bundle",
+            "--items",
+            "[{\"key\":\"ABC\",\"libraryId\":1}]",
+            "--output-dir",
+            "paper-bundle",
+        ]);
+        match cli.command {
+            Command::Library(args) => match args.command {
+                LibraryCommand::Items(args) => match args.command {
+                    LibraryItemsCommand::ExportResearchBundle(args) => {
+                        assert_eq!(args.items, "[{\"key\":\"ABC\",\"libraryId\":1}]");
+                        assert_eq!(args.output_dir, Some(PathBuf::from("paper-bundle")));
+                    }
+                    _ => panic!("expected paper research bundle export"),
+                },
+                _ => panic!("expected library items"),
+            },
+            _ => panic!("expected library command"),
+        }
+    }
+
+    #[test]
+    fn parses_direct_topic_research_bundle_export() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "topic",
+            "export-research-bundle",
+            "--topic-id",
+            "topic-one",
+            "--topic-id",
+            "topic-two",
+        ]);
+        match cli.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Topic(args) => match args.command {
+                    TopicsCommand::ExportResearchBundle(args) => {
+                        assert_eq!(args.topic_ids, vec!["topic-one", "topic-two"]);
+                        assert_eq!(args.output_dir, None);
+                    }
+                    _ => panic!("expected Topic research bundle export"),
+                },
+                _ => panic!("expected synthesis Topic command"),
+            },
+            _ => panic!("expected synthesis command"),
         }
     }
 }

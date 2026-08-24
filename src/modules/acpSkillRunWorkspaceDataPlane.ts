@@ -31,36 +31,15 @@ import type {
   AcpSkillRunWorkspaceListener,
   AcpSkillRunWorkspaceReadModel,
 } from "./acpSkillRunStore";
+import { getAcpSkillRunWorkspaceDataPlaneHost } from "./acpSkillRunHosts";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-// Registry access owned by acpSkillRunStore (run records, active index,
-// transcript live states, runtime catalogs). Injected once at module load
-// so the data-plane never imports the store at runtime.
-export type AcpSkillRunWorkspaceDataPlaneHost = {
-  resolveRunRecord(requestId: string): AcpSkillRunRecord | undefined;
-  listRunRecords(): Iterable<AcpSkillRunRecord>;
-  listActiveRunRequestIds(): Iterable<string>;
-  isActiveRecordForSummary(record: AcpSkillRunRecord): boolean;
-  projectRunRecordMetadata(record: AcpSkillRunRecord): AcpSkillRunRecord;
-  getTranscriptLiveState(
-    record: AcpSkillRunRecord,
-  ): AcpSkillRunTranscriptLiveState;
-  peekTranscriptLiveState(
-    requestId: string,
-  ): AcpSkillRunTranscriptLiveState | undefined;
-  runtimeCatalogForRun(run: AcpSkillRunRecord): AcpSkillRunRuntimeCatalog;
-};
-
-let host: AcpSkillRunWorkspaceDataPlaneHost;
-
-export function configureAcpSkillRunWorkspaceDataPlaneHost(
-  nextHost: AcpSkillRunWorkspaceDataPlaneHost,
-) {
-  host = nextHost;
-}
+// The host slot lives in the acpSkillRunHosts leaf module so that importing
+// this module before the store cannot hit a TDZ on the slot.
+export type { AcpSkillRunWorkspaceDataPlaneHost } from "./acpSkillRunHosts";
 
 const ACP_SKILL_RUN_WORKSPACE_CHANGE_KINDS =
   new Set<AcpSkillRunWorkspaceChangeKind>([
@@ -223,9 +202,13 @@ export function acpSkillRunWorkspaceChange(
 ): AcpSkillRunWorkspaceChange {
   const normalizedRequestId = normalizeString(requestId);
   const record = normalizedRequestId
-    ? host.resolveRunRecord(normalizedRequestId)
+    ? getAcpSkillRunWorkspaceDataPlaneHost().resolveRunRecord(
+        normalizedRequestId,
+      )
     : undefined;
-  const state = record ? host.getTranscriptLiveState(record) : undefined;
+  const state = record
+    ? getAcpSkillRunWorkspaceDataPlaneHost().getTranscriptLiveState(record)
+    : undefined;
   const hasTranscript = kinds.includes("transcript");
   const transcriptEvents = hasTranscript
     ? state?.workspaceTranscriptEvents.splice(0) || []
@@ -330,7 +313,7 @@ export function resetAcpSkillRunWorkspaceDataPlaneForTests() {
   workspaceListeners.clear();
 }
 
-export function inspectSyntheticAcpSkillRunReplayTimers(args: {
+export function inspectAcpSkillRunTimers(args: {
   requestIds: readonly string[];
 }): AcpRuntimeReplayLogicalTimerInspection {
   if (
@@ -417,7 +400,7 @@ const acpSkillRunSummaryDiagnostics = {
 };
 
 function isActiveAcpSkillRunForSummary(run: AcpSkillRunRecord) {
-  return host.isActiveRecordForSummary(run);
+  return getAcpSkillRunWorkspaceDataPlaneHost().isActiveRecordForSummary(run);
 }
 
 function normalizeSummaryListLimit(value: unknown) {
@@ -430,8 +413,10 @@ function normalizeSummaryListLimit(value: unknown) {
 
 export function listAcpSkillRuns() {
   ensureAcpSkillRunStoreHydrated();
-  return Array.from(host.listRunRecords())
-    .map((entry) => host.projectRunRecordMetadata(entry))
+  return Array.from(getAcpSkillRunWorkspaceDataPlaneHost().listRunRecords())
+    .map((entry) =>
+      getAcpSkillRunWorkspaceDataPlaneHost().projectRunRecordMetadata(entry),
+    )
     .sort((a, b) => {
       const created = b.createdAt.localeCompare(a.createdAt);
       if (created !== 0) return created;
@@ -448,14 +433,18 @@ export function listAcpSkillRunSummaries(
   const limit = normalizeSummaryListLimit(options.limit);
   acpSkillRunSummaryDiagnostics.summaryQueryCount += 1;
   const candidates = requestId
-    ? [host.resolveRunRecord(requestId)].filter(
-        (run): run is AcpSkillRunRecord => !!run,
-      )
+    ? [
+        getAcpSkillRunWorkspaceDataPlaneHost().resolveRunRecord(requestId),
+      ].filter((run): run is AcpSkillRunRecord => !!run)
     : options.activeOnly && !options.includeArchived
-      ? Array.from(host.listActiveRunRequestIds())
-          .map((id) => host.resolveRunRecord(id))
+      ? Array.from(
+          getAcpSkillRunWorkspaceDataPlaneHost().listActiveRunRequestIds(),
+        )
+          .map((id) =>
+            getAcpSkillRunWorkspaceDataPlaneHost().resolveRunRecord(id),
+          )
           .filter((run): run is AcpSkillRunRecord => !!run)
-      : Array.from(host.listRunRecords());
+      : Array.from(getAcpSkillRunWorkspaceDataPlaneHost().listRunRecords());
   if (requestId) {
     acpSkillRunSummaryDiagnostics.runCandidateReadCount += candidates.length;
   } else if (options.activeOnly && !options.includeArchived) {
@@ -501,8 +490,9 @@ export function countActiveAcpSkillRunSummaries(
   acpSkillRunSummaryDiagnostics.activeIndexScanCount += 1;
   const backendId = normalizeString(options.backendId);
   let count = 0;
-  for (const requestId of host.listActiveRunRequestIds()) {
-    const run = host.resolveRunRecord(requestId);
+  for (const requestId of getAcpSkillRunWorkspaceDataPlaneHost().listActiveRunRequestIds()) {
+    const run =
+      getAcpSkillRunWorkspaceDataPlaneHost().resolveRunRecord(requestId);
     if (!run) {
       continue;
     }
@@ -541,7 +531,9 @@ export function getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
 ) {
   ensureAcpSkillRunStoreHydrated();
   const requestId = normalizeString(requestIdRaw);
-  const state = requestId ? host.peekTranscriptLiveState(requestId) : undefined;
+  const state = requestId
+    ? getAcpSkillRunWorkspaceDataPlaneHost().peekTranscriptLiveState(requestId)
+    : undefined;
   const cacheDiagnostics =
     getAcpSkillRunTranscriptMirrorCacheDiagnostics(requestId);
   if (!state) {
@@ -571,7 +563,9 @@ export function getAcpSkillRunWorkspaceReadModel(
 ): AcpSkillRunWorkspaceReadModel | null {
   ensureAcpSkillRunStoreHydrated();
   const requestId = normalizeString(requestIdRaw);
-  const run = requestId ? host.resolveRunRecord(requestId) : undefined;
+  const run = requestId
+    ? getAcpSkillRunWorkspaceDataPlaneHost().resolveRunRecord(requestId)
+    : undefined;
   if (!run) return null;
   return Object.freeze({
     requestId: run.requestId,
@@ -620,7 +614,8 @@ export function getAcpSkillRunWorkspaceReadModel(
     usage: run.usage ? { ...run.usage } : undefined,
     planEntries: (run.planEntries || []).map((entry) => ({ ...entry })),
     updatedAt: run.updatedAt,
-    runtimeOptions: host.runtimeCatalogForRun(run),
+    runtimeOptions:
+      getAcpSkillRunWorkspaceDataPlaneHost().runtimeCatalogForRun(run),
   });
 }
 
@@ -629,7 +624,9 @@ export async function getAcpSkillRunWorkspaceDetailsReadModel(
 ): Promise<AcpSkillRunWorkspaceDetailsReadModel | null> {
   ensureAcpSkillRunStoreHydrated();
   const requestId = normalizeString(requestIdRaw);
-  const run = requestId ? host.resolveRunRecord(requestId) : undefined;
+  const run = requestId
+    ? getAcpSkillRunWorkspaceDataPlaneHost().resolveRunRecord(requestId)
+    : undefined;
   if (!run) return null;
   const resultJsonPath = normalizeString(run.resultJsonPath);
   const [outputRevisions, resultJsonText] = await Promise.all([
@@ -685,7 +682,9 @@ export function getAcpSkillRunDiagnostics(
 ): AcpSkillRunDiagnosticsDto | null {
   ensureAcpSkillRunStoreHydrated();
   const requestId = normalizeString(requestIdRaw);
-  const run = requestId ? host.resolveRunRecord(requestId) : undefined;
+  const run = requestId
+    ? getAcpSkillRunWorkspaceDataPlaneHost().resolveRunRecord(requestId)
+    : undefined;
   if (!run) return null;
   return Object.freeze({
     requestId: run.requestId,

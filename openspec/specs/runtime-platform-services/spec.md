@@ -462,6 +462,12 @@ Shared runtime file boundaries SHALL convert supported native paths, Windows dri
 - **WHEN** a workflow passes a local path such as `E:/research/image.jpg` to the Host file surface
 - **THEN** the system SHALL pass a native Windows-shaped path to Zotero IOUtils.
 
+#### Scenario: Research Bundle materializes a Windows Markdown source
+
+- **WHEN** the Host-owned Research Bundle materializer reads a Markdown source or eligible image expressed as a Windows drive-slash path or standard local `file:` URL
+- **THEN** every filesystem probe, read, and copy SHALL receive a Host-native path
+- **AND** portable containment and output paths SHALL remain independent of the native path syntax.
+
 #### Scenario: Local file URL reaches Product storage
 
 - **WHEN** a workflow registers a Product local-file source using a local `file:` URL

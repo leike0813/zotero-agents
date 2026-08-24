@@ -10,7 +10,7 @@ import {
   markSkillRunnerBackendHealthSuccess,
 } from "./skillRunnerBackendHealthRegistry";
 import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
-import { updateSkillRunnerRunStateByRequest } from "./skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "./skillRunnerRunStore";
 
 type SessionLoopState = {
   requestId: string;
@@ -32,7 +32,7 @@ type SessionSyncDeps = {
   }) => SessionSyncClient;
   appendRuntimeLog: typeof appendRuntimeLog;
   updateTaskDashboardHistoryStateByRequest: typeof updateTaskDashboardHistoryStateByRequest;
-  updateSkillRunnerRunStateByRequest: typeof updateSkillRunnerRunStateByRequest;
+  applySkillRunnerRunEvent: typeof applySkillRunnerRunEvent;
   updateWorkflowTaskStateByRequest: typeof updateWorkflowTaskStateByRequest;
   markSkillRunnerBackendHealthFailure: typeof markSkillRunnerBackendHealthFailure;
   markSkillRunnerBackendHealthSuccess: typeof markSkillRunnerBackendHealthSuccess;
@@ -51,7 +51,7 @@ const defaultSessionSyncDeps: SessionSyncDeps = {
   buildManagementClient: buildSkillRunnerManagementClient,
   appendRuntimeLog,
   updateTaskDashboardHistoryStateByRequest,
-  updateSkillRunnerRunStateByRequest,
+  applySkillRunnerRunEvent,
   updateWorkflowTaskStateByRequest,
   markSkillRunnerBackendHealthFailure,
   markSkillRunnerBackendHealthSuccess,
@@ -185,13 +185,13 @@ function applyStateSnapshot(args: {
   const normalized = normalizeStatus(args.status, "running");
   const backendId = normalizeString(args.session.backend.id);
   const requestId = normalizeString(args.session.requestId);
-  const updated = sessionSyncDeps.updateSkillRunnerRunStateByRequest({
+  const updated = sessionSyncDeps.applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     backendId,
     requestId,
     state: normalized,
     updatedAt: args.updatedAt,
-    eventType: "backend.snapshot",
-    eventPayload: {
+    payload: {
       source: "events",
       status: normalized,
     },
@@ -315,14 +315,14 @@ async function streamEventLoop(session: SessionLoopState) {
         error instanceof Error
           ? error.message
           : "SkillRunner request is unavailable";
-      sessionSyncDeps.updateSkillRunnerRunStateByRequest({
+      sessionSyncDeps.applySkillRunnerRunEvent({
+        type: "run.terminal_client_error",
         backendId,
         requestId,
-        state: "failed",
         error: message,
         updatedAt,
-        eventType: "run.terminal_client_error",
-        eventPayload: {
+        source: "events-history",
+        payload: {
           source: "events-history",
           reason: message,
         },

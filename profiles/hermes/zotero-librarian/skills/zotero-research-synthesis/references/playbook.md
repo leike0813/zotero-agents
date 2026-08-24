@@ -14,6 +14,8 @@ Choose the derived model according to the question:
 | Library/reference index | Derived indexed records | Current bibliographic write state |
 | Resolver | Paper scope from tags, collections, refs, and combine rules | Identity beyond the returned bounded set |
 | Artifact manifest/read/export | Discovery, content access, and file delivery | Persistence in Zotero from local file existence |
+| Direct paper research bundle | Portable delivery for one or more stable Zotero item refs | That absent sources or analysis artifacts were generated or repaired |
+| Direct Topic research bundle | Current Topic reports plus globally deduplicated associated digests | That Topic membership, report freshness, or missing digests were recomputed |
 | Attention queue | Ranked review candidates | Authority to remediate them |
 | Concept/schema | Typed semantic definitions | Raw Zotero metadata search |
 
@@ -123,8 +125,20 @@ If the operation reports no change, distinguish “already current” from “sc
 | Workflow output file | Workflow run and output/artifact mapping | Output schema plus file checksum/size | Produced workflow artifact |
 | Zotero attachment delivery | Live parent and attachment ref | Issued file handle plus verified bytes | Read copy of the existing attachment |
 | Attach exported result to Zotero | Source Product/artifact, uploaded file handle, target parent | Source and upload checksums plus live child ref | Persisted Zotero attachment only after live confirmation |
+| Direct paper bundle | Ordered resolved Zotero item refs and aggregation scope | Local manifest/inventory, or remote file handle followed by verified download | Portable local copy containing available source, metadata, and analysis artifacts |
+| Direct Topic bundle | Ordered stable Topic IDs, current reports, and canonical associated paper refs | Local manifest plus deduplicated digest routes, or remote file handle followed by verified download | Portable local copy of current reports and available digests |
 
 An export manifest or file path proves discovery, not successful delivery. A verified local file proves delivery, not Zotero attachment. If the final bundle contains several assets, inventory each role and checksum and state which assets were intentionally excluded.
+
+### Direct research-bundle procedure
+
+Choose paper scope from one to 100 explicit item selectors and Topic scope from one to 20 stable Topic IDs. The Host may resolve at most 500 distinct papers and materialize at most 5000 files or 2 GiB. Treat a bound rejection as a scope decision: narrow the request or split it explicitly; do not silently truncate, omit a Topic, or create several bundles while claiming one aggregate result.
+
+For paper delivery, inspect the manifest route `papers/<libraryId>/<itemKey>/`. Expect `metadata.json`, Markdown source plus preserved in-tree images when available, otherwise `source.pdf`, and status for digest, references, citation analysis, and literature score. Markdown preference means a present Markdown source suppresses the PDF copy in that paper directory. A missing source or analysis artifact remains a warning with its paper ref; do not substitute a different paper or start analysis.
+
+For Topic delivery, verify every requested report under its Topic directory and inspect `papers_by_ref`. Associated digests are stored once under the canonical Zotero ref route even when several Topics cite the same paper. Navigation is added only to an exported report copy whose bibliography marker structure matches its recorded source-paper order. If validation fails, preserve the report unchanged, use the generated source index, and report the navigation fallback warning. Never rewrite the stored Topic artifact.
+
+Local delivery requires an absent or empty destination and is complete after `manifest.json`, `index.md`, selector inventory, and declared files are readable. Remote delivery returns a short-lived `fileId`; run the supplied download command, verify size and checksum when present, then unpack the ZIP and inspect the same manifest. Do not expose internal staging paths. If materialization fails, no partial destination is a valid result. If a handle expires, repeat the export against the unchanged verified selector set; if selectors or Topic state changed, re-establish scope before retrying.
 
 ## Recovery and near misses
 

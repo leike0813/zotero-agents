@@ -21,10 +21,17 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 本技能的最低质量目标：
 
 - topic intent 必须把 seed 转成稳定 topic identity：标题、别名、定义、纳入/排除范围都要能指导 resolver。
-- duplicate check 只基于 Host topic list 中现有 topic 的 title、description、aliases 和 id，不能把宽泛相关主题误判为同一主题。
+- target resolution 必须基于完整 Host topic inventory：materialized duplicate 优先取消，同一身份的 active Planned Topic 优先复用，仅在两者均不存在时新建。
 - resolver proposal 要可复现、边界清楚；runtime 负责执行 `synthesis resolver resolve`、citation metrics 和 filtered artifact export，LLM 不手写 resolver result。
 - 远程 SkillRunner profile 下 filtered artifact export 可能返回 bridge-download；按 runtime 写出的 `runtime/payloads/paper-artifacts-export-delivery.json` 执行 downloadCommand/unpackHint 后再继续。
 - paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、core_digest 和 caveats；文献内在质量只读取 manifest 固化的 literature_quality，不提前写跨文献综合。
+
+## Planned Topic 与 ad-hoc 输入
+
+- `usePlannedTopic=true` 时，Stage 00 从 `plannedTopicId` 读取 active Planned Topic 的定义、scope 和 resolver；runtime 使用同一 topic id 重新执行 resolver，并自动推进到 Stage 30。不要重写定义，不要执行 duplicate check，也不要手写 resolver result。
+- `usePlannedTopic=false` 时，从 `topicSeed` 开始；Stage 10 必须先解析完整 topic inventory。已有 materialized identity 时取消，存在同一 identity 的 active Planned Topic 时自动复用其 id/definition/resolver，仅在两者都不存在时进入 Stage 20 从零创建。
+- 自动匹配只接受 definition/scope 可直接承接 seed 的同一 topic identity；相关、上位、下位或需要改写 scope 的 topic 不算匹配。多个合适 Planned Topic 时选择最佳 definition/scope 匹配，aliases/title 只作次级依据。
+- Planned Topic 缺失、stale 或缺少 resolver 时，使用 runtime 返回的 canceled output；不要回退为同名 ad-hoc create。
 
 ## 必需运行输入
 
@@ -94,7 +101,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 
 必须由 LLM 完成：
 
-- create topic intent 和 duplicate check 判断。
+- create topic intent 和 materialized/Planned/new target resolution 判断。
 - resolver proposal 设计。
 - per-paper triage：relevance、core_digest、caveats；质量使用 manifest 固化的 literature_quality。
 
@@ -150,7 +157,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 ### stage_00_runtime_setup
 
 - stage 类型：command
-- 任务：初始化或校验新建运行的本地 SQLite 状态。
+- 任务：初始化新建运行；Planned Topic 模式读取其定义并重新执行保存的 resolver，ad-hoc 模式进入 Stage 10。
 - 语义目标：让 runtime 锁定合法 ACP run workspace、初始化 SQLite，并把后续 stage 交给 gate 状态机。
 
 本 stage 精确执行序列：
@@ -174,13 +181,13 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 常见错误：
 
 - 不要在非 ACP run workspace 中尝试修补 Host Bridge artifact export。
-- 不要跳过 setup 直接写 Stage 10 payload。
+- 不要自行跳过 setup 或 gate 当前返回的 stage；Planned Topic 模式下 runtime 会自动完成定义与 resolver stages，并把 gate 推进到 Stage 30。
 
 ### stage_10_create_topic_context
 
 - stage 类型：payload
-- 任务：编写新建主题意图和重复检查判断。
-- 语义目标：把 topic seed 转成稳定、可查重、可解析的创建意图。
+- 任务：编写新建主题意图并解析 materialized、Planned Topic 或新建目标。
+- 语义目标：把 topic seed 转成稳定主题意图，并优先解析到已有 materialized 或 active Planned Topic identity。
 
 本 stage 精确执行序列：
 
@@ -195,19 +202,20 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 
 语义处理步骤：
 
-1. 执行 topic list Host read command，读取现有 topic 的 title、description、aliases 和 id。
+1. 完整分页执行 topic list Host read command，读取现有 topic 的 id、lifecycle、title、definition、aliases、scope 和 planning metadata。
 2. 用 topic title、aliases、definition 和 scope 明确主题边界。
-3. 只根据已有 topic 的 title、description、aliases 判断重复风险。
-4. 把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。
+3. 先判断是否存在同一身份的 materialized topic；若无，再判断 active Planned Topic 的 definition 和 scope 是否可直接承接该意图。相关、上位或下位 topic 不算同一身份。
+4. 多个 active Planned Topic 满足同一身份时，按 definition/scope 匹配优先，aliases/title 次之，选择最佳候选。
+5. 把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。
 
 上下文获取方式：
 
-- Host read：`<zotero-bridge> synthesis topic list --query '{}'`。用途：获取现有 topic 列表，用于 create duplicate check。
-  说明：只根据返回 topic 的 title、description、aliases 和 id 判断是否同一主题；不要把相关主题直接判为 duplicate。
+- Host read：`<zotero-bridge> synthesis topic list --query '{}'`。用途：获取完整 topic inventory，用于解析 materialized duplicate、active Planned Topic 或新建目标。
+  说明：必须遍历全部分页。只有 definition/scope 可直接承接 seed 意图时才视为同一身份；不要把相关、上位或下位 topic 当成匹配。
 
 材料使用说明：
 
-- topic list 只用于重复检查，不用于扩写最终综述。
+- topic list 只用于创建目标解析，不用于扩写最终综述。
 - payload 路径：runtime/payloads/create-topic-context.json
 - schema 文件：assets/schemas/stage-10-create-topic-context.schema.json
 
@@ -218,19 +226,21 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 - `definition`：说明主题研究对象、核心问题和边界。
 - `scope_include`：明确纳入的技术路线、任务、方法族或评价对象。
 - `scope_exclude`：容易混淆但不属于本 topic 的邻近主题。
-- `duplicate_status`：`none` 表示未发现重复；`possible_duplicate` 表示需谨慎；`duplicate` 表示已有同一主题；`unknown` 表示材料不足。
-- `duplicate_candidate_ids`：只填写 Host topic list 中真实存在的候选 id。
-- `duplicate_reason`：说明重复判断依据，不能只写“相似”。
+- `target_decision`：`cancel_materialized_duplicate` 优先级最高；否则同一身份 active Planned Topic 使用 `use_planned_topic`；均不存在时使用 `create_new`。
+- `selected_topic_id`：use/cancel action 必填，并且必须出现在 candidate_topic_ids；create_new 不填写。
+- `candidate_topic_ids`：列出完整 topic inventory 中达到同一身份判断的候选 id；相关、上位、下位或 stale topic 不得列入。
+- `reason`：说明 identity 与 scope 判断依据；多个 Planned Topic 候选时说明为何所选项最佳。
 
 硬性约束：
 
-- 如果 `duplicate_status` 为 `duplicate`，这是 create prepare 的硬门禁失败：不要提交 resolver/workset 或任何后续 payload，不进入 Stage 20。
-- 硬门禁失败时直接输出符合 `assets/output.schema.json` 的 `topic_synthesis_canceled` 最终业务对象，包含 `status: "canceled"`、`reason: "duplicate_topic"`、`message`、`topic_seed`，并在可确定时填 `duplicate_topic_id`；sequence runtime 会据此短路后续 steps。
+- materialized duplicate 必须优先于 Planned Topic；不要为了继续运行而选择 Planned Topic 或 create_new。
+- use_planned_topic 提交后由 runtime 重新读取 canonical semantic context 并执行保存的 resolver；不要再写 Stage 20 payload。
+- 若 selected Planned Topic 已失效，runtime 会取消并要求基于最新 Topic Graph 重跑；不要回退 create_new。
 
 质量检查：
 
 - topic boundary 要能指导 resolver 设计。
-- 重复判断要保守，不能把宽泛相关主题误判为同一 topic。
+- 身份判断要保守，不能把宽泛相关、上下位或需要改写 scope 的 topic 判为同一 topic。
 
 常见错误：
 
@@ -250,9 +260,12 @@ Payload JSON 示例（可提交结构样例）：
     "DETR 收敛与 query 设计变体"
   ],
   "scope_exclude": ["通用 NLP transformer", "非检测任务的 vision transformer"],
-  "duplicate_status": "none",
-  "duplicate_candidate_ids": [],
-  "duplicate_reason": "现有 topic 的标题和别名中没有表示同一 DETR-style object detection 方法族的条目。"
+  "target_decision": {
+    "action": "use_planned_topic",
+    "selected_topic_id": "planned-detr",
+    "candidate_topic_ids": ["planned-detr"],
+    "reason": "该 active Planned Topic 的 definition 和 scope 与 DETR-style object detection 意图一致。"
+  }
 }
 ```
 

@@ -35,6 +35,10 @@ import {
 } from "./acpWebSocketBridgeService";
 import { isDebugModeEnabled } from "./debugMode";
 import { observeAcpRuntimeGauge } from "./acpRuntimePerformanceProfiler";
+import {
+  waitForBoundedPromise,
+  type BoundedWaitStartupOptions,
+} from "../utils/wait";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -75,6 +79,7 @@ export type AcpTransportLaunchArgs = {
   cwd: string;
   diagnosticCapture?: AcpTransportDiagnosticCaptureOptions;
   performanceProfileRequestId?: string;
+  startup?: BoundedWaitStartupOptions;
 };
 
 export type AcpReadResult<T> = {
@@ -1992,6 +1997,7 @@ async function launchWebSocketBridgeAcpTransport(
   let closeResolve: (() => void) | null = null;
   let spawnResolve: (() => void) | null = null;
   let spawnReject: ((error: unknown) => void) | null = null;
+  let startupPending = true;
   let messageQueue = Promise.resolve();
   const stdoutQueue: Uint8Array[] = [];
   let stdoutQueuedBytes = 0;
@@ -2100,6 +2106,9 @@ async function launchWebSocketBridgeAcpTransport(
   });
 
   socket.onopen = () => {
+    if (!startupPending) {
+      return;
+    }
     emitAudit("websocket_open", {
       bridgePid: bridge.pid,
     });
@@ -2137,6 +2146,12 @@ async function launchWebSocketBridgeAcpTransport(
       }
       const type = normalizeString(message.type);
       if (type === "spawned") {
+        if (!startupPending) {
+          emitAudit("spawned_ignored", {
+            reason: "startup_settled",
+          });
+          return;
+        }
         lifecycle.childPid = toFiniteExitCode(message.pid);
         emitAudit("spawned_received", {
           childPid: lifecycle.childPid,
@@ -2310,7 +2325,27 @@ async function launchWebSocketBridgeAcpTransport(
       .then(() => handleClose(event));
   };
 
-  await spawnedPromise;
+  try {
+    await waitForBoundedPromise(spawnedPromise, {
+      phase: "acp-windows-bridge-spawn",
+      ...args.startup,
+    });
+    startupPending = false;
+  } catch (error) {
+    startupPending = false;
+    pendingError = error;
+    emitAudit("spawn_startup_stopped", {
+      reason:
+        error instanceof Error ? error.message : String(error || "unknown"),
+      timeoutMs: args.startup?.timeoutMs,
+    });
+    try {
+      socket.close();
+    } catch {
+      // ignore close errors during startup cleanup
+    }
+    throw error;
+  }
 
   const waitForExit = (timeoutMs: number) =>
     waitForPromiseWithTimeout(closedPromise, timeoutMs);

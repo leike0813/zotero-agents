@@ -11,16 +11,16 @@ Ensamblar automáticamente un paquete de investigación de solo lectura en Dashb
 | `paperTitle` | Sí | Título del manuscrito en trabajo utilizado para encontrar materiales de investigación. |
 | `researchContent` | Sí | Problema de investigación, métodos, alcance y contribución prevista. |
 | `articleType` | No | Tipo de manuscrito (predeterminado: `original research`). |
-| `maxTopics` | No | Número máximo de temas relevantes a incluir, rango 0–5 (predeterminado: 5). |
-| `maxCorePapers` | No | Número máximo de artículos principales, rango 1–20 (predeterminado: 20). |
-| `maxRelatedPapers` | No | Total máximo de artículos relacionados incluyendo principales, rango 1–80 (predeterminado: 80). |
+| `maxTopics` | No | Número máximo de temas relevantes a incluir, rango 0–10 (predeterminado: 5). |
+| `maxCorePapers` | No | Número máximo de artículos principales, rango 1–50 (predeterminado: 20). |
+| `maxRelatedPapers` | No | Número máximo de artículos adicionales ajenos a los Topics, rango 1–200 (predeterminado: 80). Los artículos resueltos desde Topics seleccionados se conservan por encima del límite. |
 
 No se requiere selección de elementos Zotero.
 
 ## Comportamiento
 
 1. Recibir los parámetros de intención de artículo del usuario.
-2. Descubrir materiales candidatos de Synthesis Topics existentes, elementos de la biblioteca Zotero y contexto de grafo de citación disponible.
+2. Descubrir materiales candidatos a partir de Synthesis Topics existentes y anclas acotadas de metadatos de Zotero. La búsqueda compara metadatos indexados como títulos, autores, años, publicaciones y etiquetas; no es una búsqueda semántica de texto completo.
 3. Realizar evaluación acotada para distinguir artículos principales de relacionados.
 4. Ensamblar el Research Bundle con informes de temas, metadatos bibliográficos y artefactos de análisis v2 disponibles (resúmenes, referencias, análisis de citas, contenido de conversaciones).
 5. Para artículos principales, preferir fuente Markdown con imágenes locales; recurrir a PDF; registrar una advertencia si ninguno está disponible.

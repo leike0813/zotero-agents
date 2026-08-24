@@ -12,7 +12,10 @@ The system SHALL provide a core SkillRunner workflow named `export-research-bund
 - **WHEN** the workflow is configured
 - **THEN** `paperTitle` and `researchContent` SHALL be required
 - **AND** `articleType` SHALL use the `manuscript-literature-framing` free-string contract and `original research` default
-- **AND** no language parameter SHALL be present.
+- **AND** no language parameter SHALL be present
+- **AND** `maxTopics` SHALL default to 5 and accept integers from 0 through 10
+- **AND** `maxCorePapers` SHALL default to 20 and accept integers from 1 through 50
+- **AND** `maxRelatedPapers` SHALL default to 80 and accept integers from 1 through 200.
 
 ### Requirement: Agent selects bounded research material
 
@@ -35,14 +38,16 @@ The skill SHALL automatically select related Topics and papers from current Synt
 
 - **WHEN** the automatic skill runs
 - **THEN** its runtime SHALL page current Topic inventory before Topic assessment
-- **AND** SHALL collect every resolved paper from selected Topics before executing the persisted Zotero library queries
-- **AND** SHALL merge Topic and library-search candidates by `paper_ref` before creating paper-local assessment packets.
+- **AND** SHALL collect every canonical paper from each selected Topic's current `source_papers` before executing the persisted Zotero metadata-anchor plan
+- **AND** SHALL page each executed anchor within declared per-anchor and global discovery budgets
+- **AND** SHALL execute an anchor's persisted fallback anchors only when its primary anchor yields no canonical candidate
+- **AND** SHALL merge Topic and library candidates by `paper_ref` before creating paper-local assessment packets.
 
 #### Scenario: Graph evidence is collected
 
 - **WHEN** graph or reference evidence is available for an existing candidate
 - **THEN** the runtime MAY use it for diagnostics, assessment evidence, or score derivation
-- **AND** a graph neighbor SHALL NOT enter the candidate set unless the same paper was resolved by a selected Topic or library search.
+- **AND** a graph neighbor SHALL NOT enter the candidate set unless the same paper was declared by a selected Topic's current `source_papers` or bounded library discovery.
 
 #### Scenario: Selection is rendered
 
@@ -53,9 +58,38 @@ The skill SHALL automatically select related Topics and papers from current Synt
 
 #### Scenario: Topic or graph context is incomplete
 
-- **WHEN** a selected Topic context cannot expose a resolved paper set or current graph metrics are unavailable
-- **THEN** selection SHALL continue with diagnostics and the remaining Topic and library candidates without creating or updating Synthesis state
-- **AND** a valid empty Topic paper set SHALL remain distinct from an unavailable or malformed response.
+- **WHEN** a selected Topic context cannot expose a valid non-empty current `source_papers` table or current graph metrics are unavailable
+- **THEN** graph-independent selection MAY continue with structured diagnostics when candidate discovery produces at least one reliable candidate
+- **AND** valid paper refs from other selected Topics SHALL remain eligible
+- **AND** an incomplete Topic source table SHALL NOT be treated as evidence that the Topic contains no papers.
+
+#### Scenario: Candidate discovery is auditable
+
+- **WHEN** Stage 40 finishes collecting Topic and library candidates
+- **THEN** the runtime SHALL persist whether discovery is `ready`, `empty_confirmed`, or `incomplete`
+- **AND** SHALL preserve stable counts for planned and executed anchors, pages, raw rows, accepted candidates, dropped rows, source failures, source truncation, candidate-budget truncation, and incomplete Topic source tables
+- **AND** every accepted candidate SHALL retain its Topic or query provenance.
+
+#### Scenario: Degraded Topic discovery finds candidates
+
+- **WHEN** at least one selected Topic context is unavailable or its current `source_papers` table is missing, malformed, empty, or contains an invalid paper ref
+- **AND** another selected Topic or bounded library discovery produces at least one reliable canonical candidate
+- **THEN** Stage 40 SHALL persist `ready` and continue to Stage 50
+- **AND** SHALL preserve a stable Topic-scoped runtime diagnostic for each incomplete source.
+
+#### Scenario: Candidate discovery is incomplete
+
+- **WHEN** every available source fails, a required response is malformed, a non-empty response yields no canonical identity, or degraded Topic discovery finishes without a reliable candidate
+- **THEN** Stage 40 SHALL remain incomplete with a stable diagnostic
+- **AND** Stage 50 SHALL NOT be skipped or marked complete
+- **AND** the workflow SHALL NOT emit a business cancellation.
+
+#### Scenario: Confirmed discovery is empty
+
+- **WHEN** every required discovery source completes with a valid, explicitly empty result
+- **AND** no selected Topic has an unavailable, missing, malformed, empty, or partially invalid current source-paper table
+- **THEN** the runtime MAY advance without an assessment packet
+- **AND** SHALL record Stage 50 as skipped because discovery was `empty_confirmed`, rather than as a completed zero-item assessment.
 
 #### Scenario: A remote artifact bundle is required
 
@@ -71,8 +105,8 @@ The skill SHALL automatically select related Topics and papers from current Synt
 
 #### Scenario: No related literature is found
 
-- **WHEN** no candidate meets the related-literature threshold and no selected Topic resolves a paper
-- **THEN** the workflow SHALL return a business cancellation
+- **WHEN** discovery is `empty_confirmed`, or every assessed non-Topic candidate misses the related-literature threshold while no selected Topic contributes a valid source paper
+- **THEN** the workflow SHALL return `research_bundle_canceled` with reason `no_related_literature`
 - **AND** SHALL NOT register a Product.
 
 #### Scenario: Graph metrics are available
@@ -98,7 +132,7 @@ Each selected paper SHALL record four-artifact manifest state, a literature-qual
 
 ### Requirement: Research Product contains auditable materials
 
-The workflow SHALL register one compact, read-only Research Bundle Product rather than a Zotero migration archive.
+The workflow SHALL register one compact, read-only Research Bundle Product rather than a Zotero migration archive. Canonical paper materialization rules for portable metadata, Markdown-or-PDF source selection, safe Markdown images, and the four analysis artifact types SHALL be shared with direct research-bundle export, while workflow selection, role, bibliography, Topic, Product layout, and registration semantics remain owned by the workflow.
 
 #### Scenario: Related and core materials are materialized
 
@@ -106,9 +140,14 @@ The workflow SHALL register one compact, read-only Research Bundle Product rathe
 - **THEN** every related paper SHALL have portable metadata
 - **AND** `references.bib` SHALL contain the successfully materialized core and related Zotero items
 - **AND** bibliography export SHALL prefer Better BibTeX and fall back to Zotero BibTeX when Better BibTeX is unavailable, fails, or returns empty output
-- **AND** every available digest, references, and citation-analysis payload SHALL be decoded and stored with provenance
+- **AND** every available digest, references, citation-analysis, and literature-score payload SHALL be decoded and stored with provenance
 - **AND** ordinary notes and conversation-note payloads SHALL NOT be exported
 - **AND** core papers SHALL additionally contain at most one source, preferring Markdown with eligible local images and falling back to PDF.
+
+#### Scenario: Shared materialization is used by a Product
+
+- **WHEN** the workflow consumes shared paper materialization output
+- **THEN** its existing `research_bundle.product` schema, core/related paths, bibliography, index, README, warnings, and atomic Product registration behavior SHALL remain unchanged.
 
 #### Scenario: Bibliography fallback succeeds
 
@@ -125,7 +164,7 @@ The workflow SHALL register one compact, read-only Research Bundle Product rathe
 #### Scenario: Product records v2 paths and integrity
 
 - **WHEN** all required Product assets are copied
-- **THEN** README, manifest, `references.bib`, Topic reports, paper metadata, core source files, three analysis payload types, and eligible source images SHALL be registered under stable Product-relative paths
+- **THEN** README, manifest, `references.bib`, Topic reports, paper metadata, core source files, four analysis payload types, and eligible source images SHALL be registered under stable Product-relative paths
 - **AND** the manifest SHALL use `schema_id` `research_bundle.product` and `schema_version` `2.0.0`
 - **AND** the manifest SHALL include a top-level `bibliography` record as the bibliography provenance source of truth
 - **AND** the manifest SHALL record sizes and SHA-256 values without hashing itself.
@@ -138,11 +177,11 @@ The workflow SHALL register one compact, read-only Research Bundle Product rathe
 
 ### Requirement: Topic-resolved papers are mandatory candidates
 
-The Research Bundle runtime SHALL read each selected Topic's current context, include every unique `paper_ref` from its `resolved_paper_set` before library search, and preserve those papers through candidate assessment and final selection unless the host cannot materialize the referenced Zotero item.
+The Research Bundle runtime SHALL read each selected Topic's current semantic context, include every unique canonical `paper_ref` from its persisted `source_papers` before library search, and preserve those papers through candidate assessment and final selection unless the host cannot materialize the referenced Zotero item.
 
 #### Scenario: Topic paper has low semantic relevance
 
-- **WHEN** a selected Topic resolves a paper whose Stage 50 semantic relevance is below `0.45`
+- **WHEN** a selected Topic declares a source paper whose Stage 50 semantic relevance is below `0.45`
 - **THEN** the paper remains eligible and is normalized into the final `papers` array
 - **AND** its Topic association is recorded in the selection/audit data.
 
@@ -155,7 +194,7 @@ The Research Bundle runtime SHALL read each selected Topic's current context, in
 #### Scenario: Topic context precedes library search
 
 - **WHEN** at least one Topic is selected
-- **THEN** every selected Topic paper set SHALL be collected and persisted before the first library search request is executed.
+- **THEN** every selected Topic semantic context SHALL be read and its valid current source papers persisted before the first library search request is executed.
 
 ### Requirement: Related-paper limits exclude mandatory Topic papers
 
@@ -186,3 +225,24 @@ The shared selection normalizer SHALL allow low-score Topic-associated papers, p
 - **WHEN** a normalized selection contains too many non-Topic papers
 - **THEN** normalization rejects it
 - **AND** a selection with additional mandatory Topic papers remains valid.
+
+### Requirement: Workflow number inputs enforce their declared contract
+
+Live Workflow parameter forms SHALL expose and enforce declared integer and range constraints before accepting a value.
+
+#### Scenario: Bounded count is rendered
+
+- **WHEN** a number parameter declares finite minimum and maximum values
+- **THEN** each live Workflow parameter form SHALL append that range to the localized parameter label
+- **AND** SHALL expose the same bounds through the number input attributes.
+
+#### Scenario: Invalid count is entered
+
+- **WHEN** a user enters a non-finite, fractional, below-minimum, or above-maximum value for an integer parameter
+- **THEN** the form SHALL reject confirmation or automatic persistence
+- **AND** SHALL preserve the previously valid stored value.
+
+#### Scenario: Non-UI caller exceeds a Research Bundle limit
+
+- **WHEN** a non-UI caller supplies a numeric Research Bundle limit outside its declared range
+- **THEN** the Skill runtime SHALL clamp the value to the corresponding schema boundary.

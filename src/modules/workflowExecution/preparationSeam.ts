@@ -31,7 +31,7 @@ import type { WorkflowScopedSelectionContext } from "../../workflows/workflowInp
 import { alertWindow } from "./feedbackSeam";
 import { localizeWorkflowText } from "./messageFormatter";
 import { shouldShowWorkflowNotifications } from "./feedbackPolicy";
-import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../../workflows/triggerPolicy";
 import {
   ACP_SKILL_RUN_REQUEST_KIND,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,

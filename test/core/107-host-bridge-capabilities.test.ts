@@ -585,6 +585,84 @@ describe("host bridge capability calls", function () {
     assert.deepEqual(connectionModes, ["remote", "remote", "local", "remote"]);
   });
 
+  it("keeps topic planning context internal to workflows", function () {
+    assert.isUndefined(
+      listHostBridgeCapabilities().find(
+        (entry) => entry.name === "topics.get_planning_context",
+      ),
+    );
+  });
+
+  it("routes direct paper and Topic research bundles through their Synthesis capabilities", async function () {
+    const calls: Array<{ kind: string; input: any; mode?: string }> = [];
+    const result = (kind: "papers" | "topics") => ({
+      manifest_file: "manifest.json",
+      summary: {
+        kind,
+        paper_count: 1,
+        topic_count: kind === "topics" ? 1 : 0,
+        warning_count: 0,
+      },
+      delivery: {
+        mode: "local",
+        outputName: `${kind}-bundle`,
+        manifestFile: "manifest.json",
+        fileCount: 3,
+        bytesWritten: 128,
+      },
+    });
+    const token = configureHostBridgeServerForTests({
+      token: "direct-bundle-token",
+      resolveDirectResearchBundleApplication: () => ({
+        exportPapers(input, context) {
+          calls.push({
+            kind: "papers",
+            input,
+            mode: context?.mode,
+          });
+          return Promise.resolve(result("papers") as any);
+        },
+        exportTopics(input, context) {
+          calls.push({
+            kind: "topics",
+            input,
+            mode: context?.mode,
+          });
+          return Promise.resolve(result("topics") as any);
+        },
+      }),
+    });
+
+    const paper = await callBridgeCapability({
+      token,
+      capability: "items.export_research_bundle",
+      input: {
+        items: [{ key: "ABCD1234", libraryId: 1 }],
+        output_dir: "paper-bundle",
+      },
+    });
+    const topic = await callBridgeCapability({
+      token,
+      capability: "topics.export_research_bundle",
+      input: {
+        topic_ids: ["topic-one"],
+        output_dir: "topic-bundle",
+      },
+    });
+
+    assert.strictEqual(paper.status, 200, JSON.stringify(paper.json));
+    assert.strictEqual(topic.status, 200, JSON.stringify(topic.json));
+    assert.deepEqual(
+      calls.map((entry) => [entry.kind, entry.mode]),
+      [
+        ["papers", "local"],
+        ["topics", "local"],
+      ],
+    );
+    assert.deepEqual(calls[0].input.items, [{ key: "ABCD1234", libraryId: 1 }]);
+    assert.deepEqual(calls[1].input.topic_ids, ["topic-one"]);
+  });
+
   it("rotates, binds, revokes, and redacts auto-approval grants", function () {
     upsertAcpSkillRun({
       requestId: "grant-run",

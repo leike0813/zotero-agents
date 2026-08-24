@@ -5339,7 +5339,7 @@ describe("Synthesis tab UI model", function () {
     assert.deepInclude(intents["topic-discovery"], {
       topicId: "topic-discovery",
       updateScope: "discovery",
-      updateMode: "update_patch",
+      updateMode: "update_full",
       updateReason: "discovery_candidates",
       actionLabel: "Update",
     });
@@ -5707,6 +5707,7 @@ describe("Synthesis tab UI model", function () {
       "concept:cv:detr",
     );
     assert.include(snapshot.hostCommands, "rebuildConceptKbIndex");
+    assert.include(snapshot.hostCommands, "auditConceptAliases");
     assert.include(snapshot.hostCommands, "applyConceptReviewAction");
     assert.include(snapshot.hostCommands, "deleteConceptEntry");
     assert.deepEqual(command.hostCommand, {
@@ -5754,6 +5755,13 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderConceptReviewPanel");
     assert.include(source, "synthesis-concept-review-title");
     assert.include(source, "applyConceptReviewAction");
+    assert.include(source, "synthesis-concepts-audit-aliases");
+    assert.include(source, "synthesis-action-keep-alias");
+    assert.include(source, "synthesis-action-remove-alias");
+    assert.include(host, "auditConceptAliases");
+    assert.include(host, 'action === "keep_alias"');
+    assert.include(host, 'action === "remove_alias"');
+    assert.include(service, "async function auditConceptAliases");
     assert.include(source, "reviewMergeTargets");
     assert.include(source, "renderReviewMetadata");
     assert.include(source, "conceptReviewPanel");
@@ -5854,6 +5862,55 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, "overflow: hidden;");
     assert.include(css, "color: var(--topic-muted);");
     assert.include(css, ".topic-report-reader-frame.no-outline");
+  });
+
+  it("normalizes alias audit reviews and routes explicit keep/remove actions", function () {
+    const snapshot = normalizeSynthesisUiSnapshot({
+      libraryId: 1,
+      concepts: {
+        reviewItems: [
+          {
+            review_id: "review:alias",
+            status: "open",
+            reason: "alias_conflict",
+            topic_id: "concept:cv:field",
+            label: "Object Detection",
+            confidence: "high",
+            candidate_concept_ids: ["concept:cv:detection"],
+            proposal: {
+              audit_alias: {
+                alias_id: "alias:object-detection",
+                alias: "Object Detection",
+                normalized: "object detection",
+                concept_id: "concept:cv:field",
+                sense_id: "sense:cv:field",
+              },
+            },
+          } as any,
+        ],
+      },
+    });
+    const review = snapshot.concepts.reviewItems[0]!;
+
+    assert.equal(review.reason, "alias_conflict");
+    assert.deepEqual(review.audit_alias, {
+      alias_id: "alias:object-detection",
+      alias: "Object Detection",
+      normalized: "object detection",
+      concept_id: "concept:cv:field",
+      sense_id: "sense:cv:field",
+    });
+    const keep = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "hostCommand",
+      payload: {
+        command: "applyConceptReviewAction",
+        args: { reviewId: "review:alias", action: "keep_alias" },
+      },
+    });
+    assert.deepEqual(keep.hostCommand, {
+      command: "applyConceptReviewAction",
+      args: { reviewId: "review:alias", action: "keep_alias" },
+    });
   });
 
   it("shows reference sidecar cache status without exposing legacy cleanup host actions", async function () {

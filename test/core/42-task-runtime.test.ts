@@ -8,10 +8,7 @@ import {
   reconcileWorkflowTaskProjectionsOnStartup,
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
-import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
-} from "../../src/modules/skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "../../src/modules/skillRunnerRunStore";
 
 function makeJob(args: {
   id: string;
@@ -315,18 +312,22 @@ describe("task runtime", function () {
   });
 
   it("reads SkillRunner request projections from the run store", function () {
-    const run = createSkillRunnerRun({
-      backendId: "skillrunner-backend",
-      workflowId: "literature-analysis",
-      workflowRunId: "run-skillrunner",
-      jobId: "job-skillrunner",
-      taskName: "backend.md",
-      skillId: "literature-analysis",
-      createdAt: "2026-02-10T01:00:00.000Z",
-      updatedAt: "2026-02-10T01:00:00.000Z",
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "skillrunner-backend",
+        workflowId: "literature-analysis",
+        workflowRunId: "run-skillrunner",
+        jobId: "job-skillrunner",
+        taskName: "backend.md",
+        skillId: "literature-analysis",
+        createdAt: "2026-02-10T01:00:00.000Z",
+        updatedAt: "2026-02-10T01:00:00.000Z",
+      },
     });
     assert.isOk(run);
-    attachSkillRunnerRequestId({
+    applySkillRunnerRunEvent({
+      type: "request.created",
       runKey: run!.runKey,
       requestId: "request-skillrunner",
       updatedAt: "2026-02-10T01:00:01.000Z",

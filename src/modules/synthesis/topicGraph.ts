@@ -61,6 +61,7 @@ export type SynthesisTopicGraphNode = {
   title: string;
   definition?: string;
   aliases: string[];
+  planning?: SynthesisPlannedTopicMetadata;
   node_type: "materialized" | "placeholder";
   definition_status?: "has_synthesis" | "placeholder" | "deleted" | "stale";
   current_artifact_path?: string;
@@ -70,6 +71,58 @@ export type SynthesisTopicGraphNode = {
   last_synthesis_at?: string;
   created_at: string;
   updated_at: string;
+};
+
+export type SynthesisPlannedTopicMetadata = {
+  lifecycle: "planned" | "stale" | "materialized";
+  scope: {
+    include: string[];
+    exclude: string[];
+  };
+  resolver: Record<string, unknown>;
+  revision: number;
+  basis: unknown[];
+  provenance: unknown[];
+  coverage_manifest_path?: string;
+};
+
+export type SynthesisTopicPlanAction = {
+  action: "create" | "update" | "mark_stale" | "reactivate";
+  topic_id: string;
+  title?: string;
+  definition?: string;
+  aliases?: string[];
+  scope?: { include?: string[]; exclude?: string[] };
+  resolver?: Record<string, unknown>;
+  revision?: number;
+  basis?: unknown[];
+  provenance?: unknown[];
+};
+
+export type SynthesisTopicPlan = {
+  kind: "topic_plan";
+  operation: "reconcile";
+  base_graph_hash: string;
+  library_index_hash: string;
+  topic_actions: SynthesisTopicPlanAction[];
+  relation_proposals: Array<
+    Partial<SynthesisTopicGraphEdge> & {
+      source_topic_id: string;
+      target_topic_id: string;
+      relation: SynthesisTopicGraphRelation;
+    }
+  >;
+  coverage_manifest_path?: string;
+  recommended_updates: string[];
+};
+
+export type SynthesisTopicPlanReconcileResult = {
+  status: "persisted" | "no_change" | "already_applied" | "conflict";
+  graph_hash: string;
+  coverage_stale: boolean;
+  recommended_updates: string[];
+  diagnostics: SynthesisTopicGraphDiagnostic[];
+  receipt?: CanonicalTransactionReceipt;
 };
 
 export type SynthesisTopicGraphEdge = {
@@ -227,6 +280,62 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export const safeTopicGraphId = safeSynthesisTopicGraphId;
 
+function parseJsonObjectText(value: unknown) {
+  try {
+    const parsed = JSON.parse(cleanString(value) || "{}");
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizePlannedTopicMetadata(
+  value: unknown,
+  previous?: SynthesisPlannedTopicMetadata,
+): SynthesisPlannedTopicMetadata | undefined {
+  if (!isRecord(value) && !previous) {
+    return undefined;
+  }
+  const input = isRecord(value) ? value : {};
+  if (Object.keys(input).length === 0 && !previous) {
+    return undefined;
+  }
+  const inputScope = isRecord(input.scope) ? input.scope : {};
+  const lifecycle = cleanString(input.lifecycle || previous?.lifecycle);
+  const resolver = isRecord(input.resolver)
+    ? input.resolver
+    : previous?.resolver || {};
+  const revision = Math.max(
+    1,
+    Math.floor(Number(input.revision ?? previous?.revision ?? 1) || 1),
+  );
+  const normalized: SynthesisPlannedTopicMetadata = {
+    lifecycle:
+      lifecycle === "stale" || lifecycle === "materialized"
+        ? lifecycle
+        : "planned",
+    scope: {
+      include: normalizeStringList(
+        inputScope.include ?? previous?.scope.include,
+      ),
+      exclude: normalizeStringList(
+        inputScope.exclude ?? previous?.scope.exclude,
+      ),
+    },
+    resolver: { ...resolver },
+    revision,
+    basis: Array.isArray(input.basis) ? input.basis : previous?.basis || [],
+    provenance: Array.isArray(input.provenance)
+      ? input.provenance
+      : previous?.provenance || [],
+    coverage_manifest_path:
+      cleanString(
+        input.coverage_manifest_path || previous?.coverage_manifest_path,
+      ) || undefined,
+  };
+  return normalized;
+}
+
 function clampConfidence(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : undefined;
@@ -271,12 +380,20 @@ function normalizeTopicNode(
     previous?.definition_status ||
     (nodeType === "materialized" ? "has_synthesis" : "placeholder");
   const paperCount = Number(input.paper_count ?? previous?.paper_count ?? 0);
+  const planning = normalizePlannedTopicMetadata(
+    input.planning,
+    previous?.planning,
+  );
   return {
     topic_id: topicId,
     title: cleanString(input.title || previous?.title) || topicId,
     definition:
       cleanString(input.definition || previous?.definition) || undefined,
     aliases: normalizeStringList(input.aliases || previous?.aliases),
+    planning:
+      planning && nodeType === "materialized"
+        ? { ...planning, lifecycle: "materialized" }
+        : planning,
     node_type: nodeType,
     definition_status:
       status === "deleted" || status === "stale" || status === "has_synthesis"
@@ -394,6 +511,24 @@ function sortReviewItems(items: SynthesisTopicGraphReviewItem[]) {
   );
 }
 
+function topicGraphSemanticHash(args: {
+  nodes: SynthesisTopicGraphNode[];
+  edges: SynthesisTopicGraphEdge[];
+  reviewItems: SynthesisTopicGraphReviewItem[];
+}) {
+  return hashCanonicalJson({
+    nodes: sortNodes(args.nodes).map(
+      ({ created_at: _createdAt, updated_at: _updatedAt, ...node }) => node,
+    ),
+    edges: sortEdges(args.edges).map(
+      ({ created_at: _createdAt, updated_at: _updatedAt, ...edge }) => edge,
+    ),
+    review_items: sortReviewItems(args.reviewItems).map(
+      ({ created_at: _createdAt, updated_at: _updatedAt, ...item }) => item,
+    ),
+  });
+}
+
 function buildManifest(args: {
   nodes: SynthesisTopicGraphNode[];
   edges: SynthesisTopicGraphEdge[];
@@ -433,6 +568,7 @@ function createRegistry() {
       title: { type: "string", minLength: 1 },
       definition: { type: "string" },
       aliases: { type: "array", items: { type: "string" } },
+      planning: { type: "object" },
       node_type: { enum: ["materialized", "placeholder"] },
       definition_status: {
         enum: ["has_synthesis", "placeholder", "deleted", "stale"],
@@ -618,6 +754,7 @@ function topicGraphNodeToRecord(
     title: node.title,
     definition: node.definition,
     aliasesJson: jsonArrayText(node.aliases),
+    planningJson: JSON.stringify(node.planning || {}),
     nodeType: node.node_type,
     definitionStatus: node.definition_status,
     currentArtifactPath: node.current_artifact_path,
@@ -636,8 +773,11 @@ function topicGraphNodeFromRecord(
   return {
     topic_id: record.topicId,
     title: record.title,
-    definition: record.definition,
+    definition: cleanString(record.definition) || undefined,
     aliases: normalizeStringList(parseJsonArrayText(record.aliasesJson)),
+    planning: normalizePlannedTopicMetadata(
+      parseJsonObjectText(record.planningJson),
+    ),
     node_type:
       record.nodeType === "materialized" ? "materialized" : "placeholder",
     definition_status:
@@ -647,7 +787,7 @@ function topicGraphNodeFromRecord(
       record.definitionStatus === "stale"
         ? record.definitionStatus
         : undefined,
-    current_artifact_path: record.currentArtifactPath,
+    current_artifact_path: cleanString(record.currentArtifactPath) || undefined,
     is_root: record.isRoot,
     level:
       record.level === "top"
@@ -656,7 +796,7 @@ function topicGraphNodeFromRecord(
           ? "normal"
           : undefined,
     paper_count: record.paperCount,
-    last_synthesis_at: record.lastSynthesisAt,
+    last_synthesis_at: cleanString(record.lastSynthesisAt) || undefined,
     created_at: record.createdAt || "",
     updated_at: record.updatedAt || "",
   };
@@ -728,14 +868,14 @@ function topicGraphReviewFromRecord(
         : "open",
     source_topic_id: record.sourceTopicId,
     target_topic_id: record.targetTopicId,
-    target_title: record.targetTitle,
+    target_title: cleanString(record.targetTitle) || undefined,
     relation: normalizeRelation(record.relation) || "related_to",
     confidence: clampConfidence(record.confidence),
     provenance: parseJsonArrayText(record.provenanceJson),
     evidence_refs: parseJsonArrayText(record.evidenceRefsJson),
     created_at: record.createdAt || "",
     updated_at: record.updatedAt || "",
-    resolved_at: record.resolvedAt,
+    resolved_at: cleanString(record.resolvedAt) || undefined,
   };
 }
 
@@ -778,16 +918,28 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     });
   const registry = createRegistry();
 
-  async function ensureTopicGraphStore() {
+  function readCanonicalGraphState() {
     repository.initialize();
-  }
-
-  async function readManifest(
-    nodes: SynthesisTopicGraphNode[],
-    edges: SynthesisTopicGraphEdge[],
-    reviewItems: SynthesisTopicGraphReviewItem[],
-  ) {
-    return buildManifest({ nodes, edges, reviewItems, updatedAt: now() });
+    const nodes = sortNodes(
+      repository.listTopicGraphNodes().map(topicGraphNodeFromRecord),
+    );
+    const edges = sortEdges(
+      repository.listTopicGraphEdges().map(topicGraphEdgeFromRecord),
+    );
+    const reviewItems = sortReviewItems(
+      repository.listTopicGraphReviewItems().map(topicGraphReviewFromRecord),
+    );
+    return {
+      nodes,
+      edges,
+      reviewItems,
+      manifest: buildManifest({
+        nodes,
+        edges,
+        reviewItems,
+        updatedAt: now(),
+      }),
+    };
   }
 
   async function commitGraph(args: {
@@ -827,26 +979,16 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
   async function loadTopicGraph(
     options: IndexRebuildOptions = {},
   ): Promise<SynthesisTopicGraphSnapshot> {
-    await ensureTopicGraphStore();
-    const nodes = sortNodes(
-      repository.listTopicGraphNodes().map(topicGraphNodeFromRecord),
-    );
+    const current = readCanonicalGraphState();
     await options.yieldControl?.();
-    const edges = sortEdges(
-      repository.listTopicGraphEdges().map(topicGraphEdgeFromRecord),
-    );
-    const reviewItems = sortReviewItems(
-      repository.listTopicGraphReviewItems().map(topicGraphReviewFromRecord),
-    );
     await options.yieldControl?.();
-    const manifest = await readManifest(nodes, edges, reviewItems);
     const registryState = await readProjectionRegistryState(root);
     await options.yieldControl?.();
     return {
-      nodes,
-      edges,
-      review_items: reviewItems,
-      manifest,
+      nodes: current.nodes,
+      edges: current.edges,
+      review_items: current.reviewItems,
+      manifest: current.manifest,
       projection: registryState.projections[SYNTHESIS_TOPIC_GRAPH_INDEX_TARGET],
       diagnostics: [],
     };
@@ -1120,6 +1262,278 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     );
   }
 
+  async function reconcileTopicPlan(args: {
+    plan: SynthesisTopicPlan;
+    currentLibraryIndexHash: string;
+    transactionId?: string;
+  }): Promise<SynthesisTopicPlanReconcileResult> {
+    const current = await loadTopicGraph();
+    const plan = args.plan;
+    const diagnostics: SynthesisTopicGraphDiagnostic[] = [];
+    const coverageStale =
+      cleanString(plan.library_index_hash) !==
+      cleanString(args.currentLibraryIndexHash);
+    const recommendedUpdates = normalizeStringList(plan.recommended_updates);
+    if (plan.kind !== "topic_plan" || plan.operation !== "reconcile") {
+      return {
+        status: "conflict",
+        graph_hash: current.manifest.manifest_hash,
+        coverage_stale: coverageStale,
+        recommended_updates: recommendedUpdates,
+        diagnostics: [
+          {
+            code: "invalid_topic_plan_contract",
+            message:
+              "Topic plan kind and operation must be topic_plan/reconcile.",
+          },
+        ],
+      };
+    }
+
+    const timestamp = now();
+    const nodesById = new Map(
+      current.nodes.map((node) => [node.topic_id, node]),
+    );
+    for (const topicId of recommendedUpdates) {
+      if (nodesById.get(topicId)?.node_type !== "materialized") {
+        diagnostics.push({
+          code: "recommended_update_requires_materialized_topic",
+          message:
+            "Topic Planner update recommendations must name a materialized topic.",
+          source_topic_id: topicId,
+        });
+      }
+    }
+    for (const action of Array.isArray(plan.topic_actions)
+      ? plan.topic_actions
+      : []) {
+      const actionRecord = action as unknown as Record<string, unknown>;
+      const topicId = cleanString(action.topic_id);
+      const previous = nodesById.get(topicId);
+      if (!topicId) {
+        diagnostics.push({
+          code: "invalid_planned_topic_id",
+          message: "Planned Topic action requires a topic id.",
+        });
+        continue;
+      }
+      if (
+        ["paper_ids", "paper_refs", "papers", "members"].some(
+          (key) => key in actionRecord,
+        )
+      ) {
+        diagnostics.push({
+          code: "planned_topic_membership_forbidden",
+          message:
+            "Planned Topic actions may store a resolver but not provisional paper membership.",
+          source_topic_id: topicId,
+        });
+        continue;
+      }
+      if (previous?.node_type === "materialized") {
+        diagnostics.push({
+          code: "materialized_topic_is_not_planner_writable",
+          message: "Topic Planner cannot rewrite a materialized topic.",
+          source_topic_id: topicId,
+        });
+        continue;
+      }
+      if (
+        (action.action === "mark_stale" || action.action === "reactivate") &&
+        !previous?.planning
+      ) {
+        diagnostics.push({
+          code: "planned_topic_missing",
+          message: "Lifecycle actions require an existing Planned Topic.",
+          source_topic_id: topicId,
+        });
+        continue;
+      }
+      const lifecycle = action.action === "mark_stale" ? "stale" : "planned";
+      const planning = normalizePlannedTopicMetadata(
+        {
+          lifecycle,
+          scope: action.scope,
+          resolver: action.resolver,
+          revision:
+            action.revision ??
+            (action.action === "update"
+              ? (previous?.planning?.revision || 0) + 1
+              : previous?.planning?.revision || 1),
+          basis: action.basis,
+          provenance: mergeUnknownLists(previous?.planning?.provenance || [], [
+            { producer: "topic-planner" },
+            ...(Array.isArray(action.provenance) ? action.provenance : []),
+          ]),
+          coverage_manifest_path: plan.coverage_manifest_path,
+        },
+        previous?.planning,
+      );
+      const normalized = normalizeTopicNode(
+        {
+          topic_id: topicId,
+          title: action.title,
+          definition: action.definition,
+          aliases: action.aliases,
+          node_type: "placeholder",
+          definition_status: lifecycle === "stale" ? "stale" : "placeholder",
+          planning,
+        },
+        timestamp,
+        previous,
+      );
+      if (
+        !normalized ||
+        !normalized.definition ||
+        !planning ||
+        ((action.action === "create" || action.action === "update") &&
+          Object.keys(planning.resolver).length === 0)
+      ) {
+        diagnostics.push({
+          code: "invalid_planned_topic_definition",
+          message: "Planned Topic actions require a reusable definition.",
+          source_topic_id: topicId,
+        });
+        continue;
+      }
+      nodesById.set(topicId, normalized);
+    }
+
+    const edgesById = new Map(
+      current.edges.map((edge) => [edge.edge_id, edge]),
+    );
+    for (const proposal of Array.isArray(plan.relation_proposals)
+      ? plan.relation_proposals
+      : []) {
+      const relation = normalizeRelation(proposal.relation);
+      const canonical = relation
+        ? canonicalizeTopicGraphEdgeTuple({
+            sourceTopicId: proposal.source_topic_id,
+            targetTopicId: proposal.target_topic_id,
+            relation,
+          })
+        : null;
+      if (
+        !canonical ||
+        !canonical.sourceTopicId ||
+        !canonical.targetTopicId ||
+        canonical.sourceTopicId === canonical.targetTopicId ||
+        !nodesById.has(canonical.sourceTopicId) ||
+        !nodesById.has(canonical.targetTopicId)
+      ) {
+        diagnostics.push({
+          code: "invalid_topic_plan_relation",
+          message:
+            "Topic plan relation must connect two known, distinct topics.",
+          source_topic_id: canonical?.sourceTopicId,
+          target_topic_id: canonical?.targetTopicId,
+          relation: relation ?? undefined,
+        });
+        continue;
+      }
+      const edgeId = deterministicTopicGraphEdgeId(canonical);
+      const previous = edgesById.get(edgeId);
+      if (
+        canonical.relation === "broader_than" &&
+        hasBroaderPath(
+          [...edgesById.values()],
+          canonical.targetTopicId,
+          canonical.sourceTopicId,
+        )
+      ) {
+        diagnostics.push({
+          code: "broader_cycle_rejected",
+          message: "Proposed broader_than edge would create a cycle.",
+          source_topic_id: canonical.sourceTopicId,
+          target_topic_id: canonical.targetTopicId,
+          relation: canonical.relation,
+        });
+        continue;
+      }
+      const edge = normalizeTopicEdge(
+        {
+          source_topic_id: canonical.sourceTopicId,
+          target_topic_id: canonical.targetTopicId,
+          relation: canonical.relation,
+          status: previous?.status || "suggested",
+          confidence: proposal.confidence ?? previous?.confidence,
+          provenance: mergeUnknownLists(previous?.provenance || [], [
+            { producer: "topic-planner" },
+            ...(Array.isArray(proposal.provenance) ? proposal.provenance : []),
+          ]),
+          evidence_refs: mergeUnknownLists(
+            previous?.evidence_refs || [],
+            Array.isArray(proposal.evidence_refs) ? proposal.evidence_refs : [],
+          ),
+        },
+        timestamp,
+        previous,
+      );
+      if (edge) {
+        edgesById.set(edgeId, edge);
+      }
+    }
+
+    if (diagnostics.length > 0) {
+      return {
+        status: "conflict",
+        graph_hash: current.manifest.manifest_hash,
+        coverage_stale: coverageStale,
+        recommended_updates: recommendedUpdates,
+        diagnostics,
+      };
+    }
+    const next = {
+      nodes: [...nodesById.values()],
+      edges: [...edgesById.values()],
+      reviewItems: current.review_items,
+    };
+    const latest = readCanonicalGraphState();
+    const latestMatchesPlan =
+      topicGraphSemanticHash({
+        nodes: latest.nodes,
+        edges: latest.edges,
+        reviewItems: latest.reviewItems,
+      }) === topicGraphSemanticHash(next);
+    const baseMatches =
+      cleanString(plan.base_graph_hash) === latest.manifest.manifest_hash;
+    if (latestMatchesPlan) {
+      return {
+        status: baseMatches ? "no_change" : "already_applied",
+        graph_hash: latest.manifest.manifest_hash,
+        coverage_stale: coverageStale,
+        recommended_updates: recommendedUpdates,
+        diagnostics: [],
+      };
+    }
+    if (!baseMatches) {
+      return {
+        status: "conflict",
+        graph_hash: latest.manifest.manifest_hash,
+        coverage_stale: coverageStale,
+        recommended_updates: recommendedUpdates,
+        diagnostics: [
+          {
+            code: "topic_graph_compare_and_swap_conflict",
+            message: "Topic Graph changed after the plan was prepared.",
+          },
+        ],
+      };
+    }
+    const committed = await commitGraph({
+      ...next,
+      transactionId: args.transactionId,
+    });
+    return {
+      status: "persisted",
+      graph_hash: committed.manifest.manifest_hash,
+      coverage_stale: coverageStale,
+      recommended_updates: recommendedUpdates,
+      diagnostics: [],
+      receipt: committed.receipt,
+    };
+  }
+
   async function decideTopicGraphRelation(args: {
     edgeId: string;
     status: Extract<SynthesisTopicGraphEdgeStatus, "confirmed" | "rejected">;
@@ -1311,6 +1725,7 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     sourceTopicId: string;
     payload: unknown;
     transactionId?: string;
+    producer?: "topic-synthesis" | "topic-planner";
   }): Promise<SynthesisTopicRelationProposalIngestResult> {
     const sourceTopicId = cleanString(args.sourceTopicId);
     const row = isRecord(args.payload) ? args.payload : {};
@@ -1321,7 +1736,14 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
       .map((entry) => normalizeProposal(entry))
       .filter((entry): entry is SynthesisTopicRelationProposal =>
         Boolean(entry),
-      );
+      )
+      .map((proposal) => ({
+        ...proposal,
+        provenance: mergeUnknownLists(
+          proposal.provenance || [],
+          args.producer ? [{ producer: args.producer }] : [],
+        ),
+      }));
     const current = await loadTopicGraph();
     const timestamp = now();
     const nodesById = new Map(
@@ -1599,6 +2021,7 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     markTopicRelationsDeleted,
     purgeDeletedTopicRelations,
     upsertMaterializedTopic,
+    reconcileTopicPlan,
     decideTopicGraphRelation,
     applyTopicGraphReviewAction,
     ingestRelationProposals,

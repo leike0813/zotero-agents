@@ -1,4 +1,5 @@
 import { joinPath } from "../../utils/path";
+import { ZipBundleReader } from "../../workflows/zipBundleReader";
 import {
   readRuntimeBytes,
   readRuntimeTextFile,
@@ -98,5 +99,48 @@ export function createDirectoryBundleReader(rootDir: string): BundleReader {
     readBytes: async (entryPath: string) =>
       readRuntimeBytes(await resolveEntry(entryPath)),
     getExtractedDir: async () => rootDir,
+  };
+}
+
+export type RunResultBundleSource = {
+  bundleBytes?: Uint8Array;
+  bundleDir?: string;
+};
+
+export type RunResultBundleReaderHandle = {
+  bundleReader: BundleReader;
+  bundlePath: string;
+  dispose: () => Promise<void>;
+};
+
+export async function openRunResultBundleReader(args: {
+  result: RunResultBundleSource;
+  requestId: string;
+}): Promise<RunResultBundleReaderHandle> {
+  let bundlePath = "";
+  let bundleReader: BundleReader = createUnavailableBundleReader(
+    args.requestId,
+  );
+  if (args.result.bundleBytes && args.result.bundleBytes.length > 0) {
+    bundlePath = buildTempBundlePath(args.requestId);
+    await writeBytes(bundlePath, args.result.bundleBytes);
+    bundleReader = new ZipBundleReader(bundlePath);
+  } else if (args.result.bundleDir) {
+    bundleReader = createDirectoryBundleReader(args.result.bundleDir);
+  }
+
+  let disposed = false;
+  return {
+    bundleReader,
+    bundlePath,
+    dispose: async () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      if (bundlePath) {
+        await removeFileIfExists(bundlePath);
+      }
+    },
   };
 }

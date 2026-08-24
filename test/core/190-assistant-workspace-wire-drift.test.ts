@@ -34,6 +34,7 @@ import {
   createAssistantWorkspaceUnownedScope,
 } from "../../src/modules/assistantWorkspacePublication";
 import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
+import { resolveAssistantWorkspaceAuditLogLevel } from "../../src/modules/assistantWorkspaceSidebar";
 import {
   setDebugModeOverrideForTests,
   setWorkspacePublicationWireAssertOverrideForTests,
@@ -90,6 +91,54 @@ describe("assistant wire contract shared registry", function () {
       MODULE_FORBIDDEN_WIRE_FIELDS,
       ASSISTANT_WORKSPACE_FORBIDDEN_WIRE_FIELDS,
     );
+  });
+
+  it("classifies Assistant Workspace audit levels from the shared action vocabulary", function () {
+    const cases = [
+      {
+        tab: "shell" as const,
+        action: ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB,
+        result: "ok" as const,
+        expected: "debug",
+      },
+      {
+        tab: "shell" as const,
+        action: ASSISTANT_WORKSPACE_SHELL_ACTIONS.READY,
+        result: "ok" as const,
+        expected: "info",
+      },
+      ...Object.values(ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS)
+        .filter(
+          (action) =>
+            action !== ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.READY,
+        )
+        .map((action) => ({
+          tab: "acp-chat" as const,
+          action,
+          result: "ok" as const,
+          expected: "debug",
+        })),
+      {
+        tab: "acp-skills" as const,
+        action: ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.READY,
+        result: "ok" as const,
+        expected: "info",
+      },
+      {
+        tab: "skillrunner" as const,
+        action: ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.LOAD_TRANSCRIPT_PAGE,
+        result: "error" as const,
+        expected: "warn",
+      },
+    ];
+
+    for (const testCase of cases) {
+      assert.equal(
+        resolveAssistantWorkspaceAuditLogLevel(testCase),
+        testCase.expected,
+        `${testCase.tab}/${testCase.action}/${testCase.result}`,
+      );
+    }
   });
 
   it("covers every publication kind exactly once", function () {

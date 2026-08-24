@@ -1,9 +1,87 @@
 {
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
-    { "id": "artifact-row-nested-positive", "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsResult", "valid": true, "value": { "artifacts": [{ "paper_ref": "1:ITEM1", "artifact_type": "digest", "payload_type": "digest-markdown", "status": "available", "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "markdown": "# Digest", "decoded_text": "# Digest", "payload_types_seen": ["digest-markdown"], "diagnostics": [] }], "diagnostics": [] } },
-    { "id": "debug-operation-page-positive", "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListResult", "valid": true, "value": { "rows": [{ "operationId": "op:1", "operationType": "refresh", "status": "running", "updatedAt": "2026-08-12T00:00:00.000Z" }], "total": 1, "truncated": false, "cursor": "0", "next_cursor": "", "has_more": false, "limit": 50 } },
-    { "id": "artifact-row-open-negative", "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsResult", "valid": false, "value": { "artifacts": [{ "paper_ref": "1:ITEM1", "artifact_type": "digest", "payload_type": "digest-markdown", "status": "available", "payload_types_seen": [], "diagnostics": [], "legacy": {} }], "diagnostics": [] } },
-    { "id": "debug-operation-nested-negative", "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListResult", "valid": false, "value": { "rows": [{ "operationId": "op:1", "operationType": "refresh", "status": "running", "updatedAt": {} }], "total": 1, "truncated": false, "cursor": "0", "next_cursor": "", "has_more": false, "limit": 50 } }
+    {
+      "id": "artifact-row-nested-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsResult",
+      "valid": true,
+      "value": {
+        "artifacts": [
+          {
+            "paper_ref": "1:ITEM1",
+            "artifact_type": "digest",
+            "payload_type": "digest-markdown",
+            "status": "available",
+            "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "markdown": "# Digest",
+            "decoded_text": "# Digest",
+            "payload_types_seen": ["digest-markdown"],
+            "diagnostics": []
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "debug-operation-page-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListResult",
+      "valid": true,
+      "value": {
+        "rows": [
+          {
+            "operationId": "op:1",
+            "operationType": "refresh",
+            "status": "running",
+            "updatedAt": "2026-08-12T00:00:00.000Z"
+          }
+        ],
+        "total": 1,
+        "truncated": false,
+        "cursor": "0",
+        "next_cursor": "",
+        "has_more": false,
+        "limit": 50
+      }
+    },
+    {
+      "id": "artifact-row-open-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsResult",
+      "valid": false,
+      "value": {
+        "artifacts": [
+          {
+            "paper_ref": "1:ITEM1",
+            "artifact_type": "digest",
+            "payload_type": "digest-markdown",
+            "status": "available",
+            "payload_types_seen": [],
+            "diagnostics": [],
+            "legacy": {}
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "debug-operation-nested-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListResult",
+      "valid": false,
+      "value": {
+        "rows": [
+          {
+            "operationId": "op:1",
+            "operationType": "refresh",
+            "status": "running",
+            "updatedAt": {}
+          }
+        ],
+        "total": 1,
+        "truncated": false,
+        "cursor": "0",
+        "next_cursor": "",
+        "has_more": false,
+        "limit": 50
+      }
+    }
   ]
 }

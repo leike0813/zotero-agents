@@ -43,6 +43,7 @@ type SubprocessCallInvocation = {
 type FakeWebSocketInstance = {
   url: string;
   sent: Array<string | Uint8Array | ArrayBuffer>;
+  closeCalls: number;
   binaryType?: string;
   onopen: ((event: unknown) => void) | null;
   onmessage: ((event: { data?: unknown }) => void) | null;
@@ -61,6 +62,7 @@ function createFakeWebSocketHarness() {
   class FakeWebSocket implements FakeWebSocketInstance {
     url: string;
     sent: Array<string | Uint8Array | ArrayBuffer> = [];
+    closeCalls = 0;
     binaryType?: string;
     onopen: ((event: unknown) => void) | null = null;
     onmessage: ((event: { data?: unknown }) => void) | null = null;
@@ -77,6 +79,7 @@ function createFakeWebSocketHarness() {
     }
 
     close() {
+      this.closeCalls += 1;
       this.emitClose();
     }
 
@@ -1636,6 +1639,147 @@ describe("acp transport", function () {
       assert.isTrue(
         auditEvents.every((event) => event.spawnId === spawnRequest.id),
       );
+    } finally {
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
+  });
+
+  it("closes a Windows bridge socket when spawned startup is canceled or times out", async function () {
+    const harness = createFakeWebSocketHarness();
+    seedWindowsLoginEnvironmentForTransportTests();
+    setAcpWebSocketBridgeTestOverridesForTests({
+      enabled: true,
+      websocketCtor: harness.WebSocketCtor,
+      service: seedFakeBridgeService(),
+    });
+    const previousZotero = redefineGlobalProperty("Zotero", { isWin: true });
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          pathSearch: async () => "C:\\Tools\\agent.exe",
+          call: async () => {
+            throw new Error("bridge test should not launch directly");
+          },
+        },
+      }),
+    });
+    const backend = {
+      id: "acp-startup-bound",
+      displayName: "ACP Startup Bound",
+      type: "acp",
+      baseUrl: "local://acp-startup-bound",
+      command: "agent",
+      args: ["acp"],
+    } as BackendInstance;
+
+    try {
+      const controller = new AbortController();
+      const canceledLaunch = launchAcpTransport({
+        backend,
+        cwd: "D:\\Canceled",
+        startup: { signal: controller.signal, timeoutMs: 60_000 },
+      }).then(
+        () => null,
+        (error) => error,
+      );
+      const canceledSocket = await waitForFakeSocket(harness.instances);
+      canceledSocket.emitOpen();
+      controller.abort();
+      assert.match(String(await canceledLaunch), /canceled/i);
+      assert.equal(canceledSocket.closeCalls, 1);
+
+      const timedOutLaunch = launchAcpTransport({
+        backend,
+        cwd: "D:\\TimedOut",
+        startup: { timeoutMs: 10 },
+      }).then(
+        () => null,
+        (error) => error,
+      );
+      while (harness.instances.length < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      const timedOutSocket = harness.instances[1];
+      timedOutSocket.emitOpen();
+      assert.match(String(await timedOutLaunch), /timed out.*10 ms/i);
+      assert.equal(timedOutSocket.closeCalls, 1);
+
+      timedOutSocket.emitMessage(
+        JSON.stringify({ type: "spawned", id: "late", pid: 9002 }),
+      );
+      assert.equal(timedOutSocket.closeCalls, 1);
+    } finally {
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
+  });
+
+  it("isolates cancellation between concurrent Windows bridge transports", async function () {
+    const harness = createFakeWebSocketHarness();
+    seedWindowsLoginEnvironmentForTransportTests();
+    setAcpWebSocketBridgeTestOverridesForTests({
+      enabled: true,
+      websocketCtor: harness.WebSocketCtor,
+      service: seedFakeBridgeService(),
+    });
+    const previousZotero = redefineGlobalProperty("Zotero", { isWin: true });
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          pathSearch: async () => "C:\\Tools\\agent.exe",
+          call: async () => {
+            throw new Error("bridge test should not launch directly");
+          },
+        },
+      }),
+    });
+    const backend = {
+      id: "acp-concurrent-startup",
+      displayName: "ACP Concurrent Startup",
+      type: "acp",
+      baseUrl: "local://acp-concurrent-startup",
+      command: "agent",
+      args: ["acp"],
+    } as BackendInstance;
+
+    try {
+      const firstController = new AbortController();
+      const firstPromise = launchAcpTransport({
+        backend,
+        cwd: "D:\\First",
+        startup: { signal: firstController.signal, timeoutMs: 60_000 },
+      }).then(
+        () => null,
+        (error) => error,
+      );
+      const secondPromise = launchAcpTransport({
+        backend,
+        cwd: "D:\\Second",
+        startup: { timeoutMs: 60_000 },
+      });
+      while (harness.instances.length < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      const [firstSocket, secondSocket] = harness.instances;
+      firstSocket.emitOpen();
+      secondSocket.emitOpen();
+      const secondSpawn = JSON.parse(String(secondSocket.sent[0] || ""));
+
+      firstController.abort();
+      secondSocket.emitMessage(
+        JSON.stringify({ type: "spawned", id: secondSpawn.id, pid: 9003 }),
+      );
+      assert.match(String(await firstPromise), /canceled/i);
+      const second = await secondPromise;
+      assert.equal(firstSocket.closeCalls, 1);
+      assert.equal(secondSocket.closeCalls, 0);
+
+      secondSocket.emitMessage(
+        JSON.stringify({ type: "exit", id: secondSpawn.id, code: 0 }),
+      );
+      secondSocket.emitClose();
+      await second.closed;
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);

@@ -2,6 +2,12 @@
 
 Topics are user-facing synthesis artifacts. They should remain stable unless the user updates them or their recorded sources fail source check.
 
+Before an artifact exists, Topic Planner may create a Planned Topic in the Topic Graph. This placeholder has a stable identity, definition, aliases, scope, resolver, revision, basis, provenance, and `planned` or `stale` lifecycle. It has no provisional paper-membership snapshot and is not a topic artifact. Active Planned Topics can be materialized by Create Topic Synthesis; the workflow reruns the stored resolver and keeps the same Topic ID. Stale Planned Topics remain visible to planning reads but are excluded from the Create workflow selector.
+
+An ad-hoc Create seed also resolves against the complete topic inventory before a new identity is created. A materialized same-identity Topic cancels the run; otherwise, the best active Planned Topic whose definition and scope directly match the seed is materialized automatically. Related, broader, narrower, stale, or scope-incompatible Topics are not substitutes. Runtime re-reads the selected Planned Topic before resolver execution and cancels on concurrent lifecycle or definition loss instead of falling back to a duplicate ad-hoc Topic.
+
+Planner reconciliation covers the whole current library and applies all placeholder and relation changes atomically against the Topic Graph hash. A concurrent graph change rejects the whole plan. A library-index change can leave the graph reconciliation valid while marking its coverage result stale. Materialized Topics are read-only to Planner; update recommendations go through Update Topic Synthesis. Separate materialization runs may execute in parallel after the shared plan has established their identities and relation proposals.
+
 ## Topic Artifacts
 
 A topic artifact owns:
@@ -55,9 +61,9 @@ Examples:
 - `source_materials_status` is dependency artifact readiness (`digest`, `references`, `citation_analysis`) for the topic source set.
 - `source_materials_percent` is the percentage of current topic paper refs whose required source artifacts are complete. If the topic has no paper refs, a complete source-material state maps to `100`, otherwise missing/partial source-material state maps to `0`.
 - `freshness` is source-check freshness. It compares the saved dependency baseline with the current Zotero/artifact state and does not depend on reference sidecar or graph cache freshness.
-- `discovery_status` and `candidate_count` summarize open/rejected discovery hints after the topic graph cascade described below.
+- `discovery_status` and `candidate_count` summarize open discovery hints after the topic graph cascade described below.
 
-The topic update action is always labeled `Update` in the UI. Its intent may still carry `updateScope`, `updateMode`, and `updateReason` such as `source_materials_incomplete`, `dirty`, or `discovery_candidates`, but the user-facing action label must not switch between `Update`, `Complete`, and `Repair/Rebuild`.
+The topic update action is always labeled `Update` in the UI. Its intent may still carry `updateScope`, `updateMode`, and `updateReason` such as `source_materials_incomplete`, `dirty`, or `discovery_candidates`, but the user-facing action label must not switch between `Update`, `Complete`, and `Repair/Rebuild`. A discovery-driven intent uses `update_full`, because candidate acceptance changes the persisted source-paper set rather than one isolated content section.
 
 ### Persisted Artifact State
 
@@ -126,6 +132,19 @@ digest locators against current literature artifacts, compute canonical hashes,
 write topic current assets, or apply Concept KB, Topic Graph, interest metadata,
 or discovery effects. Those application-owned steps run only after strict
 engine result rebuilding succeeds.
+
+### Update Source Membership
+
+Update preparation treats open discovery hints as a separate, bounded membership channel:
+
+- at most 25 deduplicated candidates enter one run; remaining open hints stay available for later updates;
+- the stored/proposed topic resolver is resolved unchanged as the base set;
+- candidate paper refs are resolved independently with a `paper_refs` union resolver, so the base resolver's intersection mode cannot suppress candidate triage;
+- Stage 30 reads the combined workset and admits candidate papers classified `core` or `related`;
+- `external`, `irrelevant`, and `unknown` candidates are screened out, while every base-resolver paper remains in the effective set;
+- the resolver manifest records base refs, candidate hint IDs and bases, unresolved refs, triage outcomes, accepted additions, screened refs, and effective refs.
+
+Host apply commits these exact hint outcomes only after topic validation, CAS checks, and canonical writes succeed. A conflict or failed apply leaves discovery rows unchanged.
 
 ## Metadata Snapshot Semantics
 
@@ -245,17 +264,17 @@ If literature matching metadata is missing, the system may use title/tags/digest
 Discovery hints may be:
 
 - `open`: visible suggestion not yet acted on;
+- `accepted`: a successful topic apply admitted the candidate into source membership;
+- `screened_out`: Stage 30 excluded the candidate under a recorded evidence basis and triage reason;
 - `rejected`: user explicitly rejected it and does not want it resurfaced casually;
 - `superseded`: the target identity disappeared, was redirected, or the hint basis is no longer meaningful.
 
-Rejected hints are durable suppressions. Digest rerun, metadata hash drift, cache refresh, or adding a minor key term must not automatically reopen the same topic-literature pair.
-
-Discovery hints do not model topic update consumption. Topic update has its own source-selection and workflow apply mechanism. If an update later uses literature that also had an open hint, the hint may remain open until the hint basis is repaired or superseded; it must not be treated as proof that the topic artifact consumed that source.
+`accepted` and `rejected` are durable terminal states. `screened_out` remains terminal while its basis is unchanged; a changed topic metadata hash, literature metadata hash, discovery profile, or policy basis reopens it for semantic triage. Cache-only freshness changes do not affect this basis.
 
 Allowed reopen conditions:
 
-- user explicitly restores a rejected hint;
-- user resets rejected hints;
+- user explicitly restores or resets a rejected hint;
+- the evidence basis of a screened-out hint changes;
 - explicit debug/maintenance repair runs with a force option.
 
 ## Review and Overrides

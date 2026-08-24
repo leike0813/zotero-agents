@@ -249,6 +249,13 @@ neighborhood/search filtering do not cross this compute boundary. The Rust
 production application invokes the bounded worker, promotes only against the
 captured manifest, and preserves the last-good index on failure.
 
+Topic Planner enters the Topic Graph application through a durable reconcile
+operation. A plan can
+create, revise, mark stale, or reactivate placeholder nodes with Planned Topic
+metadata and reconcile relation proposals in one graph-hash compare-and-swap.
+Planned nodes store definitions and resolvers, not provisional paper members;
+Create Topic Synthesis resolves those members when it materializes the node.
+
 ### Concept KB Structure
 
 ```typescript

@@ -99,6 +99,7 @@ dispatcher.
 | `debug` | 14 | `debug.acpSkillRun.reapplyResult`, `debug.persistence.snapshot`, `debug.skillrunner.connections.snapshot`, `debug.status`, `debug.synthesis.cache.list`, `debug.synthesis.cleanInstallReset`, `debug.synthesis.diff`, `debug.synthesis.operations.list`, `debug.synthesis.paper.inspect`, `debug.synthesis.profiler.list`, `debug.synthesis.snapshot`, `debug.synthesis.topic.inspect`, `debug.tasks.snapshot`, `debug.zotero.eval` |
 | `diagnostic` | 2 | `diagnostic.get_status`, `synthesis.operation.get` |
 | `insights` | 1 | `insights.get_attention_queue` |
+| `items` | 1 | `items.export_research_bundle` |
 | `library` | 12 | `library.export_annotations`, `library.get_item_attachments`, `library.get_item_detail`, `library.get_item_notes`, `library.get_note_detail`, `library.get_note_payload`, `library.list_annotations`, `library.list_items`, `library.list_note_payloads`, `library.readiness_audit`, `library.search_items`, `library.sync_snapshot` |
 | `library_index` | 1 | `library_index.get` |
 | `mutation` | 3 | `mutation.execute`, `mutation.preview`, `workflow_products.remove` |
@@ -106,7 +107,7 @@ dispatcher.
 | `reference_index` | 2 | `reference_index.get`, `reference_sidecar.refresh` |
 | `resolvers` | 1 | `resolvers.resolve` |
 | `schemas` | 1 | `schemas.get` |
-| `topics` | 5 | `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
+| `topics` | 6 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
 | `workflow_products` | 4 | `workflow_products.export`, `workflow_products.get`, `workflow_products.list`, `workflow_products.read_asset` |
 <!-- host-bridge-surface:capability-categories:end -->
 

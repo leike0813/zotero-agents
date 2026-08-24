@@ -132,7 +132,11 @@ export type SynthesisConceptReviewStatus =
 export type SynthesisConceptReviewItem = {
   review_id: string;
   status: SynthesisConceptReviewStatus;
-  reason: "low_confidence_concept" | "ambiguous_concept_match";
+  reason:
+    | "low_confidence_concept"
+    | "ambiguous_concept_match"
+    | "alias_conflict"
+    | "alias_equivalence_audit";
   topic_id: string;
   topic_path_id: string;
   label: string;
@@ -143,6 +147,15 @@ export type SynthesisConceptReviewItem = {
   updated_at: string;
   resolved_at?: string;
   target_concept_id?: string;
+  audit_alias?: SynthesisConceptAliasAuditTarget;
+};
+
+export type SynthesisConceptAliasAuditTarget = {
+  alias_id: string;
+  alias: string;
+  normalized: string;
+  concept_id: string;
+  sense_id?: string;
 };
 
 export type SynthesisTopicConceptLink = {
@@ -242,6 +255,7 @@ export type SynthesisConceptCardProposal = {
   relations: unknown[];
   merge_hints: unknown[];
   confidence: SynthesisConceptConfidence;
+  audit_alias?: SynthesisConceptAliasAuditTarget;
 };
 
 export type SynthesisConceptProposalIngestResult = {
@@ -668,10 +682,27 @@ function normalizeProposal(
   if (!label) {
     return null;
   }
-  const aliases = normalizeStringList([
-    label,
-    ...(Array.isArray(input.aliases) ? input.aliases : []),
-  ]);
+  const normalizedLabel = normalizedAliasKey(label);
+  const aliases = normalizeStringList(
+    Array.isArray(input.aliases) ? input.aliases : [],
+  ).filter((alias) => normalizedAliasKey(alias) !== normalizedLabel);
+  const rawAuditAlias = isRecord(input.audit_alias)
+    ? input.audit_alias
+    : undefined;
+  const auditAliasValue = normalizeAlias(rawAuditAlias?.alias);
+  const auditAlias =
+    rawAuditAlias && auditAliasValue
+      ? {
+          alias_id:
+            cleanString(rawAuditAlias.alias_id) || aliasIdFor(auditAliasValue),
+          alias: auditAliasValue,
+          normalized:
+            cleanString(rawAuditAlias.normalized) ||
+            normalizedAliasKey(auditAliasValue),
+          concept_id: cleanString(rawAuditAlias.concept_id),
+          sense_id: cleanString(rawAuditAlias.sense_id) || undefined,
+        }
+      : undefined;
   return {
     local_id: cleanString(input.local_id) || undefined,
     label,
@@ -689,6 +720,7 @@ function normalizeProposal(
     relations: Array.isArray(input.relations) ? input.relations : [],
     merge_hints: Array.isArray(input.merge_hints) ? input.merge_hints : [],
     confidence: confidenceOf(input.confidence),
+    audit_alias: auditAlias?.concept_id ? auditAlias : undefined,
   };
 }
 
@@ -918,12 +950,28 @@ function reviewItemToRecord(
 function reviewItemFromRecord(
   record: SynthesisConceptReviewItemRecord,
 ): SynthesisConceptReviewItem {
+  const proposal = normalizeProposal(
+    parseJsonObjectText(record.proposalJson),
+  ) || {
+    label: record.label,
+    aliases: [],
+    concept_type: "concept",
+    domain: "general",
+    short_definition: "",
+    definition: "",
+    evidence: [],
+    relations: [],
+    merge_hints: [],
+    confidence: confidenceOf(record.confidence),
+  };
   return {
     review_id: record.reviewId,
     status: reviewStatus(record.status),
     reason:
-      record.reason === "ambiguous_concept_match"
-        ? "ambiguous_concept_match"
+      record.reason === "ambiguous_concept_match" ||
+      record.reason === "alias_conflict" ||
+      record.reason === "alias_equivalence_audit"
+        ? record.reason
         : "low_confidence_concept",
     topic_id: record.topicId,
     topic_path_id: record.topicPathId,
@@ -932,22 +980,12 @@ function reviewItemFromRecord(
     candidate_concept_ids: normalizeStringList(
       parseJsonArrayText(record.candidateConceptIdsJson),
     ),
-    proposal: normalizeProposal(parseJsonObjectText(record.proposalJson)) || {
-      label: record.label,
-      aliases: [],
-      concept_type: "concept",
-      domain: "general",
-      short_definition: "",
-      definition: "",
-      evidence: [],
-      relations: [],
-      merge_hints: [],
-      confidence: confidenceOf(record.confidence),
-    },
+    proposal,
     created_at: record.createdAt || "",
     updated_at: record.updatedAt || "",
     resolved_at: record.resolvedAt,
     target_concept_id: record.targetConceptId,
+    audit_alias: proposal.audit_alias,
   };
 }
 
@@ -1339,55 +1377,176 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     });
   }
 
-  function conceptMatch(args: {
-    proposal: SynthesisConceptCardProposal;
+  function preflightConceptProposals(args: {
+    proposals: SynthesisConceptCardProposal[];
     concepts: SynthesisConcept[];
     aliases: SynthesisConceptAlias[];
   }) {
-    const proposalAliases = args.proposal.aliases.map(normalizedAliasKey);
-    const exact = args.aliases.find((alias) =>
-      proposalAliases.includes(alias.normalized),
-    );
-    if (exact) {
-      return { action: "merge" as const, conceptId: exact.concept_id };
+    const canonicalOwners = new Map<string, SynthesisConcept[]>();
+    for (const concept of args.concepts) {
+      const key = normalizedAliasKey(concept.label);
+      canonicalOwners.set(key, [...(canonicalOwners.get(key) || []), concept]);
     }
-    const scored = args.concepts
-      .map((concept) => ({
-        concept,
-        score: Math.max(
-          tokenOverlap(args.proposal.label, concept.label),
-          ...concept.aliases.map((alias) =>
-            tokenOverlap(args.proposal.label, alias),
+    const aliasOwners = new Map<string, Set<string>>();
+    for (const alias of args.aliases) {
+      const key =
+        cleanString(alias.normalized) || normalizedAliasKey(alias.alias);
+      aliasOwners.set(
+        key,
+        new Set([...(aliasOwners.get(key) || []), alias.concept_id]),
+      );
+    }
+    for (const concept of args.concepts) {
+      for (const alias of concept.aliases) {
+        const key = normalizedAliasKey(alias);
+        aliasOwners.set(
+          key,
+          new Set([...(aliasOwners.get(key) || []), concept.concept_id]),
+        );
+      }
+    }
+    const batchLabelOwners = new Map<string, number[]>();
+    const batchAliasOwners = new Map<string, number[]>();
+    args.proposals.forEach((proposal, index) => {
+      const labelKey = normalizedAliasKey(proposal.label);
+      batchLabelOwners.set(labelKey, [
+        ...(batchLabelOwners.get(labelKey) || []),
+        index,
+      ]);
+      for (const alias of proposal.aliases) {
+        const key = normalizedAliasKey(alias);
+        batchAliasOwners.set(key, [
+          ...(batchAliasOwners.get(key) || []),
+          index,
+        ]);
+      }
+    });
+
+    return args.proposals.map((proposal, proposalIndex) => {
+      const labelKey = normalizedAliasKey(proposal.label);
+      const exactOwners = canonicalOwners.get(labelKey) || [];
+      const candidateIds = new Set(
+        exactOwners.map((entry) => entry.concept_id),
+      );
+      const review = (
+        code:
+          | "low_confidence_concept"
+          | "ambiguous_concept_match"
+          | "alias_conflict",
+        message: string,
+      ) => ({
+        action: "review" as const,
+        diagnostics: {
+          code,
+          message,
+          label: proposal.label,
+          details: [...candidateIds]
+            .sort()
+            .map((concept_id) => ({ concept_id })),
+        },
+      });
+      if (proposal.confidence === "low") {
+        return review(
+          "low_confidence_concept",
+          "Low-confidence concept proposal requires review.",
+        );
+      }
+      if ((batchLabelOwners.get(labelKey) || []).length > 1) {
+        return review(
+          "ambiguous_concept_match",
+          "Multiple proposals claim the same canonical concept label.",
+        );
+      }
+      if (
+        (batchAliasOwners.get(labelKey) || []).some(
+          (index) => index !== proposalIndex,
+        )
+      ) {
+        return review(
+          "alias_conflict",
+          "Another proposal claims this canonical label as an alias.",
+        );
+      }
+      if (exactOwners.length > 1) {
+        return review(
+          "ambiguous_concept_match",
+          "Concept proposal matched multiple canonical labels.",
+        );
+      }
+      const labelAliasOwners = aliasOwners.get(labelKey) || new Set<string>();
+      for (const owner of labelAliasOwners) {
+        candidateIds.add(owner);
+      }
+      if (!exactOwners.length && labelAliasOwners.size) {
+        return review(
+          "alias_conflict",
+          "Concept label matched an alias but not a unique canonical label.",
+        );
+      }
+      let aliasConflict = false;
+      for (const alias of proposal.aliases) {
+        const aliasKey = normalizedAliasKey(alias);
+        const otherBatchLabels = (batchLabelOwners.get(aliasKey) || []).filter(
+          (index) => index !== proposalIndex,
+        );
+        const sharedBatchAliases = (
+          batchAliasOwners.get(aliasKey) || []
+        ).filter((index) => index !== proposalIndex);
+        const existingCanonical = canonicalOwners.get(aliasKey) || [];
+        const existingAliases = aliasOwners.get(aliasKey) || new Set<string>();
+        for (const concept of existingCanonical) {
+          candidateIds.add(concept.concept_id);
+        }
+        for (const owner of existingAliases) {
+          candidateIds.add(owner);
+        }
+        const targetConceptId = exactOwners[0]?.concept_id;
+        if (
+          otherBatchLabels.length ||
+          sharedBatchAliases.length ||
+          existingCanonical.some(
+            (concept) => concept.concept_id !== targetConceptId,
+          ) ||
+          [...existingAliases].some((owner) => owner !== targetConceptId)
+        ) {
+          aliasConflict = true;
+        }
+      }
+      if (aliasConflict) {
+        return review(
+          "alias_conflict",
+          "Concept alias claims another canonical or batch concept identity.",
+        );
+      }
+      if (exactOwners.length === 1) {
+        return {
+          action: "merge" as const,
+          conceptId: exactOwners[0].concept_id,
+        };
+      }
+      const scored = args.concepts
+        .map((concept) => ({
+          concept,
+          score: Math.max(
+            tokenOverlap(proposal.label, concept.label),
+            ...concept.aliases.map((alias) =>
+              tokenOverlap(proposal.label, alias),
+            ),
           ),
-        ),
-      }))
-      .filter((entry) => entry.score >= 0.5)
-      .sort((left, right) => right.score - left.score);
-    if (scored.length > 1 && scored[0].score === scored[1].score) {
-      return {
-        action: "review" as const,
-        diagnostics: {
-          code: "ambiguous_concept_match",
-          message: "Concept proposal matched multiple existing concepts.",
-          label: args.proposal.label,
-          details: scored.slice(0, 3).map((entry) => ({
-            concept_id: entry.concept.concept_id,
-            score: entry.score,
-          })),
-        },
-      };
-    }
-    if (args.proposal.confidence === "low") {
-      return {
-        action: "review" as const,
-        diagnostics: {
-          code: "low_confidence_concept",
-          message: "Low-confidence concept proposal requires review.",
-          label: args.proposal.label,
-        },
-      };
-    }
-    return { action: "create" as const };
+        }))
+        .filter((entry) => entry.score >= 0.5)
+        .sort((left, right) => right.score - left.score);
+      if (scored.length > 1 && scored[0].score === scored[1].score) {
+        for (const entry of scored.slice(0, 3)) {
+          candidateIds.add(entry.concept.concept_id);
+        }
+        return review(
+          "ambiguous_concept_match",
+          "Concept proposal matched multiple existing concepts.",
+        );
+      }
+      return { action: "create" as const };
+    });
   }
 
   function candidateConceptIdsFromDiagnostic(
@@ -1408,8 +1567,10 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     timestamp: string;
   }): SynthesisConceptReviewItem {
     const reason =
-      args.diagnostic.code === "ambiguous_concept_match"
-        ? "ambiguous_concept_match"
+      args.diagnostic.code === "ambiguous_concept_match" ||
+      args.diagnostic.code === "alias_conflict" ||
+      args.diagnostic.code === "alias_equivalence_audit"
+        ? args.diagnostic.code
         : "low_confidence_concept";
     return {
       review_id:
@@ -1487,6 +1648,11 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     const touchedSenses: SynthesisConceptSense[] = [];
     const touchedAliases: SynthesisConceptAlias[] = [];
     const touchedReviewItems: SynthesisConceptReviewItem[] = [];
+    const decisions = preflightConceptProposals({
+      proposals,
+      concepts: current.concepts,
+      aliases: current.aliases,
+    });
 
     if (!topicId) {
       diagnostics.push({
@@ -1503,12 +1669,8 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       });
     }
 
-    for (const proposal of proposals) {
-      const match = conceptMatch({
-        proposal,
-        concepts: [...conceptsById.values()],
-        aliases: [...aliasesById.values()],
-      });
+    for (const [proposalIndex, proposal] of proposals.entries()) {
+      const match = decisions[proposalIndex];
       if (match.action === "review") {
         diagnostics.push(match.diagnostics);
         const reviewId = reviewIdFor({
@@ -1673,9 +1835,166 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     };
   }
 
+  async function auditConceptAliases(args: { transactionId?: string } = {}) {
+    const snapshot = await loadConceptKb();
+    const timestamp = now();
+    const conceptsById = new Map(
+      snapshot.concepts.map((concept) => [concept.concept_id, concept]),
+    );
+    const sensesById = new Map(
+      snapshot.senses.map((sense) => [sense.sense_id, sense]),
+    );
+    const canonicalOwners = new Map<string, SynthesisConcept[]>();
+    for (const concept of snapshot.concepts) {
+      const key = normalizedAliasKey(concept.label);
+      canonicalOwners.set(key, [...(canonicalOwners.get(key) || []), concept]);
+    }
+    const candidates = new Map<string, SynthesisConceptAliasAuditTarget>();
+    for (const alias of snapshot.aliases) {
+      const normalized =
+        cleanString(alias.normalized) || normalizedAliasKey(alias.alias);
+      candidates.set(`${alias.concept_id}\u0000${normalized}`, {
+        alias_id: alias.alias_id,
+        alias: alias.alias,
+        normalized,
+        concept_id: alias.concept_id,
+        sense_id: alias.sense_id,
+      });
+    }
+    for (const concept of snapshot.concepts) {
+      for (const alias of concept.aliases) {
+        const normalized = normalizedAliasKey(alias);
+        if (!normalized || normalized === normalizedAliasKey(concept.label)) {
+          continue;
+        }
+        const key = `${concept.concept_id}\u0000${normalized}`;
+        if (!candidates.has(key)) {
+          candidates.set(key, {
+            alias_id: aliasIdFor(alias),
+            alias,
+            normalized,
+            concept_id: concept.concept_id,
+          });
+        }
+      }
+    }
+
+    const reviewItemsById = new Map(
+      snapshot.review_items.map((entry) => [entry.review_id, entry]),
+    );
+    const created: SynthesisConceptReviewItem[] = [];
+    for (const candidate of candidates.values()) {
+      const owner = conceptsById.get(candidate.concept_id);
+      if (owner && candidate.normalized === normalizedAliasKey(owner.label)) {
+        continue;
+      }
+      const otherCanonicalOwners = (
+        canonicalOwners.get(candidate.normalized) || []
+      ).filter((concept) => concept.concept_id !== candidate.concept_id);
+      const aliasRecord = snapshot.aliases.find(
+        (alias) => alias.alias_id === candidate.alias_id,
+      );
+      const sense = candidate.sense_id
+        ? sensesById.get(candidate.sense_id)
+        : undefined;
+      const ownerHasAlias = Boolean(
+        owner?.aliases.some(
+          (alias) => normalizedAliasKey(alias) === candidate.normalized,
+        ),
+      );
+      const senseHasAlias = candidate.sense_id
+        ? Boolean(
+            sense?.aliases.some(
+              (alias) => normalizedAliasKey(alias) === candidate.normalized,
+            ),
+          )
+        : true;
+      const aliasesAnotherSenseLabel = snapshot.senses.some(
+        (entry) =>
+          entry.concept_id === candidate.concept_id &&
+          entry.sense_id !== candidate.sense_id &&
+          normalizedAliasKey(entry.label) === candidate.normalized,
+      );
+      const reason = otherCanonicalOwners.length
+        ? "alias_conflict"
+        : !owner ||
+            !aliasRecord ||
+            aliasRecord.concept_id !== candidate.concept_id ||
+            (candidate.sense_id &&
+              (!sense || sense.concept_id !== candidate.concept_id)) ||
+            !ownerHasAlias ||
+            !senseHasAlias ||
+            aliasesAnotherSenseLabel
+          ? "alias_equivalence_audit"
+          : undefined;
+      if (!reason) {
+        continue;
+      }
+      const proposal: SynthesisConceptCardProposal = {
+        label: candidate.alias,
+        aliases: [],
+        concept_type: "alias_audit",
+        domain: owner?.domain || "general",
+        short_definition: `Alias of ${owner?.label || candidate.concept_id}.`,
+        definition: `Review alias ownership for ${candidate.concept_id}.`,
+        evidence: [],
+        relations: [],
+        merge_hints: [],
+        confidence: aliasRecord?.confidence || "medium",
+        audit_alias: candidate,
+      };
+      const reviewId = reviewIdFor({
+        topicId: candidate.concept_id,
+        reason,
+        proposal,
+      });
+      if (reviewItemsById.has(reviewId)) {
+        continue;
+      }
+      const review: SynthesisConceptReviewItem = {
+        review_id: reviewId,
+        status: "open",
+        reason,
+        topic_id: candidate.concept_id,
+        topic_path_id: candidate.concept_id,
+        label: candidate.alias,
+        confidence: proposal.confidence,
+        candidate_concept_ids: otherCanonicalOwners.map(
+          (concept) => concept.concept_id,
+        ),
+        proposal,
+        audit_alias: candidate,
+        created_at: timestamp,
+        updated_at: timestamp,
+      };
+      reviewItemsById.set(reviewId, review);
+      created.push(review);
+    }
+    if (created.length) {
+      await commitConceptState({
+        concepts: snapshot.concepts,
+        senses: snapshot.senses,
+        aliases: snapshot.aliases,
+        relations: snapshot.relations,
+        reviewItems: [...reviewItemsById.values()],
+        transactionId: args.transactionId,
+      });
+    }
+    return {
+      audited_alias_count: candidates.size,
+      created_review_count: created.length,
+      review_items: created,
+    };
+  }
+
   async function applyConceptReviewAction(args: {
     reviewId: string;
-    action: "approve_create" | "merge_into_existing" | "reject";
+    action:
+      | "approve_create"
+      | "merge_into_existing"
+      | "reject"
+      | "keep_alias"
+      | "remove_alias";
     targetConceptId?: string;
     transactionId?: string;
   }): Promise<SynthesisConceptReviewActionResult> {
@@ -1716,6 +2035,86 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     const reviewItemsById = new Map(
       snapshot.review_items.map((entry) => [entry.review_id, entry]),
     );
+    const isAliasAudit = Boolean(
+      review.audit_alias || review.proposal.audit_alias,
+    );
+    if (isAliasAudit) {
+      if (args.action !== "keep_alias" && args.action !== "remove_alias") {
+        return {
+          review_item: review,
+          diagnostic: {
+            code: "concept_review_action_invalid",
+            message: "Alias audit requires keep_alias or remove_alias.",
+            details: { review_id: review.review_id, action: args.action },
+          },
+        };
+      }
+      const target = review.audit_alias || review.proposal.audit_alias!;
+      if (args.action === "remove_alias") {
+        for (const [aliasId, alias] of aliasesById) {
+          if (
+            alias.concept_id === target.concept_id &&
+            (aliasId === target.alias_id ||
+              normalizedAliasKey(alias.alias) === target.normalized)
+          ) {
+            aliasesById.delete(aliasId);
+          }
+        }
+        const owner = conceptsById.get(target.concept_id);
+        if (owner) {
+          conceptsById.set(owner.concept_id, {
+            ...owner,
+            aliases: owner.aliases.filter(
+              (alias) => normalizedAliasKey(alias) !== target.normalized,
+            ),
+            updated_at: timestamp,
+          });
+        }
+        for (const [senseId, existingSense] of sensesById) {
+          if (existingSense.concept_id !== target.concept_id) {
+            continue;
+          }
+          sensesById.set(senseId, {
+            ...existingSense,
+            aliases: existingSense.aliases.filter(
+              (alias) => normalizedAliasKey(alias) !== target.normalized,
+            ),
+            updated_at: timestamp,
+          });
+        }
+      }
+      const resolvedReview: SynthesisConceptReviewItem = {
+        ...review,
+        status: args.action === "keep_alias" ? "approved" : "rejected",
+        updated_at: timestamp,
+        resolved_at: timestamp,
+        target_concept_id: target.concept_id,
+      };
+      reviewItemsById.set(resolvedReview.review_id, resolvedReview);
+      const result = await commitConceptState({
+        concepts: [...conceptsById.values()],
+        senses: [...sensesById.values()],
+        aliases: [...aliasesById.values()],
+        relations: snapshot.relations,
+        reviewItems: [...reviewItemsById.values()],
+        transactionId: args.transactionId,
+      });
+      return {
+        review_item: resolvedReview,
+        aliases: [],
+        receipt: result.receipt,
+      };
+    }
+    if (args.action === "keep_alias" || args.action === "remove_alias") {
+      return {
+        review_item: review,
+        diagnostic: {
+          code: "concept_review_action_invalid",
+          message: "Concept proposal review does not support alias actions.",
+          details: { review_id: review.review_id, action: args.action },
+        },
+      };
+    }
     const existingLinks = await readTopicConceptLinks({
       topicId: review.topic_id,
     });
@@ -2145,6 +2544,7 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     saveConceptKb,
     importConceptKbCheckpoint,
     ingestConceptCardProposals,
+    auditConceptAliases,
     applyConceptReviewAction,
     updateConceptDisplayText,
     deleteConceptEntries,

@@ -1,7 +1,4 @@
-import {
-  ACP_SKILL_RUN_REQUEST_KIND,
-  ACP_BACKEND_TYPE,
-} from "../config/defaults";
+import { ACP_BACKEND_TYPE } from "../config/defaults";
 import {
   clearPluginRunStore,
   deletePluginRunStoreEntry,
@@ -10,7 +7,6 @@ import {
   registerAcpSkillRunsMemoryClearer,
   registerAcpSkillRunsRetentionCleaner,
 } from "./runtimePersistence";
-import { appendRuntimeLog } from "./runtimeLogManager";
 import { isAssistantSilentExecutionMode } from "./assistantExecutionDisplayPolicy";
 import {
   finishAcpExecutionProgress,
@@ -22,24 +18,19 @@ import { type AssistantMessageCountsSnapshot } from "./assistantMessageCounts";
 import { isDebugModeEnabled } from "./debugMode";
 import { finishAcpRuntimeProfile } from "./acpRuntimePerformanceProfiler";
 import { recordAcpRuntimeSemanticTraceRequestTerminal } from "./acpRuntimeSemanticTraceRecorder";
-import type {
-  AcpSessionConfigCategory,
-  RequestPermissionOutcome,
-} from "./acpProtocol";
+import type { AcpSessionConfigCategory } from "./acpProtocol";
 import type {
   AcpPendingPermissionRequest,
   AcpPromptInterruptState,
 } from "./acpTypes";
 import { normalizeAcpPromptInterruptState } from "./acpTypes";
-import { AcpPermissionQueue } from "./acpPermissionQueue";
-import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
-import type { HostBridgePluginSkillBundleIdentity } from "../shared/hostBridgePluginSkillBundleContract";
-import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
+import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
 import {
-  parseAcpEffortFromModelText,
-  resolveAcpRawModelIdForSelection,
-  type AcpSelectableOption,
-} from "./acpModelOptionFolding";
+  applySequenceRunEvent,
+  getSequenceRunStateByStepRequest,
+  getSequenceStepIndexByRequestId,
+} from "./workflowExecution/sequenceStateStore";
+import { type AcpSelectableOption } from "./acpModelOptionFolding";
 import type { AcpReasoningSource } from "./acpSessionConfigOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
 import { resetAcpTranscriptWritesForTests } from "./acpSkillRunTranscriptStore";
@@ -48,19 +39,37 @@ import {
   resolveAcpSkillRunPayloadPaths,
 } from "./acpSkillRunPayloadStore";
 import {
-  registerAcpSkillRunPermissionRequestHandler,
-  type AcpSkillRunPermissionRequestWithResolver,
-} from "./acpSkillRunPermissionFacade";
+  acpSkillRunApplyResultControllerDetachPromises as applyResultControllerDetachPromises,
+  acpSkillRunControllerPurposes as controllerPurposes,
+  acpSkillRunControllers as controllers,
+  acpSkillRunPermissionQueuesByRunRequestId as permissionQueuesByRunRequestId,
+  acpSkillRunRecords as runRecords,
+  acpSkillRunRuntimeCatalogByRequestId as runtimeCatalogByRequestId,
+  acpSkillRunSetupControllers as setupControllers,
+  getAcpSkillRunSelectedRequestId,
+  normalizeString,
+  nowIso,
+  setAcpSkillRunSelectedRequestId,
+} from "./acpSkillRunState";
+import {
+  isActiveAcpSkillRunStatus,
+  isEligibleForPostTerminalAcpSkillRunConversation,
+  isTerminalAcpSkillRunStatus,
+} from "./acpSkillRunStatus";
 import {
   registerAcpSkillRunAutoApprovalResolver,
   revokeHostBridgeWriteAutoApprovalGrantsForRun,
 } from "./hostBridgeWriteAutoApprovalRegistry";
 import { type AssistantWorkspaceTranscriptMutationEvent } from "./assistantWorkspaceTranscriptPublication";
 import {
+  configureAcpSkillRunPersistenceHost,
+  configureAcpSkillRunTranscriptMirrorHost,
+  configureAcpSkillRunWorkspaceDataPlaneHost,
+} from "./acpSkillRunHosts";
+import {
   clearAcpSkillRunTranscriptMirrorLru,
   cloneAcpSkillRunTranscriptItem,
   completeAcpSkillRunOpenStreamingTextItems,
-  configureAcpSkillRunTranscriptMirrorHost,
   forgetColdAcpSkillRunTranscriptMirror,
   getAcpSkillRunTranscriptMirrorCacheDiagnostics,
   hydrateAcpSkillRunTranscriptMirror,
@@ -72,13 +81,11 @@ import {
 import {
   cleanupExpiredAcpSkillRunsForRetention,
   cloneRuntimeCatalog,
-  configureAcpSkillRunPersistenceHost,
   deriveAcpSkillRunRuntimeFileMetadata,
   ensureAcpSkillRunStoreHydrated,
   flushAcpSkillRunRuntimeFileWrites,
   invalidateAcpSkillRunPersistenceHydration,
   normalizeOptionalNonNegativeInteger,
-  normalizeSelectableOptions,
   parsePendingInteraction,
   persistRun,
   resetAcpSkillRunPersistenceForTests,
@@ -89,7 +96,6 @@ import {
 } from "./acpSkillRunPersistence";
 import {
   acpSkillRunWorkspaceChange,
-  configureAcpSkillRunWorkspaceDataPlaneHost,
   createAcpSkillRunWorkspaceChange,
   emitWorkspaceChanged,
   listAcpSkillRunSummaries,
@@ -109,6 +115,7 @@ export {
 export type { AcpSkillRunTranscriptPageRequest } from "./acpSkillRunTranscriptMirror";
 export {
   cleanupExpiredAcpSkillRunsForRetention,
+  ensureAcpSkillRunStoreHydrated,
   flushAcpSkillRunRuntimeFileWrites,
   flushAcpSkillRunRuntimeFileWritesForTests,
   reconcileAcpSkillRunWorkflowTasksOnStartup,
@@ -120,7 +127,6 @@ export {
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
   getAcpSkillRunWorkspaceDetailsReadModel,
   getAcpSkillRunWorkspaceReadModel,
-  inspectSyntheticAcpSkillRunReplayTimers,
   listAcpSkillRuns,
   listAcpSkillRunSummaries,
   resetAcpSkillRunSummaryDiagnosticsForTests,
@@ -364,7 +370,6 @@ export type AcpSkillRunRecord = {
   appliedAt?: string;
   applyResultState?: "pending" | "succeeded" | "failed";
   sessionId?: string;
-  hostBridgePluginSkillBundleIdentity?: HostBridgePluginSkillBundleIdentity;
   activePrompt?: boolean;
   promptInterruptState?: AcpPromptInterruptState;
   pendingPermission?: AcpPendingPermissionRequest | null;
@@ -573,7 +578,7 @@ export type AcpSkillRunDiagnosticsDto = Readonly<{
   updatedAt: string;
 }>;
 
-type AcpSkillRunController = {
+export type AcpSkillRunController = {
   cancel: () => Promise<void>;
   interruptTurn?: () => Promise<void>;
   reply?: (message: string) => Promise<void>;
@@ -610,21 +615,11 @@ type AcpSkillRunRecoveryHandler = (args: {
   reason: "connect" | "reply";
 }) => Promise<void>;
 
-const ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
-const ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS = 750;
-
-const runRecords = new Map<string, AcpSkillRunRecord>();
 const transcriptLiveStates = new Map<string, AcpSkillRunTranscriptLiveState>();
-const controllers = new Map<string, AcpSkillRunController>();
-const controllerPurposes = new Map<string, AcpSkillRunControllerPurpose>();
-const applyResultControllerDetachPromises = new Map<string, Promise<void>>();
 const waitingUserDetachTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
-const runtimeCatalogByRequestId = new Map<string, AcpSkillRunRuntimeCatalog>();
-const setupControllers = new Map<string, AcpSkillRunSetupController>();
-const permissionQueuesByRunRequestId = new Map<string, AcpPermissionQueue>();
 
 configureAcpSkillRunTranscriptMirrorHost({
   ensureHydrated: () => ensureAcpSkillRunStoreHydrated(),
@@ -632,7 +627,7 @@ configureAcpSkillRunTranscriptMirrorHost({
   getTranscriptLiveState: (record) => getAcpSkillRunTranscriptLiveState(record),
   peekTranscriptLiveState: (requestId) => transcriptLiveStates.get(requestId),
   listTranscriptLiveStates: () => transcriptLiveStates.entries(),
-  getSelectedRequestId: () => selectedRequestId,
+  getSelectedRequestId: () => getAcpSkillRunSelectedRequestId(),
   isLifecycleOpen: (record) => isAcpSkillRunLifecycleOpen(record),
   setAcpSkillRunRecord: (record) => setAcpSkillRunRecord(record),
   persistRun: (record) => persistRun(record),
@@ -656,9 +651,9 @@ configureAcpSkillRunPersistenceHost({
   },
   isEligibleForPostTerminalConversation: (record) =>
     isEligibleForPostTerminalAcpSkillRunConversation(record),
-  getSelectedRequestId: () => selectedRequestId,
+  getSelectedRequestId: () => getAcpSkillRunSelectedRequestId(),
   clearSelectedRequestId: () => {
-    selectedRequestId = "";
+    setAcpSkillRunSelectedRequestId("");
   },
   peekTranscriptLiveState: (requestId) => transcriptLiveStates.get(requestId),
   acpSkillRunWorkspaceChange: (requestId, kinds) =>
@@ -680,31 +675,9 @@ configureAcpSkillRunWorkspaceDataPlaneHost({
   runtimeCatalogForRun: (run) => runtimeCatalogForRun(run),
 });
 
-async function waitForAcpSkillRunShutdownTask(
-  task: Promise<unknown>,
-  timeoutMs = ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS,
-) {
-  if (timeoutMs <= 0) {
-    return { timedOut: true as const };
-  }
-  return Promise.race([
-    task.then(
-      () => ({ timedOut: false as const }),
-      (error) => ({ timedOut: false as const, error }),
-    ),
-    new Promise<{ timedOut: true }>((resolve) => {
-      setTimeout(() => resolve({ timedOut: true }), timeoutMs);
-    }),
-  ]);
-}
-let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 const activeRunRequestIds = new Set<string>();
 const ACP_SKILL_RUN_WAITING_USER_LIVE_TTL_MS = 30 * 60 * 1000;
-
-function errorText(error: unknown) {
-  return error instanceof Error ? error.message : String(error || "unknown");
-}
 
 function getAcpSkillRunTranscriptLiveState(record: AcpSkillRunRecord) {
   const requestId = record.requestId;
@@ -758,119 +731,6 @@ function isAcpSkillRunLifecycleOpen(record: AcpSkillRunRecord) {
   );
 }
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function normalizeString(value: unknown) {
-  return String(value || "").trim();
-}
-
-export function isTerminalAcpSkillRunStatus(
-  status: AcpSkillRunStatus,
-): status is "succeeded" | "failed" | "canceled" {
-  return status === "succeeded" || status === "failed" || status === "canceled";
-}
-
-export function isActiveAcpSkillRunStatus(status: AcpSkillRunStatus) {
-  return (
-    status === "queued" ||
-    status === "running" ||
-    status === "waiting_user" ||
-    status === "repairing" ||
-    status === "failed_retriable"
-  );
-}
-
-export function isRecoverableAcpSkillRunStatus(status: AcpSkillRunStatus) {
-  return (
-    status === "running" ||
-    status === "waiting_user" ||
-    status === "repairing" ||
-    status === "failed_retriable"
-  );
-}
-
-type PostTerminalConversationEligibilityRecord = Pick<
-  AcpSkillRunRecord,
-  | "status"
-  | "sessionId"
-  | "removedAt"
-  | "archivedAt"
-  | "conversationState"
-  | "conversationRecoveryState"
-  | "pendingInteraction"
-  | "pendingPermission"
-  | "applyResultState"
-  | "outputConvergenceState"
->;
-
-export function isEligibleForPostTerminalAcpSkillRunConversation(
-  record: PostTerminalConversationEligibilityRecord | null | undefined,
-) {
-  if (
-    !record ||
-    (record.status !== "succeeded" && record.status !== "failed")
-  ) {
-    return false;
-  }
-  if (
-    record.removedAt ||
-    record.archivedAt ||
-    !normalizeString(record.sessionId) ||
-    record.conversationState === "ended" ||
-    record.conversationRecoveryState === "unavailable" ||
-    record.conversationRecoveryState === "unsupported" ||
-    record.pendingInteraction ||
-    record.pendingPermission ||
-    record.applyResultState === "pending" ||
-    record.outputConvergenceState === "pending"
-  ) {
-    return false;
-  }
-  return (
-    record.status === "failed" ||
-    record.applyResultState === "succeeded" ||
-    typeof record.applyResultState === "undefined"
-  );
-}
-
-export function isPostTerminalAcpSkillRunConversationConnected(
-  requestIdRaw: string,
-) {
-  const requestId = normalizeString(requestIdRaw);
-  return (
-    !!requestId &&
-    controllers.has(requestId) &&
-    controllerPurposes.get(requestId) === "post-terminal-conversation"
-  );
-}
-
-function isRecoverableAcpRecoveryState(state: AcpSkillRunRecoveryState) {
-  return (
-    state === "available" || state === "connecting" || state === "connected"
-  );
-}
-
-function isLegacyRecoverableAcpRecoveryState(state: AcpSkillRunRecoveryState) {
-  return isRecoverableAcpRecoveryState(state) || state === "failed";
-}
-
-export function isRecoverablePromptFailure(
-  record: Pick<
-    AcpSkillRunRecord,
-    "sessionId" | "conversationRecoveryState" | "removedAt" | "archivedAt"
-  >,
-) {
-  const recoveryState = record.conversationRecoveryState || "unavailable";
-  return (
-    !record.removedAt &&
-    !record.archivedAt &&
-    !!normalizeString(record.sessionId) &&
-    isRecoverableAcpRecoveryState(recoveryState)
-  );
-}
-
 function isActiveAcpSkillRunRecordForSummary(record: AcpSkillRunRecord) {
   return (
     !record.removedAt &&
@@ -887,7 +747,40 @@ function syncAcpSkillRunActiveIndex(record: AcpSkillRunRecord) {
   }
 }
 
+function propagateAcpSkillRunTerminalState(record: AcpSkillRunRecord) {
+  if (record.status !== "failed" && record.status !== "canceled") {
+    return;
+  }
+  const sequence = getSequenceRunStateByStepRequest(record.requestId);
+  if (!sequence) {
+    return;
+  }
+  const stepIndex = getSequenceStepIndexByRequestId(sequence, record.requestId);
+  if (stepIndex < 0) {
+    return;
+  }
+  applySequenceRunEvent({
+    type: "sequence.step.terminal",
+    sequenceRunId: sequence.sequenceRunId,
+    stepIndex,
+    requestId: record.requestId,
+    status: record.status,
+    error: record.error,
+  });
+  if (sequence.rootRequestId) {
+    updateWorkflowTaskStateByRequest({
+      backendId: record.backendId,
+      backendType: record.backendType,
+      requestId: sequence.rootRequestId,
+      state: record.status,
+      backendStatus: record.status,
+      error: record.error,
+    });
+  }
+}
+
 function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
+  const previous = runRecords.get(record.requestId);
   const metadata = deriveAcpSkillRunRuntimeFileMetadata(record);
   const next = {
     ...record,
@@ -915,6 +808,12 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   delete (next as Record<string, unknown>).transcriptItems;
   delete (next as Record<string, unknown>).outputRevisions;
   runRecords.set(record.requestId, next);
+  if (
+    (next.status === "failed" || next.status === "canceled") &&
+    previous?.status !== next.status
+  ) {
+    propagateAcpSkillRunTerminalState(next);
+  }
   if (isTerminalAcpSkillRunStatus(next.status)) {
     setupControllers.delete(record.requestId);
   }
@@ -925,7 +824,7 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   syncWaitingUserDetachTimer(next);
 }
 
-function clearWaitingUserDetachTimer(requestId: string) {
+export function clearWaitingUserDetachTimer(requestId: string) {
   const timer = waitingUserDetachTimers.get(requestId);
   if (timer) {
     clearTimeout(timer);
@@ -933,7 +832,7 @@ function clearWaitingUserDetachTimer(requestId: string) {
   }
 }
 
-function syncWaitingUserDetachTimer(record: AcpSkillRunRecord) {
+export function syncWaitingUserDetachTimer(record: AcpSkillRunRecord) {
   const requestId = record.requestId;
   if (record.status !== "waiting_user" || !controllers.has(requestId)) {
     clearWaitingUserDetachTimer(requestId);
@@ -952,7 +851,16 @@ function syncWaitingUserDetachTimer(record: AcpSkillRunRecord) {
         return;
       }
       void controller.disconnect().catch(() => {
-        registerAcpSkillRunController(requestId, null);
+        // Mirrors registerAcpSkillRunController(requestId, null); inlined here
+        // so the record pipeline does not import the controller registry
+        // module (the registry already depends on this store for upserts).
+        controllers.delete(requestId);
+        controllerPurposes.delete(requestId);
+        clearWaitingUserDetachTimer(requestId);
+        cancelAcpSkillRunPermissionQueue(
+          requestId,
+          "controller_removed_with_pending_permission",
+        );
       });
     }, ACP_SKILL_RUN_WAITING_USER_LIVE_TTL_MS),
   );
@@ -1193,35 +1101,6 @@ function appendStatusTranscriptItem(
   return true;
 }
 
-async function flushAcpSkillRunRuntimeFileWritesDuringShutdown() {
-  const result = await waitForAcpSkillRunShutdownTask(
-    flushAcpSkillRunRuntimeFileWrites(),
-    ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS,
-  );
-  const flushError = "error" in result ? result.error : null;
-  if (!result.timedOut && !flushError) {
-    return;
-  }
-  appendRuntimeLog({
-    level: "warn",
-    scope: "system",
-    component: "acp-skill-run-store",
-    operation: "shutdown-runtime-file-flush",
-    stage: result.timedOut
-      ? "runtime-file-flush-timeout"
-      : "runtime-file-flush-error",
-    message: result.timedOut
-      ? "ACP skill run runtime file flush timed out during shutdown."
-      : "ACP skill run runtime file flush failed during shutdown.",
-    details: {
-      timeoutMs: result.timedOut
-        ? ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS
-        : undefined,
-      error: flushError ? errorText(flushError) : undefined,
-    },
-  });
-}
-
 function isAllowedNonTerminalAcpSkillRunTransition(args: {
   current: AcpSkillRunStatus;
   next: AcpSkillRunStatus;
@@ -1365,7 +1244,6 @@ export function upsertAcpSkillRun(update: {
   appliedAt?: string;
   applyResultState?: AcpSkillRunRecord["applyResultState"];
   sessionId?: string;
-  hostBridgePluginSkillBundleIdentity?: HostBridgePluginSkillBundleIdentity;
   activePrompt?: boolean;
   promptInterruptState?: AcpPromptInterruptState;
   pendingPermission?: AcpPendingPermissionRequest | null;
@@ -1404,8 +1282,6 @@ export function upsertAcpSkillRun(update: {
       createdAt: now,
       updatedAt: now,
       events: [],
-      hostBridgePluginSkillBundleIdentity:
-        getCurrentHostBridgePluginSkillBundleIdentity(),
     }),
     updatedAt: now,
   };
@@ -1520,13 +1396,6 @@ export function upsertAcpSkillRun(update: {
   assignString("lastPromptStopReason", update.lastPromptStopReason);
   assignString("appliedAt", update.appliedAt);
   assignString("sessionId", update.sessionId);
-  if (update.hostBridgePluginSkillBundleIdentity) {
-    next.hostBridgePluginSkillBundleIdentity = {
-      cli: { ...update.hostBridgePluginSkillBundleIdentity.cli },
-      aggregateSha256:
-        update.hostBridgePluginSkillBundleIdentity.aggregateSha256,
-    };
-  }
   assignString("error", update.error);
   if (
     Object.prototype.hasOwnProperty.call(update, "conversationError") &&
@@ -1644,7 +1513,9 @@ export function upsertAcpSkillRun(update: {
     appendStatusTranscriptItem(next, event);
   }
   setAcpSkillRunRecord(next);
-  selectedRequestId = selectedRequestId || requestId;
+  if (!getAcpSkillRunSelectedRequestId()) {
+    setAcpSkillRunSelectedRequestId(requestId);
+  }
   pruneInactiveAcpSkillRunTranscriptMirrors();
   const suppressedSilentTrailingEvent =
     isAssistantSilentExecutionMode() &&
@@ -2059,80 +1930,6 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
   );
 }
 
-export function registerAcpSkillRunController(
-  requestIdRaw: string,
-  controller: AcpSkillRunController | null,
-  setupController?: AcpSkillRunSetupController,
-  purpose: AcpSkillRunControllerPurpose = "workflow",
-): boolean {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    return false;
-  }
-  if (!controller) {
-    controllers.delete(requestId);
-    controllerPurposes.delete(requestId);
-    clearWaitingUserDetachTimer(requestId);
-    cancelAcpSkillRunPermissionQueue(
-      requestId,
-      "controller_removed_with_pending_permission",
-    );
-    return true;
-  }
-  const record = runRecords.get(requestId);
-  if (
-    setupController &&
-    (!record ||
-      isTerminalAcpSkillRunStatus(record.status) ||
-      setupControllers.get(requestId) !== setupController)
-  ) {
-    return false;
-  }
-  setupControllers.delete(requestId);
-  controllers.set(requestId, controller);
-  controllerPurposes.set(requestId, purpose);
-  upsertAcpSkillRun({
-    requestId,
-    conversationRecoveryState: "connected",
-    connectionActionState: "idle",
-    lastRecoveryError: "",
-  });
-  if (record) {
-    syncWaitingUserDetachTimer(record);
-  }
-  clearStaleAcpSkillRunPermissionRequest({
-    runRequestId: requestId,
-    reason: "controller_registered_without_resolver",
-  });
-  return true;
-}
-
-export function registerAcpSkillRunSetupController(
-  requestIdRaw: string,
-  controller: AcpSkillRunSetupController | null,
-) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    return;
-  }
-  if (!controller) {
-    setupControllers.delete(requestId);
-    return;
-  }
-  setupControllers.set(requestId, controller);
-}
-
-export function unregisterAcpSkillRunSetupController(
-  requestIdRaw: string,
-  controller: AcpSkillRunSetupController,
-) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId || setupControllers.get(requestId) !== controller) {
-    return;
-  }
-  setupControllers.delete(requestId);
-}
-
 export function setAcpSkillRunRecoveryHandlerForTests(
   handler: AcpSkillRunRecoveryHandler | null,
 ) {
@@ -2145,130 +1942,24 @@ export function setAcpSkillRunRecoveryHandler(
   recoveryHandler = handler;
 }
 
-export function hasAcpSkillRunController(requestIdRaw: string) {
-  const requestId = normalizeString(requestIdRaw);
-  return !!requestId && controllers.has(requestId);
+export function getAcpSkillRunRecoveryHandler() {
+  return recoveryHandler;
 }
 
-export function setAcpSkillRunRuntimeCatalog(
-  requestIdRaw: string,
-  options: Partial<AcpSkillRunRuntimeCatalog> | null | undefined,
-) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    return;
-  }
-  if (!options) {
-    runtimeCatalogByRequestId.delete(requestId);
-    scheduleWorkspaceChangedEmit(
-      acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
-    );
-    return;
-  }
-  const normalized: AcpSkillRunRuntimeCatalog = {
-    modeOptions: normalizeSelectableOptions(options.modeOptions),
-    modelOptions: normalizeSelectableOptions(options.modelOptions),
-    displayModelOptions: normalizeSelectableOptions(
-      options.displayModelOptions,
-    ),
-    reasoningEffortOptions: normalizeSelectableOptions(
-      options.reasoningEffortOptions,
-    ),
-    reasoningSource:
-      options.reasoningSource === "explicit" ||
-      options.reasoningSource === "model-derived"
-        ? options.reasoningSource
-        : "none",
-  };
-  runtimeCatalogByRequestId.set(requestId, normalized);
-  scheduleWorkspaceChangedEmit(
-    acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
-  );
+export function runtimeCatalogForRun(run: AcpSkillRunRecord) {
+  const stored = runtimeCatalogByRequestId.get(run.requestId);
+  return stored
+    ? cloneRuntimeCatalog(stored)
+    : {
+        modeOptions: [],
+        modelOptions: [],
+        displayModelOptions: [],
+        reasoningEffortOptions: [],
+        reasoningSource: "none" as const,
+      };
 }
 
-function normalizeAcpSkillRunPermissionRequestDetails(
-  request: AcpSkillRunPermissionRequestWithResolver,
-  permissionRequestId: string,
-) {
-  return {
-    permissionRequestId,
-    toolCallId: normalizeString(request.toolCallId),
-    toolTitle: normalizeString(request.toolTitle),
-    source: normalizeString(request.source) || undefined,
-    summary:
-      normalizeString(request.summary) || normalizeString(request.toolTitle),
-  };
-}
-
-function normalizeAcpSkillRunPendingPermission(
-  request: AcpSkillRunPermissionRequestWithResolver,
-  permissionRequestId: string,
-) {
-  return {
-    requestId: permissionRequestId,
-    sessionId: normalizeString(request.sessionId),
-    toolCallId: normalizeString(request.toolCallId),
-    toolTitle: normalizeString(request.toolTitle),
-    approvalKind: request.approvalKind,
-    source: normalizeString(request.source) || undefined,
-    summary: normalizeString(request.summary) || undefined,
-    detail: normalizeString(request.detail) || undefined,
-    requestedAt: normalizeString(request.requestedAt) || nowIso(),
-    options: Array.isArray(request.options)
-      ? request.options.map((option) => ({ ...option }))
-      : [],
-  };
-}
-
-function acpSkillRunPermissionRequestedMessage(
-  request: AcpSkillRunPermissionRequestWithResolver,
-  permissionRequestId: string,
-) {
-  return `Permission requested: ${normalizeString(request.toolTitle) || permissionRequestId}`;
-}
-
-export function setAcpSkillRunPermissionRequest(
-  runRequestIdRaw: string,
-  request: AcpSkillRunPermissionRequestWithResolver,
-) {
-  const runRequestId = normalizeString(runRequestIdRaw);
-  const permissionRequestId = normalizeString(request.requestId);
-  if (!runRequestId || !permissionRequestId) {
-    return;
-  }
-  const queue =
-    permissionQueuesByRunRequestId.get(runRequestId) ||
-    new AcpPermissionQueue();
-  permissionQueuesByRunRequestId.set(runRequestId, queue);
-  if (!queue.enqueue(request)) {
-    return;
-  }
-  const active = queue.active();
-  upsertAcpSkillRun({
-    requestId: runRequestId,
-    status: "running",
-    statusReason: "start",
-    pendingPermission: active
-      ? normalizeAcpSkillRunPendingPermission(active, active.requestId)
-      : null,
-    event: {
-      stage: "permission-requested",
-      message: acpSkillRunPermissionRequestedMessage(
-        request,
-        permissionRequestId,
-      ),
-      level: "warn",
-      details: normalizeAcpSkillRunPermissionRequestDetails(
-        request,
-        permissionRequestId,
-      ),
-    },
-  });
-}
-
-registerAcpSkillRunPermissionRequestHandler(setAcpSkillRunPermissionRequest);
-
-function cancelAcpSkillRunPermissionQueue(
+export function cancelAcpSkillRunPermissionQueue(
   runRequestIdRaw: string,
   reason: string,
 ) {
@@ -2329,1268 +2020,14 @@ function cancelAcpSkillRunPermissionQueue(
   return cancelledCount;
 }
 
-export function autoApproveAcpSkillRunPermissionRequest(args: {
-  runRequestId: string;
-  request: AcpSkillRunPermissionRequestWithResolver;
-  optionId: string;
-}) {
-  const runRequestId = normalizeString(args.runRequestId);
-  const permissionRequestId = normalizeString(args.request.requestId);
-  const optionId = normalizeString(args.optionId);
-  if (!runRequestId || !permissionRequestId || !optionId) {
-    return false;
-  }
-  const details = normalizeAcpSkillRunPermissionRequestDetails(
-    args.request,
-    permissionRequestId,
-  );
-  args.request.resolve({
-    outcome: "selected",
-    optionId,
-  });
-  upsertAcpSkillRun({
-    requestId: runRequestId,
-    status: "running",
-    statusReason: "start",
-    pendingPermission: null,
-    event: {
-      stage: "permission-requested",
-      message: acpSkillRunPermissionRequestedMessage(
-        args.request,
-        permissionRequestId,
-      ),
-      level: "info",
-      details,
-    },
-  });
-  upsertAcpSkillRun({
-    requestId: runRequestId,
-    status: "running",
-    statusReason: "start",
-    pendingPermission: null,
-    event: {
-      stage: "permission-resolved",
-      message: `Permission option selected: ${optionId}`,
-      level: "info",
-      details: {
-        ...details,
-        outcome: "selected",
-        optionId,
-      },
-    },
-  });
-  return true;
-}
-
-function findStaleAcpSkillRunPermissionRequest(args: {
-  runRequestId?: string;
-  permissionRequestId?: string;
-}) {
-  ensureAcpSkillRunStoreHydrated();
-  const runRequestId = normalizeString(args.runRequestId);
-  const permissionRequestId = normalizeString(args.permissionRequestId);
-  if (!runRequestId && !permissionRequestId) {
-    return null;
-  }
-  const candidates = runRequestId
-    ? [runRecords.get(runRequestId)].filter(
-        (entry): entry is AcpSkillRunRecord => !!entry,
-      )
-    : Array.from(runRecords.values());
-  for (const record of candidates) {
-    const pending = record.pendingPermission;
-    if (!pending) {
-      continue;
-    }
-    const pendingRequestId = normalizeString(pending.requestId);
-    if (!pendingRequestId) {
-      continue;
-    }
-    if (permissionRequestId && pendingRequestId !== permissionRequestId) {
-      continue;
-    }
-    if (
-      permissionQueuesByRunRequestId.get(record.requestId)?.active()
-        ?.requestId === pendingRequestId
-    ) {
-      continue;
-    }
-    return {
-      record,
-      pending,
-      permissionRequestId: pendingRequestId,
-    };
-  }
-  return null;
-}
-
-function clearStaleAcpSkillRunPermissionRequest(args: {
-  runRequestId?: string;
-  permissionRequestId?: string;
-  reason: string;
-}) {
-  const stale = findStaleAcpSkillRunPermissionRequest(args);
-  if (!stale) {
-    return false;
-  }
-  const recoverableStatus = new Set<AcpSkillRunStatus>([
-    "running",
-    "repairing",
-  ]).has(stale.record.status)
-    ? "waiting_user"
-    : stale.record.status;
-  upsertAcpSkillRun({
-    requestId: stale.record.requestId,
-    status: recoverableStatus,
-    statusReason:
-      recoverableStatus === stale.record.status ? undefined : "waiting_user",
-    activePrompt: false,
-    pendingPermission: null,
-    replyState: "idle",
-    event: {
-      stage: "permission-resolved",
-      message:
-        "Permission request expired after reconnect; no live approval handler is available.",
-      level: "warn",
-      details: {
-        permissionRequestId: stale.permissionRequestId,
-        outcome: "cancelled",
-        reason: args.reason,
-        toolCallId: normalizeString(stale.pending.toolCallId),
-        toolTitle: normalizeString(stale.pending.toolTitle),
-        source: normalizeString(stale.pending.source) || undefined,
-        summary:
-          normalizeString(stale.pending.summary) ||
-          normalizeString(stale.pending.toolTitle),
-      },
-    },
-  });
-  return true;
-}
-
-export function resolveAcpSkillRunPermissionRequest(args: {
-  runRequestId?: string;
-  permissionRequestId?: string;
-  outcome?: "selected" | "cancelled";
-  optionId?: string;
-}) {
-  const runRequestId = normalizeString(args.runRequestId);
-  const permissionRequestId = normalizeString(args.permissionRequestId);
-  const matchedRunRequestId =
-    runRequestId ||
-    Array.from(permissionQueuesByRunRequestId.entries()).find(
-      ([, queue]) => queue.active()?.requestId === permissionRequestId,
-    )?.[0] ||
-    "";
-  const queue = permissionQueuesByRunRequestId.get(matchedRunRequestId);
-  const active = queue?.active() || null;
-  if (!queue || !active) {
-    if (
-      clearStaleAcpSkillRunPermissionRequest({
-        runRequestId,
-        permissionRequestId,
-        reason: "resolve_without_live_handler",
-      })
-    ) {
-      return;
-    }
-    const record = runRequestId ? runRecords.get(runRequestId) : undefined;
-    if (record && !record.pendingPermission) {
-      return;
-    }
-    throw new Error("No active ACP skill run permission request is available.");
-  }
-  if (permissionRequestId && active.requestId !== permissionRequestId) {
-    throw new Error(
-      "The requested ACP skill run permission is not the active request.",
-    );
-  }
-  const outcome =
-    args.outcome === "selected" && normalizeString(args.optionId)
-      ? ({
-          outcome: "selected",
-          optionId: normalizeString(args.optionId),
-        } as RequestPermissionOutcome)
-      : ({ outcome: "cancelled" } as RequestPermissionOutcome);
-  const resolved = queue.resolveActive(permissionRequestId, outcome);
-  if (!resolved) {
-    throw new Error(
-      "The requested ACP skill run permission is not the active request.",
-    );
-  }
-  const next = queue.active();
-  if (!next) {
-    permissionQueuesByRunRequestId.delete(matchedRunRequestId);
-  }
-  upsertAcpSkillRun({
-    requestId: matchedRunRequestId,
-    pendingPermission: next
-      ? normalizeAcpSkillRunPendingPermission(next, next.requestId)
-      : null,
-    event: {
-      stage: "permission-resolved",
-      message:
-        outcome.outcome === "selected"
-          ? `Permission option selected: ${outcome.optionId}`
-          : "Permission request cancelled.",
-      level: outcome.outcome === "selected" ? "info" : "warn",
-      details: {
-        permissionRequestId: resolved.requestId,
-        outcome: outcome.outcome,
-        optionId: outcome.outcome === "selected" ? outcome.optionId : undefined,
-      },
-    },
-  });
-}
-
-export async function cancelAcpSkillRun(requestIdRaw: string) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    throw new Error("requestId is required");
-  }
-  getAcpSkillRunSlotCoordinator(requestId)?.cancelPendingResumption();
-  cancelAcpSkillRunPermissionQueue(
-    requestId,
-    "run_cancelled_with_pending_permission",
-  );
-  let controller = controllers.get(requestId);
-  const setupController = setupControllers.get(requestId);
-  if (!controller) {
-    const existing = getAcpSkillRunRecord(requestId);
-    if (!existing) {
-      throw new Error("No ACP skill run record is available for cancellation.");
-    }
-    if (isTerminalAcpSkillRunStatus(existing.status)) {
-      return;
-    }
-    if (setupController) {
-      await setupController.cancel();
-      controller = controllers.get(requestId);
-    }
-  }
-  if (!controller) {
-    upsertAcpSkillRun({
-      requestId,
-      status: "canceled",
-      statusReason: "cancel_task",
-      activePrompt: false,
-      conversationState: "ended",
-      conversationRecoveryState: "unavailable",
-      connectionActionState: "idle",
-      removedAt: nowIso(),
-      event: {
-        stage: "canceled",
-        message:
-          "ACP skill run canceled from the panel; no live controller was available.",
-        level: "warn",
-      },
-    });
-    return;
-  }
-  await controller.cancel();
-  const afterCancel = getAcpSkillRunRecord(requestId);
-  if (afterCancel && isTerminalAcpSkillRunStatus(afterCancel.status)) {
-    return;
-  }
-  upsertAcpSkillRun({
-    requestId,
-    status: "canceled",
-    statusReason: "cancel_task",
-    activePrompt: false,
-    conversationState: "ended",
-    conversationRecoveryState: "unavailable",
-    connectionActionState: "idle",
-    removedAt: nowIso(),
-    event: {
-      stage: "canceled",
-      message: "ACP skill run cancellation requested.",
-      level: "warn",
-    },
-  });
-}
-
-export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    throw new Error("requestId is required");
-  }
-  const existing = getAcpSkillRunRecord(requestId);
-  if (
-    existing &&
-    isTerminalAcpSkillRunStatus(existing.status) &&
-    controllerPurposes.get(requestId) !== "post-terminal-conversation"
-  ) {
-    throw new Error("Terminal ACP skill runs cannot be interrupted.");
-  }
-  if (existing && !isAcpSkillRunPromptActive(existing)) {
-    upsertAcpSkillRun({
-      requestId,
-      event: {
-        stage: "interrupt-ignored",
-        message:
-          "ACP skill run current turn interruption ignored because no active prompt turn exists.",
-        level: "warn",
-        details: {
-          activePrompt: existing.activePrompt === true,
-          replyState: existing.replyState,
-          conversationRecoveryState: existing.conversationRecoveryState,
-        },
-      },
-    });
-    return;
-  }
-  const controller = controllers.get(requestId);
-  if (!controller) {
-    throw new Error(
-      "No active ACP skill run controller is available for interruption.",
-    );
-  }
-  if (controller.interruptTurn) {
-    await controller.interruptTurn();
-  } else {
-    await controller.cancel();
-  }
-}
-
-export function archiveAcpSkillRun(requestIdRaw: string) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    throw new Error("requestId is required");
-  }
-  const existing = getAcpSkillRunRecord(requestId);
-  if (!existing) {
-    throw new Error("No ACP skill run record is available for archive.");
-  }
-  if (
-    existing.status !== "succeeded" &&
-    existing.status !== "failed" &&
-    existing.status !== "canceled"
-  ) {
-    throw new Error("Only terminal ACP skill runs can be archived.");
-  }
-  if (
-    controllers.has(requestId) ||
-    existing.activePrompt ||
-    existing.replyState === "submitted" ||
-    existing.replyState === "accepted" ||
-    existing.connectionActionState === "connecting" ||
-    existing.connectionActionState === "disconnecting" ||
-    existing.conversationRecoveryState === "connecting" ||
-    existing.conversationRecoveryState === "connected"
-  ) {
-    throw new Error(
-      "Disconnect the ACP skill run conversation before archiving it.",
-    );
-  }
-  const archivedAt = nowIso();
-  upsertAcpSkillRun({
-    requestId,
-    archivedAt,
-    removedAt: archivedAt,
-    event: {
-      stage: "archived",
-      message: "ACP skill run archived from the panel.",
-      level: "info",
-    },
-  });
-}
-
-export async function replyAcpSkillRun(args: {
-  requestId: string;
-  message?: string;
-  displayMessage?: string;
-  promptMessage?: string;
-}) {
-  const requestId = normalizeString(args.requestId);
-  const displayMessage = String(
-    args.displayMessage ?? args.message ?? args.promptMessage ?? "",
-  ).trim();
-  const promptMessage = String(
-    args.promptMessage ?? args.message ?? args.displayMessage ?? "",
-  ).trim();
-  if (!requestId) {
-    throw new Error("requestId is required");
-  }
-  if (!displayMessage || !promptMessage) {
-    throw new Error("reply message is required");
-  }
-  const existing = getAcpSkillRunRecord(requestId);
-  if (!existing) {
-    throw new Error("No ACP skill run record is available for reply.");
-  }
-  const terminalConversation =
-    isEligibleForPostTerminalAcpSkillRunConversation(existing);
-  if (isTerminalAcpSkillRunStatus(existing.status) && !terminalConversation) {
-    throw new Error("Terminal ACP skill run conversation is not recoverable.");
-  }
-  if (
-    !terminalConversation &&
-    existing.status !== "waiting_user" &&
-    existing.status !== "failed_retriable"
-  ) {
-    throw new Error(
-      "ACP skill run replies are only accepted for waiting or recoverable failed runs.",
-    );
-  }
-  if (
-    terminalConversation &&
-    (!controllers.has(requestId) ||
-      controllerPurposes.get(requestId) !== "post-terminal-conversation")
-  ) {
-    throw new Error(
-      "Connect the terminal ACP skill run conversation before replying.",
-    );
-  }
-  upsertAcpSkillRun({
-    requestId,
-    replyState: "submitted",
-    replyError: "",
-    conversationError: "",
-    lastRecoveryError: "",
-    error: terminalConversation ? existing.error : "",
-    event: {
-      stage: "reply-submitted",
-      message: "User reply submitted.",
-      level: "info",
-    },
-  });
-  const slot = terminalConversation
-    ? null
-    : getAcpSkillRunSlotCoordinator(requestId);
-  if (slot && !(await slot.ensureSlot("user-reply"))) {
-    const detail = "ACP skill reply admission was canceled before send.";
-    upsertAcpSkillRun({
-      requestId,
-      replyState: "rejected",
-      replyError: detail,
-      event: {
-        stage: "reply-rejected",
-        message: detail,
-        level: "error",
-      },
-    });
-    throw new Error(detail);
-  }
-  let controller = controllers.get(requestId);
-  if (
-    !terminalConversation &&
-    !controller?.reply &&
-    !controller?.replyRequest &&
-    recoveryHandler
-  ) {
-    try {
-      await recoveryHandler({ requestId, reason: "reply" });
-      controller = controllers.get(requestId);
-    } catch (error) {
-      const detail =
-        error instanceof Error
-          ? error.message
-          : String(error || "unknown error");
-      upsertAcpSkillRun({
-        requestId,
-        replyState: "rejected",
-        replyError: detail,
-        conversationRecoveryState: "failed",
-        lastRecoveryError: detail,
-        event: {
-          stage: "reply-rejected",
-          message: `Reply failed during session recovery: ${detail}`,
-          level: "error",
-        },
-      });
-      throw error;
-    }
-  }
-  if (!controller?.reply && !controller?.replyRequest) {
-    upsertAcpSkillRun({
-      requestId,
-      conversationState: "closed",
-      conversationRecoveryState: "available",
-      conversationError: "No active ACP conversation controller is available.",
-      replyState: "rejected",
-      replyError: "No active ACP conversation controller is available.",
-      event: {
-        stage: "reply-unavailable",
-        message:
-          "Reply failed because no active ACP conversation controller was available.",
-        level: "error",
-      },
-    });
-    throw new Error("No active ACP conversation controller is available.");
-  }
-  await hydrateAcpSkillRunTranscriptMirror(requestId);
-  upsertAcpSkillRun({
-    requestId,
-    replyState: "accepted",
-    conversationState: "active",
-    conversationRecoveryState: "connected",
-    replyError: "",
-    conversationError: "",
-    lastRecoveryError: "",
-    error: terminalConversation ? existing.error : "",
-    event: {
-      stage: "reply-accepted",
-      message: "User reply accepted by ACP skill run controller.",
-      level: "info",
-    },
-  });
-  try {
-    if (controller.replyRequest) {
-      await controller.replyRequest({ displayMessage, promptMessage });
-    } else {
-      await controller.reply?.(promptMessage);
-    }
-    upsertAcpSkillRun({
-      requestId,
-      replyState: "idle",
-    });
-  } catch (error) {
-    const detail =
-      error instanceof Error ? error.message : String(error || "unknown error");
-    upsertAcpSkillRun({
-      requestId,
-      replyState: "rejected",
-      replyError: detail,
-      conversationError: terminalConversation ? detail : undefined,
-      event: {
-        stage: "reply-rejected",
-        message: detail,
-        level: "error",
-      },
-    });
-    throw error;
-  }
-}
-
-function getAcpSkillRunSlotCoordinator(requestId: string) {
-  const submissionUnitId = getAcpSkillRunRecord(requestId)?.submissionUnitId;
-  return submissionUnitId
-    ? workflowSubmissionQueue.getSlotCoordinator(submissionUnitId)
-    : null;
-}
-
-export function isAcpSkillRunPromptActive(
-  run: Pick<AcpSkillRunRecord, "activePrompt" | "replyState">,
-) {
-  return (
-    run.activePrompt === true ||
-    run.replyState === "submitted" ||
-    run.replyState === "accepted"
-  );
-}
-
-export function canEditAcpSkillRunModelConfiguration(
-  run: Pick<AcpSkillRunRecord, "status" | "activePrompt" | "replyState">,
-) {
-  return (
-    !isAcpSkillRunPromptActive(run) &&
-    (run.status === "waiting_user" || run.status === "failed_retriable")
-  );
-}
-
-function requireRuntimeController(
-  requestId: string,
-  operation: "setMode" | "setModel",
-) {
-  const controller = controllers.get(requestId);
-  if (!controller || typeof controller[operation] !== "function") {
-    throw new Error(
-      "No active ACP skill run controller is available for runtime option changes.",
-    );
-  }
-  return controller as AcpSkillRunController &
-    Required<Pick<AcpSkillRunController, typeof operation>>;
-}
-
-function runtimeCatalogForRun(run: AcpSkillRunRecord) {
-  const stored = runtimeCatalogByRequestId.get(run.requestId);
-  return stored
-    ? cloneRuntimeCatalog(stored)
-    : {
-        modeOptions: [],
-        modelOptions: [],
-        displayModelOptions: [],
-        reasoningEffortOptions: [],
-        reasoningSource: "none" as const,
-      };
-}
-
-export function getAcpSkillRunRuntimeCatalog(requestIdRaw: string) {
-  ensureAcpSkillRunStoreHydrated();
-  const requestId = normalizeString(requestIdRaw);
-  const run = requestId ? runRecords.get(requestId) : undefined;
-  return run ? runtimeCatalogForRun(run) : null;
-}
-
-export function updateAcpSkillRunRuntimeSelection(args: {
-  requestId: string;
-  selection: {
-    modeId?: string;
-    modelId?: string;
-    rawModelId?: string;
-    reasoningEffort?: string | null;
-  };
-  event?: Omit<AcpSkillRunEvent, "ts"> & { ts?: string };
-}) {
-  return upsertAcpSkillRun({
-    requestId: args.requestId,
-    acpModeId: args.selection.modeId,
-    acpModelId: args.selection.modelId,
-    acpRawModelId: args.selection.rawModelId,
-    ...(Object.prototype.hasOwnProperty.call(args.selection, "reasoningEffort")
-      ? { acpReasoningEffort: args.selection.reasoningEffort }
-      : {}),
-    event: args.event,
-  });
-}
-
-function resolveEffortIdFromRawModel(
-  rawModelId: string,
-  modelOptions: AcpSelectableOption[],
-  fallback: string,
-) {
-  const option = modelOptions.find((entry) => entry.id === rawModelId);
-  const parsed =
-    parseAcpEffortFromModelText(option?.id || rawModelId) ||
-    parseAcpEffortFromModelText(option?.label || "");
-  return normalizeString(parsed?.effortId) || fallback;
-}
-
-export async function setAcpSkillRunMode(args: {
-  requestId: string;
-  modeId: string;
-}) {
-  const requestId = normalizeString(args.requestId);
-  const modeId = normalizeString(args.modeId);
-  if (!requestId || !modeId) {
-    return;
-  }
-  const run = getAcpSkillRunRecord(requestId);
-  const sessionId = normalizeString(run?.sessionId);
-  if (!run || !sessionId) {
-    throw new Error(
-      "No active ACP skill run session is available for mode changes.",
-    );
-  }
-  const runtimeCatalog = runtimeCatalogForRun(run);
-  if (!runtimeCatalog.modeOptions.some((entry) => entry.id === modeId)) {
-    throw new Error("ACP skill run mode is not available for this session.");
-  }
-  const controller = requireRuntimeController(requestId, "setMode");
-  await controller.setMode({ sessionId, modeId });
-  updateAcpSkillRunRuntimeSelection({
-    requestId,
-    selection: { modeId },
-    event: {
-      stage: "runtime-mode-updated",
-      message: "ACP skill run mode updated.",
-      level: "info",
-      details: { modeId },
-    },
-  });
-}
-
-export async function setAcpSkillRunModel(args: {
-  requestId: string;
-  modelId: string;
-}) {
-  const requestId = normalizeString(args.requestId);
-  const modelId = normalizeString(args.modelId);
-  if (!requestId || !modelId) {
-    return;
-  }
-  const run = getAcpSkillRunRecord(requestId);
-  const sessionId = normalizeString(run?.sessionId);
-  if (!run || !sessionId) {
-    throw new Error(
-      "No active ACP skill run session is available for model changes.",
-    );
-  }
-  if (!canEditAcpSkillRunModelConfiguration(run)) {
-    throw new Error(
-      "Cannot change ACP skill run model while model configuration is frozen.",
-    );
-  }
-  const runtimeCatalog = runtimeCatalogForRun(run);
-  const displayModelOptions = runtimeCatalog.displayModelOptions.length
-    ? runtimeCatalog.displayModelOptions
-    : runtimeCatalog.modelOptions;
-  if (!displayModelOptions.some((entry) => entry.id === modelId)) {
-    throw new Error("ACP skill run model is not available for this session.");
-  }
-  const rawModelId = resolveAcpRawModelIdForSelection({
-    modelOptions: runtimeCatalog.modelOptions,
-    displayModelId: modelId,
-    effortId: normalizeString(run.acpReasoningEffort),
-    currentRawModelId: run.acpRawModelId,
-  });
-  if (!runtimeCatalog.modelOptions.some((entry) => entry.id === rawModelId)) {
-    throw new Error("ACP skill run model is not available for this session.");
-  }
-  const controller = requireRuntimeController(requestId, "setModel");
-  await controller.setModel({ sessionId, modelId: rawModelId });
-  const effortId =
-    runtimeCatalog.reasoningSource === "model-derived"
-      ? resolveEffortIdFromRawModel(
-          rawModelId,
-          runtimeCatalog.modelOptions,
-          normalizeString(run.acpReasoningEffort),
-        )
-      : normalizeString(run.acpReasoningEffort);
-  updateAcpSkillRunRuntimeSelection({
-    requestId,
-    selection: {
-      modelId,
-      rawModelId,
-      ...(effortId ? { reasoningEffort: effortId } : {}),
-    },
-    event: {
-      stage: "runtime-model-updated",
-      message: "ACP skill run model updated.",
-      level: "info",
-      details: { modelId, rawModelId, reasoningEffort: effortId },
-    },
-  });
-}
-
-export async function setAcpSkillRunReasoningEffort(args: {
-  requestId: string;
-  effortId: string;
-}) {
-  const requestId = normalizeString(args.requestId);
-  const effortId = normalizeString(args.effortId);
-  if (!requestId || !effortId) {
-    return;
-  }
-  const run = getAcpSkillRunRecord(requestId);
-  const sessionId = normalizeString(run?.sessionId);
-  if (!run || !sessionId) {
-    throw new Error(
-      "No active ACP skill run session is available for reasoning changes.",
-    );
-  }
-  if (!canEditAcpSkillRunModelConfiguration(run)) {
-    throw new Error(
-      "Cannot change ACP skill run reasoning effort while model configuration is frozen.",
-    );
-  }
-  const runtimeCatalog = runtimeCatalogForRun(run);
-  if (
-    !runtimeCatalog.reasoningEffortOptions.some(
-      (entry) => entry.id === effortId,
-    )
-  ) {
-    throw new Error(
-      "ACP skill run reasoning effort is not available for this session.",
-    );
-  }
-  const displayModelId =
-    normalizeString(run.acpModelId) || normalizeString(run.acpRawModelId);
-  const rawModelId = displayModelId
-    ? resolveAcpRawModelIdForSelection({
-        modelOptions: runtimeCatalog.modelOptions,
-        displayModelId,
-        effortId,
-        currentRawModelId: run.acpRawModelId,
-      })
-    : "";
-  if (
-    runtimeCatalog.reasoningSource === "model-derived" &&
-    !runtimeCatalog.modelOptions.some((entry) => entry.id === rawModelId)
-  ) {
-    throw new Error("ACP skill run model is not available for this session.");
-  }
-  const controller = requireRuntimeController(requestId, "setModel");
-  if (runtimeCatalog.reasoningSource === "explicit") {
-    const applied = await controller.setConfigOption?.({
-      sessionId,
-      category: "thought_level",
-      value: effortId,
-    });
-    if (applied !== true) {
-      throw new Error(
-        "ACP skill run reasoning configuration is not available for this session.",
-      );
-    }
-  } else if (runtimeCatalog.reasoningSource === "model-derived" && rawModelId) {
-    await controller.setModel({ sessionId, modelId: rawModelId });
-  } else {
-    throw new Error(
-      "No ACP skill run model is available for reasoning changes.",
-    );
-  }
-  updateAcpSkillRunRuntimeSelection({
-    requestId,
-    selection: {
-      modelId: displayModelId,
-      ...(rawModelId ? { rawModelId } : {}),
-      reasoningEffort: effortId,
-    },
-    event: {
-      stage: "runtime-reasoning-updated",
-      message: "ACP skill run reasoning effort updated.",
-      level: "info",
-      details: {
-        modelId: displayModelId,
-        rawModelId,
-        reasoningEffort: effortId,
-      },
-    },
-  });
-}
-
-export async function connectAcpSkillRun(requestIdRaw: string) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    throw new Error("requestId is required");
-  }
-  const existing = getAcpSkillRunRecord(requestId);
-  if (!existing) {
-    throw new Error("No ACP skill run record is available for connection.");
-  }
-  const terminalConversation =
-    isEligibleForPostTerminalAcpSkillRunConversation(existing);
-  if (isTerminalAcpSkillRunStatus(existing.status) && !terminalConversation) {
-    throw new Error("Terminal ACP skill run conversation is not recoverable.");
-  }
-  if (controllers.has(requestId)) {
-    if (
-      isTerminalAcpSkillRunStatus(existing.status) &&
-      controllerPurposes.get(requestId) !== "post-terminal-conversation"
-    ) {
-      throw new Error(
-        "Wait for the workflow controller to detach, then Connect the terminal conversation.",
-      );
-    }
-    upsertAcpSkillRun({
-      requestId,
-      conversationRecoveryState: "connected",
-      connectionActionState: "idle",
-      event: {
-        stage: "connect-already-active",
-        message: "ACP skill run conversation is already connected.",
-        level: "info",
-      },
-    });
-    return;
-  }
-  if (!recoveryHandler) {
-    const message = "No ACP skill run recovery handler is available.";
-    upsertAcpSkillRun({
-      requestId,
-      conversationRecoveryState: "failed",
-      connectionActionState: "idle",
-      lastRecoveryError: message,
-      event: {
-        stage: "connect-unavailable",
-        message,
-        level: "error",
-      },
-    });
-    throw new Error(message);
-  }
-  upsertAcpSkillRun({
-    requestId,
-    connectionActionState: "connecting",
-    conversationRecoveryState: "connecting",
-    event: {
-      stage: "connect-requested",
-      message: "ACP skill run session recovery requested.",
-      level: "info",
-    },
-  });
-  try {
-    const slot = terminalConversation
-      ? null
-      : getAcpSkillRunSlotCoordinator(requestId);
-    if (slot && !(await slot.ensureSlot("retry"))) {
-      throw new Error("ACP skill recovery admission was canceled.");
-    }
-    await recoveryHandler({ requestId, reason: "connect" });
-    const recovered = getAcpSkillRunRecord(requestId);
-    if (
-      !controllers.has(requestId) &&
-      recovered?.conversationState === "closed" &&
-      recovered?.conversationRecoveryState === "available"
-    ) {
-      upsertAcpSkillRun({
-        requestId,
-        connectionActionState: "idle",
-      });
-      return;
-    }
-    upsertAcpSkillRun({
-      requestId,
-      connectionActionState: "idle",
-      conversationRecoveryState: "connected",
-      event: {
-        stage: "connect-succeeded",
-        message: "ACP skill run session recovered.",
-        level: "info",
-      },
-    });
-  } catch (error) {
-    const detail =
-      error instanceof Error ? error.message : String(error || "unknown error");
-    upsertAcpSkillRun({
-      requestId,
-      connectionActionState: "idle",
-      conversationRecoveryState: "failed",
-      lastRecoveryError: detail,
-      event: {
-        stage: "connect-failed",
-        message: detail,
-        level: "error",
-      },
-    });
-    throw error;
-  }
-}
-
-export async function disconnectAcpSkillRun(requestIdRaw: string) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    throw new Error("requestId is required");
-  }
-  const controller = controllers.get(requestId);
-  let disconnectError: unknown = null;
-  upsertAcpSkillRun({
-    requestId,
-    connectionActionState: "disconnecting",
-    event: {
-      stage: "disconnect-requested",
-      message: "ACP skill run local connection detach requested.",
-      level: "info",
-    },
-  });
-  try {
-    if (controller?.disconnect) {
-      await controller.disconnect();
-    }
-  } catch (error) {
-    disconnectError = error;
-  } finally {
-    const currentController = controllers.get(requestId);
-    if (controller) {
-      if (currentController === controller) {
-        registerAcpSkillRunController(requestId, null);
-      }
-    } else if (!currentController) {
-      registerAcpSkillRunController(requestId, null);
-    }
-  }
-  const disconnectErrorMessage = normalizeString(
-    disconnectError instanceof Error
-      ? disconnectError.message
-      : disconnectError,
-  );
-  upsertAcpSkillRun({
-    requestId,
-    activePrompt: false,
-    connectionActionState: "idle",
-    conversationState: "closed",
-    conversationRecoveryState: "available",
-    event: {
-      stage: disconnectError ? "disconnect-detach-error" : "disconnected",
-      message: disconnectError
-        ? "ACP skill run local controller detach did not complete cleanly; remote session remains recoverable."
-        : "ACP skill run local connection detached; remote session remains recoverable.",
-      level: disconnectError ? "warn" : "info",
-      details: disconnectError
-        ? {
-            error: disconnectErrorMessage || "unknown error",
-          }
-        : undefined,
-    },
-  });
-}
-
-export async function endAcpSkillRunSession(requestIdRaw: string) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    throw new Error("requestId is required");
-  }
-  const controller = controllers.get(requestId);
-  if (controller?.endSession) {
-    await controller.endSession();
-  }
-  upsertAcpSkillRun({
-    requestId,
-    activePrompt: false,
-    conversationState: "ended",
-    conversationRecoveryState: "unavailable",
-    connectionActionState: "idle",
-    event: {
-      stage: "conversation-ended",
-      message: "ACP skill run conversation ended.",
-      level: "info",
-    },
-  });
-}
-
-function applyResultTerminalRecoveryState(
-  requestId: string,
-  state: "succeeded" | "failed",
-): AcpSkillRunRecoveryState {
-  const record = getAcpSkillRunRecord(requestId);
-  if (record?.conversationState === "ended") {
-    return "unavailable";
-  }
-  if (state === "succeeded") {
-    return "available";
-  }
-  return normalizeString(record?.sessionId) ? "available" : "unavailable";
-}
-
-function finalizeAcpSkillRunApplyResultControllerDetach(args: {
-  requestId: string;
-  state: "succeeded" | "failed";
-  stage: "apply-result-detached" | "apply-result-detach-error";
-  level: "info" | "warn";
-  error?: unknown;
-}) {
-  const errorMessage = normalizeString(
-    args.error instanceof Error ? args.error.message : args.error,
-  );
-  upsertAcpSkillRun({
-    requestId: args.requestId,
-    activePrompt: false,
-    conversationState: "closed",
-    conversationRecoveryState: applyResultTerminalRecoveryState(
-      args.requestId,
-      args.state,
-    ),
-    connectionActionState: "idle",
-    event: {
-      stage: args.stage,
-      message:
-        args.stage === "apply-result-detach-error"
-          ? "ACP skill run controller detach after workflow apply did not complete cleanly."
-          : "ACP skill run controller detached after workflow apply settled.",
-      level: args.level,
-      details: errorMessage ? { error: errorMessage } : undefined,
-    },
-  });
-}
-
-async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
-  requestId: string;
-  state: "succeeded" | "failed";
-}) {
-  const requestId = normalizeString(args.requestId);
-  if (!requestId || !getAcpSkillRunRecord(requestId)) {
-    return;
-  }
-  const controller = controllers.get(requestId);
-  upsertAcpSkillRun({
-    requestId,
-    event: {
-      stage: "apply-result-detach-started",
-      message: "ACP skill run controller detach after workflow apply started.",
-      level: "info",
-      details: { controllerPresent: Boolean(controller) },
-    },
-  });
-  registerAcpSkillRunController(requestId, null);
-  if (!controller?.disconnect) {
-    finalizeAcpSkillRunApplyResultControllerDetach({
-      requestId,
-      state: args.state,
-      stage: "apply-result-detached",
-      level: "info",
-    });
-    return;
-  }
-  try {
-    await controller.disconnect();
-    finalizeAcpSkillRunApplyResultControllerDetach({
-      requestId,
-      state: args.state,
-      stage: "apply-result-detached",
-      level: "info",
-    });
-  } catch (error) {
-    finalizeAcpSkillRunApplyResultControllerDetach({
-      requestId,
-      state: args.state,
-      stage: "apply-result-detach-error",
-      level: "warn",
-      error,
-    });
-  }
-}
-
-export async function detachAcpSkillRunControllerAfterApplyResult(args: {
-  requestId: string;
-  state: "succeeded" | "failed";
-}) {
-  const requestId = normalizeString(args.requestId);
-  if (!requestId) {
-    return;
-  }
-  const existing = applyResultControllerDetachPromises.get(requestId);
-  if (existing) {
-    await existing;
-    return;
-  }
-  const task = performAcpSkillRunControllerDetachAfterApplyResult({
-    requestId,
-    state: args.state,
-  });
-  applyResultControllerDetachPromises.set(requestId, task);
-  try {
-    await task;
-  } finally {
-    if (applyResultControllerDetachPromises.get(requestId) === task) {
-      applyResultControllerDetachPromises.delete(requestId);
-    }
-  }
-}
-
-export function markAcpSkillRunApplyResult(args: {
-  requestId?: string;
-  state: "pending" | "succeeded" | "failed";
-  error?: string;
-}) {
-  const requestId = normalizeString(args.requestId);
-  if (!requestId) {
-    return;
-  }
-  const existing = getAcpSkillRunRecord(requestId);
-  if (!existing) {
-    return;
-  }
-  const backendStatus =
-    existing.backendStatus ||
-    (isTerminalAcpSkillRunStatus(existing.status)
-      ? existing.status
-      : "succeeded");
-  const terminal = isTerminalAcpSkillRunStatus(existing.status);
-  const nextStatus =
-    args.state === "failed"
-      ? "failed"
-      : terminal
-        ? undefined
-        : args.state === "succeeded"
-          ? "succeeded"
-          : undefined;
-  upsertAcpSkillRun({
-    requestId,
-    status: nextStatus,
-    statusReason:
-      nextStatus === "failed"
-        ? "apply_failed"
-        : nextStatus === "succeeded"
-          ? "apply_succeeded"
-          : undefined,
-    backendStatus,
-    applyResultState: args.state,
-    appliedAt: args.state === "succeeded" ? nowIso() : undefined,
-    error: args.state === "failed" ? normalizeString(args.error) : undefined,
-    event: {
-      stage:
-        args.state === "succeeded"
-          ? "apply-succeeded"
-          : args.state === "failed"
-            ? "apply-failed"
-            : "apply-pending",
-      message:
-        args.state === "succeeded"
-          ? "Workflow applyResult succeeded."
-          : args.state === "failed"
-            ? `Workflow applyResult failed: ${normalizeString(args.error) || "unknown error"}`
-            : "Workflow applyResult pending.",
-      level: args.state === "failed" ? "error" : "info",
-    },
-  });
-}
-
-function applyAcpSkillRunSelection(requestIdRaw: string) {
-  selectedRequestId = normalizeString(requestIdRaw);
-  pruneInactiveAcpSkillRunTranscriptMirrors();
-  emitWorkspaceChanged(
-    selectedRequestId
-      ? acpSkillRunWorkspaceChange(selectedRequestId, ["selection"])
-      : createAcpSkillRunWorkspaceChange({ kinds: ["selection"] }),
-  );
-}
-
-export async function selectAcpSkillRun(requestIdRaw: string) {
-  ensureAcpSkillRunStoreHydrated();
-  applyAcpSkillRunSelection(requestIdRaw);
-}
-
-export function ensureAcpSkillRunWorkspaceSelection() {
-  ensureAcpSkillRunStoreHydrated();
-  const current = normalizeString(selectedRequestId);
-  if (current) {
-    const record = runRecords.get(current);
-    if (record && !record.removedAt && !record.archivedAt) {
-      return current;
-    }
-  }
-  const implicit = listAcpSkillRunSummaries({
-    includeArchived: false,
-    limit: 1,
-  })[0]?.requestId;
-  if (implicit && implicit !== current) {
-    applyAcpSkillRunSelection(implicit);
-  }
-  return implicit || "";
-}
-
-export function getSelectedAcpSkillRunRequestId() {
-  ensureAcpSkillRunStoreHydrated();
-  return selectedRequestId;
-}
-
-export function prepareSyntheticAcpSkillRunReplay(args: {
-  requestId: string;
-  workflowId?: string;
-  workflowRunId?: string;
-  jobId?: string;
-  stageId?: string;
-}) {
-  return upsertAcpSkillRun({
-    requestId: args.requestId,
-    status: "running",
-    statusReason: "start",
-    backendId: "acp-replay",
-    backendType: "acp",
-    workflowId: args.workflowId,
-    runId: args.workflowRunId,
-    jobId: args.jobId,
-    sequenceStepId: args.stageId,
-    taskName: "ACP replay",
-    skillId: "acp-replay",
-    conversationState: "active",
-    activePrompt: true,
-  });
-}
-
-export function applySyntheticAcpSkillRunReplayPermission(args: {
-  requestId: string;
-  request: AcpPendingPermissionRequest | null;
-}) {
-  return upsertAcpSkillRun({
-    requestId: args.requestId,
-    ...(args.request
-      ? {
-          status: "waiting_user" as const,
-          statusReason: "waiting_user" as const,
-        }
-      : {}),
-    pendingPermission: args.request,
-    conversationState: "active",
-  });
-}
-
-export async function cleanupSyntheticAcpSkillRunReplay(requestIds: string[]) {
+export async function deleteAcpSkillRunRecords(requestIds: string[]) {
   await flushAcpSkillRunRuntimeFileWrites();
   for (const requestId of requestIds) {
     deletePluginRunStoreEntry("acp", requestId);
     deleteAcpSkillRunRecord(requestId);
-    if (selectedRequestId === requestId) selectedRequestId = "";
+    if (getAcpSkillRunSelectedRequestId() === requestId) {
+      setAcpSkillRunSelectedRequestId("");
+    }
   }
   if (requestIds.length > 0) {
     emitWorkspaceChanged(
@@ -3623,68 +2060,6 @@ registerAcpSkillRunAutoApprovalResolver((requestId) => {
   );
 });
 
-export async function shutdownAcpSkillRunConversations() {
-  const setupEntries = Array.from(setupControllers.entries());
-  await Promise.allSettled(
-    setupEntries.map(async ([requestId, controller]) => {
-      await controller.cancel().catch(() => undefined);
-      unregisterAcpSkillRunSetupController(requestId, controller);
-    }),
-  );
-  const entries = Array.from(controllers.entries());
-  await Promise.allSettled(
-    entries.map(async ([requestId, controller]) => {
-      let timedOut = false;
-      let disconnectError: unknown = null;
-      try {
-        if (controller.disconnect) {
-          const result = await waitForAcpSkillRunShutdownTask(
-            controller.disconnect(),
-          );
-          timedOut = result.timedOut;
-          disconnectError = "error" in result ? result.error : null;
-        }
-      } catch (error) {
-        disconnectError = error;
-      }
-      registerAcpSkillRunController(requestId, null);
-      upsertAcpSkillRun({
-        requestId,
-        activePrompt: false,
-        conversationState: "closed",
-        conversationRecoveryState: "available",
-        connectionActionState: "idle",
-        event: {
-          stage: timedOut
-            ? "conversation-detach-timeout"
-            : disconnectError
-              ? "conversation-detach-error"
-              : "conversation-detached",
-          message:
-            timedOut || disconnectError
-              ? "ACP skill run local controller detach did not complete cleanly during shutdown; remote session remains recoverable."
-              : "ACP skill run local controller detached during shutdown; remote session remains recoverable.",
-          level: timedOut || disconnectError ? "warn" : "info",
-          details:
-            timedOut || disconnectError
-              ? {
-                  timeoutMs: timedOut
-                    ? ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS
-                    : undefined,
-                  error: disconnectError
-                    ? String(
-                        (disconnectError as Error)?.message || disconnectError,
-                      )
-                    : undefined,
-                }
-              : undefined,
-        },
-      });
-    }),
-  );
-  await flushAcpSkillRunRuntimeFileWritesDuringShutdown();
-}
-
 export function resetAcpSkillRunsForTests() {
   resetAcpSkillRunWorkspaceDataPlaneForTests();
   clearAcpSkillRunRecords();
@@ -3699,7 +2074,7 @@ export function resetAcpSkillRunsForTests() {
     queue.cancelAll();
   }
   permissionQueuesByRunRequestId.clear();
-  selectedRequestId = "";
+  setAcpSkillRunSelectedRequestId("");
   resetAcpSkillRunSummaryDiagnosticsForTests();
   clearPluginRunStore("acp");
 }
@@ -3707,7 +2082,7 @@ export function resetAcpSkillRunsForTests() {
 registerAcpSkillRunsMemoryClearer(() => {
   clearAcpSkillRunRecords();
   runtimeCatalogByRequestId.clear();
-  selectedRequestId = "";
+  setAcpSkillRunSelectedRequestId("");
   invalidateAcpSkillRunPersistenceHydration();
   clearPluginRunStore("acp");
   emitWorkspaceChanged();

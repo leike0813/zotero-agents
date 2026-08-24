@@ -23,9 +23,9 @@
     "paperTitle": { "type": "string", "title": "Paper Title", "description": "Working manuscript title used to find research materials." },
     "articleType": { "type": "string", "title": "Article Type", "description": "Manuscript type. v1 is optimized for original research.", "default": "original research" },
     "researchContent": { "type": "string", "title": "Research Content", "description": "Research problem, methods, scope, and intended contribution." },
-    "maxTopics": { "type": "number", "title": "Maximum Topics", "default": 5 },
-    "maxCorePapers": { "type": "number", "title": "Maximum Core Papers", "default": 20 },
-    "maxRelatedPapers": { "type": "number", "title": "Maximum Related Papers", "default": 80 }
+    "maxTopics": { "type": "number", "title": "Maximum Topics", "default": 5, "min": 0, "max": 10, "integer": true },
+    "maxCorePapers": { "type": "number", "title": "Maximum Core Papers", "default": 20, "min": 1, "max": 50, "integer": true },
+    "maxRelatedPapers": { "type": "number", "title": "Maximum Related Papers", "default": 80, "min": 1, "max": 200, "integer": true }
   },
   "validateSelection": {
     "select": {

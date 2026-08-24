@@ -6,6 +6,7 @@ import {
   type ZoteroHostCapabilityBrokerApis,
 } from "./hostBridgeCapabilityRegistry";
 import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
+import type { DirectResearchBundleApplication } from "./researchBundleService";
 import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
 import { HostBridgeCursorError } from "./hostBridgePagination";
 import {
@@ -64,6 +65,8 @@ export const ZOTERO_MCP_TOOL_TOPICS_LIST = "topics.list";
 export const ZOTERO_MCP_TOOL_TOPICS_FIND_BY_PAPER_REF =
   "topics.find_by_paper_ref";
 export const ZOTERO_MCP_TOOL_TOPICS_GET_CONTEXT = "topics.get_context";
+export const ZOTERO_MCP_TOOL_TOPICS_EXPORT_RESEARCH_BUNDLE =
+  "topics.export_research_bundle";
 export const ZOTERO_MCP_TOOL_TOPICS_GET_REVIEW_INPUT =
   "topics.get_review_input";
 export const ZOTERO_MCP_TOOL_SCHEMAS_GET = "schemas.get";
@@ -88,6 +91,8 @@ export const ZOTERO_MCP_TOOL_CITATION_GRAPH_RANK_LIBRARY_PAPERS =
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_GET_MANIFEST =
   "paper_artifacts.get_manifest";
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_READ = "paper_artifacts.read";
+export const ZOTERO_MCP_TOOL_ITEMS_EXPORT_RESEARCH_BUNDLE =
+  "items.export_research_bundle";
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED =
   "paper_artifacts.export_filtered";
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_RESOLVE_TOPIC_DIGEST =
@@ -155,6 +160,9 @@ export type ZoteroMcpHandlerOptions = {
   resolveHostApi?: () => WorkflowHostApi;
   resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+  resolveDirectResearchBundleApplication?: () =>
+    | DirectResearchBundleApplication
+    | Promise<DirectResearchBundleApplication>;
   resolveMcpStatus?: () => Record<string, unknown>;
   resolveHostBridgeStatus?: () => HostBridgeStatusSnapshot;
   requestToolPermission?: (
@@ -1123,6 +1131,8 @@ async function requestCapabilityApprovalForMcp(args: {
             resolveHostBridgeApis: () =>
               resolveHostBridgeApis(args.context.options, args.context.hostApi),
             resolveSynthesisClient: args.context.options.resolveSynthesisClient,
+            resolveDirectResearchBundleApplication:
+              args.context.options.resolveDirectResearchBundleApplication,
           },
         )) as ZoteroHostMutationPreviewResponse)
       : ({
@@ -1224,6 +1234,8 @@ async function callHostBridgeCapabilityAsMcpTool(
       resolveHostBridgeApis: () =>
         resolveHostBridgeApis(context.options, context.hostApi),
       resolveSynthesisClient: context.options.resolveSynthesisClient,
+      resolveDirectResearchBundleApplication:
+        context.options.resolveDirectResearchBundleApplication,
     });
   } catch (error) {
     if (error instanceof HostBridgeCursorError) {

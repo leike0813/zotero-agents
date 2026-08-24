@@ -542,6 +542,14 @@ describe("UI readonly harness", function () {
         "warn",
         "error",
       ]);
+      assert.equal(
+        (runtimeLogs.runtimeLogsView as any).budget.importantEntryCount,
+        0,
+      );
+      assert.equal(
+        (runtimeLogs.runtimeLogsView as any).budget.maxImportantEntries,
+        0,
+      );
       const skillrunnerDashboardRow = (dashboardHome.runningRows as any[]).find(
         (row) => row.backendType === "skillrunner",
       );

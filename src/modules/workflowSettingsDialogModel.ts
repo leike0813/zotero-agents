@@ -60,6 +60,9 @@ export type FormSchemaEntry = {
   defaultValue?: unknown;
   required?: boolean;
   disabled?: boolean;
+  min?: number;
+  max?: number;
+  integer?: boolean;
 };
 
 export type WorkflowSettingsDialogProfileItem = {
@@ -163,6 +166,9 @@ function fromWorkflowParameterSchema(
     allowCustom: schema.type === "string" && schema.allowCustom === true,
     defaultValue: schema.default,
     required: schema.required === true,
+    min: schema.type === "number" ? schema.min : undefined,
+    max: schema.type === "number" ? schema.max : undefined,
+    integer: schema.type === "number" && schema.integer === true,
   }));
 }
 

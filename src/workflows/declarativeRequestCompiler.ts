@@ -1,4 +1,5 @@
 import { getBaseName } from "../utils/path";
+import { buildSkillRunnerUploadRelativePath } from "../providers/skillrunner/uploadMapping";
 import type {
   GenericHttpRequestV1,
   GenericHttpStepsRequestV1,
@@ -253,28 +254,6 @@ function renderTaskNameTemplate(args: {
   );
 }
 
-function normalizeUploadRelativePath(value: string) {
-  return String(value || "")
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^\.\/+/, "")
-    .replace(/\/+/g, "/")
-    .replace(/^\/+/, "");
-}
-
-function sanitizeUploadPathSegment(value: string) {
-  const normalized = String(value || "")
-    .trim()
-    .replace(/[^A-Za-z0-9._-]+/g, "-");
-  return normalized || "file";
-}
-
-function buildUploadRelativePath(fileKey: string, localPath: string) {
-  const fileName = getBaseName(localPath) || "upload.bin";
-  const keySegment = sanitizeUploadPathSegment(fileKey);
-  return normalizeUploadRelativePath(`inputs/${keySegment}/${fileName}`);
-}
-
 function resolveSingleSourceAttachment(
   attachments: AttachmentLike[],
   sourceAttachmentPaths: string[],
@@ -380,7 +359,10 @@ function buildSkillRunnerJobRequest(args: {
       attachments,
       entry.from as "selected.markdown" | "selected.pdf" | "selected.source",
     );
-    inlineInput[entry.key] = buildUploadRelativePath(entry.key, localPath);
+    inlineInput[entry.key] = buildSkillRunnerUploadRelativePath(
+      entry.key,
+      localPath,
+    );
     return {
       key: entry.key,
       path: localPath,

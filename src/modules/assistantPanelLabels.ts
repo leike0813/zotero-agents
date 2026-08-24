@@ -74,6 +74,29 @@ export function buildAssistantPanelLabels() {
       approve: l("assistant-panel-action-approve", "Approve"),
       useMethod: l("assistant-panel-action-use-method", "Use method"),
     },
+    collapse: {
+      collapseToolbar: l(
+        "assistant-panel-action-collapse-toolbar",
+        "Collapse toolbar",
+      ),
+      expandToolbar: l(
+        "assistant-panel-action-expand-toolbar",
+        "Expand toolbar",
+      ),
+      collapseBanner: l(
+        "assistant-panel-action-collapse-banner",
+        "Collapse banner",
+      ),
+      expandBanner: l("assistant-panel-action-expand-banner", "Expand banner"),
+      collapseComposer: l(
+        "assistant-panel-action-collapse-composer",
+        "Collapse composer",
+      ),
+      expandComposer: l(
+        "assistant-panel-action-expand-composer",
+        "Expand composer",
+      ),
+    },
     fields: {
       target: l("assistant-panel-field-target", "Target"),
       agent: l("assistant-panel-field-agent", "Agent"),

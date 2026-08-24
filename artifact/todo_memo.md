@@ -131,7 +131,6 @@
 - [x] ACP Chat 的 turn terminal 消息的markdown渲染不会在消息完整收到后立刻生效，也是得切换窗口才正常
 - [x] ACP Chat 在 prompting 状态不显示模式、模型（推理强度显示“默认”，应该也有问题）。这里应该和ACP Skills对齐，除断开状态外，任何时候都应该显示这些选项的值，然后在prompting状态禁用模型和推理强度的下拉菜单（当然后端也禁用切换）；模式应该可以随时切换
 - [x] **Agent-facing 的界面需要大幅优化**：1. 提交workflow时的provider profile格式需要按具体的backend来查询，因为每个backend的profile格式、允许的选项都不一样；2. provider profile应该有校验接口，并且支持环境变量指定默认的provider profile；3. 存在provider profile不生效的问题（在ACP Skills任务中复现，SkillRunner未知）；4. 所有的CLI接口都应该有自解释性，例如所有的选项的含义、所有的workflow的功能描述，否则agent只能靠猜
-- [ ] 彻底解决ACP后端在windows下运行时powershell在提交json payload或输出json时频繁出现的编码问题（一般出现在中文论文中）（目前仅用提示词来降低问题导致阻塞的概率）
 - [x] Dashboard/popover对于SkillRunner任务的显示有问题（运行中任务只显示一个，waiting状态任务不显示）
 - [x] ACP Skills任务提交后，到agent真正开始执行的这个时间窗口内，任务抽屉会被反复关闭
 - [x] 之前修复的错误推理强度问题，没完全修好，表现为M3按none提交会报错“low不存在”，但按其他强度提交依然会报错
@@ -140,13 +139,18 @@
 - [x] 提交任务所用的选择上下文应该在“点击触发workflow”的那一刻锁定，而不是在提交workflow的确定按钮按下后再动态判定。也就是说，出现在提交workflow窗口中的执行单元必须是最后点击确认提交任务时的最终提交执行单元，而不应该是点击确认提交那一时刻的实时选择上下文。
 - [x] ACP Skills 疑似存在并发数大于1时只有一个任务会真的提交并执行，其他任务看似提交但不会开始执行的bug，需要排查（确认在windows下，最大并发数2，后端Kilo ACP，稳定复现；提交后，第一个任务正常运行，第二个任务处于“看起来提交了，实际上不会进入执行，无法断开，只能取消“的诡异状态）
 - [x] ACP Skills状态机还是有点问题，已完成任务无法继续对话，和最初设计意图不一致。需要进行一次整体升级，合理设计自由对话和任务执行的关系。
-- [ ] **literature-analysis 中加入论文评分，增加配套接口、自定义列，并将评分用于其他 workflow**
+- [x] **literature-analysis 中加入论文评分，增加配套接口、自定义列，并将评分用于其他 workflow**
 - [x] literature-analysis 中的引用文献抽取步骤，考虑加入公共API查询以减轻Agent负担，加快执行效率，优化抽取质量
-- [ ] literature-search-ingest 吸纳 instSCI 项目
 - [x] 通过 zotero-bridge CLI 调用 workflow 时，需要避免 Agent 不先向用户确定 providerProfile 就直接发起调用的问题（也有可能是直接按查询到的 providerProfile 形状随便填一个值就提交了）。总之，providerProfile 的合法性校验、用户确定门禁、不传值时的默认行为，该如何在披露给 Agent 的同时确保 Agent 能和用户充分沟通，需要仔细考虑。此外，现在的 providerProfile 的披露和校验本身有 BUG (见K3论文工作区内的反馈工件 `/home/joshua/Workspace/Paper/ShiRuiXue/JiaoYu-AI/feedback-zotero-bridge-acp-qwen37.md`)
 - [x] 为 zotero-librarian-profile 增加“按连接 profile 隔离工作区”的功能。简单来说，现在的 zotero-librarian-profile 如果在使用中切换连接 profile 会导致数据串台，应该给每个连接 profile 划定一个刚性的、对 Agent 接近透明的隔离工作区（well-known profile 也算一个 profile，而且是默认 profile）。
 - [x] export-research-bundle 导出包中应该增加一个便于Agent检索的index文件。此外，现在的导出有BUG或者说设计缺陷，按理来说被选中的Topics中关联的所有文献都应该被选中作为Papers（并去重），但实际似乎没有做这一步。
 - [x] export-literature-bundle 改为默认导出与 export-research-bundle 相同格式的、可被其他 Agent 消费的bundle（纯原文模式仍保留）；增加导出模式选项，默认`Selection`，支持`Collection`和`Library`。
+- [x] 分析并修复 export-research-bundle 经常因为搜不到论文而取消的问题（Agent回复类似：Evidence preparation found no paper candidates despite six successful searches, so Stage 50 was skipped. I’m running deterministic enrichment and selection. 或者：The stage 40 result shows assessment_batches 0 and candidate_count 0. Hmm, that's concerning. The searches succeeded but no candidates? ）（最终返回：kind: research_bundle_canceled, status: canceled, reason: no_related_literature, message: No related Zotero literature met the relevance threshold.）
+- [x] export-research-bundle 的 topic/core/paper数量上限应该提高，并且在参数label中给出提示，输入框也应该先校验，避免提交后才报错
+- [x] Assistant workspace 进行矮屏的布局适配（在界面总高度较低时，压缩工具栏/banner/composer区域，保证transcript窗口不会被压得过矮
+- [ ] literature-search-ingest 吸纳 instSCI 项目
+- [ ] 彻底解决ACP后端在windows下运行时powershell在提交json payload或输出json时频繁出现的编码问题（一般出现在中文论文中）（目前仅用提示词来降低问题导致阻塞的概率）
+- [ ] 对 workflow 的成功条件进一步细分，那些包含取消路径的 workflow 当返回取消路径结果时，不应该弹出“成功”语义的 toast。
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**

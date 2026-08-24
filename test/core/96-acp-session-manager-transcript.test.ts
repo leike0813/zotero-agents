@@ -516,19 +516,20 @@ describe("acp session manager", function () {
     );
   });
 
-  it("keeps informative tool summaries from explicit summary or call details", async function () {
+  it("projects ACP tool display fields without deriving compatibility summary", async function () {
     await connectAcpConversation();
 
     await harness.lastAdapter?.emitSessionUpdate({
       sessionId: "session-1",
       update: {
         sessionUpdate: "tool_call",
-        toolCallId: "tool-summary",
-        title: "Tool Call",
-        kind: "other",
+        toolCallId: "tool-normalized",
+        name: "read_file",
+        title: "Reading configuration",
+        kind: "read",
         status: "pending",
-        input: {
-          path: "artifact/todo_memo.md",
+        rawInput: {
+          path: "config.json",
           limit: 20,
         },
       },
@@ -537,99 +538,14 @@ describe("acp session manager", function () {
       sessionId: "session-1",
       update: {
         sessionUpdate: "tool_call_update",
-        toolCallId: "tool-summary",
-        title: "Tool Call",
-        kind: "other",
-        status: "completed",
-      },
-    });
-
-    const toolItem = (await readActiveTranscriptItems()).find(
-      (entry) =>
-        entry.kind === "tool_call" && entry.toolCallId === "tool-summary",
-    );
-    assert.equal(toolItem?.toolName, "Tool");
-    assert.include(
-      String(toolItem?.inputSummary || ""),
-      "artifact/todo_memo.md",
-    );
-    assert.include(String(toolItem?.summary || ""), "artifact/todo_memo.md");
-    assert.notEqual(toolItem?.summary, "Tool Call");
-  });
-
-  it("keeps the first tool call summary when later updates arrive", async function () {
-    await connectAcpConversation();
-
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "tool-first-summary",
-        title: "Tool Call",
-        kind: "read",
-        status: "pending",
-        input: {
-          path: "first-call.md",
-        },
-      },
-    });
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tool-first-summary",
-        title: "Tool Call",
-        kind: "read",
-        status: "completed",
-        summary: "Later result text should not replace call args",
-      },
-    });
-
-    const toolItem = (await readActiveTranscriptItems()).find(
-      (entry) =>
-        entry.kind === "tool_call" && entry.toolCallId === "tool-first-summary",
-    );
-    assert.include(String(toolItem?.inputSummary || ""), "first-call.md");
-    assert.include(String(toolItem?.resultSummary || ""), "Later result");
-    assert.include(String(toolItem?.summary || ""), "first-call.md");
-    assert.notInclude(String(toolItem?.summary || ""), "Later result");
-  });
-
-  it("normalizes common ACP tool fields into tool name and frozen input summary", async function () {
-    await connectAcpConversation();
-
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call",
         toolCallId: "tool-normalized",
-        title: "Tool Call",
-        kind: "other",
-        status: "pending",
-        summary: "[]",
-      },
-    });
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tool-normalized",
-        title: "Tool Call",
-        status: "in_progress",
-        function_name: "read_file",
-        arguments: {
-          path: "artifact/todo_memo.md",
-        },
-      },
-    });
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tool-normalized",
-        title: "Tool Call",
         status: "completed",
-        output: "read file completed",
+        content: [
+          {
+            type: "content",
+            content: { type: "text", text: "Finished" },
+          },
+        ],
       },
     });
 
@@ -638,13 +554,12 @@ describe("acp session manager", function () {
         entry.kind === "tool_call" && entry.toolCallId === "tool-normalized",
     );
     assert.equal(toolItem?.toolName, "read_file");
-    assert.include(
-      String(toolItem?.inputSummary || ""),
-      "artifact/todo_memo.md",
-    );
-    assert.equal(toolItem?.resultSummary, "read file completed");
-    assert.notEqual(toolItem?.inputSummary, "[]");
-    assert.notInclude(String(toolItem?.summary || ""), "read file completed");
+    assert.equal(toolItem?.title, "Reading configuration");
+    assert.equal(toolItem?.toolKind, "read");
+    assert.equal(toolItem?.inputSummary, '{"path":"config.json","limit":20}');
+    assert.equal(toolItem?.resultSummary, "Finished");
+    assert.equal(toolItem?.summary, undefined);
+    assert.equal(toolItem?.state, "completed");
   });
 
   it("starts a new assistant message when a tool region appears between chunks", async function () {

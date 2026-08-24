@@ -5,6 +5,8 @@ export const SYNTHESIS_CONCEPT_REVIEW_ACTIONS = [
   "approve_create",
   "merge_into_existing",
   "reject",
+  "keep_alias",
+  "remove_alias",
 ] as const;
 
 export type SynthesisConceptReviewAction =
@@ -30,6 +32,12 @@ export type SynthesisConceptReviewActionRequest = {
 
 export type SynthesisConceptDeleteRequest = {
   conceptIds: string[];
+};
+
+export type SynthesisConceptAliasAuditResult = {
+  audited_alias_count: number;
+  created_review_count: number;
+  review_items: unknown[];
 };
 
 export type SynthesisConceptDiagnostic = {
@@ -108,6 +116,7 @@ export interface SynthesisConceptsClient {
     request?: SynthesisConceptQueryRequest,
   ): Promise<SynthesisConceptQueryResult>;
   rebuildConceptKbIndex(): Promise<SynthesisPublicMaintenanceOperation>;
+  auditConceptAliases(): Promise<SynthesisConceptAliasAuditResult>;
   updateConceptDisplayText(
     request: SynthesisConceptDisplayTextUpdateRequest,
   ): Promise<SynthesisConceptCommandResult>;

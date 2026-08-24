@@ -177,20 +177,6 @@ Recoverable ACP replies, reconnect-driven continuation, and recovered result app
 - **THEN** the unsent input SHALL be discarded
 - **AND** later slot activity SHALL not send it
 
-### Requirement: ACP Skills SHALL bind recoverable runs to the plugin Skill bundle identity
-
-ACP Skills SHALL persist the validated Host Bridge plugin Skill bundle identity with each run that may use the reserved Skills. Before reconnecting, replying to, or otherwise resuming that run, it SHALL compare the persisted identity with the current identity and SHALL not silently reconstruct the run with different Skill bytes.
-
-#### Scenario: Recovery identity matches
-
-- **WHEN** a recoverable run's persisted bundle identity equals the current validated bundle identity
-- **THEN** normal recovery eligibility and reconstruction continue
-
-#### Scenario: Recovery identity differs
-
-- **WHEN** a recoverable run's persisted bundle identity differs from the current validated bundle identity
-- **THEN** recovery fails with `host_bridge_plugin_skill_bundle_identity_changed` and requires a new run
-
 ### Requirement: Terminal recovery resumes only the original session
 
 ACP Skills SHALL require explicit Connect for eligible terminal conversation
@@ -256,3 +242,19 @@ Possessing a session id alone SHALL NOT make a failed task retriable.
   terminal evidence
 - **WHEN** persistence migration loads the record
 - **THEN** it SHALL retain the existing failed-to-failed_retriable migration.
+
+### Requirement: ACP Skills recovery SHALL use the startup readiness gate
+
+Recovery SHALL use the same cancellation signal and phase limits as initial setup while launching transport, initializing ACP, loading or resuming the session, and reapplying persisted runtime selection. Recovery SHALL publish `connected` only after the recovered session is usable.
+
+#### Scenario: Recovery is canceled during session attach
+
+- **WHEN** task cancellation occurs while a recovery session load or resume request is pending
+- **THEN** the run SHALL become `canceled`
+- **AND** the pending recovery SHALL not publish connected or send the continuation prompt if it later settles.
+
+#### Scenario: Recovered configuration times out
+
+- **WHEN** persisted mode, model, or configuration cannot be applied within its 60-second startup phase
+- **THEN** recovery SHALL fail with phase-specific diagnostics
+- **AND** no live controller SHALL remain registered from the failed attempt.

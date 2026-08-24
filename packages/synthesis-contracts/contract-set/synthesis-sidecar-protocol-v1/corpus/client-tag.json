@@ -5,25 +5,91 @@
       "id": "tag-save-request-nested-positive",
       "schemaRef": "schemas/client-tag.schema.json#/$defs/SaveTagVocabularyRequest",
       "valid": true,
-      "value": { "args": [{ "entries": [{ "tag": "field:ai", "facet": "field", "aliases": ["AI"], "abbrev": ["AI"] }], "aliases": { "artificial-intelligence": "field:ai" }, "abbrev": { "AI": "field:ai" }, "protocol": { "version": "1.0.0", "tag_pattern": "^[a-z_]+:[a-zA-Z0-9/_.-]+$", "max_tag_length": 120, "facets": ["field"] } }] }
+      "value": {
+        "args": [
+          {
+            "entries": [
+              {
+                "tag": "field:ai",
+                "facet": "field",
+                "aliases": ["AI"],
+                "abbrev": ["AI"]
+              }
+            ],
+            "aliases": { "artificial-intelligence": "field:ai" },
+            "abbrev": { "AI": "field:ai" },
+            "protocol": {
+              "version": "1.0.0",
+              "tag_pattern": "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+              "max_tag_length": 120,
+              "facets": ["field"]
+            }
+          }
+        ]
+      }
     },
     {
       "id": "tag-import-preview-result-nested-positive",
       "schemaRef": "schemas/client-tag.schema.json#/$defs/PreviewTagVocabularyImportResult",
       "valid": true,
-      "value": { "action": "preview", "builtins": [], "additions": [{ "tag": "field:ai", "facet": "field" }], "unchanged": [], "conflicts": [], "warnings": [{ "code": "tag_review", "severity": "warning", "tag": "field:ai", "message": "Review tag" }], "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      "value": {
+        "action": "preview",
+        "builtins": [],
+        "additions": [{ "tag": "field:ai", "facet": "field" }],
+        "unchanged": [],
+        "conflicts": [],
+        "warnings": [
+          {
+            "code": "tag_review",
+            "severity": "warning",
+            "tag": "field:ai",
+            "message": "Review tag"
+          }
+        ],
+        "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
     },
     {
       "id": "tag-save-request-legacy-entry-negative",
       "schemaRef": "schemas/client-tag.schema.json#/$defs/SaveTagVocabularyRequest",
       "valid": false,
-      "value": { "args": [{ "entries": [{ "tag": "field:ai", "facet": "field", "legacy": true }], "aliases": {}, "abbrev": {}, "protocol": { "version": "1.0.0", "tag_pattern": ".*", "max_tag_length": 120, "facets": ["field"] } }] }
+      "value": {
+        "args": [
+          {
+            "entries": [
+              { "tag": "field:ai", "facet": "field", "legacy": true }
+            ],
+            "aliases": {},
+            "abbrev": {},
+            "protocol": {
+              "version": "1.0.0",
+              "tag_pattern": ".*",
+              "max_tag_length": 120,
+              "facets": ["field"]
+            }
+          }
+        ]
+      }
     },
     {
       "id": "tag-import-conflict-open-entry-negative",
       "schemaRef": "schemas/client-tag.schema.json#/$defs/PreviewTagVocabularyImportResult",
       "valid": false,
-      "value": { "action": "preview", "builtins": [], "additions": [], "unchanged": [], "conflicts": [{ "tag": "field:ai", "local": { "tag": "field:ai", "facet": "field", "extra": {} }, "imported": { "tag": "field:ai", "facet": "field" } }], "warnings": [], "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      "value": {
+        "action": "preview",
+        "builtins": [],
+        "additions": [],
+        "unchanged": [],
+        "conflicts": [
+          {
+            "tag": "field:ai",
+            "local": { "tag": "field:ai", "facet": "field", "extra": {} },
+            "imported": { "tag": "field:ai", "facet": "field" }
+          }
+        ],
+        "warnings": [],
+        "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
     }
   ]
 }

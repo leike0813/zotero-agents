@@ -111,6 +111,10 @@ A complete literature-to-synthesis request may contain these independently evide
 5. Topic synthesis: choose creation for a new seed or update for an identified topic, then verify the topic ID and requested report rather than run termination alone.
 6. Research-bundle export: verify the intended Product, download its selected asset, and retain file metadata or digest.
 
+Direct bundle delivery is a separate alternative to stage 6, not a shortened execution of the Product workflow. Use paper delivery when the requested possession is the selected Zotero papers with portable metadata, preferred Markdown source or PDF fallback, and whatever digest/references/citation-analysis/literature-score artifacts already exist. Use Topic delivery when the requested possession is one or more current Topic reports plus a globally deduplicated digest set routed by canonical `libraryId:itemKey`. Stable selectors may enter this branch directly; ambiguous titles, phrases such as “these papers”, or uncertain Topic identity require a bounded Query handoff first.
+
+Do not schedule acquisition, analysis, sidecar refresh, graph update, Topic regeneration, or curation merely because a direct bundle reports missing content. Those are distinct user outcomes and authority boundaries. A selector that does not resolve invalidates the request; an unavailable optional source or artifact is recorded in the delivered manifest and visible summary. Local delivery completes only after the destination inventory is inspected. Remote delivery completes only after the bridge handle is downloaded and the returned size/checksum evidence is verified. An expired handle is reacquired by repeating the read-only export against the same verified selectors; never guess the Host path.
+
 Each approval belongs to its stage. Sidecar completion is not graph completion; graph completion is not topic completion; topic completion is not export evidence. Resume at the first stage whose stable completion evidence is missing, without replaying earlier mutating stages.
 
 ## Recovery and near misses
@@ -139,6 +143,7 @@ Ask what the user wants to possess at the end:
 | New or updated Zotero sources | Acquisition with a write stage |
 | A digest, extraction, translation, or comparison | Analysis |
 | A cross-source claim map, gap analysis, topic, graph interpretation, or export | Synthesis |
+| A portable copy of named Zotero papers or current Topic reports | Synthesis direct delivery after Query resolves any ambiguous identity |
 | Changed metadata, tags, notes, collections, files, links, or applied results | Curation |
 | Recurring reports or ongoing supervision | Hosted facet after any finite task |
 

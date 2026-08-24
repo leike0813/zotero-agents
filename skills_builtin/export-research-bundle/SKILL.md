@@ -1,6 +1,6 @@
 ---
 name: export-research-bundle
-description: Produce an research material bundle for researcher to consume. Use when handing off literature investigation results to downstream consumers.
+description: Produce a research material bundle for downstream use. Use when handing off literature investigation results to another consumer.
 ---
 
 # Export Research Bundle
@@ -27,9 +27,9 @@ Required parameters:
 Optional parameters:
 
 - `articleType`: free string; default `original research`.
-- `maxTopics`: integer 0-5; default 5.
-- `maxCorePapers`: integer 1-20; default 20.
-- `maxRelatedPapers`: integer 1-80; default 80. This count limits only non-Topic additional papers; every paper resolved by a selected Topic is retained even when the total exceeds this value.
+- `maxTopics`: integer 0-10; default 5.
+- `maxCorePapers`: integer 1-50; default 20.
+- `maxRelatedPapers`: integer 1-200; default 80. This count limits only non-Topic additional papers; every canonical paper in a selected Topic's current `source_papers` is retained even when the total exceeds this value.
 
 There is no `language` parameter and no Zotero selection input.
 
@@ -102,7 +102,7 @@ CLI stdout from `run_stage` and `submit_stage_payload` is a receipt, not final a
 | `stage_10_intent_query_plan` | payload | Write the research dimensions and precise library-query plan defined below. |
 | `stage_20_discovery_collect` | command | Run the gate command. The runtime pages the current Topic inventory. |
 | `stage_30_topic_assessment` | payload or automatic skip | Read Topic candidates and select only existing relevant Topics. The runtime skips this stage when `maxTopics=0` or no Topic exists. |
-| `stage_40_evidence_prepare` | command or external blocker | Run the gate command. The runtime collects every selected Topic paper, then executes library searches, merges candidates, gathers evidence, and creates assessment packets. |
+| `stage_40_evidence_prepare` | command or external blocker | Run the gate command. The runtime reads selected Topics' current source papers, executes pageable metadata-anchor discovery, merges candidates, records discovery status and Topic-scoped diagnostics, gathers evidence, and creates assessment packets. |
 | `stage_50_paper_assessment` | repeated payload | Assess every paper in the current packet exactly once. Repeat only while the gate returns this stage. |
 | `stage_60_enrich_and_select` | command | Run the gate command. The runtime derives graph/readiness values, scores papers, and assigns related/core roles. |
 | `stage_70_render_result` | command | Run the gate command. The runtime validates and renders the selection, audit, artifact manifest, and business result. |
@@ -115,9 +115,9 @@ Schema: `assets/schemas/stage-10-intent-query-plan.schema.json`.
 Translate the title, article type, and research content into:
 
 - `research_dimensions`: 1-12 unique non-empty concepts covering the research object, method or mechanism, evaluation setting, or intended contribution.
-- `queries`: 2-8 unique objects. Each object contains only a non-empty `query` and a non-empty `focus`; `query` may not exceed 500 characters.
+- `queries`: 2-8 unique objects. Each object contains a non-empty primary `query`, a non-empty `focus`, and 1-3 unique non-empty `fallback_queries`; every anchor may contain at most 500 characters.
 
-Queries should be precise enough for bounded Zotero substring search. Do not include paper refs, Topic ids, graph conclusions, final paper choices, or role assignments.
+Each primary and fallback is a short metadata anchor intended to occur in a Zotero title, creator, year, publication title, tag, or other indexed metadata. Prefer distinctive concepts, author surnames, method names, or short title fragments. Do not write abstract-like semantic sentences. The runtime normalizes and deduplicates anchors, pages at most two 50-item pages per anchor, executes fallbacks only after a primary returns no canonical candidates, and attempts at most 24 distinct anchors. Do not include paper refs, Topic ids, graph conclusions, final paper choices, or role assignments.
 
 Minimal valid payload:
 
@@ -130,17 +130,19 @@ Minimal valid payload:
   "queries": [
     {
       "query": "citation graph evidence",
-      "focus": "graph-grounded evidence"
+      "focus": "graph-grounded evidence",
+      "fallback_queries": ["citation graph", "graph evidence"]
     },
     {
       "query": "research material selection",
-      "focus": "selection methods"
+      "focus": "selection methods",
+      "fallback_queries": ["material selection", "selection methods"]
     }
   ]
 }
 ```
 
-Duplicate queries, empty focus strings, fewer than two queries, more than eight queries, and invented Zotero identifiers are invalid.
+Duplicate primary queries, missing or duplicate fallback anchors, empty focus strings, fewer than two queries, more than eight queries, and invented Zotero identifiers are invalid.
 
 ## Stage 30: Topic Assessment
 
@@ -269,9 +271,11 @@ Do not guess a download URL, manifest path, archive member, or unpack destinatio
 
 ### Must Be Done By The Runtime
 
-- Lock runner input, locate Host Bridge, execute and page Host reads, and record receipts.
-- Collect each selected Topic's resolved paper set before library search, merge both sources by `paper_ref`, preserve every selected-Topic paper while capping only non-Topic candidates, generate assessment packets, validate exact coverage, and persist SQLite state.
-- Use graph, reference, digest, and readiness data only to enrich candidates already obtained from selected Topics or library search.
+- Lock runner input, locate Host Bridge, normalize metadata anchors, execute and page Host reads, and record receipts.
+- Request each selected Topic's semantic context before library discovery, accept only canonical `paper_ref` values from its current `source_papers`, merge Topic and metadata sources by `paper_ref`, preserve every valid selected-Topic paper while capping only non-Topic candidates, generate assessment packets, validate exact coverage, and persist SQLite state.
+- Record unavailable, missing, malformed, empty, or partially invalid Topic source tables in the Stage 40 discovery summary and receipts, retain any valid rows, and continue bounded metadata discovery.
+- Classify discovery as `ready` when at least one canonical candidate exists, `empty_confirmed` only when every relevant source completed with a valid empty result and no selected Topic source table was incomplete, or `incomplete` when zero candidates coincide with unavailable, malformed, failed, empty-Topic, partially invalid, or unpageable source data. Never advance an incomplete discovery into paper selection or business cancellation.
+- Use graph, reference, digest, and readiness data only to enrich candidates already obtained from selected Topics or metadata-anchor discovery.
 - Determine graph availability, graph importance, Topic coverage, material readiness, score, stable order, and role.
 - Handle diagnostics, remote-delivery state, business cancellation, selection validation, and final rendering.
 
@@ -285,12 +289,12 @@ Do not guess a download URL, manifest path, archive member, or unpack destinatio
 
 ## Selection Policy
 
-- Papers with `semantic_relevance < 0.45` are excluded unless they are associated with a selected Topic's resolved paper set; Topic-associated papers are mandatory.
+- Papers with `semantic_relevance < 0.45` are excluded unless they occur in a selected Topic's current `source_papers`; Topic-associated papers are mandatory.
 - Topic coverage is the fraction of selected Topics matched through persisted Topic source membership or validated `matched_topic_ids`; it is 0 when no Topic is selected.
 - Material readiness is 1.0 for source Markdown, 0.8 for PDF-only, and 0 otherwise.
 - Graph importance is the maximum available normalized foundation, frontier, PageRank, and in-degree signal.
-- With a ready per-paper graph row: `0.60 semantic + 0.20 graph + 0.15 topic + 0.05 readiness`.
-- With missing, stale, or absent per-paper graph state: `0.80 semantic + 0.15 topic + 0.05 readiness`.
+- With a ready per-paper graph row: `0.50 semantic + 0.15 literature quality + 0.15 graph + 0.15 topic + 0.05 readiness`.
+- With missing, stale, or absent per-paper graph state: `0.65 semantic + 0.15 literature quality + 0.15 topic + 0.05 readiness`.
 - Papers are ordered by descending score and then ascending `paper_ref`.
 - Non-Topic additional papers are capped at `maxRelatedPapers`; mandatory Topic papers can make the final list larger. The first `maxCorePapers` entries are core. Core is always a subset and highest-scoring prefix of the final list.
 
@@ -308,13 +312,14 @@ Recovery rules:
 - Continue only the returned `next_action`; do not replay payloads from conversation memory.
 - If submit validation fails, rerun gate, repair only the current payload, and resubmit it.
 - If SQLite or a runtime-owned artifact is corrupt and the gate exposes no legal repair action, stop and report the error. Do not delete or rebuild the DB.
-- Missing Topic inventory, Topic context, reference index, digest, graph state, or source files degrades through diagnostics; never claim that missing evidence was used.
+- Missing Topic inventory, Topic semantic context or source table, reference index, digest, graph state, or source files degrades through diagnostics when another source still establishes usable candidates; never claim that missing evidence was used. Stage 40 exposes Topic source-table diagnostics in its discovery summary and gate/command receipts.
+- If Stage 40 reports incomplete discovery, rerun the gate after resolving the Host data or protocol error. Do not skip Stage 50, synthesize an empty selection, or return `no_related_literature`.
 
 Terminal cancellation reasons are exactly:
 
 - `invalid_input`: required runner input is absent or invalid.
 - `host_unavailable`: required Host Bridge access is unavailable.
-- `no_related_literature`: no assessed paper meets the semantic threshold and no selected Topic resolved a paper.
+- `no_related_literature`: discovery is confirmed empty, or completed paper assessments contain no paper meeting the semantic threshold and no selected Topic contributed a valid current source paper.
 
 Completion is defined only by gate `stage: "completed"`, not by the success of the last command. A completed gate may contain either selection success or business cancellation.
 

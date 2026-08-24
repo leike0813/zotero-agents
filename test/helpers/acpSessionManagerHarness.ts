@@ -10,7 +10,6 @@ import {
 import { createBackendsPrefsDocument } from "../../src/backends/registry";
 import {
   authenticateAcpConversation,
-  activateSyntheticAcpChatReplay,
   archiveAcpConversation,
   buildAcpDiagnosticsBundle,
   cancelAcpConversationPrompt,
@@ -25,7 +24,6 @@ import {
   refreshAcpConversationBackends,
   readAcpConversationTranscriptMirrorPage,
   readAcpConversationTranscriptPage,
-  prepareSyntheticAcpChatReplay,
   pruneAcpChatSessionRuntimesForBackends,
   reconnectAcpConversation,
   renameAcpConversation,
@@ -418,7 +416,6 @@ export {
   ACP_PROMPT_REQUEST_KIND,
   createBackendsPrefsDocument,
   authenticateAcpConversation,
-  activateSyntheticAcpChatReplay,
   archiveAcpConversation,
   buildAcpDiagnosticsBundle,
   cancelAcpConversationPrompt,
@@ -431,7 +428,6 @@ export {
   getAcpFrontendSnapshot,
   refreshAcpConversationBackends,
   readAcpConversationTranscriptPage,
-  prepareSyntheticAcpChatReplay,
   pruneAcpChatSessionRuntimesForBackends,
   reconnectAcpConversation,
   renameAcpConversation,

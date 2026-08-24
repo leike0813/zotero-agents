@@ -16,6 +16,57 @@ import {
   renderResearchBundleReadme,
   resolveResearchBundleReadmeLocale,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundleReadme.mjs";
+
+function metadataOnlyResearchBundles(
+  options: {
+    missing?: boolean;
+    coreSourceMissing?: boolean;
+  } = {},
+) {
+  return {
+    async materializePapers(args: {
+      papers: Array<{ paperRef: string }>;
+      sourcePaperRefs?: string[];
+    }) {
+      if (options.missing) {
+        return {
+          entries: [],
+          papers: [],
+          warnings: args.papers.map((paper) => ({
+            code: "paper_missing",
+            paper_ref: paper.paperRef,
+          })),
+        };
+      }
+      const entries: any[] = [];
+      const papers = args.papers.map((paper) => {
+        const [libraryId, itemKey] = paper.paperRef.split(":");
+        const root = `papers/${libraryId}/${itemKey}`;
+        entries.push({
+          path: `${root}/metadata.json`,
+          contentType: "application/json",
+          text: `${JSON.stringify({ itemType: "journalArticle", key: itemKey })}\n`,
+        });
+        return {
+          paper_ref: paper.paperRef,
+          metadata_path: `${root}/metadata.json`,
+          source: null,
+          artifacts: [],
+        };
+      });
+      return {
+        entries,
+        papers,
+        warnings: options.coreSourceMissing
+          ? (args.sourcePaperRefs || []).map((paperRef) => ({
+              code: "core_source_missing",
+              paper_ref: paperRef,
+            }))
+          : [],
+      };
+    },
+  };
+}
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 import { applyResult as applyResearchBundleResult } from "../../workflows_builtin/literature-workbench-package/export-research-bundle/hooks/applyResult.mjs";
 
@@ -40,6 +91,21 @@ describe("export research bundle workflow", function () {
     assert.equal(workflow?.parameters?.maxTopics?.default, 5);
     assert.equal(workflow?.parameters?.maxCorePapers?.default, 20);
     assert.equal(workflow?.parameters?.maxRelatedPapers?.default, 80);
+    assert.deepInclude(workflow?.parameters?.maxTopics || {}, {
+      min: 0,
+      max: 10,
+      integer: true,
+    });
+    assert.deepInclude(workflow?.parameters?.maxCorePapers || {}, {
+      min: 1,
+      max: 50,
+      integer: true,
+    });
+    assert.deepInclude(workflow?.parameters?.maxRelatedPapers || {}, {
+      min: 1,
+      max: 200,
+      integer: true,
+    });
   });
 
   it("ships a self-contained automatic skill package", async function () {
@@ -64,6 +130,24 @@ describe("export research bundle workflow", function () {
       ),
     );
     assert.notProperty(parameters.properties, "language");
+    assert.deepEqual(parameters.properties.maxTopics, {
+      type: "integer",
+      minimum: 0,
+      maximum: 10,
+      default: 5,
+    });
+    assert.deepEqual(parameters.properties.maxCorePapers, {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      default: 20,
+    });
+    assert.deepEqual(parameters.properties.maxRelatedPapers, {
+      type: "integer",
+      minimum: 1,
+      maximum: 200,
+      default: 80,
+    });
   });
 
   it("validates bounded selection and core subset invariants", function () {
@@ -140,6 +224,45 @@ describe("export research bundle workflow", function () {
           ],
         }),
       /highest-scoring prefix/,
+    );
+  });
+
+  it("accepts the documented maximum selection limits", function () {
+    const selection = normalizeResearchSelection({
+      schema_id: "research_bundle.selection",
+      schema_version: "2.0.0",
+      intent: {
+        paper_title: "Maximum bounded review",
+        article_type: "original research",
+        research_content: "The documented Research Bundle selection limits",
+      },
+      limits: {
+        max_topics: 10,
+        max_core_papers: 50,
+        max_related_papers: 200,
+      },
+      topics: Array.from({ length: 10 }, (_, index) => ({
+        topic_id: `topic-${String(index + 1).padStart(2, "0")}`,
+        relevance: 0.9,
+      })),
+      papers: Array.from({ length: 200 }, (_, index) => ({
+        paper_ref: `1:P${String(index + 1).padStart(4, "0")}`,
+        semantic_relevance: 0.9,
+        role: index < 50 ? "core" : "related",
+      })),
+      diagnostics: [],
+    });
+
+    assert.deepEqual(selection.limits, {
+      max_topics: 10,
+      max_core_papers: 50,
+      max_related_papers: 200,
+    });
+    assert.lengthOf(selection.topics, 10);
+    assert.lengthOf(selection.papers, 200);
+    assert.lengthOf(
+      selection.papers.filter((paper) => paper.role === "core"),
+      50,
     );
   });
 
@@ -380,6 +503,96 @@ describe("export research bundle workflow", function () {
               };
             },
           },
+          researchBundles: {
+            async materializePapers() {
+              const paperOne = "papers/1/AAAA1111";
+              const paperTwo = "papers/1/BBBB2222";
+              const paperThree = "papers/1/CCCC3333";
+              return {
+                entries: [
+                  {
+                    path: `${paperOne}/metadata.json`,
+                    contentType: "application/json",
+                    text: '{"itemType":"journalArticle","key":"AAAA1111"}\n',
+                  },
+                  {
+                    path: `${paperOne}/source.md`,
+                    contentType: "text/markdown",
+                    text: await fs.readFile(markdownPath, "utf8"),
+                  },
+                  {
+                    path: `${paperOne}/figures/a b.png`,
+                    contentType: "image/png",
+                    sourcePath: nestedImagePath,
+                  },
+                  {
+                    path: `${paperOne}/figure.png`,
+                    contentType: "image/png",
+                    sourcePath: imagePath,
+                  },
+                  {
+                    path: `${paperTwo}/metadata.json`,
+                    contentType: "application/json",
+                    text: '{"itemType":"journalArticle","key":"BBBB2222"}\n',
+                  },
+                  {
+                    path: `${paperTwo}/source.pdf`,
+                    contentType: "application/pdf",
+                    sourcePath: pdfPath,
+                  },
+                  {
+                    path: `${paperThree}/metadata.json`,
+                    contentType: "application/json",
+                    text: '{"itemType":"journalArticle","key":"CCCC3333"}\n',
+                  },
+                ],
+                papers: [
+                  {
+                    paper_ref: "1:AAAA1111",
+                    metadata_path: `${paperOne}/metadata.json`,
+                    source: {
+                      kind: "markdown",
+                      path: `${paperOne}/source.md`,
+                      assets: [
+                        `${paperOne}/figures/a b.png`,
+                        `${paperOne}/figure.png`,
+                      ],
+                    },
+                    artifacts: [],
+                  },
+                  {
+                    paper_ref: "1:BBBB2222",
+                    metadata_path: `${paperTwo}/metadata.json`,
+                    source: {
+                      kind: "pdf",
+                      path: `${paperTwo}/source.pdf`,
+                      assets: [],
+                    },
+                    artifacts: [],
+                  },
+                  {
+                    paper_ref: "1:CCCC3333",
+                    metadata_path: `${paperThree}/metadata.json`,
+                    source: null,
+                    artifacts: [],
+                  },
+                ],
+                warnings: [
+                  {
+                    code: "markdown_image_outside_source_tree",
+                    path: outsideImagePath,
+                    paper_ref: "1:AAAA1111",
+                  },
+                  {
+                    code: "markdown_image_missing",
+                    path: path.join(root, "missing.png"),
+                    reason: "probe_failed",
+                    paper_ref: "1:AAAA1111",
+                  },
+                ],
+              };
+            },
+          },
           synthesis: {
             async getTopicReport() {
               return { markdown: "# Topic report" };
@@ -564,6 +777,7 @@ describe("export research bundle workflow", function () {
               }),
               exportText: async () => exportResult,
             },
+            researchBundles: metadataOnlyResearchBundles(),
             archive: createWorkflowArchiveApi(),
           },
         },
@@ -672,6 +886,7 @@ describe("export research bundle workflow", function () {
               throw new Error("must not be called");
             },
           },
+          researchBundles: metadataOnlyResearchBundles({ missing: true }),
           archive: createWorkflowArchiveApi(),
         },
       },
@@ -756,6 +971,9 @@ describe("export research bundle workflow", function () {
               };
             },
           },
+          researchBundles: metadataOnlyResearchBundles({
+            coreSourceMissing: true,
+          }),
           library: { getItemAttachments: async () => [] },
           file: {
             exists: async () => false,

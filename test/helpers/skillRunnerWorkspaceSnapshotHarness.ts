@@ -18,11 +18,8 @@ import {
 import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
 import { AssistantWorkspacePublicationRuntime } from "../../src/modules/assistantWorkspacePublicationRuntime";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
+  applySkillRunnerRunEvent,
   resetSkillRunnerRunStoreForTests,
-  updateSkillRunnerRunMessageCounts,
-  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import { resetTaskDashboardHistory } from "../../src/modules/taskDashboardHistory";
@@ -454,20 +451,24 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       const updatedAt =
         String(seed.updatedAt || "").trim() ||
         `2026-07-18T00:00:${String(ordinal).padStart(2, "0")}.000Z`;
-      const run = createSkillRunnerRun({
+      const run = applySkillRunnerRunEvent({
+        type: "submit.local_created",
         backendId,
-        workflowId: seed.workflowId || "literature-digest",
-        workflowRunId: `harness-workflow-run-${ordinal}`,
-        jobId: `harness-job-${ordinal}`,
-        taskName: seed.taskName || `Harness Task ${ordinal}`,
-        skillId: seed.skillId,
-        sequenceRunId: seed.sequenceRunId,
-        sequenceJobId: seed.sequenceJobId,
-        sequenceStepId: seed.sequenceStepId,
-        executionMode: seed.executionMode || "interactive",
-        requestPayload: seed.requestPayload,
-        createdAt: updatedAt,
-        updatedAt,
+        init: {
+          backendId,
+          workflowId: seed.workflowId || "literature-digest",
+          workflowRunId: `harness-workflow-run-${ordinal}`,
+          jobId: `harness-job-${ordinal}`,
+          taskName: seed.taskName || `Harness Task ${ordinal}`,
+          skillId: seed.skillId,
+          sequenceRunId: seed.sequenceRunId,
+          sequenceJobId: seed.sequenceJobId,
+          sequenceStepId: seed.sequenceStepId,
+          executionMode: seed.executionMode || "interactive",
+          requestPayload: seed.requestPayload,
+          createdAt: updatedAt,
+          updatedAt,
+        },
       });
       if (!run) {
         throw new Error("failed to seed SkillRunner run record");
@@ -476,22 +477,30 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       let requestId = "";
       if (typeof seed.requestId === "string") {
         requestId = seed.requestId.trim() || `req-harness-${ordinal}`;
-        attachSkillRunnerRequestId({ runKey, requestId, updatedAt });
-        updateSkillRunnerRunStateByRunKey({
+        applySkillRunnerRunEvent({
+          type: "request.created",
+          runKey,
+          requestId,
+          updatedAt,
+        });
+        applySkillRunnerRunEvent({
+          type: "backend.snapshot",
           runKey,
           state: "request_ready",
           updatedAt,
         });
       }
       const status = seed.status || (requestId ? "waiting_user" : "queued");
-      updateSkillRunnerRunStateByRunKey({
+      applySkillRunnerRunEvent({
+        type: "backend.snapshot",
         runKey,
         state: status,
         backendStatus: status,
         updatedAt,
       });
       if (seed.messageCounts) {
-        updateSkillRunnerRunMessageCounts({
+        applySkillRunnerRunEvent({
+          type: "run.message_counts_updated",
           runKey,
           messageCounts: seed.messageCounts,
         });

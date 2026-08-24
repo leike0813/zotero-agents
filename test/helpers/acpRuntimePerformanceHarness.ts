@@ -17,7 +17,6 @@ import {
 } from "../../src/modules/acpRuntimePerformanceBaseline";
 import {
   resetAcpSkillRunsForTests,
-  selectAcpSkillRun,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -46,6 +45,7 @@ import {
   ACP_CLIENT_METHODS,
   type JsonRpcMessage,
 } from "../../src/modules/acpProtocol";
+import { selectAcpSkillRun } from "../../src/modules/acpSkillRunWorkspaceSelection";
 
 export type AcpSilentRuntimeBaseline = {
   requestId: string;

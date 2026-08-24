@@ -1,64 +1,64 @@
 {
   "schema": "host-bridge.plugin-skill-bundle.v1",
   "cli": {
-    "version": "0.5.3",
-    "buildFingerprint": "a0a211f9a722ee50e783e2ebb5664a4fc1cdce63cb57d99fb2e904d02c48fcca",
-    "commandCatalogChecksum": "f5482a23d1b20cb4264d6dd5083122885f64506f32a2875b97bb08a08bf5d9f0"
+    "version": "0.5.5",
+    "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
+    "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984"
   },
   "surfaces": [
     {
       "id": "zotero-bridge-cli",
       "kind": "minimum-core",
-      "version": "0.5.3"
+      "version": "0.5.4"
     },
     {
       "id": "zotero-library-agent",
       "kind": "generic-agent",
-      "version": "0.5.3"
+      "version": "0.5.5"
     }
   ],
   "skills": [
     {
       "id": "zotero-bridge-cli",
       "mount": "skills/zotero-bridge-cli",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.4"
     },
     {
       "id": "zotero-library-agent",
       "mount": "skills/zotero-library-agent",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-library-query",
       "mount": "skills/zotero-library-query",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-literature-acquisition",
       "mount": "skills/zotero-literature-acquisition",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-literature-analysis",
       "mount": "skills/zotero-literature-analysis",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-research-synthesis",
       "mount": "skills/zotero-research-synthesis",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-library-curation",
       "mount": "skills/zotero-library-curation",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.5"
     }
   ],
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 891699,
-      "sha256": "abd9e686bbcadbeb1dff9df9dfba71e159182132e41bf20210e261331b90c1a6"
+      "bytes": 913177,
+      "sha256": "7edf51cb5ad9961e9211cf1d3e25d1b2e1567ff9bd81e724f34ebeb78a7b3b53"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -73,12 +73,12 @@
     {
       "path": "zotero-bridge-cli/assets/runner.json",
       "bytes": 696,
-      "sha256": "1d3629fa4364200d44a04d0d82104d5806426bb84c289b549447e9c11b2611fc"
+      "sha256": "1b0626a463031626c85629b41903ee0eebe3a0dea810594d8777128f2327c2fe"
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
-      "bytes": 34176,
-      "sha256": "9c731e48f9adef3c325cce65025ef4d3d77120e405b3d5425c1544d1653a652e"
+      "bytes": 34515,
+      "sha256": "9910635ceeb00a30ab2850908e4f792b715622b73fcd2b24b7453522f533bfd9"
     },
     {
       "path": "zotero-bridge-cli/references/commands/bridge/backend/list.md",
@@ -244,6 +244,11 @@
       "path": "zotero-bridge-cli/references/commands/library/item/search.md",
       "bytes": 12790,
       "sha256": "5673fb5d82bc10eac1e93e8fc65caa50782ceb0b3d79d2be1a1c5bdbb9ab587e"
+    },
+    {
+      "path": "zotero-bridge-cli/references/commands/library/items/export-research-bundle.md",
+      "bytes": 21616,
+      "sha256": "684c1684339df9145c01e10d0343d3735a2cc5db6c3e150e7266dc2145999da5"
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/items/list.md",
@@ -591,6 +596,11 @@
       "sha256": "0b6b5bed2af12a857754af57ba16310314e13d47438983c1292af3b64b4de7c9"
     },
     {
+      "path": "zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md",
+      "bytes": 19394,
+      "sha256": "00e8c1e1a5f15aeb157f40bce9bc48fc6f8a30b3b5c452f7377c81a26362912d"
+    },
+    {
       "path": "zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md",
       "bytes": 11161,
       "sha256": "8fe2aa3c43b29d0db2e8d8c11a4666a97471d7d4caaaae650fc6fe6b99830756"
@@ -733,22 +743,22 @@
     {
       "path": "zotero-library-agent/assets/runner.json",
       "bytes": 772,
-      "sha256": "ffb5ad187641fb82761546cc8c236b9bd869609cbfe6e2bfc4d398432b62f2f0"
+      "sha256": "4b0e33444db5da6b59e0c04f58a2cdbea0180066583e68fa52d489e4d14e07ce"
     },
     {
       "path": "zotero-library-agent/references/research-task-model.md",
-      "bytes": 22764,
-      "sha256": "a9d1b2ec1ab9a92bedfd7c10f79f15965b00103dca74231ec9187e939a223beb"
+      "bytes": 24297,
+      "sha256": "6454aa3db3aa7e94699610dfe2f4476476e2f0280ef5933c82504ee21449fd29"
     },
     {
       "path": "zotero-library-agent/references/workflow-catalog.md",
-      "bytes": 40023,
-      "sha256": "b576db3d75c0ad9c63a6b245dcaae786556ba5eb5cfde9d1e37996c0e98c2935"
+      "bytes": 42372,
+      "sha256": "acccf587818883164d45729d3d3ba38e929258b93aeb5bf9096ac26a22565e2d"
     },
     {
       "path": "zotero-library-agent/SKILL.md",
-      "bytes": 16210,
-      "sha256": "c96c658ae85bd38df997d8c2873739a6913b5caecd995cc1bbf8131ae0c6c23b"
+      "bytes": 17708,
+      "sha256": "0468700a66e97f55446cf6f3691abe5765cf1184ad12e7402c7d72bd4f4824c6"
     },
     {
       "path": "zotero-library-curation/assets/output.schema.json",
@@ -758,7 +768,7 @@
     {
       "path": "zotero-library-curation/assets/runner.json",
       "bytes": 1105,
-      "sha256": "376b1072413c65f788a804d88de5dd4421718d40a6d97bdc0d396cc4534e3255"
+      "sha256": "8b5f3aa43847e4adac0129e62b65d9d006bb21814b6e0c3423445d6b8f1619f3"
     },
     {
       "path": "zotero-library-curation/references/playbook.md",
@@ -778,7 +788,7 @@
     {
       "path": "zotero-library-query/assets/runner.json",
       "bytes": 1103,
-      "sha256": "3f9a5a7e5632b4d657b9d265192c7a98edb46dbccf05d8f65e21cece1fc20a08"
+      "sha256": "d3210dca53628a9d523814cd7b9d1f8912351fbede0d7b9f89ae1ad3224dfc8f"
     },
     {
       "path": "zotero-library-query/references/playbook.md",
@@ -787,8 +797,8 @@
     },
     {
       "path": "zotero-library-query/SKILL.md",
-      "bytes": 13045,
-      "sha256": "226413d75a39491b38b01f3cbcbd5cfd4ee247d112b9fdbd8c65261ba501fa6a"
+      "bytes": 14054,
+      "sha256": "befffed74b1664ea4a4ce8b8ccf0b4e2d425a042411c9572c405bf27add50623"
     },
     {
       "path": "zotero-literature-acquisition/assets/output.schema.json",
@@ -798,7 +808,7 @@
     {
       "path": "zotero-literature-acquisition/assets/runner.json",
       "bytes": 1110,
-      "sha256": "d0c72017da5eb13f82ee06d45da3938f15a9a93e21b3ea7869e61696fc10e929"
+      "sha256": "89caa4042bb42f16c0297e3896d42f90ac2c5c18c65b2d85795bf0b689bf25cd"
     },
     {
       "path": "zotero-literature-acquisition/references/playbook.md",
@@ -818,7 +828,7 @@
     {
       "path": "zotero-literature-analysis/assets/runner.json",
       "bytes": 1138,
-      "sha256": "f9ee0945c117aafa0887bdf7560465d8486f1313ae38fd5f6c0dcbfa4082045d"
+      "sha256": "ba9d91ba880dadedce845138a6fcf7804a0706dfe8b61b935529391bb763c4c7"
     },
     {
       "path": "zotero-literature-analysis/references/playbook.md",
@@ -838,18 +848,18 @@
     {
       "path": "zotero-research-synthesis/assets/runner.json",
       "bytes": 1115,
-      "sha256": "936173f01dedaf931b7073039d99b784a33564615a767063e3bb18b62319ec31"
+      "sha256": "0a533393fb90cccaaff5b6d17bdf98b4238cf44dd6577e139afdf2acb92b8c8c"
     },
     {
       "path": "zotero-research-synthesis/references/playbook.md",
-      "bytes": 18382,
-      "sha256": "fc1f5c502773548797b414ef9d66389c9932e1f2910eb9e07845b46c573786ae"
+      "bytes": 21292,
+      "sha256": "a47400537e481a45617f2c8a9eb83c6bb53251f89382caff5cdf06b090aeebfa"
     },
     {
       "path": "zotero-research-synthesis/SKILL.md",
-      "bytes": 14907,
-      "sha256": "b2088e1f20b04477dac21dfb413f2676f492ff212daaea7ca0267bd9a3107cdd"
+      "bytes": 20388,
+      "sha256": "48d26f5b33fa8b53f29a67f7c5104917bf4c4d0bbad0e3b6b383c89852956a0b"
     }
   ],
-  "aggregateSha256": "232be1ca591903f87b9cb0d06ca3d375a034b203097ea06c84245ffe3379a956"
+  "aggregateSha256": "2dd5ad5d3970f88d80e113e8b1522b972bfd85751c7953be9139ab9109deafde"
 }

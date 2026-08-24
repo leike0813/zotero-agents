@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 2,
+  "id": "topic-planner",
+  "label": "Topic Planner",
+  "description": "Incrementally organize the current literature library into Planned Topics and Topic Graph relations before synthesis.",
+  "executionModes": ["auto"],
+  "provider": "skillrunner",
+  "version": "1.0.0",
+  "display": {
+    "core": true,
+    "emoji": "🗺️"
+  },
+  "taskNameTemplate": "Plan library topics",
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
+  },
+  "parameters": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Language for Planned Topic titles, definitions, and planning explanations.",
+      "enum": ["zh-CN", "en-US", "ja-JP", "ko-KR", "de-DE", "fr-FR", "es-ES", "ru-RU"],
+      "allowCustom": true,
+      "default": "zh-CN"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "topic-planner",
+      "mode": "auto"
+    }
+  },
+  "execution": {
+    "zoteroHostAccess": {
+      "required": true
+    }
+  },
+  "result": {
+    "fetch": {
+      "type": "result"
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applyTopicPlanResult.mjs"
+  }
+}

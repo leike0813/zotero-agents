@@ -21,7 +21,7 @@ import {
 } from "../helpers/sidebarDomEnv";
 import { startSkillRunnerWorkspaceSnapshotHarness } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
 import { createChromePanelRenderer } from "../../src/sidebar/components/chromeRenderer";
-import { updateSkillRunnerRunApplyState } from "../../src/modules/skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "../../src/modules/skillRunnerRunStore";
 import { clearPref, setPref } from "../../src/utils/prefs";
 
 // Mirrors the ACP child's chrome wiring: region marking via the shared
@@ -1134,17 +1134,17 @@ describe("Assistant Workspace ACP UI v1", function () {
         requestId: "req-smoke-apply-failed",
         status: "succeeded",
       });
-      updateSkillRunnerRunApplyState({
+      applySkillRunnerRunEvent({
+        type: "apply.succeeded",
         backendId: harness.backendId,
         requestId: applied.requestId,
-        state: "succeeded",
         attempt: 1,
         updatedAt: "2026-07-18T00:02:01.000Z",
       });
-      updateSkillRunnerRunApplyState({
+      applySkillRunnerRunEvent({
+        type: "apply.failed",
         backendId: harness.backendId,
         requestId: applyFailed.requestId,
-        state: "failed",
         attempt: 1,
         error: "apply write failed",
         updatedAt: "2026-07-18T00:02:02.000Z",
@@ -1212,10 +1212,10 @@ describe("Assistant Workspace ACP UI v1", function () {
       const stableSubtrees = captureRegionSubtrees(stableRegions);
       const transcriptSentinel = childWindow.transcript.firstChild;
 
-      updateSkillRunnerRunApplyState({
+      applySkillRunnerRunEvent({
+        type: "apply.skipped",
         backendId: harness.backendId,
         requestId: applyTarget.requestId,
-        state: "skipped",
         attempt: 1,
         updatedAt: "2026-07-18T00:02:03.000Z",
       });
@@ -3639,6 +3639,136 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.strictEqual(
       transcript.querySelector(".assistant-transcript-row"),
       row,
+    );
+  });
+
+  it("renders the shared tool display contract without replacing patched rows", async function () {
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadTranscriptRenderer(domEnv);
+    const transcript = document.createElement("div");
+    const toolItem = {
+      itemId: "tool-display-1",
+      itemKind: "tool-call",
+      status: "in_progress",
+      toolName: "read_file",
+      title: "Read manuscript",
+      toolKind: "read",
+      inputSummary: '{"path":"paper.md"}',
+      createdAt: "2026-08-15T00:00:00.000Z",
+    };
+    const legacyItem = {
+      itemId: "tool-display-legacy",
+      itemKind: "tool-call",
+      status: "completed",
+      title: "Tool Call",
+      toolKind: "execute",
+      summary: "legacy command summary",
+      createdAt: "2026-08-15T00:00:01.000Z",
+    };
+    const fallbackItem = {
+      itemId: "tool-display-fallback",
+      itemKind: "tool-call",
+      status: "pending",
+      toolKind: "other",
+      createdAt: "2026-08-15T00:00:02.000Z",
+    };
+    const page = {
+      ownerKey: "request-tool-display",
+      pageKey: "request-tool-display\ntail:80",
+      startCursor: 0,
+      limit: 80,
+      totalVisibleItemCount: 3,
+      previousCursor: null,
+      nextCursor: null,
+      sourceEventSeq: 1,
+      transcriptRevision: 1,
+      items: [toolItem, legacyItem, fallbackItem],
+    };
+    const renderOptions = {
+      container: transcript,
+      virtualized: false,
+      ownerKey: page.ownerKey,
+      page,
+      items: page.items,
+      mode: "plain",
+      variant: "acp-chat",
+      labels: { transcript: { tool: "工具" } },
+    };
+
+    renderer.renderAssistantTranscript(renderOptions);
+    const toolRow = transcript.querySelector(
+      '[data-assistant-item-id="tool-display-1"]',
+    );
+    const legacyRow = transcript.querySelector(
+      '[data-assistant-item-id="tool-display-legacy"]',
+    );
+    const fallbackRow = transcript.querySelector(
+      '[data-assistant-item-id="tool-display-fallback"]',
+    );
+    assert.isOk(toolRow);
+    assert.equal(
+      toolRow?.querySelector(".assistant-transcript-tool-badge")?.textContent,
+      "read_file",
+    );
+    assert.equal(
+      toolRow?.querySelector(".assistant-transcript-tool-summary")?.textContent,
+      '{"path":"paper.md"}',
+    );
+    assert.equal(
+      legacyRow?.querySelector(".assistant-transcript-tool-badge")?.textContent,
+      "execute",
+    );
+    assert.equal(
+      legacyRow?.querySelector(".assistant-transcript-tool-summary")
+        ?.textContent,
+      "legacy command summary",
+    );
+    assert.equal(
+      fallbackRow?.querySelector(".assistant-transcript-tool-badge")
+        ?.textContent,
+      "工具",
+    );
+
+    const completedItem = {
+      ...toolItem,
+      status: "completed",
+      resultSummary: "manuscript contents",
+    };
+    const completedPage = {
+      ...page,
+      sourceEventSeq: 2,
+      transcriptRevision: 2,
+      items: [completedItem, legacyItem, fallbackItem],
+    };
+    const result = renderer.applyAssistantTranscriptEffectsExact({
+      ...renderOptions,
+      page: completedPage,
+      effect: {
+        kind: "mutations",
+        onSelectedPage: true,
+        mutations: [{ op: "patch_item", itemId: completedItem.itemId }],
+        affectedItems: [completedItem],
+        pageItems: completedPage.items,
+        evictedItemIds: [],
+      },
+      affectedItems: [completedItem],
+    });
+
+    assert.isTrue(result.ok);
+    assert.strictEqual(
+      transcript.querySelector('[data-assistant-item-id="tool-display-1"]'),
+      toolRow,
+    );
+    assert.equal(
+      toolRow?.querySelector(".assistant-transcript-tool-summary")?.textContent,
+      '{"path":"paper.md"}',
+    );
+    assert.strictEqual(
+      transcript.querySelector(
+        '[data-assistant-item-id="tool-display-legacy"]',
+      ),
+      legacyRow,
     );
   });
 

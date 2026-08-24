@@ -7,13 +7,6 @@ import {
   clearHostBridgePluginSkillBundleMaterializationForTests,
   materializeHostBridgePluginSkillBundle,
 } from "../../src/modules/hostBridgePluginSkillBundle";
-import {
-  getAcpSkillRunRecord,
-  resetAcpSkillRunsForTests,
-  upsertAcpSkillRun,
-} from "../../src/modules/acpSkillRunStore";
-import { recoverAcpSkillRunConversation } from "../../src/modules/acpSkillRunRecovery";
-import { HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED } from "../../src/shared/hostBridgePluginSkillBundleContract";
 import { writeRuntimeBytes } from "../../src/modules/runtimePersistence";
 
 describe("Host Bridge plugin Skill bundle", function () {
@@ -30,7 +23,6 @@ describe("Host Bridge plugin Skill bundle", function () {
 
   afterEach(async function () {
     clearHostBridgePluginSkillBundleMaterializationForTests();
-    resetAcpSkillRunsForTests();
     await fs.rm(runtimeRoot, { recursive: true, force: true });
   });
 
@@ -86,42 +78,5 @@ describe("Host Bridge plugin Skill bundle", function () {
 
     assert.isFalse(failed.ok);
     assert.strictEqual(await fs.readFile(marker, "utf8"), "previous bytes");
-  });
-
-  it("rejects recovery of an ACP Skills run bound to another bundle identity", async function () {
-    const materialized = await materializeHostBridgePluginSkillBundle({
-      runtimeRoot,
-    });
-    assert.isTrue(materialized.ok);
-    if (!materialized.ok) return;
-    const changed = {
-      ...materialized.identity,
-      aggregateSha256: "0".repeat(64),
-    };
-    upsertAcpSkillRun({
-      requestId: "identity-changed-run",
-      backendId: "backend-acp",
-      backendType: "acp",
-      sessionId: "remote-session",
-      hostBridgePluginSkillBundleIdentity: changed,
-    });
-
-    let failure: unknown;
-    try {
-      await recoverAcpSkillRunConversation({
-        requestId: "identity-changed-run",
-      });
-    } catch (error) {
-      failure = error;
-    }
-
-    assert.strictEqual(
-      (failure as { code?: string })?.code,
-      HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED,
-    );
-    assert.strictEqual(
-      getAcpSkillRunRecord("identity-changed-run")?.lastRecoveryError,
-      HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED,
-    );
   });
 });

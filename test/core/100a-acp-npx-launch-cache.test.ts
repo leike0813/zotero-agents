@@ -9,6 +9,7 @@ import {
   resetAcpNpxLaunchCacheForTests,
   resolveAcpNpxLaunchSpec,
 } from "../../src/modules/acpNpxLaunchCache";
+import { createCancellationController } from "../../src/utils/wait";
 
 describe("ACP npx launch cache", function () {
   afterEach(function () {
@@ -148,6 +149,57 @@ describe("ACP npx launch cache", function () {
       assert.equal(second?.generation, 1);
       second?.release();
     } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes a canceled waiter without blocking the next lease", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "acp-npx-cancel-"));
+    const abortControllerDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "AbortController",
+    );
+    try {
+      Object.defineProperty(globalThis, "AbortController", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+      const input = {
+        backendId: "shared-cancel",
+        command: "npx",
+        args: ["agent-package", "acp"],
+        cacheRoot: root,
+      };
+      const first = await acquireAcpNpxLaunchCacheLease(input);
+      const controller = createCancellationController();
+      const canceledPromise = acquireAcpNpxLaunchCacheLease({
+        ...input,
+        startup: { signal: controller.signal },
+      }).then(
+        () => null,
+        (error) => error,
+      );
+      const thirdPromise = acquireAcpNpxLaunchCacheLease(input);
+
+      controller.abort();
+      const cancellation = await canceledPromise;
+      assert.match(String(cancellation), /canceled/i);
+
+      first?.release();
+      const third = await thirdPromise;
+      assert.isNotNull(third);
+      third?.release();
+    } finally {
+      if (abortControllerDescriptor) {
+        Object.defineProperty(
+          globalThis,
+          "AbortController",
+          abortControllerDescriptor,
+        );
+      } else {
+        delete (globalThis as { AbortController?: unknown }).AbortController;
+      }
       await fs.rm(root, { recursive: true, force: true });
     }
   });

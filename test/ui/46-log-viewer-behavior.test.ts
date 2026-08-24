@@ -1,4 +1,6 @@
 import { assert } from "chai";
+import { readFile } from "node:fs/promises";
+import { JSDOM } from "jsdom";
 import type { RuntimeLogEntry } from "../../src/modules/runtimeLogManager";
 import {
   buildLogCopyPayload,
@@ -84,5 +86,69 @@ describe("log viewer behavior", function () {
     assert.lengthOf(lines, 2);
     assert.include(lines[0], '"id":"1"');
     assert.include(lines[1], '"id":"2"');
+  });
+
+  it("renders the important and total retention budgets in the Dashboard", async function () {
+    const source = await readFile("addon/content/dashboard/app.js", "utf8");
+    const dom = new JSDOM('<div id="app"></div>', {
+      runScripts: "outside-only",
+      url: "https://dashboard.invalid/",
+    });
+    try {
+      dom.window.eval(source);
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          data: {
+            type: "dashboard:init",
+            payload: {
+              selectedTabKey: "runtime-logs",
+              title: "Runtime Logs",
+              tabs: [{ key: "runtime-logs", label: "Runtime Logs" }],
+              labels: {
+                runtimeLogsTabTitle: "Runtime Logs",
+                runtimeLogsBudget: "Budget: { $value }",
+                runtimeLogsDiagnosticMode: "Diagnostic Mode",
+                runtimeLogsClear: "Clear Logs",
+                runtimeLogsCopySelected: "Copy Selected",
+                runtimeLogsCopyVisibleNDJSON: "Copy Visible",
+                runtimeLogsCopyDiagnosticBundle: "Copy Bundle",
+                runtimeLogsCopyIssueSummary: "Copy Issue",
+              },
+              runtimeLogsView: {
+                filters: { levels: ["info", "warn", "error"] },
+                diagnosticMode: false,
+                totalEntries: 37,
+                budget: {
+                  maxEntries: 2000,
+                  maxBytes: 0,
+                  estimatedBytes: 4096,
+                  droppedEntries: 0,
+                  droppedByReason: {
+                    entry_limit: 0,
+                    byte_budget: 0,
+                    expired: 0,
+                  },
+                  retentionMode: "normal",
+                  maxImportantEntries: 500,
+                  importantEntryCount: 12,
+                },
+                logs: [],
+                selectedEntryIds: [],
+                filterOptions: { backends: [], workflows: [] },
+              },
+            },
+          },
+        }),
+      );
+
+      const budget = dom.window.document.querySelector(
+        "[data-runtime-log-budget]",
+      );
+      assert.isOk(budget);
+      assert.include(budget?.textContent || "", "warn/error 12/500");
+      assert.include(budget?.textContent || "", "total 37/2000");
+    } finally {
+      dom.window.close();
+    }
   });
 });

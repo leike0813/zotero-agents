@@ -365,16 +365,20 @@
 
   function validateNumberFieldValue(args) {
     const raw = toText(args.rawValue).trim();
-    if (!raw) {
-      return { ok: true, remove: true };
-    }
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) {
+    const contract = window.zoteroAgentsWorkflowNumberFields.validate({
+      entry: args.entry,
+      rawValue: raw,
+    });
+    if (!contract.valid) {
       return {
         ok: false,
-        message: args.labels.workflowSettingsNumberInvalid,
+        message: contract.message || args.labels.workflowSettingsNumberInvalid,
       };
     }
+    if (contract.remove) {
+      return { ok: true, remove: true };
+    }
+    const parsed = contract.value;
     if (isNonNegativeIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed < 0) {
         return {
@@ -597,8 +601,10 @@
       label.className += " field-label-warning";
     }
     label.textContent =
-      (args.entry.title || args.entry.key) +
-      (args.entry.required === true ? " *" : "");
+      window.zoteroAgentsWorkflowNumberFields.formatLabel({
+        ...args.entry,
+        title: args.entry.title || args.entry.key,
+      }) + (args.entry.required === true ? " *" : "");
     wrap.appendChild(label);
     const controlWrap = document.createElement("div");
     controlWrap.className = "field-input-col";
@@ -734,7 +740,9 @@
       if (args.entry.type === "number") {
         control.setAttribute(
           "inputmode",
-          isPositiveIntegerField(args.entry) ? "numeric" : "decimal",
+          args.entry.integer === true || isPositiveIntegerField(args.entry)
+            ? "numeric"
+            : "decimal",
         );
       }
       control.value =

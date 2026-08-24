@@ -232,3 +232,36 @@ Relocating generated Skills SHALL preserve every source instruction, direct refe
 - **WHEN** the materialized Skill validator compares the new bundle with the fixed pre-relocation commit
 - **THEN** every governed file is compared against its former path
 - **AND** the substantive-line, normalized-prose, reachability, and semantic-parity gates remain satisfied
+
+### Requirement: Agent surfaces SHALL assign direct bundle semantics to one owner per layer
+
+The generated Minimum surface SHALL own exact direct-bundle command syntax, schemas, effects, delivery Handles, evidence, and mechanism recovery. The Generic surface SHALL own task selection, identity-resolution handoff, bundle content policy, completion meaning, and research-stage recovery. Hermes SHALL inherit the bounded Generic task without adding unattended export authority or duplicate instructions.
+
+#### Scenario: Stable direct scope is available
+- **WHEN** a Generic agent receives stable item refs or Topic ids and the user requests existing research materials
+- **THEN** it routes the request to the Generic Synthesis task's direct-delivery branch
+- **AND** it does not require workflow discovery, provider selection, submission, or Product lookup.
+
+#### Scenario: Scope identity is ambiguous
+- **WHEN** papers are identified only by titles, a vague selection, or an ambiguous Topic name
+- **THEN** Generic Query resolves stable identities and hands them to Generic Synthesis
+- **AND** Query does not duplicate export or Handle policy.
+
+#### Scenario: Material is missing
+- **WHEN** a direct bundle reports missing source or analysis material
+- **THEN** Generic reports the warnings
+- **AND** it does not silently start acquisition, analysis, maintenance, or Topic mutation.
+
+### Requirement: Agent surfaces explain topic planning operations
+The minimum-core CLI surface SHALL document how to obtain planning context and reconcile a `topic_plan` result, while the research-task surface SHALL explain when to run planning before parallel topic synthesis.
+
+#### Scenario: Agent discovers planning command
+- **WHEN** an agent searches the Host Bridge command catalog for topic planning
+- **THEN** it can find the exact planning-context command, output handling, apply contract, concurrency behavior, and recovery path
+
+### Requirement: Surface changes preserve existing semantics
+Adding topic planning instructions SHALL NOT remove, compress, merge, reorder, or weaken existing Host Bridge agent-facing instructions.
+
+#### Scenario: Semantic parity review
+- **WHEN** governed surfaces are rendered and compared with baseline `23dc0857aed77e4c242c2a0a9f3a5518064e9d22`
+- **THEN** unmapped, downgraded, unauthorized dropped, and intra-package duplicate counts are all zero, with no authorized deletions

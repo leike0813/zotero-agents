@@ -1,0 +1,19 @@
+{
+  "id": "topic-planner",
+  "name": "🗺️ Topic Planner",
+  "description": "Incrementally plan library-wide topic skeletons, coverage, and relations before topic synthesis.",
+  "version": "1.0.0",
+  "execution_modes": ["auto"],
+  "max_attempt": 12,
+  "runtime": { "default_options": { "hard_timeout_seconds": 3600 } },
+  "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "执行 Topic Planner。必须先完整阅读 SKILL.md，获取完整 planning context，按 metadata-first 原则计算覆盖并只为不确定批次读取 digest。最终回复使用 ACP final branch：包含 `__SKILL_DONE__: true`，并附加一个符合 assets/output.schema.json 的业务 JSON 对象；output schema 本身不包含 `__SKILL_DONE__`。"
+    }
+  }
+}

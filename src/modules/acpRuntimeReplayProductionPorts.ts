@@ -39,12 +39,11 @@ import {
 } from "./acpRuntimeReplayPublicationSidecar";
 import {
   getActiveAcpChatOwner,
-  inspectSyntheticAcpChatReplayTimers,
+  inspectAcpChatSessionTimers,
 } from "./acpSessionManager";
-import {
-  getSelectedAcpSkillRunRequestId,
-  inspectSyntheticAcpSkillRunReplayTimers,
-} from "./acpSkillRunStore";
+import { inspectAcpSyntheticConnectionAdapterTimers } from "./acpSyntheticConnectionAdapter";
+import { getSelectedAcpSkillRunRequestId } from "./acpSkillRunWorkspaceSelection";
+import { inspectAcpSkillRunTimers } from "./acpSkillRunWorkspaceDataPlane";
 
 export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
   surface: "closed" | "open-inactive" | "target-active";
@@ -64,13 +63,17 @@ export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
     const inspections =
       args.sourceKind === "acp-chat-conversation"
         ? [
-            inspectSyntheticAcpChatReplayTimers({
+            inspectAcpChatSessionTimers({
+              backendId: identity.chat.backendId,
+              conversationId: identity.chat.conversationId,
+            }),
+            inspectAcpSyntheticConnectionAdapterTimers({
               backendId: identity.chat.backendId,
               conversationId: identity.chat.conversationId,
             }),
           ]
         : [
-            inspectSyntheticAcpSkillRunReplayTimers({
+            inspectAcpSkillRunTimers({
               requestIds: [...requestIds],
             }),
           ];

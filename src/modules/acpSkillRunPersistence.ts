@@ -32,7 +32,6 @@ import { normalizeAcpPromptInterruptState } from "./acpTypes";
 import { type AcpSelectableOption } from "./acpModelOptionFolding";
 import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
-import { parseHostBridgePluginSkillBundleIdentity } from "../shared/hostBridgePluginSkillBundleContract";
 import {
   flushAllAcpTranscriptWrites,
   resolveAcpSkillRunTranscriptPaths,
@@ -65,6 +64,11 @@ import type {
   AcpSkillRunWorkspaceChangeKind,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
+import { getAcpSkillRunPersistenceHost } from "./acpSkillRunHosts";
+
+// The host slot lives in the acpSkillRunHosts leaf module so that importing
+// this module before the store cannot hit a TDZ on the slot.
+export type { AcpSkillRunPersistenceHost } from "./acpSkillRunHosts";
 
 const SOFT_RUN_PERSIST_DELAY_MS = 2000;
 const ACP_SKILL_RUN_PREVIEW_LIMIT = 8 * 1024;
@@ -83,40 +87,6 @@ function errorText(error: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-// Registry access owned by acpSkillRunStore (run records, selection,
-// transcript live states) plus workspace-change emission owned by the
-// workspace data-plane. Injected once at module load so this module never
-// imports the store or the data-plane at runtime.
-export type AcpSkillRunPersistenceHost = {
-  listRunRecords(): Iterable<AcpSkillRunRecord>;
-  resolveRunRecord(requestId: string): AcpSkillRunRecord | undefined;
-  setAcpSkillRunRecord(record: AcpSkillRunRecord): void;
-  upsertAcpSkillRun(update: Parameters<typeof upsertAcpSkillRun>[0]): void;
-  deleteRunRecord(requestId: string): void;
-  isEligibleForPostTerminalConversation(record: AcpSkillRunRecord): boolean;
-  getSelectedRequestId(): string;
-  clearSelectedRequestId(): void;
-  peekTranscriptLiveState(
-    requestId: string,
-  ): AcpSkillRunTranscriptLiveState | undefined;
-  acpSkillRunWorkspaceChange(
-    requestId: string,
-    kinds: AcpSkillRunWorkspaceChangeKind[],
-  ): AcpSkillRunWorkspaceChange;
-  createWorkspaceChange(
-    change: AcpSkillRunWorkspaceChange,
-  ): AcpSkillRunWorkspaceChange;
-  emitWorkspaceChanged(change?: AcpSkillRunWorkspaceChange): void;
-};
-
-let host: AcpSkillRunPersistenceHost;
-
-export function configureAcpSkillRunPersistenceHost(
-  nextHost: AcpSkillRunPersistenceHost,
-) {
-  host = nextHost;
 }
 
 export function truncateAcpSkillRunPreview(value: unknown) {
@@ -173,7 +143,9 @@ export function deriveAcpSkillRunRuntimeFileMetadata(
 ) {
   const transcriptPaths = resolveAcpSkillRunTranscriptPaths(record.runtimeDir);
   const payloadRefs = resolveAcpSkillRunPayloadPaths(record.runtimeDir);
-  const liveState = host.peekTranscriptLiveState(record.requestId);
+  const liveState = getAcpSkillRunPersistenceHost().peekTranscriptLiveState(
+    record.requestId,
+  );
   const transcriptItemCount = Math.max(
     0,
     record.transcriptItemCount || liveState?.transcriptItemCount || 0,
@@ -621,10 +593,6 @@ export function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
           ? "pending"
           : undefined,
     sessionId: normalizeString(raw.sessionId) || undefined,
-    hostBridgePluginSkillBundleIdentity:
-      parseHostBridgePluginSkillBundleIdentity(
-        raw.hostBridgePluginSkillBundleIdentity,
-      ),
     activePrompt: raw.activePrompt === true,
     promptInterruptState: normalizeAcpPromptInterruptState(
       raw.promptInterruptState,
@@ -729,13 +697,16 @@ export function ensureAcpSkillRunStoreHydrated() {
       if (mode === lastExecutionDisplayMode) {
         return;
       }
-      for (const record of host.listRunRecords()) {
+      for (const record of getAcpSkillRunPersistenceHost().listRunRecords()) {
         if (mode === "silent") {
           const now = nowIso();
           if (completeAcpSkillRunOpenStreamingTextItems(record, now)) {
             persistRun(record);
-            host.emitWorkspaceChanged(
-              host.acpSkillRunWorkspaceChange(record.requestId, ["transcript"]),
+            getAcpSkillRunPersistenceHost().emitWorkspaceChanged(
+              getAcpSkillRunPersistenceHost().acpSkillRunWorkspaceChange(
+                record.requestId,
+                ["transcript"],
+              ),
             );
           }
         }
@@ -751,7 +722,7 @@ export function ensureAcpSkillRunStoreHydrated() {
       if (!parsed) {
         continue;
       }
-      host.setAcpSkillRunRecord(parsed);
+      getAcpSkillRunPersistenceHost().setAcpSkillRunRecord(parsed);
       restoreAcpExecutionProgress(parsed.requestId, parsed.messageCounts);
       if (legacyLargePayload) {
         persistRun(parsed);
@@ -1114,7 +1085,7 @@ function isRecoverableAcpSkillRunAfterStartup(record: AcpSkillRunRecord) {
 export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
   ensureAcpSkillRunStoreHydrated();
   const runsByRequestId = new Map(
-    Array.from(host.listRunRecords()).map(
+    Array.from(getAcpSkillRunPersistenceHost().listRunRecords()).map(
       (run) => [run.requestId, run] as const,
     ),
   );
@@ -1138,17 +1109,18 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
     if (!staleConversationState) {
       continue;
     }
-    const recoveryCandidate = host.isEligibleForPostTerminalConversation({
-      ...run,
-      activePrompt: false,
-      pendingInteraction: undefined,
-      pendingPermission: null,
-      replyState: "idle",
-      connectionActionState: "idle",
-      conversationState: "closed",
-      conversationRecoveryState: "available",
-    });
-    host.upsertAcpSkillRun({
+    const recoveryCandidate =
+      getAcpSkillRunPersistenceHost().isEligibleForPostTerminalConversation({
+        ...run,
+        activePrompt: false,
+        pendingInteraction: undefined,
+        pendingPermission: null,
+        replyState: "idle",
+        connectionActionState: "idle",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+      });
+    getAcpSkillRunPersistenceHost().upsertAcpSkillRun({
       requestId: run.requestId,
       activePrompt: false,
       pendingInteraction: null,
@@ -1196,7 +1168,7 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
         run.conversationState !== "closed" ||
         run.activePrompt
       ) {
-        host.upsertAcpSkillRun({
+        getAcpSkillRunPersistenceHost().upsertAcpSkillRun({
           requestId,
           activePrompt: false,
           conversationState: "closed",
@@ -1213,7 +1185,7 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
       recoverableCount += 1;
       continue;
     }
-    host.upsertAcpSkillRun({
+    getAcpSkillRunPersistenceHost().upsertAcpSkillRun({
       requestId,
       status: "failed",
       statusReason: "startup_reconcile",
@@ -1260,7 +1232,9 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
   const requestIds: string[] = [];
   const workspaceDirs: string[] = [];
   const runtimeDirs: string[] = [];
-  for (const record of Array.from(host.listRunRecords())) {
+  for (const record of Array.from(
+    getAcpSkillRunPersistenceHost().listRunRecords(),
+  )) {
     if (!isAcpSkillRunRetentionEligible({ record, thresholdMs })) {
       continue;
     }
@@ -1274,9 +1248,12 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
       runtimeDirs.push(runtimeDir);
     }
     deletePluginRunStoreEntry("acp", record.requestId);
-    host.deleteRunRecord(record.requestId);
-    if (host.getSelectedRequestId() === record.requestId) {
-      host.clearSelectedRequestId();
+    getAcpSkillRunPersistenceHost().deleteRunRecord(record.requestId);
+    if (
+      getAcpSkillRunPersistenceHost().getSelectedRequestId() ===
+      record.requestId
+    ) {
+      getAcpSkillRunPersistenceHost().clearSelectedRequestId();
     }
     if (record.backendId && record.requestId) {
       removeWorkflowTasksByBackendAndRequestIds({
@@ -1286,8 +1263,11 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
     }
   }
   if (requestIds.length > 0) {
-    host.emitWorkspaceChanged(
-      host.createWorkspaceChange({ requestIds, kinds: ["archive"] }),
+    getAcpSkillRunPersistenceHost().emitWorkspaceChanged(
+      getAcpSkillRunPersistenceHost().createWorkspaceChange({
+        requestIds,
+        kinds: ["archive"],
+      }),
     );
   }
   return {

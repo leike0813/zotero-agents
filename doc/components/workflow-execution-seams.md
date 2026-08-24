@@ -71,9 +71,71 @@ SkillRunner job progress:
 - `skillrunner.sequence.v1` steps use the foreground sequence loop;
   recovery-owned runs use deferred reconciler settlement.
 
+## Workflow Job Terminal Resolution
+
+`terminalResolution.ts` owns the synchronous, read-only interpretation of one
+workflow job's local queue and canonical lifecycle facts. Its interface accepts
+the queue, workflow run id, and job id, then derives request identity and
+returns one of four decisions plus a normalized slot status:
+
+- `missing`: the admitted queue job can no longer be read;
+- `pending`: local or canonical terminal evidence is incomplete;
+- `local-ready`: non-deferred queue execution is terminal and remains owned by
+  the apply reducer;
+- `canonical-ready`: sequence, SkillRunner, or ACP lifecycle facts already
+  provide the terminal outcome and terminal apply evidence.
+
+Slot status uses one vocabulary across queue and canonical facts: `missing`,
+`unobserved`, `queued`, `running`, `waiting_user`, `waiting_auth`,
+`failed_retriable`, `repairing`, `succeeded`, `failed`, or `canceled`.
+Canonical terminal outcomes own the slot status for `canonical-ready`. Pending
+and local-ready resolutions sample the same canonical records as the terminal
+interpretation; backend canonical paths return `unobserved` when no record
+resolves instead of inventing a local fallback. Local job state remains the
+fallback only for paths that previously used it, such as pass-through and
+SkillRunner sequences without a materialized step request. Sequence state
+resolves request identity and does not project its own status into the slot
+vocabulary.
+
+Sequence root failure or cancellation owns its terminal class. A running or
+missing root keeps the workflow pending. A completed root selects its last
+materialized step, but completion alone is not success: missing or non-terminal
+step evidence remains pending. Canonical failed or canceled records take
+precedence over stale apply-failure evidence, while apply failure after backend
+success produces a failed workflow outcome. Canonical success does not bypass
+the apply reducer for a locally succeeded, non-deferred result; this preserves
+sequence step-owned apply summaries and ordinary foreground apply behavior.
+
+The run and apply seams receive the complete resolver through their dependency
+objects. The run seam retains lifecycle subscriptions and settle-once cleanup;
+it maps each returned slot status to the submission-slot coordinator actions
+without reading lifecycle stores itself. It waits only for `pending`; a missing
+admitted job settles observation so the apply seam can report its existing
+explicit failure. The apply seam consumes the terminal class and retains local
+reduction, apply hooks, lifecycle writes, runtime logs, and bundle cleanup.
+
+The resolution module does not own lifecycle persistence or subscriptions.
+Existing store getters can still perform lazy hydration or legacy migration, so
+the resolver is not treated as a pure function and does not hide read failures
+as pending evidence.
+
 ## Apply Summary Seam
 
 Apply summary inspects job outcomes and reports workflow-level completion.
+
+For `skillrunner.sequence.v1` on both ACP and SkillRunner backends, the
+sequence root exclusively owns workflow terminal settlement. Terminal or
+applied child-step records remain step lifecycle facts while the root is
+running; they cannot complete the submission, invoke outer `applyResult`, or
+emit the workflow finish summary. Once the root is `completed`, settlement
+uses `terminal_step_id` to identify the step that actually ended the sequence.
+This keeps short-circuited sequences attached to their real terminal result. A
+`failed` or `canceled` root skips outer apply.
+
+The runtime marks the sequence root `completed` before returning a terminal
+result to the outer apply seam. A later outer-apply failure may fail the
+workflow task and its owning run's apply state, but it does not rewrite the
+already completed sequence root.
 
 For single SkillRunner jobs, terminal provider success is final workflow
 business completion only after foreground `applyResult` succeeds. Backend
@@ -83,7 +145,9 @@ recovery-owned SkillRunner work is recorded as reconciler-owned pending work and
 reflected through deferred completion tracking.
 
 For ACP skill runs, ACP's conversation path continues to own its foreground
-result and apply behavior.
+result and apply behavior. Directly valid and output-repaired final results
+enter the same pending-apply state, and repair metadata does not change
+sequence terminal ownership.
 
 ## Deferred Completion Tracker
 
@@ -105,15 +169,17 @@ sequenceDiagram
   participant Seq as Sequence Runtime
   participant Queue as Job Queue
   participant Provider as SkillRunner Provider
-  participant Store as SkillRunnerRunStore
+  participant Store as Sequence State Store
+  participant Life as Step Lifecycle Adapter
 
   Seq->>Queue: enqueue step 0
   Queue->>Provider: create and upload step 0
   Provider->>Store: request_ready step 0
   Provider-->>Seq: terminal success or waiting detach
-  Seq->>Store: write result and handoff projection
-  Seq->>Seq: run step apply when declared
-  Seq->>Queue: continue when dependencies are satisfied
+  Seq->>Store: record successful step result
+  Seq->>Seq: run declared step apply
+  Seq->>Life: settle step controller lifecycle
+  Seq->>Queue: continue after the apply/lifecycle barrier
   Seq->>Queue: enqueue step 1 with workspace reuse
 ```
 
@@ -124,9 +190,14 @@ Rules:
 - Step 0 does not send workspace reuse.
 - Step N reuses the previous successful SkillRunner step's backend
   `request_id`.
-- Sequence continuation depends on execution success, workspace reuse, and
-  required handoff availability.
-- Sequence continuation does not depend on Host-side apply success.
+- Normal provider success and externally observed success enter the same
+  advancement path.
+- Step apply and lifecycle settlement finish before the next step is launched.
+- A failed step apply follows its declared `on_failure` policy: `continue`
+  proceeds only after lifecycle settlement; `fail_sequence` settles lifecycle
+  and then stops the sequence.
+- Replaying the same persisted step/request identity resumes completed phases;
+  a different request identity for the same step is rejected.
 
 ## Result And Handoff
 
@@ -155,14 +226,18 @@ Single SkillRunner apply is foreground workflow work:
 - foreground apply state moves through `running` and terminal apply states
 - apply failure is visible on the owning run
 
-Normal sequence SkillRunner apply is foreground sequence runtime work:
+Normal and externally resumed sequence step apply use the shared sequence
+runtime:
 
 - terminal success triggers result or bundle settlement
 - settlement writes result projection
 - step/root apply state moves through `running` and terminal apply states
 - apply failure is visible on the owning run
+- lifecycle cleanup is an explicit barrier after step apply
+- backend-specific cleanup is provided through a lifecycle adapter; the step
+  apply seam itself has no controller side effects
 
-Recovery-owned SkillRunner apply is deferred reconciler work:
+Recovery-owned non-sequence SkillRunner apply is deferred reconciler work:
 
 - terminal success triggers result or bundle settlement
 - settlement writes result projection
@@ -180,6 +255,13 @@ terminal or apply state.
 
 Bundle readers normalize entry paths, reject traversal, and expose a common read
 interface to workflow apply hooks.
+
+`openRunResultBundleReader` owns the run-result-to-reader policy and the temp
+zip lifecycle. Non-empty `bundleBytes` write a temp zip and return a handle
+whose `dispose()` removes that temp file; `bundleDir` opens a directory reader
+without a temp file; anything else opens an unavailable reader. Callers keep
+handles open through apply and dispose them in `finally`. Extracted zip
+directories remain `ZipBundleReader` state and are not removed by `dispose()`.
 
 SkillRunner bundle settlement records:
 

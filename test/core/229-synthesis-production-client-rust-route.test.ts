@@ -2732,16 +2732,8 @@ describe("Synthesis Rust production client route", function () {
         ],
       };
       const [refresh, replayedRetry] = await Promise.all([
-        call(
-          port,
-          "client.controlPublicMaintenanceOperation",
-          retryRequest,
-        ),
-        call(
-          port,
-          "client.controlPublicMaintenanceOperation",
-          retryRequest,
-        ),
+        call(port, "client.controlPublicMaintenanceOperation", retryRequest),
+        call(port, "client.controlPublicMaintenanceOperation", retryRequest),
       ]);
       assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
       assert.notEqual(
@@ -4172,7 +4164,11 @@ describe("Synthesis Rust production client route", function () {
           continueRequest,
         ),
       ]);
-      assert.equal(firstContinue.status, 200, JSON.stringify(firstContinue.body));
+      assert.equal(
+        firstContinue.status,
+        200,
+        JSON.stringify(firstContinue.body),
+      );
       assert.equal(
         duplicateContinue.status,
         200,
@@ -4190,8 +4186,7 @@ describe("Synthesis Rust production client route", function () {
       const continuationEvents = harness
         .observations()
         .filter(
-          (event) =>
-            event.identities?.operation === "maintenance:pending:0000",
+          (event) => event.identities?.operation === "maintenance:pending:0000",
         );
       assert.equal(
         continuationEvents.filter(

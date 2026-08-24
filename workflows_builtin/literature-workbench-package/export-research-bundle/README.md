@@ -21,19 +21,19 @@
 | `paperTitle` | string | — | 必填；正在撰写的论文或稿件标题 |
 | `researchContent` | string | — | 必填；研究问题、方法、范围和预期贡献 |
 | `articleType` | string | `original research` | 稿件类型；当前主要针对原创研究论文优化 |
-| `maxTopics` | number | `5` | 最多纳入的相关 Topic 数量，范围为 0–5 |
-| `maxCorePapers` | number | `20` | 最多纳入的核心文献数量，范围为 1–20 |
-| `maxRelatedPapers` | number | `80` | 最多纳入的非 Topic 额外文献数，范围为 1–80；选中 Topic 的关联文献不受此上限淘汰 |
+| `maxTopics` | number | `5` | 最多纳入的相关 Topic 数量，范围为 0–10 |
+| `maxCorePapers` | number | `20` | 最多纳入的核心文献数量，范围为 1–50 |
+| `maxRelatedPapers` | number | `80` | 最多纳入的非 Topic 额外文献数，范围为 1–200；选中 Topic 的关联文献不受此上限淘汰 |
 
 ## 执行方式
 
-全自动执行。系统先评估现有 Topic，收集所有选中 Topic 的 `resolved_paper_set` 并按 `paper_ref` 去重；随后执行有界 Zotero library search，将搜索结果并入同一候选集合，再进行文献评估并区分核心文献与相关文献。选中 Topic 的关联文献会强制保留，即使语义评分低于普通阈值或总数超过非 Topic 文献上限。
+全自动执行。系统先评估现有 Topic，从每个选中 Topic 当前语义上下文的 `source_papers` 收集论文并按 `paper_ref` 去重；随后执行有界 Zotero 元数据锚点检索，将搜索结果并入同一候选集合，再进行文献评估并区分核心文献与相关文献。检索匹配题名、作者、年份、刊名和标签等已索引元数据，不执行全文或摘要语义检索。选中 Topic 的有效来源论文会强制保留，即使语义评分低于普通阈值或总数超过非 Topic 文献上限。
 
-引用图谱、reference index 和分析产物只为 Topic 或 library search 已发现的候选补充证据和评分，不会额外加入 graph-only 候选。
+引用图谱、reference index 和分析产物只为 Topic 或元数据锚点检索已发现的候选补充证据和评分，不会额外加入 graph-only 候选。
 
 非 Topic 候选必须先达到 `0.45` 的语义相关性阈值；质量评分不会放宽候选边界。图指标可用时，选择分数由语义相关性 50%、文献质量先验 15%、图指标 15%、Topic 覆盖 15% 和材料就绪度 5% 组成；图指标不可用时，其 15% 权重回流语义相关性。每篇文献在 manifest 中保存 `selection_score`、各分量、四件套状态和固化的 `literature_quality` 快照；缺失或无效评分使用中性质量先验 `0.5`。
 
-Topic、图谱、分析产物或原文不可用时，workflow 会使用仍可读取的证据继续执行，并在结果中记录诊断和警告。若没有满足条件的文献，则此次运行会结束而不登记研究产品。
+选中 Topic 的语义上下文或 `source_papers` 缺失、异常、为空或含无效引用时，workflow 会保留其中仍然有效的论文，继续执行有界元数据检索，并在 Stage 40 的 discovery summary、gate 和命令 receipt 中记录 Topic 级诊断。若降级后仍没有候选，Stage 40 会保留为可重试错误，不会误报“无相关文献”；只要 Topic 或元数据检索提供了可靠候选，流程就会继续评估。图谱、分析产物或原文不可用时也会使用仍可读取的证据继续执行。
 
 ## 需要多长时间？
 

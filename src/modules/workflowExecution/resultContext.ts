@@ -5,7 +5,7 @@ import {
   runtimePathExists,
 } from "../runtimePersistence";
 import type { BundleReader } from "./bundleIO";
-import { canonicalizeWorkflowResultJson } from "./resultEnvelope";
+import { unwrapSkillRunnerResultJson } from "./resultEnvelope";
 
 type WorkflowResultManifestLike = {
   result?: {
@@ -205,7 +205,7 @@ function normalizeResultJson(value: unknown, sourceLabel: string) {
   if (typeof value === "string") {
     parsed = parseJsonText(value, sourceLabel);
   }
-  return canonicalizeWorkflowResultJson(parsed);
+  return unwrapSkillRunnerResultJson(parsed);
 }
 
 function addCandidate(

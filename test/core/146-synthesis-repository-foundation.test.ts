@@ -963,7 +963,7 @@ describe("Synthesis repository foundation", function () {
     assert.deepEqual(exportPluginStateStoreRowsForTests().rows, []);
   });
 
-  it("normalizes legacy topic discovery statuses to reject-only lifecycle states [inv.discovery.apply_time_only]", function () {
+  it("preserves accepted topic discovery status and normalizes legacy filtered status [inv.discovery.apply_time_only]", function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-26T00:00:00.000Z",
     });
@@ -989,7 +989,7 @@ describe("Synthesis repository foundation", function () {
         .map((hint) => [hint.literatureItemId, hint.status])
         .sort(),
       [
-        ["lit:accepted", "open"],
+        ["lit:accepted", "accepted"],
         ["lit:filtered", "rejected"],
       ],
     );
@@ -1005,6 +1005,54 @@ describe("Synthesis repository foundation", function () {
         .map((hint) => hint.literatureItemId),
       ["lit:accepted"],
     );
+  });
+
+  it("keeps screened discovery outcomes for the same basis and reopens them when evidence changes [inv.discovery.screening_basis]", function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    repository.upsertLiteratureMatchingMetadata({
+      literatureItemId: "lit:candidate",
+      keyTermsJson: JSON.stringify(["object detection", "DETR"]),
+      methodsJson: JSON.stringify(["attention"]),
+      metadataHash: "sha256:literature-v1",
+    });
+    repository.upsertTopicInterestMetadata({
+      topicId: "topic:detection",
+      includeTermsJson: JSON.stringify(["object detection", "DETR"]),
+      methodsJson: JSON.stringify(["attention"]),
+      metadataHash: "sha256:topic-v1",
+    });
+    repository.rebuildTopicDiscoveryHints({ topicIds: ["topic:detection"] });
+    const open = repository.listTopicDiscoveryHints({
+      topicIds: ["topic:detection"],
+      statuses: ["open"],
+    })[0]!;
+    repository.updateTopicDiscoveryHintOutcome({
+      hintId: open.hintId,
+      status: "screened_out",
+      basisHash: open.basisHash,
+      outcome: { relevance_level: "external", reason: "Background only." },
+    });
+
+    repository.rebuildTopicDiscoveryHints({ topicIds: ["topic:detection"] });
+    let hint = repository.getTopicDiscoveryHint(open.hintId)!;
+    assert.equal(hint.status, "screened_out");
+    assert.deepInclude(JSON.parse(hint.outcomeJson || "{}"), {
+      relevance_level: "external",
+    });
+
+    repository.upsertLiteratureMatchingMetadata({
+      literatureItemId: "lit:candidate",
+      keyTermsJson: JSON.stringify(["object detection", "DETR"]),
+      methodsJson: JSON.stringify(["attention"]),
+      metadataHash: "sha256:literature-v2",
+    });
+    repository.rebuildTopicDiscoveryHints({ topicIds: ["topic:detection"] });
+    hint = repository.getTopicDiscoveryHint(open.hintId)!;
+    assert.equal(hint.status, "open");
+    assert.notEqual(hint.basisHash, open.basisHash);
+    assert.isUndefined(hint.outcomeJson);
   });
 
   it("preserves rejected topic discovery hints during rebuild [inv.discovery.rejected_suppression]", function () {

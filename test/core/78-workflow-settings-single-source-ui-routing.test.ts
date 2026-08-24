@@ -12,6 +12,55 @@ async function readProjectFile(relativePath: string) {
 }
 
 describe("workflow settings single-source routing", function () {
+  it("shares bounded integer validation and range labels across live forms", async function () {
+    const source = await readProjectFile(
+      "addon/content/shared/workflow-number-validation.js",
+    );
+    const windowStub: Record<string, any> = {};
+    runInNewContext(source, { window: windowStub });
+    const fields = windowStub.zoteroAgentsWorkflowNumberFields;
+    assert.isObject(fields);
+    const entry = {
+      title: "Maximum Topics",
+      required: true,
+      integer: true,
+      min: 0,
+      max: 10,
+    };
+    assert.equal(fields.formatLabel(entry), "Maximum Topics (0–10)");
+    assert.equal(fields.formatLabel({ title: "Timeout", min: 1 }), "Timeout");
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(fields.validate({ entry, rawValue: "10" }))),
+      { valid: true, value: 10, code: "" },
+    );
+    for (const [rawValue, code] of [
+      ["10.5", "not_integer"],
+      ["-1", "below_minimum"],
+      ["11", "above_maximum"],
+    ]) {
+      const result = fields.validate({ entry, rawValue });
+      assert.isFalse(result.valid);
+      assert.equal(result.code, code);
+    }
+
+    const [dashboardHtml, dialogHtml, dashboardJs, dialogJs] =
+      await Promise.all([
+        readProjectFile("addon/content/dashboard/index.html"),
+        readProjectFile(
+          "addon/content/dashboard/workflow-settings-dialog.html",
+        ),
+        readProjectFile("addon/content/dashboard/app.js"),
+        readProjectFile("addon/content/dashboard/workflow-settings-dialog.js"),
+      ]);
+    for (const html of [dashboardHtml, dialogHtml]) {
+      assert.include(html, "workflow-number-validation.js");
+    }
+    for (const renderer of [dashboardJs, dialogJs]) {
+      assert.include(renderer, "zoteroAgentsWorkflowNumberFields.validate");
+      assert.include(renderer, "zoteroAgentsWorkflowNumberFields.formatLabel");
+    }
+  });
+
   it("keeps a strict custom select on its canonical fallback across away-and-back changes", async function () {
     class FakeElement {
       className = "";

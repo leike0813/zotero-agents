@@ -93,6 +93,7 @@ export type WorkflowParameterSchema = {
   optionsSource?: WorkflowParameterOptionsSource;
   min?: number;
   max?: number;
+  integer?: boolean;
 };
 
 export type WorkflowI18nLocaleMessages = Record<string, string>;
@@ -576,6 +577,16 @@ export type WorkflowHostApi = {
     translateIdentifier: (
       args: ZoteroHostMetadataTranslateIdentifierArgs,
     ) => Promise<ZoteroHostMetadataTranslateIdentifierResponse>;
+  };
+  researchBundles: {
+    materializePapers: (args: {
+      papers: Array<{ paperRef: string }>;
+      sourcePaperRefs?: string[];
+    }) => Promise<{
+      entries: import("../modules/researchBundleService").ResearchBundleEntry[];
+      warnings: import("../modules/researchBundleService").ResearchBundleWarning[];
+      papers: Record<string, unknown>[];
+    }>;
   };
   prefs: {
     get: (key: string, global?: boolean) => unknown;

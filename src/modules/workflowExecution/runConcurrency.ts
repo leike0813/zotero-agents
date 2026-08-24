@@ -1,6 +1,6 @@
 const FULL_PARALLEL_PROVIDER_IDS = new Set(["skillrunner", "generic-http"]);
 
-export function isBackendBatchFullParallelProvider(providerId: string) {
+function isBackendBatchFullParallelProvider(providerId: string) {
   return FULL_PARALLEL_PROVIDER_IDS.has(String(providerId || "").trim());
 }
 
