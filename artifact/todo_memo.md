@@ -147,6 +147,7 @@
 - [x] export-literature-bundle 改为默认导出与 export-research-bundle 相同格式的、可被其他 Agent 消费的bundle（纯原文模式仍保留）；增加导出模式选项，默认`Selection`，支持`Collection`和`Library`。
 - [x] 分析并修复 export-research-bundle 经常因为搜不到论文而取消的问题（Agent回复类似：Evidence preparation found no paper candidates despite six successful searches, so Stage 50 was skipped. I’m running deterministic enrichment and selection. 或者：The stage 40 result shows assessment_batches 0 and candidate_count 0. Hmm, that's concerning. The searches succeeded but no candidates? ）（最终返回：kind: research_bundle_canceled, status: canceled, reason: no_related_literature, message: No related Zotero literature met the relevance threshold.）
 - [x] export-research-bundle 的 topic/core/paper数量上限应该提高，并且在参数label中给出提示，输入框也应该先校验，避免提交后才报错
+- [ ] Assistant workspace 进行矮屏的布局适配（在界面总高度较低时，压缩工具栏/banner/composer区域，保证transcript窗口不会被压得过矮
 - [ ] literature-search-ingest 吸纳 instSCI 项目
 - [ ] 彻底解决ACP后端在windows下运行时powershell在提交json payload或输出json时频繁出现的编码问题（一般出现在中文论文中）（目前仅用提示词来降低问题导致阻塞的概率）
 - [ ] 对 workflow 的成功条件进一步细分，那些包含取消路径的 workflow 当返回取消路径结果时，不应该弹出“成功”语义的 toast。
