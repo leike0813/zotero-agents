@@ -149,6 +149,7 @@ type DashboardState = {
   selectedFeedbackProductId: string;
   feedbackSkillFilter: string;
   selectedFeedbackProductIds: Set<string>;
+  productExportInProgress: boolean;
   homeWorkflowDocCacheByWorkflowId: Map<
     string,
     {
@@ -266,6 +267,7 @@ type DashboardSnapshot = {
     selectedFeedbackProduct?: ReturnType<typeof getWorkflowProduct>;
     selectedFeedbackProductIds?: string[];
     selectedFeedbackPreview?: WorkflowProductPreview;
+    isExporting?: boolean;
   };
   homeWorkflowDocView?: {
     workflowId: string;
@@ -2205,6 +2207,7 @@ async function buildDashboardSnapshot(args: {
         args.state.selectedFeedbackProductIds,
       ),
       selectedFeedbackPreview,
+      isExporting: args.state.productExportInProgress,
     };
     return finalizeDashboardSnapshot(snapshot);
   }
@@ -2594,6 +2597,7 @@ export async function openTaskManagerDialog(args?: {
     selectedFeedbackProductId: "",
     feedbackSkillFilter: "",
     selectedFeedbackProductIds: new Set(),
+    productExportInProgress: false,
     homeWorkflowDocCacheByWorkflowId: new Map(),
   };
   const initialBackendId = fromBackendTabKey(state.selectedTabKey);
@@ -3458,19 +3462,22 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
     if (action === "open-product-folder") {
+      if (state.productExportInProgress) return;
       const product = getWorkflowProduct(
         String(payload.productId || "").trim(),
       );
       if (!product) return;
-      const selected = await openRuntimeFilePicker({
-        title: localize(
-          "task-dashboard-products-export-title",
-          "Select Product export directory",
-        ),
-        mode: "folder",
-      });
-      if (typeof selected === "string") {
-        try {
+      state.productExportInProgress = true;
+      refresh("user-action");
+      try {
+        const selected = await openRuntimeFilePicker({
+          title: localize(
+            "task-dashboard-products-export-title",
+            "Select Product export directory",
+          ),
+          mode: "folder",
+        });
+        if (typeof selected === "string") {
           await exportWorkflowProductToDirectory({
             productId: product.productId,
             outputDir: selected,
@@ -3478,15 +3485,18 @@ export async function openTaskManagerDialog(args?: {
           openFolderInSystemFileManager(selected, {
             label: "product export folder",
           });
-        } catch (error) {
-          alertRuntimeWindow(
-            localize(
-              "task-dashboard-products-export-failed",
-              "Failed to export Product: {error}",
-              { args: { error: compactError(error) } },
-            ),
-          );
         }
+      } catch (error) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-products-export-failed",
+            "Failed to export Product: {error}",
+            { args: { error: compactError(error) } },
+          ),
+        );
+      } finally {
+        state.productExportInProgress = false;
+        refresh("user-action");
       }
       return;
     }

@@ -95,6 +95,16 @@ describe("dashboard home columns", function () {
     );
   });
 
+  it("serializes normal Product exports and always clears their busy state", async function () {
+    const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
+    assert.include(ts, "productExportInProgress: boolean;");
+    assert.include(ts, "if (state.productExportInProgress)");
+    assert.include(ts, "state.productExportInProgress = true;");
+    assert.include(ts, "state.productExportInProgress = false;");
+    assert.include(ts, "finally");
+    assert.include(ts, "isExporting: args.state.productExportInProgress");
+  });
+
   it("filters stale ACP skill run task rows from the home running list", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
     const activeTasksTs = await readProjectFile(

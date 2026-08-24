@@ -2327,6 +2327,7 @@
       : [];
     const selectedFeedbackIds = new Set(view.selectedFeedbackProductIds || []);
     const selected = view.selectedProduct;
+    const isExporting = view.isExporting === true;
     const toolbar = el("div", "toolbar");
     toolbar.appendChild(
       el("h2", "page-title", labelText(labels, "tabProducts")),
@@ -2354,7 +2355,18 @@
         "btn",
         labelText(labels, "productsOpenWorkspace"),
       );
+      openFolder.disabled = isExporting;
+      openFolder.classList.toggle("is-busy", isExporting);
+      openFolder.setAttribute("aria-busy", isExporting ? "true" : "false");
+      if (isExporting) {
+        const spinner = el("span", "dashboard-button-spinner");
+        spinner.setAttribute("aria-hidden", "true");
+        openFolder.insertBefore(spinner, openFolder.firstChild);
+      }
       openFolder.addEventListener("click", function () {
+        if (isExporting) {
+          return;
+        }
         sendAction("open-product-folder", { productId: selected.productId });
       });
       actions.appendChild(openFolder);
