@@ -1,5 +1,6 @@
 import { createHookHelpers } from "./helpers";
 import { createWorkflowHostApi } from "./hostApi";
+import { resolveWorkflowHostContractVersion } from "./workflowHostContract";
 import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
 import { resolveRuntimeAddon, resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
@@ -144,17 +145,25 @@ function createSelectionRuntime(
     throw new Error("Zotero runtime is unavailable");
   }
   const globalHostApi = (globalThis as Record<string, unknown>).__zsHostApi;
+  const hasGlobalHostApi = Boolean(
+    globalHostApi && typeof globalHostApi === "object",
+  );
+  const currentProjection = !override?.hostApi && !hasGlobalHostApi;
+  const hostApi =
+    override?.hostApi ||
+    (hasGlobalHostApi
+      ? (globalHostApi as WorkflowRuntimeContext["hostApi"])
+      : createWorkflowHostApi());
   return {
     handlers: override?.handlers || handlers,
     zotero,
     helpers: override?.helpers || createHookHelpers(zotero),
-    hostApi:
-      override?.hostApi ||
-      (globalHostApi && typeof globalHostApi === "object"
-        ? (globalHostApi as WorkflowRuntimeContext["hostApi"])
-        : createWorkflowHostApi()),
-    hostApiVersion:
-      typeof override?.hostApiVersion === "number" ? override.hostApiVersion : 0,
+    hostApi,
+    hostApiVersion: resolveWorkflowHostContractVersion({
+      explicitVersion: override?.hostApiVersion,
+      hostApi,
+      currentProjection,
+    }),
     addon:
       typeof override?.addon !== "undefined"
         ? (override.addon ?? null)

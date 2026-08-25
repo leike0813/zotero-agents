@@ -61,8 +61,11 @@ import {
 
 import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
 import { createResearchBundleMaterializer } from "../modules/researchBundleService";
+import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 
-export const WORKFLOW_HOST_API_VERSION = 11;
+export {
+  WORKFLOW_HOST_API_VERSION,
+} from "./workflowHostContract";
 
 function createWorkflowSynthesisHostApi(): SynthesisService {
   const service = getDefaultSynthesisService();
@@ -700,35 +703,6 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     synthesis: createWorkflowSynthesisHostApi(),
   };
   return cachedHostApi;
-}
-
-export function summarizeWorkflowHostApiCapabilities(
-  hostApi?: WorkflowHostApi | null,
-) {
-  return {
-    items: !!hostApi?.items,
-    prefs: !!hostApi?.prefs,
-    parents: !!hostApi?.parents,
-    notes: !!hostApi?.notes,
-    attachments: !!hostApi?.attachments,
-    tags: !!hostApi?.tags,
-    statusTags: !!hostApi?.statusTags,
-    collections: !!hostApi?.collections,
-    editor: !!hostApi?.editor,
-    notifications: !!hostApi?.notifications,
-    logging: !!hostApi?.logging,
-    file: !!hostApi?.file,
-    saveFile: typeof hostApi?.file?.pickSaveFile === "function",
-    archive: !!hostApi?.archive,
-    images: !!hostApi?.images,
-    addon: !!hostApi?.addon,
-    context: !!hostApi?.context,
-    library: !!hostApi?.library,
-    mutations: !!hostApi?.mutations,
-    metadata: !!hostApi?.metadata,
-    researchBundles: !!hostApi?.researchBundles,
-    synthesis: !!hostApi?.synthesis,
-  };
 }
 
 export function resetWorkflowHostApiForTests() {

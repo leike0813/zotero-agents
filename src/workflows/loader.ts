@@ -33,11 +33,11 @@ import {
   resolveRuntimeConsole,
   resolveRuntimeHostCapabilities,
 } from "../utils/runtimeBridge";
+import { createWorkflowHostApi } from "./hostApi";
 import {
-  createWorkflowHostApi,
+  resolveWorkflowHostContractVersion,
   summarizeWorkflowHostApiCapabilities,
-  WORKFLOW_HOST_API_VERSION,
-} from "./hostApi";
+} from "./workflowHostContract";
 import type { WorkflowHookExecutionMode } from "./types";
 
 type WorkflowModuleResourceKind = "official" | "dev-local" | "user";
@@ -247,9 +247,13 @@ async function importHooksModuleFromNode(
 
 function createHostHookScope() {
   const hostCapabilities = resolveRuntimeHostCapabilities();
+  const hostApi = createWorkflowHostApi();
   return {
-    __zsHostApi: createWorkflowHostApi(),
-    __zsHostApiVersion: WORKFLOW_HOST_API_VERSION,
+    __zsHostApi: hostApi,
+    __zsHostApiVersion: resolveWorkflowHostContractVersion({
+      hostApi,
+      currentProjection: true,
+    }),
     fetch: hostCapabilities.fetch,
     Buffer: hostCapabilities.Buffer,
     btoa: hostCapabilities.btoa,
@@ -264,6 +268,9 @@ function createHostHookScope() {
 }
 
 function summarizeHostHookScope(scope: Record<string, unknown>) {
+  const hostApi = scope.__zsHostApi as ReturnType<
+    typeof createWorkflowHostApi
+  >;
   const runtimeCapabilitySummary = summarizeWorkflowRuntimeCapabilities({
     zotero: false,
     addon: false,
@@ -278,11 +285,12 @@ function summarizeHostHookScope(scope: Record<string, unknown>) {
   });
   return {
     runtimeCapabilitySummary,
-    hostApiSummary: summarizeWorkflowHostApiCapabilities(
-      scope.__zsHostApi as ReturnType<typeof createWorkflowHostApi>,
-    ),
-    hostApiVersion:
-      Number(scope.__zsHostApiVersion || 0) || WORKFLOW_HOST_API_VERSION,
+    hostApiSummary: summarizeWorkflowHostApiCapabilities(hostApi),
+    hostApiVersion: resolveWorkflowHostContractVersion({
+      explicitVersion: scope.__zsHostApiVersion,
+      hostApi,
+      currentProjection: true,
+    }),
   };
 }
 

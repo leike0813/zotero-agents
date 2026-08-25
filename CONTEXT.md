@@ -20,6 +20,14 @@ _Avoid_: Workflow hostApi, Host Bridge API, MCP tool registry
 The explicit member-level projection from the canonical broker into `WorkflowHostApi` v11, combined with trusted local workflow services and raw Zotero ref normalization. It is a separate compatibility surface and must not receive whole broker domains implicitly.
 _Avoid_: Broker alias, common host API, universal host facade
 
+**Workflow Host Contract Identity**:
+The current Workflow Host version and its declared top-level capabilities and diagnostic flags. Package compatibility ranges, hook execution modes, and observed runtime availability are separate concepts.
+_Avoid_: Capability summary, package compatibility policy, hook execution mode
+
+**Workflow Host Contract Variant**:
+The interactive or non-interactive availability rules applied to the Workflow Host API Projection. A variant defines which declared capabilities must be present without changing how workflow hooks are loaded.
+_Avoid_: Hook execution mode, package load mode, runtime backend
+
 **Research Bundle Materialization**:
 The canonical conversion of selected paper refs into portable metadata, one preferred source, the standard analysis artifacts, and structured per-paper availability diagnostics. Selection roles, Product layout and registration, and direct-export delivery are separate concerns.
 _Avoid_: Workflow bundle builder, direct-export packager, Research Bundle service

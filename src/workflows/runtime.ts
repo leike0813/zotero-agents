@@ -16,11 +16,11 @@ import {
   emitWorkflowPackageDiagnostic,
   summarizeWorkflowRuntimeCapabilities,
 } from "../modules/workflowPackageDiagnostics";
+import { createWorkflowHostApi } from "./hostApi";
 import {
-  createWorkflowHostApi,
+  resolveWorkflowHostContractVersion,
   summarizeWorkflowHostApiCapabilities,
-  WORKFLOW_HOST_API_VERSION,
-} from "./hostApi";
+} from "./workflowHostContract";
 import { assertRequestPayloadContract } from "../providers/requestContracts";
 import {
   attachWorkflowHookFailureMeta,
@@ -468,6 +468,15 @@ function createRuntimeContext(
 ): WorkflowRuntimeContext {
   const hostCapabilities = resolveRuntimeHostCapabilities();
   const globalHostApi = (globalThis as Record<string, unknown>).__zsHostApi;
+  const hasGlobalHostApi = Boolean(
+    globalHostApi && typeof globalHostApi === "object",
+  );
+  const currentProjection = !override?.hostApi && !hasGlobalHostApi;
+  const hostApi =
+    override?.hostApi ||
+    (hasGlobalHostApi
+      ? (globalHostApi as ReturnType<typeof createWorkflowHostApi>)
+      : createWorkflowHostApi());
   const zotero =
     override?.zotero ||
     resolveRuntimeZotero() ||
@@ -479,15 +488,12 @@ function createRuntimeContext(
     handlers: override?.handlers || handlers,
     zotero,
     helpers: override?.helpers || createHookHelpers(zotero),
-    hostApi:
-      override?.hostApi ||
-      (globalHostApi && typeof globalHostApi === "object"
-        ? (globalHostApi as ReturnType<typeof createWorkflowHostApi>)
-        : createWorkflowHostApi()),
-    hostApiVersion:
-      typeof override?.hostApiVersion === "number"
-        ? override.hostApiVersion
-        : WORKFLOW_HOST_API_VERSION,
+    hostApi,
+    hostApiVersion: resolveWorkflowHostContractVersion({
+      explicitVersion: override?.hostApiVersion,
+      hostApi,
+      currentProjection,
+    }),
     invocationMode:
       override?.invocationMode === "non-interactive"
         ? "non-interactive"

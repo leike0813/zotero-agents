@@ -15,6 +15,13 @@ The stable layering is:
 
 The architecture has one fact source and deliberately separate public surfaces. Adding a broker member does not implicitly expose it to workflows, Host Bridge, or MCP.
 
+`src/workflows/workflowHostContract.ts` owns the Workflow Host Contract
+Identity: the current version, declared top-level capability identities,
+diagnostic availability probes, version resolution, and contract-variant
+conformance. Capability summaries observe a selected projection; they do not
+define its identity. Package compatibility ranges and hook execution modes are
+separate policies owned by their respective adapters.
+
 ## Current Facts
 
 `handlers` covers a finite write-oriented DSL:
@@ -58,6 +65,11 @@ The canonical broker has five domains:
 
 Workflow runtime currently exposes both `runtime.handlers` and `runtime.hostApi`.
 
+The interactive Workflow Host Contract Variant may omit `resources`. The
+Host Bridge non-interactive variant must provide `resources`; it keeps picker
+and editor members structurally available while interaction attempts fail with
+`workflow_interaction_required`.
+
 ## Ownership Rules
 
 `handlers` remains available to trusted workflow hooks. It should continue to focus on safe, tested mutation primitives and should not grow into an unbounded mirror of Zotero native APIs.
@@ -65,6 +77,12 @@ Workflow runtime currently exposes both `runtime.handlers` and `runtime.hostApi`
 `ZoteroHostCapabilityBroker` owns only JSON-safe capability semantics and effects. It is stateless: `createZoteroHostCapabilityBroker()` creates an implementation and `resolveZoteroHostCapabilityBroker()` resolves the default implementation without singleton identity, caching, reset state, or a runtime version number. Its public refs are portable JSON refs; raw `Zotero.Item` and `Zotero.Collection` inputs are rejected.
 
 `WorkflowHostApi` owns trusted workflow compatibility. Its adapter accepts raw Zotero item and collection refs where v11 already promises them, normalizes those refs before calling the broker, and returns workflow-specific local services unchanged. The projection uses explicit object literals and member-level types; whole broker domains, spreads, proxies, and capability catalogs are forbidden.
+
+Workflow Host conformance is strict at test and build seams: a current variant
+may not omit a required declared capability or expose an undeclared top-level
+capability. Production diagnostics report observed availability and retain
+on-demand capability failures; they do not reject an entire projection before
+a capability is requested.
 
 `src/workflows/hostApi.ts` is the explicit composition root for those local
 services. Runtime filesystem adaptation, input-file materialization, file
