@@ -166,6 +166,16 @@
 - ACP transcript message coalescing 必须是协议/语义级通用逻辑，不得按 backend id、provider id、agent family、命令名或具体后端产品字符串做特判。
 - ACP Chat 与 ACP Skills 共享同一类 transcript boundary 分类；新增或修改 session update kind 时必须同步审查两条路径的 message coalescing 行为。
 
+# Zotero Host Capability Broker硬约束
+
+- `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。
+- broker 公共输入只接受 portable JSON refs，公共 DTO 只允许 strict JSON 值；raw `Zotero.Item` / `Zotero.Collection` 仅可由 `src/workflows/hostApi.ts` 在 Workflow Host API v11 adapter 内归一化。
+- `WorkflowHostApi` 必须通过 member-level `Pick` 和显式对象字面量投影 broker；不得传播整个 broker domain，不得使用 spread、proxy、运行时 capability catalog 或隐式成员继承。
+- broker 不负责 authorization、permission、exposure、noninteractive policy、transport 或 remote locality；这些规则属于 Host Bridge/MCP adapter。
+- Host Bridge 是 attachment remote locality 的唯一 adapter。`library.get_item_attachments` 与 `mutation.execute` 的 attachment 输出必须共用同一投影，删除本地 `path`，只返回 opaque file handle 或 unavailable；MCP 必须复用 Host Bridge handler，不得另建路径策略。
+- broker 失败统一使用 `ZoteroHostCapabilityError` 的稳定 `code`、`retryable` 和 strict-JSON `details`；不得把 raw ref、native cause 或宿主对象放入错误详情。
+- broker 测试替身必须完整且 fail-closed；不得用 partial object、`as any` 或默认真实 Zotero runtime 掩盖未配置能力。
+
 # 发布流程硬约束
 
 - Host Bridge 发布只能由 Agent 在版本、release set、本地门禁和用户授权明确后，通过 `npm run release:host-bridge:dispatch` 显式触发；普通 `main` push 和 CI 不得触发发布。

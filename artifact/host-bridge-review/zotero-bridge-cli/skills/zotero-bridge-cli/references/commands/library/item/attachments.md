@@ -185,6 +185,16 @@ zotero-bridge library item attachments [--endpoint <ENDPOINT>] [--operation-id <
       "description": "Result data owned by library.get_item_attachments.",
       "properties": {
         "attachments": {
+          "items": {
+            "additionalProperties": true,
+            "not": {
+              "required": [
+                "path"
+              ]
+            },
+            "type": "object",
+            "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+          },
           "type": "array"
         },
         "hasMore": {
@@ -572,6 +582,16 @@ zotero-bridge library item attachments [--endpoint <ENDPOINT>] [--operation-id <
         "description": "Result data owned by library.get_item_attachments.",
         "properties": {
           "attachments": {
+            "items": {
+              "additionalProperties": true,
+              "not": {
+                "required": [
+                  "path"
+                ]
+              },
+              "type": "object",
+              "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+            },
             "type": "array"
           },
           "hasMore": {

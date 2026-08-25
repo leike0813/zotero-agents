@@ -86,11 +86,6 @@ describe("Zotero MCP concurrency queue policy in Zotero runtime", function () {
     }
     const tempItem = await createTempItem("MCP Queue Policy Runtime Probe");
     const token = configureZoteroMcpServerForTests({
-      resolveHostContext: () => ({
-        target: "library",
-        libraryId: String(Zotero.Libraries.userLibraryID || 1),
-        selectionEmpty: true,
-      }),
       requestToolPermission: () => ({
         outcome: "approved",
       }),

@@ -1745,7 +1745,15 @@
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
         "properties": {
           "attachments": {
-            "type": "array"
+            "type": "array",
+            "items": {
+              "type": "object",
+              "not": {
+                "required": ["path"]
+              },
+              "additionalProperties": true,
+              "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+            }
           },
           "nextCursor": {
             "type": ["string", "null"]
@@ -2835,7 +2843,27 @@
         "type": "object",
         "description": "Result data owned by mutation.execute.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "result": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "Mutation operations own result fields, while attachment file access is exposed through issued transfer descriptors.",
+            "properties": {
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "not": {
+                    "required": ["path"]
+                  },
+                  "additionalProperties": true,
+                  "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+                }
+              }
+            }
+          }
+        }
       },
       "effect": "state-change",
       "approval": "zotero-ui-required",

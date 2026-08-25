@@ -1,5 +1,7 @@
 import type {
   ZoteroHostAttachmentDto,
+  ZoteroHostCapabilityBroker,
+  ZoteroHostCollectionRefInput,
   ZoteroHostCurrentViewDto,
   ZoteroHostItemDetailDto,
   ZoteroHostItemRefInput,
@@ -20,6 +22,74 @@ import type {
   ZoteroHostNotePayloadDetailDto,
   ZoteroHostNotePayloadSummaryDto,
 } from "../modules/zoteroHostCapabilityBroker";
+
+export type WorkflowHostItemRefInput = ZoteroHostItemRefInput | Zotero.Item;
+export type WorkflowHostCollectionRefInput =
+  | ZoteroHostCollectionRefInput
+  | Zotero.Collection;
+
+export type WorkflowHostMutationRequest = Omit<
+  ZoteroHostMutationRequest,
+  "target" | "targets" | "item" | "items" | "parent" | "note" | "collection"
+> & {
+  target?: WorkflowHostItemRefInput;
+  targets?: WorkflowHostItemRefInput[];
+  item?: WorkflowHostItemRefInput;
+  items?: WorkflowHostItemRefInput[];
+  parent?: WorkflowHostItemRefInput;
+  note?: WorkflowHostItemRefInput;
+  collection?: WorkflowHostCollectionRefInput;
+};
+
+type WorkflowHostContextApi = Pick<
+  ZoteroHostCapabilityBroker["context"],
+  "getCurrentView" | "getSelectedItems"
+>;
+
+type WorkflowHostLibraryApi = Pick<
+  ZoteroHostCapabilityBroker["library"],
+  "listItems" | "syncSnapshot" | "searchItems"
+> & {
+  getItemDetail(
+    ref: WorkflowHostItemRefInput,
+  ): ReturnType<ZoteroHostCapabilityBroker["library"]["getItemDetail"]>;
+  getItemNotes(
+    ref: WorkflowHostItemRefInput,
+    args?: Parameters<
+      ZoteroHostCapabilityBroker["library"]["getItemNotes"]
+    >[1],
+  ): ReturnType<ZoteroHostCapabilityBroker["library"]["getItemNotes"]>;
+  getNoteDetail(
+    ref: WorkflowHostItemRefInput,
+    args?: ZoteroHostNoteDetailArgs,
+  ): ReturnType<ZoteroHostCapabilityBroker["library"]["getNoteDetail"]>;
+  listNotePayloads(
+    ref: WorkflowHostItemRefInput,
+  ): ReturnType<ZoteroHostCapabilityBroker["library"]["listNotePayloads"]>;
+  getNotePayload(
+    ref: WorkflowHostItemRefInput,
+    args?: ZoteroHostNotePayloadDetailArgs,
+  ): ReturnType<ZoteroHostCapabilityBroker["library"]["getNotePayload"]>;
+  getItemAttachments(
+    ref: WorkflowHostItemRefInput,
+  ): ReturnType<
+    ZoteroHostCapabilityBroker["library"]["getItemAttachments"]
+  >;
+};
+
+type WorkflowHostMutationApi = {
+  preview(
+    request: WorkflowHostMutationRequest,
+  ): ReturnType<ZoteroHostCapabilityBroker["mutations"]["preview"]>;
+  execute(
+    request: WorkflowHostMutationRequest,
+  ): ReturnType<ZoteroHostCapabilityBroker["mutations"]["execute"]>;
+};
+
+type WorkflowHostMetadataApi = Pick<
+  ZoteroHostCapabilityBroker["metadata"],
+  "translateIdentifier"
+>;
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 import type { ProductStorageApi } from "../modules/workflowProductStore";
 import type { SynthesisService } from "../modules/synthesis/service";
@@ -510,59 +580,10 @@ export type WorkflowHostApi = {
     }) => Promise<Zotero.Item>;
     remove: (ref: Zotero.Item | number | string) => Promise<void>;
   };
-  context: {
-    getCurrentView: () => ZoteroHostCurrentViewDto;
-    getSelectedItems: () => ZoteroHostItemSummaryDto[];
-  };
-  library: {
-    listItems: (
-      args: ZoteroHostLibraryListArgs,
-    ) => Promise<ZoteroHostLibraryListResponse>;
-    syncSnapshot: (
-      args: ZoteroHostLibraryListArgs,
-    ) => Promise<ZoteroHostLibrarySyncSnapshotResponse>;
-    searchItems: (
-      args: ZoteroHostItemSearchArgs,
-    ) => Promise<ZoteroHostItemSummaryDto[]>;
-    getItemDetail: (
-      ref: ZoteroHostItemRefInput,
-    ) => Promise<ZoteroHostItemDetailDto | null>;
-    getItemNotes: (
-      ref: ZoteroHostItemRefInput,
-      args?: {
-        limit?: number | string;
-        cursor?: number | string;
-        maxExcerptChars?: number | string;
-      },
-    ) => Promise<ZoteroHostNoteDto[]>;
-    getNoteDetail: (
-      ref: ZoteroHostItemRefInput,
-      args?: ZoteroHostNoteDetailArgs,
-    ) => Promise<ZoteroHostNoteDetailChunkDto>;
-    listNotePayloads: (
-      ref: ZoteroHostItemRefInput,
-    ) => Promise<ZoteroHostNotePayloadSummaryDto[]>;
-    getNotePayload: (
-      ref: ZoteroHostItemRefInput,
-      args?: ZoteroHostNotePayloadDetailArgs,
-    ) => Promise<ZoteroHostNotePayloadDetailDto>;
-    getItemAttachments: (
-      ref: ZoteroHostItemRefInput,
-    ) => Promise<ZoteroHostAttachmentDto[]>;
-  };
-  mutations: {
-    preview: (
-      request: ZoteroHostMutationRequest,
-    ) => Promise<ZoteroHostMutationPreviewResponse>;
-    execute: (
-      request: ZoteroHostMutationRequest,
-    ) => Promise<ZoteroHostMutationExecuteResponse>;
-  };
-  metadata: {
-    translateIdentifier: (
-      args: ZoteroHostMetadataTranslateIdentifierArgs,
-    ) => Promise<ZoteroHostMetadataTranslateIdentifierResponse>;
-  };
+  context: WorkflowHostContextApi;
+  library: WorkflowHostLibraryApi;
+  mutations: WorkflowHostMutationApi;
+  metadata: WorkflowHostMetadataApi;
   researchBundles: {
     materializePapers: (args: {
       papers: Array<{ paperRef: string }>;

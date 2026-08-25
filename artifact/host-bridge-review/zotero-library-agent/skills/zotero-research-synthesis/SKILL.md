@@ -68,6 +68,18 @@ There is no safe default for source inclusion, topic identity, maintenance scope
 
 本地 Host 连接要求目标目录不存在或为空，并验证生成的 `manifest.json`、`index.md`、请求的报告/论文清单和诊断。远程连接不得发送客户端本地输出路径：保留返回的 bridge-download handle，执行所提供的下载步骤，验证返回的大小/checksum 证据，并且只在字节验证后解包。不得仅根据 handle 签发报告完成。handle 过期时，用同一组已验证选择器重新执行只读导出；本地目标非空时，选择新的或已清空的目录，不得覆盖。
 
+### 在综合前规划文库主题结构
+
+当用户希望整理当前文库，或希望多个相关 Topic 共用一套连贯图结构时，应先运行实时描述的 Topic Planner workflow，再创建任何 Topic synthesis。规划器负责全库比较：读取完整的当前规划上下文，对照已物化 Topic 与 Planned Topic 衡量每篇文库论文，并一次性返回 Planned Topic 定义与关系提案的协调结果。Planned Topic 是可复用的骨架，具有稳定 topic ID、定义、scope、resolver、revision、basis 和 lifecycle。它不包含临时论文成员，也不能证明 synthesis report 已存在。
+
+截断的内联规划上下文是不完整的。请求 workflow 支持的完整文件交付，校验 library-index 与 Topic Graph 的 basis hash，并保留 coverage manifest。只能通过该 workflow 的 result hook 应用规划结果。Graph compare-and-swap 冲突意味着整个计划均未应用：获取新的规划上下文后重新运行规划器。Library drift 可能使图协调已经应用、但 coverage 过时；应报告该状态，并在依赖旧 denominator 之前重新规划。通过新的读取验证生成的 Planned Topic identity、lifecycle state 和建议关系。
+
+一份规划持久化后，可以用多个独立的 Create Topic Synthesis run 物化其中活动的 Planned Topic，也可以并行执行。每个 run 都必须选择 Planned Topic identity，重新读取当前 definition 与 resolver，在执行时解析 membership，并物化相同的 topic ID。不得把 Planned Topic 复制成新的 ad hoc identity。过时的 Planned Topic 在后续 planner reconciliation 重新激活前不可填充。Ad hoc creation 适用于孤立的用户种子；不得悄悄替代用户要求的全库规划。
+
+把自由形式的 Create Topic Synthesis seed 视为 topic intent，不能据此认定需要新 topic identity。Prepare 阶段必须先检查完整 topic inventory：若已有 materialized Topic 表示相同 identity，则取消；否则自动选择 definition 与 scope 能在不扩大、缩小或改写意图的前提下接纳该意图的最佳 active Planned Topic；仅当两类匹配都不存在时才从头创建。相关 Topic、parent scope 与 child scope 不能互换为 identity match。若多个 active Planned Topic 都通过 same-identity 检查，优先选择 definition-and-scope 最匹配者，alias 与 title 仅作为次要证据。Runtime 必须在执行 resolver 前立即重新读取选中的 Planned Topic；如果它已不再 active 或不完整，应取消并基于当前状态重跑，不得回退到 ad hoc creation。
+
+规划器可以建议更新 materialized Topic，但不能直接改写它们。每项获准建议都应通过 Update Topic Synthesis。即使没有新增论文，digest、literature score、dependency、resolver result 或 triage state 的变化仍可能要求重新计算。Planner、Create 或 Update 的 terminal run state 不能代替对更新后 report 与 Topic Graph result 的独立验证。
+
 ### Establish source and model boundary
 
 1. State the research question, inclusion and exclusion rule, required freshness, and intended deliverable. Resolve every source ref and the exact topic, graph, index, resolver selector, artifact, Product, or schema used.

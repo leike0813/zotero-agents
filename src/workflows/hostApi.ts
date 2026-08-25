@@ -10,7 +10,12 @@ import {
   releaseLeakProbeTempArtifactForTests,
 } from "../modules/testLeakProbeTempArtifacts";
 import { recordTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
-import { createZoteroHostCapabilityBrokerApis } from "../modules/zoteroHostCapabilityBroker";
+import {
+  createZoteroHostCapabilityBroker,
+  type ZoteroHostCollectionRefInput,
+  type ZoteroHostItemRefInput,
+  type ZoteroHostMutationRequest,
+} from "../modules/zoteroHostCapabilityBroker";
 import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
 import {
   copyRuntimeFile,
@@ -38,7 +43,10 @@ import {
 } from "../platform/filePicker";
 import type {
   WorkflowHostApi,
+  WorkflowHostCollectionRefInput,
   WorkflowImagePreparationOptions,
+  WorkflowHostItemRefInput,
+  WorkflowHostMutationRequest,
   WorkflowPreparedNoteImage,
 } from "./types";
 import { createWorkflowArchiveApi } from "./archive";
@@ -946,13 +954,138 @@ async function openNativeMultiFilePicker(args: {
   }
 }
 
+function toBrokerItemRef(
+  ref: WorkflowHostItemRefInput,
+): ZoteroHostItemRefInput {
+  if (typeof ref === "number" || typeof ref === "string") {
+    return ref;
+  }
+  const candidate = ref as {
+    id?: unknown;
+    key?: unknown;
+    libraryId?: unknown;
+    libraryID?: unknown;
+  };
+  const id = Number(candidate.id);
+  if (Number.isFinite(id) && id > 0) {
+    return Math.floor(id);
+  }
+  const key = typeof candidate.key === "string" ? candidate.key.trim() : "";
+  if (key) {
+    const libraryId = Number(candidate.libraryId ?? candidate.libraryID);
+    return {
+      key,
+      ...(Number.isFinite(libraryId) && libraryId > 0
+        ? { libraryId: Math.floor(libraryId) }
+        : {}),
+    };
+  }
+  throw new Error("Workflow item ref cannot be normalized to a portable ref");
+}
+
+function toBrokerCollectionRef(
+  ref: WorkflowHostCollectionRefInput,
+): ZoteroHostCollectionRefInput {
+  if (typeof ref === "number" || typeof ref === "string") {
+    return ref;
+  }
+  const candidate = ref as {
+    id?: unknown;
+    key?: unknown;
+    libraryId?: unknown;
+    libraryID?: unknown;
+  };
+  const id = Number(candidate.id);
+  if (Number.isFinite(id) && id > 0) {
+    return Math.floor(id);
+  }
+  const key = typeof candidate.key === "string" ? candidate.key.trim() : "";
+  if (key) {
+    const libraryId = Number(candidate.libraryId ?? candidate.libraryID);
+    return {
+      key,
+      ...(Number.isFinite(libraryId) && libraryId > 0
+        ? { libraryId: Math.floor(libraryId) }
+        : {}),
+    };
+  }
+  throw new Error(
+    "Workflow collection ref cannot be normalized to a portable ref",
+  );
+}
+
+function toBrokerMutationRequest(
+  request: WorkflowHostMutationRequest,
+): ZoteroHostMutationRequest {
+  return {
+    ...request,
+    ...(request.target !== undefined
+      ? { target: toBrokerItemRef(request.target) }
+      : {}),
+    ...(request.targets !== undefined
+      ? { targets: request.targets.map(toBrokerItemRef) }
+      : {}),
+    ...(request.item !== undefined
+      ? { item: toBrokerItemRef(request.item) }
+      : {}),
+    ...(request.items !== undefined
+      ? { items: request.items.map(toBrokerItemRef) }
+      : {}),
+    ...(request.parent !== undefined
+      ? { parent: toBrokerItemRef(request.parent) }
+      : {}),
+    ...(request.note !== undefined
+      ? { note: toBrokerItemRef(request.note) }
+      : {}),
+    ...(request.collection !== undefined
+      ? { collection: toBrokerCollectionRef(request.collection) }
+      : {}),
+  };
+}
+
 let cachedHostApi: WorkflowHostApi | null = null;
 
 export function createWorkflowHostApi(): WorkflowHostApi {
   if (cachedHostApi) {
     return cachedHostApi;
   }
-  const zoteroBroker = createZoteroHostCapabilityBrokerApis();
+  const zoteroBroker = createZoteroHostCapabilityBroker();
+  const context = {
+    getCurrentView: zoteroBroker.context.getCurrentView,
+    getSelectedItems: zoteroBroker.context.getSelectedItems,
+  } satisfies WorkflowHostApi["context"];
+  const library = {
+    listItems: zoteroBroker.library.listItems,
+    syncSnapshot: zoteroBroker.library.syncSnapshot,
+    searchItems: zoteroBroker.library.searchItems,
+    getItemDetail: (ref: WorkflowHostItemRefInput) =>
+      zoteroBroker.library.getItemDetail(toBrokerItemRef(ref)),
+    getItemNotes: (
+      ref: WorkflowHostItemRefInput,
+      args?: Parameters<WorkflowHostApi["library"]["getItemNotes"]>[1],
+    ) => zoteroBroker.library.getItemNotes(toBrokerItemRef(ref), args),
+    getNoteDetail: (
+      ref: WorkflowHostItemRefInput,
+      args?: Parameters<WorkflowHostApi["library"]["getNoteDetail"]>[1],
+    ) => zoteroBroker.library.getNoteDetail(toBrokerItemRef(ref), args),
+    listNotePayloads: (ref: WorkflowHostItemRefInput) =>
+      zoteroBroker.library.listNotePayloads(toBrokerItemRef(ref)),
+    getNotePayload: (
+      ref: WorkflowHostItemRefInput,
+      args?: Parameters<WorkflowHostApi["library"]["getNotePayload"]>[1],
+    ) => zoteroBroker.library.getNotePayload(toBrokerItemRef(ref), args),
+    getItemAttachments: (ref: WorkflowHostItemRefInput) =>
+      zoteroBroker.library.getItemAttachments(toBrokerItemRef(ref)),
+  } satisfies WorkflowHostApi["library"];
+  const mutations = {
+    preview: (request: WorkflowHostMutationRequest) =>
+      zoteroBroker.mutations.preview(toBrokerMutationRequest(request)),
+    execute: (request: WorkflowHostMutationRequest) =>
+      zoteroBroker.mutations.execute(toBrokerMutationRequest(request)),
+  } satisfies WorkflowHostApi["mutations"];
+  const metadata = {
+    translateIdentifier: zoteroBroker.metadata.translateIdentifier,
+  } satisfies WorkflowHostApi["metadata"];
   cachedHostApi = {
     version: WORKFLOW_HOST_API_VERSION,
     addon: {
@@ -1004,10 +1137,10 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         return handlers.item.remove(ref);
       },
     },
-    context: zoteroBroker.context,
-    library: zoteroBroker.library,
-    mutations: zoteroBroker.mutations,
-    metadata: zoteroBroker.metadata,
+    context,
+    library,
+    mutations,
+    metadata,
     researchBundles: {
       async materializePapers(args) {
         const papers: DirectResearchBundlePaper[] = [];

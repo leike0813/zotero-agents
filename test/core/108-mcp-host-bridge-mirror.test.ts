@@ -7,6 +7,7 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
 import { setPref } from "../../src/utils/prefs";
+import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -85,6 +86,73 @@ describe("MCP Host Bridge capability mirror", function () {
       response.result.structuredContent.data.status,
       "running",
     );
+  });
+
+  it("projects mutation attachments without host-local paths", async function () {
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      mutations: {
+        async preview(request) {
+          return {
+            ok: true,
+            operation: request.operation,
+            targetRefs: [],
+            summary: "Attach file",
+            warnings: [],
+            requiresConfirmation: true,
+          };
+        },
+        async execute(request) {
+          return {
+            ok: true,
+            operation: request.operation,
+            targetRefs: [],
+            summary: "Attached file",
+            warnings: [],
+            requiresConfirmation: true,
+            result: {
+              attachments: [
+                {
+                  id: 42,
+                  key: "ATTACHMENT",
+                  libraryId: 1,
+                  title: "Attachment",
+                  contentType: "application/pdf",
+                  filename: "paper.pdf",
+                  path: `${process.cwd()}/package.json`,
+                },
+              ],
+            },
+          };
+        },
+      },
+    });
+    const response: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "attach",
+        method: "tools/call",
+        params: {
+          name: "mutation.execute",
+          arguments: {
+            operation: "item.attachFile",
+            item: 1,
+            fileId: "uploaded-file",
+          },
+        },
+      },
+      {
+        resolveZoteroHostCapabilityBroker: () => broker,
+        requestToolPermission: () => true,
+      },
+    );
+
+    const attachment =
+      response.result.structuredContent.data.result.attachments[0];
+    assert.notProperty(attachment, "path");
+    assert.oneOf(attachment.access.mode, ["bridge-download", "unavailable"]);
+    if (attachment.access.mode === "bridge-download") {
+      assert.isString(attachment.access.file.fileId);
+    }
   });
 
   it("uses the Host Bridge bearer token for MCP HTTP requests", async function () {

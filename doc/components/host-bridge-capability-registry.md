@@ -41,7 +41,7 @@ type HostBridgeCapabilityDefinition =
 type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
-  resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
+  resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisService?: () => SynthesisMcpService;
 };
 ```
@@ -50,6 +50,12 @@ type HostBridgeCapabilityContext = {
 contract entry for an ID and attaching one private handler. The handler receives
 the already validated input and a context object providing connection mode,
 Host Bridge status, and optional broker or Synthesis services.
+
+Zotero capability handlers resolve the canonical broker directly. The registry
+does not depend on `WorkflowHostApi`, and MCP calls the same handlers instead of
+maintaining a second tool implementation. The registry also owns the remote
+attachment projection: library reads and mutation results both remove local
+paths before returning opaque Host Bridge file handles.
 
 ---
 

@@ -90,7 +90,7 @@ describe("Host Bridge agent surface contract", function () {
       Object.keys(registry.commands).sort(),
       catalog.commandInventory.map((entry) => entry.command).sort(),
     );
-    assert.lengthOf(Object.keys(registry.commands), 129);
+    assert.lengthOf(Object.keys(registry.commands), 130);
     assert.notInclude(
       Object.values<any>(registry.commands).map(
         (entry) => entry.outputBoundary.strategy,
@@ -305,13 +305,13 @@ describe("Host Bridge agent surface contract", function () {
     }
   });
 
-  it("keeps all 129 output boundaries executable and continuation-complete", function () {
+  it("keeps all 130 output boundaries executable and continuation-complete", function () {
     const registry = loadHostBridgeCommandContracts();
     const catalog = buildHostBridgeSurfaceCatalog();
     const inventory = new Map(
       catalog.commandInventory.map((entry) => [entry.command, entry]),
     );
-    assert.lengthOf(Object.keys(registry.commands), 129);
+    assert.lengthOf(Object.keys(registry.commands), 130);
 
     for (const [command, contract] of Object.entries(registry.commands)) {
       const boundary = contract.outputBoundary;
@@ -435,7 +435,7 @@ describe("Host Bridge agent surface contract", function () {
 
     assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v6");
     assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v5");
-    assert.lengthOf(catalog.commandInventory, 129);
+    assert.lengthOf(catalog.commandInventory, 130);
     assert.isNotEmpty(descriptor.globalOptions);
     assert.isTrue(
       descriptor.globalOptions.every((entry) => Boolean(entry.help)),
@@ -464,7 +464,7 @@ describe("Host Bridge agent surface contract", function () {
     const commands = new Map(
       descriptor.commands.map((entry) => [entry.command, entry]),
     );
-    assert.strictEqual(commands.size, 129);
+    assert.strictEqual(commands.size, 130);
     assert.deepInclude(commands.get("run list")!.outputBoundary, {
       strategy: "cursor",
       section: "items",

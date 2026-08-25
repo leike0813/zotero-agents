@@ -42,7 +42,8 @@ import type {
   HostBridgeStatusSnapshot,
 } from "./hostBridgeProtocol";
 import {
-  createZoteroHostCapabilityBrokerApis,
+  resolveZoteroHostCapabilityBroker,
+  type ZoteroHostCapabilityBroker,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
   type ZoteroHostMutationRequest,
@@ -66,13 +67,9 @@ import {
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
-  resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
+  resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisService?: () => SynthesisMcpService;
 };
-
-export type ZoteroHostCapabilityBrokerApis = ReturnType<
-  typeof createZoteroHostCapabilityBrokerApis
->;
 
 export type JsonSerializableValue =
   | null
@@ -256,19 +253,17 @@ function toBridgeAttachmentDescriptor(
   };
 }
 
-function resolveHostBridgeApis(context: HostBridgeCapabilityContext) {
+function resolveCapabilityBroker(context: HostBridgeCapabilityContext) {
   return (
-    context.resolveHostBridgeApis?.() || createZoteroHostCapabilityBrokerApis()
+    context.resolveZoteroHostCapabilityBroker?.() ||
+    resolveZoteroHostCapabilityBroker()
   );
 }
 
-async function toBridgeAttachmentDescriptorsWithContext(
-  input: unknown,
-  context: HostBridgeCapabilityContext,
+async function toBridgeAttachmentDescriptors(
+  attachments: ZoteroHostAttachmentDto[],
+  capability: "library.get_item_attachments" | "mutation.execute",
 ) {
-  const attachments = await resolveHostBridgeApis(
-    context,
-  ).library.getItemAttachments(itemRefFromInput(input));
   const registerable = attachments.filter(
     (attachment) =>
       String(attachment.path || "").trim() && !attachment.errors?.length,
@@ -280,7 +275,7 @@ async function toBridgeAttachmentDescriptorsWithContext(
       displayName: attachment.filename || attachment.title,
       contentType: attachment.contentType,
       owner: {
-        capability: "library.get_item_attachments",
+        capability,
         itemKey: attachment.parent?.key || attachment.key,
         libraryId: attachment.libraryId,
       },
@@ -295,6 +290,41 @@ async function toBridgeAttachmentDescriptorsWithContext(
       canRegister ? files[fileIndex++] : undefined,
     );
   });
+}
+
+async function toBridgeAttachmentDescriptorsWithContext(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const attachments = await resolveCapabilityBroker(
+    context,
+  ).library.getItemAttachments(itemRefFromInput(input));
+  return toBridgeAttachmentDescriptors(
+    attachments,
+    "library.get_item_attachments",
+  );
+}
+
+async function executeMutationWithBridgeProjection(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const response = await resolveCapabilityBroker(context).mutations.execute(
+    asObject(input) as ZoteroHostMutationRequest,
+  );
+  if (!response.ok || !response.result.attachments?.length) {
+    return response;
+  }
+  return {
+    ...response,
+    result: {
+      ...response.result,
+      attachments: await toBridgeAttachmentDescriptors(
+        response.result.attachments,
+        "mutation.execute",
+      ),
+    },
+  };
 }
 
 function capability(
@@ -1300,10 +1330,10 @@ async function callSynthesisDebugService(methodName: string, input: unknown) {
 
 const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("context.get_current_view", (_input, context) =>
-    resolveHostBridgeApis(context).context.getCurrentView(),
+    resolveCapabilityBroker(context).context.getCurrentView(),
   ),
   capability("context.get_selected_items", (_input, context) => {
-    const items = resolveHostBridgeApis(context).context.getSelectedItems();
+    const items = resolveCapabilityBroker(context).context.getSelectedItems();
     return {
       items,
       nextCursor: null,
@@ -1314,7 +1344,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     };
   }),
   capability("library.search_items", async (input, context) => {
-    const page = await resolveHostBridgeApis(context).library.listItems(
+    const page = await resolveCapabilityBroker(context).library.listItems(
       asObject(input) as {
         query: string;
         limit?: number | string;
@@ -1327,22 +1357,22 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     };
   }),
   capability("library.list_items", (input, context) =>
-    resolveHostBridgeApis(context).library.listItems(
+    resolveCapabilityBroker(context).library.listItems(
       libraryListArgsFromInput(input),
     ),
   ),
   capability("library.sync_snapshot", (input, context) =>
-    resolveHostBridgeApis(context).library.syncSnapshot(
+    resolveCapabilityBroker(context).library.syncSnapshot(
       libraryListArgsFromInput(input),
     ),
   ),
   capability("library.readiness_audit", (input, context) =>
-    resolveHostBridgeApis(context).library.readinessAudit(
+    resolveCapabilityBroker(context).library.readinessAudit(
       libraryListArgsFromInput(input),
     ),
   ),
   capability("library.get_item_detail", (input, context) =>
-    resolveHostBridgeApis(context).library.getItemDetail(
+    resolveCapabilityBroker(context).library.getItemDetail(
       itemRefFromInput(input),
     ),
   ),
@@ -1351,7 +1381,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     const notes = [];
     const sourceLimit = 100;
     for (let cursor = 0; ; cursor += sourceLimit) {
-      const batch = await resolveHostBridgeApis(context).library.getItemNotes(
+      const batch = await resolveCapabilityBroker(context).library.getItemNotes(
         itemRefFromInput(input),
         {
           ...object,
@@ -1370,7 +1400,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     });
   }),
   capability("library.get_note_detail", (input, context) =>
-    resolveHostBridgeApis(context).library.getNoteDetail(
+    resolveCapabilityBroker(context).library.getNoteDetail(
       itemRefFromInput(input),
       asObject(input) as ZoteroHostNoteDetailArgs,
     ),
@@ -1380,13 +1410,13 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       scope: "library note payloads",
       section: "payloads",
       input: asObject(input),
-      rows: await resolveHostBridgeApis(context).library.listNotePayloads(
+      rows: await resolveCapabilityBroker(context).library.listNotePayloads(
         itemRefFromInput(input),
       ),
     }),
   ),
   capability("library.get_note_payload", (input, context) =>
-    resolveHostBridgeApis(context).library.getNotePayload(
+    resolveCapabilityBroker(context).library.getNotePayload(
       itemRefFromInput(input),
       asObject(input) as ZoteroHostNotePayloadDetailArgs,
     ),
@@ -1404,14 +1434,14 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       scope: "library annotation list",
       section: "annotations",
       input: asObject(input),
-      rows: await resolveHostBridgeApis(context).library.listAnnotations(
+      rows: await resolveCapabilityBroker(context).library.listAnnotations(
         itemRefFromInput(input),
       ),
     }),
   ),
   capability("library.export_annotations", async (input, context) => {
     const object = asObject(input);
-    const exported = await resolveHostBridgeApis(
+    const exported = await resolveCapabilityBroker(
       context,
     ).library.exportAnnotations(
       itemRefFromInput(input),
@@ -1498,15 +1528,11 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     return { productId: product.productId, removed: true };
   }),
   capability("mutation.preview", (input, context) =>
-    resolveHostBridgeApis(context).mutations.preview(
+    resolveCapabilityBroker(context).mutations.preview(
       asObject(input) as ZoteroHostMutationRequest,
     ),
   ),
-  capability("mutation.execute", (input, context) =>
-    resolveHostBridgeApis(context).mutations.execute(
-      asObject(input) as ZoteroHostMutationRequest,
-    ),
-  ),
+  capability("mutation.execute", executeMutationWithBridgeProjection),
   capability("diagnostic.get_status", (_input, context) => context.getStatus()),
   debugCapability("debug.status", debugStatus),
   debugCapability("debug.persistence.snapshot", debugPersistenceSnapshot),

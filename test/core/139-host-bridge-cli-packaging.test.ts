@@ -988,7 +988,7 @@ describe("host bridge cli packaging and install", function () {
       "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli",
     );
     const renderedCommands: string[] = [];
-    assert.strictEqual(references.size, 127);
+    assert.strictEqual(references.size, 130);
     for (const [referencePath, reference] of references) {
       assert.strictEqual(reference, hermesReferences.get(referencePath));
       const commands = [
@@ -3001,7 +3001,7 @@ describe("host bridge cli packaging and install", function () {
     const reference = [...references.values()].join("\n");
     const count = (label: string) => reference.split(label).length - 1;
 
-    assert.lengthOf(descriptor.commands, 127);
+    assert.lengthOf(descriptor.commands, 130);
     for (const label of [
       "## Global parameters",
       "## Local options and positionals",

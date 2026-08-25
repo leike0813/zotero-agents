@@ -21663,9 +21663,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     if (options.researchBundleHost) {
       papers = await options.researchBundleHost.resolveItems(selectors);
     } else {
-      const { createZoteroHostCapabilityBrokerApis } =
+      const { createZoteroHostCapabilityBroker } =
         await import("../zoteroHostCapabilityBroker");
-      const broker = createZoteroHostCapabilityBrokerApis();
+      const broker = createZoteroHostCapabilityBroker();
       papers = [];
       for (const selector of selectors) {
         const ref = cleanString(selector.id)

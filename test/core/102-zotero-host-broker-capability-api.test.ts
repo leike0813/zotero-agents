@@ -17,6 +17,11 @@ import {
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 import { getDefaultSynthesisService } from "../../src/modules/synthesis/service";
+import {
+  createZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
+} from "../../src/modules/zoteroHostCapabilityBroker";
+import { assertStrictJsonValue } from "../helpers/zoteroHostCapabilityBrokerHarness";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -175,6 +180,37 @@ describe("zotero host broker capability api", function () {
     resetZoteroMcpServerForTests();
   });
 
+  it("keeps the canonical broker portable and strict JSON-safe", async function () {
+    const item = await createParentItem("Strict Broker DTO");
+    (item as any).getCollections = () => [1, "COLLECTION", new Date(), 1n];
+    const broker = createZoteroHostCapabilityBroker();
+
+    assert.deepEqual(Object.keys(broker.context).sort(), [
+      "getCurrentView",
+      "getSelectedItems",
+    ]);
+    assert.deepEqual(Object.keys(broker.navigation).sort(), [
+      "openCollection",
+      "openItem",
+      "openNote",
+      "openSelection",
+    ]);
+
+    const detail = await broker.library.getItemDetail(item.id);
+    assert.deepEqual(detail?.collections, [1, "COLLECTION"]);
+    assertStrictJsonValue(detail);
+
+    try {
+      await broker.library.getNoteDetail(item as never);
+      assert.fail("expected a portable-ref error");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      const brokerError = error as ZoteroHostCapabilityError;
+      assert.strictEqual(brokerError.code, "invalid_object_ref");
+      assertStrictJsonValue(brokerError.details);
+    }
+  });
+
   it("exposes v11 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
@@ -188,6 +224,25 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.metadata.translateIdentifier);
     assert.isFunction(hostApi.images.prepareForNoteEmbedding);
     assert.isFunction(hostApi.notes.importEmbeddedImage);
+    assert.sameMembers(Object.keys(hostApi.context), [
+      "getCurrentView",
+      "getSelectedItems",
+    ]);
+    assert.sameMembers(Object.keys(hostApi.library), [
+      "listItems",
+      "syncSnapshot",
+      "searchItems",
+      "getItemDetail",
+      "getItemNotes",
+      "getNoteDetail",
+      "listNotePayloads",
+      "getNotePayload",
+      "getItemAttachments",
+    ]);
+    assert.strictEqual(
+      (await hostApi.library.getItemDetail(item))?.key,
+      item.key,
+    );
     assert.isFunction(hostApi.file.readBytes);
     assert.isFunction(hostApi.file.writeBytes);
     assert.isFunction(hostApi.file.copy);

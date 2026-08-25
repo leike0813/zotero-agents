@@ -331,6 +331,28 @@ zotero-bridge mutation item attach-file [--endpoint <ENDPOINT>] [--operation-id 
     "data": {
       "additionalProperties": true,
       "description": "Result data owned by mutation.execute.",
+      "properties": {
+        "result": {
+          "additionalProperties": true,
+          "properties": {
+            "attachments": {
+              "items": {
+                "additionalProperties": true,
+                "not": {
+                  "required": [
+                    "path"
+                  ]
+                },
+                "type": "object",
+                "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+              },
+              "type": "array"
+            }
+          },
+          "type": "object",
+          "x-openPropertiesReason": "Mutation operations own result fields, while attachment file access is exposed through issued transfer descriptors."
+        }
+      },
       "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
@@ -813,6 +835,28 @@ zotero-bridge mutation item attach-file [--endpoint <ENDPOINT>] [--operation-id 
       "data": {
         "additionalProperties": true,
         "description": "Result data owned by mutation.execute.",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "properties": {
+              "attachments": {
+                "items": {
+                  "additionalProperties": true,
+                  "not": {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  "type": "object",
+                  "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+                },
+                "type": "array"
+              }
+            },
+            "type": "object",
+            "x-openPropertiesReason": "Mutation operations own result fields, while attachment file access is exposed through issued transfer descriptors."
+          }
+        },
         "type": "object",
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
       }

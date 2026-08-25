@@ -293,7 +293,7 @@ describe("zotero library agent source suite", function () {
       "utf8",
     );
     const workflows = builtinWorkflowManifests();
-    assert.lengthOf(workflows, 19);
+    assert.lengthOf(workflows, 20);
     for (const workflow of workflows) {
       const workflowId = String(workflow.id);
       const entry = catalogEntry(catalog, workflowId);
