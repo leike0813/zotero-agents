@@ -1,0 +1,17 @@
+{
+  "name": "pi-core-zotero-compatibility-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node test/probe.test.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.3",
+    "@earendil-works/pi-ai": "0.84.3",
+    "@earendil-works/pi-telemetry": "0.84.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}
