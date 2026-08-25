@@ -21782,15 +21782,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const papers = await resolveDirectResearchBundlePapers(selectors);
     const materialized = await materializeResearchBundlePapers({
       papers,
-      readArtifacts: (paperRefs) =>
+      readArtifacts: ({ paperRefs, artifactTypes }) =>
         readPaperArtifacts({
           paper_refs: paperRefs,
-          artifact_types: [
-            "digest",
-            "references",
-            "citation_analysis",
-            "literature_score",
-          ],
+          artifact_types: artifactTypes,
         }),
     });
     const delivery = directResearchBundleDelivery(args, context);
@@ -21942,10 +21937,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     });
     const materialized = await materializeResearchBundlePapers({
       papers,
-      readArtifacts: (paperRefs) =>
+      readArtifacts: ({ paperRefs, artifactTypes }) =>
         readPaperArtifacts({
           paper_refs: paperRefs,
-          artifact_types: ["digest"],
+          artifact_types: artifactTypes,
         }),
       includeMetadata: false,
       includeSource: false,

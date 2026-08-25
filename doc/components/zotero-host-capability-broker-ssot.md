@@ -81,6 +81,17 @@ The workflow-local terms have narrow meanings:
 - **Workflow Stored Attachment Import** validates and stages companion sources
   before Zotero mutation, copies staged content into attachment storage, and
   rolls back a newly created attachment when later work fails.
+- **Research Bundle Materialization** normalizes and deduplicates canonical
+  paper refs, resolves portable paper DTOs through an injected resolver, and
+  materializes portable metadata, preferred sources, the standard analysis
+  artifacts, and canonical per-paper warnings. The Workflow Host projection
+  owns the raw Zotero-to-portable resolver adapter and maps
+  `source_missing` to the workflow-compatible `core_source_missing` code.
+
+The cached Workflow Host projection may bind the Research Bundle materializer
+once, but its resolver and artifact reader resolve the current Zotero broker and
+Synthesis runtime on every invocation. Research Bundle filesystem operations
+continue to select their runtime adapter through `runtimePersistence.ts`.
 
 Host Bridge and MCP own authorization, approval, exposure, noninteractive behavior, transport concerns, and remote locality. They must not expose `Zotero.Item`, `Zotero.Collection`, `nsIFile`, DOM windows, local paths, or other host runtime objects.
 
@@ -197,7 +208,7 @@ The Host Bridge v2 output schemas explicitly reject attachment objects containin
 
 ## Workflow Host API v11 Portable Archive Boundary
 
-Workflow Host API v8 provides generic local migration primitives without
+Workflow Host API v11 provides generic local migration primitives without
 embedding concrete workflow semantics in core modules:
 
 - `file.pickSaveFile` uses Zotero's native save picker, including suggested
@@ -219,8 +230,11 @@ embedding concrete workflow semantics in core modules:
 - `context.getCurrentView()` includes `currentCollection` only when the active
   library-tree row is a real Zotero collection.
 
-Portable bundle schemas, warning codes, Markdown rewriting, and literature
-note semantics remain workflow-package responsibilities.
+Workflow packages own Product schemas, selection roles, bibliography, Topic
+layout, registration, and workflow-level diagnostics. Shared Research Bundle
+Materialization owns canonical per-paper source, artifact, Markdown-image, and
+availability-warning semantics; direct-export delivery and Workflow Host
+warning projection remain separate adapters.
 
 ## Maintenance Rules
 

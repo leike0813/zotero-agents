@@ -288,6 +288,46 @@ describe("zotero host broker capability api", function () {
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
   });
 
+  it("materializes Research Bundle papers through the cached v11 projection", async function () {
+    const hostApi = createWorkflowHostApi();
+    const item = await createParentItem("Late-bound Research Bundle Paper");
+    const paperRef = `${item.libraryID}:${item.key}`;
+
+    const result = await hostApi.researchBundles.materializePapers({
+      papers: [
+        { paperRef },
+        { paperRef: "invalid-paper-ref" },
+        { paperRef: `${item.libraryID}:MISSING1` },
+      ],
+      sourcePaperRefs: [paperRef],
+    });
+
+    assert.sameMembers(Object.keys(result), ["entries", "warnings", "papers"]);
+    assert.deepEqual(
+      result.papers.map((paper) => paper.paper_ref),
+      [paperRef],
+    );
+    assert.includeDeepMembers(result.warnings, [
+      {
+        code: "paper_missing",
+        paper_ref: "invalid-paper-ref",
+        reason: "invalid_paper_ref",
+      },
+      {
+        code: "paper_missing",
+        paper_ref: `${item.libraryID}:MISSING1`,
+      },
+      {
+        code: "core_source_missing",
+        paper_ref: paperRef,
+      },
+    ]);
+    assert.notInclude(
+      result.warnings.map((warning) => warning.code),
+      "source_missing",
+    );
+  });
+
   it("exports item text with ordered translator fallback", async function () {
     const betterBibtexID = "ca65189f-8815-4afe-8c8b-8c7c15f0edca";
     const nativeBibtexID = "9cb70025-a888-4a29-a210-93ec52da40d4";

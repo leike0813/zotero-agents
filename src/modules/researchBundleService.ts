@@ -20,12 +20,20 @@ import {
   createWorkflowArchiveApi,
   type WorkflowArchiveEntry,
 } from "../workflows/archive";
+import {
+  PAPER_ARTIFACT_TYPES,
+  type PaperArtifactType,
+} from "./synthesis/registry";
 
 const MAX_PAPER_SELECTORS = 100;
 const MAX_TOPIC_SELECTORS = 20;
 const MAX_RESOLVED_PAPERS = 500;
 const MAX_BUNDLE_FILES = 5000;
 const MAX_BUNDLE_BYTES = 2 * 1024 * 1024 * 1024;
+
+export const RESEARCH_BUNDLE_ARTIFACT_TYPES = PAPER_ARTIFACT_TYPES;
+
+export type ResearchBundleArtifactType = PaperArtifactType;
 
 export type DirectResearchBundleAttachment = {
   path: string;
@@ -75,6 +83,35 @@ export type ResearchBundleWarning = {
   path?: string;
   reason?: string;
 };
+
+export type ResearchBundlePaperRef = Pick<
+  DirectResearchBundlePaper,
+  "paperRef" | "libraryId" | "itemKey"
+>;
+
+export type ResearchBundleMaterializePapersArgs = {
+  papers: Array<{ paperRef: string }>;
+  sourcePaperRefs?: string[];
+};
+
+export type ResearchBundleMaterialization = {
+  entries: ResearchBundleEntry[];
+  warnings: ResearchBundleWarning[];
+  papers: Record<string, unknown>[];
+};
+
+export type ResearchBundlePaperResolver = (
+  ref: ResearchBundlePaperRef,
+) => Promise<DirectResearchBundlePaper | null | undefined>;
+
+export type ResearchBundleArtifactReader = (args: {
+  paperRefs: string[];
+  artifactTypes: ResearchBundleArtifactType[];
+}) => Promise<unknown>;
+
+export type ResearchBundleMaterializer = (
+  args: ResearchBundleMaterializePapersArgs,
+) => Promise<ResearchBundleMaterialization>;
 
 export type ResearchArtifactPresentation = {
   artifactType: string;
@@ -442,34 +479,30 @@ export function formatResearchBundleArtifact(
   return null;
 }
 
-const DIRECT_ARTIFACT_TYPES = [
-  "digest",
-  "references",
-  "citation_analysis",
-  "literature_score",
-] as const;
-
 export async function materializeResearchBundlePapers(args: {
   papers: DirectResearchBundlePaper[];
-  readArtifacts: (paperRefs: string[]) => Promise<unknown>;
+  readArtifacts: ResearchBundleArtifactReader;
   includeMetadata?: boolean;
   includeSource?: boolean;
   sourcePaperRefs?: string[];
-  artifactTypes?: string[];
+  artifactTypes?: ResearchBundleArtifactType[];
 }) {
   const includeMetadata = args.includeMetadata !== false;
   const includeSource = args.includeSource !== false;
-  const requestedTypes = uniqueStrings(
-    args.artifactTypes?.length
-      ? args.artifactTypes
-      : [...DIRECT_ARTIFACT_TYPES],
+  const requestedTypes = Array.from(
+    new Set(
+      args.artifactTypes?.length
+        ? args.artifactTypes
+        : RESEARCH_BUNDLE_ARTIFACT_TYPES,
+    ),
   );
   const sourcePaperRefs = args.sourcePaperRefs?.length
     ? new Set(uniqueStrings(args.sourcePaperRefs))
     : null;
-  const result = await args.readArtifacts(
-    args.papers.map((paper) => paper.paperRef),
-  );
+  const result = await args.readArtifacts({
+    paperRefs: args.papers.map((paper) => paper.paperRef),
+    artifactTypes: requestedTypes,
+  });
   const artifacts =
     isRecord(result) && Array.isArray(result.artifacts)
       ? result.artifacts.filter(isRecord)
@@ -586,6 +619,51 @@ export async function materializeResearchBundlePapers(args: {
     paperRecords.push(record);
   }
   return { entries, warnings, papers: paperRecords };
+}
+
+export function createResearchBundleMaterializer(dependencies: {
+  resolvePaper: ResearchBundlePaperResolver;
+  readArtifacts: ResearchBundleArtifactReader;
+}): ResearchBundleMaterializer {
+  return async (args) => {
+    const papers: DirectResearchBundlePaper[] = [];
+    const warnings: ResearchBundleWarning[] = [];
+    const seen = new Set<string>();
+
+    for (const selected of Array.isArray(args?.papers) ? args.papers : []) {
+      const paperRef = cleanString(selected?.paperRef);
+      if (!paperRef || seen.has(paperRef)) continue;
+      seen.add(paperRef);
+      const parsed = parsePaperRef(paperRef);
+      if (!parsed) {
+        warnings.push({
+          code: "paper_missing",
+          paper_ref: paperRef,
+          reason: "invalid_paper_ref",
+        });
+        continue;
+      }
+      const paper = await dependencies.resolvePaper(parsed);
+      if (!paper) {
+        warnings.push({ code: "paper_missing", paper_ref: paperRef });
+        continue;
+      }
+      papers.push(paper);
+    }
+
+    if (!papers.length) {
+      return { entries: [], warnings, papers: [] };
+    }
+    const materialized = await materializeResearchBundlePapers({
+      papers,
+      readArtifacts: dependencies.readArtifacts,
+      sourcePaperRefs: args.sourcePaperRefs,
+    });
+    return {
+      ...materialized,
+      warnings: [...warnings, ...materialized.warnings],
+    };
+  };
 }
 
 export function rewriteTopicReportDigestLinks(args: {

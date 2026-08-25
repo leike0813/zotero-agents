@@ -60,11 +60,7 @@ import {
 } from "../modules/synthesis/builtinTagPolicy";
 
 import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
-import {
-  materializeResearchBundlePapers,
-  type DirectResearchBundlePaper,
-  type ResearchBundleWarning,
-} from "../modules/researchBundleService";
+import { createResearchBundleMaterializer } from "../modules/researchBundleService";
 
 export const WORKFLOW_HOST_API_VERSION = 11;
 
@@ -434,6 +430,40 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     return cachedHostApi;
   }
   const zoteroBroker = createZoteroHostCapabilityBroker();
+  const materializeWorkflowResearchBundlePapers =
+    createResearchBundleMaterializer({
+      async resolvePaper({ paperRef, libraryId, itemKey }) {
+        const item = resolveHostZotero().Items.getByLibraryAndKey(
+          libraryId,
+          itemKey,
+        );
+        if (!item) return null;
+        const attachments = await zoteroBroker.library.getItemAttachments({
+          key: itemKey,
+          libraryId,
+        });
+        return {
+          paperRef,
+          libraryId,
+          itemKey,
+          title: String(item.getField?.("title") || "").trim(),
+          metadata: handlers.item.exportPortableJson(item),
+          attachments: attachments
+            .filter((attachment) => String(attachment.path || "").trim())
+            .map((attachment) => ({
+              path: attachment.path,
+              filename: attachment.filename,
+              contentType: attachment.contentType,
+            })),
+        };
+      },
+      readArtifacts({ paperRefs, artifactTypes }) {
+        return getDefaultSynthesisService().readPaperArtifacts({
+          paper_refs: paperRefs,
+          artifact_types: artifactTypes,
+        });
+      },
+    });
   const context = {
     getCurrentView: zoteroBroker.context.getCurrentView,
     getSelectedItems: zoteroBroker.context.getSelectedItems,
@@ -541,79 +571,17 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     metadata,
     researchBundles: {
       async materializePapers(args) {
-        const papers: DirectResearchBundlePaper[] = [];
-        const warnings: ResearchBundleWarning[] = [];
-        const seen = new Set<string>();
-        for (const selected of Array.isArray(args?.papers) ? args.papers : []) {
-          const paperRef = String(selected?.paperRef || "").trim();
-          if (!paperRef || seen.has(paperRef)) continue;
-          seen.add(paperRef);
-          const match = paperRef.match(/^(\d+):(.+)$/);
-          const libraryId = Number(match?.[1]);
-          const itemKey = String(match?.[2] || "").trim();
-          if (!Number.isInteger(libraryId) || libraryId <= 0 || !itemKey) {
-            warnings.push({
-              code: "paper_missing",
-              paper_ref: paperRef,
-              reason: "invalid_paper_ref",
-            });
-            continue;
-          }
-          const item = resolveHostZotero().Items.getByLibraryAndKey(
-            libraryId,
-            itemKey,
-          );
-          if (!item) {
-            warnings.push({ code: "paper_missing", paper_ref: paperRef });
-            continue;
-          }
-          const attachments = await zoteroBroker.library.getItemAttachments({
-            key: itemKey,
-            libraryId,
-          });
-          papers.push({
-            paperRef,
-            libraryId,
-            itemKey,
-            title: String(item.getField?.("title") || "").trim(),
-            metadata: handlers.item.exportPortableJson(item),
-            attachments: attachments
-              .filter((attachment) => String(attachment.path || "").trim())
-              .map((attachment) => ({
-                path: attachment.path,
-                filename: attachment.filename,
-                contentType: attachment.contentType,
-              })),
-          });
-        }
-        if (!papers.length) {
-          return { entries: [], papers: [], warnings };
-        }
-        const service = getDefaultSynthesisService();
-        const materialized = await materializeResearchBundlePapers({
-          papers,
-          readArtifacts: (paperRefs) =>
-            service.readPaperArtifacts({
-              paper_refs: paperRefs,
-              artifact_types: [
-                "digest",
-                "references",
-                "citation_analysis",
-                "literature_score",
-              ],
-            }),
+        const materialized = await materializeWorkflowResearchBundlePapers({
+          papers: args.papers,
           sourcePaperRefs: args.sourcePaperRefs,
         });
         return {
           ...materialized,
-          warnings: [
-            ...warnings,
-            ...materialized.warnings.map((warning) =>
-              warning.code === "source_missing"
-                ? { ...warning, code: "core_source_missing" }
-                : warning,
-            ),
-          ],
+          warnings: materialized.warnings.map((warning) =>
+            warning.code === "source_missing"
+              ? { ...warning, code: "core_source_missing" }
+              : warning,
+          ),
         };
       },
     },

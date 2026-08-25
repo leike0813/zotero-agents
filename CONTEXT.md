@@ -20,6 +20,10 @@ _Avoid_: Workflow hostApi, Host Bridge API, MCP tool registry
 The explicit member-level projection from the canonical broker into `WorkflowHostApi` v11, combined with trusted local workflow services and raw Zotero ref normalization. It is a separate compatibility surface and must not receive whole broker domains implicitly.
 _Avoid_: Broker alias, common host API, universal host facade
 
+**Research Bundle Materialization**:
+The canonical conversion of selected paper refs into portable metadata, one preferred source, the standard analysis artifacts, and structured per-paper availability diagnostics. Selection roles, Product layout and registration, and direct-export delivery are separate concerns.
+_Avoid_: Workflow bundle builder, direct-export packager, Research Bundle service
+
 **Host Bridge Locality Projection**:
 The sole remote-boundary conversion of process-local attachment DTOs into path-free opaque file handles or unavailable access descriptors. MCP reuses this projection through the Host Bridge capability handlers.
 _Avoid_: MCP attachment adapter, localhost path mode, path passthrough

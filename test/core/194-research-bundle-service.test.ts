@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  createResearchBundleMaterializer,
   materializeResearchBundlePapers,
   publishDirectResearchBundle,
+  type DirectResearchBundlePaper,
   type ResearchBundleEntry,
 } from "../../src/modules/researchBundleService";
 import {
@@ -28,6 +30,105 @@ describe("Research Bundle service", function () {
       return;
     }
     delete (globalThis as typeof globalThis & { IOUtils?: unknown }).IOUtils;
+  });
+
+  it("materializes unique resolvable workflow paper refs without aborting on missing papers", async function () {
+    const papers = new Map<string, DirectResearchBundlePaper>([
+      [
+        "1:AAAA1111",
+        {
+          paperRef: "1:AAAA1111",
+          libraryId: 1,
+          itemKey: "AAAA1111",
+          title: "First paper",
+          metadata: { title: "First paper" },
+          attachments: [],
+        },
+      ],
+      [
+        "2:BBBB2222",
+        {
+          paperRef: "2:BBBB2222",
+          libraryId: 2,
+          itemKey: "BBBB2222",
+          title: "Second paper",
+          metadata: { title: "Second paper" },
+          attachments: [],
+        },
+      ],
+    ]);
+    const materializePapers = createResearchBundleMaterializer({
+      resolvePaper: async (ref) => papers.get(ref.paperRef),
+      readArtifacts: async () => ({ artifacts: [] }),
+    });
+
+    const result = await materializePapers({
+      papers: [
+        { paperRef: "1:AAAA1111" },
+        { paperRef: "1:AAAA1111" },
+        { paperRef: "" },
+        { paperRef: "invalid-paper-ref" },
+        { paperRef: "1:MISSING1" },
+        { paperRef: "2:BBBB2222" },
+      ],
+    });
+
+    assert.deepEqual(
+      result.papers.map((paper) => paper.paper_ref),
+      ["1:AAAA1111", "2:BBBB2222"],
+    );
+    assert.deepEqual(
+      result.warnings
+        .filter((warning) => warning.code === "paper_missing")
+        .map(({ paper_ref, reason }) => ({ paper_ref, reason })),
+      [
+        {
+          paper_ref: "invalid-paper-ref",
+          reason: "invalid_paper_ref",
+        },
+        { paper_ref: "1:MISSING1", reason: undefined },
+      ],
+    );
+  });
+
+  it("owns the standard artifact request and canonical source warning", async function () {
+    const paperRef = "1:AAAA1111";
+    let artifactRequest: unknown;
+    const materializePapers = createResearchBundleMaterializer({
+      resolvePaper: async () => ({
+        paperRef,
+        libraryId: 1,
+        itemKey: "AAAA1111",
+        title: "Paper without source",
+        metadata: {},
+        attachments: [],
+      }),
+      readArtifacts: async (request) => {
+        artifactRequest = request;
+        return { artifacts: [] };
+      },
+    });
+
+    const result = await materializePapers({
+      papers: [{ paperRef }],
+      sourcePaperRefs: [paperRef],
+    });
+
+    assert.deepEqual(artifactRequest, {
+      paperRefs: [paperRef],
+      artifactTypes: [
+        "digest",
+        "references",
+        "citation_analysis",
+        "literature_score",
+      ],
+    });
+    assert.ok(
+      result.warnings.some(
+        (warning) =>
+          warning.code === "source_missing" && warning.paper_ref === paperRef,
+      ),
+    );
   });
 
   it("materializes Windows Markdown images through native Host paths", async function () {
