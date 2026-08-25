@@ -166,6 +166,13 @@
 - ACP transcript message coalescing 必须是协议/语义级通用逻辑，不得按 backend id、provider id、agent family、命令名或具体后端产品字符串做特判。
 - ACP Chat 与 ACP Skills 共享同一类 transcript boundary 分类；新增或修改 session update kind 时必须同步审查两条路径的 message coalescing 行为。
 
+# Workflow Host Runtime Adaptation硬约束
+
+- `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。
+- Workflow Host runtime adapter 必须按调用晚绑定；不得因 `createWorkflowHostApi()` 缓存 projection 而缓存运行时 global、picker window 或 filesystem adapter。
+- `src/workflows/hostApi.ts` 只负责 Workflow Host API v11 的显式组合与投影；输入物化、文件选择、图片准备、stored attachment import 和 archive 的内部 adapter 不得泄漏为公共 host 成员。
+- `attachments.importStoredFile` 的 companion 路径与源文件必须在创建 Zotero attachment 前完成校验与 managed staging；创建后的复制或清理失败必须尝试删除新 attachment，并保留原始失败为主错误。
+
 # Zotero Host Capability Broker硬约束
 
 - `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。

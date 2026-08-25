@@ -59,3 +59,26 @@ whole-file read/rewrite and byte-offset/string-offset fallbacks. Missing worker
 or asynchronous I/O capabilities are structured runtime errors. The worker is
 terminated only after ACP and runtime-log persistence drains during controlled
 plugin shutdown.
+
+## Runtime Filesystem Adapter Ownership
+
+`src/modules/runtimePersistence.ts` is the sole owner of cross-runtime
+filesystem adapter selection. Workflow modules call its semantic operations;
+they do not select between `IOUtils`, `OS.File`, Node filesystem APIs, or
+Components streams themselves. Adapter lookup remains late-bound on each
+operation so a cached Workflow Host projection cannot retain stale runtime
+globals.
+
+The module exposes two failure semantics intentionally:
+
+- tolerant operations support cache, cleanup, and optional persistence paths
+  where a missing file or unavailable adapter has an established neutral result;
+- strict operations surface missing paths and unavailable adapters for caller
+  contracts that promise a completed read, write, or directory creation.
+
+Workflow Host file reads, writes, and directory creation use the strict
+semantics. Existing tolerant persistence callers retain their current behavior.
+`Workflow Input Materialization` owns provider-input naming, exclusivity of text
+versus bytes, uniqueness, and placement under
+`runtime/tmp/workflow-inputs/`; it delegates the actual write to runtime
+persistence.

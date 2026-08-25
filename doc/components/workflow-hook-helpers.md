@@ -208,13 +208,13 @@ Primary implementation: `src/modules/workflowEditorHost.ts`.
 ### File I/O
 
 `readText(path): Promise<string>`
-- Reads text file content.
+- Reads text file content and rejects missing paths or unavailable runtime I/O.
 
 `readBytes(path): Promise<Uint8Array>`
 - Reads file as binary data.
 
 `writeText(path, content): Promise<void>`
-- Writes text content to file.
+- Writes text content to file and rejects when the runtime cannot complete the write.
 
 `writeBytes(path, content): Promise<void>`
 - Writes binary data to file.
@@ -223,6 +223,19 @@ Primary implementation: `src/modules/workflowEditorHost.ts`.
 - Copies file or directory from `src` to `dest`.
 
 `materializeWorkflowInputFile(args): Promise<{ path: string }>`
+- Materializes exactly one text or byte payload at a unique, safe path under
+  plugin-managed `runtime/tmp/workflow-inputs/` storage.
+
+### Image and Stored Attachment Operations
+
+`images.prepareForNoteEmbedding(source, options?)`
+- Normalizes a path, Blob, or byte source; bounds its dimensions; applies the
+  v11 encoding policy; and returns prepared image data without mutating a note.
+
+`attachments.importStoredFile(args)`
+- Imports a stored attachment with optional companion files. Companion paths
+  and sources are validated and staged before attachment creation. A failure
+  after creation triggers best-effort attachment rollback and staging cleanup.
 - Writes a workflow-generated provider input file under the plugin-managed runtime tmp root.
 - Use this for files referenced by provider request inputs or `upload_files`.
 - `args.workflowId`: workflow id used for managed namespacing.

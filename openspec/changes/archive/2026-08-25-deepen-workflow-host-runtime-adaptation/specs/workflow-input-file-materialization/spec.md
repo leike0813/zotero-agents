@@ -1,9 +1,4 @@
-# workflow-input-file-materialization Specification
-
-## Purpose
-Defines the workflow host API contract for materializing generated provider input files under managed runtime temporary storage.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Workflow host API materializes provider input files under managed runtime tmp
 
@@ -31,19 +26,3 @@ operations while preserving the Workflow Host API v11 interface.
 - **WHEN** a workflow hook requests materialization without exactly one content
   payload
 - **THEN** the operation SHALL fail before writing a provider input file.
-
-### Requirement: Managed input materialization isolates workflow and key paths
-
-The workflow host API SHALL sanitize workflow id, input key, and file name segments before writing generated provider input files.
-
-#### Scenario: Unsafe path segments are provided
-
-- **WHEN** a workflow hook materializes a provider input file with unsafe or traversal-like path segments
-- **THEN** the host API SHALL normalize those segments to safe managed path segments
-- **AND** the written path SHALL remain under `runtime/tmp/workflow-inputs`
-
-#### Scenario: Repeated materialization uses unique paths
-
-- **WHEN** a workflow hook materializes the same workflow id, input key, and file name more than once
-- **THEN** each call SHALL return a distinct path
-- **AND** later calls SHALL NOT overwrite earlier materialized files.

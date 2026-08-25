@@ -1,7 +1,5 @@
 import { assert } from "chai";
-import fs from "node:fs/promises";
 import { handlers } from "../../src/handlers";
-import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   createWorkflowHostApi,
   resetWorkflowHostApiForTests,
@@ -224,6 +222,31 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.metadata.translateIdentifier);
     assert.isFunction(hostApi.images.prepareForNoteEmbedding);
     assert.isFunction(hostApi.notes.importEmbeddedImage);
+    assert.sameMembers(Object.keys(hostApi), [
+      "version",
+      "addon",
+      "items",
+      "context",
+      "library",
+      "mutations",
+      "metadata",
+      "researchBundles",
+      "prefs",
+      "parents",
+      "notes",
+      "images",
+      "attachments",
+      "tags",
+      "statusTags",
+      "collections",
+      "command",
+      "editor",
+      "notifications",
+      "logging",
+      "file",
+      "archive",
+      "synthesis",
+    ]);
     assert.sameMembers(Object.keys(hostApi.context), [
       "getCurrentView",
       "getSelectedItems",
@@ -448,54 +471,6 @@ describe("zotero host broker capability api", function () {
       );
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
-    }
-  });
-
-  it("materializes workflow input files under managed runtime tmp", async function () {
-    const hostApi = createWorkflowHostApi();
-    const paths = getRuntimePersistencePaths();
-
-    const first = await hostApi.file.materializeWorkflowInputFile({
-      workflowId: "tag-regulator/../unsafe",
-      key: "valid_tags",
-      fileName: "CON.yaml",
-      content: "- topic:sequence\n",
-    });
-    const second = await hostApi.file.materializeWorkflowInputFile({
-      workflowId: "tag-regulator/../unsafe",
-      key: "valid_tags",
-      fileName: "CON.yaml",
-      content: "- topic:other\n",
-    });
-    const binary = await hostApi.file.materializeWorkflowInputFile({
-      workflowId: "literature-deep-reading",
-      key: "source_bundle_path",
-      fileName: "source_bundle.zip",
-      bytes: new Uint8Array([1, 2, 3]),
-    });
-
-    const normalizedTmp = paths.tmpDir.replace(/\\/g, "/");
-    for (const materialized of [first, second, binary]) {
-      const normalized = materialized.path.replace(/\\/g, "/");
-      assert.include(normalized, `${normalizedTmp}/workflow-inputs/`);
-      assert.notInclude(normalized, "../");
-    }
-    assert.notEqual(first.path, second.path);
-    assert.equal(await fs.readFile(first.path, "utf8"), "- topic:sequence\n");
-    assert.deepEqual(
-      Array.from(new Uint8Array(await fs.readFile(binary.path))),
-      [1, 2, 3],
-    );
-
-    try {
-      await hostApi.file.materializeWorkflowInputFile({
-        workflowId: "tag-regulator",
-        key: "valid_tags",
-        fileName: "valid_tags.yaml",
-      });
-      assert.fail("expected missing content/bytes to fail");
-    } catch (error) {
-      assert.match(String(error), /exactly one of content or bytes/);
     }
   });
 

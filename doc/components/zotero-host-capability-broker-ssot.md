@@ -66,6 +66,22 @@ Workflow runtime currently exposes both `runtime.handlers` and `runtime.hostApi`
 
 `WorkflowHostApi` owns trusted workflow compatibility. Its adapter accepts raw Zotero item and collection refs where v11 already promises them, normalizes those refs before calling the broker, and returns workflow-specific local services unchanged. The projection uses explicit object literals and member-level types; whole broker domains, spreads, proxies, and capability catalogs are forbidden.
 
+`src/workflows/hostApi.ts` is the explicit composition root for those local
+services. Runtime filesystem adaptation, input-file materialization, file
+selection, note-image preparation, stored-attachment import, and archive
+handling are owned by their respective modules. Their internal adapters are not
+members of `WorkflowHostApi`.
+
+The workflow-local terms have narrow meanings:
+
+- **Workflow Input Materialization** creates a uniquely named provider input in
+  plugin-managed runtime temporary storage.
+- **Workflow Note Image Preparation** normalizes and bounds image data without
+  mutating a Zotero note; embedded-image import remains a separate note action.
+- **Workflow Stored Attachment Import** validates and stages companion sources
+  before Zotero mutation, copies staged content into attachment storage, and
+  rolls back a newly created attachment when later work fails.
+
 Host Bridge and MCP own authorization, approval, exposure, noninteractive behavior, transport concerns, and remote locality. They must not expose `Zotero.Item`, `Zotero.Collection`, `nsIFile`, DOM windows, local paths, or other host runtime objects.
 
 ## Portable Contract Invariants
