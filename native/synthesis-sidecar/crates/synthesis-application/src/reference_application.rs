@@ -4074,8 +4074,8 @@ mod tests {
         ReferenceMatcherPort,
     };
     use std::path::{Path, PathBuf};
-    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Condvar, Mutex};
     use std::time::Duration;
     use synthesis_repository::{
         CanonicalReferenceRecord, RawReferenceRecord, ReferenceBindingFactRecord,
@@ -4093,9 +4093,16 @@ mod tests {
         completed_read_locators: Arc<Mutex<Vec<String>>>,
         active_reads: Arc<AtomicUsize>,
         max_active_reads: Arc<AtomicUsize>,
-        stagger_reads: Arc<AtomicBool>,
+        synchronize_reads: Arc<AtomicBool>,
+        read_completion: Arc<(Mutex<ReadCompletionState>, Condvar)>,
         include_second: Arc<AtomicBool>,
         large_estimates: Arc<AtomicBool>,
+    }
+
+    #[derive(Default)]
+    struct ReadCompletionState {
+        entered: usize,
+        release_first: bool,
     }
 
     impl FakeHost {
@@ -4109,7 +4116,11 @@ mod tests {
                 completed_read_locators: Arc::new(Mutex::new(Vec::new())),
                 active_reads: Arc::new(AtomicUsize::new(0)),
                 max_active_reads: Arc::new(AtomicUsize::new(0)),
-                stagger_reads: Arc::new(AtomicBool::new(false)),
+                synchronize_reads: Arc::new(AtomicBool::new(false)),
+                read_completion: Arc::new((
+                    Mutex::new(ReadCompletionState::default()),
+                    Condvar::new(),
+                )),
                 include_second: Arc::new(AtomicBool::new(true)),
                 large_estimates: Arc::new(AtomicBool::new(false)),
             }
@@ -4282,17 +4293,39 @@ mod tests {
             let active_reads = self.active_reads.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_active_reads
                 .fetch_max(active_reads, Ordering::SeqCst);
-            if self.stagger_reads.load(Ordering::Relaxed) {
-                std::thread::sleep(Duration::from_millis(match locator {
-                    "reference:a" => 30,
-                    _ => 10,
-                }));
+            let synchronize_reads = self.synchronize_reads.load(Ordering::Relaxed);
+            if synchronize_reads {
+                let (state, changed) = &*self.read_completion;
+                let mut state = state.lock().expect("read completion state");
+                state.entered += 1;
+                changed.notify_all();
+                while state.entered < 2 {
+                    let (next, timeout) = changed
+                        .wait_timeout(state, Duration::from_secs(5))
+                        .expect("both reads entered");
+                    state = next;
+                    assert!(!timeout.timed_out(), "second read did not enter");
+                }
+                if locator == "reference:a" {
+                    while !state.release_first {
+                        let (next, timeout) = changed
+                            .wait_timeout(state, Duration::from_secs(5))
+                            .expect("second read completed");
+                        state = next;
+                        assert!(!timeout.timed_out(), "second read did not complete");
+                    }
+                }
             }
             self.active_reads.fetch_sub(1, Ordering::SeqCst);
             self.completed_read_locators
                 .lock()
                 .expect("completed read locator log")
                 .push(locator.into());
+            if synchronize_reads && locator == "reference:b" {
+                let (state, changed) = &*self.read_completion;
+                state.lock().expect("read completion state").release_first = true;
+                changed.notify_all();
+            }
             if self.fail_locator.lock().expect("failed locator").as_deref() == Some(locator) {
                 return Err("reverse_host_response_body_truncated".into());
             }
@@ -4530,7 +4563,7 @@ mod tests {
     fn refresh_reads_two_artifacts_concurrently_and_preserves_source_order() {
         let root = test_root("refresh-read-concurrency");
         let host = Arc::new(FakeHost::new());
-        host.stagger_reads.store(true, Ordering::Relaxed);
+        host.synchronize_reads.store(true, Ordering::Relaxed);
         let app = application(&root, host.clone(), Arc::new(AtomicBool::new(false)));
 
         let refreshed = app.refresh_now().expect("reference refresh");
@@ -4542,7 +4575,7 @@ mod tests {
                 .lock()
                 .expect("completed read locators"),
             vec!["reference:b", "reference:a"],
-            "the faster second read should finish first",
+            "the gated second read should finish first",
         );
 
         let index = app

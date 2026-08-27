@@ -96,6 +96,8 @@ The durable native candidate smoke rebuilds its launch input through the shared 
 
 Platform-sensitive Rust tests use lifecycle ownership instead of wall-clock assumptions. The background drain case synchronizes task start and release through channels. Topic application tests own their temporary root through a test-only RAII guard declared before repository, canonical, graph, and application owners, so Windows removes SQLite files only after every later owner has dropped.
 
+Reference refresh concurrency evidence uses an explicit two-read rendezvous and completion gate: both Host reads must enter concurrently, the second completion is published, and only then may the first completion proceed. Repository migration tests explicitly drop every read-only source and backup connection after their assertions and before removing the temporary root. Completion ordering is therefore independent of runner scheduling, while Windows cleanup continues to fail loudly if an owner is accidentally retained.
+
 Copying the v3 field list into another unvalidated object was rejected because it would repeat the drift that caused native candidates to fail with `invalid_config`. Increasing sleeps or ignoring Windows cleanup errors was rejected because both approaches hide scheduling and ownership bugs rather than making the evidence deterministic.
 
 ## Risks / Trade-offs
@@ -108,6 +110,7 @@ Copying the v3 field list into another unvalidated object was rejected because i
 - **A historical Topic bundle cannot satisfy the current full record** → Keep list/detail failure semantics for the full API while the lightweight Workbench projection remains readable from stable state.
 - **Double validation adds a small hot-path cost** → The state is bounded and shallow; preserving equal behavior at every client seam is worth the negligible rebuild cost.
 - **The production launch contract changes again** → Keep native smoke construction behind the shared launch-config builder and validate the real process boundary in every native matrix member.
+- **A platform test depends on scheduler timing or implicit SQLite destruction** → Synchronize the observable event directly and release the inspected connection before cleanup; do not increase sleeps or ignore sharing violations.
 
 ## Migration Plan
 
@@ -123,5 +126,6 @@ Copying the v3 field list into another unvalidated object was rejected because i
 10. Validate results at native composition with the originating request and exercise all three persisted Review variants through the real Rust route.
 11. Run the repository gates, commit and push the exact source identity, then dispatch and synchronize the governed seven-platform sidecar prebuild without starting a formal release.
 12. If a platform gate fails, repair the shared smoke or deterministic test fixture, rerun local gates, and dispatch one new exact seven-platform attempt only after pushing the new source identity.
+13. Treat every failed exact run as evidence: replace remaining completion-order sleeps and premature migration cleanup, then repeat the governed local and remote gates for a new source identity.
 
 Rollback can restore the previous adapter and contract files without data migration because the change does not alter persisted state. A rollback would also restore the known production failure, so it is only suitable for isolating an unrelated regression.

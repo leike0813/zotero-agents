@@ -74,3 +74,10 @@
 - [x] 12.2 Replace the background deadline sleep race and premature Topic SQLite cleanup with deterministic task and owner lifecycles
 - [x] 12.3 Run focused and complete local gates for the smoke, Rust workspace, contracts, packaging, formatting, lint, and OpenSpec
 - [ ] 12.4 Commit and push the repaired source identity, dispatch one new exact seven-platform prebuild, validate and synchronize its immutable set, and pass runtime freshness
+
+## 13. Remove remaining platform timing and ownership assumptions
+
+- [x] 13.1 Reproduce the exact darwin-x64 completion-order failure, replace elapsed-time staggering with a two-read rendezvous and completion gate, and verify the existing concurrency/source-order test repeatedly
+- [x] 13.2 Release the four retained source or backup SQLite connections exposed by win32-x64 before temporary-root cleanup, and verify the complete repository crate test suite
+- [x] 13.3 Run the complete local Rust, contract, packaging, formatting, lint, OpenSpec, and release-build gates for the fourth-round repair
+- [ ] 13.4 Commit and push the new exact source identity, then after explicit dispatch authorization run, validate, synchronize, and freshness-check one governed seven-platform prebuild

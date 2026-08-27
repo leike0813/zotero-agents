@@ -17,7 +17,7 @@ The production Synthesis Workbench had three independent protocol-boundary failu
 - Normalize an absent Concept or Topic Graph manifest to `null` at the public projection instead of exposing an invalid empty hash.
 - Make native composition rebuild Workbench results against the originating surface and Review tab immediately after RPC/content transfer resolution.
 - Extend contract corpus and client/native/Rust-route coverage so the default Workbench state can open Chrome and every supported surface, while unprojected requests and wrong-surface results are rejected before dispatch or rendering.
-- Align the governed native smoke with the shared production launch-config v3 contract, and make platform-sensitive Rust tests synchronize task completion and release SQLite owners before cleanup.
+- Align the governed native smoke with the shared production launch-config v3 contract, and make platform-sensitive Rust tests synchronize task and concurrent-read completion while releasing Topic and migration SQLite owners before cleanup.
 
 ## Capabilities
 

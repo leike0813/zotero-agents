@@ -2661,6 +2661,7 @@ mod tests {
         drop(writable);
         let source = open_production_database_read_only(&database_path).expect("source");
         assert!(!legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("reject"));
+        drop(source);
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -2752,6 +2753,7 @@ mod tests {
         assert_eq!(backups.len(), 1);
         let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
         assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&backup).expect("legacy backup"));
+        drop(backup);
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -3030,6 +3032,7 @@ mod tests {
             read_schema_version(&backup).expect("backup schema"),
             PREVIOUS_SCHEMA_VERSION
         );
+        drop(backup);
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -3198,6 +3201,7 @@ mod tests {
             read_schema_version(&backup).expect("backup schema"),
             PREVIOUS_SCHEMA_VERSION
         );
+        drop(backup);
         fs::remove_dir_all(root).expect("cleanup");
     }
 
