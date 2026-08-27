@@ -3,7 +3,7 @@
 > 状态：方案已完成集中式契约闭合与最终架构审阅，等待实施授权。
 > 最近更新：2026-08-27
 > 当前阶段：制定方案；尚未批准 Git 集成、OpenSpec 创建或代码实施。
-> 来源：`/tmp/architecture-review-20260825-122610.html` 的 candidate 06，以及随后开展的 Workflow Host v12 hardening 讨论。
+> 来源：`/tmp/architecture-review-20260825-122610.html` 的 candidate 06、随后开展的 Workflow Host v12 hardening 讨论，以及 2026-08-27 的 runtime adapter deepening 审阅。
 
 ## 1. 工件用途
 
@@ -82,7 +82,10 @@ Workflow Host 不得通过 spread、proxy、运行时 capability catalog 或整�
 
 - `src/workflows/hostApi.ts` 只负责 version identity、explicit member projection、contract variant 组合与 deny adapters；
 - Zotero host semantics 归 Zotero Host Capability Broker；
-- runtime filesystem adapter 与 platform path selection 归 `runtimePersistence`；
+- production TypeScript 的普通跨运行时异步文件操作最终归 `runtimePersistence`；caller 可以保留领域 module，但不得自行选择 `IOUtils`、`OS.File` 或 Node filesystem adapter；
+- platform path selection 继续归 `runtimePersistence` 与既有 platform path module 的明确组合，不由 caller 拼接 separator 或猜测 runtime；
+- runtime global、Zotero/addon/toolkit 与通用 Window candidate resolution 归 `src/utils/runtimeBridge.ts`；picker-compatible parent policy、picker adapter 与 cancel/empty normalization 归 `src/platform/filePicker.ts`；
+- 宿主 subprocess module resolution 与 normalized one-shot execution 归 `src/platform/subprocess.ts`；command resolution policy、ACP/bridge lifecycle 与领域 outcome 仍归各自 owner；
 - Synthesis durable application/repository state 归 native sidecar；
 - library、mutations、notes、attachments、bibliography、researchBundles、archive、resources 等 nested modules 分别通过自己的 interface 获得 depth；
 - 顶层必须提供一份 exact top-level/nested surface manifest，但不以压缩顶层方法数量为目标；
@@ -596,7 +599,7 @@ workflow consumers 禁止直接使用：
 
 纯函数 helpers 保留为 package-local utilities，不因删除 `runtime.helpers` 而错误塞入 Workflow Host。
 
-应增加静态门禁，consumer-side 绕过计数目标为零。Broker、Host adapters、Host Bridge/MCP adapters、loader/runtime infrastructure 可以在各自 implementation locality 内使用 native capabilities。
+应增加静态门禁，consumer-side 绕过计数目标为零。Broker、Host adapters、Host Bridge/MCP adapters、loader/runtime infrastructure 只有在 §4.5 的批准 native workload 例外内才能直接使用 native capabilities；普通异步文件操作、通用 runtime/window resolution 与 one-shot subprocess execution 仍必须经过各自 owner seam。
 
 ### 4.3 Contract Variant
 
@@ -633,6 +636,28 @@ type WorkflowCallControl = Readonly<{
 - 同步、瞬时读取以及不存在真实取消点的 member 不机械增加 control 参数。
 
 `canceled` 只允许在 member 具备上述控制通道和 cancellation checks 时成为其公开错误；不得声明 caller 无法触发的虚假 cancellation semantic。
+
+### 4.5 Plugin-internal runtime adapter closure
+
+v12 public interface 闭合之外，插件内部的 Zotero 版本适配也必须形成可治理的 owner seams。兼容行为采用按调用 feature detection，不按 `Zotero.version` 选择 implementation；版本字符串只用于 environment/diagnostic facts，不能成为业务或 adapter dispatch 条件。
+
+production TypeScript 的普通异步文件操作包括 exists、read/write text、read/write bytes、copy、move、stat、list、remove、directory creation 与 temp-path resolution。无论 caller 属于 workflow loader、provider、installer、runtime manager、command resolver 或其他内部 module，这些操作都必须最终委托 `runtimePersistence`。caller 可以在自己的深层 module 中持有 naming、scope、validation、atomicity、retention 或领域 outcome，但不得复制 runtime filesystem selector。
+
+以下 native workloads 形成闭合例外清单，保留在各自 owner-private internal seam，不扩张 `runtimePersistence` 的 external interface，也不得向 Workflow Host 暴露 native object：
+
+- ChromeWorker 中的同步 indexed range read 与 `IOUtils.openFileForSyncReading`；
+- Gecko ZIP 所需的 `nsIZipReader`、`nsIZipWriter` 与 `nsIFile`；
+- script loader/module evaluation 的 native loader object；
+- SQLite storage 初始化所需的同步 native file/storage object；
+- bounded streaming transfer 所需的 Components streams；
+- OS reveal、file URI construction、Zotero attachment native creation 与 picker interaction；
+- 明确以枚举原始 adapter capability 为目的的 diagnostics/probes。
+
+`test/**`、`scripts/**`、`tools/**` 与 `src/modules/harness/**` 的 Node-only 文件访问不纳入 production migration。production module 为 Node runtime 提供的 adapter branch 仍在纳入范围内；不能通过把 Node 分支写进 caller 来规避 owner seam。
+
+runtime/window/picker 的 dependency direction 固定为：`filePicker` 每次调用从 `runtimeBridge` 解析当前 candidates，再应用 picker-compatible parent policy；`runtimeBridge` 不依赖 `filePicker`。缓存的 Workflow Host projection、Broker、caller 或 picker module 不得缓存 runtime global、Window、picker constructor、Chrome module 或 toolkit。owner 自己已经持有的 dialog/preferences Window 不是通用 resolver duplicate，可以直接使用；raw diagnostics 也可以枚举候选及来源。
+
+subprocess seam 只吸收宿主 module/capability resolution、one-shot spawn/capture 与 stdout/stderr/exit/unavailable normalization。command search policy 留在 `platform/command.ts`；login environment parsing 留在 `platform/env.ts`；ACP transport framing、pipe pump、process-group identity、graceful/forced close 与 audit 留在 `acpTransport`；WebSocket bridge singleton、ready/health/shutdown 留在 bridge owner；installer、Git、dependency probe 与 SkillRunner 继续持有各自 timeout、领域 outcome 和 diagnostics。不得把这些 lifecycle 聚合成一个 interface 几乎等于全部 implementation 的 generic process module。
 
 ## 5. Library read 与 traversal
 
@@ -5059,6 +5084,23 @@ file hard limits 固定为：单次 `readText` 64 MiB、`readBytes` 256 MiB、si
 
 删除无人使用且返回 native object 的 `file.pathToFile`。
 
+`runtimePersistence` 的内部 adapter ownership 不限于 Workflow Host `file` namespace。实施时必须同步迁移 production TypeScript 中语义等价的普通异步文件操作，当前已知范围至少包括：
+
+- workflow/runtime：`loader.ts`、`packageHookBundler.ts`、`zipBundleReader.ts`、`archive.ts`、`workflowInputPlanning.ts`、`workflowRuntime.ts` 与 `workflowExecution/bundleIO.ts`；
+- provider/installer/runtime：generic HTTP 与 SkillRunner providers、`builtinWorkflowSync.ts`、SkillRunner runtime/installer modules、`runtimeFileTransfer.ts` 与 `hostBridgeProfileStore.ts`；
+- platform/runtime compatibility callers：command/environment resolution、Windows command resolution、ACP transport、Git executable resolution 与 preferences/runtime persistence callers。
+
+该迁移只收回 adapter selection 与普通 I/O implementation，不把 loader sandbox、provider policy、installer lifecycle、archive safety 或 transfer protocol 并入 `runtimePersistence`。调用方的领域 interface 与结果语义保持由各自 module 持有。
+
+批准的 symbol deletion list 包括：
+
+- 删除 `src/utils/runtimeCompatibility.ts` 的 `runtimeFileExists`、`runtimeReadTextFile` 与 `runtimeRemoveFile` exports；
+- 删除或归并 caller-local 的 `IOUtils` / `OS.File` / Node fallback selector；
+- 删除只为上述 selector 存在的 shallow helper 与 pass-through test；
+- 保留 `runtimePersistence.ts` 文件和现有 semantic operations，不批准为本次迁移删除任何 caller 整文件。
+
+worker、ZIP、script loader、SQLite、bounded Components streaming、reveal/URI、attachment native creation、picker 与 raw diagnostic probe 只按 §4.5 的闭合例外保留。新增例外必须回到方案审阅，写明 owner、native requirement、为何普通 async interface 无法表达，以及对应测试 surface；implementation 不得自行扩大 allowlist。
+
 ### 13.2 `archive`
 
 archive 保持独立 module：
@@ -5518,6 +5560,50 @@ type SelectedItemsSnapshotDto = {
 
 这一拆分避免 `getCurrentView()` 与 `getSelectedItems()` 重复 materialize 同一份完整 selection，也防止调用方把 summary 中可能截断或过时的 tags/collections 误当作 library 权威状态。
 
+### 14.8 Runtime global、Window 与 picker ownership
+
+`src/utils/runtimeBridge.ts` 与 `src/platform/filePicker.ts` 分别深化，不合并，也不新增第三个 generic runtime facade。
+
+`runtimeBridge` 唯一持有以下通用知识：
+
+- runtime global、`globalThis`、override 与宿主注入对象的候选解析；
+- Zotero、addon、toolkit 与 console 等 runtime capability 的位置和有效性；
+- global/main/hidden Window candidates 的来源、优先级与 failure isolation；
+- 供 caller/diagnostic 使用的受控 shape summary。
+
+`filePicker` 唯一持有以下 picker 语义：
+
+- picker-compatible parent Window policy；
+- native picker module 与 toolkit picker adapters；
+- filters、single/multi selection、cancel、legitimate empty selection 与结果 normalization；
+- interactive runtime unavailable 的稳定失败。
+
+`filePicker` 每次调用从 `runtimeBridge` 获取当前 Window/runtime candidates，再应用 picker policy；不得缓存 parent Window、picker constructor、Chrome module 或 toolkit。`createWorkflowHostApi()` 缓存 projection 不改变该 late-binding 规则。Broker、library query、note payload、context builder 与其他 caller 不再各自实现通用 `resolveZotero` / main-window candidate chain；它们可以保留 owner-specific validation 和已经由 owner 明确持有的 dialog/preferences Window。
+
+批准删除或归并重复的通用 Window/runtime resolvers 与 `filePicker` 自有的平行 candidate chain；不删除 `runtimeBridge.ts` 或 `filePicker.ts`，也不把 picker semantics 移入 Workflow Host composition root。版本差异通过 capability shape 处理，不能按 Zotero 7/9 字符串分派。
+
+### 14.9 Plugin-internal subprocess seam
+
+`src/platform/subprocess.ts` 从 shallow re-export 深化为 plugin-internal process-execution module。它不恢复 workflow-facing `command`，不进入 Workflow Host v12 exact manifest。
+
+该 module 持有：
+
+- modern/legacy Mozilla subprocess module 与 Zotero internal subprocess capability resolution；
+- Node 与批准的 Windows hidden/XPCOM one-shot adapters；
+- normalized one-shot stdout、stderr、exit、unavailable、timeout 与 bounded termination semantics；
+- 供 production 与 test adapters 共用的 execution result seam。
+
+该 module 不持有 command path/search policy、login environment merge、ACP framing/streaming、process-group ownership、bridge singleton/ready lifecycle、installer/Git/dependency-probe domain outcome 或 raw capability diagnostics。这些行为继续留在 §4.5 指定的 owner，调用方只把底层 one-shot execution 委托给 platform subprocess seam。
+
+批准的 symbol deletion list 为：
+
+- 删除 `src/platform/subprocess.ts` 当前两行 re-export implementation，但保留并深化该文件；
+- 从 `src/utils/runtimeCompatibility.ts` 删除 `getMozillaSubprocessModule` export，并将 runtime module resolution 收回 `platform/subprocess.ts`；
+- 删除 caller-local 的等价 one-shot adapter selector 与 normalization；
+- 删除只验证 re-export、fallback 调用顺序或无用户可观察行为的测试。
+
+raw diagnostic probe 可以继续逐 adapter 收集证据，但不得成为 production dispatch SSOT。一个同时吸收 one-shot、streaming、ACP protocol、process control 与所有领域 outcome 的万能 process interface 被明确拒绝，因为其 interface 会接近全部 implementation，无法形成 depth。
+
 ## 15. Preferences、addon 与 status tags
 
 ### 15.1 Preferences 不投影给 workflow
@@ -5617,6 +5703,10 @@ ownership 与现有 caller migration 同步固定：reserved status policy 与 Z
 - related-item mutation自动双向。
 - generic prefs/settings 投影给 workflow。
 - generic command runner 或无行为的 `command` placeholder。
+- 使用 `Zotero.version`、backend/provider/product 字符串或 agent family 选择 runtime adapter implementation；兼容分派只允许按调用 feature detection。
+- 把 filesystem、runtime globals、Window、picker 与 subprocess 合并成一个 generic runtime facade。
+- 把 one-shot、streaming、ACP protocol、process-group lifecycle 与所有领域 outcome 合并成万能 process runner。
+- 在 §4.5 批准的 native workload 例外之外保留 caller-local `IOUtils`、`OS.File`、Node filesystem 或 subprocess selector。
 - 在 current-view DTO 中内嵌完整 selection，或把 selection summary 当作权威 library detail。
 - 向 workflow 暴露 selection cursor、分页版与完整快照版两套并行接口。
 - 在可信 in-process Workflow Host 内为 file/archive/resources 再建立一套 opaque path registry 或平行 handle API。
@@ -5898,6 +5988,12 @@ public Workflow Host 删除 `requiresConfirmation`；authorization、permission 
 22. `researchBundles.importPapers` 验证 dependency DAG、SCC atomic group、independent partial success、receipt/attempt reference SSOT、cancel 与 repair precedence。
 23. Synthesis projection 只有 4 groups/14 members，新增 wire contracts 与 canonical package/Rust sidecar parity，flat aliases 与 raw callbacks 不存在。
 24. manifest AST 指标固定为 23/21/85，所有可达 noncanonical public types 有唯一 declaration，禁止 duplicate declaration 与 unresolved alias。
+25. production TypeScript 的普通异步文件操作不在批准例外之外直接选择 `IOUtils`、`OS.File` 或 Node adapter；AST/import governance 只允许 `runtimePersistence` owner 与 §4.5 的闭合 native workload allowlist。
+26. `runtimePersistence` interface 测试覆盖 strict/tolerant failure、adapter unavailable、Unicode-safe append、atomic operation 与 per-call late binding；同一 cached caller 在两次调用间更换 runtime globals 时，第二次必须使用新 adapter。
+27. `platform/subprocess` interface 测试覆盖 normalized stdout/stderr/exit、unavailable、timeout、bounded termination 与 Windows hidden one-shot execution；ACP transport、bridge、Git、installer 和 dependency probe 继续从各自可观察 outcome 测试 lifecycle，不锁定底层 fallback 调用顺序。
+28. `runtimeBridge` 与 `filePicker` interface 测试覆盖 override、candidate completeness、hidden-window failure isolation、live/closed parent、native/toolkit adapters、filters、cancel、empty/multi selection 与 per-call late binding；不得精确断言 native import URL、toolkit constructor 参数数组或内部 candidate traversal 顺序。
+
+迁移完成后，删除只覆盖 `runtimeCompatibility` filesystem helpers、`platform/subprocess.ts` re-export 或 caller-local adapter selector 的测试；相同行为由 deep module interface 测试替代。architecture governance 可以使用 AST/import ownership 检查，不得退化为对完整源码文案、错误文案或大段 snapshot 的静态断言。
 
 ## 19. 已确认的实施方案
 
@@ -5937,14 +6033,17 @@ public Workflow Host 删除 `requiresConfirmation`；authorization、permission 
 计划切片如下；exact change name 与 file list 在 baseline `B` 上固定：
 
 1. **Contract foundation**：projection-neutral error contract、portable refs、strict JSON DTO、closed unions、call control 与 Broker/adapter ownership rules。
-2. **Library live reads**：常规 item/collection/annotation/note/attachment reads、bounded pages、traversal 与 completion evidence；不得冒充 stable snapshot。
-3. **Full-library snapshot feed**：Broker snapshot session、Workflow callback projection、Host Bridge paged projection、CLI/Hermes transactional refresh 与 agent-facing surface gates。
-4. **Mutation authority**：process-local operation registry、CAS/revision、三类高风险 preview、receipt/attempt、notes、attachments、managed staging、compensation 与 repair outcome。
-5. **Research product I/O**：Research Bundle graph import/export、file/archive/resources 与相关 materialization/import seam；各 nested module 仍分别接受 deep-module 审阅。
-6. **Synthesis facade**：grouped Workflow projection、tag-audit run contract、atomic promotion、regulation acknowledgement；lease/fencing/cleanup/telemetry 留在 Synthesis internal spec。
-7. **Atomic v12 activation**：迁移全部 consumers，建立 exact `WorkflowHostApi` projection 与 contract identity，删除 v11/raw escape hatches，并一次性启用 `version: 12`。
+2. **Runtime host adaptation deepening**：production-wide ordinary async filesystem closure、批准的 native workload allowlist、`runtimeBridge`/`filePicker` owner convergence、per-call late binding 与 adapter governance；不改变 v12 public member manifest。
+3. **Library live reads**：常规 item/collection/annotation/note/attachment reads、bounded pages、traversal 与 completion evidence；不得冒充 stable snapshot。
+4. **Full-library snapshot feed**：Broker snapshot session、Workflow callback projection、Host Bridge paged projection、CLI/Hermes transactional refresh 与 agent-facing surface gates。
+5. **Mutation authority**：process-local operation registry、CAS/revision、三类高风险 preview、receipt/attempt、notes、attachments、managed staging、compensation 与 repair outcome。
+6. **Research product I/O**：Research Bundle graph import/export、file/archive/resources 与相关 materialization/import seam；各 nested module 仍分别接受 deep-module 审阅。
+7. **Synthesis facade**：grouped Workflow projection、tag-audit run contract、atomic promotion、regulation acknowledgement；lease/fencing/cleanup/telemetry 留在 Synthesis internal spec。
+8. **Atomic v12 activation**：迁移全部 consumers，建立 exact `WorkflowHostApi` projection 与 contract identity，删除 v11/raw escape hatches，并一次性启用 `version: 12`。
 
-依赖关系为：contract foundation 先行；library、snapshot、mutation、research product I/O 与 Synthesis 按各自真实 owner seam 建设；atomic v12 activation 依赖前述切片全部完成并通过门禁。切片完成只表示内部 owner capability 可用，不得提前投影残缺的 `version: 12`，也不得对外发布多个 shape 不一致的 v12。
+另设一个 plugin-internal **Platform subprocess deepening** companion change：深化 `src/platform/subprocess.ts`、迁移 one-shot callers 并保留 ACP/bridge/domain lifecycle ownership。它可以在 baseline `B` 固定后与 v12 领域切片并行，不阻塞 v12 public contract 或 atomic activation；但“Zotero 版本相关 runtime adapter 已完全收敛”的总体完成条件必须同时包含该 companion change 通过 §18/§19.5 门禁。
+
+依赖关系为：contract foundation 先行；runtime host adaptation deepening 可以与 library、snapshot、mutation 和 Synthesis 切片并行，但必须在 research product I/O 与 atomic v12 activation 前完成；atomic v12 activation 依赖全部七个前置 v12 slices 完成并通过门禁。Platform subprocess companion 不在 public v12 activation dependency chain 中，不能因此把 subprocess 成员加入 Workflow Host manifest。切片完成只表示对应 owner capability 可用，不得提前投影残缺的 `version: 12`，也不得对外发布多个 shape 不一致的 v12。
 
 最终 activation change 固定使用：
 
@@ -5993,12 +6092,56 @@ Owner 与 adapter：
 ```text
 src/modules/zoteroHostCapabilityBroker.ts
 src/modules/runtimePersistence.ts
+src/utils/runtimeCompatibility.ts
+src/utils/runtimeBridge.ts
+src/platform/filePicker.ts
+src/platform/subprocess.ts
+src/platform/command.ts
+src/platform/env.ts
 src/workflows/archive.ts
 src/workflows/workflowInputMaterialization.ts
 src/modules/hostBridgeWorkflowResources.ts
 src/modules/synthesisClient/workflowHostClient.ts
 src/handlers/index.ts
 ```
+
+Runtime host adaptation 的 ordinary-I/O migration 当前至少涉及：
+
+```text
+src/workflows/loader.ts
+src/workflows/packageHookBundler.ts
+src/workflows/zipBundleReader.ts
+src/workflows/workflowInputPlanning.ts
+src/modules/workflowRuntime.ts
+src/modules/workflowExecution/bundleIO.ts
+src/modules/builtinWorkflowSync.ts
+src/modules/skillRunnerLocalRuntimeManager.ts
+src/modules/skillRunnerReleaseInstaller.ts
+src/modules/runtimeFileTransfer.ts
+src/modules/hostBridgeProfileStore.ts
+src/providers/generic-http/provider.ts
+src/providers/skillrunner/client.ts
+src/modules/windowsCommandResolution.ts
+src/modules/synthesis/gitExecutableResolver.ts
+src/modules/acpTransport.ts
+```
+
+Runtime/window/picker resolver consolidation 当前至少涉及 `src/modules/acpContextBuilder.ts`、`src/workflows/workflowNoteImagePreparation.ts`、`src/modules/selectionSample.ts`、Broker/library/note-payload callers 与 UI hosts。owner 自己持有的 dialog/preferences Window 和 raw diagnostic candidate enumeration 不在删除范围。
+
+Platform subprocess companion 的 one-shot migration 当前至少涉及：
+
+```text
+src/modules/acpRuntimeDependencyWrapper.ts
+src/modules/skillRunnerLocalRuntimeManager.ts
+src/modules/skillRunnerCtlBridge.ts
+src/modules/synthesis/gitSyncCommandAdapter.ts
+src/modules/hostBridgeCliInstaller.ts
+src/modules/hostBridgeCliInstallPrompt.ts
+src/platform/command.ts
+src/platform/env.ts
+```
+
+`src/modules/acpTransport.ts`、`src/modules/acpWebSocketBridgeService.ts` 与 `src/modules/acpBackendRefreshCacheDiagnostic.ts` 可能需要适配新的 internal seam，但其 streaming/bridge/diagnostic ownership 不迁入 `platform/subprocess.ts`。
 
 在 `dev-refactor` baseline 上还会按 Synthesis/full-snapshot vertical slices触及以下 families；它们不能被上面的 TypeScript 主干清单漏掉：
 
@@ -6026,6 +6169,10 @@ Tests 以扩展或重写现有稳定行为测试为主，重点包括：
 
 ```text
 test/core/102-zotero-host-broker-capability-api.test.ts
+test/core/108-runtime-persistence-governance.test.ts
+test/core/52-runtime-bridge.test.ts
+test/core/164-runtime-platform-services.test.ts
+test/core/165-runtime-platform-services.zotero.test.ts
 test/core/90-workflow-host-api-file-picker.test.ts
 test/core/90-workflow-note-image-preparation.test.ts
 test/core/90-workflow-stored-attachment-import.test.ts
@@ -6033,18 +6180,23 @@ test/core/91-workflow-host-api-archive.test.ts
 test/core/129-synthesis-layer-integration.test.ts
 test/core/140-synthesis-tag-vocabulary.test.ts
 test/core/174-workflow-archive-zotero-runtime.test.ts
+test/core/98-acp-transport.test.ts
+test/node/core/74-skillrunner-ctl-bridge.test.ts
+test/node/core/130-zotero9-compatibility.test.ts
 test/node/core/187-workflow-host-contract-governance.test.ts
 ```
 
-删除范围以已确认的 member/symbol deletion list 为准。当前没有批准整文件删除；不得为清理方便扩大到无关模块。
+删除范围以已确认的 member/symbol deletion list 为准。除既有 v12 public member deletions 外，本轮新增批准删除 `runtimeCompatibility.runtimeFileExists/runtimeReadTextFile/runtimeRemoveFile/getMozillaSubprocessModule`、`platform/subprocess.ts` 的 re-export implementation、caller-local 等价 adapter selectors 与只覆盖这些 shallow implementation 的测试。当前没有批准整文件删除；不得为清理方便扩大到无关模块。baseline `B` 上若发现新的平行 selector，必须按 §4.5 分类为 ordinary operation 或批准 native workload，不能在 tasks 中临时增加第三类。
 
 ### 19.4 TDD 与切片完成顺序
 
 1. 先完成 contract foundation；测试锁定 neutral contract、Broker ownership、portable JSON boundary 与 fail-closed adapter，不提前实例化残缺的 public v12 facade。
-2. 按 §19.2 分别完成 library live reads、full-library snapshot feed、mutation authority、research product I/O 与 Synthesis facade。每个切片必须在自身 owner seam 上获得稳定测试与明确完成证据，失败可归因到该切片。
-3. 前置切片全部完成后，再开始 atomic v12 activation：先建立 exact surface/contract identity 的失败测试，然后一次性组合完整 facade、迁移 consumers、删除旧成员与 raw escape hatch。
-4. 同步 package guard、canonical spec、受影响 owner delta specs 与直接受影响文档。
-5. 运行 §19.5 final gates，并用 OpenSpec verification 核对本工件、proposal/design/spec/tasks 与实现 parity。
+2. 启动 runtime host adaptation deepening：先在 `runtimePersistence`、`runtimeBridge` 与 `filePicker` interface 写失败测试和 governance allowlist，再迁移普通 I/O 与通用 resolver callers。该切片可与 library/snapshot/mutation/Synthesis 并行，但 research product I/O 不得在旧 adapter selector 上继续扩张。
+3. 按 §19.2 分别完成 library live reads、full-library snapshot feed、mutation authority、research product I/O 与 Synthesis facade。每个切片必须在自身 owner seam 上获得稳定测试与明确完成证据，失败可归因到该切片；research product I/O 开始实质实现前，runtime host adaptation 必须已提供可用 seam。
+4. Platform subprocess companion 在 baseline `B` 后独立采用 TDD：先锁定 normalized one-shot outcome，再迁移 callers；它可以与 v12 领域切片并行，不得改变 Workflow Host exact manifest，也不得为了复用而搬走 ACP/bridge/domain lifecycle。
+5. 七个前置 v12 slices 全部完成后，再开始 atomic v12 activation：先建立 exact surface/contract identity 的失败测试，然后一次性组合完整 facade、迁移 consumers、删除旧成员与 raw escape hatch。
+6. 同步 package guard、canonical spec、受影响 owner delta specs 与直接受影响文档。
+7. 运行 §19.5 final gates，并用 OpenSpec verification 核对本工件、proposal/design/spec/tasks 与实现 parity；runtime adapter 总体完成报告还必须单独确认 subprocess companion 状态。
 
 每个 vertical change 都先修改或扩展能代表稳定外部行为的现有测试，再实现通过。不得新增只锁定完整 message、字段顺序、内部调用顺序、临时对象布局或大段 snapshot 的测试。不得为了让某个切片暂时通过而引入 v11 alias、新的 raw escape hatch、兼容分支或第二份 member manifest。
 
@@ -6076,6 +6228,20 @@ npm run test:gate:pr
 
 验证结果必须逐命令记录 pass/fail/not-run 与原因。任何因环境缺失而未运行的命令都不能记为通过；失败必须先区分 integration baseline failure、v12 regression 与既有不相关 failure。
 
+Runtime host adaptation deepening 的切片完成证据必须包括：
+
+- `runtimePersistence` strict/tolerant、atomic、Unicode、adapter unavailable 与 per-call late-binding tests 通过；
+- `runtimeBridge`/`filePicker` candidate、parent、fallback、cancel 与 per-call late-binding tests 通过；
+- production TypeScript ordinary-I/O 与通用 runtime/window resolver governance scan 的 unauthorized count 为零；
+- 每个 native workload allowlist entry 都能映射到 §4.5 的 owner 和稳定测试，不存在临时例外。
+
+Platform subprocess companion 的完成证据必须包括：
+
+- normalized one-shot stdout/stderr/exit/unavailable/timeout/termination tests 通过；
+- Windows hidden/XPCOM 与 Node/Mozilla production adapters 有对应 interface evidence；
+- ACP transport、bridge、SkillRunner、Git、installer 与 dependency probe 的既有可观察 lifecycle/outcome tests 通过；
+- `runtimeCompatibility.getMozillaSubprocessModule`、shallow re-export 与 caller-local 等价 selector 已删除，raw diagnostic probe 未成为 dispatch SSOT。
+
 除 §5.9 明确批准的 full-library snapshot vertical slice 会深化既有 Host Bridge `library.sync_snapshot` projection 外，Host Bridge/MCP 对其他新增 v12 members 的 exposure 仍然延期，不自动随 Workflow Host projection 发布。若实施触及三个 agent-facing semantic surfaces，必须另行固定其 baseline、materialized metrics 与批准删除清单，并执行 semantic parity、厚度与 review-mirror 门禁。
 
 ### 19.6 Contract closure ledger
@@ -6089,7 +6255,10 @@ npm run test:gate:pr
 - 11 个 shared error codes、code-specific details、throw/outcome boundary 与 sensitive-data rules 已闭合；nonfatal diagnostics 使用各领域 closed unions，Synthesis internal telemetry 除外；
 - traversal、snapshot、notes、images、attachments、mutation registry/preview token、metadata、bibliography、research graph、file/archive/resources、clipboard、selection、logging 与 Synthesis 新 members 的 public budgets/lifetimes 已闭合；
 - interactive/non-interactive shape、UI deny behavior、strict JSON 与 trusted in-process exception list 已闭合；
-- v11/raw surface 删除清单、无兼容硬切换与延期清单已闭合。
+- v11/raw surface 删除清单、无兼容硬切换与延期清单已闭合；
+- production-wide ordinary async filesystem closure、闭合 native workload allowlist、feature-detection-only dispatch 与 per-call late binding 已闭合；
+- `runtimeBridge`/`filePicker` 分离 ownership、`platform/subprocess` one-shot ownership、保留在 ACP/bridge/domain callers 的 lifecycle 以及新增 symbol deletion list 已闭合；
+- runtime host adaptation v12 前置切片与 platform subprocess companion 的依赖和总体完成条件已闭合。
 
 以下只依赖 integration baseline `B` 才能机械落定，不是 public contract gap：
 
@@ -6113,11 +6282,14 @@ npm run test:gate:pr
 | `researchBundles` | 集中 graph validation、target mapping、SCC scheduling、child/resource staging、partial success 与 repair evidence | workflow 保留 format/manifest policy，不编排 Zotero graph write | deep；这是 raw domains 删除后最重要的高层 seam |
 | `synthesis` grouped facade | Rust applications/repository/native RPC 保持内部；tag audit callback 隐藏 durable run/promotion/cleanup | workflow 按四个领域分组调用，不理解 sidecar transport | facade 本身薄，但投影到既有 deep owner，边界正确 |
 | `file/archive/resources` | runtime adapter、atomic write、ZIP safety、run-scoped allocation/publish 与 cleanup 各有 owner | workflow 可组合本地可信 paths，同时不承担跨平台与 lifecycle 细节 | 三个相关但不重叠的 deep modules |
+| `runtimePersistence` + approved native internal seams | 集中普通跨运行时异步 I/O adapter selection；worker、ZIP、SQLite、streaming 等 native workloads 只在闭合 owner-private seams 中存在 | production caller 复用语义操作，不理解 `IOUtils`、`OS.File` 或 Node selection | deep；SSOT 扩展到 production-wide ordinary I/O，native exception 不污染 interface |
+| `runtimeBridge` + `filePicker` | runtime/global/Window candidate knowledge 与 picker semantics 分属两个有向依赖的 owners，并保持按调用晚绑定 | caller 不缓存或重复解析 Zotero/runtime/Window/picker shape | 两个 deep modules；不合并成 generic runtime facade |
+| `platform/subprocess` | 集中宿主 module resolution、one-shot adapters 与 execution-result normalization；streaming/protocol/process ownership 留在领域 owner | command、installer、Git、probe 与 SkillRunner 复用执行 seam，不学习 Zotero 7/9 subprocess shape | deep；interface 小于 implementation，不吸收 ACP/bridge lifecycle |
 | addon/environment/context/navigation/clipboard/editor/notifications/logging | 每项语义较小，主要隔离 runtime/UI 与 variant behavior | 提供一致、可测试、fail-closed 的基础 capability | leaf adapters 较薄是正常结果，不应人为合并成 generic utility bag |
 
-总体结论：方案形成的是“closed composition root + 多个领域 deep modules”，不是一个巨型 deep module。locality 的关键事实源已经唯一化：Zotero semantics 在 Broker，runtime filesystem selection 在 `runtimePersistence`，Synthesis durable semantics 在 Rust sidecar，remote locality/authorization 在 Host Bridge，public member identity 在 code-native manifest。leverage 足够高，尤其是完整读取、mutation authority、Research Bundle 与 tag audit 都把多步正确性从 caller 收回 owner。
+总体结论：方案形成的是“closed composition root + 多个领域 deep modules”，不是一个巨型 deep module。locality 的关键事实源已经唯一化：Zotero semantics 在 Broker，普通跨运行时异步 filesystem selection 在 `runtimePersistence`，runtime/global/Window resolution 在 `runtimeBridge`，picker semantics 在 `filePicker`，one-shot process execution 在 `platform/subprocess`，Synthesis durable semantics 在 Rust sidecar，remote locality/authorization 在 Host Bridge，public member identity 在 code-native manifest。leverage 足够高，尤其是完整读取、mutation authority、Research Bundle、tag audit 与 runtime adaptation 都把多步正确性从 caller 收回 owner。
 
-实施时有两个不可放松的条件：`hostApi.ts` 不能重新吸收领域实现；`researchBundles.importPapers` 不能退化成顺序调用低层 members 的薄 wrapper。违反任一条件都会让当前 locality 结论失效。
+实施时有五个不可放松的条件：`hostApi.ts` 不能重新吸收领域实现；`researchBundles.importPapers` 不能退化成顺序调用低层 members 的薄 wrapper；`runtimePersistence` 不能暴露 native object 来换取 caller migration；`runtimeBridge`/`filePicker` 必须按调用晚绑定；`platform/subprocess` 不能吸收 ACP/bridge/domain lifecycle。违反任一条件都会让当前 locality 结论失效。
 
 #### 19.7.2 一致性与自洽性
 
@@ -6131,7 +6303,9 @@ npm run test:gate:pr
 - note payload diagnostic 使用 closed union；attachment file state 删除重复 issues bag；
 - `context.getSelectedItems` 改为 async/cancelable，与 10,000-item hard limit 和 UI responsiveness 要求一致；
 - callback-scoped tag-audit/archive handles 继承外层 control，不允许 caller 创建第二套 cancellation channel；
-- public `MetadataLookupResultDto`、`AttachmentLinkMode`、shared refs 与 error spelling 已统一。
+- public `MetadataLookupResultDto`、`AttachmentLinkMode`、shared refs 与 error spelling 已统一；
+- runtime filesystem ownership 已从 Workflow Host caller 扩展到 production-wide ordinary async I/O，同时以闭合 allowlist 保留真正需要 native object/threading/streaming 语义的 internal seams；
+- runtime/global/Window 与 picker ownership 已分离，subprocess one-shot execution 与 ACP/bridge lifecycle 也已分离；不存在新的 generic runtime/process facade。
 
 以下看似不同的行为是明确的 projection 差异，不是矛盾：Workflow snapshot 使用 callback 隐藏分页，Host Bridge snapshot 使用 opaque cursor；Workflow attachment DTO 在可信进程内可含 local path，Host Bridge/MCP 必须删除 path；mutation registry 是 process-local，Synthesis tag-audit ledger 是 durable。`dev` 与 `dev-refactor` 尚未集成属于 implementation baseline 风险，不能用来改变已经冻结的 owner/seam。
 
@@ -6147,15 +6321,17 @@ npm run test:gate:pr
 - 不建立 opaque path registry、archive-entry handle 或第二套 file API；
 - 不为全部 writes 增加 informational preview，只保留三类确有 data-loss 风险的 mandatory preview；
 - 不把 Synthesis lease/fencing/heartbeat/telemetry 暴露给 workflow；
-- 不加入 speculative restore、collection tree、typed clipboard 或 generic command runner。
+- 不加入 speculative restore、collection tree、typed clipboard 或 generic command runner；
+- 不为版本适配建立按 `Zotero.version` 分派的 class hierarchy、runtime capability catalog 或万能 host facade；
+- 不把 native workload 例外硬压进普通 filesystem interface，也不把 streaming/process lifecycle 硬压进 one-shot subprocess interface。
 
-剩余的过度设计风险主要在实施方式，不在 public contract：若为每个 namespace 新建一层无行为 wrapper、复制 validators/mappings、把七个 vertical slices同时铺开但不完成任何一条端到端路径，都会制造新复杂度。§19.2 的 vertical topology、SSOT 与 atomic activation 正是防止这种情况的执行门禁。
+剩余的过度设计风险主要在实施方式，不在 public contract：若为每个 namespace 新建一层无行为 wrapper、复制 validators/mappings、把八个 v12 vertical slices 与 subprocess companion 同时铺开但不完成任何一条端到端路径，都会制造新复杂度。§19.2 的 vertical topology、SSOT、明确依赖与 atomic activation 正是防止这种情况的执行门禁。
 
 #### 19.7.4 预期改动面
 
 只读 inventory 在当前两个预集成 refs 上得到：`dev` 有 135 个文件命中 Workflow Host/direct consumer/snapshot 相关符号，其中 74 个位于 OpenSpec；`dev-refactor` 有 126 个命中文件，其中 67 个位于 OpenSpec。该数字只是已有 footprint，不等于计划逐文件修改数；它说明当前行为已经分散到 contract、owner、workflow、test、Host Bridge 与 specs。
 
-按 baseline `B` 上的 unique files 估计，本轮实现会修改或新增约 80–135 个文件。代码与测试的 added/deleted churn 预计约 37k–67k lines，净增约 9k–20k lines；spec/docs/agent-surface materialization 另计。范围的主要来源如下：
+原 Workflow Host v12 范围曾估计会修改或新增约 80–135 个 unique files，代码与测试 churn 约 37k–67k lines。加入 production-wide runtime host adaptation 与 subprocess companion 后，该数字已经不能代表完整范围；两个新切片与既有 v12 文件有显著重叠，不能把各自清单机械相加。baseline `B` 固定后必须重新计算 combined unique-file/churn estimate，§19.3 的当前清单只作为已知下限。范围的主要来源如下：
 
 | 区域 | 预期改动强度 | 主要原因 |
 | --- | --- | --- |
@@ -6165,14 +6341,16 @@ npm run test:gate:pr
 | Research Bundle | 很高 | materialization、graph import、SCC partial success、resource mapping、现有 bundle workflow 重写 |
 | Synthesis facade/tag audit | 高 | canonical contracts、TS client、Rust application/repository/schema、grouped callers |
 | file/archive/resources/UI leaf capabilities | 中 | exact DTO、late-bound adapters、limits、cleanup 与 variant behavior |
+| runtime host adaptation | 高 | production-wide ordinary-I/O migration、native exception governance、runtime/window/picker resolver convergence 与 late-binding tests |
+| platform subprocess companion | 中到高 | one-shot adapter consolidation、Windows hidden execution、caller migration 与 lifecycle ownership preservation |
 | builtin workflows 与 tests | 高 | v12 hard cut，无 compatibility path，现有 raw/status warning callers必须迁移 |
-| OpenSpec、docs、Host Bridge surfaces | 中到高 | 七个 vertical changes、final canonical spec、snapshot semantic-surface gates |
+| OpenSpec、docs、Host Bridge surfaces | 中到高 | 八个 v12 vertical changes、一个 subprocess companion、final canonical spec、snapshot semantic-surface gates |
 
-不会新增 mutation durable DB migration；Synthesis tag-audit staging/active-ledger 深化可能需要 sidecar SQLite schema migration。Zotero 用户库本身不做格式迁移。最大风险集中在 dev/dev-refactor integration、Host Bridge snapshot parity、Research Bundle compensation 与 Rust/TypeScript Synthesis contract parity，因此不能用一个 mega implementation change 承载；七个 vertical changes 加最终 atomic v12 activation 是与改动面相称的最小治理结构。
+不会新增 mutation durable DB migration；Synthesis tag-audit staging/active-ledger 深化可能需要 sidecar SQLite schema migration。Zotero 用户库本身不做格式迁移。最大风险集中在 dev/dev-refactor integration、Host Bridge snapshot parity、Research Bundle compensation、Rust/TypeScript Synthesis contract parity 与 production-wide runtime adapter migration，因此不能用一个 mega implementation change 承载；八个 v12 vertical changes 加一个可并行 subprocess companion 是与依赖关系相称的最小治理结构。
 
 ## 20. 当前停止点
 
-Workflow Host v12 方案已经完成 implementation-readiness contract closure 与最终审阅。exact surface 作为 design draft 冻结；没有剩余 public member、DTO、error、lifetime、partial-success 或 owner 决策等待 grilling。
+Workflow Host v12 方案已经完成 implementation-readiness contract closure 与最终审阅。exact surface 作为 design draft 冻结；production runtime filesystem、runtime/window/picker 与 subprocess ownership 也已闭合。没有剩余 public member、DTO、error、lifetime、partial-success 或 runtime adapter owner 决策等待 grilling。
 
 本工件仍不授权：
 
@@ -6181,4 +6359,6 @@ Workflow Host v12 方案已经完成 implementation-readiness contract closure �
 - 修改 production/test code；
 - 运行发布流程。
 
-只有用户明确授权进入【执行方案】后，才从 §19.1 的 integration worktree clean check 开始。先形成并验证 baseline `B`，再创建 vertical OpenSpec changes；不得跳过集成门禁直接实施。若集成后的 production evidence 与本工件的 public semantics 发生真实冲突，必须回到【制定方案】说明冲突，不能在 implementation 中自行改 contract。
+本次用户授权只覆盖将已确认架构决策写入本工件，不构成 §19 的 merge、OpenSpec 或 implementation 授权。
+
+只有用户另行明确授权执行 §19 的实现方案后，才从 §19.1 的 integration worktree clean check 开始。先形成并验证 baseline `B`，再创建 vertical OpenSpec changes；不得跳过集成门禁直接实施。若集成后的 production evidence 与本工件的 public semantics 发生真实冲突，必须回到【制定方案】说明冲突，不能在 implementation 中自行改 contract。
