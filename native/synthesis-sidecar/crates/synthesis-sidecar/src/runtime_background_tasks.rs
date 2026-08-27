@@ -161,6 +161,7 @@ pub(crate) fn current_task_canceled() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
     use std::time::Duration;
 
     #[test]
@@ -190,14 +191,23 @@ mod tests {
     #[test]
     fn reports_tasks_that_ignore_the_shared_deadline() {
         let owner = BackgroundTaskOwner::new();
+        let (started_sender, started_receiver) = mpsc::sync_channel(0);
+        let (release_sender, release_receiver) = mpsc::sync_channel(0);
         owner
-            .spawn("blocked", Arc::new(AtomicBool::new(false)), || {
-                thread::sleep(Duration::from_millis(40));
+            .spawn("blocked", Arc::new(AtomicBool::new(false)), move || {
+                started_sender.send(()).expect("publish task start");
+                release_receiver.recv().expect("release blocked task");
             })
             .expect("spawn");
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("task started");
         let drain = owner.stop_and_drain_until(Instant::now() + Duration::from_millis(1));
         assert_eq!(drain.remaining, 1);
-        thread::sleep(Duration::from_millis(50));
-        assert_eq!(owner.reap_finished(), BackgroundDrain::default());
+        release_sender.send(()).expect("release task");
+        assert_eq!(
+            owner.stop_and_drain_until(Instant::now() + Duration::from_secs(1)),
+            BackgroundDrain::default()
+        );
     }
 }

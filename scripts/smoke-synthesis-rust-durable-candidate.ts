@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
-import { createConnection } from "node:net";
+import { createConnection, createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { URL } from "node:url";
+import { rebuildSynthesisSidecarLaunchConfig } from "../packages/synthesis-contracts/src/sidecarLifecycle";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
   buildSynthesisCitationGraphBuildTransferPage,
@@ -14,6 +15,7 @@ import {
 
 const CLIENT_TOKEN = "r7-client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "r8-lifecycle-token-0123456789abcdef0123456789abcdef";
+const REVERSE_HOST_TOKEN = "r8-reverse-host-0123456789abcdef0123456789abcdef";
 const PROFILE_ID = "1".repeat(64);
 const DATA_ROOT_ID = "2".repeat(64);
 const RUNTIME_ROOT_ID = "3".repeat(64);
@@ -233,6 +235,85 @@ function responseJson(response: LoopbackHttpResponse, label: string) {
   }
 }
 
+async function startReverseHostFixture() {
+  const server = createServer((socket) => {
+    let request = Buffer.alloc(0);
+    let responded = false;
+    socket.on("data", (chunk: Buffer) => {
+      if (responded) return;
+      request = Buffer.concat([request, chunk]);
+      const headerEnd = request.indexOf("\r\n\r\n");
+      if (headerEnd < 0) return;
+      const header = request.subarray(0, headerEnd).toString("utf8");
+      const contentLength = Number(
+        /^content-length:\s*([0-9]+)$/im.exec(header)?.[1] || "0",
+      );
+      const body = request.subarray(headerEnd + 4);
+      if (
+        !Number.isSafeInteger(contentLength) ||
+        body.byteLength < contentLength
+      )
+        return;
+      responded = true;
+      const authorized = header
+        .split("\r\n")
+        .some(
+          (line) =>
+            line.toLowerCase() ===
+            `authorization: bearer ${REVERSE_HOST_TOKEN}`.toLowerCase(),
+        );
+      let validProbe = false;
+      try {
+        const call = JSON.parse(
+          body.subarray(0, contentLength).toString("utf8"),
+        ) as Record<string, unknown>;
+        validProbe =
+          header.startsWith("POST /synthesis/v1/host-call HTTP/1.1") &&
+          call.capability === "webdav.describe";
+      } catch {
+        validProbe = false;
+      }
+      const status = authorized && validProbe ? 200 : 400;
+      const responseBody = Buffer.from(
+        JSON.stringify(
+          status === 200
+            ? { ok: true, result: {} }
+            : {
+                ok: false,
+                error: { code: "invalid_request", details: {} },
+              },
+        ),
+        "utf8",
+      );
+      socket.end(
+        Buffer.concat([
+          Buffer.from(
+            `HTTP/1.1 ${status} ${status === 200 ? "OK" : "Bad Request"}\r\nContent-Type: application/json\r\nContent-Length: ${responseBody.byteLength}\r\nConnection: close\r\n\r\n`,
+            "utf8",
+          ),
+          responseBody,
+        ]),
+      );
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("reverse_host_fixture_unavailable");
+  }
+  return {
+    port: address.port,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+}
+
 async function call(
   endpoint: string,
   capability: string,
@@ -337,41 +418,43 @@ async function main() {
     path.join(os.tmpdir(), "synthesis-r7-candidate-"),
   );
   const profileRuntimeRoot = path.join(root, "profile-runtime");
+  const repositoryDbPath = path.join(root, "state", "synthesis.db");
+  const canonicalRoot = path.join(root, "data", "synthesis");
   const configPath = path.join(root, "config.json");
+  const reverseHost = await startReverseHostFixture();
   await fs.writeFile(
     configPath,
-    `${JSON.stringify({
-      schema: "synthesis-sidecar-launch-config.v2",
-      profileId: PROFILE_ID,
-      profileRuntimeRoot,
-      runtimeRootId: RUNTIME_ROOT_ID,
-      dataRootId: DATA_ROOT_ID,
-      bundleId: BUNDLE_ID,
-      implementation: "rust-native",
-      target,
-      targetTriple: targetIdentity.targetTriple,
-      buildFingerprint: BUILD_FINGERPRINT,
-      platformSignature: targetIdentity.platformSignature,
-      serviceVersion: "0.1.0",
-      protocolVersion: "synthesis-sidecar.v1",
-      schemaVersion: "synthesis-repository-foundation.v2",
-      supervisorInstanceId: "r8-smoke-supervisor",
-      leaseNonce: "r8-smoke-lease",
-      clientToken: CLIENT_TOKEN,
-      lifecycleToken: LIFECYCLE_TOKEN,
-      mutationEnabled: false,
-      port: 0,
-    })}\n`,
-  );
-  await fs.writeFile(
-    path.join(root, "lease.json"),
-    `${JSON.stringify({
-      schema: "synthesis-sidecar-lease.v1",
-      profileId: PROFILE_ID,
-      supervisorInstanceId: "r8-smoke-supervisor",
-      leaseNonce: "r8-smoke-lease",
-      updatedAtMs: Date.now(),
-    })}\n`,
+    `${JSON.stringify(
+      rebuildSynthesisSidecarLaunchConfig({
+        schema: "synthesis-sidecar-launch-config.v3",
+        profileId: PROFILE_ID,
+        libraryId: 1,
+        profileRuntimeRoot,
+        runtimeRootId: RUNTIME_ROOT_ID,
+        dataRootId: DATA_ROOT_ID,
+        bundleId: BUNDLE_ID,
+        implementation: "rust-native",
+        target,
+        targetTriple: targetIdentity.targetTriple,
+        buildFingerprint: BUILD_FINGERPRINT,
+        platformSignature: targetIdentity.platformSignature,
+        serviceVersion: "0.1.0",
+        protocolVersion: "synthesis-sidecar.v1",
+        schemaVersion: "synthesis-repository-foundation.v2",
+        supervisorInstanceId: "r8-smoke-supervisor",
+        diagnosticsEnabled: false,
+        repositoryDbPath,
+        canonicalRoot,
+        reverseHost: {
+          host: "127.0.0.1",
+          port: reverseHost.port,
+          authorizationToken: REVERSE_HOST_TOKEN,
+        },
+        clientToken: CLIENT_TOKEN,
+        lifecycleToken: LIFECYCLE_TOKEN,
+        port: 0,
+      }),
+    )}\n`,
   );
   const child = spawn(binary, ["serve", "--config", configPath], {
     stdio: ["pipe", "pipe", "pipe"],
@@ -429,7 +512,7 @@ async function main() {
         health.platformSignature,
         targetIdentity.platformSignature,
       ) ||
-      health.repository?.mode !== "isolated_shadow" ||
+      health.repository?.mode !== "production" ||
       health.repository?.schemaVersion !==
         "synthesis-repository-foundation.v2" ||
       health.canonicalStore?.schemaVersion !==
@@ -480,7 +563,7 @@ async function main() {
           requestId: "r7:wrong-profile",
           profileId: "3".repeat(64),
           capability: "workbench.chrome.read",
-          payload: { state: {} },
+          payload: {},
         }),
       },
     );
@@ -499,7 +582,6 @@ async function main() {
     const handshakeData = handshake.body.data as Record<string, any>;
     if (
       handshake.response.status !== 200 ||
-      handshakeData.mutationEnabled !== false ||
       handshakeData.implementation !== "rust-native" ||
       handshakeData.target !== target ||
       handshakeData.targetTriple !== targetIdentity.targetTriple ||
@@ -514,9 +596,7 @@ async function main() {
       throw new Error(`Invalid handshake: ${JSON.stringify(handshake.body)}`);
     }
 
-    const workbench = await call(endpoint, "workbench.chrome.read", {
-      state: {},
-    });
+    const workbench = await call(endpoint, "workbench.chrome.read", {});
     const maintenance = (workbench.body.data as Record<string, any>)
       .maintenance;
     if (
@@ -530,7 +610,6 @@ async function main() {
       );
     }
     const invalidWorkbench = await call(endpoint, "workbench.chrome.read", {
-      state: {},
       unknown: true,
     });
     if (invalidWorkbench.response.status !== 400) {
@@ -725,23 +804,7 @@ async function main() {
       5_000,
       "shutdown",
     );
-    const databasePath = path.join(
-      profileRuntimeRoot,
-      "shadow-repository",
-      DATA_ROOT_ID,
-      "synthesis.db",
-    );
-    await fs.access(databasePath);
-    await fs.writeFile(
-      path.join(root, "lease.json"),
-      `${JSON.stringify({
-        schema: "synthesis-sidecar-lease.v1",
-        profileId: PROFILE_ID,
-        supervisorInstanceId: "r8-smoke-supervisor",
-        leaseNonce: "r8-smoke-lease",
-        updatedAtMs: Date.now(),
-      })}\n`,
-    );
+    await fs.access(repositoryDbPath);
     const reopened = spawn(binary, ["serve", "--config", configPath], {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -839,7 +902,7 @@ async function main() {
         schema: "synthesis-rust-durable-candidate-smoke.v1",
         canaries: 2,
         computeOperations: 4,
-        mutationEnabled: false,
+        repositoryMode: "production",
         shutdownClosed: true,
         reopenVerified: true,
       })}\n`,
@@ -847,6 +910,7 @@ async function main() {
   } finally {
     lines.close();
     if (child.exitCode === null) child.kill();
+    await reverseHost.close();
     await fs.rm(root, { recursive: true, force: true });
   }
 }

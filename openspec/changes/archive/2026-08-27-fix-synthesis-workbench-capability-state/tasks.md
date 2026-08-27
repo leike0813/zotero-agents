@@ -67,3 +67,10 @@
 - [x] 11.1 Run contract typecheck, cross-language validation, TypeScript checks, Rust tests/clippy/format, parity, and focused production-route tests
 - [x] 11.2 Validate the synced specs and `git diff --check`
 - [ ] 11.3 Commit and push the exact source identity, dispatch the governed seven-platform sidecar prebuild, synchronize the verified bundles, pass runtime freshness, and validate the completed archived change
+
+## 12. Repair seven-platform verification
+
+- [x] 12.1 Reproduce the native candidate `invalid_config`, rebuild its launch input through the shared v3 contract, and verify production startup, Workbench, shutdown, and reopen
+- [x] 12.2 Replace the background deadline sleep race and premature Topic SQLite cleanup with deterministic task and owner lifecycles
+- [x] 12.3 Run focused and complete local gates for the smoke, Rust workspace, contracts, packaging, formatting, lint, and OpenSpec
+- [ ] 12.4 Commit and push the repaired source identity, dispatch one new exact seven-platform prebuild, validate and synchronize its immutable set, and pass runtime freshness

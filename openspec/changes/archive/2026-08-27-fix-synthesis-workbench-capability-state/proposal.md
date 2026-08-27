@@ -17,6 +17,7 @@ The production Synthesis Workbench had three independent protocol-boundary failu
 - Normalize an absent Concept or Topic Graph manifest to `null` at the public projection instead of exposing an invalid empty hash.
 - Make native composition rebuild Workbench results against the originating surface and Review tab immediately after RPC/content transfer resolution.
 - Extend contract corpus and client/native/Rust-route coverage so the default Workbench state can open Chrome and every supported surface, while unprojected requests and wrong-surface results are rejected before dispatch or rendering.
+- Align the governed native smoke with the shared production launch-config v3 contract, and make platform-sensitive Rust tests synchronize task completion and release SQLite owners before cleanup.
 
 ## Capabilities
 
@@ -29,6 +30,7 @@ None.
 - `synthesis-workbench-ui-client-consumer`: Require the shared UI adapter to project local UI state into the narrow protocol read state rather than forwarding the complete UI model.
 - `synthesis-workbench-read-client`: Require Chrome and surface reads to use one strict request contract and request-selected, recursively concrete result contracts across in-process and native transports.
 - `synthesis-native-topic-workbench-surface`: Require the native boundary's real result projection for every Workbench surface and Review tab to satisfy its matching public capability result schema.
+- `synthesis-sidecar-prebuild-release`: Require native candidate smoke and platform tests to exercise current production seams deterministically before an archive is accepted.
 
 ## Impact
 
@@ -36,4 +38,5 @@ None.
 - `src/modules/synthesisClient` UI adaptation, grouped client normalization, and native request-aware result rebuilding.
 - Rust Synthesis application DTOs and stored Concept proposal decoding, plus production Workbench projection.
 - Client foundation, native composition, production Rust-route scenarios, and protocol parity tests.
+- Seven-platform smoke configuration and cross-platform Rust test fixtures.
 - The governed seven-platform Synthesis sidecar prebuild input changes; no persisted schema/data migration, lifecycle ownership, public operation semantics, formal release, or user-facing Workbench control changes.

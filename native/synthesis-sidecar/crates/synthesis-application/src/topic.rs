@@ -2580,7 +2580,8 @@ mod tests {
     use crate::ports::{CanonicalStorePort, RepositoryPort};
     use crate::topic_graph::{TopicGraphComputePort, TopicGraphIndexOutput};
     use std::fs;
-    use std::path::PathBuf;
+    use std::ops::Deref;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex as TestMutex;
     use std::sync::atomic::AtomicUsize;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
@@ -2814,7 +2815,23 @@ mod tests {
         }
     }
 
-    fn root(label: &str) -> PathBuf {
+    struct TestRoot(PathBuf);
+
+    impl Deref for TestRoot {
+        type Target = Path;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Drop for TestRoot {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("cleanup topic test root");
+        }
+    }
+
+    fn root(label: &str) -> TestRoot {
         let root = std::env::temp_dir().join(format!(
             "synthesis-typed-topic-{label}-{}-{}",
             std::process::id(),
@@ -2824,7 +2841,7 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).expect("root");
-        root
+        TestRoot(root)
     }
 
     fn owners(root: &std::path::Path) -> (RepositoryPort, CanonicalStorePort) {
@@ -3007,7 +3024,6 @@ mod tests {
             TopicDetailResult::Ready { .. }
         ));
         drop(reopened);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3048,7 +3064,6 @@ mod tests {
             reopened_graph.load().expect("reopened graph").nodes.len(),
             1
         );
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3099,7 +3114,6 @@ mod tests {
         assert_eq!(snapshot.edges[0].source_topic_id, "topic-parent");
         assert_eq!(snapshot.edges[0].target_topic_id, "topic-child");
         assert_eq!(snapshot.edges[0].status, "suggested");
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3130,7 +3144,6 @@ mod tests {
         assert_eq!(first.status, TopicGraphMutationStatus::Committed);
         assert_eq!(second.status, TopicGraphMutationStatus::Unchanged);
         assert_eq!(graph.load().expect("topic graph").nodes.len(), 1);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3202,7 +3215,6 @@ mod tests {
             1
         );
         drop(reopened);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3241,7 +3253,6 @@ mod tests {
         assert!(repository.get_state("topic-alpha").unwrap().is_some());
         assert!(repository.get_deleted("topic-alpha").unwrap().is_none());
         drop(rollback);
-        fs::remove_dir_all(rollback_root).expect("cleanup rollback");
 
         let warning_root = root("delete-graph-warning");
         let (repository, canonical) = owners(&warning_root);
@@ -3304,7 +3315,6 @@ mod tests {
             CanonicalTopicState::Absent { .. }
         ));
         drop(warning);
-        fs::remove_dir_all(warning_root).expect("cleanup warning");
     }
 
     #[test]
@@ -3336,7 +3346,6 @@ mod tests {
         assert_eq!(repository.list_states.load(Ordering::Relaxed), 0);
         assert_eq!(repository.get_projection.load(Ordering::Relaxed), 0);
         drop(application);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3374,7 +3383,6 @@ mod tests {
         assert_eq!(page.rows[0].id, "topic-legacy");
         assert_eq!(page.rows[0].kind, "topic_synthesis");
         drop(application);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3409,7 +3417,6 @@ mod tests {
         };
         assert!(snapshot.sections.contains_key("source_papers"));
         drop(application);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3467,7 +3474,6 @@ mod tests {
         );
 
         drop(application);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3544,7 +3550,6 @@ mod tests {
         assert_eq!(*library.page_reads.lock().expect("page reads"), 1);
 
         drop(application);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
@@ -3577,6 +3582,5 @@ mod tests {
                 .is_empty()
         );
         repository.close().expect("close");
-        fs::remove_dir_all(root).expect("cleanup");
     }
 }

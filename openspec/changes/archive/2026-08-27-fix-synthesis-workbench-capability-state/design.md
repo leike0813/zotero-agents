@@ -90,6 +90,14 @@ An open evidence object was rejected because it makes real-data validation depen
 
 Concept and Topic Graph projections convert an empty stored manifest hash to JSON `null`, matching the existing nullable public contract. A non-empty value must still satisfy the canonical hash pattern. This keeps partially initialized review queues readable without relaxing hash validation.
 
+### 12. Seven-platform verification uses current production seams
+
+The durable native candidate smoke rebuilds its launch input through the shared launch-config v3 builder, starts an authenticated loopback reverse Host fixture, and uses explicit production repository and canonical roots. Its health, Workbench, shutdown, persistence, and reopen assertions follow the current Rust runtime contract. This keeps the executable smoke at the real process boundary while leaving launch-field ownership in the contract package.
+
+Platform-sensitive Rust tests use lifecycle ownership instead of wall-clock assumptions. The background drain case synchronizes task start and release through channels. Topic application tests own their temporary root through a test-only RAII guard declared before repository, canonical, graph, and application owners, so Windows removes SQLite files only after every later owner has dropped.
+
+Copying the v3 field list into another unvalidated object was rejected because it would repeat the drift that caused native candidates to fail with `invalid_config`. Increasing sleeps or ignoring Windows cleanup errors was rejected because both approaches hide scheduling and ownership bugs rather than making the evidence deterministic.
+
 ## Risks / Trade-offs
 
 - **A future local filter is not projected automatically** → Add it deliberately to the protocol DTO, schema, adapter, and corpus only when a sidecar read actually consumes it.
@@ -99,6 +107,7 @@ Concept and Topic Graph projections convert an empty stored manifest hash to JSO
 - **A stored proposal gains another persistence-only field** → Normalize it only when required for typed application behavior; do not expose it through the Workbench DTO.
 - **A historical Topic bundle cannot satisfy the current full record** → Keep list/detail failure semantics for the full API while the lightweight Workbench projection remains readable from stable state.
 - **Double validation adds a small hot-path cost** → The state is bounded and shallow; preserving equal behavior at every client seam is worth the negligible rebuild cost.
+- **The production launch contract changes again** → Keep native smoke construction behind the shared launch-config builder and validate the real process boundary in every native matrix member.
 
 ## Migration Plan
 
@@ -113,5 +122,6 @@ Concept and Topic Graph projections convert an empty stored manifest hash to JSO
 9. Introduce the lightweight Topic Workbench DTO and shared stored Concept proposal decoder, then project closed Review evidence.
 10. Validate results at native composition with the originating request and exercise all three persisted Review variants through the real Rust route.
 11. Run the repository gates, commit and push the exact source identity, then dispatch and synchronize the governed seven-platform sidecar prebuild without starting a formal release.
+12. If a platform gate fails, repair the shared smoke or deterministic test fixture, rerun local gates, and dispatch one new exact seven-platform attempt only after pushing the new source identity.
 
 Rollback can restore the previous adapter and contract files without data migration because the change does not alter persisted state. A rollback would also restore the known production failure, so it is only suitable for isolating an unrelated regression.
