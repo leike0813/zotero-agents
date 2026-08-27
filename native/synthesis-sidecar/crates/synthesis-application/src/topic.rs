@@ -7,8 +7,8 @@ use crate::dto::{
     TopicFindRequest, TopicFindResult, TopicFindRow, TopicFreshness, TopicListRequest,
     TopicListResult, TopicProjectionDto, TopicPurgeResult, TopicRecord, TopicReportRequest,
     TopicReportResult, TopicResolverCombine, TopicResolverDto, TopicResolverPaper,
-    TopicResolverRequest, TopicResolverResult, TopicSourceMaterialsStatus, TopicWorkflowFilter,
-    TopicWorkflowOption, TopicWorkflowOptionsResult,
+    TopicResolverRequest, TopicResolverResult, TopicSourceMaterialsStatus, TopicWorkbenchPage,
+    TopicWorkbenchRow, TopicWorkflowFilter, TopicWorkflowOption, TopicWorkflowOptionsResult,
 };
 use crate::ports::{
     StructuredArtifactPort, TopicCanonicalPort, TopicLibraryQueryPort, TopicRepositoryPort,
@@ -378,6 +378,19 @@ impl TopicApplication {
             Option<TopicApplicationProjectionRecord>,
         )>,
     ) -> Result<Vec<TopicRecord>, String> {
+        let artifacts = self.reference_artifacts_for_rows(&rows);
+        rows.into_iter()
+            .map(|(state, projection)| project_record(state, projection, &artifacts))
+            .collect()
+    }
+
+    fn reference_artifacts_for_rows(
+        &self,
+        rows: &[(
+            TopicApplicationStateRecord,
+            Option<TopicApplicationProjectionRecord>,
+        )],
+    ) -> Vec<ReferenceArtifactRecord> {
         let mut paper_refs = rows
             .iter()
             .flat_map(|(state, _)| {
@@ -389,33 +402,79 @@ impl TopicApplication {
             .collect::<Vec<_>>();
         paper_refs.sort();
         paper_refs.dedup();
-        let artifacts = self
-            .repository
+        self.repository
             .list_reference_artifacts(&paper_refs)
-            .unwrap_or_default();
+            .unwrap_or_default()
+    }
+
+    fn project_workbench_rows(
+        &self,
+        rows: Vec<(
+            TopicApplicationStateRecord,
+            Option<TopicApplicationProjectionRecord>,
+        )>,
+    ) -> Result<Vec<TopicWorkbenchRow>, String> {
+        let artifacts = self.reference_artifacts_for_rows(&rows);
         rows.into_iter()
-            .map(|(state, projection)| project_record(state, projection, &artifacts))
+            .map(|(state, projection)| {
+                let projection = projection
+                    .map(|projection| {
+                        Ok::<Value, String>(json!({
+                            "discovery":parse_object(&projection.discovery_json)?,
+                        }))
+                    })
+                    .transpose()?
+                    .unwrap_or_else(|| json!({}));
+                let readiness = topic_readiness_view(&state, &projection, &artifacts);
+                Ok(TopicWorkbenchRow {
+                    id: state.topic_id,
+                    title: state.title,
+                    kind: "topic_synthesis".into(),
+                    definition: state.definition,
+                    language: state.language,
+                    status: state.operation,
+                    paper_count: state.paper_count,
+                    updated_at: state.updated_at,
+                    freshness: readiness.freshness,
+                    source_materials_status: readiness.source_materials_status,
+                    source_materials_percent: readiness.source_materials_percent,
+                    stale_reasons: readiness.stale_reasons,
+                    dirty_reasons: readiness.dirty_reasons,
+                    missing_sections: readiness.missing_sections,
+                })
+            })
             .collect()
     }
 
     pub fn list(&self, request: TopicListRequest) -> Result<TopicListResult, String> {
-        if request.limit == 0 || request.limit > MAX_LIST {
-            return Err("invalid_request".into());
-        }
-        let offset = if request.cursor.is_empty() {
-            0
-        } else {
-            request
-                .cursor
-                .parse::<usize>()
-                .map_err(|_| "invalid_request".to_owned())?
-        };
+        let offset = topic_list_offset(&request)?;
         let (rows, total) = self.repository.list_records(offset, request.limit)?;
         let returned = rows.len();
         let next = offset.saturating_add(returned);
         let topics = self.project_rows(rows)?;
         Ok(TopicListResult {
             topics,
+            cursor: request.cursor,
+            next_cursor: if next < total {
+                next.to_string()
+            } else {
+                String::new()
+            },
+            has_more: next < total,
+            returned,
+            total,
+            limit: request.limit,
+        })
+    }
+
+    pub fn list_workbench(&self, request: TopicListRequest) -> Result<TopicWorkbenchPage, String> {
+        let offset = topic_list_offset(&request)?;
+        let (rows, total) = self.repository.list_records(offset, request.limit)?;
+        let returned = rows.len();
+        let next = offset.saturating_add(returned);
+        let rows = self.project_workbench_rows(rows)?;
+        Ok(TopicWorkbenchPage {
+            rows,
             cursor: request.cursor,
             next_cursor: if next < total {
                 next.to_string()
@@ -2399,6 +2458,20 @@ fn topic_graph_ingest_request(
     })
 }
 
+fn topic_list_offset(request: &TopicListRequest) -> Result<usize, String> {
+    if request.limit == 0 || request.limit > MAX_LIST {
+        return Err("invalid_request".into());
+    }
+    if request.cursor.is_empty() {
+        Ok(0)
+    } else {
+        request
+            .cursor
+            .parse::<usize>()
+            .map_err(|_| "invalid_request".to_owned())
+    }
+}
+
 fn project_record(
     state: TopicApplicationStateRecord,
     projection: Option<TopicApplicationProjectionRecord>,
@@ -3262,6 +3335,44 @@ mod tests {
         assert_eq!(repository.list_records.load(Ordering::Relaxed), 1);
         assert_eq!(repository.list_states.load(Ordering::Relaxed), 0);
         assert_eq!(repository.get_projection.load(Ordering::Relaxed), 0);
+        drop(application);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn workbench_list_does_not_decode_full_legacy_topic_payloads() {
+        let root = root("workbench-legacy-row");
+        let (repository, canonical) = owners(&root);
+        let application = TopicApplication::with_factories(
+            Arc::new(repository.clone()),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+        );
+        assert!(application.apply(request("topic-legacy", "create")).ok);
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "UPDATE synt_topic_application_state
+                 SET topic_definition_json=?1 WHERE topic_id=?2",
+                &[
+                    json!(r#"{"id":"topic-legacy","title":"Legacy","definition":"Legacy","scope":"historical"}"#),
+                    json!("topic-legacy"),
+                ],
+            )
+            .expect("legacy topic definition");
+
+        assert!(application.list(TopicListRequest::default()).is_err());
+        let page = application
+            .list_workbench(TopicListRequest::default())
+            .expect("workbench page");
+
+        assert_eq!(page.rows.len(), 1);
+        assert_eq!(page.rows[0].id, "topic-legacy");
+        assert_eq!(page.rows[0].kind, "topic_synthesis");
         drop(application);
         fs::remove_dir_all(root).expect("cleanup");
     }

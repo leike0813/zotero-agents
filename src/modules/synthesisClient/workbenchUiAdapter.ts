@@ -1,11 +1,13 @@
 import {
   SynthesisClientError,
+  rebuildSynthesisWorkbenchReadState,
   toSynthesisJsonObject,
   type SynthesisClientErrorCode,
   type SynthesisGraphCommandResult,
   type SynthesisWorkbenchPaperDigestReadRequest,
   type SynthesisWorkbenchProjection,
   type SynthesisWorkbenchReadState,
+  type SynthesisWorkbenchSurfaceProjection,
 } from "../../../packages/synthesis-contracts/src/index";
 import type {
   SynthesisUiCacheReadiness,
@@ -181,46 +183,48 @@ export function toSynthesisWorkbenchReadState(
     expectedGraphHash?: string;
   },
 ): SynthesisWorkbenchReadState {
-  const omitUndefinedObjectProperties = (value: unknown): unknown => {
-    if (Array.isArray(value)) {
-      return value.map(omitUndefinedObjectProperties);
-    }
-    if (
-      !value ||
-      typeof value !== "object" ||
-      Object.getPrototypeOf(value) !== Object.prototype
-    ) {
-      return value;
-    }
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, entry]) => entry !== undefined)
-        .map(([key, entry]) => [key, omitUndefinedObjectProperties(entry)]),
-    );
-  };
-  return toSynthesisJsonObject(
-    omitUndefinedObjectProperties(
-      options
-        ? {
-            ...state,
-            graph: {
-              ...state.graph,
-              ...(options.graphWindowCursor
-                ? { windowCursor: options.graphWindowCursor }
-                : {}),
-              ...(options.expectedGraphHash
-                ? { expectedGraphHash: options.expectedGraphHash }
-                : {}),
-            },
-          }
-        : state,
-    ),
-    "$.workbench.state",
-  );
+  return rebuildSynthesisWorkbenchReadState({
+    registry: {
+      scope: state.registry.scope === "referenced" ? "referenced" : "library",
+      expandedSourceRefs: state.registry.expandedSourceRefs,
+    },
+    reviews: {
+      activeTab: state.reviews.activeTab,
+      status: state.reviews.status,
+      kind: state.reviews.kind,
+      confidence: state.reviews.confidence,
+      search: state.reviews.search,
+      cursor: "0",
+      limit: 25,
+    },
+    reader: {
+      topicId: state.reader.topicId,
+    },
+    graph: {
+      filters: {
+        ...(state.graph.topicId === "all"
+          ? {}
+          : { topicId: state.graph.topicId }),
+        nodeKinds: state.graph.nodeKinds,
+        ...(state.graph.role === "all" ? {} : { roles: [state.graph.role] }),
+        includeLowSignal: state.graph.showLowSignalReferences,
+        search: state.graph.search,
+      },
+      layoutAlgorithm: state.graph.layoutAlgorithm,
+      ...(options?.graphWindowCursor
+        ? { windowCursor: options.graphWindowCursor }
+        : {}),
+      ...(options?.expectedGraphHash
+        ? { basis: { expectedGraphHash: options.expectedGraphHash } }
+        : {}),
+    },
+  });
 }
 
 export function toSynthesisUiSnapshotInput(
-  projection: SynthesisWorkbenchProjection,
+  projection:
+    | SynthesisWorkbenchProjection
+    | SynthesisWorkbenchSurfaceProjection,
 ): SynthesisUiSnapshotInput {
   return projection as unknown as SynthesisUiSnapshotInput;
 }

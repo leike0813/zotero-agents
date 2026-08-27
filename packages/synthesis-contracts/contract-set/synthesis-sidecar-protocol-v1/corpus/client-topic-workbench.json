@@ -2,8 +2,80 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "workbench-chrome-request-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchChromeInputRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "registry": { "scope": "library", "expandedSourceRefs": [] },
+            "reviews": {
+              "activeTab": "reference_matching",
+              "status": "open",
+              "kind": "all",
+              "confidence": "all",
+              "search": "",
+              "cursor": "0",
+              "limit": 25
+            },
+            "reader": { "topicId": "" },
+            "graph": {
+              "filters": {
+                "nodeKinds": [
+                  "library_paper",
+                  "external_reference",
+                  "unresolved_reference"
+                ],
+                "includeLowSignal": false,
+                "search": ""
+              },
+              "layoutAlgorithm": "force"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "workbench-graph-surface-request-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          "graph",
+          {
+            "registry": { "scope": "referenced", "expandedSourceRefs": [] },
+            "reviews": {
+              "activeTab": "topic_graph",
+              "status": "all",
+              "kind": "all",
+              "confidence": "all",
+              "search": "relation",
+              "cursor": "0",
+              "limit": 25
+            },
+            "reader": { "topicId": "topic:1" },
+            "graph": {
+              "windowCursor": "cg1|next",
+              "basis": {
+                "expectedGraphHash": "sha256:graph",
+                "layoutAlgorithm": "radial"
+              },
+              "filters": {
+                "topicId": "topic:1",
+                "nodeKinds": ["library_paper", "external_reference"],
+                "roles": ["method"],
+                "includeLowSignal": true,
+                "search": "model"
+              },
+              "layoutAlgorithm": "radial"
+            }
+          }
+        ]
+      }
+    },
+    {
       "id": "workbench-index-registry-positive",
-      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchRegistry",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchIndexRegistry",
       "valid": true,
       "value": {
         "rows": [],
@@ -21,7 +93,7 @@
     },
     {
       "id": "workbench-review-registry-positive",
-      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchRegistry",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchReviewRegistry",
       "valid": true,
       "value": {
         "rows": [],
@@ -51,7 +123,7 @@
     },
     {
       "id": "workbench-index-registry-review-field-negative",
-      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchRegistry",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchIndexRegistry",
       "valid": false,
       "value": {
         "rows": [],
@@ -70,7 +142,7 @@
     },
     {
       "id": "workbench-registry-unknown-field-negative",
-      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchRegistry",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchIndexRegistry",
       "valid": false,
       "value": {
         "rows": [],
@@ -85,6 +157,343 @@
           "allowed_actions": []
         },
         "legacyStatus": "ready"
+      }
+    },
+    {
+      "id": "workbench-topics-surface-snake-case-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicsSurfaceProjection",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "artifacts": [],
+        "deletedArtifacts": { "rows": [], "total": 0 },
+        "topicPage": {
+          "cursor": "",
+          "next_cursor": "",
+          "has_more": false,
+          "returned": 0,
+          "total": 0,
+          "limit": 50
+        },
+        "topicGraph": {
+          "nodes": [
+            {
+              "topic_id": "topic:1",
+              "title": "Topic One",
+              "definition": "Definition",
+              "aliases": [],
+              "node_type": "materialized",
+              "definition_status": "has_synthesis",
+              "current_artifact_path": "topics/topic-1",
+              "is_root": true,
+              "level": "top",
+              "paper_count": 1,
+              "last_synthesis_at": "2026-08-27T00:00:00Z",
+              "created_at": "2026-08-27T00:00:00Z",
+              "updated_at": "2026-08-27T00:00:00Z"
+            }
+          ],
+          "edges": [],
+          "reviewItems": [],
+          "manifest": {
+            "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "node_count": 1,
+            "edge_count": 0,
+            "review_count": 0,
+            "updated_at": "2026-08-27T00:00:00Z"
+          },
+          "projection": {
+            "target": "topic-graph-index",
+            "stale": false,
+            "last_rebuild_at": "2026-08-27T00:00:00Z",
+            "diagnostics": []
+          },
+          "diagnostics": []
+        }
+      }
+    },
+    {
+      "id": "workbench-tags-surface-staged-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TagsSurfaceProjection",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "tags": {
+          "entries": [],
+          "aliases": {},
+          "abbrev": {},
+          "protocol": {
+            "version": "1.0.0",
+            "tag_pattern": "^[a-z]+:[a-z]+$",
+            "max_tag_length": 128,
+            "facets": ["method"]
+          },
+          "manifest": {
+            "manifest_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "entry_count": 0,
+            "tag_count": 0,
+            "active_count": 0,
+            "updated_at": "2026-08-27T00:00:00Z",
+            "source_protocol_version": "1.0.0",
+            "projection_target": "tag-vocabulary-index"
+          },
+          "validation_warnings": [],
+          "staged": [
+            {
+              "tag": "method:test",
+              "facet": "method",
+              "note": "fixture",
+              "source_flow": "test",
+              "parent_bindings": [{ "libraryId": 1, "itemKey": "ITEM0001" }],
+              "created_at": "2026-08-27T00:00:00Z",
+              "updated_at": "2026-08-27T00:00:00Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "workbench-concepts-surface-snake-case-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ConceptsSurfaceProjection",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "concepts": {
+          "concepts": [
+            {
+              "concept_id": "concept:1",
+              "label": "Concept One",
+              "aliases": [],
+              "concept_type": "method",
+              "domain": "",
+              "status": "active",
+              "short_definition": "",
+              "definition": "Definition",
+              "usage_note": "",
+              "editorial_note": "",
+              "sense_ids": [],
+              "created_at": "2026-08-27T00:00:00Z",
+              "updated_at": "2026-08-27T00:00:00Z"
+            }
+          ],
+          "senses": [],
+          "aliases": [],
+          "relations": [],
+          "manifest": {
+            "manifest_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "concept_count": 1,
+            "sense_count": 0,
+            "alias_count": 0,
+            "relation_count": 0,
+            "updated_at": "2026-08-27T00:00:00Z",
+            "projection_target": "concept-kb-index"
+          },
+          "projection": {
+            "target": "concept-kb-index",
+            "stale": false,
+            "last_rebuild_at": "2026-08-27T00:00:00Z",
+            "diagnostics": []
+          },
+          "diagnostics": [],
+          "overlayEntries": [],
+          "reviewItems": [],
+          "topicLinks": []
+        }
+      }
+    },
+    {
+      "id": "workbench-graph-surface-camel-case-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GraphSurfaceProjection",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "graph": {
+          "graph_hash": "sha256:graph",
+          "layoutStatus": "missing",
+          "page": {
+            "nextCursor": "",
+            "hasMore": false,
+            "totalNodes": 1,
+            "totalEdges": 0,
+            "totalHoverNodes": 0,
+            "totalHoverEdges": 0,
+            "returnedNodes": 1,
+            "returnedEdges": 0,
+            "returnedHoverNodes": 0,
+            "returnedHoverEdges": 0,
+            "querySignature": "query:1",
+            "layoutStatus": "missing",
+            "windowStatus": "complete",
+            "roleOptions": [],
+            "responseBudgetBytes": 1048576
+          },
+          "diagnostics": {
+            "storage": "sqlite",
+            "bounded": true,
+            "semantic_slice": "library_and_shared_external",
+            "displayed_node_count": 1,
+            "hover_only_external_count": 0,
+            "displayed_edge_count": 0,
+            "hover_only_edge_count": 0,
+            "cache_status": "ready",
+            "cache_key": "citation-graph:library",
+            "layout_status": "missing",
+            "layout_source": "sqlite"
+          },
+          "topicScopes": [],
+          "topicScopePage": {
+            "cursor": "0",
+            "nextCursor": "",
+            "returned": 0,
+            "total": 0,
+            "limit": 100,
+            "hasMore": false
+          },
+          "hoverOnlyNodes": [],
+          "hoverOnlyEdges": [],
+          "nodes": [
+            {
+              "id": "1:ITEM0001",
+              "label": "Paper",
+              "title": "Paper",
+              "kind": "library_paper",
+              "targetState": "library",
+              "paperRef": "1:ITEM0001",
+              "year": "2026",
+              "authors": [],
+              "lowSignal": false,
+              "visibility": "default",
+              "displayTier": "library",
+              "externalDegree": null,
+              "outgoingCount": 0,
+              "incomingCount": 0,
+              "matchedOutgoingCount": 0,
+              "unresolvedOutgoingCount": 0,
+              "ambiguousOutgoingCount": 0,
+              "localDegree": 0
+            }
+          ],
+          "edges": []
+        }
+      }
+    },
+    {
+      "id": "workbench-home-rejects-index-result-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/HomeSurfaceProjection",
+      "valid": false,
+      "value": {
+        "libraryId": 1,
+        "registry": { "rows": [] },
+        "reviews": { "summary": {} }
+      }
+    },
+    {
+      "id": "workbench-home-historical-topic-row-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/HomeSurfaceProjection",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "artifacts": [
+          {
+            "id": "topic:historical",
+            "title": "Historical Topic",
+            "kind": "topic_synthesis",
+            "definition": "Stored independently of the legacy bundle shape.",
+            "language": "en",
+            "status": "update",
+            "paper_count": 12,
+            "updated_at": "2026-08-27T00:00:00Z",
+            "freshness": "stale",
+            "source_materials_status": "partial",
+            "source_materials_percent": 75,
+            "stale_reasons": ["reference_inputs_changed"],
+            "dirty_reasons": [],
+            "missing_sections": []
+          }
+        ],
+        "deletedArtifacts": {
+          "rows": [
+            {
+              "topic_id": "topic:deleted",
+              "title": "Deleted Topic",
+              "deleted_at": "2026-08-27T00:00:00Z"
+            }
+          ],
+          "total": 1
+        },
+        "topicPage": {
+          "cursor": "",
+          "next_cursor": "",
+          "has_more": false,
+          "returned": 1,
+          "total": 1,
+          "limit": 50
+        }
+      }
+    },
+    {
+      "id": "workbench-reference-canonical-merge-evidence-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReferenceMatchProposal",
+      "valid": true,
+      "value": {
+        "proposal_id": "proposal:merge",
+        "kind": "canonical_merge",
+        "status": "open",
+        "source_canonical_reference_id": "cref:source",
+        "source_effective_canonical_reference_id": "cref:source",
+        "source_raw_reference_ids": ["rawref:source"],
+        "target_canonical_reference_id": "cref:target",
+        "target_effective_canonical_reference_id": "cref:target",
+        "target_library_id": 0,
+        "target_item_key": "",
+        "confidence": "high",
+        "score": 0.97,
+        "reasons": ["normalized_title_year"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "cref:source",
+            "title": "Source title",
+            "normalized_title": "source title",
+            "year": "2024"
+          },
+          "target": {
+            "canonical_reference_id": "cref:target",
+            "title": "Target title",
+            "normalized_title": "target title",
+            "year": "2024"
+          },
+          "edge_type": "normalized_title_year",
+          "token_dice": 0.97,
+          "year_delta": 0,
+          "risk_signals": []
+        },
+        "diagnostics": [],
+        "updated_at": "2026-08-27T00:00:00Z"
+      }
+    },
+    {
+      "id": "workbench-concept-review-storage-free-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ConceptReviewItem",
+      "valid": true,
+      "value": {
+        "review_id": "review:concept",
+        "status": "open",
+        "reason": "low_confidence",
+        "topic_id": "topic:historical",
+        "topic_path_id": "historical-topic",
+        "label": "Stored concept",
+        "confidence": "low",
+        "candidate_concept_ids": [],
+        "short_definition": "Short definition",
+        "definition": "Definition",
+        "concept_type": "method",
+        "domain": "synthesis",
+        "topic_relevance": "Relevant",
+        "evidence": [],
+        "target_concept_id": "",
+        "created_at": "2026-08-27T00:00:00Z",
+        "updated_at": "2026-08-27T00:00:00Z",
+        "resolved_at": ""
       }
     },
     {
@@ -401,8 +810,23 @@
         "metadata": {
           "schema_id": "synthesis.topic_artifact_metadata",
           "schema_version": "1.0.0",
-          "topic_id": "topic:1",
-          "paper_count": 1
+          "created_at": "2026-08-12T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z",
+          "data": {
+            "topic_id": "topic:1",
+            "title": "Topic One",
+            "definition": "Definition",
+            "language": "zh-CN",
+            "operation": "create",
+            "artifact_metadata": {
+              "topic_id": "topic:1",
+              "runtime": "split-skill",
+              "depends_on": {
+                "papers": ["1:ITEM1"],
+                "artifacts": ["digest-markdown"]
+              }
+            }
+          }
         },
         "pathId": "topic-1",
         "diagnostics": []

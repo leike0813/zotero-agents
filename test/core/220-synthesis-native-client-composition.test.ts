@@ -17,6 +17,8 @@ import {
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
   type SynthesisSidecarProductionClientCapability,
+  type SynthesisWorkbenchReadState,
+  type SynthesisWorkbenchSurfaceName,
 } from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisProductionCapabilities } from "../../scripts/check-synthesis-production-capabilities";
 import {
@@ -26,6 +28,8 @@ import {
   type SynthesisProductionBaselineFixture,
 } from "../../scripts/synthesisProductionSurfaceCorpora";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
+import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import {
   setDebugModeOverrideForTests,
   setSynthesisSidecarDiagnosticsSourceOverrideForTests,
@@ -44,6 +48,242 @@ import {
 } from "../../src/modules/synthesisProductionRpcPolicy";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+
+const EMPTY_REVIEW_SUMMARY = {
+  openCount: 0,
+  indexCount: 0,
+  referenceMatchingCount: 0,
+  conceptCount: 0,
+  topicGraphCount: 0,
+};
+
+const EMPTY_REFERENCE_CACHE_STATUS = {
+  cache_key: "reference-sidecar:library",
+  status: "missing",
+  source_hash: "",
+  basis_hash: "",
+  refreshed_at: "",
+  updated_at: "",
+  diagnostics: [],
+  allowed_actions: [],
+};
+
+const EMPTY_TOPIC_PROJECTION = {
+  libraryId: 1,
+  artifacts: [],
+  deletedArtifacts: { rows: [], total: 0 },
+  topicPage: {
+    cursor: "",
+    next_cursor: "",
+    has_more: false,
+    returned: 0,
+    total: 0,
+    limit: 50,
+  },
+};
+
+const EMPTY_TOPIC_GRAPH = {
+  nodes: [],
+  edges: [],
+  reviewItems: [],
+  manifest: {
+    manifest_hash: null,
+    node_count: 0,
+    edge_count: 0,
+    review_count: 0,
+    updated_at: "",
+  },
+  projection: {
+    target: "topic-graph-index",
+    stale: false,
+    last_rebuild_at: "",
+    diagnostics: [],
+  },
+  diagnostics: [],
+};
+
+const EMPTY_CONCEPTS = {
+  concepts: [],
+  senses: [],
+  aliases: [],
+  relations: [],
+  manifest: {
+    manifest_hash: null,
+    concept_count: 0,
+    sense_count: 0,
+    alias_count: 0,
+    relation_count: 0,
+    updated_at: "",
+    projection_target: "concept-kb-index",
+  },
+  projection: {
+    target: "concept-kb-index",
+    stale: false,
+    last_rebuild_at: "",
+    diagnostics: [],
+  },
+  diagnostics: [],
+  overlayEntries: [],
+  reviewItems: [],
+  topicLinks: [],
+};
+
+function workbenchSurfaceResult(
+  surface: SynthesisWorkbenchSurfaceName,
+  state: SynthesisWorkbenchReadState,
+) {
+  if (surface === "home") return EMPTY_TOPIC_PROJECTION;
+  if (surface === "topics") {
+    return { ...EMPTY_TOPIC_PROJECTION, topicGraph: EMPTY_TOPIC_GRAPH };
+  }
+  if (surface === "index") {
+    return {
+      libraryId: 1,
+      registry: { rows: [], cacheStatus: EMPTY_REFERENCE_CACHE_STATUS },
+      reviews: { summary: EMPTY_REVIEW_SUMMARY },
+    };
+  }
+  if (surface === "review") {
+    if (state.reviews.activeTab === "concepts") {
+      return {
+        libraryId: 1,
+        concepts: {
+          ...EMPTY_CONCEPTS,
+          reviewPage: { cursor: "0", limit: 25, total: 0 },
+        },
+        reviews: { summary: EMPTY_REVIEW_SUMMARY },
+      };
+    }
+    if (state.reviews.activeTab === "topic_graph") {
+      return {
+        libraryId: 1,
+        topicGraph: {
+          ...EMPTY_TOPIC_GRAPH,
+          reviewPage: {
+            cursor: "0",
+            limit: 25,
+            edge_total: 0,
+            review_total: 0,
+          },
+        },
+        reviews: { summary: EMPTY_REVIEW_SUMMARY },
+      };
+    }
+    return {
+      libraryId: 1,
+      registry: {
+        rows: [],
+        cleanupProposals: [],
+        matchProposals: [],
+        matchTargetCandidates: [],
+        canonicalRows: [],
+        cacheStatus: EMPTY_REFERENCE_CACHE_STATUS,
+        reviewPage: {
+          cursor: "0",
+          next_cursor: "",
+          has_more: false,
+          limit: 25,
+          match_total: 0,
+          cleanup_total: 0,
+        },
+      },
+      reviews: { summary: EMPTY_REVIEW_SUMMARY },
+    };
+  }
+  if (surface === "graph") {
+    return {
+      libraryId: 1,
+      graph: {
+        graph_hash: "",
+        layoutStatus: "missing",
+        page: {
+          nextCursor: "",
+          hasMore: false,
+          totalNodes: 0,
+          totalEdges: 0,
+          totalHoverNodes: 0,
+          totalHoverEdges: 0,
+          returnedNodes: 0,
+          returnedEdges: 0,
+          returnedHoverNodes: 0,
+          returnedHoverEdges: 0,
+          querySignature: "",
+          layoutStatus: "missing",
+          windowStatus: "complete",
+          roleOptions: [],
+          responseBudgetBytes: 1,
+        },
+        diagnostics: {
+          storage: "sqlite",
+          bounded: true,
+          semantic_slice: "library_and_shared_external",
+          displayed_node_count: 0,
+          hover_only_external_count: 0,
+          displayed_edge_count: 0,
+          hover_only_edge_count: 0,
+          cache_status: "missing",
+          cache_key: "citation-graph:library",
+          layout_status: "missing",
+          layout_source: "sqlite",
+        },
+        topicScopes: [],
+        topicScopePage: {
+          cursor: "0",
+          nextCursor: "",
+          returned: 0,
+          total: 0,
+          limit: 100,
+          hasMore: false,
+        },
+        hoverOnlyNodes: [],
+        hoverOnlyEdges: [],
+        nodes: [],
+        edges: [],
+      },
+    };
+  }
+  if (surface === "tags") {
+    return {
+      libraryId: 1,
+      tags: {
+        entries: [],
+        aliases: {},
+        abbrev: {},
+        protocol: {
+          version: "1.0.0",
+          tag_pattern: "^[a-z]+:[a-z]+$",
+          max_tag_length: 128,
+          facets: ["method"],
+        },
+        manifest: {
+          manifest_hash: `sha256:${"0".repeat(64)}`,
+          entry_count: 0,
+          tag_count: 0,
+          active_count: 0,
+          updated_at: "",
+          source_protocol_version: "1.0.0",
+          projection_target: "tag-vocabulary-index",
+        },
+        validation_warnings: [],
+        staged: [],
+      },
+    };
+  }
+  if (surface === "concepts") {
+    return { libraryId: 1, concepts: EMPTY_CONCEPTS };
+  }
+  return {
+    libraryId: 1,
+    reader: {
+      ok: false,
+      status: "unavailable",
+      topicId: "",
+      title: "",
+      source_papers: [],
+      diagnostics: ["reader_topic_unselected"],
+    },
+  };
+}
 
 describe("Synthesis native client composition", function () {
   beforeEach(function () {
@@ -550,6 +790,96 @@ describe("Synthesis native client composition", function () {
         deadlineMs: 12_000,
       },
     ]);
+  });
+
+  it("accepts every Workbench surface result at the native boundary", async function () {
+    const calls: Array<{ capability: string; payload: unknown }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({ capability: args.capability, payload: args.payload });
+          const wireArgs = (args.payload as { args: unknown[] }).args;
+          return args.rebuildResult(
+            args.capability === "client.getSynthesisWorkbenchChromeInput"
+              ? {
+                  maintenance: {
+                    summary: {
+                      status: "missing",
+                      latestUsable: {
+                        referenceSidecar: null,
+                        citationGraph: null,
+                      },
+                      pendingDirtyCount: 0,
+                      activeWorkerCount: 0,
+                      activeWorkerKind: null,
+                      canonicalSyncPending: false,
+                      canonicalEpoch: 0,
+                      stale: [],
+                      partial: [],
+                      missing: [
+                        "reference-sidecar:library",
+                        "citation-graph:library",
+                      ],
+                      recommendedCommands: [],
+                      diagnostics: [],
+                    },
+                    backgroundJobs: [],
+                  },
+                }
+              : workbenchSurfaceResult(
+                  wireArgs[0] as SynthesisWorkbenchSurfaceName,
+                  wireArgs[1] as SynthesisWorkbenchReadState,
+                ),
+          );
+        },
+      },
+    });
+    const state = toSynthesisWorkbenchReadState(
+      createDefaultSynthesisUiState(),
+    );
+
+    await composition.client.workbench.readChrome({ state });
+    for (const surface of [
+      "home",
+      "topics",
+      "index",
+      "graph",
+      "tags",
+      "concepts",
+      "reader",
+    ] as const) {
+      await composition.client.workbench.readSurface({ surface, state });
+    }
+    for (const activeTab of [
+      "reference_matching",
+      "concepts",
+      "topic_graph",
+    ] as const) {
+      await composition.client.workbench.readSurface({
+        surface: "review",
+        state: { ...state, reviews: { ...state.reviews, activeTab } },
+      });
+    }
+
+    assert.deepEqual(
+      calls.map((call) => call.capability),
+      [
+        "client.getSynthesisWorkbenchChromeInput",
+        ...Array.from(
+          { length: 10 },
+          () => "client.getSynthesisWorkbenchSurfaceInput",
+        ),
+      ],
+    );
   });
 
   it("keeps Host delivery context out of the Topic context wire arguments", async function () {

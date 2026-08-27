@@ -5,9 +5,11 @@ import {
   SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS,
   SynthesisClientError,
   rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisWorkbenchSurfaceResult,
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../packages/synthesis-contracts/src/index";
 import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
+import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import {
   toSynthesisUiSnapshotInput,
   toSynthesisWorkbenchPaperDigestReadRequest,
@@ -2939,7 +2941,31 @@ describe("Synthesis client foundation", function () {
       },
       async getSynthesisWorkbenchSurfaceInput(surface, state) {
         calls.push({ operation: "surface", args: [surface, state] });
-        return { libraryId: 1, registry: { rows: [] } };
+        return {
+          libraryId: 1,
+          registry: {
+            rows: [],
+            cacheStatus: {
+              cache_key: "reference-sidecar:library",
+              status: "missing",
+              source_hash: "",
+              basis_hash: "",
+              refreshed_at: "",
+              updated_at: "",
+              diagnostics: [],
+              allowed_actions: [],
+            },
+          },
+          reviews: {
+            summary: {
+              openCount: 0,
+              indexCount: 0,
+              referenceMatchingCount: 0,
+              conceptCount: 0,
+              topicGraphCount: 0,
+            },
+          },
+        };
       },
       async getSynthesisBackgroundJobRows() {
         calls.push({ operation: "progress", args: [] });
@@ -2976,7 +3002,9 @@ describe("Synthesis client foundation", function () {
         };
       },
     });
-    const state = { selectedTab: "registry" };
+    const state = toSynthesisWorkbenchReadState(
+      createDefaultSynthesisUiState(),
+    );
 
     assert.deepEqual(await client.workbench.readChrome({ state }), {
       libraryId: 1,
@@ -2984,7 +3012,31 @@ describe("Synthesis client foundation", function () {
     });
     assert.deepEqual(
       await client.workbench.readSurface({ surface: "index", state }),
-      { libraryId: 1, registry: { rows: [] } },
+      {
+        libraryId: 1,
+        registry: {
+          rows: [],
+          cacheStatus: {
+            cache_key: "reference-sidecar:library",
+            status: "missing",
+            source_hash: "",
+            basis_hash: "",
+            refreshed_at: "",
+            updated_at: "",
+            diagnostics: [],
+            allowed_actions: [],
+          },
+        },
+        reviews: {
+          summary: {
+            openCount: 0,
+            indexCount: 0,
+            referenceMatchingCount: 0,
+            conceptCount: 0,
+            topicGraphCount: 0,
+          },
+        },
+      },
     );
     assert.deepEqual(await client.workbench.readProgress(), {
       maintenance: {
@@ -3080,6 +3132,76 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("rejects unprojected Workbench UI state before invoking the legacy port", async function () {
+    let invoked = false;
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async getSynthesisWorkbenchChromeInput() {
+        invoked = true;
+        return {};
+      },
+    });
+
+    try {
+      await client.workbench.readChrome({
+        state: { selectedTab: "overview" } as never,
+      });
+      assert.fail("expected the Workbench request to reject");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "invalid_request");
+      assert.equal(invoked, false);
+    }
+  });
+
+  it("rejects a Workbench result that belongs to another surface", async function () {
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async getSynthesisWorkbenchSurfaceInput() {
+        return {
+          libraryId: 1,
+          registry: {
+            rows: [],
+            cacheStatus: {
+              cache_key: "reference-sidecar:library",
+              status: "missing",
+              source_hash: "",
+              basis_hash: "",
+              refreshed_at: "",
+              updated_at: "",
+              diagnostics: [],
+              allowed_actions: [],
+            },
+          },
+          reviews: {
+            summary: {
+              openCount: 0,
+              indexCount: 0,
+              referenceMatchingCount: 0,
+              conceptCount: 0,
+              topicGraphCount: 0,
+            },
+          },
+        };
+      },
+    });
+
+    try {
+      await client.workbench.readSurface({
+        surface: "home",
+        state: toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+      });
+      assert.fail("expected the mismatched Workbench result to reject");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "internal");
+    }
+  });
+
   it("normalizes Workbench legacy failures without retrying", async function () {
     let attempts = 0;
     const client = createInProcessSynthesisClient({
@@ -3102,16 +3224,268 @@ describe("Synthesis client foundation", function () {
     }
   });
 
-  it("shares Workbench UI state, projection, and digest request conversion", function () {
-    const state = toSynthesisWorkbenchReadState({
-      selectedTab: "artifacts",
-      filters: { query: "topic" },
-    } as never);
+  it("projects default Workbench UI state into the public read contract", function () {
+    const state = toSynthesisWorkbenchReadState(
+      createDefaultSynthesisUiState(),
+    );
     assert.deepEqual(state, {
-      selectedTab: "artifacts",
-      filters: { query: "topic" },
+      registry: {
+        scope: "library",
+        expandedSourceRefs: [],
+      },
+      reviews: {
+        activeTab: "reference_matching",
+        status: "open",
+        kind: "all",
+        confidence: "all",
+        search: "",
+        cursor: "0",
+        limit: 25,
+      },
+      reader: {
+        topicId: "",
+      },
+      graph: {
+        filters: {
+          nodeKinds: [
+            "library_paper",
+            "external_reference",
+            "unresolved_reference",
+          ],
+          includeLowSignal: false,
+          search: "",
+        },
+        layoutAlgorithm: "force",
+      },
+    });
+  });
+
+  it("projects Workbench graph filters and continuation into one graph query", function () {
+    const uiState = createDefaultSynthesisUiState();
+    uiState.registry.scope = "all";
+    uiState.graph.topicId = "topic:1";
+    uiState.graph.role = "method";
+    uiState.graph.layoutAlgorithm = "radial";
+    uiState.graph.showLowSignalReferences = true;
+    uiState.graph.search = "model";
+
+    const state = toSynthesisWorkbenchReadState(uiState, {
+      graphWindowCursor: "cg1|next",
+      expectedGraphHash: "sha256:graph",
     });
 
+    assert.equal(state.registry.scope, "library");
+    assert.deepEqual(state.graph, {
+      filters: {
+        topicId: "topic:1",
+        nodeKinds: [
+          "library_paper",
+          "external_reference",
+          "unresolved_reference",
+        ],
+        roles: ["method"],
+        includeLowSignal: true,
+        search: "model",
+      },
+      layoutAlgorithm: "radial",
+      windowCursor: "cg1|next",
+      basis: { expectedGraphHash: "sha256:graph" },
+    });
+  });
+
+  it("accepts real-data Workbench rows without exposing persistence payloads", function () {
+    const state = toSynthesisWorkbenchReadState(
+      createDefaultSynthesisUiState(),
+    );
+    const summary = {
+      openCount: 1,
+      indexCount: 0,
+      referenceMatchingCount: 1,
+      conceptCount: 1,
+      topicGraphCount: 0,
+    };
+    const cacheStatus = {
+      cache_key: "reference-sidecar:library",
+      status: "ready",
+      source_hash: "sha256:source",
+      basis_hash: "sha256:basis",
+      refreshed_at: "2026-08-27T00:00:00.000Z",
+      updated_at: "2026-08-27T00:00:00.000Z",
+      diagnostics: [],
+      allowed_actions: [],
+    };
+    const cases = [
+      {
+        request: { surface: "home" as const, state },
+        value: {
+          libraryId: 1,
+          artifacts: [
+            {
+              id: "topic:legacy",
+              title: "Legacy Topic",
+              kind: "topic_synthesis",
+              definition: "A migrated Topic row",
+              language: "zh-CN",
+              status: "create",
+              paper_count: 18,
+              updated_at: "2026-07-10T00:12:11.176Z",
+              freshness: "fresh",
+              source_materials_status: "complete",
+              source_materials_percent: 100,
+              stale_reasons: [],
+              dirty_reasons: [],
+              missing_sections: [],
+            },
+          ],
+          deletedArtifacts: {
+            rows: [
+              {
+                topic_id: "topic:deleted",
+                title: "Deleted Topic",
+                deleted_at: "2026-08-01T00:00:00.000Z",
+              },
+            ],
+            total: 1,
+          },
+          topicPage: {
+            cursor: "",
+            next_cursor: "",
+            has_more: false,
+            returned: 1,
+            total: 1,
+            limit: 50,
+          },
+        },
+      },
+      {
+        request: { surface: "review" as const, state },
+        value: {
+          libraryId: 1,
+          registry: {
+            rows: [],
+            cleanupProposals: [],
+            matchProposals: [
+              {
+                proposal_id: "proposal:merge",
+                kind: "canonical_merge",
+                status: "open",
+                source_canonical_reference_id: "cref:source",
+                source_effective_canonical_reference_id: "cref:source",
+                source_raw_reference_ids: ["rawref:source"],
+                target_canonical_reference_id: "cref:target",
+                target_effective_canonical_reference_id: "cref:target",
+                target_library_id: 0,
+                target_item_key: "",
+                confidence: "high",
+                score: 0.94,
+                reasons: ["contained_author_noise"],
+                evidence: {
+                  source: {
+                    canonical_reference_id: "cref:source",
+                    title: "Source title",
+                    normalized_title: "source title",
+                    year: "2025",
+                  },
+                  target: {
+                    canonical_reference_id: "cref:target",
+                    title: "Target title",
+                    normalized_title: "target title",
+                    year: "2025",
+                  },
+                  edge_type: "contained_author_noise",
+                  token_dice: 0.94,
+                  year_delta: 0,
+                  risk_signals: [],
+                },
+                diagnostics: [],
+                updated_at: "2026-08-27T00:00:00.000Z",
+              },
+            ],
+            matchTargetCandidates: [],
+            canonicalRows: [],
+            cacheStatus,
+            reviewPage: {
+              cursor: "0",
+              next_cursor: "",
+              has_more: false,
+              limit: 25,
+              match_total: 1,
+              cleanup_total: 0,
+            },
+          },
+          reviews: { summary },
+        },
+      },
+      {
+        request: {
+          surface: "review" as const,
+          state: {
+            ...state,
+            reviews: { ...state.reviews, activeTab: "concepts" as const },
+          },
+        },
+        value: {
+          libraryId: 1,
+          concepts: {
+            concepts: [],
+            senses: [],
+            aliases: [],
+            relations: [],
+            manifest: {
+              manifest_hash: null,
+              concept_count: 0,
+              sense_count: 0,
+              alias_count: 0,
+              relation_count: 0,
+              updated_at: "2026-08-27T00:00:00.000Z",
+              projection_target: "concept-kb-index",
+            },
+            projection: {
+              target: "concept-kb-index",
+              stale: false,
+              last_rebuild_at: "2026-08-27T00:00:00.000Z",
+              diagnostics: [],
+            },
+            diagnostics: [],
+            overlayEntries: [],
+            reviewItems: [
+              {
+                review_id: "concept-review:legacy",
+                status: "open",
+                reason: "low_confidence_concept",
+                topic_id: "topic:legacy",
+                topic_path_id: "legacy",
+                label: "Attention transfer",
+                confidence: "medium",
+                candidate_concept_ids: [],
+                short_definition: "Learn where a teacher attends.",
+                definition: "A knowledge-transfer mechanism.",
+                concept_type: "mechanism",
+                domain: "general",
+                topic_relevance: "A relation-distillation method.",
+                evidence: [],
+                target_concept_id: "",
+                created_at: "2026-08-27T00:00:00.000Z",
+                updated_at: "2026-08-27T00:00:00.000Z",
+                resolved_at: "",
+              },
+            ],
+            topicLinks: [],
+            reviewPage: { cursor: "0", limit: 25, total: 1 },
+          },
+          reviews: { summary },
+        },
+      },
+    ];
+
+    for (const entry of cases) {
+      assert.doesNotThrow(() =>
+        rebuildSynthesisWorkbenchSurfaceResult(entry.request, entry.value),
+      );
+    }
+  });
+
+  it("shares Workbench projection and digest request conversion", function () {
     const projection = toSynthesisUiSnapshotInput({
       libraryId: 1,
       registry: { rows: [] },
@@ -3158,7 +3532,10 @@ describe("Synthesis client foundation", function () {
     });
 
     try {
-      await client.workbench.readSurface({ surface: "graph", state: {} });
+      await client.workbench.readSurface({
+        surface: "graph",
+        state: toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+      });
       assert.fail("expected the Workbench request to reject");
     } catch (error) {
       assert.instanceOf(error, SynthesisClientError);

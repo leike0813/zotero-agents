@@ -122,6 +122,42 @@ pub struct ConceptProposal {
     pub relations: Vec<ConceptProposalRelation>,
 }
 
+pub fn decode_stored_concept_proposal(text: &str) -> Result<ConceptProposal, String> {
+    let mut value = serde_json::from_str::<Value>(text)
+        .map_err(|_| "concept_review_payload_invalid".to_owned())?;
+    let proposal = value
+        .as_object_mut()
+        .ok_or_else(|| "concept_review_payload_invalid".to_owned())?;
+
+    proposal.remove("merge_hints");
+    proposal.remove("mergeHints");
+    for (stored, canonical) in [
+        ("concept_type", "conceptType"),
+        ("short_definition", "shortDefinition"),
+        ("topic_relevance", "topicRelevance"),
+    ] {
+        if !proposal.contains_key(canonical)
+            && let Some(value) = proposal.remove(stored)
+        {
+            proposal.insert(canonical.to_owned(), value);
+        }
+    }
+    if let Some(relations) = proposal.get_mut("relations").and_then(Value::as_array_mut) {
+        for relation in relations {
+            let Some(relation) = relation.as_object_mut() else {
+                continue;
+            };
+            if !relation.contains_key("targetConceptId")
+                && let Some(value) = relation.remove("target_concept_id")
+            {
+                relation.insert("targetConceptId".into(), value);
+            }
+        }
+    }
+
+    serde_json::from_value(value).map_err(|_| "concept_review_payload_invalid".to_owned())
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConceptIngestRequest {
@@ -551,20 +587,20 @@ impl ConceptKbApplication {
                 ],
             );
         }
-        let proposal =
-            match serde_json::from_str::<ConceptProposal>(&snapshot.reviews[index].proposal_json) {
-                Ok(proposal) => proposal,
-                Err(_) => {
-                    return self.diagnostic_result(
-                        ConceptMutationStatus::RepairRequired,
-                        Vec::new(),
-                        Vec::new(),
-                        "concept_review_payload_invalid",
-                        "Concept review payload cannot be decoded.",
-                        [("review_id", request.review_id.as_str())],
-                    );
-                }
-            };
+        let proposal = match decode_stored_concept_proposal(&snapshot.reviews[index].proposal_json)
+        {
+            Ok(proposal) => proposal,
+            Err(_) => {
+                return self.diagnostic_result(
+                    ConceptMutationStatus::RepairRequired,
+                    Vec::new(),
+                    Vec::new(),
+                    "concept_review_payload_invalid",
+                    "Concept review payload cannot be decoded.",
+                    [("review_id", request.review_id.as_str())],
+                );
+            }
+        };
         let now = (self.now)();
         let mut changed = Vec::new();
         let status = match request.action {
@@ -1557,7 +1593,20 @@ mod tests {
             label: proposal.label.clone(),
             confidence: "low".into(),
             candidate_concept_ids_json: "[\"concept:one\"]".into(),
-            proposal_json: serde_json::to_string(&proposal).expect("proposal"),
+            proposal_json: serde_json::to_string(&json!({
+                "label":proposal.label,
+                "aliases":proposal.aliases,
+                "concept_type":proposal.concept_type,
+                "domain":proposal.domain,
+                "short_definition":proposal.short_definition,
+                "definition":proposal.definition,
+                "topic_relevance":proposal.topic_relevance,
+                "confidence":"low",
+                "evidence":[],
+                "relations":[],
+                "merge_hints":[],
+            }))
+            .expect("legacy proposal"),
             created_at: "fixed".into(),
             updated_at: "fixed".into(),
             ..ConceptReviewItemRecord::default()

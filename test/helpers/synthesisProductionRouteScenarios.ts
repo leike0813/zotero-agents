@@ -4,6 +4,7 @@ import {
   SynthesisClientError,
   type SynthesisClient,
   type SynthesisSidecarProductionClientCapability,
+  type SynthesisWorkbenchReadState,
 } from "../../packages/synthesis-contracts/src";
 import {
   readSynthesisProductionSurfaceCorpora,
@@ -17,6 +18,31 @@ import {
 } from "./synthesisProductionRouteHarness";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+const WORKBENCH_READ_STATE = {
+  registry: { scope: "library", expandedSourceRefs: [] },
+  reviews: {
+    activeTab: "reference_matching",
+    status: "open",
+    kind: "all",
+    confidence: "all",
+    search: "",
+    cursor: "0",
+    limit: 25,
+  },
+  reader: { topicId: "" },
+  graph: {
+    filters: {
+      nodeKinds: [
+        "library_paper",
+        "external_reference",
+        "unresolved_reference",
+      ],
+      includeLowSignal: false,
+      search: "",
+    },
+    layoutAlgorithm: "force",
+  },
+} satisfies SynthesisWorkbenchReadState;
 
 type OperationManifest = {
   access: Record<
@@ -336,9 +362,12 @@ const GROUPED_INVOCATIONS: Record<
   "client.clearTagAuditRecord": (client) =>
     client.tags.clearTagAuditRecord({ libraryId: 1, itemKey: "SCENARIO1" }),
   "client.getSynthesisWorkbenchChromeInput": (client) =>
-    client.workbench.readChrome({ state: {} }),
+    client.workbench.readChrome({ state: WORKBENCH_READ_STATE }),
   "client.getSynthesisWorkbenchSurfaceInput": (client) =>
-    client.workbench.readSurface({ surface: "home", state: {} }),
+    client.workbench.readSurface({
+      surface: "home",
+      state: WORKBENCH_READ_STATE,
+    }),
   "client.getSynthesisBackgroundJobRows": (client) =>
     client.workbench.readProgress(),
   "client.readTopicDetail": (client) =>

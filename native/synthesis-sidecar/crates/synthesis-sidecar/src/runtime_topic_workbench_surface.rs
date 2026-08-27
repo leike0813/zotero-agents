@@ -2,6 +2,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use synthesis_application::concept_kb::decode_stored_concept_proposal;
 use synthesis_application::{
     TopicApplyRequest, TopicContextRequest, TopicContextView, TopicDeleteRequest,
     TopicDetailRequest, TopicDetailResult, TopicDiscoveryHintRequest, TopicFindRequest,
@@ -502,18 +503,6 @@ fn topic_record_wire(record: TopicRecord) -> Value {
     })
 }
 
-fn topic_artifact_wire(record: TopicRecord) -> Value {
-    let mut value = topic_record_wire(record);
-    if let Some(object) = value.as_object_mut() {
-        let topic_id = object.get("topic_id").cloned().unwrap_or(Value::Null);
-        let operation = object.get("operation").cloned().unwrap_or(Value::Null);
-        object.insert("id".into(), topic_id);
-        object.insert("kind".into(), json!("topic_synthesis"));
-        object.insert("status".into(), operation);
-    }
-    value
-}
-
 fn stored_json(text: &str, expected_array: bool) -> Result<Value, String> {
     let value = serde_json::from_str::<Value>(text)
         .map_err(|_| "production_projection_invalid".to_owned())?;
@@ -584,12 +573,13 @@ fn topic_graph_projection(snapshot: TopicGraphReplacement) -> Result<Value, Stri
     let node_count = nodes.len();
     let edge_count = edges.len();
     let review_count = reviews.len();
+    let manifest_hash = (!state.manifest_hash.is_empty()).then_some(state.manifest_hash);
     Ok(json!({
         "nodes":nodes.into_iter().map(topic_graph_node_wire).collect::<Result<Vec<_>, _>>()?,
         "edges":edges.into_iter().map(topic_graph_edge_wire).collect::<Result<Vec<_>, _>>()?,
         "reviewItems":reviews.into_iter().map(topic_graph_review_wire).collect::<Result<Vec<_>, _>>()?,
         "manifest":{
-            "manifest_hash":state.manifest_hash,
+            "manifest_hash":manifest_hash,
             "node_count":node_count,
             "edge_count":edge_count,
             "review_count":review_count,
@@ -671,7 +661,8 @@ fn concept_relation_wire(record: ConceptRelationRecord) -> Result<Value, String>
 }
 
 fn concept_review_wire(record: ConceptReviewItemRecord) -> Result<Value, String> {
-    let proposal = stored_json(&record.proposal_json, false)?;
+    let proposal = decode_stored_concept_proposal(&record.proposal_json)
+        .map_err(|_| "production_projection_invalid".to_owned())?;
     Ok(json!({
         "review_id":record.review_id,
         "status":record.status,
@@ -681,13 +672,12 @@ fn concept_review_wire(record: ConceptReviewItemRecord) -> Result<Value, String>
         "label":record.label,
         "confidence":record.confidence,
         "candidate_concept_ids":stored_json(&record.candidate_concept_ids_json, true)?,
-        "short_definition":proposal.get("shortDefinition").cloned().unwrap_or(Value::Null),
-        "definition":proposal.get("definition").cloned().unwrap_or(Value::Null),
-        "concept_type":proposal.get("conceptType").cloned().unwrap_or(Value::Null),
-        "domain":proposal.get("domain").cloned().unwrap_or(Value::Null),
-        "topic_relevance":proposal.get("topicRelevance").cloned().unwrap_or(Value::Null),
-        "evidence":proposal.get("evidence").cloned().unwrap_or_else(|| json!([])),
-        "proposal":proposal,
+        "short_definition":proposal.short_definition,
+        "definition":proposal.definition,
+        "concept_type":proposal.concept_type,
+        "domain":proposal.domain,
+        "topic_relevance":proposal.topic_relevance,
+        "evidence":proposal.evidence,
         "target_concept_id":record.target_concept_id,
         "created_at":record.created_at,
         "updated_at":record.updated_at,
@@ -723,13 +713,14 @@ fn concept_projection(snapshot: ConceptKbReplacement) -> Result<Value, String> {
     let sense_count = senses.len();
     let alias_count = aliases.len();
     let relation_count = relations.len();
+    let manifest_hash = (!state.manifest_hash.is_empty()).then_some(state.manifest_hash);
     Ok(json!({
         "concepts":concepts.into_iter().map(concept_record_wire).collect::<Result<Vec<_>, _>>()?,
         "senses":senses.into_iter().map(concept_sense_wire).collect::<Result<Vec<_>, _>>()?,
         "aliases":aliases.into_iter().map(concept_alias_wire).collect::<Vec<_>>(),
         "relations":relations.into_iter().map(concept_relation_wire).collect::<Result<Vec<_>, _>>()?,
         "manifest":{
-            "manifest_hash":state.manifest_hash,
+            "manifest_hash":manifest_hash,
             "concept_count":concept_count,
             "sense_count":sense_count,
             "alias_count":alias_count,
@@ -849,14 +840,7 @@ fn topic_detail_wire(result: TopicDetailResult) -> Value {
 fn deleted_topic_record_wire(record: DeletedTopicArtifactRecord) -> Value {
     json!({
         "topic_id":record.topic_id,
-        "path_id":record.path_id,
-        "deleted_path_id":record.deleted_path_id,
         "title":record.title,
-        "manifest_hash":record.manifest_hash,
-        "artifact_hash":record.artifact_hash,
-        "metadata_hash":record.metadata_hash,
-        "bundle_hash":record.bundle_hash,
-        "updated_at":record.updated_at,
         "deleted_at":record.deleted_at,
     })
 }
@@ -1060,7 +1044,10 @@ struct ProductionWorkbenchSurfaces<'a> {
 
 impl ProductionWorkbenchSurfaces<'_> {
     fn topic_projection(&self) -> Result<Value, String> {
-        let page = self.apps.topics.list(TopicListRequest::default())?;
+        let page = self
+            .apps
+            .topics
+            .list_workbench(TopicListRequest::default())?;
         let (deleted, deleted_total) = self.apps.topics.list_deleted(0, 250)?;
         Ok(json!({
             "libraryId":self.apps.library_id(),
@@ -1068,7 +1055,7 @@ impl ProductionWorkbenchSurfaces<'_> {
                 "rows":deleted.into_iter().map(deleted_topic_record_wire).collect::<Vec<_>>(),
                 "total":deleted_total,
             },
-            "artifacts":page.topics.into_iter().map(topic_artifact_wire).collect::<Vec<_>>(),
+            "artifacts":page.rows,
             "topicPage":{
                 "cursor":page.cursor,
                 "next_cursor":page.next_cursor,

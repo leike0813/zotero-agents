@@ -3221,9 +3221,180 @@ fn json_array(value: &str) -> Vec<Value> {
     serde_json::from_str::<Vec<Value>>(value).unwrap_or_default()
 }
 
+fn nonempty_json_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn json_string_values(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn reference_evidence_binding(value: Option<&Value>) -> Option<Value> {
+    let value = value?.as_object()?;
+    let mut binding = Map::new();
+    for key in ["paper_ref", "title"] {
+        if let Some(value) = value.get(key).and_then(Value::as_str)
+            && !value.is_empty()
+        {
+            binding.insert(key.into(), json!(value));
+        }
+    }
+    (!binding.is_empty()).then_some(Value::Object(binding))
+}
+
+fn reference_evidence_party(value: Option<&Value>, fallback_id: &str) -> Value {
+    let value = value.unwrap_or(&Value::Null);
+    let selected = value
+        .get("selected_title_candidate")
+        .or_else(|| value.get("selectedTitleCandidate"));
+    let canonical_reference_id = nonempty_json_string(value, "canonical_reference_id")
+        .or_else(|| nonempty_json_string(value, "canonicalReferenceId"))
+        .unwrap_or_else(|| fallback_id.to_owned());
+    let title = nonempty_json_string(value, "title")
+        .or_else(|| selected.and_then(|value| nonempty_json_string(value, "title")))
+        .unwrap_or_default();
+    let normalized_title = nonempty_json_string(value, "normalized_title")
+        .or_else(|| nonempty_json_string(value, "normalizedTitle"))
+        .or_else(|| selected.and_then(|value| nonempty_json_string(value, "normalizedTitle")))
+        .unwrap_or_default();
+    let year = nonempty_json_string(value, "year")
+        .or_else(|| selected.and_then(|value| nonempty_json_string(value, "year")))
+        .unwrap_or_default();
+    let mut party = Map::from_iter([
+        (
+            "canonical_reference_id".into(),
+            json!(canonical_reference_id),
+        ),
+        ("title".into(), json!(title)),
+        ("normalized_title".into(), json!(normalized_title)),
+        ("year".into(), json!(year)),
+    ]);
+    for (stored, canonical) in [
+        (
+            "effective_canonical_reference_id",
+            "effective_canonical_reference_id",
+        ),
+        (
+            "effectiveCanonicalReferenceId",
+            "effective_canonical_reference_id",
+        ),
+        (
+            "projected_literature_item_id",
+            "projected_literature_item_id",
+        ),
+        ("projectedLiteratureItemId", "projected_literature_item_id"),
+    ] {
+        if !party.contains_key(canonical)
+            && let Some(value) = nonempty_json_string(value, stored)
+        {
+            party.insert(canonical.into(), json!(value));
+        }
+    }
+    if let Some(binding) = reference_evidence_binding(value.get("binding")) {
+        party.insert("binding".into(), binding);
+    }
+    Value::Object(party)
+}
+
+fn reference_proposal_evidence(
+    proposal: &ReferenceMatchProposalRecord,
+    evidence: &Value,
+) -> Result<Value, String> {
+    match proposal.kind.as_str() {
+        "canonical_merge" => {
+            let mut projected = Map::from_iter([
+                (
+                    "source".into(),
+                    reference_evidence_party(
+                        evidence.get("source"),
+                        &proposal.source_canonical_reference_id,
+                    ),
+                ),
+                (
+                    "target".into(),
+                    reference_evidence_party(
+                        evidence.get("target"),
+                        &proposal.target_canonical_reference_id,
+                    ),
+                ),
+            ]);
+            for key in ["edge_type", "containment_classification"] {
+                if let Some(value) = nonempty_json_string(evidence, key) {
+                    projected.insert(key.into(), json!(value));
+                }
+            }
+            if let Some(value) = evidence.get("token_dice").and_then(Value::as_f64)
+                && (0.0..=1.0).contains(&value)
+            {
+                projected.insert("token_dice".into(), json!(value));
+            }
+            if let Some(value) = evidence.get("year_delta").and_then(Value::as_i64)
+                && value >= 0
+            {
+                projected.insert("year_delta".into(), json!(value));
+            }
+            for key in ["matching_identifiers", "risk_signals"] {
+                let values = json_string_values(evidence.get(key));
+                if !values.is_empty() {
+                    projected.insert(key.into(), json!(values));
+                }
+            }
+            Ok(Value::Object(projected))
+        }
+        "zotero_binding" => {
+            let author_overlap = json_string_values(evidence.get("author_overlap"));
+            let author_overlap_count = evidence
+                .get("author_overlap_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(author_overlap.len() as u64);
+            let year_delta = evidence
+                .get("year_delta")
+                .and_then(Value::as_u64)
+                .unwrap_or_default();
+            let title_similarity = evidence
+                .get("title_similarity")
+                .and_then(Value::as_f64)
+                .filter(|value| (0.0..=1.0).contains(value))
+                .unwrap_or_default();
+            Ok(json!({
+                "author_overlap":author_overlap,
+                "author_overlap_count":author_overlap_count,
+                "year_delta":year_delta,
+                "title_similarity":title_similarity,
+            }))
+        }
+        _ => Err("production_projection_invalid".into()),
+    }
+}
+
+fn reference_proposal_diagnostics(value: &str) -> Vec<Value> {
+    json_array(value)
+        .into_iter()
+        .filter_map(|diagnostic| {
+            let code = diagnostic
+                .get("code")
+                .and_then(Value::as_str)
+                .filter(|code| !code.is_empty())?;
+            Some(json!({"code":code}))
+        })
+        .collect()
+}
+
 fn reference_match_proposal_wire(proposal: &ReferenceMatchProposalRecord) -> Result<Value, String> {
     let evidence =
         serde_json::from_str::<Value>(&proposal.evidence_json).unwrap_or_else(|_| json!({}));
+    let evidence = reference_proposal_evidence(proposal, &evidence)?;
     Ok(json!({
         "proposal_id":proposal.proposal_id,
         "kind":proposal.kind,
@@ -3239,7 +3410,7 @@ fn reference_match_proposal_wire(proposal: &ReferenceMatchProposalRecord) -> Res
         "score":proposal.score,
         "reasons":json_string_list(&proposal.reasons_json),
         "evidence":evidence,
-        "diagnostics":json_array(&proposal.diagnostics_json),
+        "diagnostics":reference_proposal_diagnostics(&proposal.diagnostics_json),
         "updated_at":proposal.updated_at,
     }))
 }
@@ -5013,5 +5184,62 @@ mod tests {
         assert_eq!(merged["status"], "merged");
         assert!(merged.get("idempotent").is_none());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn workbench_reference_proposals_project_closed_evidence() {
+        let proposal = ReferenceMatchProposalRecord {
+            proposal_id: "proposal:merge".into(),
+            kind: "canonical_merge".into(),
+            status: "open".into(),
+            source_canonical_reference_id: "cref:source".into(),
+            source_raw_reference_ids_json: "[]".into(),
+            target_canonical_reference_id: "cref:target".into(),
+            confidence: "high".into(),
+            score: 0.95,
+            reasons_json: "[]".into(),
+            evidence_json: json!({
+                "source":{
+                    "canonical_reference_id":"cref:source",
+                    "title":"Source",
+                    "normalized_title":"source",
+                    "year":"2024",
+                    "selected_title_candidate":{"internal":true},
+                    "raw_sample":"storage-only",
+                },
+                "target":{
+                    "canonical_reference_id":"cref:target",
+                    "title":"Target",
+                    "normalized_title":"target",
+                    "year":"2024",
+                },
+                "token_dice":0.95,
+                "year_delta":0,
+                "source_record":{"storage":"only"},
+                "representative":{"storage":"only"},
+            })
+            .to_string(),
+            diagnostics_json: json!([
+                {"code":"review_required","message":"storage-only"},
+                {"message":"missing-code"},
+            ])
+            .to_string(),
+            updated_at: "fixed".into(),
+            ..ReferenceMatchProposalRecord::default()
+        };
+
+        let projected = reference_match_proposal_wire(&proposal).expect("workbench proposal");
+        assert_eq!(projected["evidence"]["source"]["title"], "Source");
+        assert_eq!(projected["evidence"]["token_dice"], 0.95);
+        assert!(projected["evidence"].get("source_record").is_none());
+        assert!(
+            projected["evidence"]["source"]
+                .get("selected_title_candidate")
+                .is_none()
+        );
+        assert_eq!(
+            projected["diagnostics"],
+            json!([{"code":"review_required"}])
+        );
     }
 }

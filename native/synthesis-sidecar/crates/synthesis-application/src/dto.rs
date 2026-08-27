@@ -532,6 +532,40 @@ pub struct TopicListResult {
     pub limit: usize,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TopicWorkbenchRow {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub definition: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub language: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub status: String,
+    pub paper_count: i64,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub updated_at: String,
+    pub freshness: TopicFreshness,
+    pub source_materials_status: TopicSourceMaterialsStatus,
+    pub source_materials_percent: i64,
+    pub stale_reasons: Vec<String>,
+    pub dirty_reasons: Vec<String>,
+    pub missing_sections: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopicWorkbenchPage {
+    pub rows: Vec<TopicWorkbenchRow>,
+    pub cursor: String,
+    pub next_cursor: String,
+    pub has_more: bool,
+    pub returned: usize,
+    pub total: usize,
+    pub limit: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TopicFindRequest {
     pub paper_refs: Vec<String>,

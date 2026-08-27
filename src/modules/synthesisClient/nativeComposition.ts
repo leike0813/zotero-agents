@@ -7,6 +7,7 @@ import {
   hashSynthesisContractCanonicalJson,
   rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisSidecarOutputTransferReference,
+  rebuildSynthesisWorkbenchSurfaceResult,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -16,6 +17,8 @@ import {
   type SynthesisSidecarTopicAssetTransferDescriptor,
   type SynthesisSidecarTransferPage,
   type SynthesisSidecarProductionClientCapability,
+  type SynthesisWorkbenchReadState,
+  type SynthesisWorkbenchSurfaceName,
 } from "../../../packages/synthesis-contracts/src";
 import {
   createSynthesisSidecarRpcClient,
@@ -377,11 +380,21 @@ function createNativePort(args: {
                 result,
               });
             }
-            result = rebuildSynthesisProtocolCapabilityDto({
-              capability: operation,
-              direction: "result",
-              value: result,
-            });
+            result =
+              property === "getSynthesisWorkbenchSurfaceInput"
+                ? rebuildSynthesisWorkbenchSurfaceResult(
+                    {
+                      surface:
+                        normalizedArgs[0] as SynthesisWorkbenchSurfaceName,
+                      state: normalizedArgs[1] as SynthesisWorkbenchReadState,
+                    },
+                    result,
+                  )
+                : rebuildSynthesisProtocolCapabilityDto({
+                    capability: operation,
+                    direction: "result",
+                    value: result,
+                  });
           } finally {
             if (staged) {
               await staged.client

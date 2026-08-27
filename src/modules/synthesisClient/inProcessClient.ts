@@ -33,6 +33,8 @@ import {
   rebuildSynthesisTopicGraphCapabilityResult,
   rebuildSynthesisWorkflowTopicOptionsRequest,
   rebuildSynthesisWorkflowTopicOptionsResult,
+  rebuildSynthesisWorkbenchReadState,
+  rebuildSynthesisWorkbenchSurfaceResult,
   rebuildSynthesisWorkbenchPaperDigestReadRequest,
   rebuildSynthesisWorkbenchPaperDigestResult,
   rebuildSynthesisWorkbenchTopicDetailResult,
@@ -109,6 +111,9 @@ import {
   type SynthesisWorkbenchPaperDigestResult,
   type SynthesisWorkbenchBackgroundJobRow,
   type SynthesisWorkbenchProjection,
+  type SynthesisWorkbenchSurfaceProjection,
+  type SynthesisWorkbenchSurfaceProjectionMap,
+  type SynthesisWorkbenchSurfaceReadRequest,
   type SynthesisWorkbenchSurfaceName,
   type SynthesisWorkbenchTopicDetailResult,
 } from "../../../packages/synthesis-contracts/src/index";
@@ -243,7 +248,7 @@ export interface SynthesisClientPort {
   getSynthesisWorkbenchSurfaceInput?(
     surface: SynthesisWorkbenchSurfaceName,
     state: Record<string, unknown>,
-  ): Promise<SynthesisWorkbenchProjection>;
+  ): Promise<SynthesisWorkbenchSurfaceProjection>;
   getSynthesisBackgroundJobRows?(): Promise<
     SynthesisWorkbenchBackgroundJobRow[]
   >;
@@ -472,7 +477,7 @@ function runLegacyJsonPort<Request, Result>(
 }
 
 function normalizeWorkbenchState(value: unknown) {
-  return toSynthesisJsonObject(value, "$.request.state");
+  return rebuildSynthesisWorkbenchReadState(value);
 }
 
 function normalizeWorkbenchSurface(value: unknown) {
@@ -1406,6 +1411,27 @@ function mapPaperDigestRequest(value: unknown): SynthesisJsonObject {
 export function createSynthesisClientFromPort(
   legacy: SynthesisClientPort,
 ): SynthesisClient {
+  const readWorkbenchSurface = async <
+    Surface extends SynthesisWorkbenchSurfaceName,
+  >(
+    request: SynthesisWorkbenchSurfaceReadRequest & { surface: Surface },
+  ): Promise<SynthesisWorkbenchSurfaceProjectionMap[Surface]> =>
+    runLegacy(async () => {
+      const normalizedRequest = {
+        surface: normalizeWorkbenchSurface(request.surface) as Surface,
+        state: normalizeWorkbenchState(request.state),
+      };
+      return rebuildSynthesisWorkbenchSurfaceResult(
+        normalizedRequest,
+        normalizeLegacyObject(
+          await requireLegacyPort(
+            legacy.getSynthesisWorkbenchSurfaceInput,
+            "workbench.readSurface",
+          )(normalizedRequest.surface, normalizedRequest.state),
+        ),
+      );
+    });
+
   return {
     concepts: {
       async query(request = {}) {
@@ -2533,20 +2559,7 @@ export function createSynthesisClientFromPort(
             ) as SynthesisWorkbenchProjection,
         );
       },
-      async readSurface(request) {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.getSynthesisWorkbenchSurfaceInput,
-                "workbench.readSurface",
-              )(
-                normalizeWorkbenchSurface(request.surface),
-                normalizeWorkbenchState(request.state),
-              ),
-            ) as SynthesisWorkbenchProjection,
-        );
-      },
+      readSurface: readWorkbenchSurface,
       async readTopicDetail(request) {
         return runLegacy(async () =>
           rebuildSynthesisWorkbenchTopicDetailResult(

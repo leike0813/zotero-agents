@@ -4,28 +4,25 @@ import {
   type SynthesisJsonObject,
 } from "./common.js";
 import type {
-  SynthesisClaim,
-  SynthesisCoverage,
-  SynthesisDebate,
-  SynthesisFutureDirection,
-  SynthesisImprovementDimensions,
   SynthesisResolvedPaper,
-  SynthesisReviewOutline,
-  SynthesisSourceArtifacts,
-  SynthesisStatistics,
   SynthesisReport,
-  SynthesisTaxonomy,
-  SynthesisTextSummary,
-  SynthesisTimeline,
   SynthesisTopicArtifact,
-  SynthesisTopicDefinition,
+  SynthesisTopicArtifactMetadata,
   SynthesisTopicManifest,
-  SynthesisTopicMetadata,
 } from "./topicDomain.js";
 import {
   rebuildSynthesisProtocolDto,
   SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
 } from "./protocolSchema.js";
+import type {
+  SynthesisCitationGraphPageMetadata,
+  SynthesisGraphQueryRequest,
+} from "./graph.js";
+import type { SynthesisReferenceIndexRow } from "./references.js";
+import type {
+  SynthesisTagStagedSuggestion,
+  SynthesisTagVocabularySnapshot,
+} from "./tags.js";
 
 export const SYNTHESIS_WORKBENCH_SURFACES = [
   "home",
@@ -90,8 +87,548 @@ export type SynthesisWorkbenchTopicArtifactRow = {
   updateIntent?: SynthesisWorkbenchTopicUpdateIntent;
 };
 
-export type SynthesisWorkbenchReadState = SynthesisJsonObject;
+export type SynthesisWorkbenchReadState = {
+  registry: {
+    scope: "library" | "referenced";
+    expandedSourceRefs: string[];
+  };
+  reviews: {
+    activeTab: "reference_matching" | "concepts" | "topic_graph";
+    status:
+      | "open"
+      | "all"
+      | "accepted"
+      | "rejected"
+      | "superseded"
+      | "retargeted";
+    kind: "all" | "zotero_binding" | "canonical_merge" | "canonical_revision";
+    confidence: "all" | "deterministic" | "high" | "medium" | "low" | "review";
+    search: string;
+    cursor: string;
+    limit: number;
+  };
+  reader: {
+    topicId: string;
+  };
+  graph: SynthesisGraphQueryRequest;
+};
 export type SynthesisWorkbenchProjection = SynthesisJsonObject;
+
+export type SynthesisWorkbenchReviewSummary = {
+  openCount: number;
+  indexCount: number;
+  referenceMatchingCount: number;
+  conceptCount: number;
+  topicGraphCount: number;
+};
+
+export type SynthesisWorkbenchReferenceCacheStatus = {
+  cache_key: "reference-sidecar:library";
+  status: "missing" | "ready" | "stale" | "refreshing" | "failed";
+  source_hash: string;
+  basis_hash: string;
+  refreshed_at: string;
+  updated_at: string;
+  diagnostics: Array<{
+    code: string;
+    severity?: "info" | "warning" | "error";
+    message?: string;
+  }>;
+  allowed_actions: string[];
+};
+
+export type SynthesisWorkbenchIndexRegistry = {
+  rows: SynthesisReferenceIndexRow[];
+  cacheStatus: SynthesisWorkbenchReferenceCacheStatus;
+};
+
+export type SynthesisWorkbenchReferenceProposalDiagnostic = { code: string };
+
+export type SynthesisWorkbenchReferenceCleanupProposal = {
+  proposal_id: string;
+  status: string;
+  kind: "canonical_revision";
+  review_kind: "canonical_revision";
+  priority: number;
+  source_paper_ref: string;
+  target_work_id: string;
+  reason: string;
+  diagnostics: SynthesisWorkbenchReferenceProposalDiagnostic[];
+  updated_at: string;
+};
+
+export type SynthesisWorkbenchReferenceEvidenceParty = {
+  canonical_reference_id: string;
+  title: string;
+  normalized_title: string;
+  year: string;
+  effective_canonical_reference_id?: string;
+  projected_literature_item_id?: string;
+  binding?: {
+    paper_ref?: string;
+    title?: string;
+  };
+};
+
+export type SynthesisWorkbenchCanonicalMergeEvidence = {
+  source: SynthesisWorkbenchReferenceEvidenceParty;
+  target: SynthesisWorkbenchReferenceEvidenceParty;
+  edge_type?: string;
+  token_dice?: number;
+  year_delta?: number;
+  matching_identifiers?: string[];
+  risk_signals?: string[];
+  containment_classification?: string;
+};
+
+export type SynthesisWorkbenchZoteroBindingEvidence = {
+  author_overlap: string[];
+  author_overlap_count: number;
+  year_delta: number;
+  title_similarity: number;
+};
+
+type SynthesisWorkbenchReferenceMatchProposalBase = {
+  proposal_id: string;
+  status: "open" | "accepted" | "rejected" | "superseded" | "retargeted";
+  source_canonical_reference_id: string;
+  source_effective_canonical_reference_id: string;
+  source_raw_reference_ids: string[];
+  target_canonical_reference_id: string;
+  target_effective_canonical_reference_id: string;
+  target_library_id: number;
+  target_item_key: string;
+  confidence: string;
+  score: number;
+  reasons: string[];
+  diagnostics: SynthesisWorkbenchReferenceProposalDiagnostic[];
+  updated_at: string;
+};
+
+export type SynthesisWorkbenchReferenceMatchProposal =
+  | (SynthesisWorkbenchReferenceMatchProposalBase & {
+      kind: "canonical_merge";
+      evidence: SynthesisWorkbenchCanonicalMergeEvidence;
+    })
+  | (SynthesisWorkbenchReferenceMatchProposalBase & {
+      kind: "zotero_binding";
+      evidence: SynthesisWorkbenchZoteroBindingEvidence;
+    });
+
+export type SynthesisWorkbenchCanonicalReferenceRow = {
+  row_id: string;
+  effective_canonical_id: string;
+  projected_literature_item_id: string;
+  title: string;
+  normalized_title: string;
+  year: string;
+  authors: string[];
+  identifiers: Record<string, string>;
+  physical_canonical_ids: string[];
+  effective_canonical_ids: string[];
+  raw_reference_count: number;
+  raw_reference_samples: never[];
+  incoming_redirects: never[];
+  outgoing_redirects: never[];
+  related_proposals: never[];
+  duplicate_peers: never[];
+  incoming_redirect_count: number;
+  outgoing_redirect_count: number;
+  proposal_count: number;
+  open_proposal_count: number;
+};
+
+export type SynthesisWorkbenchReferenceReviewRegistry = {
+  rows: never[];
+  cleanupProposals: SynthesisWorkbenchReferenceCleanupProposal[];
+  matchProposals: SynthesisWorkbenchReferenceMatchProposal[];
+  matchTargetCandidates: Array<{
+    kind: "canonical_reference";
+    canonicalReferenceId: string;
+    title: string;
+    year: string;
+    rawReferenceIds: string[];
+  }>;
+  canonicalRows: SynthesisWorkbenchCanonicalReferenceRow[];
+  cacheStatus: SynthesisWorkbenchReferenceCacheStatus;
+  reviewPage: {
+    cursor: string;
+    next_cursor: string;
+    has_more: boolean;
+    limit: number;
+    match_total: number;
+    cleanup_total: number;
+  };
+};
+
+export type SynthesisWorkbenchEvidence =
+  | string
+  | {
+      source?: string;
+      producer?: string;
+      topicId?: string;
+      kind?: string;
+      ref?: string;
+      paper_ref?: string;
+      quote_or_summary?: string;
+      section?: string;
+    };
+
+export type SynthesisWorkbenchProjectionStatus = {
+  target: string;
+  stale: boolean;
+  last_rebuild_at: string;
+  diagnostics: never[];
+};
+
+export type SynthesisWorkbenchTopicGraphProjection = {
+  nodes: Array<{
+    topic_id: string;
+    title: string;
+    definition: string;
+    aliases: string[];
+    node_type: "materialized" | "placeholder";
+    definition_status: "has_synthesis" | "placeholder" | "deleted" | "stale";
+    current_artifact_path: string;
+    is_root: boolean;
+    level: "" | "top" | "normal";
+    paper_count: number;
+    last_synthesis_at: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  edges: Array<{
+    edge_id: string;
+    source_topic_id: string;
+    target_topic_id: string;
+    relation:
+      | "broader_than"
+      | "related_to"
+      | "overlaps_with"
+      | "contrasts_with";
+    status: "suggested" | "confirmed" | "rejected" | "stale" | "deleted";
+    confidence: number | null;
+    provenance: SynthesisWorkbenchEvidence[];
+    evidence_refs: SynthesisWorkbenchEvidence[];
+    created_at: string;
+    updated_at: string;
+  }>;
+  reviewItems: Array<{
+    review_id: string;
+    status: "open" | "approved" | "rejected" | "deleted";
+    source_topic_id: string;
+    target_topic_id: string;
+    target_title: string;
+    relation:
+      | "broader_than"
+      | "related_to"
+      | "overlaps_with"
+      | "contrasts_with";
+    confidence: number | null;
+    provenance: SynthesisWorkbenchEvidence[];
+    evidence_refs: SynthesisWorkbenchEvidence[];
+    created_at: string;
+    updated_at: string;
+    resolved_at: string;
+  }>;
+  manifest: {
+    manifest_hash: string | null;
+    node_count: number;
+    edge_count: number;
+    review_count: number;
+    updated_at: string;
+  };
+  projection: SynthesisWorkbenchProjectionStatus;
+  diagnostics: never[];
+  reviewPage?: {
+    cursor: string;
+    limit: number;
+    edge_total: number;
+    review_total: number;
+  };
+};
+
+export type SynthesisWorkbenchConceptConfidence = "high" | "medium" | "low";
+
+export type SynthesisWorkbenchConceptProjection = {
+  concepts: Array<{
+    concept_id: string;
+    label: string;
+    aliases: string[];
+    concept_type: string;
+    domain: string;
+    status: "active" | "review" | "deprecated";
+    short_definition: string;
+    definition: string;
+    usage_note: string;
+    editorial_note: string;
+    sense_ids: string[];
+    created_at: string;
+    updated_at: string;
+  }>;
+  senses: Array<{
+    sense_id: string;
+    concept_id: string;
+    label: string;
+    aliases: string[];
+    domain: string;
+    short_definition: string;
+    definition: string;
+    disambiguation: string;
+    topic_relevance: string;
+    confidence: SynthesisWorkbenchConceptConfidence;
+    source_topic_ids: string[];
+    evidence: SynthesisWorkbenchEvidence[];
+    created_at: string;
+    updated_at: string;
+  }>;
+  aliases: Array<{
+    alias_id: string;
+    alias: string;
+    normalized: string;
+    concept_id: string;
+    sense_id: string;
+    status: "active" | "review" | "deprecated";
+    confidence: SynthesisWorkbenchConceptConfidence;
+    created_at: string;
+    updated_at: string;
+  }>;
+  relations: Array<{
+    relation_id: string;
+    source_concept_id: string;
+    target_concept_id: string;
+    relation: string;
+    status: string;
+    confidence: SynthesisWorkbenchConceptConfidence;
+    provenance: SynthesisWorkbenchEvidence[];
+    created_at: string;
+    updated_at: string;
+  }>;
+  manifest: {
+    manifest_hash: string | null;
+    concept_count: number;
+    sense_count: number;
+    alias_count: number;
+    relation_count: number;
+    updated_at: string;
+    projection_target: "concept-kb-index";
+  };
+  projection: SynthesisWorkbenchProjectionStatus;
+  diagnostics: never[];
+  overlayEntries: Array<{
+    concept_id: string;
+    sense_id?: string;
+    alias: string;
+    label: string;
+    short_definition?: string;
+    definition?: string;
+    confidence: SynthesisWorkbenchConceptConfidence;
+  }>;
+  reviewItems: Array<{
+    review_id: string;
+    status: "open" | "approved" | "merged" | "rejected";
+    reason: string;
+    topic_id: string;
+    topic_path_id: string;
+    label: string;
+    confidence: SynthesisWorkbenchConceptConfidence;
+    candidate_concept_ids: string[];
+    short_definition: string | null;
+    definition: string | null;
+    concept_type: string | null;
+    domain: string | null;
+    topic_relevance: string | null;
+    evidence: SynthesisWorkbenchEvidence[];
+    target_concept_id: string;
+    created_at: string;
+    updated_at: string;
+    resolved_at: string;
+  }>;
+  topicLinks: Array<{
+    topic_id: string;
+    concept_id: string;
+    sense_id: string;
+    label: string;
+    relevance: string;
+    confidence: SynthesisWorkbenchConceptConfidence;
+    source: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  reviewPage?: { cursor: string; limit: number; total: number };
+};
+
+export type SynthesisWorkbenchGraphProjection = {
+  graph_hash: string;
+  layoutStatus: "missing" | "ready" | "stale" | "refreshing" | "failed";
+  page: SynthesisCitationGraphPageMetadata;
+  diagnostics: {
+    storage: "sqlite";
+    bounded: true;
+    semantic_slice: "library_and_shared_external";
+    displayed_node_count: number;
+    hover_only_external_count: number;
+    displayed_edge_count: number;
+    hover_only_edge_count: number;
+    cache_status: "missing" | "ready" | "stale" | "refreshing" | "failed";
+    cache_key: "citation-graph:library";
+    layout_status: "missing" | "ready" | "stale" | "refreshing" | "failed";
+    layout_source: "sqlite";
+  };
+  topicScopes: Array<{
+    topicId: string;
+    title: string;
+    paperCount: number;
+    paperRefTotal: number;
+    paperRefsTruncated: boolean;
+    paperRefs: string[];
+    nodeIds: string[];
+  }>;
+  topicScopePage: {
+    cursor: string;
+    nextCursor: string;
+    returned: number;
+    total: number;
+    limit: number;
+    hasMore: boolean;
+  };
+  hoverOnlyNodes: SynthesisWorkbenchGraphNode[];
+  hoverOnlyEdges: SynthesisWorkbenchGraphEdge[];
+  nodes: SynthesisWorkbenchGraphNode[];
+  edges: SynthesisWorkbenchGraphEdge[];
+};
+
+export type SynthesisWorkbenchGraphNode = {
+  id: string;
+  label: string;
+  title: string;
+  kind: "library_paper" | "external_reference" | "unresolved_reference";
+  targetState: "library" | "external" | "unresolved";
+  paperRef: string;
+  year: string;
+  authors: string[];
+  lowSignal: boolean;
+  visibility: "default" | "hover_only";
+  displayTier: "library" | "shared_external" | "single_external";
+  externalDegree: number | null;
+  outgoingCount: number;
+  incomingCount: number;
+  matchedOutgoingCount: number;
+  unresolvedOutgoingCount: number;
+  ambiguousOutgoingCount: number;
+  localDegree: number;
+  x?: number;
+  y?: number;
+};
+
+export type SynthesisWorkbenchGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  kind: "citation";
+  role: string;
+  primaryRole: string;
+  auxRoles: Array<{ role: string; count: number }>;
+  roleEvidence: Array<{ role: string; count: number }>;
+  mentionCount: number;
+  sourceRefs: string[];
+  visibility: "default" | "hover_only";
+};
+
+export type SynthesisWorkbenchTagsProjection =
+  SynthesisTagVocabularySnapshot & {
+    staged: SynthesisTagStagedSuggestion[];
+  };
+
+export type SynthesisWorkbenchHomeSurfaceProjection = {
+  libraryId: number;
+  artifacts: SynthesisWorkbenchTopicArtifactRow[];
+  deletedArtifacts: {
+    rows: Array<{
+      topic_id: string;
+      title: string;
+      deleted_at: string;
+    }>;
+    total: number;
+  };
+  topicPage: {
+    cursor: string;
+    next_cursor: string;
+    has_more: boolean;
+    returned: number;
+    total: number;
+    limit: number;
+  };
+};
+
+export type SynthesisWorkbenchTopicsSurfaceProjection =
+  SynthesisWorkbenchHomeSurfaceProjection & {
+    topicGraph: SynthesisWorkbenchTopicGraphProjection;
+  };
+
+type SynthesisWorkbenchReviewedProjection = {
+  libraryId: number;
+  reviews: { summary: SynthesisWorkbenchReviewSummary };
+};
+
+export type SynthesisWorkbenchIndexSurfaceProjection =
+  SynthesisWorkbenchReviewedProjection & {
+    registry: SynthesisWorkbenchIndexRegistry;
+  };
+
+export type SynthesisWorkbenchReferenceReviewSurfaceProjection =
+  SynthesisWorkbenchReviewedProjection & {
+    registry: SynthesisWorkbenchReferenceReviewRegistry;
+  };
+
+export type SynthesisWorkbenchConceptReviewSurfaceProjection =
+  SynthesisWorkbenchReviewedProjection & {
+    concepts: SynthesisWorkbenchConceptProjection;
+  };
+
+export type SynthesisWorkbenchTopicGraphReviewSurfaceProjection =
+  SynthesisWorkbenchReviewedProjection & {
+    topicGraph: SynthesisWorkbenchTopicGraphProjection;
+  };
+
+export type SynthesisWorkbenchReviewSurfaceProjection =
+  | SynthesisWorkbenchReferenceReviewSurfaceProjection
+  | SynthesisWorkbenchConceptReviewSurfaceProjection
+  | SynthesisWorkbenchTopicGraphReviewSurfaceProjection;
+
+export type SynthesisWorkbenchGraphSurfaceProjection = {
+  libraryId: number;
+  graph: SynthesisWorkbenchGraphProjection;
+};
+
+export type SynthesisWorkbenchTagsSurfaceProjection = {
+  libraryId: number;
+  tags: SynthesisWorkbenchTagsProjection;
+};
+
+export type SynthesisWorkbenchConceptsSurfaceProjection = {
+  libraryId: number;
+  concepts: SynthesisWorkbenchConceptProjection;
+};
+
+export type SynthesisWorkbenchReaderSurfaceProjection = {
+  libraryId: number;
+  reader: SynthesisWorkbenchTopicDetailResult;
+};
+
+export type SynthesisWorkbenchSurfaceProjectionMap = {
+  home: SynthesisWorkbenchHomeSurfaceProjection;
+  topics: SynthesisWorkbenchTopicsSurfaceProjection;
+  index: SynthesisWorkbenchIndexSurfaceProjection;
+  review: SynthesisWorkbenchReviewSurfaceProjection;
+  graph: SynthesisWorkbenchGraphSurfaceProjection;
+  tags: SynthesisWorkbenchTagsSurfaceProjection;
+  concepts: SynthesisWorkbenchConceptsSurfaceProjection;
+  reader: SynthesisWorkbenchReaderSurfaceProjection;
+};
+
+export type SynthesisWorkbenchSurfaceProjection =
+  SynthesisWorkbenchSurfaceProjectionMap[SynthesisWorkbenchSurfaceName];
 
 export type SynthesisWorkbenchSidecarStatus = {
   lifecycle:
@@ -118,6 +655,17 @@ export type SynthesisWorkbenchSidecarStatus = {
 export type SynthesisWorkbenchChromeReadRequest = {
   state: SynthesisWorkbenchReadState;
 };
+
+export function rebuildSynthesisWorkbenchReadState(
+  value: unknown,
+): SynthesisWorkbenchReadState {
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+    definition: "WorkbenchState",
+    value,
+    direction: "request",
+  });
+}
 
 export type SynthesisWorkbenchOperationalChromeReadRequest = Record<
   string,
@@ -195,6 +743,40 @@ export type SynthesisWorkbenchSurfaceReadRequest = {
   state: SynthesisWorkbenchReadState;
 };
 
+const SYNTHESIS_WORKBENCH_SURFACE_RESULT_DEFINITIONS = {
+  home: "HomeSurfaceProjection",
+  topics: "TopicsSurfaceProjection",
+  index: "IndexSurfaceProjection",
+  graph: "GraphSurfaceProjection",
+  tags: "TagsSurfaceProjection",
+  concepts: "ConceptsSurfaceProjection",
+  reader: "ReaderSurfaceProjection",
+} as const;
+
+export function rebuildSynthesisWorkbenchSurfaceResult<
+  Surface extends SynthesisWorkbenchSurfaceName,
+>(
+  request: SynthesisWorkbenchSurfaceReadRequest & { surface: Surface },
+  value: unknown,
+): SynthesisWorkbenchSurfaceProjectionMap[Surface] {
+  const definition =
+    request.surface === "review"
+      ? request.state.reviews.activeTab === "concepts"
+        ? "ConceptReviewSurfaceProjection"
+        : request.state.reviews.activeTab === "topic_graph"
+          ? "TopicGraphReviewSurfaceProjection"
+          : "ReferenceReviewSurfaceProjection"
+      : SYNTHESIS_WORKBENCH_SURFACE_RESULT_DEFINITIONS[
+          request.surface as Exclude<SynthesisWorkbenchSurfaceName, "review">
+        ];
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+    definition,
+    value,
+    direction: "result",
+  });
+}
+
 export type SynthesisWorkbenchTopicDetailReadRequest = {
   topicId: string;
 };
@@ -209,24 +791,39 @@ export type SynthesisWorkbenchTopicDetailResult = {
   artifact_hash?: string;
   paper_count?: number;
   source_papers: SynthesisResolvedPaper[];
-  topic?: SynthesisTopicDefinition;
-  summary?: SynthesisTextSummary;
-  taxonomy?: SynthesisTaxonomy;
-  improvement_dimensions?: SynthesisImprovementDimensions;
-  claims?: SynthesisClaim[];
-  timeline_events?: SynthesisTimeline;
-  debates?: SynthesisDebate[];
-  coverage?: SynthesisCoverage;
-  statistics?: SynthesisStatistics;
-  synthesis_report?: SynthesisReport;
-  future_directions?: SynthesisFutureDirection[];
-  review_outline?: SynthesisReviewOutline;
-  source_artifacts?: SynthesisSourceArtifacts;
+  topic?: NonNullable<SynthesisTopicArtifact["topic"]>;
+  summary?: NonNullable<SynthesisTopicArtifact["summary"]>;
+  taxonomy?: NonNullable<SynthesisTopicArtifact["taxonomy"]>;
+  improvement_dimensions?: NonNullable<
+    SynthesisTopicArtifact["improvement_dimensions"]
+  >;
+  claims?: NonNullable<SynthesisTopicArtifact["claims"]>;
+  timeline_events?: NonNullable<SynthesisTopicArtifact["timeline_events"]>;
+  debates?: NonNullable<SynthesisTopicArtifact["debates"]>;
+  coverage?: NonNullable<SynthesisTopicArtifact["coverage"]>;
+  statistics?: NonNullable<SynthesisTopicArtifact["statistics"]>;
+  synthesis_report?: NonNullable<SynthesisTopicArtifact["synthesis_report"]>;
+  future_directions?: NonNullable<SynthesisTopicArtifact["future_directions"]>;
+  review_outline?: NonNullable<SynthesisTopicArtifact["review_outline"]>;
+  source_artifacts?: NonNullable<SynthesisTopicArtifact["source_artifacts"]>;
   artifact?: SynthesisTopicArtifact;
   manifest?: SynthesisTopicManifest;
-  metadata?: SynthesisTopicMetadata;
+  metadata?: {
+    schema_id: "synthesis.topic_artifact_metadata";
+    schema_version: "1.0.0";
+    created_at: string;
+    updated_at: string;
+    data: {
+      topic_id: string;
+      title: string;
+      definition: string;
+      language: string;
+      operation: "create" | "update_full" | "update_patch";
+      artifact_metadata: SynthesisTopicArtifactMetadata;
+    };
+  };
   pathId?: string;
-  diagnostics: string[];
+  diagnostics: NonNullable<SynthesisTopicArtifact["diagnostics"]>;
 };
 
 export function rebuildSynthesisWorkbenchTopicDetailResult(
@@ -493,9 +1090,9 @@ export interface SynthesisWorkbenchClient {
   readChrome(
     request: SynthesisWorkbenchChromeReadRequest,
   ): Promise<SynthesisWorkbenchProjection>;
-  readSurface(
-    request: SynthesisWorkbenchSurfaceReadRequest,
-  ): Promise<SynthesisWorkbenchProjection>;
+  readSurface<Surface extends SynthesisWorkbenchSurfaceName>(
+    request: SynthesisWorkbenchSurfaceReadRequest & { surface: Surface },
+  ): Promise<SynthesisWorkbenchSurfaceProjectionMap[Surface]>;
   readTopicDetail(
     request: SynthesisWorkbenchTopicDetailReadRequest,
   ): Promise<SynthesisWorkbenchTopicDetailResult>;
@@ -564,10 +1161,7 @@ export function rebuildSynthesisWorkbenchChromeReadRequest(
     "state",
   ]);
   return {
-    state: toSynthesisJsonObject(
-      object.state,
-      "synthesisWorkbenchChromeReadRequest.state",
-    ),
+    state: rebuildSynthesisWorkbenchReadState(object.state),
   };
 }
 

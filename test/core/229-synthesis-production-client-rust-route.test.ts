@@ -15,8 +15,15 @@ import {
   buildSynthesisCitationGraphBuildTransferManifest,
   buildSynthesisCitationGraphBuildTransferPage,
 } from "../../packages/synthesis-engine/src/citationGraphBuildTransfer";
-import { buildSynthesisUiSnapshot } from "../../src/modules/synthesis/uiModel";
+import {
+  buildSynthesisUiSnapshot,
+  createDefaultSynthesisUiState,
+} from "../../src/modules/synthesis/uiModel";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  toSynthesisUiSnapshotInput,
+  toSynthesisWorkbenchReadState,
+} from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesisSidecarRpcClient";
 import { consumeSynthesisSidecarOutputJson } from "../../src/modules/synthesisSidecarTransferClient";
 import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synthesisSyntheticDatasets";
@@ -81,6 +88,29 @@ const TOPIC_WORKBENCH_OPERATIONS = [
   "client.resolveTopicPaperDigest",
   "client.restoreTopicDiscoveryHint",
 ] as const;
+
+async function createProductionRouteNativeComposition(
+  port: number,
+  id: string,
+) {
+  const health = (await (
+    await fetch(`http://127.0.0.1:${port}/synthesis/v1/health`)
+  ).json()) as { serviceInstanceId: string };
+  return createNativeSynthesisClientComposition({
+    getReadyConnection: () => ({
+      discovery: {
+        host: "127.0.0.1",
+        port,
+        profileId: "1".repeat(64),
+        serviceInstanceId: health.serviceInstanceId,
+      },
+      clientToken: CLIENT_TOKEN,
+    }),
+    rpcClient: createSynthesisSidecarRpcClient({
+      requestIdPrefix: `production-route:${id}`,
+    }),
+  });
+}
 
 async function waitForMaintenanceOperation(port: number, operationId: string) {
   return waitForSynthesisProductionRouteReceipt({
@@ -466,14 +496,11 @@ describe("Synthesis Rust production client route", function () {
           }),
       });
       assert.equal(receipt.status, "completed");
+      const state = createDefaultSynthesisUiState();
+      state.registry.expandedSourceRefs = ["1:SYN0000001"];
       const projection = await harness.client.workbench.readSurface({
         surface: "index",
-        state: {
-          registry: {
-            scope: "library",
-            expandedSourceRefs: ["1:SYN0000001"],
-          },
-        },
+        state: toSynthesisWorkbenchReadState(state),
       });
       const registry = projection.registry as {
         cacheStatus: { status: string };
@@ -502,8 +529,202 @@ describe("Synthesis Rust production client route", function () {
         /^sha256:[a-f0-9]{64}$/,
       );
       assert.isArray(registry.rows[0].references);
+      const reviewProjection = await harness.client.workbench.readSurface({
+        surface: "review",
+        state: toSynthesisWorkbenchReadState(state),
+      });
+      const reviewSnapshot = buildSynthesisUiSnapshot(
+        toSynthesisUiSnapshotInput(reviewProjection),
+        state,
+      );
+      assert.equal(reviewSnapshot.registry.cacheStatus.status, "ready");
     } finally {
       await harness.stop();
+    }
+  });
+
+  it("projects persisted real-data Review rows through native composition", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-reference-review-projection-"),
+    );
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "reference-review-projection-initialize",
+      root,
+    });
+    try {
+      await harness.stop();
+      const database = new DatabaseSync(
+        path.join(root, "state", "synthesis.db"),
+      );
+      const now = "2026-08-27T00:00:00.000Z";
+      database
+        .prepare(
+          `INSERT INTO synt_reference_match_proposal(
+             proposal_id,kind,status,source_canonical_reference_id,
+             source_raw_reference_ids_json,target_canonical_reference_id,
+             target_library_id,target_item_key,confidence,score,reasons_json,
+             evidence_json,diagnostics_json,basis_hash,source_hash,created_at,updated_at
+           ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        )
+        .run(
+          "proposal:rich-evidence",
+          "canonical_merge",
+          "open",
+          "cref:source",
+          '["rawref:source"]',
+          "cref:target",
+          0,
+          "",
+          "high",
+          0.95,
+          '["normalized_title_year"]',
+          JSON.stringify({
+            source: {
+              canonical_reference_id: "cref:source",
+              title: "Source title",
+              normalized_title: "source title",
+              year: "2024",
+              selected_title_candidate: { storage: "only" },
+              raw_sample: "storage-only",
+            },
+            target: {
+              canonical_reference_id: "cref:target",
+              title: "Target title",
+              normalized_title: "target title",
+              year: "2024",
+            },
+            token_dice: 0.95,
+            year_delta: 0,
+            source_record: { storage: "only" },
+            representative: { storage: "only" },
+          }),
+          '[{"code":"review_required","message":"storage-only"}]',
+          "basis:review",
+          "source:review",
+          now,
+          now,
+        );
+      database
+        .prepare(
+          `INSERT INTO synt_concept_review_item(
+             review_id,status,reason,topic_id,topic_path_id,label,confidence,
+             candidate_concept_ids_json,proposal_json,target_concept_id,
+             created_at,updated_at,resolved_at
+           ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        )
+        .run(
+          "review:legacy-concept",
+          "open",
+          "low_confidence",
+          "topic:legacy",
+          "legacy-topic",
+          "Legacy concept",
+          "low",
+          "[]",
+          JSON.stringify({
+            label: "Legacy concept",
+            aliases: [],
+            concept_type: "method",
+            domain: "synthesis",
+            short_definition: "Short definition",
+            definition: "Definition",
+            topic_relevance: "Relevant",
+            confidence: "low",
+            evidence: [],
+            relations: [],
+            merge_hints: [],
+          }),
+          "",
+          now,
+          now,
+          "",
+        );
+      database
+        .prepare(
+          `INSERT INTO synt_topic_graph_review_item(
+             review_id,status,source_topic_id,target_topic_id,target_title,
+             relation,confidence,provenance_json,evidence_refs_json,
+             created_at,updated_at,resolved_at
+           ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+        )
+        .run(
+          "review:topic-graph",
+          "open",
+          "topic:source",
+          "topic:target",
+          "Target topic",
+          "related_to",
+          0.8,
+          "[]",
+          "[]",
+          now,
+          now,
+          "",
+        );
+      database.close();
+
+      harness = await startSynthesisProductionRouteHarness({
+        id: "reference-review-projection-reopen",
+        root,
+      });
+      const state = createDefaultSynthesisUiState();
+      const readState = toSynthesisWorkbenchReadState(state);
+      const projection = await harness.client.workbench.readSurface({
+        surface: "review",
+        state: readState,
+      });
+      assert.lengthOf(projection.registry.matchProposals, 1);
+      const proposal = projection.registry.matchProposals[0];
+      if (proposal.kind !== "canonical_merge") {
+        throw new Error(`Unexpected proposal kind: ${proposal.kind}`);
+      }
+      const evidence = proposal.evidence;
+      assert.deepInclude(evidence, {
+        token_dice: 0.95,
+        year_delta: 0,
+      });
+      assert.notProperty(evidence, "source_record");
+      assert.notProperty(evidence.source, "selected_title_candidate");
+      assert.deepEqual(proposal.diagnostics, [{ code: "review_required" }]);
+
+      const conceptState = {
+        ...readState,
+        reviews: {
+          ...readState.reviews,
+          activeTab: "concepts" as const,
+        },
+      };
+      const conceptProjection = await harness.client.workbench
+        .readSurface({ surface: "review", state: conceptState })
+        .catch((error) => {
+          throw new Error(`Concept Review failed: ${JSON.stringify(error)}`, {
+            cause: error,
+          });
+        });
+      assert.lengthOf(conceptProjection.concepts.reviewItems, 1);
+      assert.deepInclude(conceptProjection.concepts.reviewItems[0], {
+        review_id: "review:legacy-concept",
+        concept_type: "method",
+        short_definition: "Short definition",
+        topic_relevance: "Relevant",
+      });
+      assert.notProperty(conceptProjection.concepts.reviewItems[0], "proposal");
+
+      const topicGraphProjection = await harness.client.workbench.readSurface({
+        surface: "review",
+        state: {
+          ...readState,
+          reviews: { ...readState.reviews, activeTab: "topic_graph" },
+        },
+      });
+      assert.deepInclude(topicGraphProjection.topicGraph.reviewItems[0], {
+        review_id: "review:topic-graph",
+        source_topic_id: "topic:source",
+        target_topic_id: "topic:target",
+      });
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -2119,6 +2340,72 @@ describe("Synthesis Rust production client route", function () {
         topicId,
       });
 
+      const workbenchComposition = await createProductionRouteNativeComposition(
+        port,
+        "all-workbench-surfaces",
+      );
+      try {
+        const defaultState = createDefaultSynthesisUiState();
+        defaultState.reader.topicId = topicId;
+        const state = toSynthesisWorkbenchReadState(defaultState);
+        const surfaceSnapshots = [];
+        for (const surface of [
+          "home",
+          "topics",
+          "graph",
+          "tags",
+          "concepts",
+          "reader",
+        ] as const) {
+          const projection = await workbenchComposition.client.workbench
+            .readSurface({
+              surface,
+              state,
+            })
+            .catch((error) => {
+              throw new Error(
+                `Workbench ${surface} failed: ${JSON.stringify(error)}`,
+                { cause: error },
+              );
+            });
+          surfaceSnapshots.push(
+            buildSynthesisUiSnapshot(
+              toSynthesisUiSnapshotInput(projection),
+              defaultState,
+            ),
+          );
+        }
+        for (const activeTab of ["concepts", "topic_graph"] as const) {
+          const projection = await workbenchComposition.client.workbench
+            .readSurface({
+              surface: "review",
+              state: {
+                ...state,
+                reviews: { ...state.reviews, activeTab },
+              },
+            })
+            .catch((error) => {
+              throw new Error(
+                `Workbench review/${activeTab} failed: ${JSON.stringify(error)}`,
+                { cause: error },
+              );
+            });
+          surfaceSnapshots.push(
+            buildSynthesisUiSnapshot(
+              toSynthesisUiSnapshotInput(projection),
+              defaultState,
+            ),
+          );
+        }
+        assert.lengthOf(surfaceSnapshots, 8);
+        assert.lengthOf(surfaceSnapshots[1].artifacts.rows, 1);
+        assert.lengthOf(surfaceSnapshots[1].topicGraph.nodes, 1);
+        assert.lengthOf(surfaceSnapshots[4].concepts.rows, 1);
+        assert.equal(surfaceSnapshots[5].reader.topicId, topicId);
+      } finally {
+        await workbenchComposition.dispose();
+      }
+
       const topicProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
@@ -2294,7 +2581,7 @@ describe("Synthesis Rust production client route", function () {
       assert.lengthOf(deletedProjection.body.data.deletedArtifacts.rows, 1);
       assert.deepInclude(deletedProjection.body.data.deletedArtifacts.rows[0], {
         topic_id: topicId,
-        deleted_path_id: deletedPathId,
+        title: "Production Topic",
       });
       assert.match(
         deletedProjection.body.data.deletedArtifacts.rows[0].deleted_at,
@@ -2318,9 +2605,12 @@ describe("Synthesis Rust production client route", function () {
         { args: ["home", { artifacts: {} }] },
       );
       assert.lengthOf(reopenedProjection.body.data.artifacts, 0);
-      assert.equal(
-        reopenedProjection.body.data.deletedArtifacts.rows[0].deleted_path_id,
-        deletedPathId,
+      assert.deepInclude(
+        reopenedProjection.body.data.deletedArtifacts.rows[0],
+        {
+          topic_id: topicId,
+          title: "Production Topic",
+        },
       );
       const reopenedConceptProjection = await call(
         port,
@@ -2994,6 +3284,28 @@ describe("Synthesis Rust production client route", function () {
       const uiSnapshot = buildSynthesisUiSnapshot(graphSurface.body.data);
       assert.isAbove(uiSnapshot.graph.visibleNodes.length, 0);
       assert.isAbove(uiSnapshot.graph.visibleEdges.length, 0);
+
+      const graphComposition = await createProductionRouteNativeComposition(
+        port,
+        "nonempty-workbench-graph",
+      );
+      try {
+        const nativeGraph = await graphComposition.client.workbench.readSurface(
+          {
+            surface: "graph",
+            state: toSynthesisWorkbenchReadState(
+              createDefaultSynthesisUiState(),
+            ),
+          },
+        );
+        const nativeGraphSnapshot = buildSynthesisUiSnapshot(
+          toSynthesisUiSnapshotInput(nativeGraph),
+        );
+        assert.isAbove(nativeGraphSnapshot.graph.visibleNodes.length, 0);
+        assert.isAbove(nativeGraphSnapshot.graph.visibleEdges.length, 0);
+      } finally {
+        graphComposition.dispose();
+      }
 
       const recomputeLayout = await call(
         port,
