@@ -81,3 +81,11 @@
 - [x] 13.2 Release the four retained source or backup SQLite connections exposed by win32-x64 before temporary-root cleanup, and verify the complete repository crate test suite
 - [x] 13.3 Run the complete local Rust, contract, packaging, formatting, lint, OpenSpec, and release-build gates for the fourth-round repair
 - [ ] 13.4 Commit and push the new exact source identity, then after explicit dispatch authorization run, validate, synchronize, and freshness-check one governed seven-platform prebuild
+
+## 14. Close accepted-socket and migration-owner gaps
+
+- [x] 14.1 Record the exact win32-x64 retained-source failure and darwin-x64 inherited-nonblocking-stream failure in the archived change and synced prebuild specification
+- [x] 14.2 Restore every accepted reverse Host test stream to blocking mode before its bounded read and keep fixture teardown from causing a second panic during unwind
+- [x] 14.3 Scope every migration source and backup inspection so no SQLite connection survives into temporary-root cleanup
+- [x] 14.4 Run the focused failures, complete process-lifecycle and repository suites, full local prebuild gates, and strict OpenSpec validation
+- [ ] 14.5 Commit and push a new exact source identity, then after explicit dispatch authorization run, validate, synchronize, and freshness-check one governed seven-platform prebuild

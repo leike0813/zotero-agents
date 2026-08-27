@@ -2648,20 +2648,23 @@ mod tests {
         let database_path = root.join("state/synthesis.db");
         fs::create_dir_all(database_path.parent().expect("parent")).expect("state");
         legacy_ts_migration::create_legacy_test_database(&database_path).expect("legacy fixture");
-        let source = open_production_database_read_only(&database_path).expect("source");
-        assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("detect"));
-        source
-            .execute("ALTER TABLE synt_tag_alias ADD COLUMN drift TEXT", [])
-            .expect_err("readonly source");
-        drop(source);
-        let writable = Connection::open(&database_path).expect("writable");
-        writable
-            .execute("ALTER TABLE synt_tag_alias ADD COLUMN drift TEXT", [])
-            .expect("drift");
-        drop(writable);
-        let source = open_production_database_read_only(&database_path).expect("source");
-        assert!(!legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("reject"));
-        drop(source);
+        {
+            let source = open_production_database_read_only(&database_path).expect("source");
+            assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("detect"));
+            source
+                .execute("ALTER TABLE synt_tag_alias ADD COLUMN drift TEXT", [])
+                .expect_err("readonly source");
+        }
+        {
+            let writable = Connection::open(&database_path).expect("writable");
+            writable
+                .execute("ALTER TABLE synt_tag_alias ADD COLUMN drift TEXT", [])
+                .expect("drift");
+        }
+        {
+            let source = open_production_database_read_only(&database_path).expect("source");
+            assert!(!legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("reject"));
+        }
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -2674,31 +2677,35 @@ mod tests {
         legacy_ts_migration::create_legacy_test_database(&database_path).expect("legacy fixture");
 
         prepare_production_schema(&database_path, &backup_root).expect("migrate");
-        let current = open_production_database_read_only(&database_path).expect("current");
-        assert_eq!(
-            read_schema_version(&current).expect("version"),
-            SCHEMA_VERSION
-        );
-        assert!(
-            current
-                .query_row(
-                    "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='synt_topic_deleted_artifact'",
-                    [],
-                    |_| Ok(()),
-                )
-                .optional()
-                .expect("table")
-                .is_some()
-        );
-        drop(current);
+        {
+            let current = open_production_database_read_only(&database_path).expect("current");
+            assert_eq!(
+                read_schema_version(&current).expect("version"),
+                SCHEMA_VERSION
+            );
+            assert!(
+                current
+                    .query_row(
+                        "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='synt_topic_deleted_artifact'",
+                        [],
+                        |_| Ok(()),
+                    )
+                    .optional()
+                    .expect("table")
+                    .is_some()
+            );
+        }
         let backups = fs::read_dir(&backup_root)
             .expect("backups")
             .collect::<Result<Vec<_>, _>>()
             .expect("entries");
         assert_eq!(backups.len(), 1);
-        let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
-        assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&backup).expect("legacy backup"));
-        drop(backup);
+        {
+            let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
+            assert!(
+                legacy_ts_migration::is_exact_legacy_ts_schema(&backup).expect("legacy backup")
+            );
+        }
 
         prepare_production_schema(&database_path, &backup_root).expect("idempotent reopen");
         assert_eq!(
@@ -2733,27 +2740,33 @@ mod tests {
             prepare_production_schema(&database_path, &backup_root).unwrap_err(),
             "repository_legacy_topic_interest_invalid"
         );
-        let source = open_production_database_read_only(&database_path).expect("source");
-        assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("legacy source"));
-        assert_eq!(
-            source
-                .query_row(
-                    "SELECT COUNT(*) FROM synt_topic_interest_metadata",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .expect("source fact"),
-            1
-        );
-        drop(source);
+        {
+            let source = open_production_database_read_only(&database_path).expect("source");
+            assert!(
+                legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("legacy source")
+            );
+            assert_eq!(
+                source
+                    .query_row(
+                        "SELECT COUNT(*) FROM synt_topic_interest_metadata",
+                        [],
+                        |row| row.get::<_, i64>(0)
+                    )
+                    .expect("source fact"),
+                1
+            );
+        }
         let backups = fs::read_dir(&backup_root)
             .expect("backups")
             .collect::<Result<Vec<_>, _>>()
             .expect("entries");
         assert_eq!(backups.len(), 1);
-        let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
-        assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&backup).expect("legacy backup"));
-        drop(backup);
+        {
+            let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
+            assert!(
+                legacy_ts_migration::is_exact_legacy_ts_schema(&backup).expect("legacy backup")
+            );
+        }
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -3027,12 +3040,13 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("backups");
         assert_eq!(backups.len(), 1);
-        let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
-        assert_eq!(
-            read_schema_version(&backup).expect("backup schema"),
-            PREVIOUS_SCHEMA_VERSION
-        );
-        drop(backup);
+        {
+            let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
+            assert_eq!(
+                read_schema_version(&backup).expect("backup schema"),
+                PREVIOUS_SCHEMA_VERSION
+            );
+        }
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -3186,22 +3200,25 @@ mod tests {
                 .unwrap_err(),
             "migration_fixture_failed"
         );
-        let source = open_production_database_read_only(&database_path).expect("source");
-        assert_eq!(
-            read_schema_version(&source).expect("source schema"),
-            PREVIOUS_SCHEMA_VERSION
-        );
+        {
+            let source = open_production_database_read_only(&database_path).expect("source");
+            assert_eq!(
+                read_schema_version(&source).expect("source schema"),
+                PREVIOUS_SCHEMA_VERSION
+            );
+        }
         let backups = fs::read_dir(&backup_root)
             .expect("backup root")
             .collect::<Result<Vec<_>, _>>()
             .expect("backup entries");
         assert_eq!(backups.len(), 1);
-        let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
-        assert_eq!(
-            read_schema_version(&backup).expect("backup schema"),
-            PREVIOUS_SCHEMA_VERSION
-        );
-        drop(backup);
+        {
+            let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
+            assert_eq!(
+                read_schema_version(&backup).expect("backup schema"),
+                PREVIOUS_SCHEMA_VERSION
+            );
+        }
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -11,7 +11,10 @@ observable lifecycle events and SHALL release repository and canonical owners
 before removing their storage. Concurrent artifact-read evidence SHALL use an
 explicit rendezvous and completion gate rather than elapsed-time ordering, and
 migration fixtures SHALL release every inspected source or backup connection
-before removing their temporary database root.
+before removing their temporary database root. A process-lifecycle reverse Host
+fixture SHALL explicitly restore each accepted stream to blocking mode before
+its bounded request read, regardless of the listener mode, and fixture teardown
+SHALL NOT replace an in-flight test failure with a second panic.
 
 #### Scenario: A native candidate is smoked
 
@@ -27,6 +30,12 @@ before removing their temporary database root.
 - **THEN** deadline evidence SHALL synchronize task start and completion
 - **AND** concurrent-read completion order SHALL NOT be inferred from sleep durations
 - **AND** temporary storage SHALL be removed only after all owning handles drop
+
+#### Scenario: A nonblocking fixture listener accepts a request
+
+- **WHEN** a process-lifecycle fixture accepts a reverse Host connection on any supported operating system
+- **THEN** the accepted stream SHALL use an explicit blocking mode with a bounded read timeout
+- **AND** a foreground failure SHALL remain the primary test failure during fixture teardown
 
 #### Scenario: Concurrent artifact reads complete out of source order
 

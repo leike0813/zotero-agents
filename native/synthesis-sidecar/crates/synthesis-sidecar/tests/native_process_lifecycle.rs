@@ -46,6 +46,9 @@ impl ReverseHost {
             while !thread_stopping.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        stream
+                            .set_nonblocking(false)
+                            .expect("blocking reverse host stream");
                         read_http_request(&mut stream);
                         let body = br#"{"ok":true,"result":{}}"#;
                         write!(
@@ -75,8 +78,11 @@ impl ReverseHost {
 impl Drop for ReverseHost {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::Release);
-        if let Some(thread) = self.thread.take() {
-            thread.join().expect("reverse host thread");
+        if let Some(thread) = self.thread.take()
+            && let Err(failure) = thread.join()
+            && !thread::panicking()
+        {
+            std::panic::resume_unwind(failure);
         }
     }
 }
