@@ -35,6 +35,7 @@ import { syncSynthesisSidecarRuntimePrebuilds } from "../../scripts/sync-synthes
 import {
   assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult,
   assertSynthesisSidecarRuntimePrebuildResultIdentity,
+  assertSynthesisSidecarRuntimePrebuildResultSet,
   rebuildSynthesisSidecarVerificationResult,
   rebuildSynthesisSidecarRuntimePrebuildSet,
   rebuildSynthesisSidecarRuntimePrebuildResult,
@@ -807,7 +808,27 @@ describe("Synthesis sidecar native runtime packaging", function () {
       }),
     );
     const setPath = path.join(store, "sets", staged.aggregate, "manifest.json");
-    const set = JSON.parse(fs.readFileSync(setPath, "utf8"));
+    const set = rebuildSynthesisSidecarRuntimePrebuildSet(
+      JSON.parse(fs.readFileSync(setPath, "utf8")),
+    );
+    assertSynthesisSidecarRuntimePrebuildResultSet(result, set);
+    const mismatchedArchiveResult =
+      rebuildSynthesisSidecarRuntimePrebuildResult({
+        ...resultDocument,
+        targets: {
+          ...targetEvidence,
+          "darwin-arm64": {
+            ...targetEvidence["darwin-arm64"],
+            archiveBytes: targetEvidence["darwin-arm64"].archiveBytes + 1,
+          },
+        },
+      });
+    assert.throws(() =>
+      assertSynthesisSidecarRuntimePrebuildResultSet(
+        mismatchedArchiveResult,
+        set,
+      ),
+    );
     assert.throws(() =>
       rebuildSynthesisSidecarRuntimePrebuildSet({
         ...set,

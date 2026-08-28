@@ -266,7 +266,8 @@ jobs:
           test "$(find .scaffold/prebuild -name '*.tar.gz' | wc -l)" -eq 7
           test "$(find .scaffold/evidence -name '*.json' | wc -l)" -eq 7
           npm run prebuild:synthesis-sidecar-runtime -- --archive-root=.scaffold/prebuild --output-root=prebuild-store --build-fingerprint="${{ needs.plan.outputs.build_fingerprint }}" --source-fingerprint="${{ needs.plan.outputs.source_fingerprint }}"
-          aggregate="$(jq -r '.aggregate // empty' prebuild-store/sets/*/manifest.json | head -1)"
+          manifest="$(find prebuild-store/sets -mindepth 2 -maxdepth 2 -name manifest.json -print -quit)"
+          aggregate="$(jq -r '.aggregate // empty' "$manifest")"
           test -n "$aggregate"
           git clone --depth=1 --branch synthesis-sidecar-runtime-prebuilds "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" store 2>/dev/null || {
             git init store
@@ -281,9 +282,9 @@ jobs:
             git -C store push origin HEAD:synthesis-sidecar-runtime-prebuilds
           fi
           commit="$(git -C store rev-parse HEAD)"
-          targets="$(jq -s 'map({key:.target,value:(del(.target))}) | from_entries' .scaffold/evidence/*.json)"
+          targets="$(jq -s --slurpfile manifest "$manifest" '(map({key:.target,value:(del(.target))}) | from_entries) as $evidence | reduce $manifest[0].archives[] as $archive ($evidence; .[$archive.target].archiveSha256 = $archive.sha256 | .[$archive.target].archiveBytes = $archive.bytes)' .scaffold/evidence/*.json)"
           jq -n --arg repository "$GITHUB_REPOSITORY" --arg source_sha "${{ inputs.source_sha }}" --arg request_id "$REQUEST_ID" --arg run_id "$GITHUB_RUN_ID" --arg source_fingerprint "${{ needs.plan.outputs.source_fingerprint }}" --arg build_fingerprint "${{ needs.plan.outputs.build_fingerprint }}" --arg verification_fingerprint "${{ needs.plan.outputs.verification_fingerprint }}" --arg pipeline_revision "${{ needs.plan.outputs.pipeline_revision }}" --arg verification_run_id "${{ needs.plan.outputs.verification_run_id }}" --arg verification_source_sha "${{ needs.plan.outputs.verification_source_sha }}" --arg verification_event "${{ needs.plan.outputs.verification_event }}" --arg aggregate "$aggregate" --arg commit "$commit" --argjson targets "$targets" '{schema:"synthesis-sidecar-runtime-prebuild-result.v3",repository:$repository,workflow:"prebuild-synthesis-sidecar-runtime.yml",runId:($run_id|tonumber),requestId:$request_id,sourceSha:$source_sha,sourceFingerprint:$source_fingerprint,buildFingerprint:$build_fingerprint,verificationFingerprint:$verification_fingerprint,pipelineRevision:$pipeline_revision,verification:{runId:($verification_run_id|tonumber),sourceSha:$verification_source_sha,event:$verification_event},aggregate:$aggregate,prebuildBranch:"synthesis-sidecar-runtime-prebuilds",prebuildCommit:$commit,setPath:("sets/"+$aggregate),targets:$targets}' > prebuild-result.json
-          npx tsx -e 'import { readFileSync } from "node:fs"; import { assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult, rebuildSynthesisSidecarRuntimePrebuildResult } from "./packages/synthesis-contracts/src/sidecarRuntimeRelease.ts"; const value=rebuildSynthesisSidecarRuntimePrebuildResult(JSON.parse(readFileSync("prebuild-result.json","utf8"))); assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(value)'
+          npx tsx -e 'import { readFileSync } from "node:fs"; import { assertSynthesisSidecarRuntimePrebuildResultSet, rebuildSynthesisSidecarRuntimePrebuildResult, rebuildSynthesisSidecarRuntimePrebuildSet } from "./packages/synthesis-contracts/src/sidecarRuntimeRelease.ts"; const value=rebuildSynthesisSidecarRuntimePrebuildResult(JSON.parse(readFileSync("prebuild-result.json","utf8"))); const set=rebuildSynthesisSidecarRuntimePrebuildSet(JSON.parse(readFileSync(process.argv[1],"utf8"))); assertSynthesisSidecarRuntimePrebuildResultSet(value,set)' "$manifest"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: synthesis-sidecar-runtime-prebuild-result

@@ -7,6 +7,7 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
   assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult,
   assertSynthesisSidecarRuntimePrebuildResultIdentity,
+  assertSynthesisSidecarRuntimePrebuildResultSet,
   rebuildSynthesisSidecarRuntimePrebuildResult,
   rebuildSynthesisSidecarRuntimePrebuildSet,
 } from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
@@ -75,25 +76,7 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
     prebuildBranch: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
     ...(args.expected || {}),
   });
-  if (
-    manifest.buildFingerprint !== result.buildFingerprint ||
-    manifest.sourceFingerprint !== result.sourceFingerprint
-  ) {
-    throw new Error(
-      "Prebuild result fingerprints do not match the immutable set",
-    );
-  }
-  for (const archive of manifest.archives) {
-    const evidence = result.targets[archive.target];
-    if (
-      evidence.archiveSha256 !== archive.sha256 ||
-      evidence.archiveBytes !== archive.bytes
-    ) {
-      throw new Error(
-        `Prebuild result evidence does not match ${archive.target} archive`,
-      );
-    }
-  }
+  assertSynthesisSidecarRuntimePrebuildResultSet(result, manifest);
   const staging = `${addonRoot}.staging-${process.pid}`;
   const bundleStaging = `${addonRoot}.bundle-staging-${process.pid}`;
   const backup = `${addonRoot}.backup-${process.pid}`;

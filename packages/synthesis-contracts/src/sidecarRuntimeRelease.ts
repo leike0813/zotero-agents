@@ -618,6 +618,29 @@ export function assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(
   }
 }
 
+export function assertSynthesisSidecarRuntimePrebuildResultSet(
+  result: SynthesisSidecarRuntimePrebuildResult,
+  set: SynthesisSidecarRuntimePrebuildSet,
+): asserts result is SynthesisSidecarRuntimePrebuildResultV3 {
+  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(result);
+  if (
+    result.aggregate !== set.aggregate ||
+    result.buildFingerprint !== set.buildFingerprint ||
+    result.sourceFingerprint !== set.sourceFingerprint
+  ) {
+    fail("prebuild_result_set_identity");
+  }
+  for (const archive of set.archives) {
+    const evidence = result.targets[archive.target];
+    if (
+      evidence.archiveSha256 !== archive.sha256 ||
+      evidence.archiveBytes !== archive.bytes
+    ) {
+      fail("prebuild_result_set_archive");
+    }
+  }
+}
+
 export function assertSynthesisSidecarRuntimePrebuildResultIdentity(
   result: SynthesisSidecarRuntimePrebuildResult,
   expected: Partial<SynthesisSidecarRuntimePrebuildResult>,
