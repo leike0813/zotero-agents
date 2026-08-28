@@ -1,11 +1,13 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import multiPdfAndMd from "../fixtures/selection-context/selection-context-multi-pdf-and-md.json";
-import { workflowsPath } from "./workflow-test-utils";
+import {
+  createLiteratureAnalysisFixtureHelpers,
+  workflowsPath,
+} from "./workflow-test-utils";
 
 async function getWorkflow() {
   const loaded = await loadWorkflowManifests(workflowsPath());
@@ -99,7 +101,7 @@ function withSyntheticParentIds<T>(value: T): T {
 const hookRuntime = {
   handlers,
   zotero: Zotero,
-  helpers: createHookHelpers(Zotero),
+  helpers: createLiteratureAnalysisFixtureHelpers(Zotero),
 };
 
 async function evaluateSelection(workflow: LoadedWorkflow, context: unknown) {

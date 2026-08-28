@@ -189,7 +189,11 @@ describe("Synthesis sidecar cache hard cut", function () {
       sourceRefs: ["1:AAA"],
     });
     assert.equal(registry.rows[0]?.paper_ref, "1:AAA");
-    assert.equal(registry.rows[0]?.artifactCoverage, "complete");
+    assert.equal(registry.rows[0]?.artifactCoverage, "partial");
+    assert.equal(
+      registry.rows[0]?.artifacts.literature_score.status,
+      "missing",
+    );
   });
 
   it("treats unchanged literature-analysis reruns as sidecar governance no-ops", async function () {
@@ -536,8 +540,8 @@ describe("Synthesis sidecar cache hard cut", function () {
     const index = await service.getReferenceSidecarIndex({ limit: 1 });
     const row = index.rows[0];
 
-    assert.equal(row?.artifactCoverage, "complete");
-    assert.deepEqual(row?.diagnostics || [], []);
+    assert.equal(row?.artifactCoverage, "partial");
+    assert.equal(row?.artifacts.literature_score.status, "missing");
     assert.equal(row?.artifacts.digest.note_key, "NDIGEST");
     assert.equal(row?.artifacts.references.note_title, "References");
   });
