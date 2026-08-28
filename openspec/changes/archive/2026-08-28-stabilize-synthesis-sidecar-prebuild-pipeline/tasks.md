@@ -27,8 +27,8 @@
 ## 5. Validate and produce remote evidence
 
 - [x] 5.1 Run focused TypeScript/Rust tests, fmt, clippy, typecheck, parity/license/package gates, and full Rust workspace tests; record every unavailable or failing gate
-- [ ] 5.2 Commit and push the complete change to its configured development branch, then verify the automatic Linux/Windows/macOS receipt succeeds for the exact pushed SHA
-- [ ] 5.3 Dispatch one new uniquely identified seven-target prebuild, validate its v3 result and immutable set, synchronize all targets atomically, and pass the local freshness gate
+- [x] 5.2 Commit and push the complete change to its configured development branch, then verify the automatic Linux/Windows/macOS receipt succeeds for the exact pushed SHA
+- [x] 5.3 Dispatch one new uniquely identified seven-target prebuild, validate its v3 result and immutable set, synchronize all targets atomically, and pass the local freshness gate
 
 ## Implementation evidence
 
@@ -36,3 +36,5 @@
 - TypeScript typecheck, scoped ESLint/Prettier, Rust fmt, workspace clippy with warnings denied, and the 12-case sidecar packaging/governance suite passed.
 - The full Rust workspace passed with `--no-fail-fast`, including process integration tests. The formerly sleep-based WebDAV race test passed five focused repetitions after moving to observable generation synchronization.
 - Cross-language, native runtime, durable foundation, typed application, citation/reference, tag/concept/topic graph, checkpoint/bundle/WebDAV/debug, and Rust license gates passed. The license gate now follows its source-verification owner instead of depending on the manual prebuild job layout.
+- Exact-SHA verifier run `33166330625` passed on Linux, Windows, and macOS for pushed commit `c4278f137798fdd67824402024b1d17985d61bbb` and emitted the trusted receipt consumed by prebuild.
+- Seven-target prebuild run `33167146777` passed and published aggregate `ac76cb33e90150d655411d2b2c2e6e8cb7c742ee0413e45b1cbf00127679c3e0` at immutable commit `aef8c6e987c6b6558659844c0b942a39a11ff21e`; strict v3 result/set validation, atomic local synchronization, freshness, and XPI checks passed.

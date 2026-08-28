@@ -1,13 +1,13 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "ca295f544dcdc41ddea39e836480f5b848be62cabec29e0dd992a25d083e2634",
+  "bundleId": "f088ba6ffbec949ed3d3f4f06acee038e535890d696f06ae3a50ec463a19d2b0",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "win32-x64",
   "targetTriple": "x86_64-pc-windows-msvc",
   "executable": "synthesis-sidecar.exe",
-  "buildFingerprint": "2194ba37b3a0210ff05d878660dcfb01f1d6970a788b0a0a4cf4e85b550e91e7",
+  "buildFingerprint": "e364e7cbe8228ba26457e6d7d8d2dfb81e3144008e9304225830b06a7073bb1a",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
@@ -19,12 +19,12 @@
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-08-28T03:27:33.000Z",
+  "createdAt": "2026-08-28T11:33:47.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "e679caf6b4803db13871e638c7ac7d88fad73ff44f808afa1805c50222a0c8d2",
+    "sourceFingerprint": "4c5fb1c1b08fdaf18611423d1dadd78495c21789a44ff74c1838678d86107da9",
     "toolchain": "nightly-2026-07-25",
-    "cargoLockSha256": "5f4f34013784c8ecf40105e16ac54a2b7f9a7b484c6401e28a6cae49e70a0599",
+    "cargoLockSha256": "5c891779150a6771ddb9eeca779411b50a43dd3ab7c8e669cd0ffc6e0745fa5f",
     "licenseInventory": "licenses.json"
   },
   "files": [
@@ -36,20 +36,20 @@
     },
     {
       "path": "licenses.json",
-      "bytes": 7098,
-      "sha256": "b8491dbf53b3b6cf016357d011f938d0520caaf90689044ef9aad3a50257b262",
+      "bytes": 7210,
+      "sha256": "fbcf1981d66700145476ed20bcca4d2569742809349ead76f528099e7bdeb718",
       "executable": false
     },
     {
       "path": "provenance.json",
       "bytes": 380,
-      "sha256": "9b35b2d73942e0d4a44bf756650f083c8caae0de25c6230599793f36127173f6",
+      "sha256": "aec38270893e057ae21b66a0cce9f7fe6d06b1fccc0d963ee2764c67c0085d28",
       "executable": false
     },
     {
       "path": "synthesis-sidecar.exe",
-      "bytes": 6574080,
-      "sha256": "3e633b905cc8e0226d51441cceb06087f4de02ddd4c0eafe2f3924c2c84070d7",
+      "bytes": 6643712,
+      "sha256": "5c899f4061e112207ecdcce006d0c639b520647f2f49de7136213a137a078d85",
       "executable": true
     }
   ]

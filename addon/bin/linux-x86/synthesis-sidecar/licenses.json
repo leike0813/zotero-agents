@@ -223,6 +223,11 @@
       "license": "AGPL-3.0-only"
     },
     {
+      "name": "synthesis-test-support",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-only"
+    },
+    {
       "name": "synthesis-topic-graph",
       "version": "0.1.0",
       "license": "AGPL-3.0-only"

@@ -11,9 +11,15 @@ evidence required before Synthesis sidecar binaries can be synchronized.
 
 The repository SHALL store release-eligible Synthesis native runtime prebuilds
 on `synthesis-sidecar-runtime-prebuilds` under `sets/<aggregate>/`. Each set
-SHALL have exactly seven target archives, a complete archive-digest manifest,
-and a result document using `synthesis-sidecar-runtime-prebuild-result.v2`
-with an explicit cache-hit, cache-miss, and source-run summary.
+SHALL have exactly seven target archives and a complete archive-digest manifest.
+Release-eligible evidence SHALL use
+`synthesis-sidecar-runtime-prebuild-result.v3`, bind one trusted successful
+Linux/Windows/macOS verification receipt, and record one closed per-target
+`built` or `reused` evidence entry. A reused entry SHALL bind its donor run and
+source identity, while every native-smoke target SHALL bind smoke evidence from
+the current prebuild run. Legacy result versions MAY be parsed for read-only
+audit but MUST NOT authorize synchronization, release preparation, or release.
+
 The sole manually dispatched prebuild workflow SHALL derive its seven target
 builds and pinned toolchain construction from one checked-in sidecar build
 recipe. Linux cross-build targets `linux-x86`, `linux-x64`, and `linux-arm`
@@ -23,11 +29,25 @@ native smoke. The workflow SHALL NOT depend on runner-installed cross-GCC apt
 packages.
 
 #### Scenario: A verified set is synchronized
-- **WHEN** synchronization receives a v2 result and its declared immutable set
-- **THEN** the result identity, exact seven-target cache partition, set
-  manifest, archive digests, and bundle manifests SHALL all validate
-- **AND** an unknown field, incomplete cache partition, duplicate target, or
-  mismatched identity SHALL fail before add-on bytes are replaced
+- **WHEN** synchronization receives a v3 result and its declared immutable set
+- **THEN** the verification identity, result identity, exact seven-target
+  evidence, set manifest, archive digests, and bundle manifests SHALL all validate
+- **AND** an unknown field, incomplete target map, duplicate target, mismatched
+  identity, legacy result, or stale native smoke SHALL fail before add-on bytes
+  are replaced
+
+#### Scenario: An exact prior target is reused across source commits
+- **WHEN** a prior target artifact has the exact current source and build
+  fingerprints and its archive and bundle manifest validate
+- **THEN** the current prebuild MAY reuse its exact bytes and SHALL record the
+  donor run and donor source commit in that target's v3 evidence
+- **AND** a native-smoke target SHALL execute its smoke again in the current run
+
+#### Scenario: A cache candidate is stale or unavailable
+- **WHEN** a candidate is expired, missing, incomplete, or differs in target,
+  source fingerprint, build fingerprint, size, digest, or bundle manifest
+- **THEN** only that target SHALL be rebuilt from the current source
+- **AND** the candidate SHALL NOT contribute evidence to the result
 
 #### Scenario: Linux ARM64 is built on its native runner
 - **WHEN** the manual seven-target prebuild builds `linux-arm64`
@@ -43,19 +63,29 @@ packages.
 
 ### Requirement: Prebuild verification SHALL exercise current production seams deterministically
 
+Every relevant source change SHALL run one automatic verification workflow on
+Linux, Windows, and macOS. The Linux verifier SHALL run format, lint, shared
+contract/parity/license checks, and the complete Rust workspace tests; Windows
+and macOS SHALL run the complete Rust workspace tests. Workspace tests SHALL
+continue after an individual test binary fails so one receipt reports every
+failure discovered in that run. A trusted receipt SHALL be emitted only after
+all three hosts pass and SHALL be accepted by prebuild only from same-repository
+push or manual-dispatch events. A receipt from another source commit MAY be used
+only when its verification fingerprint exactly equals the current fingerprint.
+
 Every matrix member configured for native smoke SHALL construct its candidate
 launch input through the shared current launch-config contract and SHALL
 exercise the production repository, canonical store, reverse Host probe,
 Workbench read, shutdown, and reopen process boundary before its archive is
-accepted. Platform-sensitive tests run by the workflow SHALL synchronize
-observable lifecycle events and SHALL release repository and canonical owners
-before removing their storage. Concurrent artifact-read evidence SHALL use an
-explicit rendezvous and completion gate rather than elapsed-time ordering, and
-migration fixtures SHALL release every inspected source or backup connection
-before removing their temporary database root. A process-lifecycle reverse Host
-fixture SHALL explicitly restore each accepted stream to blocking mode before
-its bounded request read, regardless of the listener mode, and fixture teardown
-SHALL NOT replace an in-flight test failure with a second panic. Test fixture
+accepted. Platform-sensitive tests SHALL synchronize observable lifecycle
+events and SHALL release repository and canonical owners before removing their
+storage. Concurrent artifact-read evidence SHALL use an explicit rendezvous and
+completion gate rather than elapsed-time ordering, and migration fixtures SHALL
+release every inspected source or backup connection before removing their
+temporary database root. A process-lifecycle reverse Host fixture SHALL
+explicitly restore each accepted stream to blocking mode before its bounded
+request read, regardless of the listener mode, and fixture teardown SHALL NOT
+replace an in-flight test failure with a second panic. Test fixture
 temporary-path components SHALL use identities valid on every supported target
 and SHALL NOT embed platform-illegal timestamp punctuation. The raw loopback
 verifier SHALL complete an HTTP response when exactly its declared
@@ -65,6 +95,17 @@ After accepted shutdown, the verifier SHALL join the complete child-process
 close, including stdio closure, before removing temporary repository storage.
 Exceptional cleanup SHALL terminate and join a still-running candidate before
 removing that storage.
+
+#### Scenario: Relevant source is proposed or pushed
+- **WHEN** a pull request or branch push changes sidecar runtime, contract,
+  verification, packaging, or pipeline inputs
+- **THEN** Linux, Windows, and macOS verification SHALL run automatically
+- **AND** only an all-host success SHALL produce a verification receipt
+
+#### Scenario: Prebuild lacks trusted current verification
+- **WHEN** no trusted receipt has the current verification fingerprint, or the
+  only receipt came from an untrusted pull-request context
+- **THEN** prebuild SHALL fail before creating any seven-target build work
 
 #### Scenario: A native candidate is smoked
 

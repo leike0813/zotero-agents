@@ -1,13 +1,13 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "76b8a0726ec402386566acce64c5bc48ee12715f49cdc1b3a38f11915a8bd0bc",
+  "bundleId": "b4b087f002df800e1b05508ad68b7ed5df9f39f5acfc27e845e42557c177d7ff",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "linux-x64",
   "targetTriple": "x86_64-unknown-linux-gnu",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "2194ba37b3a0210ff05d878660dcfb01f1d6970a788b0a0a4cf4e85b550e91e7",
+  "buildFingerprint": "e364e7cbe8228ba26457e6d7d8d2dfb81e3144008e9304225830b06a7073bb1a",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
@@ -19,12 +19,12 @@
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-08-28T03:19:29.000Z",
+  "createdAt": "2026-08-28T11:30:54.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "e679caf6b4803db13871e638c7ac7d88fad73ff44f808afa1805c50222a0c8d2",
+    "sourceFingerprint": "4c5fb1c1b08fdaf18611423d1dadd78495c21789a44ff74c1838678d86107da9",
     "toolchain": "nightly-2026-07-25",
-    "cargoLockSha256": "5f4f34013784c8ecf40105e16ac54a2b7f9a7b484c6401e28a6cae49e70a0599",
+    "cargoLockSha256": "5c891779150a6771ddb9eeca779411b50a43dd3ab7c8e669cd0ffc6e0745fa5f",
     "licenseInventory": "licenses.json"
   },
   "files": [
@@ -36,20 +36,20 @@
     },
     {
       "path": "licenses.json",
-      "bytes": 7098,
-      "sha256": "b8491dbf53b3b6cf016357d011f938d0520caaf90689044ef9aad3a50257b262",
+      "bytes": 7210,
+      "sha256": "fbcf1981d66700145476ed20bcca4d2569742809349ead76f528099e7bdeb718",
       "executable": false
     },
     {
       "path": "provenance.json",
       "bytes": 382,
-      "sha256": "d4c1fb88121b6bad1331ef390d1359a632562cd916b5e47a2cf9f766e1be637c",
+      "sha256": "7d423fada1bf5ab7f852f349208f1b94b23367c6b0e60cd7283133fe208d0209",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 7983928,
-      "sha256": "58c3319468143b035b43e1b174710d7b6ae2217dfe6ed30befb34b39d251323d",
+      "bytes": 8063544,
+      "sha256": "d3d4718079d5b8c1142af86aeec0a673314b8ca155929cf46194d4ae9d4468b9",
       "executable": true
     }
   ]
