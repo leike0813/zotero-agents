@@ -110,6 +110,12 @@ The durable candidate smoke retains its raw loopback socket so it continues to p
 
 This removes an accidental dependency on TCP FIN timing. On Windows, run `33134422935` completed the Rust suite, release build, and package before the first native smoke request timed out: the response body could be complete while the server's tracked socket clone had not yet produced observable EOF. Increasing the five-second timeout was rejected because it would preserve the wrong completion rule. Replacing the raw client with `node:http` was also rejected because the prebuild evidence intentionally verifies explicit loopback framing.
 
+### 14. Durable smoke cleanup joins the complete child lifecycle
+
+Run `33136224681` proved the HTTP framing repair: win32-x64 passed the complete embedded native smoke in transfer parity and the following worker smoke. The separate durable candidate smoke then completed its health, Workbench, shutdown, persistence, and reopen assertions, but cleanup failed while unlinking `synthesis.db` with `EBUSY`. The script had waited for Node's child `exit` event, which reports process termination before every stdio handle has closed, and immediately removed the temporary repository root.
+
+Each candidate now has one close promise captured immediately after spawn. Normal shutdown validates the terminal code from the `close` event, while exceptional cleanup terminates a still-running child and joins the same promise before any SQLite path is removed. Capturing the promise at spawn also makes cleanup safe when the child closes before the finally block attaches. Retrying or ignoring `EBUSY` was rejected because it would conceal a retained process handle and weaken the prebuild evidence.
+
 Copying the v3 field list into another unvalidated object was rejected because it would repeat the drift that caused native candidates to fail with `invalid_config`. Increasing sleeps or ignoring Windows cleanup errors was rejected because both approaches hide scheduling and ownership bugs rather than making the evidence deterministic.
 
 ## Risks / Trade-offs
@@ -126,6 +132,7 @@ Copying the v3 field list into another unvalidated object was rejected because i
 - **A listener's nonblocking flag propagates differently across operating systems** → Set the accepted stream mode explicitly and retain the existing bounded read timeout.
 - **A background fixture fails while the foreground assertion is unwinding** → Preserve the foreground failure and forbid a second panic from fixture destruction.
 - **A complete HTTP body arrives before TCP EOF** → Complete from the declared frame length and retain the method/path in timeout diagnostics; do not infer message completion from connection teardown.
+- **A terminated candidate still owns stdio or SQLite handles** → Join the child's `close` event on both successful shutdown and exceptional cleanup before removing its temporary storage; do not mask sharing violations with deletion retries.
 
 ## Migration Plan
 
@@ -145,5 +152,6 @@ Copying the v3 field list into another unvalidated object was rejected because i
 14. Make accepted reverse Host streams explicitly blocking, make fixture teardown unwind-safe, and scope every migration inspection connection before temporary-root cleanup.
 15. Replace the WebDAV reopen fixture's ISO-8601 temporary-path suffix with a path-safe numeric identity, rerun the governed local gates, and dispatch a new exact attempt only after the new source identity is pushed and separately authorized.
 16. Make the raw durable-smoke client complete from `Content-Length`, lock the half-open response regression locally, and use the next exact Windows matrix result as the cross-platform proof.
+17. Treat run `33136224681` as proof of the framing repair, join both candidate processes through full child close before cleanup, rerun local gates, and dispatch a new exact identity only after a fresh authorization.
 
 Rollback can restore the previous adapter and contract files without data migration because the change does not alter persisted state. A rollback would also restore the known production failure, so it is only suitable for isolating an unrelated regression.

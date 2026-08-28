@@ -21,6 +21,7 @@ The production Synthesis Workbench had three independent protocol-boundary failu
 - Make the process-lifecycle reverse Host fixture explicitly separate its nonblocking listener from blocking accepted streams, and prevent teardown from replacing an existing failure with a second panic.
 - Keep platform test temporary-path identities valid on every supported operating system instead of embedding ISO-8601 punctuation in Windows path components.
 - Complete durable-smoke loopback responses from their explicit HTTP `Content-Length` frame instead of waiting for platform-dependent TCP EOF timing.
+- Join each durable-smoke candidate's full child-process close, including stdio closure, before removing its temporary SQLite storage.
 
 ## Capabilities
 

@@ -20,6 +20,10 @@ and SHALL NOT embed platform-illegal timestamp punctuation. The raw loopback
 verifier SHALL complete an HTTP response when exactly its declared
 `Content-Length` bytes have arrived and SHALL NOT require transport EOF after a
 complete frame. EOF before the declared frame is complete SHALL fail closed.
+After accepted shutdown, the verifier SHALL join the complete child-process
+close, including stdio closure, before removing temporary repository storage.
+Exceptional cleanup SHALL terminate and join a still-running candidate before
+removing that storage.
 
 #### Scenario: A native candidate is smoked
 
@@ -59,3 +63,9 @@ complete frame. EOF before the declared frame is complete SHALL fail closed.
 - **WHEN** the native candidate returns a valid HTTP response with its complete declared body while the loopback connection remains open
 - **THEN** the durable smoke SHALL accept the response at the declared message boundary
 - **AND** it SHALL NOT wait for TCP EOF or relax its bounded response deadline
+
+#### Scenario: A candidate terminates before temporary storage cleanup
+
+- **WHEN** the durable smoke has accepted shutdown or must terminate a candidate after another failure
+- **THEN** it SHALL join the child's complete close before removing the temporary repository root
+- **AND** Windows sharing violations SHALL remain failures rather than being ignored or retried as cleanup policy

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import os from "node:os";
@@ -129,6 +129,42 @@ async function withDeadline<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+type ChildCloseResult = {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+};
+
+function observeChildClose(child: ChildProcessWithoutNullStreams) {
+  return new Promise<ChildCloseResult>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+}
+
+function requireCleanChildClose(
+  result: ChildCloseResult,
+  label: string,
+  stderr: string,
+) {
+  if (result.code !== 0 || result.signal !== null) {
+    throw new Error(
+      `${label} closed with code ${result.code} signal ${result.signal}: ${stderr}`,
+    );
+  }
+}
+
+async function closeChildForCleanup(
+  child: ChildProcessWithoutNullStreams,
+  closed: Promise<ChildCloseResult>,
+  label: string,
+) {
+  if (child.exitCode === null && child.signalCode === null) {
+    child.stdin.end();
+    child.kill();
+  }
+  await withDeadline(closed, 5_000, label);
 }
 
 type LoopbackHttpResponse = {
@@ -499,6 +535,7 @@ async function main() {
   });
   const lines = createInterface({ input: child.stdout });
   let stderr = "";
+  const childClosed = observeChildClose(child);
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
     stderr = `${stderr}${String(chunk)}`.slice(-8_192);
@@ -827,16 +864,8 @@ async function main() {
     if (shutdown.response.status !== 200) {
       throw new Error(`Shutdown failed: ${JSON.stringify(shutdown.body)}`);
     }
-    await withDeadline(
-      new Promise<void>((resolve, reject) => {
-        child.once("exit", (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`candidate exited with ${code}: ${stderr}`));
-        });
-      }),
-      5_000,
-      "shutdown",
-    );
+    const childClose = await withDeadline(childClosed, 5_000, "shutdown");
+    requireCleanChildClose(childClose, "candidate", stderr);
     await fs.access(repositoryDbPath);
     const reopened = spawn(binary, ["serve", "--config", configPath], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -844,6 +873,7 @@ async function main() {
     });
     const reopenedLines = createInterface({ input: reopened.stdout });
     let reopenedStderr = "";
+    const reopenedClosed = observeChildClose(reopened);
     reopened.stderr.setEncoding("utf8");
     reopened.stderr.on("data", (chunk) => {
       reopenedStderr = `${reopenedStderr}${String(chunk)}`.slice(-8_192);
@@ -910,25 +940,19 @@ async function main() {
       if (reopenedShutdown.response.status !== 200) {
         throw new Error("Reopened candidate did not accept shutdown");
       }
-      await withDeadline(
-        new Promise<void>((resolve, reject) => {
-          reopened.once("exit", (code) => {
-            if (code === 0) resolve();
-            else {
-              reject(
-                new Error(
-                  `reopened candidate exited with ${code}: ${reopenedStderr}`,
-                ),
-              );
-            }
-          });
-        }),
+      const reopenedClose = await withDeadline(
+        reopenedClosed,
         5_000,
         "reopen_shutdown",
       );
+      requireCleanChildClose(
+        reopenedClose,
+        "reopened candidate",
+        reopenedStderr,
+      );
     } finally {
+      await closeChildForCleanup(reopened, reopenedClosed, "reopen_cleanup");
       reopenedLines.close();
-      if (reopened.exitCode === null) reopened.kill();
     }
     process.stdout.write(
       `${JSON.stringify({
@@ -941,8 +965,8 @@ async function main() {
       })}\n`,
     );
   } finally {
+    await closeChildForCleanup(child, childClosed, "candidate_cleanup");
     lines.close();
-    if (child.exitCode === null) child.kill();
     await reverseHost.close();
     await fs.rm(root, { recursive: true, force: true });
   }

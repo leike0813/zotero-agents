@@ -104,3 +104,11 @@
 - [x] 16.3 Make the durable candidate smoke complete exactly at the declared response body length, reject truncated or overlong frames, and identify the request route in timeout diagnostics
 - [x] 16.4 Run the focused framing regression, complete packaging test, durable native smoke, parity, TypeScript, formatting, lint, and strict OpenSpec gates
 - [ ] 16.5 Commit and push the new exact source identity, then after explicit dispatch authorization run, validate, synchronize, and freshness-check one governed seven-platform prebuild
+
+## 17. Join native candidate processes before cleanup
+
+- [x] 17.1 Record run `33136224681`: all six non-Windows targets passed, and win32-x64 passed its Rust, packaging, embedded native-smoke, and worker-smoke gates before the separate durable smoke failed to unlink `synthesis.db` with `EBUSY`
+- [x] 17.2 Replace exit-only waits with one close promise captured immediately after each candidate spawn, and validate the terminal code only after process stdio has closed
+- [x] 17.3 Make normal and exceptional cleanup join the same close promise before removing the temporary repository root
+- [x] 17.4 Run the durable native smoke, packaging, parity, TypeScript, formatting, lint, cross-language, and strict OpenSpec gates
+- [ ] 17.5 After fresh authorization, commit and push the exact repaired identity, dispatch one governed seven-platform prebuild, synchronize its complete immutable set, and pass runtime freshness
