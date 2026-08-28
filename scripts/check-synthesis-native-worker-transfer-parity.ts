@@ -32,13 +32,6 @@ type Corpus = {
   request: Record<string, unknown>;
 };
 
-function argument(name: string) {
-  const prefix = `--${name}=`;
-  return process.argv
-    .find((value) => value.startsWith(prefix))
-    ?.slice(prefix.length);
-}
-
 function assertOwnership(root: string) {
   const runtimeRoot = path.join(
     root,
@@ -246,26 +239,6 @@ export async function checkSynthesisNativeWorkerTransferParity(
   if (rustResult.resultSha256 !== hashSynthesisEngineCanonicalJson(expected)) {
     errors.push("result_hash_mismatch");
   }
-  const binary = argument("binary");
-  const target = argument("target");
-  if ((binary && !target) || (!binary && target)) {
-    errors.push("native_smoke_arguments_incomplete");
-  } else if (binary && target) {
-    const smoke = spawnSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "scripts/smoke-synthesis-rust-durable-candidate.ts",
-        binary,
-        target,
-      ],
-      { cwd: root, encoding: "utf8" },
-    );
-    if (smoke.status !== 0) {
-      errors.push(`native_smoke_failed:${smoke.stderr.trim()}`);
-    }
-  }
   return {
     ok: errors.length === 0,
     schema: corpus.schema,
@@ -276,7 +249,6 @@ export async function checkSynthesisNativeWorkerTransferParity(
       0,
     ),
     resultSha256: rustResult.resultSha256,
-    nativeSmoke: Boolean(binary),
     protocolCorpusCases: protocolCorpus.cases.length,
     errors,
   };

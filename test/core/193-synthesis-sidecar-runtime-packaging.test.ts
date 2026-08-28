@@ -552,10 +552,18 @@ describe("Synthesis sidecar native runtime packaging", function () {
       workflowSource,
       "check:synthesis-cross-language-contracts",
     );
+    assert.notInclude(
+      workflowSource,
+      "check-synthesis-native-worker-transfer-parity.ts",
+    );
     assert.include(verificationWorkflowSource, "--no-fail-fast");
     assert.include(
       verificationWorkflowSource,
       "check:synthesis-native-runtime-contract-parity",
+    );
+    assert.include(
+      verificationWorkflowSource,
+      "check:synthesis-native-worker-transfer-parity",
     );
     assert.include(verificationWorkflowSource, "windows-2025");
     assert.include(workflowSource, "request_id:");
