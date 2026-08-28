@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createReadonlySqliteDatabase } from "../../src/modules/harness/sqliteReadonly";
+import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
+import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE,
   startSynthesisProductionRouteHarness,
@@ -67,9 +69,40 @@ describe("Synthesis legacy production owner migration", function () {
       sampleRoot,
       "zotero-agents/data/synthesis",
     );
+    const sourceIdentityPath = path.join(sourceCanonical, "identity.json");
+    const sourceIdentity = fs.existsSync(sourceIdentityPath)
+      ? (JSON.parse(fs.readFileSync(sourceIdentityPath, "utf8")) as {
+          profileId: string;
+          dataRootId: string;
+        })
+      : { profileId: "1".repeat(64), dataRootId: "3".repeat(64) };
     const sourceZotero = path.join(sampleRoot, "zotero.sqlite");
     const sourceDatabaseHash = hashFile(sourceDatabase);
     const sourceCanonicalHash = hashTree(sourceCanonical);
+    const sourceCanonicalContentHash = hashTree(
+      sourceCanonical,
+      new Set(["identity.json"]),
+    );
+    const sourceState = new DatabaseSync(sourceDatabase, { readOnly: true });
+    const sourceLegacyBindingItemIds = (
+      sourceState
+        .prepare(
+          "SELECT DISTINCT CAST(json_each.value AS INTEGER) AS itemId FROM synt_tag_staged_suggestion,json_each(parent_bindings_json) WHERE json_each.type='integer' ORDER BY itemId",
+        )
+        .all() as Array<{ itemId: number }>
+    ).map(({ itemId }) => itemId);
+    const sourceOperationRow = sourceState
+      .prepare("SELECT COUNT(*) AS count FROM synt_operation")
+      .get() as { count: number };
+    const sourceOperationCount = Number(sourceOperationRow.count);
+    const sourceRedirectSchema = (
+      sourceState
+        .prepare(
+          "SELECT value FROM synt_schema_meta WHERE key='reference_redirect_graph_schema_version'",
+        )
+        .get() as { value?: string } | undefined
+    )?.value;
+    sourceState.close();
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-legacy-owner-"));
     fs.mkdirSync(path.join(root, "state"), { recursive: true });
     fs.mkdirSync(path.join(root, "data"), { recursive: true });
@@ -89,6 +122,56 @@ describe("Synthesis legacy production owner migration", function () {
         payload: Record<string, unknown>;
       }) {
         if (capability === "webdav.describe") return { configured: false };
+        if (capability === "library.items.list_page") {
+          const cursor = String(payload.cursor || "");
+          const limit = Math.max(1, Number(payload.limit) || 50);
+          const items = cursor
+            ? []
+            : [
+                {
+                  paperRef: "1:MIGRATE1",
+                  libraryId: 1,
+                  itemKey: "MIGRATE1",
+                  itemType: "journalArticle",
+                  title: "Migration surface probe",
+                  year: "2026",
+                  date: "2026",
+                  creators: ["Migration Probe"],
+                  tags: [],
+                  collections: [],
+                  doi: "",
+                  arxiv: "",
+                  isbn: "",
+                  url: "",
+                  citekey: "",
+                  dateAdded: "2026-08-28T00:00:00.000Z",
+                  metadataHash: `sha256:${"a".repeat(64)}`,
+                },
+              ];
+          return {
+            items,
+            cursor,
+            nextCursor: "",
+            hasMore: false,
+            returned: items.length,
+            limit,
+            snapshotRevision: "migration-surface-probe",
+          };
+        }
+        if (capability === "library.artifacts.scan_page") {
+          const cursor = String(payload.cursor || "");
+          return {
+            artifacts: [],
+            cursor,
+            nextCursor: "",
+            hasMore: false,
+            returned: Array.isArray(payload.paperRefs)
+              ? payload.paperRefs.length
+              : 0,
+            limit: Math.max(1, Number(payload.limit) || 50),
+            snapshotRevision: "migration-surface-probe",
+          };
+        }
         if (capability !== "effects.staged_tag_binding.resolve") {
           return { status: "unavailable", diagnostics: [] };
         }
@@ -124,19 +207,51 @@ describe("Synthesis legacy production owner migration", function () {
       harness = await startSynthesisProductionRouteHarness({
         id: "legacy-owner-first",
         root,
+        profileId: sourceIdentity.profileId,
+        dataRootId: sourceIdentity.dataRootId,
         hostFixture,
       });
       const topics = await listTopicsWhenReady(harness);
       assert.lengthOf(topics.topics, 4);
-      assert.deepEqual(resolverCalls, [
-        [4, 6, 17, 19, 104, 115, 117, 119, 123, 128, 208, 233, 242],
-      ]);
-
+      assert.deepEqual(resolverCalls.flat(), sourceLegacyBindingItemIds);
+      const readState = toSynthesisWorkbenchReadState(
+        createDefaultSynthesisUiState(),
+      );
+      const index = await harness.client.workbench
+        .readSurface({ surface: "index", state: readState })
+        .catch((error) => {
+          throw new Error(`Migrated Index failed: ${JSON.stringify(error)}`, {
+            cause: error,
+          });
+        });
+      assert.isArray(index.registry.rows);
+      assert.isAtMost(index.registry.cacheStatus.diagnostics.length, 256);
+      assert.isTrue(
+        index.registry.cacheStatus.diagnostics.every(
+          (diagnostic) => diagnostic !== null && typeof diagnostic === "object",
+        ),
+      );
+      const review = await harness.client.workbench.readSurface({
+        surface: "review",
+        state: readState,
+      });
+      assert.isArray(review.registry.matchProposals);
+      const graph = await harness.client.workbench.readSurface({
+        surface: "graph",
+        state: readState,
+      });
+      assert.equal(graph.graph.layoutStatus, "stale");
+      assert.isNotEmpty(graph.graph.nodes);
+      assert.isTrue(
+        graph.graph.nodes.every((node) => !("x" in node) && !("y" in node)),
+      );
       let lockConflict = "";
       try {
         await startSynthesisProductionRouteHarness({
           id: "legacy-owner-lock-conflict",
           root,
+          profileId: sourceIdentity.profileId,
+          dataRootId: sourceIdentity.dataRootId,
           hostFixture,
         });
       } catch (error) {
@@ -177,7 +292,16 @@ describe("Synthesis legacy production owner migration", function () {
             "SELECT (SELECT COUNT(*) FROM synt_operation) AS operations,(SELECT COUNT(*) FROM synt_cache_basis WHERE status='stale') AS staleCaches,(SELECT COUNT(*) FROM synt_citation_layout_state WHERE status='stale') AS staleLayouts,(SELECT COUNT(*) FROM synt_citation_metrics_complex WHERE status='stale') AS staleMetrics",
           )
           .get(),
-        { operations: 29, staleCaches: 23, staleLayouts: 2, staleMetrics: 80 },
+        {
+          operations:
+            sourceOperationCount +
+            (sourceRedirectSchema === "synthesis-reference-redirect-graph.v2"
+              ? 0
+              : 1),
+          staleCaches: 23,
+          staleLayouts: 2,
+          staleMetrics: 80,
+        },
       );
       assert.equal(
         migrated
@@ -211,7 +335,7 @@ describe("Synthesis legacy production owner migration", function () {
       );
       assert.equal(
         hashTree(path.join(root, "data/synthesis"), new Set(["identity.json"])),
-        sourceCanonicalHash,
+        sourceCanonicalContentHash,
       );
 
       let identityMismatch = "";
@@ -220,6 +344,7 @@ describe("Synthesis legacy production owner migration", function () {
           id: "legacy-owner-identity-mismatch",
           root,
           profileId: "9".repeat(64),
+          dataRootId: sourceIdentity.dataRootId,
           hostFixture,
         });
       } catch (error) {
@@ -230,11 +355,18 @@ describe("Synthesis legacy production owner migration", function () {
       harness = await startSynthesisProductionRouteHarness({
         id: "legacy-owner-reopen",
         root,
+        profileId: sourceIdentity.profileId,
+        dataRootId: sourceIdentity.dataRootId,
         hostFixture,
       });
-      assert.lengthOf(resolverCalls, 1);
+      assert.deepEqual(resolverCalls.flat(), sourceLegacyBindingItemIds);
       const reopenedTopics = await listTopicsWhenReady(harness);
       assert.lengthOf(reopenedTopics.topics, 4);
+      const vocabulary = await harness.client.tags.initializeBuiltinTagPolicy();
+      assert.include(
+        vocabulary.entries.map((entry) => entry.tag),
+        "status:need-analysis",
+      );
       await harness.stop();
       harness = null;
 

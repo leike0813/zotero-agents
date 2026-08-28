@@ -36,6 +36,8 @@ use crate::reference::{
 };
 const REFRESH_JOB_ID: &str = "reference-job:refresh";
 const MATCHING_JOB_ID: &str = "reference-job:advanced-matching";
+const REFERENCE_CACHE_DIAGNOSTIC_LIMIT: usize = 256;
+const REFERENCE_CACHE_DIAGNOSTIC_STRING_LIMIT: usize = 4096;
 const REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES: usize =
     REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES - 64 * 1024;
 const LITERATURE_MATCHING_METADATA_SCHEMA: &str = "literature_matching_metadata.v1";
@@ -1981,8 +1983,8 @@ impl ReferenceApplication {
             .unwrap_or("missing");
         let diagnostics = basis
             .as_ref()
-            .map(|row| parse_json(&row.diagnostics_json, json!([])))
-            .unwrap_or_else(|| json!([]));
+            .map(|row| reference_cache_diagnostics(&row.diagnostics_json))
+            .unwrap_or_default();
         let mut allowed_actions = if status == "refreshing" {
             Vec::new()
         } else {
@@ -3389,6 +3391,42 @@ fn reference_proposal_diagnostics(value: &str) -> Vec<Value> {
         .collect()
 }
 
+fn reference_cache_diagnostics(value: &str) -> Vec<Value> {
+    json_array(value)
+        .into_iter()
+        .filter_map(|diagnostic| {
+            let diagnostic = diagnostic.as_object()?;
+            let code = diagnostic
+                .get("code")
+                .and_then(Value::as_str)
+                .filter(|code| {
+                    !code.is_empty()
+                        && code.chars().count() <= REFERENCE_CACHE_DIAGNOSTIC_STRING_LIMIT
+                })?;
+            let mut projected = Map::from_iter([("code".into(), json!(code))]);
+            if let Some(severity) = diagnostic
+                .get("severity")
+                .and_then(Value::as_str)
+                .filter(|severity| matches!(*severity, "info" | "warning" | "error"))
+            {
+                projected.insert("severity".into(), json!(severity));
+            }
+            if let Some(message) =
+                diagnostic
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .filter(|message| {
+                        message.chars().count() <= REFERENCE_CACHE_DIAGNOSTIC_STRING_LIMIT
+                    })
+            {
+                projected.insert("message".into(), json!(message));
+            }
+            Some(Value::Object(projected))
+        })
+        .take(REFERENCE_CACHE_DIAGNOSTIC_LIMIT)
+        .collect()
+}
+
 fn reference_match_proposal_wire(proposal: &ReferenceMatchProposalRecord) -> Result<Value, String> {
     let evidence =
         serde_json::from_str::<Value>(&proposal.evidence_json).unwrap_or_else(|_| json!({}));
@@ -4006,10 +4044,6 @@ fn with_idempotent(mut result: Value) -> Value {
     result
 }
 
-fn parse_json(text: &str, fallback: Value) -> Value {
-    serde_json::from_str(text).unwrap_or(fallback)
-}
-
 fn parse_string_array(text: &str) -> Vec<String> {
     serde_json::from_str(text).unwrap_or_default()
 }
@@ -4076,7 +4110,7 @@ mod tests {
     use std::sync::{Condvar, Mutex};
     use std::time::Duration;
     use synthesis_repository::{
-        CanonicalReferenceRecord, RawReferenceRecord, ReferenceBindingFactRecord,
+        CacheBasisRecord, CanonicalReferenceRecord, RawReferenceRecord, ReferenceBindingFactRecord,
         ReferenceProjectionReplacement, ReferenceProjectionScope, ReferenceRevisionReviewRecord,
         RepositoryIdentity,
     };
@@ -4548,6 +4582,77 @@ mod tests {
         assert_eq!(first["metadata_hash"], format!("sha256:{}", "a".repeat(64)));
         assert_eq!(first["updated_at"], "1");
         assert_eq!(first["references"].as_array().expect("references").len(), 1);
+    }
+
+    #[test]
+    fn workbench_review_projects_only_bounded_public_cache_diagnostics() {
+        let root = test_root("workbench-review-cache-diagnostics");
+        let mut stored_diagnostics = (0..284)
+            .map(|index| json!(format!("legacy-cache-probe:{index}")))
+            .collect::<Vec<_>>();
+        stored_diagnostics.extend((0..260).map(|index| {
+            if index == 1 {
+                json!({
+                    "code":"diagnostic:1",
+                    "severity":"private",
+                    "message":"x".repeat(4097),
+                })
+            } else {
+                json!({
+                    "code":format!("diagnostic:{index}"),
+                    "severity":"warning",
+                    "message":"cache diagnostic",
+                })
+            }
+        }));
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("repository fixture");
+        repository
+            .upsert_cache_basis(&CacheBasisRecord {
+                cache_key: "reference-sidecar:library".into(),
+                cache_kind: "reference-sidecar".into(),
+                status: "stale".into(),
+                diagnostics_json: serde_json::to_string(&stored_diagnostics)
+                    .expect("stored diagnostics"),
+                ..CacheBasisRecord::default()
+            })
+            .expect("cache basis");
+        repository.close().expect("close fixture repository");
+        let app = application(
+            &root,
+            Arc::new(FakeHost::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let projection = app
+            .workbench_review(
+                &json!({
+                    "reviews":{
+                        "status":"open",
+                        "kind":"all",
+                        "confidence":"all",
+                        "search":"",
+                        "limit":25,
+                    },
+                }),
+                1,
+            )
+            .expect("review projection");
+        let diagnostics = projection["registry"]["cacheStatus"]["diagnostics"]
+            .as_array()
+            .expect("public diagnostics");
+        assert_eq!(diagnostics.len(), 256);
+        assert_eq!(diagnostics[0]["code"], "diagnostic:0");
+        assert_eq!(diagnostics[255]["code"], "diagnostic:255");
+        assert!(diagnostics.iter().all(Value::is_object));
+        assert!(diagnostics[1].get("severity").is_none());
+        assert!(diagnostics[1].get("message").is_none());
     }
 
     #[test]

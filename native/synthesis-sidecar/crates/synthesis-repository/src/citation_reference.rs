@@ -1214,8 +1214,12 @@ impl Repository {
             .query(
                 "SELECT layout_key,view_key,preset,graph_hash,status,diagnostics_json,
                         created_at,updated_at,
-                        COALESCE(json_extract(layout_json,'$.layout_hash'),'') AS layout_hash,
-                        COALESCE(json_extract(layout_json,'$.layout_version'),0) AS layout_version
+                        CASE WHEN status='ready'
+                          THEN COALESCE(json_extract(layout_json,'$.layout_hash'),'')
+                          ELSE '' END AS layout_hash,
+                        CASE WHEN status='ready'
+                          THEN COALESCE(json_extract(layout_json,'$.layout_version'),0)
+                          ELSE 0 END AS layout_version
                  FROM synt_citation_layout_state WHERE layout_key=?1 LIMIT 1",
                 &[json!(layout_key)],
             )?
@@ -1226,7 +1230,7 @@ impl Repository {
         else {
             return Ok(None);
         };
-        if node_ids.is_empty() {
+        if metadata.status != "ready" || node_ids.is_empty() {
             return Ok(Some(CitationLayoutWindowRecord {
                 metadata,
                 points: Vec::new(),
@@ -4570,6 +4574,57 @@ mod tests {
         assert_eq!(presets.expect("ready presets"), vec!["force"]);
         assert_eq!(preset_observation.query_count, 1);
         assert_eq!(preset_observation.write_count, 0);
+
+        drop(repository);
+    }
+
+    #[test]
+    fn stale_legacy_layout_is_read_as_metadata_without_coordinates() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-stale-legacy-layout".into(),
+                data_root_id: "data-stale-legacy-layout".into(),
+            },
+        )
+        .expect("open repository");
+        repository
+            .execute(
+                "INSERT INTO synt_citation_layout_state(
+                   layout_key,view_key,preset,graph_hash,status,layout_json
+                 ) VALUES(
+                   'workbench_overview:force','workbench_overview','force','graph:legacy','stale',
+                   json_object(
+                     'graph_hash','graph:legacy','layout_hash','layout:legacy','layout_version',1.2,
+                     'nodes',json_object('1:LEGACY',json_object('x',1.0,'y',2.0))
+                   )
+                 )",
+                &[],
+            )
+            .expect("insert stale layout");
+
+        let layout = repository
+            .read_citation_layout_window("workbench_overview:force", &["1:LEGACY".into()])
+            .expect("read stale layout")
+            .expect("stale layout metadata");
+        assert_eq!(layout.metadata.status, "stale");
+        assert_eq!(layout.metadata.layout_hash, "");
+        assert_eq!(layout.metadata.layout_version, 0);
+        assert!(layout.points.is_empty());
+        repository
+            .execute(
+                "UPDATE synt_citation_layout_state SET status='ready'
+                 WHERE layout_key='workbench_overview:force'",
+                &[],
+            )
+            .expect("mark malformed layout ready");
+        assert_eq!(
+            repository
+                .read_citation_layout_window("workbench_overview:force", &["1:LEGACY".into()])
+                .unwrap_err(),
+            "repository_typed_row_invalid"
+        );
 
         drop(repository);
     }

@@ -28,7 +28,8 @@ pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
 const PRODUCTION_IDENTITY_SCHEMA: &str = "synthesis-rust-production-repository.v1";
 const REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY: &str = "reference_redirect_graph_schema_version";
-const REFERENCE_REDIRECT_GRAPH_SCHEMA: &str = "synthesis-reference-redirect-graph.v1";
+const REFERENCE_REDIRECT_GRAPH_SCHEMA_V1: &str = "synthesis-reference-redirect-graph.v1";
+const REFERENCE_REDIRECT_GRAPH_SCHEMA: &str = "synthesis-reference-redirect-graph.v2";
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -845,7 +846,7 @@ fn repair_reference_redirect_cycles(
                'completed','Canonical redirect cycles repaired.','determinate',
                'reference_redirect_graph_schema',?2,?3,?4,?4,?4,?4)",
             params![
-                "canonical-redirect-repair:synthesis-reference-redirect-graph.v1",
+                format!("canonical-redirect-repair:{REFERENCE_REDIRECT_GRAPH_SCHEMA}"),
                 REFERENCE_REDIRECT_GRAPH_SCHEMA,
                 diagnostics,
                 now,
@@ -872,14 +873,15 @@ fn prepare_reference_redirect_graph_schema(
     };
     match current.as_deref() {
         Some(REFERENCE_REDIRECT_GRAPH_SCHEMA) => return Ok(()),
+        Some(REFERENCE_REDIRECT_GRAPH_SCHEMA_V1) | None => {}
         Some(_) => return Err("repository_schema_mismatch".into()),
-        None => {}
     }
-    let backup_path = migration_backup_path(
-        backup_root,
-        "synthesis-reference-redirect-graph.unversioned",
-        REFERENCE_REDIRECT_GRAPH_SCHEMA,
-    );
+    let expected_schema = current.clone();
+    let source_schema = current
+        .as_deref()
+        .unwrap_or("synthesis-reference-redirect-graph.unversioned");
+    let backup_path =
+        migration_backup_path(backup_root, source_schema, REFERENCE_REDIRECT_GRAPH_SCHEMA);
     create_or_verify_migration_backup(database_path, &backup_path, SCHEMA_VERSION)?;
     let connection = Connection::open_with_flags(
         database_path,
@@ -901,14 +903,14 @@ fn prepare_reference_redirect_graph_schema(
             )
             .optional()
             .map_err(map_sqlite_error)?;
-        if current.is_some() {
+        if current != expected_schema {
             return Err("repository_schema_changed_during_migration".into());
         }
         let now = synthesis_protocol::utc_now_iso8601();
         repair_reference_redirect_cycles(&connection, &now)?;
         connection
             .execute(
-                "INSERT INTO synt_schema_meta(key,value) VALUES(?1,?2)",
+                "INSERT OR REPLACE INTO synt_schema_meta(key,value) VALUES(?1,?2)",
                 params![
                     REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY,
                     REFERENCE_REDIRECT_GRAPH_SCHEMA,
@@ -2921,6 +2923,62 @@ mod tests {
     }
 
     #[test]
+    fn exact_legacy_ts_schema_repairs_redirect_cycles_before_publication() {
+        let root = root("legacy-ts-redirect-cycle");
+        let database_path = root.join("state/synthesis.db");
+        let backup_root = root.join("state/synthesis-migration-backups");
+        fs::create_dir_all(database_path.parent().expect("parent")).expect("state");
+        legacy_ts_migration::create_legacy_test_database(&database_path).expect("legacy fixture");
+        let connection = Connection::open(&database_path).expect("open legacy fixture");
+        connection
+            .execute_batch(
+                "INSERT INTO synt_canonical_reference(canonical_reference_id) VALUES
+                   ('canonical:a'),('canonical:b'),('canonical:c');
+                 INSERT INTO synt_canonical_reference_redirect(
+                   from_canonical_reference_id,to_canonical_reference_id,reason,
+                   diagnostics_json,created_at,updated_at
+                 ) VALUES
+                   ('canonical:a','canonical:b','reference_matching','[]','1','1'),
+                   ('canonical:b','canonical:a','reference_matching','[]','2','2'),
+                   ('canonical:c','canonical:b','reference_matching','[]','1','1');
+                 INSERT INTO synt_reference_match_proposal(
+                   proposal_id,kind,status,source_canonical_reference_id,
+                   source_raw_reference_ids_json,target_canonical_reference_id,
+                   target_library_id,target_item_key,confidence,score,reasons_json,
+                   evidence_json,diagnostics_json,basis_hash,source_hash,created_at,updated_at
+                 ) VALUES
+                   ('proposal:forward','canonical_merge','accepted','canonical:a','[]',
+                    'canonical:b','0','','high','1','[\"cluster_exact\"]','{}','[]','','','1','1'),
+                   ('proposal:reverse','canonical_merge','accepted','canonical:b','[]',
+                    'canonical:a','0','','high','1','[\"reverse_accept\"]','{}','[]','','','2','2');",
+            )
+            .expect("cycle fixture");
+        drop(connection);
+
+        prepare_production_schema(&database_path, &backup_root).expect("migrate");
+        let repository =
+            Repository::open_production(&database_path, identity(), "2026-08-10T10:17:00.000Z")
+                .expect("open migrated");
+        let redirects = repository.list_reference_redirects().expect("redirects");
+        let graph = ReferenceRedirectGraph::from_records(&redirects).expect("redirect graph");
+        assert!(graph.validate_acyclic().is_ok());
+        assert_eq!(graph.resolve("canonical:b").unwrap(), "canonical:a");
+        assert_eq!(
+            repository
+                .query(
+                    "SELECT value FROM synt_schema_meta
+                     WHERE key='reference_redirect_graph_schema_version'",
+                    &[],
+                )
+                .expect("marker")[0]["value"],
+            REFERENCE_REDIRECT_GRAPH_SCHEMA
+        );
+        repository.close().expect("close");
+        assert_eq!(fs::read_dir(&backup_root).expect("backups").count(), 1);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn failed_legacy_ts_build_keeps_the_source_and_verified_backup() {
         let root = root("legacy-ts-build-failure");
         let database_path = root.join("state/synthesis.db");
@@ -3282,7 +3340,7 @@ mod tests {
     }
 
     #[test]
-    fn redirect_graph_migration_repairs_cycle_using_explicit_reverse_audit() {
+    fn redirect_graph_v1_migration_repairs_cycle_using_explicit_reverse_audit() {
         let root = root("production-redirect-cycle");
         let database_path = root.join("state").join("synthesis.db");
         Repository::initialize_production(&database_path, identity())
@@ -3292,7 +3350,8 @@ mod tests {
         let connection = Connection::open(&database_path).expect("open fixture");
         connection
             .execute_batch(
-                "DELETE FROM synt_schema_meta
+                "UPDATE synt_schema_meta
+                   SET value='synthesis-reference-redirect-graph.v1'
                    WHERE key='reference_redirect_graph_schema_version';
                  INSERT INTO synt_reference_redirect(
                    from_canonical_reference_id,to_canonical_reference_id,reason,

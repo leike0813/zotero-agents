@@ -106,6 +106,16 @@ one serialized writer and at most four read-only connections. Seven-platform
 candidate execution is evidence only and does not publish or synchronize
 assets.
 
+The Reference redirect graph uses the dedicated
+`synthesis-reference-redirect-graph.v2` identity. A legacy candidate validates
+preserved fact counts, repairs redirect cycles, records the repair receipt, and
+only then publishes the v2 marker and database. A v1 or unversioned current
+database follows the same repair under one transaction after creating or
+verifying its source-bound backup; unknown identities fail closed. Reference
+cache diagnostics cross a closed public projection that accepts only bounded
+diagnostic objects from persisted state. Storage-internal strings and malformed
+fields do not enter Workbench Index or Review DTOs.
+
 Plugin startup non-blockingly installs, launches, discovers, and supervises the
 native production owner. Startup reconciliation runs after current-session
 readiness. Restart, transport, deadline, worker, or identity failures do not
@@ -133,6 +143,10 @@ surface response contains at most 200 ranked primary nodes, 400 primary edges,
 shrinks a page when its serialized graph payload would exceed 768 KiB. Each
 edge page is endpoint-closed. SQLite remains the source of graph structure,
 counts, filters, and stable ordering. Graph layout data is read through the same view; cross-domain Topic scope stays runtime-owned. A versioned opaque cursor binds the graph hash and normalized query signature to the four repository offsets. Each page, continuation, neighborhood, metrics, or layout call opens a short reader transaction and rechecks graph/input/metrics identity. A changed graph, filter, topic, metrics, or layout basis fails with `basis_mismatch` instead of mixing results.
+Only a `ready` layout is decoded as current layout JSON and coordinates.
+Running, failed, stale, or otherwise non-ready layout rows contribute status
+metadata with no coordinates, so an obsolete layout format cannot hide the
+last-good graph. Malformed ready layout data remains a typed repository error.
 
 While Graph is selected, the Host reads one page at a time and the iframe
 merges ID-keyed patches into the existing Graphology/Sigma instance. Page-only
@@ -364,6 +378,11 @@ Zotero native related-item relations remain Zotero-owned facts. Synthesis may ap
 Related-items sync first uses ready graph cache rows when available. If graph cache is missing, stale, failed, empty, or a preceding graph refresh failed, it resolves the same edge set directly from active raw references, effective canonical redirects, and accepted reference bindings. It must not rebuild graph cache or run matcher logic.
 
 Staged Tag Host writes use a separate effect boundary. Current staged rows store only stable `{ libraryId, itemKey }` refs. Startup reconciliation starts a bounded migration for legacy numeric rows, and every staged operation awaits the same gate. Successful migration rewrites affected rows atomically and drops only missing or invalid bindings; infrastructure failure leaves the raw rows unchanged and blocks staged operations until a later retry.
+
+A persisted Tag application state is a CAS basis even when its vocabulary hash
+is empty. The empty hash represents the pre-initialization durable state; only
+the absence of the singleton state uses a missing expected basis. Built-in
+policy initialization and later vocabulary mutations share this distinction.
 
 Promotion commits canonical vocabulary before dispatching Tag effects in batches of at most 50. `applied` and `already_satisfied` receipts project stable `parent_ref` values. Missing ports, transport failures, malformed receipts, missing targets, and mutation failures produce bounded stable diagnostics and never roll back the vocabulary commit. Tag Regulator stages refs and invokes the same promotion seam; it does not resolve or mutate bound parents itself.
 

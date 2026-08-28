@@ -629,7 +629,7 @@ impl TagVocabularyApplication {
                 return self.result(TagMutationStatus::RepairRequired, Vec::new(), Vec::new());
             }
         };
-        let expected_hash = nonempty(candidate.state.vocabulary_hash.clone());
+        let expected_hash = persisted_vocabulary_hash(&candidate);
         let now = (self.now)();
         if protect_builtin_candidate(&mut candidate, &now).is_err()
             || refresh_candidate_hash(&mut candidate).is_err()
@@ -667,7 +667,7 @@ impl TagVocabularyApplication {
                 return self.result(TagMutationStatus::RepairRequired, Vec::new(), Vec::new());
             }
         };
-        let expected_hash = nonempty(current.state.vocabulary_hash.clone());
+        let expected_hash = persisted_vocabulary_hash(&current);
         let candidate = match public_save_candidate(request, &current, &(self.now)()) {
             Ok(candidate) => candidate,
             Err(_) => {
@@ -868,7 +868,7 @@ impl TagVocabularyApplication {
                 }),
             });
         }
-        let expected_hash = nonempty(candidate.state.vocabulary_hash.clone());
+        let expected_hash = persisted_vocabulary_hash(&candidate);
         let original_tag = candidate.entries[index].tag.clone();
         candidate.entries[index].tag = target.into();
         candidate.entries[index].facet = request.facet.trim().into();
@@ -918,7 +918,7 @@ impl TagVocabularyApplication {
                 deleted: Vec::new(),
             });
         }
-        let expected_hash = nonempty(candidate.state.vocabulary_hash.clone());
+        let expected_hash = persisted_vocabulary_hash(&candidate);
         candidate.entries.retain(|entry| entry.tag != original);
         for entry in &mut candidate.entries {
             if entry.replacement == original {
@@ -1601,6 +1601,10 @@ impl TagVocabularyApplication {
 
 fn nonempty(value: String) -> Option<String> {
     (!value.is_empty()).then_some(value)
+}
+
+fn persisted_vocabulary_hash(candidate: &TagVocabularyReplacement) -> Option<String> {
+    (candidate.state.singleton_id == 1).then(|| candidate.state.vocabulary_hash.clone())
 }
 
 fn default_protocol() -> TagProtocol {
@@ -2377,6 +2381,47 @@ mod tests {
             }],
             ..TagVocabularyReplacement::default()
         }
+    }
+
+    #[test]
+    fn initializes_builtin_policy_from_a_persisted_empty_hash_basis() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-empty-tag-basis".into(),
+                    data_root_id: "data-empty-tag-basis".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        assert!(
+            owner
+                .lock()
+                .expect("repository")
+                .replace_tag_vocabulary_state(None, &candidate(""))
+                .expect("persist empty hash state")
+        );
+        let app = TagVocabularyApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            Arc::new(Host::new(true)),
+            Arc::new(Resolver),
+            Arc::new(|| "2026-08-28T00:00:00.000Z".into()),
+        );
+
+        assert_eq!(
+            app.initialize_builtin_policy().status,
+            TagMutationStatus::Committed
+        );
+        assert!(
+            app.is_builtin_policy_initialized()
+                .expect("builtin policy state")
+        );
+
+        drop(app);
+        drop(owner);
     }
 
     #[test]
