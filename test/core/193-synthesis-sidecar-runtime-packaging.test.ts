@@ -699,11 +699,12 @@ describe("Synthesis sidecar native runtime packaging", function () {
     );
   });
 
-  it("completes a framed durable-smoke response without waiting for connection EOF", async function () {
+  it("completes a framed durable-smoke response without client EOF", async function () {
     const sockets = new Set<Socket>();
     const server = createServer({ allowHalfOpen: true }, (socket) => {
       sockets.add(socket);
       socket.once("close", () => sockets.delete(socket));
+      socket.once("end", () => socket.destroy());
       let request = Buffer.alloc(0);
       let responded = false;
       socket.on("data", (chunk: Buffer) => {
@@ -719,14 +720,18 @@ describe("Synthesis sidecar native runtime packaging", function () {
         if (request.byteLength < separator + 4 + length) return;
         responded = true;
         const body = Buffer.from('{"ok":true}', "utf8");
-        socket.write(
-          Buffer.concat([
-            Buffer.from(
-              `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.byteLength}\r\nConnection: close\r\n\r\n`,
-              "utf8",
+        setTimeout(
+          () =>
+            socket.write(
+              Buffer.concat([
+                Buffer.from(
+                  `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.byteLength}\r\nConnection: close\r\n\r\n`,
+                  "utf8",
+                ),
+                body,
+              ]),
             ),
-            body,
-          ]),
+          10,
         );
       });
     });

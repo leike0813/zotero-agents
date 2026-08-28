@@ -278,7 +278,7 @@ export async function loopbackRequest(
       });
     };
     socket.setTimeout(5_000);
-    socket.once("connect", () => socket.end(request));
+    socket.once("connect", () => socket.write(request));
     socket.on("data", (chunk: Buffer) => {
       response = Buffer.concat([response, chunk]);
       completeResponse(false);
