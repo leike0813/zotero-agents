@@ -6,7 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use synthesis_canonical_store::{
@@ -16,15 +16,10 @@ use synthesis_canonical_store::{
 use synthesis_protocol::{canonical_json, canonical_sha256};
 use synthesis_repository::{DurableImportApply, DurableTopicBasis, Repository, RepositoryIdentity};
 use synthesis_sidecar::{ServePhase, serve};
+use synthesis_test_support::TestRoot;
 
-static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-fn test_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "synthesis-sidecar-lifecycle-{label}-{}-{}",
-        std::process::id(),
-        TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    ))
+fn test_root(label: &str) -> TestRoot {
+    TestRoot::new(&format!("synthesis-sidecar-lifecycle-{label}"))
 }
 
 struct ReverseHost {

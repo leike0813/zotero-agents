@@ -1728,19 +1728,12 @@ mod repository_port_tests {
     use std::fs;
     use std::sync::{Barrier, mpsc};
     use std::thread;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::Duration;
     use synthesis_repository::{RepositoryIdentity, SCHEMA_VERSION};
+    use synthesis_test_support::TestRoot;
 
-    fn repository() -> (std::path::PathBuf, Arc<Mutex<Repository>>) {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-repository-port-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("root");
+    fn repository() -> (TestRoot, Arc<Mutex<Repository>>) {
+        let root = TestRoot::new("synthesis-repository-port");
         let repository = Repository::open(
             &root,
             RepositoryIdentity {

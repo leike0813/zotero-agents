@@ -2269,17 +2269,10 @@ fn read_value(path: &Path) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use synthesis_test_support::TestRoot;
 
-    fn temporary_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-native-transfer-{label}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ))
+    fn temporary_root(label: &str) -> TestRoot {
+        TestRoot::new(&format!("synthesis-native-transfer-{label}"))
     }
 
     fn production_client_membership() -> crate::runtime_production_client::ProductionClientMembership
@@ -2393,7 +2386,6 @@ mod tests {
                 .handle(json!({"action":"execute","sessionId":session_id}), 4)
                 .is_err()
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2432,7 +2424,6 @@ mod tests {
                 .expect("descriptor row mismatch"),
             "invalid_request"
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2489,7 +2480,6 @@ mod tests {
             serde_json::from_str::<Value>(&content).expect("json"),
             result
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2520,7 +2510,6 @@ mod tests {
             .handle_content(json!({"action":"cancel","sessionId":session_id}), 12)
             .expect("cancel");
         assert_eq!(owner.snapshot()["sessions"], 0);
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2608,7 +2597,6 @@ mod tests {
                 .read_dir()
                 .is_ok_and(|mut entries| entries.next().is_some())
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2654,7 +2642,6 @@ mod tests {
         assert!(attempt_root.is_dir());
         sink.rollback();
         assert!(!attempt_root.exists());
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2722,7 +2709,6 @@ mod tests {
         owner.finish_attempt(&session_id, attempt, Err("worker_canceled".into()), 7);
         assert!(!session_root.exists());
         assert_eq!(owner.snapshot()["stagedBytes"], 0);
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2795,6 +2781,5 @@ mod tests {
         sink.rollback();
         owner.finish_attempt(&session_id, attempt, Err("worker_canceled".into()), 5);
         assert_eq!(owner.total_staged_bytes(), 0);
-        let _ = fs::remove_dir_all(root);
     }
 }

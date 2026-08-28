@@ -25,8 +25,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 #[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
-#[cfg(test)]
 use synthesis_canonical_store::CanonicalTopicView;
 use synthesis_canonical_store::{
     CanonicalTopicDraft, CanonicalTopicState, LegacyCanonicalTopic, canonical_json_hash,
@@ -2645,9 +2643,6 @@ mod tests {
     };
     use crate::ports::{CanonicalStorePort, RepositoryPort};
     use crate::topic_graph::{TopicGraphComputePort, TopicGraphIndexOutput};
-    use std::fs;
-    use std::ops::Deref;
-    use std::path::{Path, PathBuf};
     use std::sync::Mutex as TestMutex;
     use std::sync::atomic::AtomicUsize;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
@@ -2655,6 +2650,7 @@ mod tests {
         Repository, RepositoryIdentity, TopicApplicationRecordPage,
         TopicGraphApplicationStateRecord, TopicGraphNodeRecord, TopicGraphReplacement,
     };
+    use synthesis_test_support::TestRoot;
 
     #[test]
     fn legacy_resolver_shapes_normalize_to_the_current_closed_dto() {
@@ -2881,33 +2877,8 @@ mod tests {
         }
     }
 
-    struct TestRoot(PathBuf);
-
-    impl Deref for TestRoot {
-        type Target = Path;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl Drop for TestRoot {
-        fn drop(&mut self) {
-            fs::remove_dir_all(&self.0).expect("cleanup topic test root");
-        }
-    }
-
     fn root(label: &str) -> TestRoot {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-typed-topic-{label}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("root");
-        TestRoot(root)
+        TestRoot::new(&format!("synthesis-typed-topic-{label}"))
     }
 
     fn owners(root: &std::path::Path) -> (RepositoryPort, CanonicalStorePort) {

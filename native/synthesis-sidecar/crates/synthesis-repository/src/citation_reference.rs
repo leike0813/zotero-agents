@@ -4000,18 +4000,9 @@ fn delete_not_in(
 mod tests {
     use super::*;
     use crate::{CacheBasisRecord, OperationRecord, RepositoryIdentity};
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-citation-reference-repository-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-citation-reference-repository")
     }
 
     fn graph(graph_hash: &str, node_id: &str) -> CitationGraphReplacement {
@@ -4089,7 +4080,6 @@ mod tests {
             ["paper:1"]
         );
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4206,7 +4196,6 @@ mod tests {
             "running"
         );
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4286,7 +4275,6 @@ mod tests {
         assert_eq!(operation.status, "completed");
         assert_eq!(operation.basis_value, graph_hash);
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4353,7 +4341,6 @@ mod tests {
             json!("stale")
         );
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4482,7 +4469,6 @@ mod tests {
         assert_eq!(node_ids.len(), 7500);
         assert_eq!(edge_ids.len(), 12000);
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4586,7 +4572,6 @@ mod tests {
         assert_eq!(preset_observation.write_count, 0);
 
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4623,6 +4608,5 @@ mod tests {
             Repository::open(&root, identity).expect_err("conflicting schema must fail"),
             "repository_schema_incompatible"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/synthesis-test-support",
   "crates/synthesis-protocol",
   "crates/synthesis-metrics",
   "crates/synthesis-tag-vocabulary",

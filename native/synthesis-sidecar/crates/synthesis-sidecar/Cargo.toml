@@ -20,3 +20,6 @@ synthesis-citation-layout = { path = "../synthesis-citation-layout" }
 synthesis-repository = { path = "../synthesis-repository" }
 synthesis-canonical-store = { path = "../synthesis-canonical-store" }
 synthesis-application = { path = "../synthesis-application" }
+
+[dev-dependencies]
+synthesis-test-support = { path = "../synthesis-test-support" }

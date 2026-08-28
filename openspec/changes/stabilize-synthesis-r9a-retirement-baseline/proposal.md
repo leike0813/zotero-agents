@@ -63,8 +63,9 @@ None.
   completion.
 - `synthesis-sidecar-runtime-packaging`: Align sidecar materialization with the
   shared `addon/bin/<target>/` native asset layout.
-- `synthesis-sidecar-prebuild-release`: Treat the workflow-emitted v2 result
-  document and its cache summary as the synchronization authorization boundary.
+- `synthesis-sidecar-prebuild-release`: Consume the trusted-verification-bound
+  v3 result and its exact seven-target evidence as the synchronization
+  authorization boundary.
 - `synthesis-sidecar-debug-observability`: Keep raw canonical topic inspection
   available through the application port without exposing its storage owner or
   lock to the HTTP ingress adapter.

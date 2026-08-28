@@ -1982,21 +1982,12 @@ fn put_topic_graph_review(
 mod tests {
     use super::*;
     use crate::RepositoryIdentity;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-{label}-repository-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root(label: &str) -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new(&format!("synthesis-{label}-repository"))
     }
 
-    fn open(label: &str) -> (PathBuf, Repository) {
+    fn open(label: &str) -> (synthesis_test_support::TestRoot, Repository) {
         let root = root(label);
         let repository = Repository::open(
             &root,
@@ -2011,7 +2002,7 @@ mod tests {
 
     #[test]
     fn tag_replacement_is_basis_guarded_and_rolls_back() {
-        let (root, mut repository) = open("tag");
+        let (_root, mut repository) = open("tag");
         let replacement = TagVocabularyReplacement {
             state: TagApplicationStateRecord {
                 singleton_id: 1,
@@ -2066,12 +2057,11 @@ mod tests {
             "tag:1"
         );
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn tag_audit_replacement_is_library_scoped_and_atomic() {
-        let (root, mut repository) = open("tag-audit-replacement");
+        let (_root, mut repository) = open("tag-audit-replacement");
         let audit = |library_id: i64, item_key: &str| TagAuditRecord {
             library_id,
             item_key: item_key.into(),
@@ -2136,12 +2126,11 @@ mod tests {
             0
         );
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn concept_replacement_rolls_back_complete_projection() {
-        let (root, mut repository) = open("concept");
+        let (_root, mut repository) = open("concept");
         let replacement = ConceptKbReplacement {
             state: ConceptApplicationStateRecord {
                 singleton_id: 1,
@@ -2190,7 +2179,6 @@ mod tests {
             "concept:1"
         );
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2240,12 +2228,11 @@ mod tests {
         );
         assert_eq!(reopened.list_topic_graph_nodes().expect("nodes").len(), 1);
         drop(reopened);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn confirmed_broader_relations_refresh_discovery_cascade_projection() {
-        let (root, mut repository) = open("topic-discovery-cascade");
+        let (_root, mut repository) = open("topic-discovery-cascade");
         for topic_id in ["topic:parent", "topic:child"] {
             repository
                 .upsert_topic_application_projection(&crate::TopicApplicationProjectionRecord {
@@ -2326,12 +2313,11 @@ mod tests {
         assert_eq!(discovery["candidate_count"], 1);
         assert_eq!(discovery["discovery_status"], "candidates");
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn tag_effect_receipt_batch_is_bounded_and_atomic() {
-        let (root, mut repository) = open("tag-effect-receipts");
+        let (_root, mut repository) = open("tag-effect-receipts");
         for effect_id in ["effect:1", "effect:2"] {
             put_tag_effect(
                 &repository,
@@ -2394,6 +2380,5 @@ mod tests {
         assert_eq!(repository.count_pending_tag_effects().expect("count"), 0);
 
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

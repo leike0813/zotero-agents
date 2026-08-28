@@ -2030,19 +2030,10 @@ impl CanonicalStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use synthesis_test_support::TestRoot;
 
-    fn root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-r7-canonical-{label}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("root");
-        root
+    fn root(label: &str) -> TestRoot {
+        TestRoot::new(&format!("synthesis-r7-canonical-{label}"))
     }
 
     fn identity() -> CanonicalIdentity {

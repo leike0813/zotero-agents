@@ -600,18 +600,13 @@ pub fn serve(config_path: &Path) -> Result<(), ServeFailure> {
 #[cfg(test)]
 mod service_tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::AtomicBool;
     use std::thread;
     use std::time::Duration;
+    use synthesis_test_support::TestRoot;
 
-    static ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-    fn production_root(label: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-production-{label}-{}-{}",
-            std::process::id(),
-            ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ))
+    fn production_root(label: &str) -> TestRoot {
+        TestRoot::new(&format!("synthesis-production-{label}"))
     }
 
     fn identities() -> (RepositoryIdentity, CanonicalIdentity) {
@@ -643,7 +638,6 @@ mod service_tests {
         assert!(database.exists());
         assert!(canonical.exists());
         assert!(!root.join("state/synthesis-migration-backups").exists());
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -665,7 +659,6 @@ mod service_tests {
             "synthesis_source_state_incomplete"
         );
         assert!(!canonical.exists());
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

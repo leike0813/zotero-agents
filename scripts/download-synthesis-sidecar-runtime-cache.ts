@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -9,6 +9,10 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
   type SynthesisSidecarRuntimeTarget,
 } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
+import {
+  assertSynthesisSidecarRuntimeArchiveLayout,
+  verifySynthesisSidecarRuntimeBundleDirectory,
+} from "./synthesis-sidecar-runtime-release-governance";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,6 +23,7 @@ export type DownloadedSynthesisSidecarRuntimeCacheEntry = Readonly<{
   archiveSize: number;
   archiveSha256: string;
   archivePath: string;
+  bundleRoot: string;
 }>;
 
 function requiredFlag(name: string, args: string[]): string {
@@ -40,6 +45,10 @@ function isTarget(value: string): value is SynthesisSidecarRuntimeTarget {
 }
 
 async function readGhAuthToken(): Promise<string> {
+  const environmentToken = String(
+    process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "",
+  ).trim();
+  if (environmentToken) return environmentToken;
   const result = await execFileAsync("gh", ["auth", "token"], {
     windowsHide: true,
   });
@@ -123,11 +132,8 @@ async function extractZipToTarGz(args: {
     throw new Error(`Expected tar.gz missing from zip: ${tarGzInZip}`);
   }
   // Copy the inner tar.gz to the destination path.
-  await execFileAsync("cp", ["-f", tarGzInZip, args.tarGzPath], {
-    windowsHide: true,
-  });
-  // Clean up staging.
-  await execFileAsync("rm", ["-rf", stagingDir], { windowsHide: true });
+  await copyFile(tarGzInZip, args.tarGzPath);
+  await rm(stagingDir, { recursive: true, force: true });
   return tarGzStat.size;
 }
 
@@ -143,6 +149,8 @@ export async function downloadSynthesisSidecarRuntimeCache(args: {
   runId: number;
   target: SynthesisSidecarRuntimeTarget;
   outputRoot: string;
+  expectedBuildFingerprint: string;
+  expectedSourceFingerprint: string;
 }): Promise<DownloadedSynthesisSidecarRuntimeCacheEntry> {
   if (!Number.isSafeInteger(args.runId) || args.runId <= 0) {
     throw new Error(`Invalid runId: ${args.runId}`);
@@ -175,6 +183,31 @@ export async function downloadSynthesisSidecarRuntimeCache(args: {
   });
   const archiveSha256 = await sha256File(tarGzPath);
   const finalStat = await stat(tarGzPath);
+  assertSynthesisSidecarRuntimeArchiveLayout({
+    archivePath: tarGzPath,
+    target: args.target,
+  });
+  const bundleRoot = path.join(args.outputRoot, "bundles");
+  await rm(path.join(bundleRoot, args.target), {
+    recursive: true,
+    force: true,
+  });
+  await mkdir(bundleRoot, { recursive: true });
+  await execFileAsync("tar", ["-xzf", tarGzPath, "-C", bundleRoot], {
+    windowsHide: true,
+  });
+  const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
+    root: path.join(bundleRoot, args.target),
+    target: args.target,
+    expectedBuildFingerprint: args.expectedBuildFingerprint,
+    expectedSourceFingerprint: args.expectedSourceFingerprint,
+    policy: "candidate",
+  });
+  if (!verification.ok) {
+    throw new Error(
+      `Cached artifact identity mismatch: ${JSON.stringify(verification.diagnostics)}`,
+    );
+  }
 
   return {
     target: args.target,
@@ -183,6 +216,7 @@ export async function downloadSynthesisSidecarRuntimeCache(args: {
     archiveSize: finalStat.size,
     archiveSha256,
     archivePath: tarGzPath,
+    bundleRoot: path.join(bundleRoot, args.target),
   };
 }
 
@@ -194,6 +228,14 @@ async function main() {
   const artifactSize = Number(requiredFlag("artifact-size", args));
   const target = requiredFlag("target", args);
   const outputRoot = requiredFlag("output-root", args);
+  const expectedBuildFingerprint = requiredFlag(
+    "expected-build-fingerprint",
+    args,
+  );
+  const expectedSourceFingerprint = requiredFlag(
+    "expected-source-fingerprint",
+    args,
+  );
   const result = await downloadSynthesisSidecarRuntimeCache({
     artifactId,
     archiveUrl,
@@ -201,6 +243,8 @@ async function main() {
     runId,
     target: target as SynthesisSidecarRuntimeTarget,
     outputRoot,
+    expectedBuildFingerprint,
+    expectedSourceFingerprint,
   });
   process.stdout.write(`${JSON.stringify({ ok: true, ...result }, null, 2)}\n`);
 }

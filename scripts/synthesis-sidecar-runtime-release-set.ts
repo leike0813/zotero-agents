@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { rebuildSynthesisSidecarRuntimePrebuildResult } from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
+import {
+  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult,
+  rebuildSynthesisSidecarRuntimePrebuildResult,
+} from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
 
 export const SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_PATH =
   "synthesis-sidecar/release-set.json";
@@ -23,6 +26,7 @@ export function createSynthesisSidecarRuntimeReleaseSet(args: {
   const prebuild = rebuildSynthesisSidecarRuntimePrebuildResult(
     args.prebuildResult,
   );
+  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(prebuild);
   if (prebuild.sourceSha !== args.sourceCommit) {
     throw new Error("Prebuild result source SHA does not match release source");
   }

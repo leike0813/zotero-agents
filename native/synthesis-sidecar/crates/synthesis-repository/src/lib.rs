@@ -2664,19 +2664,10 @@ fn topic_joined_record(row: Value) -> Result<TopicApplicationJoinedRecord, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use synthesis_test_support::TestRoot;
 
-    fn root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-r7-repository-{label}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("root");
-        root
+    fn root(label: &str) -> TestRoot {
+        TestRoot::new(&format!("synthesis-r7-repository-{label}"))
     }
 
     fn identity() -> RepositoryIdentity {
@@ -2756,6 +2747,7 @@ mod tests {
                 Some(expected),
                 "{label}"
             );
+            drop(source);
             fs::remove_dir_all(root).expect("cleanup");
         }
 
@@ -2837,6 +2829,7 @@ mod tests {
             .expect("open hint");
         let open_payload: Value = serde_json::from_str(&open_payload).expect("open payload json");
         assert_eq!(open_payload["outcome"], json!({}));
+        drop(migrated);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -7,8 +7,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     ConceptAliasRecord, ConceptKbReplacement, ConceptRecord, ConceptRelationRecord,
@@ -1425,7 +1423,6 @@ fn default_now() -> String {
 mod tests {
     use super::*;
     use crate::ports::RepositoryPort;
-    use std::path::PathBuf;
     use std::sync::mpsc;
     use std::thread;
     use synthesis_repository::{
@@ -1465,14 +1462,8 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-concept-application-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-concept-application")
     }
 
     fn snapshot(hash: &str) -> ConceptKbReplacement {
@@ -1546,7 +1537,6 @@ mod tests {
         );
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1668,6 +1658,5 @@ mod tests {
         assert_eq!(page.reviews[0].status, "approved");
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

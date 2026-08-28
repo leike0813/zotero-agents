@@ -1117,9 +1117,8 @@ mod tests {
 
 #[cfg(test)]
 mod dispatch_integration_tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
     use serde_json::json;
@@ -1237,15 +1236,8 @@ mod dispatch_integration_tests {
         }
     }
 
-    fn test_root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-production-client-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn test_root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-production-client")
     }
 
     fn test_applications(root: &Path) -> ProductionApplications {
@@ -1893,6 +1885,5 @@ mod dispatch_integration_tests {
         assert_eq!(rejected["status"], "rejected");
         assert_eq!(rejected["hint"]["status"], "rejected");
         drop(apps);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

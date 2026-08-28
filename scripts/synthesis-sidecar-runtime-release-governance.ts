@@ -104,45 +104,37 @@ export function readSynthesisSidecarRuntimeBuildRecipe(
   return recipe;
 }
 
-const FINGERPRINT_STATIC_INPUTS = [
-  ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
+const SYNTHESIS_RUST_SIDECAR_ROOT = "native/synthesis-sidecar";
+const SOURCE_STATIC_INPUTS = [
+  "native/synthesis-sidecar/Cargo.toml",
+  "native/synthesis-sidecar/Cargo.lock",
+  "native/synthesis-sidecar/rust-toolchain.toml",
+  "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
+  "packages/synthesis-contracts/contract-set/synthesis-native-worker-transfer-v1/corpus.json",
+  "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
+] as const;
+const BUILD_STATIC_INPUTS = [
   SYNTHESIS_SIDECAR_RUNTIME_BUILD_RECIPE_PATH,
+  "native/synthesis-sidecar/licenses.json",
   "package.json",
   "package-lock.json",
-  "native/synthesis-sidecar/rust-toolchain.toml",
-  "native/synthesis-sidecar/Cargo.lock",
-  "packages/synthesis-contracts/contract-set/synthesis-native-worker-transfer-v1/corpus.json",
-  "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
-  "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
   "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts",
-  "packages/synthesis-contracts/src/sidecarLifecycle.ts",
-  "packages/synthesis-contracts/src/sidecarSystem.ts",
-  "scripts/check-synthesis-durable-foundation-parity.ts",
-  "scripts/check-synthesis-native-runtime-contract-parity.ts",
-  "scripts/check-synthesis-native-worker-transfer-parity.ts",
-  "scripts/check-synthesis-rust-license-inventory.ts",
-  "scripts/check-synthesis-sidecar-runtime-freshness.ts",
   "scripts/package-synthesis-sidecar-runtime.ts",
-  "scripts/smoke-synthesis-rust-durable-candidate.ts",
-  "scripts/smoke-synthesis-rust-sidecar-worker.ts",
-  "scripts/synthesis-sidecar-runtime-release-governance.ts",
 ] as const;
-
-const SYNTHESIS_RUST_SIDECAR_ROOT = "native/synthesis-sidecar";
-const SYNTHESIS_RUST_FINGERPRINT_STATIC_INPUTS = [
+const VERIFICATION_STATIC_INPUTS = [
+  ".github/workflows/verify-synthesis-sidecar.yml",
+  "test/core/193-synthesis-sidecar-runtime-packaging.test.ts",
+] as const;
+const PIPELINE_STATIC_INPUTS = [
   ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
-  SYNTHESIS_SIDECAR_RUNTIME_BUILD_RECIPE_PATH,
-  "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
-  "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
-  "packages/synthesis-contracts/contract-set/synthesis-native-worker-transfer-v1/corpus.json",
-  "scripts/check-synthesis-cross-language-contracts.ts",
-  "scripts/check-synthesis-durable-foundation-parity.ts",
-  "scripts/check-synthesis-native-runtime-contract-parity.ts",
-  "scripts/check-synthesis-native-worker-transfer-parity.ts",
-  "scripts/check-synthesis-rust-license-inventory.ts",
-  "scripts/smoke-synthesis-rust-durable-candidate.ts",
-  "scripts/smoke-synthesis-rust-sidecar-worker.ts",
+  "packages/synthesis-contracts/src/sidecarRuntimeRelease.ts",
+  "scripts/download-synthesis-sidecar-runtime-cache.ts",
+  "scripts/resolve-synthesis-sidecar-runtime-cache.ts",
+  "scripts/resolve-synthesis-sidecar-verification.ts",
+  "scripts/stage-synthesis-sidecar-runtime-prebuilds.ts",
+  "scripts/sync-synthesis-sidecar-runtime-prebuilds.ts",
   "scripts/synthesis-sidecar-runtime-release-governance.ts",
+  "scripts/synthesis-sidecar-runtime-release-set.ts",
 ] as const;
 
 async function collectFiles(root: string, relativeDir: string) {
@@ -162,63 +154,99 @@ async function collectFiles(root: string, relativeDir: string) {
   return files;
 }
 
-export async function synthesisSidecarRuntimeFingerprintInputs(
-  root = process.cwd(),
-) {
-  const dynamicInputs = [
-    ...(await collectFiles(root, SYNTHESIS_RUST_SIDECAR_ROOT)).filter(
-      (file) => !file.includes("/target/"),
-    ),
-    ...(await collectFiles(root, "packages/synthesis-contracts/src")).filter(
-      (file) =>
-        file.endsWith("/sidecarLifecycle.ts") ||
-        file.endsWith("/sidecarSystem.ts") ||
-        file.endsWith("/sidecarCanonicalStore.ts") ||
-        file.endsWith("/citationGraphApplication.ts") ||
-        file.endsWith("/referenceRefreshApplication.ts") ||
-        file.endsWith("/referenceMatchingReviewApplication.ts") ||
-        file.endsWith("/tagVocabularyApplication.ts") ||
-        file.endsWith("/conceptKbApplication.ts") ||
-        file.endsWith("/conceptKbCore.ts") ||
-        file.endsWith("/knowledgeCheckpoint.ts") ||
-        file.endsWith("/durableBundle.ts") ||
-        file.endsWith("/durableBundleImport.ts") ||
-        file.endsWith("/webDavSync.ts") ||
-        file.endsWith("/webDavSyncPort.ts") ||
-        file.endsWith("/topicGraphApplication.ts") ||
-        file.endsWith("/topicGraphCore.ts") ||
-        file.endsWith("/tagVocabularyCore.ts") ||
-        file.endsWith("/hostRead.ts") ||
-        file.endsWith("/topicApplication.ts") ||
-        file.endsWith("/workbench.ts") ||
-        file.endsWith("/sidecarTransfer.ts") ||
-        file.endsWith("/sidecarRuntimeBundle.ts"),
-    ),
-  ];
-  return Array.from(
-    new Set([...FINGERPRINT_STATIC_INPUTS, ...dynamicInputs]),
-  ).sort();
+function uniqueInputs(inputs: readonly string[]) {
+  return Array.from(new Set(inputs)).sort();
 }
 
-export async function computeSynthesisRustSidecarSourceFingerprint(
-  root = process.cwd(),
+async function hashInputs(
+  root: string,
+  domain: string,
+  inputs: readonly string[],
 ) {
-  const inputs = Array.from(
-    new Set([
-      ...SYNTHESIS_RUST_FINGERPRINT_STATIC_INPUTS,
-      ...(await collectFiles(root, SYNTHESIS_RUST_SIDECAR_ROOT)).filter(
-        (file) => !file.includes("/target/"),
-      ),
-    ]),
-  ).sort();
   const hash = createHash("sha256");
-  hash.update("synthesis-rust-sidecar\n");
+  hash.update(`${domain}\n`);
   for (const relativePath of inputs) {
     hash.update(`${relativePath}\0`);
     hash.update(await fs.readFile(path.join(root, relativePath)));
     hash.update("\0");
   }
   return { fingerprint: hash.digest("hex"), inputs };
+}
+
+export async function synthesisSidecarRuntimeIdentityInputs(
+  root = process.cwd(),
+) {
+  const rustFiles = (
+    await collectFiles(root, SYNTHESIS_RUST_SIDECAR_ROOT)
+  ).filter((file) => !file.includes("/target/"));
+  const runtimeRustFiles = rustFiles.filter(
+    (file) =>
+      !file.includes("/crates/synthesis-test-support/") &&
+      !file.includes("/tests/") &&
+      (file.endsWith(".rs") ||
+        file.endsWith("/Cargo.toml") ||
+        file.includes("/.cargo/")),
+  );
+  const contractFiles = (
+    await collectFiles(root, "packages/synthesis-contracts/src")
+  ).filter((file) =>
+    /(?:sidecar|citationGraph|reference|tagVocabulary|conceptKb|knowledgeCheckpoint|durableBundle|webDav|topic|workbench|hostRead)/.test(
+      file,
+    ),
+  );
+  const verificationScripts = (await collectFiles(root, "scripts")).filter(
+    (file) =>
+      /\/check-synthesis-/.test(file) || /\/smoke-synthesis-rust-/.test(file),
+  );
+  const source = uniqueInputs([
+    ...SOURCE_STATIC_INPUTS,
+    ...runtimeRustFiles,
+    ...contractFiles,
+  ]);
+  const build = uniqueInputs([...source, ...BUILD_STATIC_INPUTS]);
+  const verification = uniqueInputs([
+    ...build,
+    ...rustFiles,
+    ...verificationScripts,
+    ...VERIFICATION_STATIC_INPUTS,
+  ]);
+  const pipeline = uniqueInputs([...PIPELINE_STATIC_INPUTS]);
+  return Object.freeze({ source, build, verification, pipeline });
+}
+
+export async function computeSynthesisSidecarRuntimeIdentities(
+  root = process.cwd(),
+) {
+  const inputs = await synthesisSidecarRuntimeIdentityInputs(root);
+  const [source, build, verification, pipeline] = await Promise.all([
+    hashInputs(root, "synthesis-sidecar-source.v1", inputs.source),
+    hashInputs(root, "synthesis-sidecar-build.v1", inputs.build),
+    hashInputs(root, "synthesis-sidecar-verification.v1", inputs.verification),
+    hashInputs(root, "synthesis-sidecar-pipeline.v1", inputs.pipeline),
+  ]);
+  return Object.freeze({
+    sourceFingerprint: source.fingerprint,
+    buildFingerprint: build.fingerprint,
+    verificationFingerprint: verification.fingerprint,
+    pipelineRevision: pipeline.fingerprint,
+    inputs,
+  });
+}
+
+export async function synthesisSidecarRuntimeFingerprintInputs(
+  root = process.cwd(),
+) {
+  return (await synthesisSidecarRuntimeIdentityInputs(root)).build;
+}
+
+export async function computeSynthesisRustSidecarSourceFingerprint(
+  root = process.cwd(),
+) {
+  const identities = await computeSynthesisSidecarRuntimeIdentities(root);
+  return {
+    fingerprint: identities.sourceFingerprint,
+    inputs: identities.inputs.source,
+  };
 }
 
 export function sha256Bytes(bytes: Uint8Array | string) {
@@ -260,17 +288,10 @@ export function assertSynthesisSidecarRuntimeArchiveLayout(args: {
 export async function computeSynthesisSidecarRuntimeBuildFingerprint(
   root = process.cwd(),
 ) {
-  const inputs = await synthesisSidecarRuntimeFingerprintInputs(root);
-  const hash = createHash("sha256");
-  hash.update("synthesis-sidecar-runtime-v3\nimplementation=rust-native\n");
-  for (const relativePath of inputs) {
-    hash.update(`${relativePath}\0`);
-    hash.update(await fs.readFile(path.join(root, relativePath)));
-    hash.update("\0");
-  }
+  const identities = await computeSynthesisSidecarRuntimeIdentities(root);
   return {
-    fingerprint: hash.digest("hex"),
-    inputs,
+    fingerprint: identities.buildFingerprint,
+    inputs: identities.inputs.build,
   };
 }
 

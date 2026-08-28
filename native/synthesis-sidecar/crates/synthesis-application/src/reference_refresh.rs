@@ -6,8 +6,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, OperationRecord,
@@ -1962,7 +1960,6 @@ fn running_operation(operation_id: &str, operation_type: &str, now: &str) -> Ope
 mod tests {
     use super::*;
     use crate::ports::RepositoryPort;
-    use std::path::PathBuf;
     use std::sync::atomic::AtomicUsize;
     use synthesis_repository::{Repository, RepositoryIdentity};
 
@@ -2030,18 +2027,14 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-reference-refresh-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-reference-refresh")
     }
 
-    fn application() -> (ReferenceRefreshApplication, PathBuf) {
+    fn application() -> (
+        ReferenceRefreshApplication,
+        synthesis_test_support::TestRoot,
+    ) {
         let root = root();
         let repository = Repository::open(
             &root,
@@ -2214,7 +2207,6 @@ mod tests {
         assert_eq!(run.inspect().expect("final run state").source_count, 2);
         drop(run);
         drop(application);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2310,12 +2302,11 @@ mod tests {
             .expect("sweep receipt");
         assert_eq!(receipt.status, "succeeded");
         assert_eq!(receipt.phase, "completed");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn identity_full_sweep_optimization_requires_verified_snapshot_without_deletions() {
-        let (application, root) = application();
+        let (application, _root) = application();
         let run = application.begin_run().expect("begin run");
         let unverified = run.prepare_refresh(ReferenceRefreshPrepareRequest {
             expected_reference_hash: None,
@@ -2383,7 +2374,6 @@ mod tests {
         );
         drop(run);
         drop(application);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2469,13 +2459,11 @@ mod tests {
             ReferenceRefreshStatus::Promoted
         );
         assert!(!application.inspect().expect("inspection").graph_ready);
-
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn plans_exact_reads_promotes_once_and_drains() {
-        let (application, root) = application();
+        let (application, _root) = application();
         let prepared = application.prepare_refresh(request(None));
         assert_eq!(prepared.status, ReferenceRefreshStatus::Prepared);
         assert_eq!(prepared.reads.len(), 2);
@@ -2538,12 +2526,11 @@ mod tests {
                 .status,
             ReferenceRefreshStatus::Stopping
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn rejects_oversized_apply_payload_and_consumes_the_preparation() {
-        let (application, root) = application();
+        let (application, _root) = application();
         let prepared = application.prepare_refresh(request(None));
         let preparation_id = prepared
             .preparation_id
@@ -2571,8 +2558,6 @@ mod tests {
                 .status,
             ReferenceRefreshStatus::PreparationMissing
         );
-
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

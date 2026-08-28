@@ -5,16 +5,18 @@
 The repository SHALL store release-eligible Synthesis native runtime prebuilds
 on `synthesis-sidecar-runtime-prebuilds` under `sets/<aggregate>/`. Each set
 SHALL have exactly seven target archives, a complete archive-digest manifest,
-and a `synthesis-sidecar-runtime-prebuild-result.v2` document that binds the
-run, request, source, build fingerprint, aggregate, prebuild commit, immutable
-set path, cache-hit targets, cache-miss targets, and cache source runs.
+and a `synthesis-sidecar-runtime-prebuild-result.v3` document that binds the
+trusted three-host verifier, source/build/verification/pipeline identities,
+run, request, aggregate, prebuild commit, immutable set path, and exact
+per-target built or reused evidence.
 
 #### Scenario: A verified set is synchronized
-- **WHEN** synchronization receives a v2 result and its declared immutable set
-- **THEN** the result identity, exact seven-target cache partition, set
+- **WHEN** synchronization receives a v3 result and its declared immutable set
+- **THEN** the verifier and result identities, exact seven-target evidence, set
   manifest, archive digests, and bundle manifests SHALL all validate
-- **AND** an unknown field, incomplete cache partition, duplicate target, or
-  mismatched identity SHALL fail before add-on bytes are replaced
+- **AND** an unknown field, incomplete target map, duplicate target, legacy
+  result, stale native smoke, or mismatched identity SHALL fail before add-on
+  bytes are replaced
 
 #### Scenario: Linux ARM64 is built on its native runner
 - **WHEN** the manual seven-target prebuild builds `linux-arm64`

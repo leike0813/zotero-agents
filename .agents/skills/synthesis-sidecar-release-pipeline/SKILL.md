@@ -15,7 +15,8 @@ receipt. It is the only route for formal sidecar materialization.
 ## Preconditions
 
 - An approved source change on a clean, synchronized `main` checkout.
-- Exact prebuild result evidence from `$synthesis-sidecar-prebuild`.
+- Exact release-eligible `synthesis-sidecar-runtime-prebuild-result.v3`
+  evidence from `$synthesis-sidecar-prebuild`.
 - A valid v3 bundle set on `synthesis-sidecar-runtime-prebuilds`.
 - User authorization to prepare source files when preparation is requested.
 - Separate explicit user authorization before workflow dispatch, because it
@@ -23,8 +24,8 @@ receipt. It is the only route for formal sidecar materialization.
 
 ## Boundaries
 
-The pipeline owns only native sidecar release evidence and
-`addon/bin/synthesis-sidecar`. It does not select plugin versions, create a
+The pipeline owns only native sidecar release evidence and the seven
+`addon/bin/<target>/synthesis-sidecar/` roots. It does not select plugin versions, create a
 plugin release, modify Host Bridge releases, or synchronize Gitee.
 
 ## Inspect first
@@ -59,9 +60,11 @@ Before dispatch, require all of the following facts in the prepared set:
 - `schema` is `synthesis-sidecar-runtime-release-set.v1`;
 - `releaseSetId` is present and equals the requested value;
 - `sourceCommit` equals the exact prepared `main` commit;
-- the embedded prebuild result uses the expected schema and source SHA;
+- the embedded prebuild result uses v3, binds trusted verification, and has the
+  expected source SHA and four governed identities;
 - its aggregate and branch commit equal the release-set prebuild fields;
-- `materialized.addonRoot` is `addon/bin/synthesis-sidecar`;
+- `materialized.addonRoot` is `addon/bin` and
+  `materialized.targetBundleDirectory` is `synthesis-sidecar`;
 - the target list contains exactly the seven supported targets once each.
 
 The release set is a binding document, not a suggestion. Do not edit it after
@@ -149,8 +152,8 @@ the addon runtime root.
 
 It initializes a receipt, records materialization, records the complete
 receipt state, and only then finalizes source main. The finalization commit
-contains the materialized `addon/bin/synthesis-sidecar`, release set, and
-complete receipt together.
+contains all seven materialized `addon/bin/<target>/synthesis-sidecar/`
+directories, the release set, and the complete receipt together.
 
 ## Resume
 

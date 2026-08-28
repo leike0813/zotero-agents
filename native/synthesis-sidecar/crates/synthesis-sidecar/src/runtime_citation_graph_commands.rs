@@ -661,9 +661,8 @@ mod tests {
     use crate::runtime_host_collection::{ReferenceHostItemsByRef, ReferenceHostItemsPage};
     use crate::runtime_production_ports::build_production_applications;
     use crate::runtime_worker_pool::NativeComputePool;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
-    use std::time::{SystemTime, UNIX_EPOCH};
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
     use synthesis_repository::{
         CitationEdgeRecord, CitationGraphApplicationStateRecord, CitationGraphReplacement,
@@ -769,15 +768,8 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-citation-command-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-citation-command")
     }
 
     fn applications(root: &Path, host: Arc<FakeHost>) -> ProductionApplications {
@@ -844,7 +836,6 @@ mod tests {
         assert_eq!(persisted.view_key, "workbench_overview");
         assert_eq!(persisted.preset, "radial");
         drop(apps);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -935,7 +926,6 @@ mod tests {
         );
         assert_eq!(persisted.graph_hash, graph_hash);
         drop(apps);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1016,7 +1006,6 @@ mod tests {
             dispatch(&reopened, "client.retryCitationGraphCacheRebuild", &[]).expect("retry");
         assert_eq!(retried["status"], "promoted");
         drop(reopened);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1050,7 +1039,6 @@ mod tests {
         assert_eq!(fallback["status"], "promoted");
         assert!(fallback.get("affected_source_refs").is_none());
         drop(apps);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1091,6 +1079,5 @@ mod tests {
         assert_eq!(retried["status"], "promoted");
         assert!(retried["affected_source_refs"].is_array());
         drop(reopened);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

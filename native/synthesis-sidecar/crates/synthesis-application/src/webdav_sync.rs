@@ -1089,6 +1089,7 @@ mod tests {
     use super::*;
     use std::sync::Condvar;
     use std::thread;
+    use std::time::Instant;
 
     #[derive(Default)]
     struct MemoryState(Mutex<Option<WebDavSyncState>>);
@@ -1402,11 +1403,18 @@ mod tests {
         state.wait_for_terminal_load();
         let pause_application = Arc::clone(&application);
         let pause = thread::spawn(move || pause_application.pause_webdav_sync());
-        thread::sleep(Duration::from_millis(10));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while application.generation().expect("pause generation") == 0 {
+            assert!(
+                Instant::now() < deadline,
+                "pause must cancel the previous retry generation"
+            );
+            thread::yield_now();
+        }
         state.release_terminal();
+        sync.join().expect("join sync").expect("sync terminal");
         let paused = pause.join().expect("join pause").expect("pause");
         assert!(paused.paused);
-        sync.join().expect("join sync").expect("sync terminal");
 
         let persisted = state
             .state

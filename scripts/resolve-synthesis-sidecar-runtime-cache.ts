@@ -10,8 +10,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-const WORKFLOW_PATH =
-  ".github/workflows/prebuild-synthesis-sidecar-runtime.yml";
+const WORKFLOW = "prebuild-synthesis-sidecar-runtime.yml";
 const ARTIFACT_NAME_PREFIX = "synthesis-sidecar-runtime-";
 
 export type SynthesisSidecarRuntimeCacheArtifact = Readonly<{
@@ -22,14 +21,15 @@ export type SynthesisSidecarRuntimeCacheArtifact = Readonly<{
 }>;
 
 export type SynthesisSidecarRuntimeCacheEntry = Readonly<{
-  hit: boolean;
+  candidate: boolean;
   runId: number | null;
+  sourceSha: string | null;
   artifact: SynthesisSidecarRuntimeCacheArtifact | null;
   reason: string;
 }>;
 
 export type SynthesisSidecarRuntimeCacheResolution = Readonly<{
-  schema: "synthesis-sidecar-runtime-cache-resolution.v2";
+  schema: "synthesis-sidecar-runtime-cache-resolution.v3";
   repository: string;
   sourceSha: string;
   buildFingerprint: string;
@@ -76,20 +76,17 @@ async function runGh(args: string[]): Promise<string> {
 export async function listRecentWorkflowRuns(args: {
   repo: string;
   workflow: string;
-  headSha: string;
   maximum?: number;
-}): Promise<Array<{ databaseId: number; conclusion: string | null }>> {
+}): Promise<
+  Array<{ databaseId: number; conclusion: string | null; sourceSha: string }>
+> {
   const output = await runGh([
     "api",
-    `repos/${args.repo}/actions/runs`,
+    `repos/${args.repo}/actions/workflows/${args.workflow}/runs`,
     "--method",
     "GET",
-    "-f",
-    `workflow=${args.workflow}`,
-    "-f",
-    `head_sha=${args.headSha}`,
     "-F",
-    `per_page=${args.maximum ?? 30}`,
+    `per_page=${args.maximum ?? 100}`,
   ]);
   const parsed = JSON.parse(output);
   if (!parsed || !Array.isArray(parsed.workflow_runs)) {
@@ -98,9 +95,10 @@ export async function listRecentWorkflowRuns(args: {
     );
   }
   return parsed.workflow_runs.map(
-    (entry: { id: number; conclusion: string | null }) => ({
+    (entry: { id: number; conclusion: string | null; head_sha: string }) => ({
       databaseId: Number(entry.id),
       conclusion: entry.conclusion === null ? null : String(entry.conclusion),
+      sourceSha: requireSha("workflow run head_sha", entry.head_sha),
     }),
   );
 }
@@ -154,6 +152,9 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
   buildFingerprint: string;
   sourceFingerprint: string;
   maximumRuns?: number;
+  excludeRunId?: number;
+  listRuns?: typeof listRecentWorkflowRuns;
+  listArtifacts?: typeof listRunArtifacts;
 }): Promise<SynthesisSidecarRuntimeCacheResolution> {
   const repo = args.repo.trim();
   const sourceSha = requireSha("source-sha", args.sourceSha);
@@ -165,11 +166,10 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
     "source-fingerprint",
     args.sourceFingerprint,
   );
-  const runs = await listRecentWorkflowRuns({
+  const runs = await (args.listRuns || listRecentWorkflowRuns)({
     repo,
-    workflow: WORKFLOW_PATH,
-    headSha: sourceSha,
-    maximum: args.maximumRuns ?? 30,
+    workflow: WORKFLOW,
+    maximum: args.maximumRuns ?? 100,
   });
   const filteredRuns = args.excludeRunId
     ? runs.filter((run) => run.databaseId !== args.excludeRunId)
@@ -182,24 +182,29 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
   >;
   for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
     platforms[target] = {
-      hit: false,
+      candidate: false,
       runId: null,
+      sourceSha: null,
       artifact: null,
       reason: "no_run_with_artifact",
     };
   }
 
   for (const run of filteredRuns) {
-    const artifacts = await listRunArtifacts({ repo, runId: run.databaseId });
+    const artifacts = await (args.listArtifacts || listRunArtifacts)({
+      repo,
+      runId: run.databaseId,
+    });
     for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
-      if (platforms[target].hit) continue;
+      if (platforms[target].candidate) continue;
       const artifactName = `${ARTIFACT_NAME_PREFIX}${target}`;
       const artifact = artifacts.find((entry) => entry.name === artifactName);
       if (!artifact) continue;
       if (artifact.expired) {
         platforms[target] = {
-          hit: false,
+          candidate: false,
           runId: run.databaseId,
+          sourceSha: run.sourceSha,
           artifact: {
             artifactId: artifact.artifactId,
             sizeInBytes: artifact.sizeInBytes,
@@ -211,21 +216,22 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
         continue;
       }
       platforms[target] = {
-        hit: true,
+        candidate: true,
         runId: run.databaseId,
+        sourceSha: run.sourceSha,
         artifact: {
           artifactId: artifact.artifactId,
           sizeInBytes: artifact.sizeInBytes,
           archiveDownloadUrl: artifact.archiveDownloadUrl,
           expired: false,
         },
-        reason: `artifact_available (${artifact.sizeInBytes} bytes)`,
+        reason: `artifact_candidate_pending_fingerprint_validation (${artifact.sizeInBytes} bytes)`,
       };
     }
   }
 
   return {
-    schema: "synthesis-sidecar-runtime-cache-resolution.v2",
+    schema: "synthesis-sidecar-runtime-cache-resolution.v3",
     repository: repo,
     sourceSha,
     buildFingerprint,

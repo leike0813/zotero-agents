@@ -1023,20 +1023,10 @@ mod tests {
     use super::*;
     use crate::RepositoryIdentity;
     use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use synthesis_test_support::TestRoot;
 
-    fn root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-final-r7-repository-{label}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("root");
-        root
+    fn root(label: &str) -> TestRoot {
+        TestRoot::new(&format!("synthesis-final-r7-repository-{label}"))
     }
 
     #[test]

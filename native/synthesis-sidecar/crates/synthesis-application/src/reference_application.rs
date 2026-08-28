@@ -17,8 +17,6 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, OperationRecord,
@@ -4073,7 +4071,7 @@ mod tests {
         ReferenceMatchKind, ReferenceMatchPass, ReferenceMatcherInput, ReferenceMatcherOutcome,
         ReferenceMatcherPort,
     };
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Condvar, Mutex};
     use std::time::Duration;
@@ -4398,15 +4396,8 @@ mod tests {
         }
     }
 
-    fn test_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-reference-canonical-{label}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn test_root(label: &str) -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new(&format!("synthesis-reference-canonical-{label}"))
     }
 
     #[test]
@@ -4589,7 +4580,6 @@ mod tests {
         assert_eq!(rows[0]["references"][0]["parsedTitle"], "External A");
         assert_eq!(rows[1]["paper_ref"], "1:BBBB2222");
         assert_eq!(rows[1]["references"][0]["parsedTitle"], "External B");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4777,7 +4767,6 @@ mod tests {
                 .len(),
             1
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4902,7 +4891,6 @@ mod tests {
             .expect("swept index");
         assert_eq!(index["total"], 1);
         assert_eq!(index["rows"][0]["paper_ref"], "1:AAAA1111");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -5030,7 +5018,6 @@ mod tests {
             .expect("archive replay");
         assert_eq!(replayed.status, CanonicalMutationStatus::Archived);
         assert!(replayed.idempotent);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -5074,7 +5061,6 @@ mod tests {
             .expect("trimmed replay");
         assert_eq!(replayed.status, CanonicalMutationStatus::Updated);
         assert!(replayed.idempotent);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     fn seed_canonical_mutation_fixture(root: &Path) {
@@ -5188,7 +5174,6 @@ mod tests {
             missing_update.status,
             CanonicalMutationStatus::MissingCanonical
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -5216,7 +5201,6 @@ mod tests {
             .expect("merge after rejected checkpoint and reopen");
         assert_eq!(merged["status"], "merged");
         assert!(merged.get("idempotent").is_none());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

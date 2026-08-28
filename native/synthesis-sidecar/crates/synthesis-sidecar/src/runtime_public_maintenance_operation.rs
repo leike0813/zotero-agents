@@ -1098,6 +1098,7 @@ mod tests {
     use std::fs;
     use std::sync::{Arc, Mutex};
     use synthesis_repository::{Repository, RepositoryIdentity};
+    use synthesis_test_support::TestRoot;
 
     #[test]
     fn persisted_basis_round_trips_the_retry_inputs() {
@@ -1181,11 +1182,7 @@ mod tests {
 
     #[test]
     fn control_dispatches_only_for_the_retry_or_continue_transition_winner() {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-public-maintenance-control-winner-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let root = TestRoot::new("synthesis-public-maintenance-control-winner");
         let repository = Repository::open(
             &root,
             RepositoryIdentity {
@@ -1279,11 +1276,7 @@ mod tests {
 
     #[test]
     fn phase_deadline_publishes_one_retryable_timeout_terminal() {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-public-maintenance-timeout-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let root = TestRoot::new("synthesis-public-maintenance-timeout");
         let repository = Repository::open(
             &root,
             RepositoryIdentity {

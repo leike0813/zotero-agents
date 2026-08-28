@@ -419,9 +419,8 @@ pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry]
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
@@ -430,15 +429,8 @@ mod tests {
     use crate::runtime_production_ports::build_production_applications;
     use crate::runtime_worker_pool::NativeComputePool;
 
-    fn test_root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-reference-citation-surface-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn test_root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-reference-citation-surface")
     }
 
     fn test_applications(root: &Path) -> ProductionApplications {
@@ -518,7 +510,6 @@ mod tests {
             );
         }
         drop(apps);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -547,7 +538,6 @@ mod tests {
                 .is_empty()
         );
         drop(apps);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -620,7 +610,6 @@ mod tests {
             assert_eq!(result["diagnostics"][0]["severity"], "error");
         }
         drop(apps);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -691,6 +680,5 @@ mod tests {
             Err("invalid_request".into()),
         );
         drop(apps);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

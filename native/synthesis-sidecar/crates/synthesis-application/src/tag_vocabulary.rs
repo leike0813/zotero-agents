@@ -7,8 +7,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     OperationRecord, TagAbbrevRecord, TagAliasRecord, TagApplicationStateRecord, TagAuditRecord,
@@ -2221,7 +2219,6 @@ fn validate_legacy_resolution(
 mod tests {
     use super::*;
     use crate::ports::RepositoryPort;
-    use std::path::PathBuf;
     use std::sync::{Barrier, Mutex};
     use synthesis_repository::{Repository, RepositoryIdentity};
 
@@ -2355,14 +2352,8 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-tag-application-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-tag-application")
     }
 
     fn candidate(hash: &str) -> TagVocabularyReplacement {
@@ -2457,7 +2448,6 @@ mod tests {
         app.shutdown(Duration::from_secs(1)).expect("shutdown");
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2533,7 +2523,6 @@ mod tests {
 
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2623,7 +2612,6 @@ mod tests {
         .expect("reopen repository");
         assert_eq!(reopened.list_tag_effects().expect("effects").len(), 4);
         drop(reopened);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2741,7 +2729,6 @@ mod tests {
         drop(repository);
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2847,6 +2834,5 @@ mod tests {
         assert_eq!(staged[0].parent_bindings[0].item_key, "I0000007");
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

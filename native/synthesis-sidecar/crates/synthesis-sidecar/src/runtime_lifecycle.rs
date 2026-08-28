@@ -292,9 +292,7 @@ mod tests {
     use super::*;
     use crate::runtime_contract::ProductionReverseHost;
     use serde_json::json;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    use synthesis_test_support::TestRoot;
 
     fn config(root: &Path) -> NativeLaunchConfig {
         NativeLaunchConfig {
@@ -335,11 +333,7 @@ mod tests {
 
     #[test]
     fn holds_the_production_lock_for_process_lifetime() {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-production-lock-{}-{}",
-            std::process::id(),
-            SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
+        let root = TestRoot::new("synthesis-production-lock");
         let config = config(&root);
         let first = RuntimeOwnership::acquire(&config).expect("first lock");
         assert_eq!(
@@ -348,7 +342,6 @@ mod tests {
         );
         drop(first);
         RuntimeOwnership::acquire(&config).expect("lock after release");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

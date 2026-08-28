@@ -61,6 +61,13 @@ export function checkSynthesisRustLicenseInventory() {
     ),
     "utf8",
   );
+  const verificationWorkflow = fs.readFileSync(
+    path.resolve(
+      import.meta.dirname,
+      "../.github/workflows/verify-synthesis-sidecar.yml",
+    ),
+    "utf8",
+  );
   const packageScript = fs.readFileSync(
     path.resolve(
       import.meta.dirname,
@@ -121,16 +128,18 @@ export function checkSynthesisRustLicenseInventory() {
   }
   if (
     !(
-      prebuildWorkflow.includes(
+      verificationWorkflow.includes(
         "npx tsx scripts/check-synthesis-rust-license-inventory.ts",
       ) ||
-      prebuildWorkflow.includes(
+      verificationWorkflow.includes(
         "npm run check:synthesis-rust-license-inventory",
       )
-    ) ||
-    !prebuildWorkflow.includes("npm run package:synthesis-sidecar-runtime")
+    )
   ) {
-    errors.push("prebuild_license_gate_missing");
+    errors.push("verification_license_gate_missing");
+  }
+  if (!prebuildWorkflow.includes("npm run package:synthesis-sidecar-runtime")) {
+    errors.push("prebuild_package_gate_missing");
   }
 
   return {

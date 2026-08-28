@@ -1,0 +1,145 @@
+name: Verify Synthesis Sidecar
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    paths:
+      - "native/synthesis-sidecar/**"
+      - "packages/synthesis-contracts/**"
+      - "scripts/check-synthesis-*.ts"
+      - "scripts/smoke-synthesis-rust-*.ts"
+      - "scripts/*synthesis-sidecar-runtime*.ts"
+      - "scripts/resolve-synthesis-sidecar-verification.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/verify-synthesis-sidecar.yml"
+      - ".github/workflows/prebuild-synthesis-sidecar-runtime.yml"
+  pull_request:
+    paths:
+      - "native/synthesis-sidecar/**"
+      - "packages/synthesis-contracts/**"
+      - "scripts/check-synthesis-*.ts"
+      - "scripts/smoke-synthesis-rust-*.ts"
+      - "scripts/*synthesis-sidecar-runtime*.ts"
+      - "scripts/resolve-synthesis-sidecar-verification.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/verify-synthesis-sidecar.yml"
+      - ".github/workflows/prebuild-synthesis-sidecar-runtime.yml"
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24.18.0"
+  RUST_TOOLCHAIN: "nightly-2026-07-25"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+      - name: Compute governed identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
+          printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
+      - name: Format and lint
+        run: |
+          cargo +${{ env.RUST_TOOLCHAIN }} fmt --manifest-path native/synthesis-sidecar/Cargo.toml --all --check
+          cargo +${{ env.RUST_TOOLCHAIN }} clippy --workspace --all-targets --locked --manifest-path native/synthesis-sidecar/Cargo.toml -- -D warnings
+      - name: Run complete Rust workspace
+        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path native/synthesis-sidecar/Cargo.toml
+      - name: Run shared contract and license gates
+        run: |
+          npm run check:synthesis-cross-language-contracts
+          npm run check:synthesis-native-runtime-contract-parity
+          npm run check:synthesis-durable-foundation-parity
+          npm run check:synthesis-typed-application-parity
+          npm run check:synthesis-citation-reference-application-parity
+          npm run check:synthesis-tag-concept-topic-graph-application-parity
+          npm run check:synthesis-checkpoint-bundle-webdav-debug-application-parity
+          npm run check:synthesis-rust-license-inventory
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Compute governed identities
+        shell: bash
+        run: |
+          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
+          printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
+      - name: Run complete Rust workspace
+        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path native/synthesis-sidecar/Cargo.toml
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Compute governed identities
+        shell: bash
+        run: |
+          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
+          printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
+      - name: Run complete Rust workspace
+        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path native/synthesis-sidecar/Cargo.toml
+
+  receipt:
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Write closed verification receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          identities="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(JSON.stringify(x)))')"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg event "$GITHUB_EVENT_NAME" \
+            --arg source_sha "$GITHUB_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg verification_fingerprint "$(jq -r .verificationFingerprint <<<"$identities")" \
+            --arg pipeline_revision "$(jq -r .pipelineRevision <<<"$identities")" \
+            '{schema:"synthesis-sidecar-verification-result.v1",repository:$repository,workflow:"verify-synthesis-sidecar.yml",runId:($run_id|tonumber),event:$event,sourceSha:$source_sha,verificationFingerprint:$verification_fingerprint,pipelineRevision:$pipeline_revision,hosts:{linux:"passed",windows:"passed",macos:"passed"}}' \
+            > verification-result.json
+          npx tsx -e 'import { readFileSync } from "node:fs"; import { rebuildSynthesisSidecarVerificationResult } from "./packages/synthesis-contracts/src/sidecarRuntimeRelease.ts"; rebuildSynthesisSidecarVerificationResult(JSON.parse(readFileSync("verification-result.json", "utf8")))'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthesis-sidecar-verification-result
+          path: verification-result.json
+          if-no-files-found: error

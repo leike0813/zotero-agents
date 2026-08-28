@@ -5,8 +5,6 @@ use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CanonicalReferenceRecord, RawReferenceRecord, ReferenceBindingFactRecord,
@@ -1127,7 +1125,6 @@ fn hash_serializable<T: Serialize>(value: &T) -> Result<String, String> {
 mod tests {
     use super::*;
     use crate::ports::RepositoryPort;
-    use std::path::PathBuf;
     use std::sync::atomic::AtomicUsize;
     use synthesis_repository::{
         ReferenceProjectionReplacement, ReferenceProjectionScope, Repository, RepositoryIdentity,
@@ -1242,15 +1239,8 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-reference-matching-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-reference-matching")
     }
 
     fn seed(repository: &mut Repository) {
@@ -1459,7 +1449,6 @@ mod tests {
             1
         );
         assert!(application.shutdown(Duration::from_secs(1)));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1528,7 +1517,6 @@ mod tests {
                 .diagnostics_json
                 .contains("reference_identifier_match")
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1567,7 +1555,6 @@ mod tests {
         assert_eq!(promoted.proposal_count, 2);
         assert_eq!(promoted.fact_count, 0);
         assert_eq!(application.read_proposals(0, 10).unwrap().records.len(), 2);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1616,7 +1603,6 @@ mod tests {
                 .unwrap()
         );
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1711,6 +1697,5 @@ mod tests {
                 && proposal.reasons_json.contains("reverse_accept")
         }));
         drop(repository);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

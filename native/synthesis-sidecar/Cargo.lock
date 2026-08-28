@@ -413,6 +413,7 @@ dependencies = [
  "synthesis-canonical-store",
  "synthesis-protocol",
  "synthesis-repository",
+ "synthesis-test-support",
 ]
 
 [[package]]
@@ -423,6 +424,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "synthesis-protocol",
+ "synthesis-test-support",
 ]
 
 [[package]]
@@ -490,6 +492,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "synthesis-protocol",
+ "synthesis-test-support",
 ]
 
 [[package]]
@@ -509,6 +512,7 @@ dependencies = [
  "synthesis-reference-matcher",
  "synthesis-repository",
  "synthesis-tag-vocabulary",
+ "synthesis-test-support",
  "synthesis-topic-graph",
  "synthesis-topic-structured-artifact",
 ]
@@ -521,6 +525,10 @@ dependencies = [
  "serde_json",
  "synthesis-protocol",
 ]
+
+[[package]]
+name = "synthesis-test-support"
+version = "0.1.0"
 
 [[package]]
 name = "synthesis-topic-graph"

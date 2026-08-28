@@ -6,8 +6,6 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CITATION_GRAPH_DEFAULT_EDGE_MAX, CITATION_GRAPH_DEFAULT_NODE_MAX, CacheBasisRecord,
@@ -981,7 +979,6 @@ fn running_operation(operation_id: &str, operation_type: &str, now: &str) -> Ope
 mod tests {
     use super::*;
     use crate::ports::RepositoryPort;
-    use std::path::PathBuf;
     use synthesis_repository::{
         CitationGraphApplicationStateRecord, CitationSourceOwnershipRecord, Repository,
         RepositoryIdentity,
@@ -1242,15 +1239,8 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-citation-application-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root() -> synthesis_test_support::TestRoot {
+        synthesis_test_support::TestRoot::new("synthesis-citation-application")
     }
 
     fn projection_node(id: &str, library: bool) -> CitationNodeRecord {
@@ -1414,7 +1404,6 @@ mod tests {
             application.refresh_metrics("sha256:graph").status,
             CitationMutationStatus::Stopping
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1463,7 +1452,6 @@ mod tests {
         assert_eq!(failed.status, CitationMutationStatus::WorkerFailed);
         assert_eq!(failed.graph_hash, last_good);
         assert_eq!(application.inspect().expect("inspect").node_count, 2);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1558,7 +1546,6 @@ mod tests {
             application.read().expect("current view").basis().graph_hash,
             "sha256:graph-2"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1628,7 +1615,6 @@ mod tests {
             worker.join().expect("join").status,
             CitationMutationStatus::Promoted
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1691,6 +1677,5 @@ mod tests {
                 .finish_rebuild(next, Err("stop".into()), &|| Ok(()))
                 .is_err()
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 }

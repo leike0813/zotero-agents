@@ -7,8 +7,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     ReviewPageQuery, TopicGraphEdgeRecord, TopicGraphNodeRecord, TopicGraphReplacement,
@@ -1671,12 +1669,12 @@ fn default_now() -> String {
 mod tests {
     use super::*;
     use crate::ports::RepositoryPort;
-    use std::path::PathBuf;
     use std::sync::Mutex;
     use synthesis_repository::{
         Repository, RepositoryIdentity, TopicGraphApplicationStateRecord, TopicGraphEdgeRecord,
         TopicGraphNodeRecord,
     };
+    use synthesis_test_support::TestRoot;
 
     struct Compute;
     impl TopicGraphComputePort for Compute {
@@ -1692,14 +1690,8 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "synthesis-topic-graph-application-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ))
+    fn root() -> TestRoot {
+        TestRoot::new("synthesis-topic-graph-application")
     }
 
     fn snapshot(hash: &str, cycle: bool) -> TopicGraphReplacement {
@@ -1918,7 +1910,6 @@ mod tests {
         app.shutdown(Duration::from_secs(1)).expect("shutdown");
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1971,7 +1962,6 @@ mod tests {
         assert_eq!(current.reviews.len(), 1);
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2063,6 +2053,5 @@ mod tests {
         );
         drop(app);
         drop(owner);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

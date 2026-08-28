@@ -22,3 +22,6 @@ sha2.workspace = true
 synthesis-repository = { path = "../synthesis-repository" }
 synthesis-canonical-store = { path = "../synthesis-canonical-store" }
 synthesis-protocol = { path = "../synthesis-protocol" }
+
+[dev-dependencies]
+synthesis-test-support = { path = "../synthesis-test-support" }

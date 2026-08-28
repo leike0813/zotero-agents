@@ -137,7 +137,7 @@ impl WebDavRetrySchedulerPort for InterruptibleWebDavRetryScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -173,9 +173,14 @@ mod tests {
     fn retry_wait_is_interrupted_without_waiting_for_the_delay() {
         let scheduler = Arc::new(InterruptibleWebDavRetryScheduler::default());
         let waiting = Arc::clone(&scheduler);
+        let waiting_started = Arc::new(Barrier::new(2));
+        let worker_started = Arc::clone(&waiting_started);
         let started = Instant::now();
-        let worker = thread::spawn(move || waiting.wait(60_000, 7));
-        thread::sleep(Duration::from_millis(10));
+        let worker = thread::spawn(move || {
+            worker_started.wait();
+            waiting.wait(60_000, 7)
+        });
+        waiting_started.wait();
         scheduler.cancel(7);
         assert!(!worker.join().expect("wait thread").expect("wait"));
         assert!(started.elapsed() < Duration::from_millis(200));

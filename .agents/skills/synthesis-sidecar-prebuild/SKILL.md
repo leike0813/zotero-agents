@@ -17,6 +17,8 @@ Gitee synchronization.
 - An attached branch with a configured upstream.
 - A clean worktree and the exact full 40-character source SHA.
 - The repository and branch that resolve to that source SHA.
+- A successful trusted `synthesis-sidecar-verification-result.v1` receipt whose
+  verification fingerprint and pipeline revision match the candidate.
 - An explicit user authorization for a new remote dispatch.
 - For recovery, the exact existing GitHub Actions run ID and request ID.
 
@@ -42,8 +44,14 @@ The prebuild branch is `synthesis-sidecar-runtime-prebuilds`. A set lives at
 3. Inspect `git status --porcelain`; stop if it is nonempty.
 4. Fetch the requested upstream ref and compare it with the requested source
    SHA. The SHA must be full, current, and exact.
-5. Read the locked build fingerprint using the release-governance helper.
-6. Record repository, ref, source SHA, request ID, and intended command.
+5. Read all four identities using the release-governance helper: source
+   fingerprint, build fingerprint, verification fingerprint, and pipeline
+   revision.
+6. Resolve the trusted Linux/Windows/macOS verification receipt. It must come
+   from a same-repository `push` or `workflow_dispatch`. A receipt from another
+   SHA is valid only when both governed verification identities match.
+7. Record repository, ref, source SHA, request ID, receipt run, and intended
+   command.
 
 Do not create a commit, push a branch, select a version, or change a source
 file in order to make these checks pass.
@@ -61,35 +69,25 @@ Use one of the following paths:
    resume the same run and reuse its original result artifact. Do not dispatch
    a replacement run.
 
-## Artif cache reuse
+## Artifact candidate reuse
 
-The workflow consults prior workflow runs on the same `source_sha` for a
-content-addressed GHA artifact per platform. Each platform's prebuild matrix
-entry carries a `cacheHit` flag derived from the cache resolution. Cache elision
-rules:
+The workflow searches non-expired artifacts from prior runs of the same
+prebuild workflow, including runs at another source SHA. Discovery produces a
+candidate, not a trusted cache hit. Each target job downloads and validates the
+candidate before deciding whether to build.
 
-- The cache key is the source SHA. The source SHA uniquely determines the
-  Rust source fingerprint, and the source fingerprint uniquely determines the
-  Rust binaries. Build fingerprint involvement is documentary; the run also
-  validates each cached artifact's manifest before substituting.
-- A platform is marked cache-hit only when a prior run of the same workflow
-  (`prebuild-synthesis-sidecar-runtime.yml`) at the same source SHA uploaded
-  the platform artifact. The artifact must not be expired (GHA 90-day TTL).
-- The prebuild matrix entry skips (`if: ${{ !matrix.cacheHit }}`) when the
-  flag is true. The prebuild bin does not run, and no spurious build lines
-  appear in the run.
-- The `publish-set` job hydrates cache-hit platforms from the prior run via
-  `gh api` + `curl` (the artifact archive is a GHA zip wrapper around the
-  tar.gz; the cache download script unwraps it). It then runs the same
-  staging + publish flow as a non-cache run.
-- The `synthesis-sidecar-runtime-prebuild-result.v2` document carries a
-  `cache` summary with `cacheHits`, `cacheMisses`, and `cacheSourceRuns`, so
-  a follow-up re-dispatch can audit which platform was reused.
+- Reuse requires exact source fingerprint, build fingerprint, target, closed
+  bundle manifest, archive layout, file inventory, size, and SHA-256.
+- Missing, expired, incomplete, or mismatched candidates become a typed miss;
+  only that target is rebuilt.
+- A native-smoke target always runs worker-transfer parity, worker smoke, and
+  durable process smoke in the current run, including when its bytes are reused.
+- Every target uploads its archive and one current-run evidence record. A
+  reused record preserves donor run ID, donor source SHA, archive digest, and
+  byte count.
 
-Cache misses are silent: a platform whose prior build did not upload an
-artifact (smoke test failure, transient GHA outage, or simply no prior run)
-is rebuilt by the current dispatch. No platform is forced to rebuild when a
-cache hit is available.
+Artifact retention limits reuse duration. Expiry is an ordinary miss and does
+not weaken the immutable set or result requirements.
 
 The staging step also short-circuits when `sets/<aggregate>/manifest.json`
 already exists on the prebuild branch and matches the expected build and
@@ -123,7 +121,7 @@ run ID; do not infer result values from branch contents.
 
 ## Result proof
 
-Read `synthesis-sidecar-runtime-prebuild-result.v2` and reject it unless all
+Read `synthesis-sidecar-runtime-prebuild-result.v3` and reject it unless all
 of these are exact matches:
 
 - repository;
@@ -131,17 +129,16 @@ of these are exact matches:
 - run ID;
 - request ID;
 - full source SHA;
-- build fingerprint;
+- source, build, verification, and pipeline identities;
+- trusted verification run, source SHA, and event;
 - prebuild branch;
 - aggregate SHA-256;
 - prebuild commit;
 - `sets/<aggregate>` path;
-- `cache` summary lists every cache-hit platform with its source run ID.
-
-When a v1-style result document is found (no `cache` field), accept it only
-when the dispatch predates the cache feature and the `synthesis-sidecar` source
-itself has not been re-touched since then. After a workflow change that
-recomputes the build fingerprint, all runs after that point must emit v2.
+- `targets` contains exactly the seven target keys;
+- each target evidence digest and byte count match its immutable-set archive;
+- built evidence names the current run/source, reused evidence names its donor,
+  and every native-smoke record names the current run.
 
 The result document is the authorization boundary for synchronization. A
 matching branch directory alone is insufficient evidence.
@@ -162,7 +159,7 @@ MiB.
 
 Run the synchronization command with the aggregate, store root, result file,
 repository, source SHA, request ID, and run ID. It validates every archive
-before replacing `addon/bin/synthesis-sidecar`.
+before replacing the seven `addon/bin/<target>/synthesis-sidecar/` roots.
 
 Do not manually copy individual platform directories. Do not partially replace
 the addon root. The command stages all targets, verifies all bundles, renames
@@ -187,7 +184,8 @@ Keep one compact operation record while working. It must contain:
 - result-artifact path and schema;
 - aggregate, prebuild commit, and immutable set path;
 - archive size and digest for every target;
-- cache-hit summary: source run IDs per platform, retained archive SHA-256;
+- per-target built/reused mode, donor identity when present, retained archive
+  SHA-256/bytes, and current-run smoke status;
 - synchronization target root and freshness result.
 
 Use values read from the result and manifest. Do not reconstruct an aggregate
@@ -206,10 +204,10 @@ reported as such.
 | Result identity differs | Stop; the requested set is not proven. |
 | Archive verification differs | Preserve current addon bytes and stop. |
 | Freshness fails after sync | Report the root and diagnostics; do not release. |
-| Cache hit for a platform | Trust the artifact; do not rebuild that platform. |
+| Validated candidate for a platform | Reuse exact bytes and run current native smoke when applicable. |
 | Cache miss for a platform | Rebuild from the current sources and smokes. |
-| Cache manifest fingerprint mismatch | Treat that platform as cache miss and rebuild. |
-| Cache artifact expired (>90 days) | Treat that platform as cache miss and rebuild. |
+| Candidate manifest or fingerprint mismatch | Treat that platform as a miss and rebuild. |
+| Candidate artifact expired | Treat that platform as a miss and rebuild. |
 
 ## Command discipline
 
@@ -246,7 +244,8 @@ report that it is a different prebuild and stop.
 
 ## Completion report
 
-Report repository, ref, full source SHA, build fingerprint, request ID, run ID,
-result schema, aggregate, prebuild commit, set path, all seven target statuses,
-and the freshness-gate result. Mention that this is build-only evidence and
+Report repository, ref, full source SHA, all four identities, verification run,
+request ID, prebuild run ID, result schema, aggregate, prebuild commit, set
+path, all seven target evidence records, and the freshness-gate result. Mention
+that this is build-only evidence and
 hand release preparation to `$synthesis-sidecar-release-pipeline` when needed.
