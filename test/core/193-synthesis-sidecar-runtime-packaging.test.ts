@@ -567,6 +567,14 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.include(workflowSource, "verification_fingerprint:");
     assert.include(workflowSource, "pipeline_revision:");
     assert.include(workflowSource, "SYNTHESIS_RUST_BUILD_FINGERPRINT:");
+    assert.include(
+      workflowSource,
+      'smoke-synthesis-rust-sidecar-worker.ts "$binary" "${{ needs.plan.outputs.build_fingerprint }}"',
+    );
+    assert.notInclude(
+      workflowSource,
+      'smoke-synthesis-rust-sidecar-worker.ts "$binary" "$bundle/provenance.json"',
+    );
     assert.include(workflowSource, "resolve-synthesis-sidecar-verification.ts");
     assert.include(
       workflowSource,

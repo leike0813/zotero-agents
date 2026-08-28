@@ -198,7 +198,7 @@ jobs:
           fi
           binary="$bundle/${{ matrix.binary }}"
           npx tsx scripts/check-synthesis-native-worker-transfer-parity.ts --binary="$binary" --target="${{ matrix.platform }}"
-          npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts "$binary" "$bundle/provenance.json"
+          npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts "$binary" "${{ needs.plan.outputs.build_fingerprint }}"
           npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts "$binary" "${{ matrix.platform }}"
       - name: Validate archive and write target evidence
         shell: bash
