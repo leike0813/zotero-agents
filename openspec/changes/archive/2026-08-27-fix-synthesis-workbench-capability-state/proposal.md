@@ -19,6 +19,7 @@ The production Synthesis Workbench had three independent protocol-boundary failu
 - Extend contract corpus and client/native/Rust-route coverage so the default Workbench state can open Chrome and every supported surface, while unprojected requests and wrong-surface results are rejected before dispatch or rendering.
 - Align the governed native smoke with the shared production launch-config v3 contract, and make platform-sensitive Rust tests synchronize task and concurrent-read completion while releasing Topic and migration SQLite owners before cleanup.
 - Make the process-lifecycle reverse Host fixture explicitly separate its nonblocking listener from blocking accepted streams, and prevent teardown from replacing an existing failure with a second panic.
+- Keep platform test temporary-path identities valid on every supported operating system instead of embedding ISO-8601 punctuation in Windows path components.
 
 ## Capabilities
 

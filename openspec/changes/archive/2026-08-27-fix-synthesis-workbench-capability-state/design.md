@@ -102,6 +102,8 @@ The process-lifecycle reverse Host fixture keeps its listener nonblocking so shu
 
 Migration fixtures scope each read-only source or backup connection to the assertion that consumes it. Directory cleanup therefore occurs after lexical destruction of every SQLite owner instead of depending on a manually maintained list of `drop` calls.
 
+The WebDAV reopen fixture derives its unique temporary directory suffix from Unix epoch nanoseconds. Its former ISO-8601 suffix contained colons, which are valid on Unix filesystems but invalid inside a Windows path component; the first state save therefore failed before it could exercise reopen behavior. A path-safe numeric identity keeps the existing save-and-reopen seam intact without weakening production state-store errors or adding a platform-specific branch.
+
 Copying the v3 field list into another unvalidated object was rejected because it would repeat the drift that caused native candidates to fail with `invalid_config`. Increasing sleeps or ignoring Windows cleanup errors was rejected because both approaches hide scheduling and ownership bugs rather than making the evidence deterministic.
 
 ## Risks / Trade-offs
@@ -134,5 +136,6 @@ Copying the v3 field list into another unvalidated object was rejected because i
 12. If a platform gate fails, repair the shared smoke or deterministic test fixture, rerun local gates, and dispatch one new exact seven-platform attempt only after pushing the new source identity.
 13. Treat every failed exact run as evidence: replace remaining completion-order sleeps and premature migration cleanup, then repeat the governed local and remote gates for a new source identity.
 14. Make accepted reverse Host streams explicitly blocking, make fixture teardown unwind-safe, and scope every migration inspection connection before temporary-root cleanup.
+15. Replace the WebDAV reopen fixture's ISO-8601 temporary-path suffix with a path-safe numeric identity, rerun the governed local gates, and dispatch a new exact attempt only after the new source identity is pushed and separately authorized.
 
 Rollback can restore the previous adapter and contract files without data migration because the change does not alter persisted state. A rollback would also restore the known production failure, so it is only suitable for isolating an unrelated regression.

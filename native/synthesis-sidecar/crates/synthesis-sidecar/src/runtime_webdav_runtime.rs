@@ -139,14 +139,17 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::thread;
-    use std::time::Instant;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn state_survives_store_reopen() {
         let root = std::env::temp_dir().join(format!(
             "synthesis-webdav-state-{}-{}",
             std::process::id(),
-            synthesis_protocol::utc_now_iso8601()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
         ));
         let path = root.join("native-webdav-state.json");
         let state = WebDavSyncState {

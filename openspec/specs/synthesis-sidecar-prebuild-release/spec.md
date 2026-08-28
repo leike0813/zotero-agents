@@ -55,7 +55,9 @@ migration fixtures SHALL release every inspected source or backup connection
 before removing their temporary database root. A process-lifecycle reverse Host
 fixture SHALL explicitly restore each accepted stream to blocking mode before
 its bounded request read, regardless of the listener mode, and fixture teardown
-SHALL NOT replace an in-flight test failure with a second panic.
+SHALL NOT replace an in-flight test failure with a second panic. Test fixture
+temporary-path components SHALL use identities valid on every supported target
+and SHALL NOT embed platform-illegal timestamp punctuation.
 
 #### Scenario: A native candidate is smoked
 
@@ -77,6 +79,12 @@ SHALL NOT replace an in-flight test failure with a second panic.
 - **WHEN** a process-lifecycle fixture accepts a reverse Host connection on any supported operating system
 - **THEN** the accepted stream SHALL use an explicit blocking mode with a bounded read timeout
 - **AND** a foreground failure SHALL remain the primary test failure during fixture teardown
+
+#### Scenario: A fixture creates temporary state on Windows
+
+- **WHEN** a platform test derives a unique temporary storage path
+- **THEN** every generated path component SHALL be valid on all seven supported targets
+- **AND** an ISO-8601 value SHALL NOT be used directly as a path component
 
 #### Scenario: Concurrent artifact reads complete out of source order
 

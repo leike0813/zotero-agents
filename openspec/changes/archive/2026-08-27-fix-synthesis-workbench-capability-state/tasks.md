@@ -89,3 +89,10 @@
 - [x] 14.3 Scope every migration source and backup inspection so no SQLite connection survives into temporary-root cleanup
 - [x] 14.4 Run the focused failures, complete process-lifecycle and repository suites, full local prebuild gates, and strict OpenSpec validation
 - [ ] 14.5 Commit and push a new exact source identity, then after explicit dispatch authorization run, validate, synchronize, and freshness-check one governed seven-platform prebuild
+
+## 15. Make WebDAV fixture paths portable
+
+- [x] 15.1 Record run `33097623778` failing on win32-x64 because the WebDAV reopen fixture embedded ISO-8601 punctuation in a temporary path component
+- [x] 15.2 Replace the fixture suffix with a path-safe numeric identity while preserving the existing save-and-reopen behavior seam
+- [x] 15.3 Run the focused WebDAV tests, complete Rust and prebuild local gates, formatting, lint, packaging, and strict OpenSpec validation
+- [ ] 15.4 Commit and push the new exact source identity, then after explicit dispatch authorization run, validate, synchronize, and freshness-check one governed seven-platform prebuild
