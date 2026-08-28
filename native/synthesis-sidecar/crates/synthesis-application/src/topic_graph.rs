@@ -1858,6 +1858,13 @@ mod tests {
             .unwrap()["revision"],
             1
         );
+        drop(app);
+        Arc::try_unwrap(owner)
+            .expect("repository owner")
+            .into_inner()
+            .expect("repository")
+            .close()
+            .expect("close repository");
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 

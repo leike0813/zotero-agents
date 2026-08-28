@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath, URL } from "node:url";
+import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../packages/synthesis-contracts/src/schemaVersion";
 import { rebuildSynthesisSidecarLaunchConfig } from "../packages/synthesis-contracts/src/sidecarLifecycle";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
@@ -584,7 +585,7 @@ async function main() {
       ) ||
       health.repository?.mode !== "production" ||
       health.repository?.schemaVersion !==
-        "synthesis-repository-foundation.v2" ||
+        SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION ||
       health.canonicalStore?.schemaVersion !==
         "synthesis-topic-canonical-store.v1"
     ) {
