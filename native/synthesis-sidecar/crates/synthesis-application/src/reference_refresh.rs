@@ -2032,8 +2032,8 @@ mod tests {
     }
 
     fn application() -> (
-        ReferenceRefreshApplication,
         synthesis_test_support::TestRoot,
+        ReferenceRefreshApplication,
     ) {
         let root = root();
         let repository = Repository::open(
@@ -2045,13 +2045,15 @@ mod tests {
         )
         .expect("open repository");
         let port = Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository))));
+        // Bind the root before the dependent application at call sites so Rust's
+        // reverse local drop order closes the repository before removing its root.
         (
+            root,
             ReferenceRefreshApplication::with_factories(
                 port,
                 Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
                 Arc::new(|| "refresh:1".into()),
             ),
-            root,
         )
     }
 
@@ -2306,7 +2308,7 @@ mod tests {
 
     #[test]
     fn identity_full_sweep_optimization_requires_verified_snapshot_without_deletions() {
-        let (application, _root) = application();
+        let (_root, application) = application();
         let run = application.begin_run().expect("begin run");
         let unverified = run.prepare_refresh(ReferenceRefreshPrepareRequest {
             expected_reference_hash: None,
@@ -2378,7 +2380,7 @@ mod tests {
 
     #[test]
     fn metadata_only_preserves_reference_facts_while_citation_change_reprojects() {
-        let (application, root) = application();
+        let (root, application) = application();
         let prepared = application.prepare_refresh(request(None));
         let promoted = application.apply_refresh(ReferenceRefreshApplyRequest {
             preparation_id: prepared.preparation_id.clone().expect("preparation"),
@@ -2463,7 +2465,7 @@ mod tests {
 
     #[test]
     fn plans_exact_reads_promotes_once_and_drains() {
-        let (application, _root) = application();
+        let (_root, application) = application();
         let prepared = application.prepare_refresh(request(None));
         assert_eq!(prepared.status, ReferenceRefreshStatus::Prepared);
         assert_eq!(prepared.reads.len(), 2);
@@ -2530,7 +2532,7 @@ mod tests {
 
     #[test]
     fn rejects_oversized_apply_payload_and_consumes_the_preparation() {
-        let (application, _root) = application();
+        let (_root, application) = application();
         let prepared = application.prepare_refresh(request(None));
         let preparation_id = prepared
             .preparation_id
