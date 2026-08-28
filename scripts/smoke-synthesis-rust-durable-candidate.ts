@@ -4,7 +4,7 @@ import { createConnection, createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { URL } from "node:url";
+import { fileURLToPath, URL } from "node:url";
 import { rebuildSynthesisSidecarLaunchConfig } from "../packages/synthesis-contracts/src/sidecarLifecycle";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
@@ -136,7 +136,7 @@ type LoopbackHttpResponse = {
   body: string;
 };
 
-async function loopbackRequest(
+export async function loopbackRequest(
   endpoint: string,
   options: {
     method?: "GET" | "POST";
@@ -172,20 +172,20 @@ async function loopbackRequest(
     body,
   ]);
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
+    let response = Buffer.alloc(0);
+    let settled = false;
     const socket = createConnection({ host: url.hostname, port });
-    socket.setTimeout(5_000);
-    socket.once("connect", () => socket.end(request));
-    socket.on("data", (chunk: Buffer) => chunks.push(chunk));
-    socket.once("timeout", () => {
-      socket.destroy(new Error("loopback_response_timeout"));
-    });
-    socket.once("error", reject);
-    socket.once("end", () => {
-      const response = Buffer.concat(chunks);
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(error);
+    };
+    const completeResponse = (ended: boolean) => {
+      if (settled) return;
       const separator = response.indexOf("\r\n\r\n");
       if (separator < 0) {
-        reject(new Error("loopback_response_headers_invalid"));
+        if (ended) fail(new Error("loopback_response_headers_invalid"));
         return;
       }
       const [statusLine, ...headerLines] = response
@@ -194,34 +194,67 @@ async function loopbackRequest(
         .split("\r\n");
       const status = /^HTTP\/1\.[01] ([0-9]{3})(?: |$)/.exec(statusLine || "");
       if (!status) {
-        reject(new Error(`loopback_response_status_invalid:${statusLine}`));
+        fail(new Error(`loopback_response_status_invalid:${statusLine}`));
         return;
       }
-      const headers = Object.fromEntries(
-        headerLines.map((line) => {
-          const separator = line.indexOf(":");
-          return [
-            line.slice(0, separator).toLowerCase(),
-            line.slice(separator + 1).trim(),
-          ];
-        }),
-      );
-      const responseBody = response.subarray(separator + 4);
-      const declaredLength = Number(
-        headers["content-length"] || responseBody.byteLength,
-      );
+      const responseHeaders: Record<string, string> = {};
+      for (const line of headerLines) {
+        const headerSeparator = line.indexOf(":");
+        if (headerSeparator < 1) {
+          fail(new Error("loopback_response_headers_invalid"));
+          return;
+        }
+        const name = line.slice(0, headerSeparator).toLowerCase();
+        if (name in responseHeaders) {
+          fail(new Error("loopback_response_headers_invalid"));
+          return;
+        }
+        responseHeaders[name] = line.slice(headerSeparator + 1).trim();
+      }
+      const declaredLengthText = responseHeaders["content-length"];
       if (
-        !Number.isSafeInteger(declaredLength) ||
-        declaredLength !== responseBody.byteLength
+        !declaredLengthText ||
+        !/^(?:0|[1-9][0-9]*)$/u.test(declaredLengthText)
       ) {
-        reject(new Error("loopback_response_body_invalid"));
+        fail(new Error("loopback_response_body_invalid"));
         return;
       }
+      const declaredLength = Number(declaredLengthText);
+      if (!Number.isSafeInteger(declaredLength)) {
+        fail(new Error("loopback_response_body_invalid"));
+        return;
+      }
+      const responseBody = response.subarray(separator + 4);
+      if (responseBody.byteLength < declaredLength) {
+        if (ended) fail(new Error("loopback_response_body_invalid"));
+        return;
+      }
+      if (responseBody.byteLength > declaredLength) {
+        fail(new Error("loopback_response_body_invalid"));
+        return;
+      }
+      settled = true;
+      socket.destroy();
       resolve({
         status: Number(status[1]),
         body: responseBody.toString("utf8"),
       });
+    };
+    socket.setTimeout(5_000);
+    socket.once("connect", () => socket.end(request));
+    socket.on("data", (chunk: Buffer) => {
+      response = Buffer.concat([response, chunk]);
+      completeResponse(false);
     });
+    socket.once("timeout", () => {
+      fail(
+        new Error(
+          `loopback_response_timeout:${options.method || "GET"}:${url.pathname}${url.search}`,
+        ),
+      );
+    });
+    socket.once("error", (error) => fail(error));
+    socket.once("end", () => completeResponse(true));
   });
 }
 
@@ -915,9 +948,14 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.stack : String(error)}\n`,
-  );
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main().catch((error) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.stack : String(error)}\n`,
+    );
+    process.exitCode = 1;
+  });
+}

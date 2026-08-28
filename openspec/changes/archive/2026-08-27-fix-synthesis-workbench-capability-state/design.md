@@ -104,6 +104,12 @@ Migration fixtures scope each read-only source or backup connection to the asser
 
 The WebDAV reopen fixture derives its unique temporary directory suffix from Unix epoch nanoseconds. Its former ISO-8601 suffix contained colons, which are valid on Unix filesystems but invalid inside a Windows path component; the first state save therefore failed before it could exercise reopen behavior. A path-safe numeric identity keeps the existing save-and-reopen seam intact without weakening production state-store errors or adding a platform-specific branch.
 
+### 13. Durable smoke response completion follows HTTP framing
+
+The durable candidate smoke retains its raw loopback socket so it continues to prove the exact request bytes accepted by the Rust process. Its response reader parses the header as bytes arrive and completes as soon as exactly the declared `Content-Length` body is present. Transport EOF is evidence only for detecting a truncated frame; it is not the success boundary. Duplicate or malformed headers, invalid lengths, truncated bodies, and bytes beyond the declared frame remain failures.
+
+This removes an accidental dependency on TCP FIN timing. On Windows, run `33134422935` completed the Rust suite, release build, and package before the first native smoke request timed out: the response body could be complete while the server's tracked socket clone had not yet produced observable EOF. Increasing the five-second timeout was rejected because it would preserve the wrong completion rule. Replacing the raw client with `node:http` was also rejected because the prebuild evidence intentionally verifies explicit loopback framing.
+
 Copying the v3 field list into another unvalidated object was rejected because it would repeat the drift that caused native candidates to fail with `invalid_config`. Increasing sleeps or ignoring Windows cleanup errors was rejected because both approaches hide scheduling and ownership bugs rather than making the evidence deterministic.
 
 ## Risks / Trade-offs
@@ -119,6 +125,7 @@ Copying the v3 field list into another unvalidated object was rejected because i
 - **A platform test depends on scheduler timing or implicit SQLite destruction** → Synchronize the observable event directly and release the inspected connection before cleanup; do not increase sleeps or ignore sharing violations.
 - **A listener's nonblocking flag propagates differently across operating systems** → Set the accepted stream mode explicitly and retain the existing bounded read timeout.
 - **A background fixture fails while the foreground assertion is unwinding** → Preserve the foreground failure and forbid a second panic from fixture destruction.
+- **A complete HTTP body arrives before TCP EOF** → Complete from the declared frame length and retain the method/path in timeout diagnostics; do not infer message completion from connection teardown.
 
 ## Migration Plan
 
@@ -137,5 +144,6 @@ Copying the v3 field list into another unvalidated object was rejected because i
 13. Treat every failed exact run as evidence: replace remaining completion-order sleeps and premature migration cleanup, then repeat the governed local and remote gates for a new source identity.
 14. Make accepted reverse Host streams explicitly blocking, make fixture teardown unwind-safe, and scope every migration inspection connection before temporary-root cleanup.
 15. Replace the WebDAV reopen fixture's ISO-8601 temporary-path suffix with a path-safe numeric identity, rerun the governed local gates, and dispatch a new exact attempt only after the new source identity is pushed and separately authorized.
+16. Make the raw durable-smoke client complete from `Content-Length`, lock the half-open response regression locally, and use the next exact Windows matrix result as the cross-platform proof.
 
 Rollback can restore the previous adapter and contract files without data migration because the change does not alter persisted state. A rollback would also restore the known production failure, so it is only suitable for isolating an unrelated regression.

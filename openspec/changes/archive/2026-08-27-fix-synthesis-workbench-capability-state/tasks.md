@@ -96,3 +96,11 @@
 - [x] 15.2 Replace the fixture suffix with a path-safe numeric identity while preserving the existing save-and-reopen behavior seam
 - [x] 15.3 Run the focused WebDAV tests, complete Rust and prebuild local gates, formatting, lint, packaging, and strict OpenSpec validation
 - [ ] 15.4 Commit and push the new exact source identity, then after explicit dispatch authorization run, validate, synchronize, and freshness-check one governed seven-platform prebuild
+
+## 16. Complete loopback responses by HTTP framing
+
+- [x] 16.1 Record run `33134422935` failing on win32-x64 after all Rust tests and packaging passed because the durable candidate smoke timed out waiting for transport EOF
+- [x] 16.2 Add a failing raw-socket regression proving that a complete `Content-Length` response must finish while the connection remains half-open
+- [x] 16.3 Make the durable candidate smoke complete exactly at the declared response body length, reject truncated or overlong frames, and identify the request route in timeout diagnostics
+- [x] 16.4 Run the focused framing regression, complete packaging test, durable native smoke, parity, TypeScript, formatting, lint, and strict OpenSpec gates
+- [ ] 16.5 Commit and push the new exact source identity, then after explicit dispatch authorization run, validate, synchronize, and freshness-check one governed seven-platform prebuild

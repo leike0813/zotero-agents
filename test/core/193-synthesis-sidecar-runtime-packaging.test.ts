@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { createServer, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -38,6 +39,7 @@ import {
   advanceSynthesisSidecarRuntimeReleaseReceipt,
   createSynthesisSidecarRuntimeReleaseReceipt,
 } from "../../scripts/synthesis-sidecar-runtime-release-controller";
+import { loopbackRequest } from "../../scripts/smoke-synthesis-rust-durable-candidate";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -458,6 +460,56 @@ describe("Synthesis sidecar native runtime packaging", function () {
       durableSmokeSource,
       "Health route returned ${healthResponse.status} for ${target}: ${healthResponse.body}",
     );
+  });
+
+  it("completes a framed durable-smoke response without waiting for connection EOF", async function () {
+    const sockets = new Set<Socket>();
+    const server = createServer({ allowHalfOpen: true }, (socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+      let request = Buffer.alloc(0);
+      let responded = false;
+      socket.on("data", (chunk: Buffer) => {
+        if (responded) return;
+        request = Buffer.concat([request, chunk]);
+        const separator = request.indexOf("\r\n\r\n");
+        if (separator < 0) return;
+        const length = Number(
+          /\r\ncontent-length:\s*([0-9]+)/iu.exec(
+            request.subarray(0, separator).toString("utf8"),
+          )?.[1] || "0",
+        );
+        if (request.byteLength < separator + 4 + length) return;
+        responded = true;
+        const body = Buffer.from('{"ok":true}', "utf8");
+        socket.write(
+          Buffer.concat([
+            Buffer.from(
+              `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.byteLength}\r\nConnection: close\r\n\r\n`,
+              "utf8",
+            ),
+            body,
+          ]),
+        );
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address();
+    assert.isObject(address);
+    try {
+      const response = await loopbackRequest(
+        `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}/synthesis/v1/health`,
+      );
+      assert.deepEqual(response, { status: 200, body: '{"ok":true}' });
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 
   it("finalizes the release through the seven-target runtime synchronizer", function () {

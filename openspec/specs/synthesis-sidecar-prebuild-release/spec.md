@@ -57,7 +57,10 @@ fixture SHALL explicitly restore each accepted stream to blocking mode before
 its bounded request read, regardless of the listener mode, and fixture teardown
 SHALL NOT replace an in-flight test failure with a second panic. Test fixture
 temporary-path components SHALL use identities valid on every supported target
-and SHALL NOT embed platform-illegal timestamp punctuation.
+and SHALL NOT embed platform-illegal timestamp punctuation. The raw loopback
+verifier SHALL complete an HTTP response when exactly its declared
+`Content-Length` bytes have arrived and SHALL NOT require transport EOF after a
+complete frame. EOF before the declared frame is complete SHALL fail closed.
 
 #### Scenario: A native candidate is smoked
 
@@ -91,3 +94,9 @@ and SHALL NOT embed platform-illegal timestamp punctuation.
 - **WHEN** Reference Refresh verifies that two Host artifact reads overlap while preserving source-order application
 - **THEN** both reads SHALL rendezvous before either completion is observed
 - **AND** the gated completion order SHALL be independent of runner scheduling latency
+
+#### Scenario: A complete response body arrives before connection EOF
+
+- **WHEN** the native candidate returns a valid HTTP response with its complete declared body while the loopback connection remains open
+- **THEN** the durable smoke SHALL accept the response at the declared message boundary
+- **AND** it SHALL NOT wait for TCP EOF or relax its bounded response deadline
