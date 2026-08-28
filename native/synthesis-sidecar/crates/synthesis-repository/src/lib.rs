@@ -20,8 +20,9 @@ pub use reference_redirect_graph::*;
 mod tag_concept_topic_graph;
 pub use tag_concept_topic_graph::*;
 
-const PREVIOUS_SCHEMA_VERSION: &str = "synthesis-repository-foundation.v1";
-pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v2";
+const FOUNDATION_SCHEMA_V1: &str = "synthesis-repository-foundation.v1";
+const FOUNDATION_SCHEMA_V2: &str = "synthesis-repository-foundation.v2";
+pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v3";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
@@ -152,7 +153,7 @@ pub(crate) const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
     ),
     (
         "topic_graph_application_schema_version",
-        "synthesis-topic-graph-application-repository.v1",
+        "synthesis-topic-graph-application-repository.v2",
     ),
     (
         "durable_import_repository_schema_version",
@@ -172,12 +173,18 @@ struct RegisteredProductionSchemaMigration {
 
 // Schema changes must be registered here explicitly. Ordinary XPI updates do
 // not create backups and never infer a migration from a runtime fingerprint.
-const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigration] =
-    &[RegisteredProductionSchemaMigration {
-        from: PREVIOUS_SCHEMA_VERSION,
-        to: SCHEMA_VERSION,
+const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigration] = &[
+    RegisteredProductionSchemaMigration {
+        from: FOUNDATION_SCHEMA_V1,
+        to: FOUNDATION_SCHEMA_V2,
         migrate: migrate_repository_foundation_v1_to_v2,
-    }];
+    },
+    RegisteredProductionSchemaMigration {
+        from: FOUNDATION_SCHEMA_V2,
+        to: SCHEMA_VERSION,
+        migrate: migrate_repository_foundation_v2_to_v3,
+    },
+];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -568,6 +575,26 @@ fn migrate_repository_foundation_v1_to_v2(connection: &Connection) -> Result<(),
         .execute(
             "UPDATE synt_schema_meta SET value=?1
              WHERE key='repository_foundation_schema_version'",
+            [FOUNDATION_SCHEMA_V2],
+        )
+        .map_err(map_sqlite_error)?;
+    Ok(())
+}
+
+fn migrate_repository_foundation_v2_to_v3(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "ALTER TABLE synt_topic_graph_node
+               ADD COLUMN planning_json TEXT NOT NULL DEFAULT '{}';
+             UPDATE synt_schema_meta
+               SET value='synthesis-topic-graph-application-repository.v2'
+               WHERE key='topic_graph_application_schema_version';",
+        )
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute(
+            "UPDATE synt_schema_meta SET value=?1
+             WHERE key='repository_foundation_schema_version'",
             [SCHEMA_VERSION],
         )
         .map_err(map_sqlite_error)?;
@@ -586,12 +613,24 @@ fn prepare_production_schema_with_registry(
     if stored_schema == SCHEMA_VERSION {
         return Ok(());
     }
-    let migration = migrations
-        .iter()
-        .find(|migration| migration.from == stored_schema && migration.to == SCHEMA_VERSION)
-        .ok_or_else(|| "repository_schema_migration_unregistered".to_owned())?;
-    let backup_path = migration_backup_path(backup_root, migration.from, migration.to);
-    create_or_verify_migration_backup(database_path, &backup_path, migration.from)?;
+    let mut path = Vec::new();
+    let mut cursor = stored_schema.as_str();
+    while cursor != SCHEMA_VERSION {
+        let migration = migrations
+            .iter()
+            .find(|migration| migration.from == cursor)
+            .ok_or_else(|| "repository_schema_migration_unregistered".to_owned())?;
+        if path
+            .iter()
+            .any(|seen: &&RegisteredProductionSchemaMigration| seen.from == migration.from)
+        {
+            return Err("repository_schema_migration_unregistered".into());
+        }
+        path.push(migration);
+        cursor = migration.to;
+    }
+    let backup_path = migration_backup_path(backup_root, &stored_schema, SCHEMA_VERSION);
+    create_or_verify_migration_backup(database_path, &backup_path, &stored_schema)?;
 
     let connection = Connection::open_with_flags(
         database_path,
@@ -605,12 +644,17 @@ fn prepare_production_schema_with_registry(
         .execute_batch("BEGIN IMMEDIATE")
         .map_err(map_sqlite_error)?;
     let migrated = (|| -> Result<(), String> {
-        if read_schema_version(&connection)? != migration.from {
+        if read_schema_version(&connection)? != stored_schema {
             return Err("repository_schema_changed_during_migration".into());
         }
-        (migration.migrate)(&connection)?;
-        if read_schema_version(&connection)? != migration.to {
-            return Err("repository_schema_migration_incomplete".into());
+        for migration in path {
+            if read_schema_version(&connection)? != migration.from {
+                return Err("repository_schema_changed_during_migration".into());
+            }
+            (migration.migrate)(&connection)?;
+            if read_schema_version(&connection)? != migration.to {
+                return Err("repository_schema_migration_incomplete".into());
+            }
         }
         connection
             .execute_batch("COMMIT")
@@ -640,7 +684,7 @@ pub fn prepare_production_schema_with_legacy_topics(
         TopicApplicationProjectionRecord,
     )],
 ) -> Result<(), String> {
-    if legacy_ts_migration::migrate_if_exact_legacy_ts(database_path, backup_root, topics)? {
+    if legacy_ts_migration::migrate_if_known_legacy_ts(database_path, backup_root, topics)? {
         return prepare_reference_redirect_graph_schema(database_path, backup_root);
     }
     prepare_production_schema_with_registry(
@@ -2663,8 +2707,175 @@ mod tests {
         }
         {
             let source = open_production_database_read_only(&database_path).expect("source");
-            assert!(!legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("reject"));
+            assert_eq!(
+                legacy_ts_migration::classify_legacy_ts_schema(&source).unwrap_err(),
+                "legacy_schema_variant_unsupported"
+            );
         }
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn known_legacy_ts_variants_are_classified_and_unknown_columns_are_terminal() {
+        for (label, mutate, expected) in [
+            (
+                "v05",
+                "DROP TABLE synt_tag_audit",
+                legacy_ts_migration::LegacyTsVariant::ReleaseV05V06,
+            ),
+            (
+                "v083",
+                "SELECT 1",
+                legacy_ts_migration::LegacyTsVariant::ReleaseV07V083,
+            ),
+            (
+                "dev-planning",
+                "ALTER TABLE synt_topic_graph_node ADD COLUMN planning_json TEXT NOT NULL DEFAULT '{}'",
+                legacy_ts_migration::LegacyTsVariant::DevPlanning,
+            ),
+            (
+                "dev-screening",
+                "ALTER TABLE synt_topic_graph_node ADD COLUMN planning_json TEXT NOT NULL DEFAULT '{}';
+                 ALTER TABLE synt_topic_discovery_hint ADD COLUMN basis_hash TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE synt_topic_discovery_hint ADD COLUMN outcome_json TEXT NOT NULL DEFAULT '{}'",
+                legacy_ts_migration::LegacyTsVariant::DevPlanningScreening,
+            ),
+        ] {
+            let root = root(label);
+            let database_path = root.join("state/synthesis.db");
+            fs::create_dir_all(database_path.parent().expect("parent")).expect("state");
+            legacy_ts_migration::create_legacy_test_database(&database_path)
+                .expect("legacy fixture");
+            Connection::open(&database_path)
+                .expect("fixture")
+                .execute_batch(mutate)
+                .expect("variant");
+            let source = open_production_database_read_only(&database_path).expect("source");
+            assert_eq!(
+                legacy_ts_migration::classify_legacy_ts_schema(&source).expect("classify"),
+                Some(expected),
+                "{label}"
+            );
+            fs::remove_dir_all(root).expect("cleanup");
+        }
+
+        let root = root("legacy-unknown-column");
+        let database_path = root.join("state/synthesis.db");
+        let backup_root = root.join("state/synthesis-migration-backups");
+        fs::create_dir_all(database_path.parent().expect("parent")).expect("state");
+        legacy_ts_migration::create_legacy_test_database(&database_path).expect("legacy fixture");
+        Connection::open(&database_path)
+            .expect("fixture")
+            .execute("ALTER TABLE synt_tag_alias ADD COLUMN future_fact TEXT", [])
+            .expect("unknown column");
+        assert_eq!(
+            prepare_production_schema(&database_path, &backup_root).unwrap_err(),
+            "legacy_schema_variant_unsupported"
+        );
+        assert!(!backup_root.exists(), "classification must be read-only");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn development_legacy_facts_survive_normalization() {
+        let root = root("legacy-development-facts");
+        let database_path = root.join("state/synthesis.db");
+        let backup_root = root.join("state/synthesis-migration-backups");
+        fs::create_dir_all(database_path.parent().expect("parent")).expect("state");
+        legacy_ts_migration::create_legacy_test_database(&database_path).expect("legacy fixture");
+        let fixture = Connection::open(&database_path).expect("fixture");
+        fixture
+            .execute_batch(
+                "ALTER TABLE synt_topic_graph_node ADD COLUMN planning_json TEXT NOT NULL DEFAULT '{}';
+                 ALTER TABLE synt_topic_discovery_hint ADD COLUMN basis_hash TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE synt_topic_discovery_hint ADD COLUMN outcome_json TEXT NOT NULL DEFAULT '{}';
+                 INSERT INTO synt_topic_graph_node(
+                   topic_id,title,node_type,planning_json
+                 ) VALUES('topic:planned','Planned','topic','{\"status\":\"planned\",\"revision\":3}');
+                 INSERT INTO synt_topic_discovery_hint(
+                   hint_id,topic_id,literature_item_id,score,method,matching_fields_json,status,
+                   created_at,updated_at,basis_hash,outcome_json
+                 ) VALUES('hint:screened','topic:planned','paper:1','0.8','terms','[]','rejected',
+                   '1','2','basis:one','{\"status\":\"screened_out\",\"reason\":\"scope\"}');
+                 INSERT INTO synt_topic_discovery_hint(
+                   hint_id,topic_id,literature_item_id,score,method,matching_fields_json,status,
+                   created_at,updated_at,basis_hash,outcome_json
+                 ) VALUES('hint:open','topic:planned','paper:2','0.7','terms','[]','open',
+                   '1','2','','')",
+            )
+            .expect("development facts");
+        drop(fixture);
+
+        prepare_production_schema(&database_path, &backup_root).expect("migrate");
+        let migrated = open_production_database_read_only(&database_path).expect("migrated");
+        assert_eq!(
+            migrated
+                .query_row(
+                    "SELECT planning_json FROM synt_topic_graph_node WHERE topic_id='topic:planned'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("planning"),
+            "{\"status\":\"planned\",\"revision\":3}"
+        );
+        let payload: String = migrated
+            .query_row(
+                "SELECT payload_json FROM synt_topic_discovery_hint WHERE hint_id='hint:screened'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("hint");
+        let payload: Value = serde_json::from_str(&payload).expect("payload json");
+        assert_eq!(payload["basis_hash"], "basis:one");
+        assert_eq!(payload["outcome"]["status"], "screened_out");
+        let open_payload: String = migrated
+            .query_row(
+                "SELECT payload_json FROM synt_topic_discovery_hint WHERE hint_id='hint:open'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("open hint");
+        let open_payload: Value = serde_json::from_str(&open_payload).expect("open payload json");
+        assert_eq!(open_payload["outcome"], json!({}));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn discovery_screening_is_preserved_on_same_basis_and_reopened_on_change() {
+        let root = root("discovery-screening-basis");
+        let mut repository = Repository::open(&root, identity()).expect("repository");
+        repository
+            .execute(
+                "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                 VALUES(?1,?2,?3)",
+                &[
+                    json!("hint:one"),
+                    json!("{\"hint_id\":\"hint:one\",\"status\":\"open\"}"),
+                    json!("1"),
+                ],
+            )
+            .expect("hint");
+        repository
+            .update_topic_discovery_hint_outcome(
+                "hint:one",
+                "screened_out",
+                "basis:one",
+                &json!({"status":"screened_out","reason":"scope"}),
+                "2",
+            )
+            .expect("screen");
+        let same = repository
+            .update_topic_discovery_hint_outcome("hint:one", "open", "basis:one", &json!({}), "3")
+            .expect("same basis")
+            .expect("hint");
+        assert_eq!(same["status"], "screened_out");
+        let changed = repository
+            .update_topic_discovery_hint_outcome("hint:one", "open", "basis:two", &json!({}), "4")
+            .expect("changed basis")
+            .expect("hint");
+        assert_eq!(changed["status"], "open");
+        assert_eq!(changed["basis_hash"], "basis:two");
+        repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -2888,7 +3099,8 @@ mod tests {
         let connection = Connection::open(&database_path).expect("open fixture");
         connection
             .execute_batch(
-                "DROP INDEX idx_synt_topic_deleted_artifact_deleted;
+                "ALTER TABLE synt_topic_graph_node DROP COLUMN planning_json;
+                 DROP INDEX idx_synt_topic_deleted_artifact_deleted;
                  DROP TABLE synt_topic_deleted_artifact;
                  INSERT INTO synt_topic_application_state(
                    topic_id,path_id,manifest_hash,artifact_hash,metadata_hash,bundle_hash
@@ -3044,7 +3256,7 @@ mod tests {
             let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
             assert_eq!(
                 read_schema_version(&backup).expect("backup schema"),
-                PREVIOUS_SCHEMA_VERSION
+                FOUNDATION_SCHEMA_V1
             );
         }
         fs::remove_dir_all(root).expect("cleanup");
@@ -3178,7 +3390,8 @@ mod tests {
         let connection = Connection::open(&database_path).expect("open fixture");
         connection
             .execute_batch(
-                "DROP INDEX idx_synt_topic_deleted_artifact_deleted;
+                "ALTER TABLE synt_topic_graph_node DROP COLUMN planning_json;
+                 DROP INDEX idx_synt_topic_deleted_artifact_deleted;
                  DROP TABLE synt_topic_deleted_artifact;
                  UPDATE synt_schema_meta
                    SET value='synthesis-topic-application-repository.v1'
@@ -3191,7 +3404,7 @@ mod tests {
         drop(connection);
         let backup_root = root.join("state/synthesis-migration-backups");
         let migrations = [RegisteredProductionSchemaMigration {
-            from: PREVIOUS_SCHEMA_VERSION,
+            from: FOUNDATION_SCHEMA_V1,
             to: SCHEMA_VERSION,
             migrate: fail_after_schema_write,
         }];
@@ -3204,7 +3417,7 @@ mod tests {
             let source = open_production_database_read_only(&database_path).expect("source");
             assert_eq!(
                 read_schema_version(&source).expect("source schema"),
-                PREVIOUS_SCHEMA_VERSION
+                FOUNDATION_SCHEMA_V1
             );
         }
         let backups = fs::read_dir(&backup_root)
@@ -3216,7 +3429,7 @@ mod tests {
             let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
             assert_eq!(
                 read_schema_version(&backup).expect("backup schema"),
-                PREVIOUS_SCHEMA_VERSION
+                FOUNDATION_SCHEMA_V1
             );
         }
         fs::remove_dir_all(root).expect("cleanup");

@@ -467,6 +467,8 @@
         "client.debugSynthesisDiff",
         "client.debugSynthesisCleanInstallReset",
         "client.listWorkflowTopicOptions",
+        "client.getTopicPlanningContext",
+        "client.applyTopicPlan",
         "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         "client.resetSynthesisDatabase",
         "client.consumeRelatedItemsSyncEcho",

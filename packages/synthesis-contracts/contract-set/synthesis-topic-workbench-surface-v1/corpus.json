@@ -40,6 +40,24 @@
       "cases": ["empty", "filter", "invalid_args", "oversized", "expired"]
     },
     {
+      "id": "client.getTopicPlanningContext",
+      "access": "read",
+      "cases": ["empty", "planned", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.applyTopicPlan",
+      "access": "mutation",
+      "cases": [
+        "valid",
+        "basis_conflict",
+        "revision_conflict",
+        "reopen",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
+    },
+    {
       "id": "client.getSynthesisWorkbenchChromeInput",
       "access": "read",
       "cases": ["empty", "jobs", "invalid_args", "oversized", "expired"]

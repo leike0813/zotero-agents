@@ -14,7 +14,7 @@ thread_local! {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct TraceContext {
+pub struct TraceContext {
     schema: String,
     trace_id: String,
     span_id: String,
@@ -85,6 +85,12 @@ pub(crate) fn with_observation_context<T>(
         current.replace(previous);
         result
     })
+}
+
+pub(crate) fn install_observation_context(context: Option<&TraceContext>) {
+    OBSERVATION_CONTEXT.with(|current| {
+        current.replace(context.cloned());
+    });
 }
 
 fn map_is_empty(value: &BTreeMap<&'static str, Value>) -> bool {
@@ -327,6 +333,12 @@ pub(crate) fn emit(event: NativeDiagnosticEvent) {
     if !debug_events_enabled() {
         return;
     }
+    if let Ok(source) = serde_json::to_string(&event) {
+        eprintln!("{source}");
+    }
+}
+
+pub(crate) fn emit_startup(event: NativeDiagnosticEvent) {
     if let Ok(source) = serde_json::to_string(&event) {
         eprintln!("{source}");
     }

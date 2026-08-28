@@ -12,9 +12,13 @@ import {
   type SynthesisSidecarRuntimeTarget,
   type SynthesisSidecarRuntimeTargetTriple,
 } from "./sidecarRuntimeBundle.js";
+import {
+  rebuildSynthesisSidecarTraceContext,
+  type SynthesisSidecarTraceContext,
+} from "./sidecarObservability.js";
 
 export const SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA =
-  "synthesis-sidecar-launch-config.v3" as const;
+  "synthesis-sidecar-launch-config.v4" as const;
 export const SYNTHESIS_SIDECAR_DISCOVERY_SCHEMA =
   "synthesis-sidecar-discovery.v2" as const;
 
@@ -39,6 +43,7 @@ export type SynthesisSidecarLaunchConfig = {
   schemaVersion: string;
   supervisorInstanceId: string;
   diagnosticsEnabled: boolean;
+  startupTrace?: SynthesisSidecarTraceContext;
   repositoryDbPath: string;
   canonicalRoot: string;
   reverseHost: {
@@ -161,7 +166,7 @@ export function rebuildSynthesisSidecarLaunchConfig(
   value: unknown,
 ): SynthesisSidecarLaunchConfig {
   const record = toSynthesisJsonObject(value, "sidecarLaunchConfig");
-  const { diagnosticsEnabled, ...requiredRecord } = record;
+  const { diagnosticsEnabled, startupTrace, ...requiredRecord } = record;
   exactKeys(
     requiredRecord,
     [
@@ -294,6 +299,11 @@ export function rebuildSynthesisSidecarLaunchConfig(
       "sidecarLaunchConfig.supervisorInstanceId",
     ),
     diagnosticsEnabled: diagnosticsEnabled === true,
+    ...(typeof startupTrace === "undefined"
+      ? {}
+      : {
+          startupTrace: rebuildSynthesisSidecarTraceContext(startupTrace),
+        }),
     repositoryDbPath: strictAbsolutePath(
       record.repositoryDbPath,
       "sidecarLaunchConfig.repositoryDbPath",

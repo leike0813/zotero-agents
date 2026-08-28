@@ -7,11 +7,12 @@ The strict manifest-v3 installer materializes one verified `current` directory.
 There is no independent sidecar updater, version generation, admission,
 cutover, activation, or runtime rollback.
 
-Startup writes one launch-scoped config containing production database,
-canonical, reverse Host, runtime identity, and session-token fields, then runs
-`serve --config`. Rust holds `state/synthesis.lock` as an exclusive OS file
-lock before opening production storage. Session discovery, authenticated health,
-and authenticated handshake are sufficient to publish the native client.
+Startup writes one strict launch-config v4 containing production database,
+canonical, reverse Host, runtime identity, session-token, and optional bounded
+startup-trace fields, then runs `serve --config`. Rust holds
+`state/synthesis.lock` as an exclusive OS file lock before opening production
+storage. Session discovery, authenticated health, and authenticated handshake
+are sufficient to publish the native client.
 Receipt, owner, lease, pointer, and activation files are not runtime inputs.
 
 If the production database, SQLite sidecars, and canonical root are all absent,
@@ -19,17 +20,27 @@ Rust initializes the database and canonical root while holding the lock. A
 partial combination fails with `synthesis_source_state_incomplete` without
 constructing the missing half.
 
-One registered adoption path handles the exact final TypeScript-owned database
-marker `2026-06-01.sidecar-cache-hard-cut`. Before publishing anything, Rust
-cross-checks the legacy Topic graph, definitions, resolvers, resolved paper
-sets, and every canonical current tree. It then creates a verified backup under
+One registered adoption path handles the final TypeScript-owned database marker
+`2026-06-01.sidecar-cache-hard-cut`. It first classifies the source without
+writing: released v0.5-v0.6, released v0.7-v0.8.3, development planning-only,
+and development planning-plus-screening are explicit supported profiles. Each
+profile is normalized through the same typed intermediate facts, preserving
+present values and filling only fields that did not exist in that historical
+shape. This provides staged compatibility without running an old executable or
+rewriting the source in place. Any unrecognized table/column shape fails as
+`legacy_schema_variant_unsupported` before a backup or candidate is created.
+
+Before publishing anything, Rust cross-checks the legacy Topic graph,
+definitions, resolvers, resolved paper sets, and every canonical current tree.
+It then creates one verified backup under
 `state/synthesis-migration-backups`, builds and validates a sibling foundation
-v2 database, and publishes it atomically. Existing canonical files remain
+v3 database, and publishes it atomically. Existing canonical files remain
 byte-identical; only the production identity marker is added after database
 publication. Unsupported schema drift, source conflicts, build failures, lock
-conflicts, or identity mismatches fail closed. There is no legacy-owner retry.
-The next startup opens the current stores directly and creates no additional
-migration backup.
+conflicts, or identity mismatches fail closed. The next explicit supervisor
+recovery can rebuild a failed candidate; it never mutates or retries through a
+legacy production owner. The next successful startup opens the current stores
+directly and creates no additional migration backup.
 
 Installing a new XPI replaces the packaged sidecar. The next startup verifies
 the new bundle and atomically replaces `current`. Same-schema startup creates no
@@ -65,9 +76,9 @@ read-only operation API and use the control extension for cancel, continue, or
 retry. Reverse-Host calls keep their capability-specific bounds, including the
 larger hash-guarded artifact-read path.
 
-All normal Synthesis capabilities enter through the 96-operation native
-production manifest: 95 routes reconciled to the fixed 131-method baseline plus
-the approved `client.controlPublicMaintenanceOperation` extension. TypeScript
+All normal Synthesis capabilities enter through the 98-operation native
+production manifest, including native planned-topic context and plan-apply
+routes. TypeScript
 composition owns grouped-client validation, UI orchestration, large-content
 staging/resolution, and reverse-Host adapters. Rust owns typed domain dispatch,
 application behavior, repository transactions, canonical Topic files, and
@@ -84,14 +95,16 @@ OpenSpec changes. `apps/synthesis-service` remains independently compilable for
 differential tests, but production supervision accepts only verified
 `rust-native` manifest identity and an absolute native executable.
 
-The durable and application parity corpora fix repository foundation v2 at 53
+The durable and application parity corpora fix repository foundation v3 at 53
 tables and 46 indexes, together with SQLite PRAGMAs, canonical bytes/hashes,
 fault points, public DTOs, stable codes, journal/receipt state, and reopen
-behavior. The registered v1→v2 migration preserves Topic, approved
-binding/redirect/review, operation, sync, and last-good projection facts while
-marking rebuildable cache state stale. Production uses one serialized writer
-and at most four read-only connections. Seven-platform candidate execution is
-evidence only and does not publish or synchronize assets.
+behavior. The complete v1→v2→v3 registry runs as one ordered transaction with
+one verified backup. It preserves Topic, approved binding/redirect/review,
+operation, sync, last-good projection, planned-topic payload, and discovery
+screening facts while marking rebuildable cache state stale. Production uses
+one serialized writer and at most four read-only connections. Seven-platform
+candidate execution is evidence only and does not publish or synchronize
+assets.
 
 Plugin startup non-blockingly installs, launches, discovers, and supervises the
 native production owner. Startup reconciliation runs after current-session

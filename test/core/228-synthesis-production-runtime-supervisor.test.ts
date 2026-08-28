@@ -62,6 +62,12 @@ type LaunchConfig = {
     port: number;
     authorizationToken: string;
   };
+  startupTrace?: {
+    schema: "synthesis-sidecar-observation.v2";
+    traceId: string;
+    spanId: string;
+    attempt: number;
+  };
 };
 
 function discovery(config: LaunchConfig, serviceInstanceId: string) {
@@ -103,6 +109,23 @@ async function waitForStatus(
   }
   assert.fail(
     `supervisor did not reach ${status}: ${JSON.stringify(supervisor.getSnapshot())}`,
+  );
+}
+
+async function waitForSnapshot(
+  supervisor: ReturnType<typeof createSynthesisProductionRuntimeSupervisor>,
+  predicate: (
+    snapshot: ReturnType<(typeof supervisor)["getSnapshot"]>,
+  ) => boolean,
+) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    if (predicate(supervisor.getSnapshot())) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(
+    "supervisor snapshot did not match: " +
+      JSON.stringify(supervisor.getSnapshot()),
   );
 }
 
@@ -169,6 +192,7 @@ describe("Synthesis production runtime supervisor", function () {
           }),
           getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
           getReadyConnection: () => connection,
+          recover: () => undefined,
         };
       },
       stopProductionSupervisor: async () => {
@@ -193,6 +217,69 @@ describe("Synthesis production runtime supervisor", function () {
       "supervisor:stop",
       "reverse-host:stop",
     ]);
+  });
+
+  it("retries a failed production owner through the existing supervisor generation", async function () {
+    const connection = {
+      discovery: {
+        host: "127.0.0.1" as const,
+        port: 9135,
+        serviceInstanceId: "service-recovered",
+      },
+      clientToken: "7".repeat(64),
+    };
+    let ready = false;
+    let supervisorStarts = 0;
+    let recoveries = 0;
+    const owner = createSynthesisProductionOwner({
+      createReverseHostEndpoint: () => ({
+        start: () => ({
+          host: "127.0.0.1",
+          port: 9134,
+          authorizationToken: "8".repeat(64),
+        }),
+        bindServiceInstance: () => undefined,
+        stop: () => undefined,
+      }),
+      startProductionSupervisor: () => {
+        supervisorStarts += 1;
+        return {
+          subscribe: () => () => undefined,
+          getSnapshot: () =>
+            ready
+              ? ({
+                  status: "ready" as const,
+                  recoveryState: "none" as const,
+                  restartCount: 0,
+                } as const)
+              : ({
+                  status: "unavailable" as const,
+                  recoveryState: "manual-recovery-required" as const,
+                  reasonCode: "legacy_schema_variant_unsupported",
+                  restartCount: 0,
+                } as const),
+          getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+          getReadyConnection: () => (ready ? connection : null),
+          recover: () => {
+            recoveries += 1;
+            ready = true;
+          },
+        };
+      },
+      stopProductionSupervisor: async () => undefined,
+    });
+
+    let startupCode = "";
+    try {
+      await owner.start();
+    } catch (error) {
+      startupCode = error instanceof Error ? error.message : String(error);
+    }
+    assert.equal(startupCode, "legacy_schema_variant_unsupported");
+    assert.equal(await owner.recover(), connection);
+    assert.equal(supervisorStarts, 1);
+    assert.equal(recoveries, 1);
+    await owner.shutdown();
   });
 
   it("launches one serve command from a session config and leaves legacy state inert", async function () {
@@ -226,6 +313,12 @@ describe("Synthesis production runtime supervisor", function () {
     const closed = new Promise<void>((resolve) => {
       closeProcess = resolve;
     });
+    const startupTrace = {
+      schema: "synthesis-sidecar-observation.v2" as const,
+      traceId: "a".repeat(32),
+      spanId: "b".repeat(16),
+      attempt: 0,
+    };
     const supervisor = createSynthesisProductionRuntimeSupervisor({
       runtimeRoot,
       profilePath: PROFILE_PATH,
@@ -285,6 +378,7 @@ describe("Synthesis production runtime supervisor", function () {
       discoveryTimeoutMs: 500,
       healthIntervalMs: 0,
       diagnosticsEnabled: true,
+      startupTrace,
       recordTraceEvent: (event) => diagnosticEvents.push(event),
     });
 
@@ -295,7 +389,8 @@ describe("Synthesis production runtime supervisor", function () {
       "serve",
       "--config",
     ]);
-    assert.equal(configs[0]?.schema, "synthesis-sidecar-launch-config.v3");
+    assert.equal(configs[0]?.schema, "synthesis-sidecar-launch-config.v4");
+    assert.deepEqual(configs[0]?.startupTrace, startupTrace);
     assert.equal(configs[0]?.repositoryDbPath, repositoryDbPath);
     assert.equal(configs[0]?.canonicalRoot, canonicalRoot);
     assert.deepEqual(configs[0]?.reverseHost, {
@@ -324,5 +419,174 @@ describe("Synthesis production runtime supervisor", function () {
       fs.readFileSync(legacyVersionPath, "utf8"),
       "legacy-version\n",
     );
+  });
+
+  it("surfaces a deterministic child startup code before discovery without retaining raw stderr", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-supervisor-exit-"));
+    const chunks = ["legacy_schema_variant_unsupported\n"];
+    const supervisor = createSynthesisProductionRuntimeSupervisor({
+      runtimeRoot: path.join(root, "runtime"),
+      profilePath: PROFILE_PATH,
+      libraryId: 7,
+      repositoryDbPath: path.join(root, "state", "synthesis.db"),
+      canonicalRoot: path.join(root, "data", "synthesis"),
+      reverseHost: {
+        host: "127.0.0.1",
+        port: 9134,
+        authorizationToken: "8".repeat(64),
+      },
+      resolvedInstall: readyInstall(),
+      subprocess: {
+        call: async () => ({
+          stdout: { readString: async () => "" },
+          stderr: { readString: async () => chunks.shift() || "" },
+          stdin: { close: async () => undefined },
+          wait: async () => undefined,
+          kill: () => undefined,
+        }),
+      } as never,
+      controlClient: {} as never,
+      discoveryTimeoutMs: 100,
+      healthIntervalMs: 0,
+      diagnosticsEnabled: false,
+      restartDelaysMs: [1],
+    });
+
+    supervisor.start();
+    await waitForStatus(supervisor, "unavailable");
+    assert.equal(
+      supervisor.getSnapshot().reasonCode,
+      "legacy_schema_variant_unsupported",
+    );
+    assert.equal(
+      supervisor.getSnapshot().recoveryState,
+      "manual-recovery-required",
+    );
+    assert.equal(supervisor.getSnapshot().restartCount, 0);
+    assert.equal(supervisor.getDiagnosticEvidence().stderrTail, "");
+    await supervisor.stop();
+  });
+
+  it("fuses unknown startup crashes and ignores a delayed retry from an older generation", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-supervisor-fuse-"));
+    let attempts = 0;
+    const crashSupervisor = createSynthesisProductionRuntimeSupervisor({
+      runtimeRoot: path.join(root, "crash-runtime"),
+      profilePath: PROFILE_PATH,
+      libraryId: 7,
+      repositoryDbPath: path.join(root, "crash-state", "synthesis.db"),
+      canonicalRoot: path.join(root, "crash-data", "synthesis"),
+      reverseHost: {
+        host: "127.0.0.1",
+        port: 9134,
+        authorizationToken: "8".repeat(64),
+      },
+      resolvedInstall: readyInstall(),
+      subprocess: {
+        call: async () => {
+          attempts += 1;
+          return {
+            stdout: { readString: async () => "" },
+            stderr: { readString: async () => "" },
+            stdin: { close: async () => undefined },
+            wait: async () => undefined,
+            kill: () => undefined,
+          };
+        },
+      } as never,
+      controlClient: {} as never,
+      discoveryTimeoutMs: 100,
+      healthIntervalMs: 0,
+      restartDelaysMs: [1, 1],
+    });
+    crashSupervisor.start();
+    await waitForSnapshot(
+      crashSupervisor,
+      (snapshot) => snapshot.recoveryState === "manual-recovery-required",
+    );
+    assert.equal(attempts, 3);
+    assert.equal(
+      crashSupervisor.getSnapshot().reasonCode,
+      "sidecar_crash_loop_fused",
+    );
+    assert.equal(crashSupervisor.getSnapshot().restartCount, 3);
+    await crashSupervisor.stop();
+
+    let generationAttempts = 0;
+    let closeCurrent = () => undefined;
+    const delayedSupervisor = createSynthesisProductionRuntimeSupervisor({
+      runtimeRoot: path.join(root, "generation-runtime"),
+      profilePath: PROFILE_PATH,
+      libraryId: 7,
+      repositoryDbPath: path.join(root, "generation-state", "synthesis.db"),
+      canonicalRoot: path.join(root, "generation-data", "synthesis"),
+      reverseHost: {
+        host: "127.0.0.1",
+        port: 9134,
+        authorizationToken: "8".repeat(64),
+      },
+      resolvedInstall: readyInstall(),
+      subprocess: {
+        call: async (invocation: { arguments?: string[] }) => {
+          generationAttempts += 1;
+          if (generationAttempts === 1) {
+            return {
+              stdout: { readString: async () => "" },
+              stderr: { readString: async () => "" },
+              stdin: { close: async () => undefined },
+              wait: async () => undefined,
+              kill: () => undefined,
+            };
+          }
+          const config = JSON.parse(
+            fs.readFileSync(invocation.arguments?.[2] || "", "utf8"),
+          ) as LaunchConfig;
+          fs.writeFileSync(
+            path.join(config.profileRuntimeRoot, "discovery.json"),
+            JSON.stringify(discovery(config, "service-current")),
+          );
+          const closed = new Promise<void>((resolve) => {
+            closeCurrent = resolve;
+          });
+          return {
+            stdout: { readString: async () => "" },
+            stderr: { readString: async () => "" },
+            stdin: { close: async () => closeCurrent() },
+            wait: () => closed,
+            kill: () => closeCurrent(),
+          };
+        },
+      } as never,
+      controlClient: {
+        health: async () => ({
+          serviceVersion: "0.1.0",
+          serviceInstanceId: "service-current",
+          bundleId: BUNDLE_ID,
+          computePool: {
+            state: "idle",
+            active: 0,
+            queued: 0,
+            restartCount: 0,
+            failureCount: 0,
+          },
+        }),
+        handshake: async () => ({}),
+        shutdown: async () => undefined,
+      } as never,
+      discoveryTimeoutMs: 500,
+      healthIntervalMs: 0,
+      restartDelaysMs: [50],
+    });
+    delayedSupervisor.start();
+    await waitForSnapshot(
+      delayedSupervisor,
+      (snapshot) => snapshot.recoveryState === "scheduled",
+    );
+    await delayedSupervisor.stop();
+    delayedSupervisor.start();
+    await waitForStatus(delayedSupervisor, "ready");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(generationAttempts, 2);
+    await delayedSupervisor.stop();
   });
 });

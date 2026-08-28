@@ -8,6 +8,16 @@ An ad-hoc Create seed also resolves against the complete topic inventory before 
 
 Planner reconciliation covers the whole current library and applies all placeholder and relation changes atomically against the Topic Graph hash. A concurrent graph change rejects the whole plan. A library-index change can leave the graph reconciliation valid while marking its coverage result stale. Materialized Topics are read-only to Planner; update recommendations go through Update Topic Synthesis. Separate materialization runs may execute in parallel after the shared plan has established their identities and relation proposals.
 
+Production planning is a native sidecar route. `getTopicPlanningContext`
+returns the complete bounded library/topic context and
+`applyTopicPlan` accepts a strict typed plan with the observed graph and library
+bases. Create, update, stale, reactivation, and relation changes commit in one
+Topic Graph transaction. Revision or graph-basis mismatch rejects the whole
+plan; a library-basis mismatch preserves a valid graph reconciliation but marks
+its coverage stale. Planning never writes provisional paper memberships.
+Materialized Topic nodes are protected from Planner mutation, and a proposed
+hierarchy cycle rejects the plan before any write.
+
 ## Topic Artifacts
 
 A topic artifact owns:
@@ -145,6 +155,12 @@ Update preparation treats open discovery hints as a separate, bounded membership
 - the resolver manifest records base refs, candidate hint IDs and bases, unresolved refs, triage outcomes, accepted additions, screened refs, and effective refs.
 
 Host apply commits these exact hint outcomes only after topic validation, CAS checks, and canonical writes succeed. A conflict or failed apply leaves discovery rows unchanged.
+
+Each persisted discovery outcome carries the source basis that produced it.
+Repeating discovery against the same basis preserves a screened-out decision;
+a changed basis reopens that literature candidate for evaluation. Accepted and
+superseded outcomes remain explicit rather than being inferred from a missing
+open row.
 
 ## Metadata Snapshot Semantics
 

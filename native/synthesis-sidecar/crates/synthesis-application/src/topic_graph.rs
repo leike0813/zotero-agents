@@ -168,6 +168,68 @@ pub struct TopicGraphPurgeRequest {
     pub topic_ids: Vec<String>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicPlanScope {
+    #[serde(default)]
+    pub include: Vec<String>,
+    #[serde(default)]
+    pub exclude: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TopicPlanAction {
+    pub action: String,
+    pub topic_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub definition: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub scope: TopicPlanScope,
+    #[serde(default)]
+    pub resolver: Value,
+    #[serde(default)]
+    pub revision: Option<i64>,
+    #[serde(default)]
+    pub basis: Vec<Value>,
+    #[serde(default)]
+    pub provenance: Vec<Value>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TopicPlanRelationProposal {
+    pub source_topic_id: String,
+    pub target_topic_id: String,
+    pub relation: String,
+    #[serde(default)]
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub provenance: Vec<Value>,
+    #[serde(default)]
+    pub evidence_refs: Vec<Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TopicPlanReconcileRequest {
+    pub kind: String,
+    pub operation: String,
+    pub base_graph_hash: String,
+    pub library_index_hash: String,
+    #[serde(default)]
+    pub topic_actions: Vec<TopicPlanAction>,
+    #[serde(default)]
+    pub relation_proposals: Vec<TopicPlanRelationProposal>,
+    #[serde(default)]
+    pub coverage_manifest_path: String,
+    #[serde(default)]
+    pub recommended_updates: Vec<String>,
+}
+
 pub trait TopicGraphComputePort: Send + Sync {
     fn build_index(
         &self,
@@ -333,6 +395,7 @@ impl TopicGraphApplication {
                     .filter(|value| !value.is_empty())
                     .unwrap_or_else(|| now.clone()),
                 updated_at: now.clone(),
+                planning_json: materialized_planning_json(previous.as_ref()),
             };
             let materially_equal = previous.as_ref().is_some_and(|node| {
                 node.topic_id == next.topic_id
@@ -346,6 +409,7 @@ impl TopicGraphApplication {
                     && node.level == next.level
                     && node.paper_count == next.paper_count
                     && node.last_synthesis_at == next.last_synthesis_at
+                    && node.planning_json == next.planning_json
             });
             if materially_equal {
                 continue;
@@ -378,6 +442,292 @@ impl TopicGraphApplication {
             );
         }
         self.apply_replacement(expected_manifest_hash.as_deref(), &snapshot)
+    }
+
+    pub fn reconcile_plan(
+        &self,
+        request: &TopicPlanReconcileRequest,
+        current_library_index_hash: &str,
+    ) -> Value {
+        let current = match self.repository.load() {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                return topic_plan_result(
+                    "conflict",
+                    "",
+                    false,
+                    &request.recommended_updates,
+                    vec!["topic_graph_repair_required"],
+                );
+            }
+        };
+        let coverage_stale = request.library_index_hash != current_library_index_hash;
+        if request.kind != "topic_plan" || request.operation != "reconcile" {
+            return topic_plan_result(
+                "conflict",
+                &current.state.manifest_hash,
+                coverage_stale,
+                &request.recommended_updates,
+                vec!["invalid_topic_plan_contract"],
+            );
+        }
+        let mut next = current.clone();
+        let now = (self.now)();
+        let mut diagnostics = Vec::new();
+        for topic_id in &request.recommended_updates {
+            if !current
+                .nodes
+                .iter()
+                .any(|node| node.topic_id == *topic_id && node.node_type == "materialized")
+            {
+                diagnostics.push("recommended_update_requires_materialized_topic");
+            }
+        }
+        for action in &request.topic_actions {
+            let previous = next
+                .nodes
+                .iter()
+                .find(|node| node.topic_id == action.topic_id)
+                .cloned();
+            if action.topic_id.trim().is_empty() {
+                diagnostics.push("invalid_planned_topic_id");
+                continue;
+            }
+            if ["paper_ids", "paper_refs", "papers", "members"]
+                .iter()
+                .any(|field| action.extra.contains_key(*field))
+            {
+                diagnostics.push("planned_topic_membership_forbidden");
+                continue;
+            }
+            if previous
+                .as_ref()
+                .is_some_and(|node| node.node_type == "materialized")
+            {
+                diagnostics.push("materialized_topic_is_not_planner_writable");
+                continue;
+            }
+            let previous_planning = previous
+                .as_ref()
+                .and_then(|node| serde_json::from_str::<Value>(&node.planning_json).ok())
+                .filter(Value::is_object);
+            let previous_revision = previous_planning
+                .as_ref()
+                .and_then(|value| value.get("revision"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            if action.action != "create" && previous_planning.is_none() {
+                diagnostics.push("planned_topic_missing");
+                continue;
+            }
+            if action.action != "create"
+                && action
+                    .revision
+                    .is_some_and(|revision| revision != previous_revision)
+            {
+                diagnostics.push("planned_topic_revision_conflict");
+                continue;
+            }
+            if !matches!(
+                action.action.as_str(),
+                "create" | "update" | "mark_stale" | "reactivate"
+            ) {
+                diagnostics.push("invalid_topic_plan_action");
+                continue;
+            }
+            let definition = if action.definition.trim().is_empty() {
+                previous
+                    .as_ref()
+                    .map(|node| node.definition.clone())
+                    .unwrap_or_default()
+            } else {
+                action.definition.clone()
+            };
+            let resolver = if action.resolver.is_object() {
+                action.resolver.clone()
+            } else {
+                previous_planning
+                    .as_ref()
+                    .and_then(|value| value.get("resolver"))
+                    .cloned()
+                    .unwrap_or_else(|| json!({}))
+            };
+            if definition.trim().is_empty()
+                || ((action.action == "create" || action.action == "update")
+                    && resolver.as_object().is_none_or(|value| value.is_empty()))
+            {
+                diagnostics.push("invalid_planned_topic_definition");
+                continue;
+            }
+            let lifecycle = if action.action == "mark_stale" {
+                "stale"
+            } else {
+                "planned"
+            };
+            let revision = if action.action == "create" {
+                1
+            } else if action.action == "update" {
+                previous_revision + 1
+            } else {
+                previous_revision.max(1)
+            };
+            let planning = json!({
+                "lifecycle":lifecycle,
+                "scope":{"include":action.scope.include,"exclude":action.scope.exclude},
+                "resolver":resolver,
+                "revision":revision,
+                "basis":action.basis,
+                "provenance":action.provenance,
+                "coverage_manifest_path":request.coverage_manifest_path,
+            });
+            let node = TopicGraphNodeRecord {
+                topic_id: action.topic_id.clone(),
+                title: if action.title.trim().is_empty() {
+                    previous
+                        .as_ref()
+                        .map(|node| node.title.clone())
+                        .unwrap_or_else(|| action.topic_id.clone())
+                } else {
+                    action.title.clone()
+                },
+                definition,
+                aliases_json: if action.aliases.is_empty() {
+                    previous
+                        .as_ref()
+                        .map(|node| node.aliases_json.clone())
+                        .unwrap_or_else(|| "[]".into())
+                } else {
+                    serde_json::to_string(&action.aliases).unwrap_or_else(|_| "[]".into())
+                },
+                node_type: "placeholder".into(),
+                definition_status: if lifecycle == "stale" {
+                    "stale".into()
+                } else {
+                    "placeholder".into()
+                },
+                created_at: previous
+                    .as_ref()
+                    .map(|node| node.created_at.clone())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| now.clone()),
+                updated_at: now.clone(),
+                planning_json: serde_json::to_string(&planning).unwrap_or_else(|_| "{}".into()),
+                ..TopicGraphNodeRecord::default()
+            };
+            next.nodes.retain(|node| node.topic_id != action.topic_id);
+            next.nodes.push(node);
+        }
+        let node_ids = next
+            .nodes
+            .iter()
+            .map(|node| node.topic_id.clone())
+            .collect::<HashSet<_>>();
+        for proposal in &request.relation_proposals {
+            if !matches!(
+                proposal.relation.as_str(),
+                "broader_than" | "related_to" | "overlaps_with" | "contrasts_with"
+            ) || proposal.source_topic_id == proposal.target_topic_id
+                || !node_ids.contains(&proposal.source_topic_id)
+                || !node_ids.contains(&proposal.target_topic_id)
+            {
+                diagnostics.push("invalid_topic_plan_relation");
+                continue;
+            }
+            let edge_id = topic_graph_edge_id(
+                &proposal.source_topic_id,
+                &proposal.target_topic_id,
+                &proposal.relation,
+            );
+            let previous = next.edges.iter().find(|edge| edge.edge_id == edge_id);
+            if previous.is_some_and(|edge| matches!(edge.status.as_str(), "confirmed" | "rejected"))
+            {
+                continue;
+            }
+            next.edges.retain(|edge| edge.edge_id != edge_id);
+            next.edges.push(TopicGraphEdgeRecord {
+                edge_id,
+                source_topic_id: proposal.source_topic_id.clone(),
+                target_topic_id: proposal.target_topic_id.clone(),
+                relation: proposal.relation.clone(),
+                status: "suggested".into(),
+                confidence: proposal.confidence,
+                provenance_json: serde_json::to_string(&proposal.provenance)
+                    .unwrap_or_else(|_| "[]".into()),
+                evidence_refs_json: serde_json::to_string(&proposal.evidence_refs)
+                    .unwrap_or_else(|_| "[]".into()),
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            });
+        }
+        if !diagnostics.is_empty() || has_broader_cycle(&next) {
+            if has_broader_cycle(&next) {
+                diagnostics.push("broader_cycle_rejected");
+            }
+            return topic_plan_result(
+                "conflict",
+                &current.state.manifest_hash,
+                coverage_stale,
+                &request.recommended_updates,
+                diagnostics,
+            );
+        }
+        next.nodes
+            .sort_by(|left, right| left.topic_id.cmp(&right.topic_id));
+        next.edges
+            .sort_by(|left, right| left.edge_id.cmp(&right.edge_id));
+        next.state.singleton_id = 1;
+        next.state.index_stale = 1;
+        next.state.updated_at = now;
+        if set_topic_graph_manifest(&mut next).is_err() {
+            return topic_plan_result(
+                "conflict",
+                &current.state.manifest_hash,
+                coverage_stale,
+                &request.recommended_updates,
+                vec!["topic_graph_projection_failed"],
+            );
+        }
+        if next.state.manifest_hash == current.state.manifest_hash {
+            return topic_plan_result(
+                if request.base_graph_hash == current.state.manifest_hash {
+                    "no_change"
+                } else {
+                    "already_applied"
+                },
+                &current.state.manifest_hash,
+                coverage_stale,
+                &request.recommended_updates,
+                Vec::new(),
+            );
+        }
+        if request.base_graph_hash != current.state.manifest_hash {
+            return topic_plan_result(
+                "conflict",
+                &current.state.manifest_hash,
+                coverage_stale,
+                &request.recommended_updates,
+                vec!["topic_graph_compare_and_swap_conflict"],
+            );
+        }
+        let result = self.apply_replacement(Some(&current.state.manifest_hash), &next);
+        topic_plan_result(
+            if result.status == TopicGraphMutationStatus::Committed {
+                "persisted"
+            } else {
+                "conflict"
+            },
+            result
+                .manifest_hash
+                .as_deref()
+                .unwrap_or(&current.state.manifest_hash),
+            coverage_stale,
+            &request.recommended_updates,
+            if result.status == TopicGraphMutationStatus::Committed {
+                Vec::new()
+            } else {
+                vec!["topic_graph_commit_failed"]
+            },
+        )
     }
 
     pub fn ingest_proposals(&self, request: &TopicGraphIngestRequest) -> TopicGraphMutationResult {
@@ -1191,6 +1541,33 @@ fn topic_graph_review_id(source: &str, target: &str, relation: &str) -> String {
     )
 }
 
+fn materialized_planning_json(previous: Option<&TopicGraphNodeRecord>) -> String {
+    let mut planning = previous
+        .and_then(|node| serde_json::from_str::<Value>(&node.planning_json).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}));
+    if let Some(object) = planning.as_object_mut() {
+        object.insert("lifecycle".into(), json!("materialized"));
+    }
+    serde_json::to_string(&planning).unwrap_or_else(|_| "{}".into())
+}
+
+fn topic_plan_result(
+    status: &str,
+    graph_hash: &str,
+    coverage_stale: bool,
+    recommended_updates: &[String],
+    diagnostics: Vec<&str>,
+) -> Value {
+    json!({
+        "status":status,
+        "graph_hash":graph_hash,
+        "coverage_stale":coverage_stale,
+        "recommended_updates":recommended_updates,
+        "diagnostics":diagnostics.into_iter().map(|code|json!({"code":code})).collect::<Vec<_>>(),
+    })
+}
+
 fn set_topic_graph_manifest(snapshot: &mut TopicGraphReplacement) -> Result<(), String> {
     snapshot.state.manifest_hash = canonical_json_hash(&json!({
         "nodes": &snapshot.nodes,
@@ -1377,6 +1754,111 @@ mod tests {
             edges,
             reviews: Vec::new(),
         }
+    }
+
+    #[test]
+    fn planned_topic_reconcile_is_atomic_revision_guarded_and_membership_free() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-plan".into(),
+                    data_root_id: "data-plan".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let app = TopicGraphApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            Arc::new(|| "fixed".into()),
+        );
+        assert_eq!(
+            app.replace_snapshot(None, &snapshot("base", false)).status,
+            TopicGraphMutationStatus::Committed
+        );
+        let mut forbidden = BTreeMap::new();
+        forbidden.insert("paper_refs".into(), json!(["1:ITEM"]));
+        let request = TopicPlanReconcileRequest {
+            kind: "topic_plan".into(),
+            operation: "reconcile".into(),
+            base_graph_hash: "base".into(),
+            library_index_hash: "library".into(),
+            topic_actions: vec![TopicPlanAction {
+                action: "create".into(),
+                topic_id: "topic:planned".into(),
+                title: "Planned".into(),
+                definition: "Reusable definition".into(),
+                resolver: json!({"tags":["planned"]}),
+                extra: forbidden,
+                ..serde_json::from_value(json!({
+                    "action":"create","topic_id":"placeholder"
+                }))
+                .expect("action defaults")
+            }],
+            relation_proposals: Vec::new(),
+            coverage_manifest_path: String::new(),
+            recommended_updates: Vec::new(),
+        };
+        let rejected = app.reconcile_plan(&request, "library");
+        assert_eq!(rejected["status"], "conflict");
+        assert!(
+            app.load()
+                .unwrap()
+                .nodes
+                .iter()
+                .all(|node| node.topic_id != "topic:planned")
+        );
+
+        let mut accepted = request;
+        accepted.topic_actions[0].extra.clear();
+        let persisted = app.reconcile_plan(&accepted, "library");
+        assert_eq!(persisted["status"], "persisted");
+        let planned = app
+            .load()
+            .unwrap()
+            .nodes
+            .into_iter()
+            .find(|node| node.topic_id == "topic:planned")
+            .expect("planned node");
+        let planning: Value = serde_json::from_str(&planned.planning_json).expect("planning");
+        assert_eq!(planning["lifecycle"], "planned");
+        assert_eq!(planning["revision"], 1);
+
+        let stale_update = TopicPlanReconcileRequest {
+            base_graph_hash: persisted["graph_hash"].as_str().unwrap().into(),
+            topic_actions: vec![TopicPlanAction {
+                action: "update".into(),
+                topic_id: "topic:planned".into(),
+                definition: "Changed".into(),
+                resolver: json!({"tags":["changed"]}),
+                revision: Some(0),
+                ..serde_json::from_value(json!({
+                    "action":"update","topic_id":"placeholder"
+                }))
+                .expect("action defaults")
+            }],
+            ..accepted
+        };
+        assert_eq!(
+            app.reconcile_plan(&stale_update, "library")["status"],
+            "conflict"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(
+                &app.load()
+                    .unwrap()
+                    .nodes
+                    .into_iter()
+                    .find(|node| node.topic_id == "topic:planned")
+                    .unwrap()
+                    .planning_json
+            )
+            .unwrap()["revision"],
+            1
+        );
+        std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]

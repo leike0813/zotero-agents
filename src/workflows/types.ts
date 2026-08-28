@@ -766,6 +766,8 @@ export interface WorkflowSynthesisApi {
   getTopicReport(
     request: SynthesisTopicReportRequest,
   ): Promise<SynthesisTopicReportResult>;
+  getTopicPlanningContext(): Promise<SynthesisJsonObject>;
+  applyTopicPlan(plan: SynthesisJsonObject): Promise<SynthesisJsonObject>;
   readPaperArtifacts(
     request: SynthesisPaperArtifactsRequest,
   ): Promise<SynthesisPaperArtifactsResult>;

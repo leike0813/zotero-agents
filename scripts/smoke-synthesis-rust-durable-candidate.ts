@@ -495,7 +495,7 @@ async function main() {
     configPath,
     `${JSON.stringify(
       rebuildSynthesisSidecarLaunchConfig({
-        schema: "synthesis-sidecar-launch-config.v3",
+        schema: "synthesis-sidecar-launch-config.v4",
         profileId: PROFILE_ID,
         libraryId: 1,
         profileRuntimeRoot,

@@ -682,6 +682,7 @@ impl TopicApplication {
                             }),
                         }
                     }
+                    TopicWorkflowFilter::Planned => unreachable!("planned topics are graph-owned"),
                 }
             })
             .collect::<Vec<_>>();
@@ -1485,6 +1486,10 @@ impl TopicApplication {
         if !topic_projection_persisted {
             warnings.push("topic_projection_failed".into());
         }
+        if topic_projection_persisted && self.apply_discovery_outcomes(parsed, &timestamp).is_err()
+        {
+            warnings.push("topic_discovery_outcome_failed".into());
+        }
         if topic_projection_persisted && let Some(topic_graph) = &self.topic_graph {
             let graph_result =
                 topic_graph.upsert_materialized_topic(&TopicGraphMaterializedTopic {
@@ -1552,6 +1557,55 @@ impl TopicApplication {
             mismatches: Vec::new(),
             warnings,
         }
+    }
+
+    fn apply_discovery_outcomes(
+        &self,
+        parsed: &ParsedApply,
+        timestamp: &str,
+    ) -> Result<(), String> {
+        let candidates = parsed
+            .source_membership
+            .get("discovery_candidates")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for candidate in candidates {
+            let Some(candidate) = candidate.as_object() else {
+                continue;
+            };
+            let hint_id = candidate
+                .get("hint_id")
+                .or_else(|| candidate.get("hintId"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let source_outcome = candidate
+                .get("outcome")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let status = match source_outcome {
+                "accepted" => "accepted",
+                "screened_out" => "screened_out",
+                "unresolved" => "superseded",
+                _ => continue,
+            };
+            if hint_id.is_empty() {
+                continue;
+            }
+            let basis_hash = candidate
+                .get("basis_hash")
+                .or_else(|| candidate.get("basisHash"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let outcome = json!({
+                "status":status,
+                "relevance_level":candidate.get("relevance_level").cloned().unwrap_or(Value::Null),
+                "reason":candidate.get("outcome_reason").cloned().unwrap_or(Value::Null),
+            });
+            self.repository
+                .update_discovery_hint_outcome(hint_id, status, basis_hash, &outcome, timestamp)?;
+        }
+        Ok(())
     }
 
     fn build_candidate(
@@ -1698,6 +1752,7 @@ struct ParsedApply {
     interest: Option<Value>,
     concepts: Option<Value>,
     relations: Option<Value>,
+    source_membership: Value,
 }
 
 impl ParsedApply {
@@ -1851,6 +1906,7 @@ impl ParsedApply {
             topic_definition,
             topic_resolver: resolver.0,
             resolved_paper_set: resolver.1,
+            source_membership: resolver.2,
             artifact_metadata: bundle
                 .get("artifact_metadata")
                 .filter(|value| value.is_object())
@@ -2007,14 +2063,18 @@ fn read_resolver(
     bundle: &Map<String, Value>,
     assets: &BTreeMap<String, Value>,
     required: bool,
-) -> Result<(Value, Value), String> {
+) -> Result<(Value, Value, Value), String> {
     if let (Some(topic_resolver), Some(resolved_paper_set)) = (
         bundle.get("topic_resolver"),
         bundle.get("resolved_paper_set"),
     ) && topic_resolver.is_object()
         && resolved_paper_set["papers"].as_array().is_some()
     {
-        return Ok((topic_resolver.clone(), resolved_paper_set.clone()));
+        return Ok((
+            topic_resolver.clone(),
+            resolved_paper_set.clone(),
+            json!({}),
+        ));
     }
     let id = if let Some(id) = bundle
         .get("resolver_manifest_path")
@@ -2032,7 +2092,7 @@ fn read_resolver(
         return if required {
             Err("invalid_request".into())
         } else {
-            Ok((json!({}), json!({})))
+            Ok((json!({}), json!({}), json!({})))
         };
     };
     let resolver = assets
@@ -2053,6 +2113,12 @@ fn read_resolver(
             .cloned()
             .unwrap_or_else(|| json!({})),
         resolved,
+        resolver
+            .get("source_membership")
+            .or_else(|| resolver.get("sourceMembership"))
+            .filter(|value| value.is_object())
+            .cloned()
+            .unwrap_or_else(|| json!({})),
     ))
 }
 

@@ -1,5 +1,6 @@
 import { SynthesisClientError, toSynthesisJsonObject } from "./common";
 import type { SynthesisDeliveryContext } from "./common";
+import type { SynthesisJsonObject } from "./common";
 import type {
   SynthesisTopicReportRequest,
   SynthesisTopicReportResult,
@@ -37,8 +38,12 @@ export type SynthesisWorkflowTopicOption = {
 };
 
 export type SynthesisWorkflowTopicOptionsRequest = {
-  filter: "all" | "updatable";
+  filter: "all" | "updatable" | "planned";
 };
+
+export type SynthesisTopicPlan = SynthesisJsonObject;
+export type SynthesisTopicPlanningContext = SynthesisJsonObject;
+export type SynthesisTopicPlanReconcileResult = SynthesisJsonObject;
 
 export type SynthesisWorkflowTopicOptionsResult = {
   options: SynthesisWorkflowTopicOption[];
@@ -309,6 +314,10 @@ export interface SynthesisTopicsClient {
   listWorkflowOptions(
     request: SynthesisWorkflowTopicOptionsRequest,
   ): Promise<SynthesisWorkflowTopicOptionsResult>;
+  getPlanningContext(): Promise<SynthesisTopicPlanningContext>;
+  applyPlan(
+    plan: SynthesisTopicPlan,
+  ): Promise<SynthesisTopicPlanReconcileResult>;
   getTopicReport(
     request: SynthesisTopicReportRequest,
   ): Promise<SynthesisTopicReportResult>;
@@ -480,7 +489,11 @@ export function rebuildSynthesisWorkflowTopicOptionsRequest(
   const object = exactObject(value, "synthesisWorkflowTopicOptionsRequest", [
     "filter",
   ]);
-  if (object.filter !== "all" && object.filter !== "updatable") {
+  if (
+    object.filter !== "all" &&
+    object.filter !== "updatable" &&
+    object.filter !== "planned"
+  ) {
     invalid("synthesisWorkflowTopicOptionsRequest.filter");
   }
   return { filter: object.filter };

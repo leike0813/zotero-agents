@@ -1,7 +1,7 @@
 import type { SqlAdapter, SqlRow } from "./index.js";
 
 export const SYNTHESIS_TOPIC_GRAPH_APPLICATION_REPOSITORY_SCHEMA_VERSION =
-  "synthesis-topic-graph-application-repository.v1" as const;
+  "synthesis-topic-graph-application-repository.v2" as const;
 export const SYNTHESIS_TOPIC_GRAPH_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
   "topic_graph_application_schema_version" as const;
 export const SYNTHESIS_TOPIC_GRAPH_APPLICATION_TABLES = [

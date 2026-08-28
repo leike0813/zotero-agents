@@ -14,7 +14,7 @@ const SCHEMA_MANIFEST: &str = include_str!(
 );
 const PAGE_DEFAULT: usize = 50;
 const PAGE_MAX: usize = 100;
-const COLLECT_MAX: usize = 1_000;
+const COLLECT_MAX: usize = 25_000;
 
 pub(crate) const ARTIFACT_LIBRARY_DEBUG_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
     ProductionClientRouteEntry::new("client.getSchemas", |_, args| schemas(args)),
@@ -1121,15 +1121,7 @@ fn all_library_items(apps: &ProductionApplications) -> Result<Vec<Value>, String
     Err("library_limit_exceeded".into())
 }
 
-fn library_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request: LibraryIndexWireRequest = one_request(args)?;
-    if request
-        .limit
-        .is_some_and(|value| !(1..=PAGE_MAX).contains(&value))
-    {
-        return Err("invalid_request".into());
-    }
-    let request = request_value(request)?;
+pub(crate) fn complete_library_index(apps: &ProductionApplications) -> Result<Value, String> {
     let items = all_library_items(apps)?;
     let mut papers = items
         .iter()
@@ -1158,6 +1150,49 @@ fn library_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value,
     let index_hash = canonical_json_hash(
         &json!({"libraryId":library_id,"papers":papers,"tags":tags,"collections":collections,"topics":topics,"registry":registry}),
     )?;
+    Ok(json!({
+        "libraryId":library_id,
+        "papers":papers,
+        "tags":tags,
+        "collections":collections,
+        "topics":topics,
+        "registry":registry,
+        "index_hash":index_hash,
+    }))
+}
+
+fn library_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    let request: LibraryIndexWireRequest = one_request(args)?;
+    if request
+        .limit
+        .is_some_and(|value| !(1..=PAGE_MAX).contains(&value))
+    {
+        return Err("invalid_request".into());
+    }
+    let request = request_value(request)?;
+    let complete = complete_library_index(apps)?;
+    let papers = complete["papers"]
+        .as_array()
+        .cloned()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let tags = complete["tags"]
+        .as_array()
+        .cloned()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let collections = complete["collections"]
+        .as_array()
+        .cloned()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let topics = complete["topics"]
+        .as_array()
+        .cloned()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let registry = complete["registry"]
+        .as_array()
+        .cloned()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let library_id = complete["libraryId"].clone();
+    let index_hash = complete["index_hash"].clone();
     let start = offset(&request, &["cursor"])?;
     let page_limit = limit(&request, PAGE_DEFAULT)?;
     if start > papers.len() {

@@ -19,12 +19,14 @@ const WORKFLOW_METHODS = [
   "clearTagAuditRecord",
   "discardStagedTagSuggestions",
   "exportTagVocabularyForRegulator",
+  "getTopicPlanningContext",
   "getTopicReport",
   "listStagedTagSuggestions",
   "loadTagVocabulary",
   "readPaperArtifacts",
   "replaceTagAuditRecords",
   "saveTagVocabulary",
+  "applyTopicPlan",
   "stageTagSuggestions",
 ].sort();
 
@@ -53,6 +55,8 @@ function fakeClient(calls: string[]): SynthesisClient {
     },
     topics: {
       listWorkflowOptions: record("listWorkflowOptions"),
+      getPlanningContext: record("getTopicPlanningContext"),
+      applyPlan: record("applyTopicPlan"),
       getTopicReport: record("getTopicReport"),
     },
     artifacts: {
@@ -93,7 +97,7 @@ async function assertInvalidRequest(run: () => Promise<unknown>) {
 }
 
 describe("Synthesis workflow client migration", function () {
-  it("exposes only the twelve workflow methods and routes grouped capabilities", async function () {
+  it("exposes the workflow methods and routes topic planning through grouped capabilities", async function () {
     const calls: string[] = [];
     const changes: Array<{
       reason: string;
@@ -112,6 +116,11 @@ describe("Synthesis workflow client migration", function () {
     assert.deepEqual(Object.keys(api).sort(), WORKFLOW_METHODS);
     await api.applyTopicSynthesisResult(topicApplyBundle());
     await api.getTopicReport({ topicId: "topic-a" });
+    await api.getTopicPlanningContext();
+    await api.applyTopicPlan({
+      kind: "topic_plan",
+      operation: "reconcile",
+    });
     await api.readPaperArtifacts({ paper_refs: ["1:AAAA1111"] });
     await api.loadTagVocabulary();
     await api.saveTagVocabulary({ entries: [] });
@@ -129,6 +138,8 @@ describe("Synthesis workflow client migration", function () {
     assert.deepEqual(calls, [
       "applyTopicSynthesisResult",
       "getTopicReport",
+      "getTopicPlanningContext",
+      "applyTopicPlan",
       "readPaperArtifacts",
       "loadTagVocabulary",
       "saveTagVocabulary",
@@ -144,6 +155,10 @@ describe("Synthesis workflow client migration", function () {
       {
         reason: "topic_synthesis_apply",
         invalidatedSurfaces: ["home", "topics", "concepts", "graph", "review"],
+      },
+      {
+        reason: "topic_plan_apply",
+        invalidatedSurfaces: ["home", "topics", "graph"],
       },
       {
         reason: "tag_vocabulary_save",

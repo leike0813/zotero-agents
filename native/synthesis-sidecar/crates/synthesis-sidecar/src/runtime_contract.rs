@@ -1,3 +1,4 @@
+use crate::runtime_diagnostics::TraceContext;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::fs;
@@ -83,6 +84,8 @@ pub struct NativeLaunchConfig {
     pub supervisor_instance_id: String,
     #[serde(default)]
     pub diagnostics_enabled: bool,
+    #[serde(default)]
+    pub startup_trace: Option<TraceContext>,
     pub repository_db_path: PathBuf,
     pub canonical_root: PathBuf,
     pub reverse_host: ProductionReverseHost,
@@ -239,7 +242,7 @@ pub fn rebuild_native_bundle_manifest(value: &str) -> Result<(), String> {
 pub fn rebuild_native_launch_config(value: &str) -> Result<NativeLaunchConfig, String> {
     let config: NativeLaunchConfig =
         serde_json::from_str(value).map_err(|_| "invalid_config".to_owned())?;
-    if config.schema != "synthesis-sidecar-launch-config.v3"
+    if config.schema != "synthesis-sidecar-launch-config.v4"
         || config.implementation != "rust-native"
         || config.protocol_version != "synthesis-sidecar.v1"
         || config.service_version != SERVICE_VERSION
@@ -266,6 +269,10 @@ pub fn rebuild_native_launch_config(value: &str) -> Result<NativeLaunchConfig, S
         || config.lifecycle_token.len() > 256
         || config.client_token == config.lifecycle_token
         || !signature_value_valid(&config.target, &config.platform_signature)
+        || config
+            .startup_trace
+            .as_ref()
+            .is_some_and(|trace| !trace.is_valid())
     {
         return Err("invalid_config".into());
     }

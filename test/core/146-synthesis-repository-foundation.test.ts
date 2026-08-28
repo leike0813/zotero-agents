@@ -365,7 +365,7 @@ describe("Synthesis repository foundation", function () {
     assert.notInclude(source, "CREATE TABLE IF NOT EXISTS synt_operation");
     assert.equal(
       SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
-      "synthesis-repository-foundation.v2",
+      "synthesis-repository-foundation.v3",
     );
   });
 

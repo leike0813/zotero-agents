@@ -15,11 +15,14 @@ export type SynthesisLibraryPaper = {
   title: string;
   year: string;
   item_type: string;
-  creators: Array<{
-    firstName: string;
-    lastName: string;
-    creatorType: string;
-  }>;
+  creators: Array<
+    | string
+    | {
+        firstName: string;
+        lastName: string;
+        creatorType: string;
+      }
+  >;
   tags: string[];
   collections: string[];
 };

@@ -349,7 +349,7 @@ function scriptedRustPool(
 
 function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v3",
+    schema: "synthesis-sidecar-launch-config.v4",
     profileId: "1".repeat(64),
     libraryId: 1,
     profileRuntimeRoot: TEST_RUNTIME_ROOT,

@@ -5087,6 +5087,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "graph.dropEdge");
     assert.include(source, "graph.dropNode");
     assert.include(source, "sidecar-runtime-indicator");
+    assert.include(source, "retrySynthesisSidecar");
+    assert.include(workbenchTab, "recoverDefaultSynthesisProductionOwner");
+    assert.include(css, ".sidecar-failure-actions");
     assert.include(css, ".sidecar-runtime-indicator");
     assert.include(source, "enableEdgeEvents: false");
     assert.include(source, "zIndex: true");

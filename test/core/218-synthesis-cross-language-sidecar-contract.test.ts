@@ -47,12 +47,12 @@ describe("Synthesis cross-language sidecar contract", function () {
       "synthesis-sidecar-protocol-registry.v1",
     );
     assert.equal(result.schemaCount, 18);
-    assert.equal(result.protocolCapabilityCount, 119);
+    assert.equal(result.protocolCapabilityCount, 121);
     assert.equal(result.workerOperationCount, 15);
     assert.equal(result.unauthorizedGenericEscapeCount, 0);
     assert.equal(
       result.fingerprint,
-      "sha256:3061d99eb4c1d73dd5529d0bc9f10eafc49285e3af5d3330bb770151db0c9284",
+      "sha256:612a032812fc2dfb9b6b1c82fdd27a10f71fde20e718a189f86613e86850c276",
     );
   });
 
@@ -171,7 +171,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     };
     const unrelated = {
       key: "repository_foundation_schema_version",
-      value: "synthesis-repository-foundation.v2",
+      value: "synthesis-repository-foundation.v3",
     };
     const rows = [exact, wrongValue, unrelated];
 

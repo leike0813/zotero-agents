@@ -144,6 +144,8 @@
     "client.debugSynthesisDiff": "read",
     "client.debugSynthesisCleanInstallReset": "mutation",
     "client.listWorkflowTopicOptions": "read",
+    "client.getTopicPlanningContext": "read",
+    "client.applyTopicPlan": "mutation",
     "client.reconcileSynthesisRuntimeWorkStateOnStartup": "mutation",
     "client.resetSynthesisDatabase": "mutation",
     "client.consumeRelatedItemsSyncEcho": "mutation",

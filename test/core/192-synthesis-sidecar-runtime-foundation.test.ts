@@ -76,7 +76,7 @@ function config(
     },
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-repository-foundation.v2",
+    schemaVersion: "synthesis-repository-foundation.v3",
     supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
     repositoryDbPath: path.join(profileRuntimeRoot, "state", "synthesis.db"),
     canonicalRoot: path.join(profileRuntimeRoot, "data", "synthesis"),
@@ -207,7 +207,7 @@ function handshakeRequest(
     profileId: PROFILE_ID,
     capability: "system.handshake",
     payload: {
-      schemaVersion: "synthesis-repository-foundation.v2",
+      schemaVersion: "synthesis-repository-foundation.v3",
       bundleId: BUNDLE_ID,
       buildFingerprint: "5".repeat(64),
       supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
@@ -340,7 +340,7 @@ describe("Synthesis sidecar runtime foundation", function () {
     const repositorySnapshot = {
       mode: "isolated_shadow" as const,
       state: "ready" as const,
-      schemaVersion: "synthesis-repository-foundation.v2" as const,
+      schemaVersion: "synthesis-repository-foundation.v3" as const,
       repositoryId: "a".repeat(64),
     };
     assert.deepEqual(
@@ -420,7 +420,7 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.deepInclude(health.repository as Record<string, unknown>, {
       mode: "isolated_shadow",
       state: "ready",
-      schemaVersion: "synthesis-repository-foundation.v2",
+      schemaVersion: "synthesis-repository-foundation.v3",
     });
     assert.notInclude(JSON.stringify(health.repository), service.profileRoot);
     assert.deepEqual(
@@ -459,7 +459,7 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.isTrue(handshake.body.ok);
     const data = handshake.body.data as Record<string, unknown>;
     assert.equal(data.profileId, PROFILE_ID);
-    assert.equal(data.schemaVersion, "synthesis-repository-foundation.v2");
+    assert.equal(data.schemaVersion, "synthesis-repository-foundation.v3");
     assert.equal(data.bundleId, BUNDLE_ID);
     assert.equal(data.implementation, "rust-native");
     assert.equal(data.buildFingerprint, "5".repeat(64));
@@ -553,7 +553,7 @@ describe("Synthesis sidecar runtime foundation", function () {
       {
         request: handshakeRequest({
           payload: {
-            schemaVersion: "synthesis-repository-foundation.v2",
+            schemaVersion: "synthesis-repository-foundation.v3",
             bundleId: "6".repeat(64),
             buildFingerprint: "5".repeat(64),
             supervisorInstanceId: SUPERVISOR_INSTANCE_ID,

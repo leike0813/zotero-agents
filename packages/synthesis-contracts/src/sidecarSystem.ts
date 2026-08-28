@@ -79,6 +79,8 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.debugSynthesisDiff",
   "client.debugSynthesisCleanInstallReset",
   "client.listWorkflowTopicOptions",
+  "client.getTopicPlanningContext",
+  "client.applyTopicPlan",
   "client.reconcileSynthesisRuntimeWorkStateOnStartup",
   "client.resetSynthesisDatabase",
   "client.consumeRelatedItemsSyncEcho",
@@ -144,7 +146,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523" as const;
+  "137c9864d71d11f36a66b2010acf76de5ba26e8c08a77b9989335279f1644bb7" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.listTopics",
   "client.findTopicsByPaperRef",
@@ -188,6 +190,8 @@ export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.debugSynthesisTopicInspect",
   "client.debugSynthesisDiff",
   "client.listWorkflowTopicOptions",
+  "client.getTopicPlanningContext",
+  "client.applyTopicPlan",
   "client.consumeRelatedItemsSyncEcho",
   "client.applyTopicSynthesisResult",
   "client.readPaperArtifacts",

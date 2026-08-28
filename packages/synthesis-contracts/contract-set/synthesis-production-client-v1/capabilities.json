@@ -1,7 +1,7 @@
 {
   "schema": "synthesis-production-client-capabilities.v1",
   "canonicalization": "sorted-newline-terminated",
-  "fingerprintSha256": "f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523",
+  "fingerprintSha256": "137c9864d71d11f36a66b2010acf76de5ba26e8c08a77b9989335279f1644bb7",
   "capabilities": [
     "client.listTopics",
     "client.findTopicsByPaperRef",
@@ -36,6 +36,8 @@
     "client.debugSynthesisDiff",
     "client.debugSynthesisCleanInstallReset",
     "client.listWorkflowTopicOptions",
+    "client.getTopicPlanningContext",
+    "client.applyTopicPlan",
     "client.reconcileSynthesisRuntimeWorkStateOnStartup",
     "client.resetSynthesisDatabase",
     "client.consumeRelatedItemsSyncEcho",

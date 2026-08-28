@@ -59,6 +59,7 @@ type ProductionSupervisor = {
     };
     clientToken: string;
   } | null;
+  recover(): void;
 };
 
 export type SynthesisProductionOwnerDeps = {
@@ -73,7 +74,7 @@ export type SynthesisProductionOwnerDeps = {
   invalidateClient?: () => void;
 };
 
-function waitForReady(supervisor: ProductionSupervisor, timeoutMs = 30_000) {
+function waitForReady(supervisor: ProductionSupervisor) {
   const current = supervisor.getReadyConnection();
   if (current) {
     return Promise.resolve(current);
@@ -82,6 +83,7 @@ function waitForReady(supervisor: ProductionSupervisor, timeoutMs = 30_000) {
     NonNullable<ReturnType<ProductionSupervisor["getReadyConnection"]>>
   >((resolve, reject) => {
     let settled = false;
+    let unsubscribe: () => void = () => undefined;
     const finish = (
       error?: Error,
       connection?: NonNullable<
@@ -92,7 +94,6 @@ function waitForReady(supervisor: ProductionSupervisor, timeoutMs = 30_000) {
         return;
       }
       settled = true;
-      globalThis.clearTimeout(timer);
       unsubscribe();
       if (error) {
         reject(error);
@@ -100,7 +101,7 @@ function waitForReady(supervisor: ProductionSupervisor, timeoutMs = 30_000) {
         resolve(connection!);
       }
     };
-    const unsubscribe = supervisor.subscribe((snapshot) => {
+    const inspect = (snapshot: SynthesisSidecarSupervisorSnapshot) => {
       const connection = supervisor.getReadyConnection();
       if (snapshot.status === "ready" && connection) {
         finish(undefined, connection);
@@ -110,11 +111,9 @@ function waitForReady(supervisor: ProductionSupervisor, timeoutMs = 30_000) {
       ) {
         finish(new Error(snapshot.reasonCode || "sidecar_startup_failed"));
       }
-    });
-    const timer = globalThis.setTimeout(
-      () => finish(new Error("sidecar_startup_timeout")),
-      timeoutMs,
-    );
+    };
+    unsubscribe = supervisor.subscribe(inspect);
+    inspect(supervisor.getSnapshot());
   });
 }
 
@@ -123,27 +122,55 @@ export function createSynthesisProductionOwner(
 ) {
   let endpoint: ReverseHostEndpoint | null = null;
   let supervisor: ProductionSupervisor | null = null;
+  let supervisorTask: Promise<ProductionSupervisor> | null = null;
   let startTask: Promise<
     NonNullable<ReturnType<ProductionSupervisor["getReadyConnection"]>>
   > | null = null;
   let stopTask: Promise<void> | null = null;
   let stopped = false;
 
+  function ensureSupervisor() {
+    if (stopped) {
+      throw new Error("synthesis_production_owner_stopped");
+    }
+    supervisorTask ||= (async () => {
+      const createdEndpoint = deps.createReverseHostEndpoint();
+      endpoint = createdEndpoint;
+      const locator = await createdEndpoint.start();
+      supervisor = deps.startProductionSupervisor(locator);
+      return supervisor;
+    })();
+    return supervisorTask;
+  }
+
   function start() {
     if (stopped) {
       throw new Error("synthesis_production_owner_stopped");
     }
-    startTask ||= (async () => {
-      endpoint = deps.createReverseHostEndpoint();
-      const locator = await endpoint.start();
-      supervisor = deps.startProductionSupervisor(locator);
-      const connection = await waitForReady(supervisor);
-      endpoint.bindServiceInstance(connection.discovery.serviceInstanceId);
+    if (startTask) {
+      return startTask;
+    }
+    const task = (async () => {
+      const current = await ensureSupervisor();
+      const connection = await waitForReady(current);
+      endpoint?.bindServiceInstance(connection.discovery.serviceInstanceId);
       await deps.afterReady?.(connection);
       return connection;
     })();
-    void startTask.catch(() => undefined);
-    return startTask;
+    startTask = task;
+    void task.catch(() => {
+      if (startTask === task) {
+        startTask = null;
+      }
+    });
+    return task;
+  }
+
+  async function recover() {
+    const current = await ensureSupervisor();
+    current.recover();
+    startTask = null;
+    return start();
   }
 
   function shutdown() {
@@ -162,6 +189,7 @@ export function createSynthesisProductionOwner(
   return {
     start,
     whenReady: start,
+    recover,
     shutdown,
   };
 }
@@ -319,8 +347,20 @@ async function createDefaultSynthesisProductionOwner(
         reverseHost,
         installer,
         resolvedInstall: install,
+        ...(startupTrace ? { startupTrace } : {}),
       });
+      let lastLifecycleObservation = "";
       supervisor.subscribe((snapshot) => {
+        const observationKey = [
+          snapshot.restartCount,
+          snapshot.status,
+          snapshot.recoveryState,
+          snapshot.reasonCode || "",
+        ].join(":");
+        if (observationKey === lastLifecycleObservation) {
+          return;
+        }
+        lastLifecycleObservation = observationKey;
         const attemptTrace = createSynthesisSidecarTraceContext({
           parent: startupTrace,
           attempt: snapshot.restartCount,
@@ -418,6 +458,14 @@ export async function startDefaultSynthesisProductionOwner() {
     });
     throw error;
   }
+}
+
+export async function recoverDefaultSynthesisProductionOwner() {
+  if (defaultProductionOwner) {
+    return defaultProductionOwner.recover();
+  }
+  defaultProductionOwnerTask = null;
+  return startDefaultSynthesisProductionOwner();
 }
 
 export async function stopDefaultSynthesisProductionOwner() {

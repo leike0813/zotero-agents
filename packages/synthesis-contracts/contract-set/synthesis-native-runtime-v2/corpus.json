@@ -58,7 +58,7 @@
     ]
   },
   "launchConfig": {
-    "schema": "synthesis-sidecar-launch-config.v3",
+    "schema": "synthesis-sidecar-launch-config.v4",
     "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
     "libraryId": 1,
     "profileRuntimeRoot": "$ABSOLUTE_RUNTIME_ROOT",
@@ -76,8 +76,15 @@
     },
     "serviceVersion": "0.1.0",
     "protocolVersion": "synthesis-sidecar.v1",
-    "schemaVersion": "synthesis-repository-foundation.v2",
+    "schemaVersion": "synthesis-repository-foundation.v3",
     "supervisorInstanceId": "native-parity-supervisor",
+    "diagnosticsEnabled": false,
+    "startupTrace": {
+      "schema": "synthesis-sidecar-observation.v2",
+      "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "spanId": "bbbbbbbbbbbbbbbb",
+      "attempt": 0
+    },
     "repositoryDbPath": "$ABSOLUTE_RUNTIME_ROOT",
     "canonicalRoot": "$ABSOLUTE_RUNTIME_ROOT",
     "reverseHost": {
@@ -106,7 +113,7 @@
     },
     "serviceVersion": "0.1.0",
     "protocolVersion": "synthesis-sidecar.v1",
-    "schemaVersion": "synthesis-repository-foundation.v2",
+    "schemaVersion": "synthesis-repository-foundation.v3",
     "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
     "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
     "host": "127.0.0.1",
@@ -146,7 +153,7 @@
     "repository": {
       "mode": "isolated_shadow",
       "state": "ready",
-      "schemaVersion": "synthesis-repository-foundation.v2",
+      "schemaVersion": "synthesis-repository-foundation.v3",
       "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
     },
     "canonicalStore": {
@@ -183,7 +190,7 @@
       "signer": null
     },
     "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
-    "schemaVersion": "synthesis-repository-foundation.v2",
+    "schemaVersion": "synthesis-repository-foundation.v3",
     "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
     "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
     "capabilities": [
@@ -202,7 +209,7 @@
     "repository": {
       "mode": "isolated_shadow",
       "state": "ready",
-      "schemaVersion": "synthesis-repository-foundation.v2",
+      "schemaVersion": "synthesis-repository-foundation.v3",
       "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
     },
     "canonicalStore": {

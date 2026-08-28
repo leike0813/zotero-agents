@@ -217,7 +217,12 @@
         "creators": {
           "type": "array",
           "maxItems": 1024,
-          "items": { "$ref": "#/$defs/Creator" }
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/String" },
+              { "$ref": "#/$defs/Creator" }
+            ]
+          }
         },
         "tags": { "$ref": "#/$defs/Strings" },
         "collections": { "$ref": "#/$defs/Strings" }

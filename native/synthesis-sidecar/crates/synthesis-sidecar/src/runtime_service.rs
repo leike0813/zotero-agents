@@ -17,7 +17,10 @@ use synthesis_repository::{
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
 use crate::runtime_capabilities::RequestContext;
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, configure_debug_events, emit_debug};
+use crate::runtime_diagnostics::{
+    NativeDiagnosticEvent, configure_debug_events, emit_debug, emit_startup,
+    install_observation_context,
+};
 use crate::runtime_lifecycle::{
     RuntimeOwnership, ServeFailure, ServePhase, StopReason, StopSignal,
 };
@@ -30,6 +33,40 @@ use crate::runtime_worker_pool::NativeComputePool;
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(500);
 const TRANSFER_REAP_INTERVAL_MS: u64 = 30_000;
+
+fn stable_startup_code(error: &str) -> String {
+    let candidate = error.split(':').next().unwrap_or_default();
+    if !candidate.is_empty()
+        && candidate.len() <= 128
+        && candidate.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.-".contains(&byte)
+        })
+    {
+        candidate.to_owned()
+    } else {
+        "sidecar_startup_failed".to_owned()
+    }
+}
+
+fn startup_step<T>(
+    phase: &'static str,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    emit_startup(NativeDiagnosticEvent::new("lifecycle", phase, "started"));
+    match operation() {
+        Ok(value) => {
+            emit_startup(NativeDiagnosticEvent::new("lifecycle", phase, "succeeded"));
+            Ok(value)
+        }
+        Err(error) => {
+            emit_startup(
+                NativeDiagnosticEvent::new("lifecycle", phase, "failed")
+                    .code(stable_startup_code(&error)),
+            );
+            Err(error)
+        }
+    }
+}
 
 fn database_sidecars(database_path: &Path) -> [std::path::PathBuf; 2] {
     [
@@ -142,13 +179,22 @@ impl RunningRuntime {
         let stop_signal = StopSignal::new();
         let mut startup = StartupOwnership::default();
         let composed = (|| -> Result<Self, String> {
+            let config = read_native_launch_config(config_path)?;
+            configure_debug_events(config.diagnostics_enabled);
+            let startup_trace = config.startup_trace.clone();
+            install_observation_context(startup_trace.as_ref());
+            emit_startup(NativeDiagnosticEvent::new(
+                "lifecycle",
+                "config-validate",
+                "succeeded",
+            ));
             let production_client_catalog = Arc::new(
                 ProductionClientCatalog::from_embedded().map_err(|error| error.to_string())?,
             );
-            let config = read_native_launch_config(config_path)?;
-            configure_debug_events(config.diagnostics_enabled);
-            probe_reverse_host(&config)?;
-            startup.runtime = Some(RuntimeOwnership::acquire(&config)?);
+            startup_step("reverse-host-probe", || probe_reverse_host(&config))?;
+            startup.runtime = Some(startup_step("owner-acquire", || {
+                RuntimeOwnership::acquire(&config)
+            })?);
             let service_instance_id = startup
                 .runtime
                 .as_ref()
@@ -163,51 +209,58 @@ impl RunningRuntime {
                 profile_id: config.profile_id.clone(),
                 data_root_id: config.data_root_id.clone(),
             };
-            ensure_production_source(
-                &config.repository_db_path,
-                &config.canonical_root,
-                &repository_identity,
-                &canonical_identity,
-            )?;
+            startup_step("source-validate", || {
+                ensure_production_source(
+                    &config.repository_db_path,
+                    &config.canonical_root,
+                    &repository_identity,
+                    &canonical_identity,
+                )
+            })?;
             let migration_backup_root = config
                 .repository_db_path
                 .parent()
                 .ok_or_else(|| "repository_production_path_invalid".to_owned())?
                 .join("synthesis-migration-backups");
-            let legacy_topics = match legacy_production_topic_ids(&config.repository_db_path)? {
-                Some(database_topic_ids) => {
-                    let topics =
-                        CanonicalStore::preflight_legacy_production(&config.canonical_root)?;
-                    let projected = topics
-                        .iter()
-                        .map(project_legacy_canonical_topic)
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let projected_topic_ids = projected
-                        .iter()
-                        .map(|(state, _)| state.topic_id.clone())
-                        .collect::<Vec<_>>();
-                    if database_topic_ids != projected_topic_ids {
-                        return Err("canonical_legacy_topic_sources_mismatch".into());
+            let legacy_topics = startup_step("source-classify", || {
+                match legacy_production_topic_ids(&config.repository_db_path)? {
+                    Some(database_topic_ids) => {
+                        let topics =
+                            CanonicalStore::preflight_legacy_production(&config.canonical_root)?;
+                        let projected = topics
+                            .iter()
+                            .map(project_legacy_canonical_topic)
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let projected_topic_ids = projected
+                            .iter()
+                            .map(|(state, _)| state.topic_id.clone())
+                            .collect::<Vec<_>>();
+                        if database_topic_ids != projected_topic_ids {
+                            return Err("canonical_legacy_topic_sources_mismatch".into());
+                        }
+                        Ok(projected)
                     }
-                    projected
+                    None => Ok(Vec::new()),
                 }
-                None => Vec::new(),
-            };
-            prepare_production_schema_with_legacy_topics(
-                &config.repository_db_path,
-                &migration_backup_root,
-                &legacy_topics,
-            )?;
-            let repository = Arc::new(Mutex::new(Repository::open_production(
-                &config.repository_db_path,
-                repository_identity,
-                &current_time_ms()?.to_string(),
-            )?));
+            })?;
+            startup_step("repository-migrate", || {
+                prepare_production_schema_with_legacy_topics(
+                    &config.repository_db_path,
+                    &migration_backup_root,
+                    &legacy_topics,
+                )
+            })?;
+            let repository = Arc::new(Mutex::new(startup_step("repository-open", || {
+                Repository::open_production(
+                    &config.repository_db_path,
+                    repository_identity,
+                    &current_time_ms()?.to_string(),
+                )
+            })?));
             startup.repository = Some(Arc::clone(&repository));
-            let canonical = Arc::new(Mutex::new(CanonicalStore::open_production(
-                &config.canonical_root,
-                canonical_identity,
-            )?));
+            let canonical = Arc::new(Mutex::new(startup_step("canonical-open", || {
+                CanonicalStore::open_production(&config.canonical_root, canonical_identity)
+            })?));
             startup.canonical = Some(Arc::clone(&canonical));
             let repository_id = repository
                 .lock()
@@ -225,14 +278,16 @@ impl RunningRuntime {
                 Arc::clone(&repository),
                 4,
             )?);
-            let applications = Arc::new(build_production_applications(
-                repository_port,
-                Arc::clone(&canonical),
-                Arc::clone(&compute_pool),
-                Some(Arc::clone(&config)),
-                service_instance_id.clone(),
-                webdav_state_path,
-            )?);
+            let applications = Arc::new(startup_step("application-compose", || {
+                build_production_applications(
+                    repository_port,
+                    Arc::clone(&canonical),
+                    Arc::clone(&compute_pool),
+                    Some(Arc::clone(&config)),
+                    service_instance_id.clone(),
+                    webdav_state_path,
+                )
+            })?);
             crate::runtime_public_maintenance_operation::reconcile_restart(
                 applications.as_ref(),
                 &synthesis_protocol::utc_now_iso8601(),
@@ -261,14 +316,16 @@ impl RunningRuntime {
                 Arc::clone(&transfer),
                 Arc::clone(&background_tasks),
             ));
-            let transport = SidecarTransport::bind()?;
+            let transport = startup_step("listener-bind", SidecarTransport::bind)?;
             let port = transport.port()?;
             let discovery = discovery_document(&config, &service_instance_id, port);
-            startup
-                .runtime
-                .as_ref()
-                .expect("runtime ownership was assigned")
-                .publish_discovery(&discovery)?;
+            startup_step("discovery-publish", || {
+                startup
+                    .runtime
+                    .as_ref()
+                    .expect("runtime ownership was assigned")
+                    .publish_discovery(&discovery)
+            })?;
             println!(
                 "{}",
                 json!({

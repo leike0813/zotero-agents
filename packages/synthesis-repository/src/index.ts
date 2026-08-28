@@ -3,8 +3,10 @@ import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../synthesis-
 export { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION };
 export const SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_META_KEY =
   "repository_foundation_schema_version" as const;
-const SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSION =
-  "synthesis-repository-foundation.v1" as const;
+const SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSIONS = new Set([
+  "synthesis-repository-foundation.v1",
+  "synthesis-repository-foundation.v2",
+]);
 export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION =
   "synthesis-topic-application-repository.v2" as const;
 const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_PREVIOUS_SCHEMA_VERSION =
@@ -387,7 +389,9 @@ export function ensureSynthesisRepositoryFoundationSchema(db: SqlAdapter) {
     })?.value,
   );
   if (current && current !== SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION) {
-    if (current !== SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSION) {
+    if (
+      !SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSIONS.has(current)
+    ) {
       throw new Error("repository_foundation_schema_unsupported");
     }
   }
@@ -463,7 +467,7 @@ export function ensureSynthesisRepositoryFoundationSchema(db: SqlAdapter) {
     CREATE INDEX IF NOT EXISTS idx_synt_topic_deleted_artifact_deleted
       ON synt_topic_deleted_artifact(deleted_at DESC, topic_id ASC);
   `);
-    if (current === SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSION) {
+    if (current === "synthesis-repository-foundation.v1") {
       db.run(
         `UPDATE synt_cache_basis SET status='stale', active_operation_id='',
            stale_reason='repository_foundation_v2'`,

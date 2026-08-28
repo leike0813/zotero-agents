@@ -30,7 +30,6 @@
       "client.rejectTopicGraphRelation": "unavailable",
       "client.applyTopicGraphReviewAction": "unavailable",
       "client.exportFilteredPaperArtifacts": "invalid_request",
-      "client.getLibraryIndex": "unavailable",
       "client.getPaperArtifactManifest": "unavailable",
       "client.readPaperArtifacts": "unavailable",
       "client.resetSynthesisDatabase": "unavailable",
@@ -129,6 +128,40 @@
             "projection": { "options": [], "diagnostics": [] }
           },
           "comparison": { "unorderedCollections": ["options:value"] }
+        },
+        {
+          "id": "case:topic-planning-context-empty",
+          "operation": "client.getTopicPlanningContext",
+          "access": "read",
+          "request": { "args": [] },
+          "expected": {
+            "dtoSemantics": ["basis-bound-library-and-topic-context", "bounded-planning-input"],
+            "logicalFacts": ["repository-state-preserved"],
+            "hostEffects": ["library-index-read"],
+            "writeExpectation": "zero",
+            "projection": {
+              "topics": [],
+              "diagnostics": {
+                "bounded_inline": true,
+                "truncated": false
+              }
+            }
+          },
+          "comparison": { "unorderedCollections": ["topics:topic_id", "library:paper_ref"] }
+        },
+        {
+          "id": "case:topic-plan-apply-empty",
+          "operation": "client.applyTopicPlan",
+          "access": "mutation",
+          "request": { "args": [{ "schema": "synthesis-topic-plan.v1", "basisHash": "fixture-basis", "actions": [] }] },
+          "expected": {
+            "dtoSemantics": ["revision-guarded-reconciliation", "membership-free-plan"],
+            "logicalFacts": ["atomic-topic-graph-write"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "status": "no_change" }
+          },
+          "comparison": { "unorderedCollections": ["results:topic_id", "diagnostics:code"] }
         },
         {
           "id": "case:workbench-chrome-missing",

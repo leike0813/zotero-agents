@@ -11,7 +11,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) const LEGACY_TS_SCHEMA_VERSION: &str = "2026-06-01.sidecar-cache-hard-cut";
-const LEGACY_MIGRATION_ID: &str = "synthesis-legacy-ts-sidecar-cache-hard-cut.v1";
+const LEGACY_MIGRATION_ID: &str = "synthesis-legacy-ts-sidecar-cache-hard-cut.v2";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LegacyTsVariant {
+    ReleaseV05V06,
+    ReleaseV07V083,
+    DevPlanning,
+    DevPlanningScreening,
+}
 
 const LEGACY_TABLES: &[(&str, &str)] = &[
     (
@@ -195,9 +203,17 @@ const DIRECT_COPY_TABLES: &[&str] = &[
 ];
 
 fn table_columns(connection: &Connection, table: &str) -> Result<String, String> {
+    table_columns_in(connection, "main", table)
+}
+
+fn table_columns_in(
+    connection: &Connection,
+    database: &str,
+    table: &str,
+) -> Result<String, String> {
     let quoted = table.replace('\'', "''");
     let mut statement = connection
-        .prepare(&format!("PRAGMA table_info('{quoted}')"))
+        .prepare(&format!("PRAGMA {database}.table_info('{quoted}')"))
         .map_err(map_sqlite_error)?;
     let columns = statement
         .query_map([], |row| row.get::<_, String>(1))
@@ -241,9 +257,11 @@ fn legacy_schema_version(connection: &Connection) -> Result<Option<String>, Stri
         .map_err(map_sqlite_error)
 }
 
-pub(crate) fn is_exact_legacy_ts_schema(connection: &Connection) -> Result<bool, String> {
+pub(crate) fn classify_legacy_ts_schema(
+    connection: &Connection,
+) -> Result<Option<LegacyTsVariant>, String> {
     if legacy_schema_version(connection)?.as_deref() != Some(LEGACY_TS_SCHEMA_VERSION) {
-        return Ok(false);
+        return Ok(None);
     }
     if connection
         .query_row(
@@ -255,25 +273,73 @@ pub(crate) fn is_exact_legacy_ts_schema(connection: &Connection) -> Result<bool,
         .map_err(map_sqlite_error)?
         .is_some()
     {
-        return Ok(false);
+        return Ok(None);
     }
     let expected = LEGACY_TABLES
         .iter()
         .map(|(name, _)| (*name).to_owned())
         .collect::<BTreeSet<_>>();
-    if table_names(connection)? != expected {
-        return Ok(false);
+    let mut release_v05_tables = expected.clone();
+    release_v05_tables.remove("synt_tag_audit");
+    let actual_tables = table_names(connection)?;
+    if actual_tables != expected && actual_tables != release_v05_tables {
+        return Err("legacy_schema_variant_unsupported".into());
     }
     for (table, columns) in LEGACY_TABLES {
-        if table_columns(connection, table)? != *columns {
-            return Ok(false);
+        if *table == "synt_tag_audit" && actual_tables == release_v05_tables {
+            continue;
+        }
+        let actual = table_columns(connection, table)?;
+        let accepted = match *table {
+            "synt_topic_graph_node" => {
+                [(*columns).to_owned(), format!("{columns},planning_json")].contains(&actual)
+            }
+            "synt_topic_discovery_hint" => [
+                (*columns).to_owned(),
+                format!("{columns},basis_hash,outcome_json"),
+            ]
+            .contains(&actual),
+            _ => actual == *columns,
+        };
+        if !accepted {
+            return Err("legacy_schema_variant_unsupported".into());
         }
     }
-    Ok(true)
+    if actual_tables == release_v05_tables {
+        return Ok(Some(LegacyTsVariant::ReleaseV05V06));
+    }
+    let has_planning = table_columns(connection, "synt_topic_graph_node")?
+        .split(',')
+        .any(|column| column == "planning_json");
+    let has_screening = table_columns(connection, "synt_topic_discovery_hint")?
+        .split(',')
+        .any(|column| column == "basis_hash");
+    match (has_planning, has_screening) {
+        (false, false) => Ok(Some(LegacyTsVariant::ReleaseV07V083)),
+        (true, false) => Ok(Some(LegacyTsVariant::DevPlanning)),
+        (true, true) => Ok(Some(LegacyTsVariant::DevPlanningScreening)),
+        (false, true) => Err("legacy_schema_variant_unsupported".into()),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn is_exact_legacy_ts_schema(connection: &Connection) -> Result<bool, String> {
+    Ok(matches!(
+        classify_legacy_ts_schema(connection)?,
+        Some(LegacyTsVariant::ReleaseV07V083)
+    ))
 }
 
 fn parse_json(text: String, error: &str) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|_| error.to_owned())
+}
+
+fn parse_optional_json(text: String, error: &str) -> Result<Value, String> {
+    if text.trim().is_empty() {
+        Ok(json!({}))
+    } else {
+        parse_json(text, error)
+    }
 }
 
 fn text(row: &rusqlite::Row<'_>, index: usize) -> Result<String, String> {
@@ -282,7 +348,10 @@ fn text(row: &rusqlite::Row<'_>, index: usize) -> Result<String, String> {
 
 fn copy_direct_tables(connection: &Connection) -> Result<(), String> {
     for table in DIRECT_COPY_TABLES {
-        let columns = table_columns(connection, table)?;
+        let columns = table_columns_in(connection, "legacy", table)?;
+        if columns.is_empty() {
+            continue;
+        }
         connection
             .execute(
                 &format!(
@@ -412,9 +481,18 @@ fn copy_related_effects(connection: &Connection) -> Result<(), String> {
 }
 
 fn copy_topic_payloads(connection: &Connection) -> Result<(), String> {
+    let hint_columns = table_columns_in(connection, "legacy", "synt_topic_discovery_hint")?;
+    let has_screening = hint_columns.split(',').any(|column| column == "basis_hash");
+    let basis_expression = if has_screening { "basis_hash" } else { "''" };
+    let outcome_expression = if has_screening {
+        "outcome_json"
+    } else {
+        "'{}'"
+    };
     let mut hints = connection.prepare(
-        "SELECT hint_id,topic_id,literature_item_id,score,method,matching_fields_json,status,created_at,updated_at
-           FROM legacy.synt_topic_discovery_hint ORDER BY hint_id",
+        &format!("SELECT hint_id,topic_id,literature_item_id,CAST(score AS REAL),method,matching_fields_json,status,created_at,updated_at,
+                  {basis_expression} AS basis_hash,{outcome_expression} AS outcome_json
+                  FROM legacy.synt_topic_discovery_hint ORDER BY hint_id"),
     ).map_err(map_sqlite_error)?;
     let mut rows = hints.query([]).map_err(map_sqlite_error)?;
     while let Some(row) = rows.next().map_err(map_sqlite_error)? {
@@ -423,6 +501,8 @@ fn copy_topic_payloads(connection: &Connection) -> Result<(), String> {
             "score":row.get::<_,f64>(3).map_err(map_sqlite_error)?, "method":text(row,4)?,
             "matching_fields":parse_json(text(row,5)?, "repository_legacy_topic_hint_invalid")?,
             "status":text(row,6)?, "created_at":text(row,7)?, "updated_at":text(row,8)?,
+            "basis_hash":text(row,9)?,
+            "outcome":parse_optional_json(text(row,10)?, "repository_legacy_topic_hint_invalid")?,
         });
         connection.execute(
             "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at) VALUES(?1,?2,?3)",
@@ -581,6 +661,9 @@ fn build_current_database(
                 .map_err(map_sqlite_error)?;
         }
         for table in DIRECT_COPY_TABLES {
+            if table_columns_in(&connection, "legacy", table)?.is_empty() {
+                continue;
+            }
             copy_counts(&connection, table, table)?;
         }
         copy_counts(
@@ -662,7 +745,7 @@ fn publish_database(source: &Path, database_path: &Path) -> Result<(), String> {
         .map_err(|error| format!("repository_schema_migration_publish_failed:{error}"))
 }
 
-pub(crate) fn migrate_if_exact_legacy_ts(
+pub(crate) fn migrate_if_known_legacy_ts(
     database_path: &Path,
     backup_root: &Path,
     topics: &[(
@@ -671,14 +754,14 @@ pub(crate) fn migrate_if_exact_legacy_ts(
     )],
 ) -> Result<bool, String> {
     let source = open_production_database_read_only(database_path)?;
-    if !is_exact_legacy_ts_schema(&source)? {
+    let Some(variant) = classify_legacy_ts_schema(&source)? else {
         return Ok(false);
-    }
+    };
     drop(source);
     let backup_path = migration_backup_path(backup_root, LEGACY_MIGRATION_ID, SCHEMA_VERSION);
     if backup_path.exists() {
         let backup = open_existing_database_read_only(&backup_path)?;
-        if !is_exact_legacy_ts_schema(&backup)? {
+        if classify_legacy_ts_schema(&backup)? != Some(variant) {
             return Err("repository_migration_backup_mismatch".into());
         }
     } else {
@@ -705,7 +788,7 @@ pub(crate) fn migrate_if_exact_legacy_ts(
 
 pub(crate) fn legacy_topic_ids(database_path: &Path) -> Result<Option<Vec<String>>, String> {
     let connection = open_production_database_read_only(database_path)?;
-    if !is_exact_legacy_ts_schema(&connection)? {
+    if classify_legacy_ts_schema(&connection)?.is_none() {
         return Ok(None);
     }
     let mut statement = connection

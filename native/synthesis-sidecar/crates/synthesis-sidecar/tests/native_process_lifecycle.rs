@@ -157,7 +157,7 @@ fn write_launch_config(root: &Path, reverse_host_port: u16) -> (PathBuf, PathBuf
     let (target, target_triple, platform_signature) = target_identity();
     fs::create_dir_all(&runtime_root).expect("runtime root");
     let config = json!({
-        "schema":"synthesis-sidecar-launch-config.v3",
+        "schema":"synthesis-sidecar-launch-config.v4",
         "profileId":"1".repeat(64),
         "libraryId":1,
         "profileRuntimeRoot":runtime_root,
@@ -171,7 +171,7 @@ fn write_launch_config(root: &Path, reverse_host_port: u16) -> (PathBuf, PathBuf
         "platformSignature":platform_signature,
         "serviceVersion":env!("CARGO_PKG_VERSION"),
         "protocolVersion":"synthesis-sidecar.v1",
-        "schemaVersion":"synthesis-repository-foundation.v2",
+        "schemaVersion":"synthesis-repository-foundation.v3",
         "supervisorInstanceId":"supervisor-1",
         "diagnosticsEnabled":false,
         "repositoryDbPath":root.join("state/synthesis.db"),

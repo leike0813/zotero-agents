@@ -306,6 +306,7 @@ pub struct TopicGraphNodeRecord {
     pub last_synthesis_at: String,
     pub created_at: String,
     pub updated_at: String,
+    pub planning_json: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -383,6 +384,69 @@ impl Repository {
                 .as_object_mut()
                 .ok_or_else(|| "topic_discovery_hint_invalid".to_owned())?;
             object.insert("status".into(), json!(status));
+            object.insert("updated_at".into(), json!(updated_at));
+            repository.execute(
+                "UPDATE synt_topic_discovery_hint SET payload_json=?1,updated_at=?2 WHERE hint_id=?3",
+                &[
+                    json!(serde_json::to_string(&payload)
+                        .map_err(|_| "topic_discovery_hint_invalid".to_owned())?),
+                    json!(updated_at),
+                    json!(hint_id),
+                ],
+            )?;
+            Ok(Some(payload))
+        })
+    }
+
+    pub fn update_topic_discovery_hint_outcome(
+        &mut self,
+        hint_id: &str,
+        status: &str,
+        basis_hash: &str,
+        outcome: &Value,
+        updated_at: &str,
+    ) -> Result<Option<Value>, String> {
+        if hint_id.is_empty()
+            || !matches!(status, "accepted" | "screened_out" | "superseded" | "open")
+            || !outcome.is_object()
+        {
+            return Err("invalid_request".into());
+        }
+        self.transaction(|repository| {
+            let row = repository
+                .query(
+                    "SELECT payload_json FROM synt_topic_discovery_hint WHERE hint_id=?1",
+                    &[json!(hint_id)],
+                )?
+                .into_iter()
+                .next();
+            let Some(row) = row else {
+                return Ok(None);
+            };
+            let mut payload = serde_json::from_str::<Value>(
+                row.get("payload_json")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "topic_discovery_hint_invalid".to_owned())?,
+            )
+            .map_err(|_| "topic_discovery_hint_invalid".to_owned())?;
+            let object = payload
+                .as_object_mut()
+                .ok_or_else(|| "topic_discovery_hint_invalid".to_owned())?;
+            let current_basis = object
+                .get("basis_hash")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let next_status = if status == "open"
+                && object.get("status").and_then(Value::as_str) == Some("screened_out")
+                && current_basis == basis_hash
+            {
+                "screened_out"
+            } else {
+                status
+            };
+            object.insert("status".into(), json!(next_status));
+            object.insert("basis_hash".into(), json!(basis_hash));
+            object.insert("outcome".into(), outcome.clone());
             object.insert("updated_at".into(), json!(updated_at));
             repository.execute(
                 "UPDATE synt_topic_discovery_hint SET payload_json=?1,updated_at=?2 WHERE hint_id=?3",
@@ -1844,8 +1908,8 @@ fn put_topic_graph_node(repository: &Repository, row: &TopicGraphNodeRecord) -> 
     repository.execute(
         "INSERT INTO synt_topic_graph_node(
          topic_id,title,definition,aliases_json,node_type,definition_status,current_artifact_path,
-         is_root,level,paper_count,last_synthesis_at,created_at,updated_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+         is_root,level,paper_count,last_synthesis_at,created_at,updated_at,planning_json)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         &[
             json!(row.topic_id),
             json!(row.title),
@@ -1860,6 +1924,7 @@ fn put_topic_graph_node(repository: &Repository, row: &TopicGraphNodeRecord) -> 
             json!(row.last_synthesis_at),
             json!(row.created_at),
             json!(row.updated_at),
+            json!(row.planning_json),
         ],
     )?;
     Ok(())

@@ -482,6 +482,17 @@ export function createWorkflowSynthesisHostApi(
     async getTopicReport(request) {
       return (await resolveClient()).topics.getTopicReport(request);
     },
+    async getTopicPlanningContext() {
+      return (await resolveClient()).topics.getPlanningContext();
+    },
+    async applyTopicPlan(plan) {
+      const result = await (await resolveClient()).topics.applyPlan(plan);
+      notifyChanged({
+        invalidatedSurfaces: ["home", "topics", "graph"],
+        reason: "topic_plan_apply",
+      });
+      return result;
+    },
     async readPaperArtifacts(request) {
       return (await resolveClient()).artifacts.readPaperArtifacts(request);
     },

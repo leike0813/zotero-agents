@@ -1,6 +1,6 @@
 {
   "schema": "synthesis-durable-foundation-corpus.v1",
-  "schemaVersion": "synthesis-repository-foundation.v2",
+  "schemaVersion": "synthesis-repository-foundation.v3",
   "nodeOracle": {
     "coreRange": [203, 217],
     "files": [

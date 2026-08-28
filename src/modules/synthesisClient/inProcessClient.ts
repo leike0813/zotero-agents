@@ -167,6 +167,8 @@ export interface SynthesisClientPort {
   debugSynthesisDiff?: ClientMethod<"debug", "diff">;
   debugSynthesisCleanInstallReset?: ClientMethod<"debug", "cleanInstallReset">;
   listWorkflowTopicOptions: ClientMethod<"topics", "listWorkflowOptions">;
+  getTopicPlanningContext?: ClientMethod<"topics", "getPlanningContext">;
+  applyTopicPlan?: ClientMethod<"topics", "applyPlan">;
   reconcileSynthesisRuntimeWorkStateOnStartup?(): SynthesisStartupReconcileResult;
   resetSynthesisDatabase?: ClientMethod<"maintenance", "resetDatabase">;
   consumeRelatedItemsSyncEcho?: (
@@ -1920,6 +1922,28 @@ export function createSynthesisClientFromPort(
         } catch (error) {
           throw normalizeClientError(error);
         }
+      },
+      async getPlanningContext() {
+        return runLegacy(async () =>
+          toSynthesisJsonObject(
+            await requireLegacyPort(
+              legacy.getTopicPlanningContext,
+              "topics.getPlanningContext",
+            )(),
+            "$.topicPlanningContext",
+          ),
+        );
+      },
+      async applyPlan(plan) {
+        return runLegacy(async () =>
+          toSynthesisJsonObject(
+            await requireLegacyPort(
+              legacy.applyTopicPlan,
+              "topics.applyPlan",
+            )(plan),
+            "$.topicPlanResult",
+          ),
+        );
       },
       async getTopicReport(request) {
         return runLegacy(async () =>

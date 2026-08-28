@@ -81,6 +81,8 @@ const TOPIC_WORKBENCH_OPERATIONS = [
   "client.getTopicReport",
   "client.listTopics",
   "client.listWorkflowTopicOptions",
+  "client.getTopicPlanningContext",
+  "client.applyTopicPlan",
   "client.purgeDeletedTopicArtifacts",
   "client.readTopicDetail",
   "client.rejectTopicDiscoveryHint",
@@ -455,11 +457,11 @@ describe("Synthesis Rust production client route", function () {
   this.timeout(20_000);
 
   it("keeps the Topic and Workbench production surface fixture-backed", function () {
-    assert.lengthOf(TOPIC_WORKBENCH_OPERATIONS, 18);
+    assert.lengthOf(TOPIC_WORKBENCH_OPERATIONS, 20);
     assert.deepEqual(inspectSynthesisTopicWorkbenchSurfaceParity(), {
       ok: true,
-      operations: 18,
-      observables: 18,
+      operations: 20,
+      observables: 20,
       errors: [],
     });
   });
@@ -871,13 +873,15 @@ describe("Synthesis Rust production client route", function () {
     const cases = BASELINE_PRODUCTION_OBSERVABLES.surfaces
       .flatMap((surface) => surface.cases)
       .filter((entry) => entry.access === "read");
-    assert.lengthOf(cases, 17);
+    assert.lengthOf(cases, 18);
     assert.isTrue(
       cases.every(
         (entry) =>
           entry.access === "read" &&
           entry.expected.writeExpectation === "zero" &&
-          entry.expected.hostEffects.length === 0,
+          (entry.expected.hostEffects.length === 0 ||
+            (entry.operation === "client.getTopicPlanningContext" &&
+              entry.expected.hostEffects.includes("library-index-read"))),
       ),
     );
 
@@ -1547,7 +1551,7 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
-  it("executes the closed 96-operation scenario matrix through native composition", async function () {
+  it("executes the closed 98-operation scenario matrix through native composition", async function () {
     this.timeout(120_000);
     const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
     const harness = await startSynthesisProductionRouteHarness({
@@ -1589,10 +1593,10 @@ describe("Synthesis Rust production client route", function () {
         );
       assert.equal(seeded.status, "persisted");
       const observed = await executeSynthesisProductionRouteScenarios(harness);
-      assert.lengthOf(observed, 96);
+      assert.lengthOf(observed, 98);
       assert.equal(
         new Set(observed.map(({ operation }) => operation)).size,
-        96,
+        98,
       );
       assert.isTrue(
         harness.recorder.wire.every(

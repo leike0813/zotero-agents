@@ -537,7 +537,7 @@ describe("Synthesis sidecar Topic Graph application foundation", function () {
     });
     assert.equal(
       SYNTHESIS_TOPIC_GRAPH_APPLICATION_REPOSITORY_SCHEMA_VERSION,
-      "synthesis-topic-graph-application-repository.v1",
+      "synthesis-topic-graph-application-repository.v2",
     );
     assert.includeMembers(
       [...SYNTHESIS_TOPIC_GRAPH_APPLICATION_TABLES],

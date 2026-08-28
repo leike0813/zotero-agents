@@ -403,7 +403,7 @@
       "additionalProperties": false,
       "required": ["kind", "topicId", "title"],
       "properties": {
-        "kind": { "const": "synthesis.topic" },
+        "kind": { "enum": ["synthesis.topic", "synthesis.planned-topic"] },
         "topicId": { "$ref": "#/$defs/String" },
         "title": { "type": "string", "maxLength": 16384 },
         "status": { "type": "string" },
@@ -420,7 +420,9 @@
             "unknown"
           ]
         },
-        "sourceMaterialsStatus": { "enum": ["complete", "partial", "missing"] }
+        "sourceMaterialsStatus": { "enum": ["complete", "partial", "missing"] },
+        "lifecycle": { "const": "planned" },
+        "revision": { "type": "integer", "minimum": 1 }
       }
     },
     "WorkflowOptions": {
@@ -1259,6 +1261,67 @@
         "diagnostics": { "$ref": "#/$defs/EmptyDiagnostics" }
       }
     },
+    "TopicPlanningSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paper_refs": { "$ref": "#/$defs/Strings" },
+        "collection_key": { "$ref": "#/$defs/Strings" },
+        "tag": { "$ref": "#/$defs/ResolverTag" },
+        "combine": { "enum": ["union", "intersection"] }
+      }
+    },
+    "TopicPlanningScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["include", "exclude"],
+      "properties": {
+        "include": { "$ref": "#/$defs/Strings" },
+        "exclude": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TopicPlanningEvidenceObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "producer": { "$ref": "#/$defs/String" },
+        "source": { "$ref": "#/$defs/String" },
+        "kind": { "$ref": "#/$defs/String" },
+        "ref": { "$ref": "#/$defs/String" },
+        "hash": { "$ref": "#/$defs/String" },
+        "reason": { "type": "string", "maxLength": 65536 },
+        "path": { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "TopicPlanningEvidence": {
+      "oneOf": [
+        { "$ref": "#/$defs/String" },
+        { "$ref": "#/$defs/TopicPlanningEvidenceObject" }
+      ]
+    },
+    "TopicPlanningEvidenceList": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/TopicPlanningEvidence" }
+    },
+    "TopicPlanningMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lifecycle": { "enum": ["planned", "stale", "materialized"] },
+        "scope": { "$ref": "#/$defs/TopicPlanningScope" },
+        "resolver": { "$ref": "#/$defs/TopicPlanningSelector" },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "basis": { "$ref": "#/$defs/TopicPlanningEvidenceList" },
+        "provenance": { "$ref": "#/$defs/TopicPlanningEvidenceList" },
+        "coverage_manifest_path": { "type": "string", "maxLength": 4096 }
+      }
+    },
     "TopicGraphNode": {
       "type": "object",
       "additionalProperties": false,
@@ -1275,7 +1338,8 @@
         "paper_count",
         "last_synthesis_at",
         "created_at",
-        "updated_at"
+        "updated_at",
+        "planning"
       ],
       "properties": {
         "topic_id": { "$ref": "#/$defs/String" },
@@ -1292,7 +1356,8 @@
         "paper_count": { "type": "integer", "minimum": 0 },
         "last_synthesis_at": { "type": "string", "maxLength": 64 },
         "created_at": { "type": "string", "maxLength": 64 },
-        "updated_at": { "type": "string", "maxLength": 64 }
+        "updated_at": { "type": "string", "maxLength": 64 },
+        "planning": { "$ref": "#/$defs/TopicPlanningMetadata" }
       }
     },
     "NullableConfidence": {
@@ -2384,7 +2449,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["filter"],
-      "properties": { "filter": { "enum": ["all", "updatable"] } }
+      "properties": { "filter": { "enum": ["all", "updatable", "planned"] } }
     },
     "ListWorkflowTopicOptionsRequest": {
       "type": "object",
@@ -2400,6 +2465,266 @@
       }
     },
     "ListWorkflowTopicOptionsResult": { "$ref": "#/$defs/WorkflowOptions" },
+    "GetTopicPlanningContextRequest": { "$ref": "#/$defs/NoArgs" },
+    "TopicPlanningLibrary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "library_id",
+        "index_hash",
+        "total_papers",
+        "papers",
+        "tags",
+        "collections"
+      ],
+      "properties": {
+        "library_id": { "type": "integer", "minimum": 1 },
+        "index_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "total_papers": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "papers": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TopicPlanningPaper" }
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": {
+            "$ref": "client-artifact-library-debug.schema.json#/$defs/CountedTag"
+          }
+        },
+        "collections": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": {
+            "$ref": "client-artifact-library-debug.schema.json#/$defs/CountedCollection"
+          }
+        }
+      }
+    },
+    "TopicPlanningPaper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paper_ref",
+        "library_id",
+        "item_key",
+        "title",
+        "year",
+        "item_type",
+        "creators",
+        "tags",
+        "collections"
+      ],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/String" },
+        "library_id": { "type": "integer", "minimum": 1 },
+        "item_key": { "$ref": "#/$defs/String" },
+        "title": { "type": "string", "maxLength": 16384 },
+        "year": { "type": "string", "maxLength": 128 },
+        "item_type": { "$ref": "#/$defs/String" },
+        "creators": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/String" },
+              {
+                "$ref": "client-artifact-library-debug.schema.json#/$defs/Creator"
+              }
+            ]
+          }
+        },
+        "tags": { "$ref": "#/$defs/Strings" },
+        "collections": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TopicPlanningCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["denominator", "primary_states", "overlap_is_separate"],
+      "properties": {
+        "denominator": { "const": "top_level_regular_items" },
+        "primary_states": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "materialized_covered",
+              "planned_covered",
+              "uncovered",
+              "indeterminate"
+            ]
+          }
+        },
+        "overlap_is_separate": { "const": true }
+      }
+    },
+    "TopicPlanningDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounded_inline", "truncated"],
+      "properties": {
+        "bounded_inline": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "returned_papers": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "total_papers": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
+    },
+    "GetTopicPlanningContextResult": {
+      "type": "object",
+      "required": [
+        "schema_id",
+        "schema_version",
+        "library",
+        "topics",
+        "topic_graph",
+        "coverage",
+        "diagnostics"
+      ],
+      "properties": {
+        "schema_id": { "const": "synthesis.topic_planning_context" },
+        "schema_version": { "const": "1.0.0" },
+        "library": { "$ref": "#/$defs/TopicPlanningLibrary" },
+        "topics": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TopicGraphNode" }
+        },
+        "topic_graph": { "$ref": "#/$defs/TopicGraphProjection" },
+        "coverage": { "$ref": "#/$defs/TopicPlanningCoverage" },
+        "diagnostics": { "$ref": "#/$defs/TopicPlanningDiagnostics" }
+      },
+      "additionalProperties": false
+    },
+    "TopicPlanAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "topic_id"],
+      "properties": {
+        "action": {
+          "enum": ["create", "update", "mark_stale", "reactivate"]
+        },
+        "topic_id": { "$ref": "#/$defs/String" },
+        "title": { "type": "string", "maxLength": 16384 },
+        "definition": { "type": "string", "maxLength": 65536 },
+        "aliases": { "$ref": "#/$defs/Strings" },
+        "scope": { "$ref": "#/$defs/TopicPlanningScope" },
+        "resolver": { "$ref": "#/$defs/TopicPlanningSelector" },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "basis": { "$ref": "#/$defs/TopicPlanningEvidenceList" },
+        "provenance": { "$ref": "#/$defs/TopicPlanningEvidenceList" }
+      }
+    },
+    "TopicPlanRelationProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_topic_id", "target_topic_id", "relation"],
+      "properties": {
+        "source_topic_id": { "$ref": "#/$defs/String" },
+        "target_topic_id": { "$ref": "#/$defs/String" },
+        "relation": {
+          "enum": [
+            "broader_than",
+            "related_to",
+            "overlaps_with",
+            "contrasts_with"
+          ]
+        },
+        "confidence": { "$ref": "#/$defs/NullableConfidence" },
+        "provenance": { "$ref": "#/$defs/TopicPlanningEvidenceList" },
+        "evidence_refs": { "$ref": "#/$defs/TopicPlanningEvidenceList" }
+      }
+    },
+    "ApplyTopicPlanRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "operation",
+              "base_graph_hash",
+              "library_index_hash",
+              "topic_actions",
+              "relation_proposals",
+              "recommended_updates"
+            ],
+            "properties": {
+              "kind": { "const": "topic_plan" },
+              "operation": { "const": "reconcile" },
+              "base_graph_hash": { "type": "string" },
+              "library_index_hash": { "type": "string" },
+              "topic_actions": {
+                "type": "array",
+                "maxItems": 250,
+                "items": { "$ref": "#/$defs/TopicPlanAction" }
+              },
+              "relation_proposals": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": { "$ref": "#/$defs/TopicPlanRelationProposal" }
+              },
+              "coverage_manifest_path": { "type": "string" },
+              "recommended_updates": { "$ref": "#/$defs/Strings" }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "ApplyTopicPlanResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "graph_hash",
+        "coverage_stale",
+        "recommended_updates",
+        "diagnostics"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["persisted", "no_change", "already_applied", "conflict"]
+        },
+        "graph_hash": { "type": "string" },
+        "coverage_stale": { "type": "boolean" },
+        "recommended_updates": { "$ref": "#/$defs/Strings" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code"],
+            "properties": {
+              "code": { "$ref": "#/$defs/String" },
+              "message": { "type": "string", "maxLength": 65536 },
+              "source_topic_id": { "$ref": "#/$defs/String" },
+              "target_topic_id": { "$ref": "#/$defs/String" }
+            }
+          }
+        }
+      }
+    },
     "RelatedItemsEchoPayload": {
       "type": "object",
       "additionalProperties": false,

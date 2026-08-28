@@ -87,6 +87,7 @@ import {
 } from "./synthesis/builtinTagPolicy";
 import { readSynthesisSidecarTraceSnapshot } from "./synthesisSidecarTrace";
 import { openTaskManagerDialog } from "./taskManagerDialog";
+import { recoverDefaultSynthesisProductionOwner } from "./synthesisProductionOwner";
 import { isSynthesisLiteratureScoreInvalidationEvent } from "./synthesis/itemObserver";
 import {
   getSynthesisWorkbenchSidecarStatus,
@@ -2831,6 +2832,12 @@ function handleAction(
       initialTabKey: "synthesis-sidecar",
       chromeWindow: runtime.window,
     });
+    return;
+  }
+  if (envelope.action === "retrySynthesisSidecar") {
+    void recoverDefaultSynthesisProductionOwner()
+      .then(() => sendChrome(runtime, { refreshFromService: false }))
+      .catch((error) => reportWorkbenchError(error, runtime.window));
     return;
   }
   if (envelope.action === "expandGraphNeighborhood") {

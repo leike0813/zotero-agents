@@ -42,7 +42,7 @@
         }
       }
     },
-    "LaunchConfigV3": {
+    "LaunchConfigV4": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -70,7 +70,7 @@
         "port"
       ],
       "properties": {
-        "schema": { "const": "synthesis-sidecar-launch-config.v3" },
+        "schema": { "const": "synthesis-sidecar-launch-config.v4" },
         "profileId": { "$ref": "#/$defs/Hash" },
         "libraryId": { "type": "integer", "minimum": 1 },
         "profileRuntimeRoot": {
@@ -93,6 +93,9 @@
           "$ref": "common.schema.json#/$defs/identifier"
         },
         "diagnosticsEnabled": { "type": "boolean" },
+        "startupTrace": {
+          "$ref": "observability.schema.json#/$defs/TraceContext"
+        },
         "repositoryDbPath": {
           "type": "string",
           "minLength": 1,

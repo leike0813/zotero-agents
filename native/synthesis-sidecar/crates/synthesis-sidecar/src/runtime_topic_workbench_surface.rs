@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use synthesis_application::concept_kb::decode_stored_concept_proposal;
+use synthesis_application::topic_graph::TopicPlanReconcileRequest;
 use synthesis_application::{
     TopicApplyRequest, TopicContextRequest, TopicContextView, TopicDeleteRequest,
     TopicDetailRequest, TopicDetailResult, TopicDiscoveryHintRequest, TopicFindRequest,
@@ -514,6 +515,7 @@ fn stored_json(text: &str, expected_array: bool) -> Result<Value, String> {
 }
 
 fn topic_graph_node_wire(record: TopicGraphNodeRecord) -> Result<Value, String> {
+    let planning = stored_json(&record.planning_json, false)?;
     Ok(json!({
         "topic_id":record.topic_id,
         "title":record.title,
@@ -528,6 +530,7 @@ fn topic_graph_node_wire(record: TopicGraphNodeRecord) -> Result<Value, String> 
         "last_synthesis_at":record.last_synthesis_at,
         "created_at":record.created_at,
         "updated_at":record.updated_at,
+        "planning":planning,
     }))
 }
 
@@ -856,6 +859,7 @@ struct TopicFindWireRequest {
 enum TopicWorkflowFilterWire {
     All,
     Updatable,
+    Planned,
 }
 
 #[derive(Debug, Deserialize)]
@@ -949,7 +953,81 @@ fn decode_workflow_filter(args: &[Value]) -> Result<TopicWorkflowFilter, String>
     match one::<TopicWorkflowFilterWireRequest>(args)?.filter {
         TopicWorkflowFilterWire::All => Ok(TopicWorkflowFilter::All),
         TopicWorkflowFilterWire::Updatable => Ok(TopicWorkflowFilter::Updatable),
+        TopicWorkflowFilterWire::Planned => Ok(TopicWorkflowFilter::Planned),
     }
+}
+
+fn planned_workflow_options(apps: &ProductionApplications) -> Result<Value, String> {
+    let mut options = apps
+        .topic_graph
+        .load()?
+        .nodes
+        .into_iter()
+        .filter_map(|node| {
+            if node.node_type != "placeholder"
+                || matches!(node.definition_status.as_str(), "deleted" | "stale")
+            {
+                return None;
+            }
+            let planning = stored_json(&node.planning_json, false).ok()?;
+            if planning.get("lifecycle").and_then(Value::as_str) != Some("planned") {
+                return None;
+            }
+            let revision = planning
+                .get("revision")
+                .and_then(Value::as_i64)
+                .unwrap_or(1);
+            let title = if node.title.trim().is_empty() {
+                node.topic_id.clone()
+            } else {
+                node.title.clone()
+            };
+            Some(json!({
+                "value":node.topic_id,
+                "label":title,
+                "description":format!("{} · revision {}", node.definition, revision),
+                "meta":{
+                    "kind":"synthesis.planned-topic",
+                    "topicId":node.topic_id,
+                    "title":title,
+                    "lifecycle":"planned",
+                    "revision":revision,
+                },
+            }))
+        })
+        .collect::<Vec<_>>();
+    options.sort_by(|left, right| {
+        left["label"]
+            .as_str()
+            .unwrap_or_default()
+            .cmp(right["label"].as_str().unwrap_or_default())
+    });
+    Ok(json!({"options":options,"diagnostics":[]}))
+}
+
+fn topic_planning_context(apps: &ProductionApplications) -> Result<Value, String> {
+    let library = crate::runtime_artifact_library_debug::complete_library_index(apps)?;
+    let graph = topic_graph_projection(apps.topic_graph.load()?)?;
+    Ok(json!({
+        "schema_id":"synthesis.topic_planning_context",
+        "schema_version":"1.0.0",
+        "library":{
+            "library_id":library["libraryId"],
+            "index_hash":library["index_hash"],
+            "total_papers":library["papers"].as_array().map_or(0, Vec::len),
+            "papers":library["papers"],
+            "tags":library["tags"],
+            "collections":library["collections"],
+        },
+        "topics":graph["nodes"],
+        "topic_graph":graph,
+        "coverage":{
+            "denominator":"top_level_regular_items",
+            "primary_states":["materialized_covered","planned_covered","uncovered","indeterminate"],
+            "overlap_is_separate":true,
+        },
+        "diagnostics":{"bounded_inline":true,"truncated":false},
+    }))
 }
 
 fn decode_topic_context(args: &[Value]) -> Result<TopicContextRequest, String> {
@@ -1242,11 +1320,24 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
         apps.topics.detail(one(args)?).map(topic_detail_wire)
     }),
     ProductionClientRouteEntry::new("client.listWorkflowTopicOptions", |apps, args| {
-        wire(
-            apps.topics
-                .workflow_options(decode_workflow_filter(args)?)?,
-        )
+        match decode_workflow_filter(args)? {
+            TopicWorkflowFilter::Planned => planned_workflow_options(apps),
+            filter => wire(apps.topics.workflow_options(filter)?),
+        }
     }),
+    ProductionClientRouteEntry::new("client.getTopicPlanningContext", |apps, args| {
+        no_args(args)?;
+        topic_planning_context(apps)
+    }),
+    ProductionClientRouteEntry::new("client.applyTopicPlan", |apps, args| {
+        let plan = one::<TopicPlanReconcileRequest>(args)?;
+        let library = crate::runtime_artifact_library_debug::complete_library_index(apps)?;
+        let index_hash = library["index_hash"]
+            .as_str()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?;
+        Ok(apps.topic_graph.reconcile_plan(&plan, index_hash))
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::Persisted),
     ProductionClientRouteEntry::new("client.getSynthesisWorkbenchChromeInput", |apps, args| {
         if !one::<Value>(args)?.is_object() {
             return Err("invalid_request".into());

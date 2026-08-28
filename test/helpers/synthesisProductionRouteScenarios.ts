@@ -249,6 +249,19 @@ const GROUPED_INVOCATIONS: Record<
     client.debug.cleanInstallReset({ dryRun: true }),
   "client.listWorkflowTopicOptions": (client) =>
     client.topics.listWorkflowOptions({ filter: "all" }),
+  "client.getTopicPlanningContext": (client) =>
+    client.topics.getPlanningContext(),
+  "client.applyTopicPlan": (client) =>
+    client.topics.applyPlan({
+      kind: "topic_plan",
+      operation: "reconcile",
+      base_graph_hash: "scenario-stale-graph",
+      library_index_hash: "scenario-stale-library",
+      topic_actions: [],
+      relation_proposals: [],
+      coverage_manifest_path: "",
+      recommended_updates: [],
+    }),
   "client.reconcileSynthesisRuntimeWorkStateOnStartup": (client) =>
     client.system.reconcileRuntimeWorkOnStartup(),
   "client.resetSynthesisDatabase": (client) =>

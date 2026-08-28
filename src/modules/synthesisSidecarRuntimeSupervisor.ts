@@ -6,6 +6,7 @@ import {
   type SynthesisProductionDiscovery,
   type SynthesisProductionHealth,
   type SynthesisSidecarObservationEvent,
+  type SynthesisSidecarTraceContext,
   type SynthesisWorkbenchSidecarStatus,
 } from "../../packages/synthesis-contracts/src";
 import { sha256Hex } from "../platform/hash";
@@ -119,6 +120,7 @@ type BaseSupervisorOptions = {
   restartDelaysMs?: readonly number[];
   recordTraceEvent?: (event: SynthesisSidecarObservationEvent) => void;
   diagnosticsEnabled?: boolean;
+  startupTrace?: SynthesisSidecarTraceContext;
 };
 
 export type SynthesisProductionRuntimeSupervisorOptions =
@@ -135,6 +137,8 @@ type Session = {
   connection?: SynthesisProductionSidecarControlConnection;
   proc?: SidecarProcess;
   closed?: Promise<void>;
+  stderrDrain?: Promise<void>;
+  stableFailureCode?: string;
   stdoutTail: string;
   stderrTail: string;
   stdoutLineBuffer: string;
@@ -251,6 +255,11 @@ export function parseNativeDiagnosticEvent(
   }
 }
 
+export function parseNativeStableFailureCode(source: string) {
+  const match = source.trim().match(/^([a-z][a-z0-9_.-]{0,127})(?::|$)/);
+  return match?.[1];
+}
+
 function waitForPromise(promise: Promise<unknown>, timeoutMs: number) {
   return Promise.race([
     promise.then(
@@ -328,6 +337,7 @@ export function createSynthesisProductionRuntimeSupervisor(
   let controlledStop = false;
   let restartTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
   let healthTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  let generation = 0;
   const subscribers = new Set<
     (value: SynthesisSidecarSupervisorSnapshot) => void
   >();
@@ -361,16 +371,20 @@ export function createSynthesisProductionRuntimeSupervisor(
     for (;;) {
       const chunk = await stream.readString();
       if (!chunk) {
+        if (kind === "stderr" && current.stderrLineBuffer) {
+          current.stableFailureCode ||= parseNativeStableFailureCode(
+            current.stderrLineBuffer,
+          );
+          current.stderrLineBuffer = "";
+        }
         return;
       }
-      if (kind === "stderr" && !diagnosticsEnabled) {
-        await yieldToEventLoop();
-        continue;
-      }
-      if (kind === "stdout") {
-        current.stdoutTail = appendTail(current.stdoutTail, chunk);
-      } else {
-        current.stderrTail = appendTail(current.stderrTail, chunk);
+      if (diagnosticsEnabled) {
+        if (kind === "stdout") {
+          current.stdoutTail = appendTail(current.stdoutTail, chunk);
+        } else {
+          current.stderrTail = appendTail(current.stderrTail, chunk);
+        }
       }
       const bufferKey =
         kind === "stdout" ? "stdoutLineBuffer" : "stderrLineBuffer";
@@ -383,6 +397,9 @@ export function createSynthesisProductionRuntimeSupervisor(
         if (event) {
           retainSynthesisSidecarNativeTraceEvent(event);
           options.recordTraceEvent?.(event);
+        }
+        if (kind === "stderr") {
+          current.stableFailureCode ||= parseNativeStableFailureCode(line);
         }
       }
       await yieldToEventLoop();
@@ -426,9 +443,19 @@ export function createSynthesisProductionRuntimeSupervisor(
       "protocol_mismatch",
       "schema_mismatch",
       "profile_mismatch",
+      "repository_",
+      "legacy_schema_",
+      "canonical_",
     ].some((prefix) => code.startsWith(prefix));
 
-  const fail = async (code: string, current: Session | null) => {
+  const fail = async (
+    code: string,
+    current: Session | null,
+    launchGeneration = generation,
+  ) => {
+    if (launchGeneration !== generation) {
+      return;
+    }
     clearTimers();
     if (current) {
       await stopProcess(current);
@@ -468,7 +495,9 @@ export function createSynthesisProductionRuntimeSupervisor(
     restartTimer = setTimer(
       () => {
         restartTimer = null;
-        void launch();
+        if (launchGeneration === generation && !controlledStop) {
+          void launch(launchGeneration);
+        }
       },
       Math.max(0, restartAt - now()),
     );
@@ -492,6 +521,22 @@ export function createSynthesisProductionRuntimeSupervisor(
       });
     }
     throw new Error("sidecar_discovery_timeout");
+  };
+
+  const waitForDiscoveryOrExit = async (current: Session) => {
+    if (!current.closed) {
+      return waitForDiscovery(current);
+    }
+    return Promise.race([
+      waitForDiscovery(current),
+      current.closed.then(async () => {
+        await current.stderrDrain?.catch(() => undefined);
+        throw new Error(
+          current.stableFailureCode ||
+            "sidecar_process_exited_before_discovery",
+        );
+      }),
+    ]);
   };
 
   const scheduleHealth = (current: Session) => {
@@ -520,7 +565,10 @@ export function createSynthesisProductionRuntimeSupervisor(
     }, healthIntervalMs);
   };
 
-  async function launch() {
+  async function launch(launchGeneration = generation) {
+    if (launchGeneration !== generation || controlledStop) {
+      return;
+    }
     clearTimers();
     publish({
       status: "starting",
@@ -575,6 +623,7 @@ export function createSynthesisProductionRuntimeSupervisor(
         schemaVersion: SYNTHESIS_SCHEMA_VERSION,
         supervisorInstanceId,
         diagnosticsEnabled,
+        ...(options.startupTrace ? { startupTrace: options.startupTrace } : {}),
         repositoryDbPath: options.repositoryDbPath,
         canonicalRoot: options.canonicalRoot,
         reverseHost: options.reverseHost,
@@ -594,20 +643,32 @@ export function createSynthesisProductionRuntimeSupervisor(
       });
       current.proc = proc;
       void drainStream(current, proc.stdout, "stdout").catch(() => undefined);
-      void drainStream(current, proc.stderr, "stderr").catch(() => undefined);
+      current.stderrDrain = drainStream(current, proc.stderr, "stderr").catch(
+        () => undefined,
+      );
       current.closed = Promise.resolve()
         .then(() => proc.wait?.())
-        .then(() => undefined);
-      void current.closed.finally(() => {
+        .then(
+          () => undefined,
+          () => undefined,
+        );
+      const exitedSession = current;
+      void current.closed.then(() => {
         if (
           session === current &&
           !controlledStop &&
           snapshot.status !== "starting"
         ) {
-          void fail("sidecar_process_exited", current);
+          void exitedSession.stderrDrain?.finally(() =>
+            fail(
+              exitedSession.stableFailureCode || "sidecar_process_exited",
+              exitedSession,
+              launchGeneration,
+            ),
+          );
         }
       });
-      const discovery = await waitForDiscovery(current);
+      const discovery = await waitForDiscoveryOrExit(current);
       if (
         discovery.profileId !== profileId ||
         discovery.supervisorInstanceId !== supervisorInstanceId ||
@@ -640,11 +701,12 @@ export function createSynthesisProductionRuntimeSupervisor(
       });
       scheduleHealth(current);
     } catch (error) {
-      await fail(errorCode(error), current);
+      await fail(errorCode(error), current, launchGeneration);
     }
   }
 
   async function stop() {
+    generation += 1;
     controlledStop = true;
     clearTimers();
     const current = session;
@@ -687,7 +749,8 @@ export function createSynthesisProductionRuntimeSupervisor(
         return;
       }
       controlledStop = false;
-      void launch();
+      generation += 1;
+      void launch(generation);
     },
     stop,
     recover() {
@@ -696,7 +759,8 @@ export function createSynthesisProductionRuntimeSupervisor(
       }
       controlledStop = false;
       publish({ restartCount: 0, reasonCode: undefined });
-      void launch();
+      generation += 1;
+      void launch(generation);
     },
     getSnapshot() {
       return { ...snapshot };
@@ -815,6 +879,10 @@ export async function stopSynthesisProductionRuntimeSupervisor() {
   const current = productionSupervisor;
   productionSupervisor = null;
   await current?.stop();
+}
+
+export function recoverSynthesisProductionRuntimeSupervisor() {
+  return productionSupervisor?.recover();
 }
 
 export function getReadySynthesisProductionControlConnection() {

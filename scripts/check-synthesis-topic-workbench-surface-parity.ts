@@ -45,7 +45,7 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
     corpus.bounds.deadlineMs === 10000
       ? []
       : ["invalid corpus bounds"]),
-    ...(ids.length === 18 && new Set(ids).size === ids.length
+    ...(ids.length === 20 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
     ...ids

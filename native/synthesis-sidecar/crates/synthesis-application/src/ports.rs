@@ -304,6 +304,17 @@ pub trait TopicRepositoryPort: Send + Sync {
         let _ = (hint_id, status, updated_at);
         Err("topic_discovery_hint_unavailable".into())
     }
+    fn update_discovery_hint_outcome(
+        &self,
+        hint_id: &str,
+        status: &str,
+        basis_hash: &str,
+        outcome: &Value,
+        updated_at: &str,
+    ) -> Result<Option<Value>, String> {
+        let _ = (hint_id, status, basis_hash, outcome, updated_at);
+        Err("topic_discovery_hint_unavailable".into())
+    }
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
     fn update_operation(
         &self,
@@ -1232,6 +1243,20 @@ impl TopicRepositoryPort for RepositoryPort {
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .update_topic_discovery_hint_status(hint_id, status, updated_at)
+    }
+
+    fn update_discovery_hint_outcome(
+        &self,
+        hint_id: &str,
+        status: &str,
+        basis_hash: &str,
+        outcome: &Value,
+        updated_at: &str,
+    ) -> Result<Option<Value>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .update_topic_discovery_hint_outcome(hint_id, status, basis_hash, outcome, updated_at)
     }
 
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {

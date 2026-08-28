@@ -250,6 +250,12 @@ function createLegacyPort(
     async listWorkflowTopicOptions(request) {
       return resolveService().listWorkflowTopicOptions(request);
     },
+    async getTopicPlanningContext() {
+      return resolveService().getTopicPlanningContext();
+    },
+    async applyTopicPlan(plan) {
+      return resolveService().applyTopicPlan({ plan });
+    },
     reconcileSynthesisRuntimeWorkStateOnStartup() {
       return resolveService().reconcileSynthesisRuntimeWorkStateOnStartup();
     },

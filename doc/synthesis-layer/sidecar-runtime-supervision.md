@@ -14,9 +14,10 @@ generation, or online-upgrade stage.
 
 ## Session config and discovery
 
-The launch config directly contains the production database path, canonical
-root, reverse Host locator, bundle/build identity, schema/protocol identity,
-and two random session tokens. Discovery is written beside that config:
+The strict launch-config v4 directly contains the production database path,
+canonical root, reverse Host locator, bundle/build identity, schema/protocol
+identity, two random session tokens, and an optional bounded startup trace
+context. Discovery is written beside that config:
 
 ```text
 runtime/synthesis/service-runtime/
@@ -101,17 +102,33 @@ Rust owns production initialization. If the database, SQLite sidecars, and
 canonical root are all absent, it creates the database and canonical root. If
 only part exists, startup fails without creating the missing half.
 
-No backup is created when the repository already uses the current schema. A
-future schema transition must be explicitly registered in Rust; only such a
-transition may create a verified migration backup immediately before a
-transactional migration. Unsupported transitions fail without changing
-production.
+No backup is created when the repository already uses the current schema. The
+repository migration registry has a complete ordered v1-to-v2-to-v3 chain and
+applies every required step in one transaction after creating one verified
+backup. A missing step fails before mutation.
+
+The final TypeScript-owned database is adopted through a read-only schema
+profile before any backup or candidate write. The classifier recognizes the
+released v0.5-v0.6 and v0.7-v0.8.3 shapes plus the development planning-only
+and planning-plus-screening shapes. It preserves facts present in each shape
+and fills only historically absent tag-audit, planning, discovery-basis, and
+discovery-outcome fields with empty defaults. Unknown tables, columns, or
+incompatible known columns fail with `legacy_schema_variant_unsupported`
+without changing the source, canonical tree, or backup directory. Candidate
+construction and validation remain private; publication is atomic and a
+failed candidate can be rebuilt on the next explicit recovery attempt.
 
 ## Recovery
 
 Unexpected process exit uses bounded in-session restart delays. Every launch
-gets a new session directory and new tokens. Recovery does not inspect legacy
-receipt, admission, activation, pointer, version, owner, or lease files.
+gets a new session directory and new tokens. Child exit races discovery so an
+early deterministic Rust failure is published immediately instead of waiting
+for discovery timeout. Unknown crashes consume the bounded retry budget and
+then publish a terminal fuse. Every deadline, retry, and child callback is
+scoped to one supervisor generation; a stopped or superseded generation cannot
+launch a delayed attempt. Explicit Workbench recovery starts one fresh,
+non-overlapping generation. Recovery does not inspect legacy receipt,
+admission, activation, pointer, version, owner, or lease files.
 
 The supervisor caches only the bounded health fields needed by Workbench:
 lifecycle/recovery state, stable reason code, observation time, service and
@@ -164,9 +181,19 @@ details are limited to operation, trigger, stage, outcome, duration, Host
 classification, and a declared public semantic status. HTTP status, byte
 counts, native request identity, worker code, and trace fields are excluded.
 
-Debug builds additionally expose `synthesis-sidecar-observation.v2` causal
-traces. Optional context crosses Host RPC and reverse-Host wire envelopes, then
-links supervisor/process, RPC, reverse-Host, child-worker, transfer, and durable
+Startup and debug observation both use
+`synthesis-sidecar-observation.v2`. Launch-config v4 can carry the parent trace
+into Rust. Before discovery, Rust emits safe structured phases for config
+validation, reverse-Host probing, owner acquisition, source validation and
+classification, repository migration/open, canonical open, application
+composition, listener bind, and discovery publication. The production
+supervisor consumes only the stable phase/outcome/code projection, so a
+deterministic failure such as `repository_legacy_topic_hint_invalid` remains
+visible even when diagnostics are disabled. Raw stderr tails stay debug-only.
+
+Debug builds additionally retain complete causal traces. Optional context
+crosses Host RPC and reverse-Host wire envelopes, then links
+supervisor/process, RPC, reverse-Host, child-worker, transfer, and durable
 operation spans. The strict contract accepts only stable identity names,
 duration/queue/size/count metrics, stable codes, hashes, and closed domain
 facts. Advanced Matching facts are matching hash plus proposal, fact, and
@@ -193,11 +220,11 @@ panic evidence to `worker_panicked`, and treats other unexpected exits as
 copied into a public receipt, trace, Runtime Log incident, or Workbench status.
 
 The launch config carries the resolved debug gate into Rust. With the gate
-closed, Host and Rust create no trace IDs or events, serialize no trace context,
-parse no structured stderr, retain no stderr tail or trace store, register no
-trace subscription, and publish no Sidecar UI patch. Rust reports production
-failure through RPC results and supervisor process state; the Host business
-audit remains available. Stdout remains reserved for discovery/protocol output.
+closed, Host and Rust retain no raw stderr tail or debug trace store, register
+no debug trace subscription, and publish no debug Sidecar UI patch. The bounded
+startup trace and safe structured startup events remain active so production
+failure has an actionable phase and stable code. The Host business audit
+remains available. Stdout remains reserved for discovery/protocol output.
 
 Reverse-Host responses are prepared as one UTF-8 byte sequence before transfer.
 The memory response writer waits for output readiness, writes at most 32 KiB,

@@ -60,9 +60,9 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
   {
     id: "topic-workbench",
     schema: "synthesis-topic-workbench-surface-parity.v1",
-    operations: 18,
+    operations: 20,
     operationFingerprint:
-      "99ef4976b55a203e89015e46bcd41ed4242fb63bad90f43b4d63b03a2f61e6ba",
+      "2578b1d4efdd9e1b1cabbd45ebad4afac96fead2ee9c579e8ed5680f834c5b46",
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-topic-workbench-surface-v1/corpus.json",
     evidencePath:

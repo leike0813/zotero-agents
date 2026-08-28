@@ -3175,6 +3175,12 @@ th {
   min-width: 0;
 }
 
+.sidecar-failure-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 .graph-layout-banner {
   position: absolute;
   inset-block-start: 64px;

@@ -73,7 +73,7 @@ function runtimeConfig(
   profileRuntimeRoot = path.join(ROOT, ".scaffold/test-sidecar-metrics-route"),
 ): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v3",
+    schema: "synthesis-sidecar-launch-config.v4",
     profileId: "1".repeat(64),
     libraryId: 1,
     profileRuntimeRoot,
@@ -91,7 +91,7 @@ function runtimeConfig(
     },
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-repository-foundation.v2",
+    schemaVersion: "synthesis-repository-foundation.v3",
     supervisorInstanceId: "metrics-route-supervisor",
     repositoryDbPath: path.join(profileRuntimeRoot, "state/synthesis.db"),
     canonicalRoot: path.join(profileRuntimeRoot, "data/synthesis"),

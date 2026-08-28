@@ -14,7 +14,7 @@
   "documents": [
     {
       "name": "launch-config-v3",
-      "schemaRef": "schemas/lifecycle.schema.json#/$defs/LaunchConfigV3"
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/LaunchConfigV4"
     },
     {
       "name": "discovery-v2",
@@ -366,6 +366,22 @@
       "domain": "topic-workbench",
       "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListWorkflowTopicOptionsRequest",
       "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListWorkflowTopicOptionsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getTopicPlanningContext",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicPlanningContextRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicPlanningContextResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyTopicPlan",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {

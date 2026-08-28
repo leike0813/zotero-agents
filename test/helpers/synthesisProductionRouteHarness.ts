@@ -65,7 +65,7 @@ export function synthesisProductionRouteConfig(args: {
   dataRootId?: string;
 }) {
   return {
-    schema: "synthesis-sidecar-launch-config.v3",
+    schema: "synthesis-sidecar-launch-config.v4",
     profileId: args.profileId ?? "1".repeat(64),
     libraryId: 1,
     profileRuntimeRoot: args.session,
@@ -86,7 +86,7 @@ export function synthesisProductionRouteConfig(args: {
     },
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-repository-foundation.v2",
+    schemaVersion: "synthesis-repository-foundation.v3",
     diagnosticsEnabled: true,
     supervisorInstanceId: args.supervisorInstanceId,
     repositoryDbPath: path.join(args.root, "state", "synthesis.db"),

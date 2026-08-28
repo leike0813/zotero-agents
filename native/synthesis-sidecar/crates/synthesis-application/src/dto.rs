@@ -611,6 +611,7 @@ pub struct TopicFindResult {
 pub enum TopicWorkflowFilter {
     All,
     Updatable,
+    Planned,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

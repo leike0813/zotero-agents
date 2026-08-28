@@ -2289,33 +2289,37 @@ function setGraphSurfaceActive(active: boolean) {
 }
 
 function renderWorkbenchMain(main: HTMLElement, snapshot: Snapshot) {
-  const sidecarFailure = __debug_mode__
-    ? (snapshot.sync?.diagnostics || []).find(
-        (entry) => entry.code === "synthesis_sidecar_startup_failed",
-      )
-    : undefined;
+  const sidecarStatus = snapshot.sidecarStatus;
+  const sidecarFailure =
+    sidecarStatus &&
+    (sidecarStatus.recoveryState === "manual-recovery-required" ||
+      sidecarStatus.lifecycle === "incompatible" ||
+      (sidecarStatus.lifecycle === "unavailable" &&
+        sidecarStatus.recoveryState !== "scheduled"));
   if (sidecarFailure) {
     const card = el("aside", "sidecar-failure-card");
     const copy = el("div", "sidecar-failure-copy");
-    copy.appendChild(el("strong", "", "Synthesis sidecar failed to start"));
+    copy.appendChild(el("strong", "", t("synthesis-sidecar-error")));
     copy.appendChild(
       el(
         "div",
         "muted",
-        textValue(
-          sidecarFailure.message,
-          "Open the debug diagnostics for startup evidence.",
-        ),
+        sidecarStatus.reasonCode || t("synthesis-sidecar-offline"),
       ),
     );
     card.appendChild(copy);
-    card.appendChild(
+    const actions = el("div", "sidecar-failure-actions");
+    actions.appendChild(
+      makeButton(t("synthesis-action-retry"), "retrySynthesisSidecar", {}),
+    );
+    actions.appendChild(
       makeButton(
         t("synthesis-diagnostics"),
         "openSynthesisSidecarDiagnostics",
         {},
       ),
     );
+    card.appendChild(actions);
     main.appendChild(card);
   }
   const graphSurface = ensurePersistentGraphSurface();
