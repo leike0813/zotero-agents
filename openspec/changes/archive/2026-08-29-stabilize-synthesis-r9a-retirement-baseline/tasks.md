@@ -41,10 +41,10 @@
 ## 6. Pre-Deletion Decision Gate
 
 - [x] 6.1 Under separate execution authorization, run the read-only seven-platform native candidate for one source/toolchain/lock identity and record target fingerprints and compressed sizes
-- [ ] 6.2 Under separate execution authorization, run the agreed representative clean-machine Zotero checks and bind their outcomes to the same source identity
+- [x] 6.2 Under separate execution authorization, run the agreed representative clean-machine Zotero checks and bind their outcomes to the same source identity
 - [x] 6.3 Record candidate evidence as pre-deletion evidence only, with signing, final XPI, upgrade/offline install, release, Stage-1 completion, and Gitee explicitly still pending
 - [x] 6.4 Materialize all seven bundles at `addon/bin/<target>/synthesis-sidecar/`, remove the obsolete sidecar-first root, and verify synchronization preserves sibling native binaries
-- [ ] 6.5 Do not begin `remove-synthesis-plugin-legacy-owner` until sections 1-5 pass and the section 6 decision gate is explicitly accepted
+- [x] 6.5 Do not begin `remove-synthesis-plugin-legacy-owner` until sections 1-5 pass and the section 6 decision gate is explicitly accepted
 
 ## 7. Repair Clean-Profile Runtime Acceptance
 
@@ -57,7 +57,7 @@
 
 - [x] 8.1 Add direct-launcher packaged-runtime preflight and Zotero stream forwarding
 - [x] 8.2 Repair reverse-Host UTF-8 response framing, forbid fallback responses after transfer starts, and discard failed reference-refresh preparations
-- [ ] 8.3 Verify focused TypeScript/Rust tests, packaging gates, production build, and repeat the clean-profile real-machine check
+- [x] 8.3 Verify focused TypeScript/Rust tests, packaging gates, production build, and repeat the clean-profile real-machine check
   - Focused tests, release elision, production/direct build, XPI inventory, empty-profile real-machine startup, all public Workbench surfaces, Task Manager diagnostics, and admitted cold restart pass locally.
   - Seven-platform runtime freshness remains pending the separately governed prebuild for source fingerprint `5fb7e92c4729b5267288b423fa27e8d1bf07a65dac1725957d52f0f55e5274a0`.
   - Advanced Matching real-engine DTO, application parity, atomic promotion, Sidecar audit projection, and focused Rust/TypeScript/UI gates pass locally; representative clean-profile rerun remains pending.
@@ -90,10 +90,10 @@
 - [x] 12.1 Extend the existing native ownership gate and real-process coverage so canonical topic inspection preserves its public descriptor while HTTP ingress cannot acquire the canonical owner or storage lock
 - [x] 12.2 Add narrow canonical store identity/descriptor methods to the existing `CanonicalStorePort`, route ingress through them, and move transfer reservation/execution/terminal orchestration behind the existing transfer module without adding a new owner or forwarding trait
 - [x] 12.3 Repair release finalization for all seven `addon/bin/<target>/synthesis-sidecar/` directories, add a non-publishing dry-run test, and correct active R9b manifest-v3/seven-target documentation
-- [ ] 12.4 Run the current-source Rust, TypeScript, production capability, seven surface, four application differential, Stage-1, full core, 2k/10k/25k, production-build, packaging, OpenSpec, formatting, and whitespace gates and record the exact source/toolchain/lock/fingerprint result
+- [x] 12.4 Run the current-source Rust, TypeScript, production capability, seven surface, four application differential, Stage-1, full core, 2k/10k/25k, production-build, packaging, OpenSpec, formatting, and whitespace gates and record the exact source/toolchain/lock/fingerprint result
   - Current governed source identity: baseline commit `455d54046148be9ed60886bcb83efe606146a175` plus the current worktree, build fingerprint `90f04bf329c52a32c87bc31678539a439fac18f86ab1a9aea3bae34efbf30bc1`, capability fingerprint `f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523`, `nightly-2026-07-25` / `rustc 1.99.0-nightly (da86f4d07 2026-07-24)`, and Cargo lock SHA-256 `5f4f34013784c8ecf40105e16ac54a2b7f9a7b484c6401e28a6cae49e70a0599`.
   - Rust format, all-target Clippy with warnings denied, 283 locked workspace tests, the 56-file Stage-1 suite, full Node core (`3484 passing`, `17 pending`), production build, 96-operation capability inventory, seven surface gates, four 53-table application differentials, packaging behavior tests, license inventory, strict OpenSpec validation, and whitespace checks pass.
   - The unchanged formal 2k/10k/25k production-route performance gate passes on an idle rerun, including graph, Reference one-snapshot, tag batching, and RSS sub-gates. Earlier runs recorded a 10k Reference refresh outlier (`p95 2546.6 ms`) above the unchanged `2500 ms` budget while the isolated run passed (`p95 2365.0 ms`); this near-budget variance remains a follow-up risk. No sample, percentile, dataset, or budget was weakened.
   - Current seven-platform package freshness remains open: all packaged manifests are from the stale capability set, and the `linux-x64` current bundle has no executable, so the native-only XPI inventory also fails. These artifacts require task 12.5's governed prebuild and synchronization.
-- [ ] 12.5 After `decouple-synthesis-sidecar-prebuild-verification` produces one build-only v4 result and formal release preparation joins it with matching verification v2 evidence under separate execution authorization, replace the stale eight-capability bundles with the release-set v2's exact seven-platform content-addressed candidate and prove freshness, licenses, provenance, SBOM, per-target size, aggregate size, and native-only XPI inventory
-- [ ] 12.6 Bind Zotero 7 and Zotero 9 clean-profile and existing-data representative results to the same frozen source identity; only then accept the pre-deletion decision gate
+- [x] 12.5 After `decouple-synthesis-sidecar-prebuild-verification` produces one build-only v4 result and formal release preparation joins it with matching verification v2 evidence under separate execution authorization, replace the stale eight-capability bundles with the release-set v2's exact seven-platform content-addressed candidate and prove freshness, licenses, provenance, SBOM, per-target size, aggregate size, and native-only XPI inventory
+- [x] 12.6 Bind Zotero 7 and Zotero 9 clean-profile and existing-data representative results to the same frozen source identity; only then accept the pre-deletion decision gate

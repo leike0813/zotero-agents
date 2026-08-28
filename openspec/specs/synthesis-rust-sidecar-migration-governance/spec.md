@@ -103,3 +103,80 @@ bounded deadline when no event-driven interface exists.
   or completing
 - **THEN** the test SHALL wait on that observable event
 - **AND** SHALL NOT infer it solely from a sleep duration
+
+### Requirement: Rust acceptance SHALL be backed by the fixed native-service baseline
+
+Rust Synthesis acceptance SHALL use `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c` as the executable functional baseline. The audit SHALL reconcile all 131 public baseline methods with the closed native wire inventory and SHALL retain baseline-derived observable evidence independent of Git branch availability.
+
+#### Scenario: Migration inventory is reviewed
+- **WHEN** the fixed baseline, grouped client, wire manifest, dispatcher, and consumers are compared
+- **THEN** every baseline method has exactly one migrated, merged, Host-owned, or approved-retired disposition
+- **AND** every retired method belongs to the exact 23-method authorization in the migration SSOT and has no production consumer
+
+#### Scenario: Parity evidence runs
+- **WHEN** a production capability is claimed ready
+- **THEN** a real Rust production-route case proves its DTO, facts/effects, failure, and reopen behavior
+- **AND** roster or source-string presence alone is insufficient
+
+#### Scenario: Reverse-Host roster entry lacks a caller
+- **WHEN** the Topic representative-image read, Related Items effect, or staged Tag binding resolver is present in the capability roster but unreachable from its production entry point
+- **THEN** the capability is not behaviorally migrated
+- **AND** the change remains open until real-route evidence proves its request, facts/effects, failure behavior, and reopen result
+
+### Requirement: Destructive retirement SHALL remain blocked until parity and scale pass
+
+Plugin legacy and Node oracle deletion SHALL NOT begin while any baseline disposition is unresolved, any production route relies on placeholder or wrong behavior, or the real-route 10k/25k and representative Zotero 7/9 gates are incomplete.
+
+#### Scenario: Existing local suites pass without baseline parity
+- **WHEN** contract/package/unit suites pass but fixed-baseline or real-route evidence is incomplete
+- **THEN** the migration remains pre-acceptance
+- **AND** both destructive retirement changes remain blocked
+
+#### Scenario: Full restoration gates pass
+- **WHEN** every disposition and production operation has accepted behavior evidence and all scale/real-machine gates pass for one source identity
+- **THEN** retirement planning may resume
+- **AND** release remains separately authorized
+
+### Requirement: R9b retirement SHALL require a durable R9a baseline
+
+Physical retirement of plugin legacy or Node sidecar code SHALL NOT begin until
+the R9a capability, corpus partition, dispatcher, ready-roster, critical-smoke,
+boundary, lifecycle, recovery, TypeScript, Rust, Stage-1, and production-build
+gates pass without reading active or archived OpenSpec change artifacts.
+
+#### Scenario: R9a code is implemented but an archival-safe gate fails
+- **WHEN** a required checker or test cannot reproduce its result from current-state contracts and source
+- **THEN** the retained implementations remain in place
+- **AND** neither dependent R9b deletion change is apply-ready in practice
+
+### Requirement: Pre-deletion candidate evidence SHALL be recorded separately
+
+Before destructive R9b deletion begins, the project SHALL record one
+seven-platform native candidate result and the agreed representative
+clean-machine results for the same source identity. The receipt MUST bind the
+source commit, Rust toolchain, Cargo lock identity, seven target fingerprints,
+per-target compressed sizes, workflow identity, and outcomes. Candidate
+evidence MUST NOT be represented as signing, final XPI, offline-install,
+upgrade, release, or complete Stage-1 acceptance.
+
+#### Scenario: Candidate matrix passes
+- **WHEN** all seven native targets and representative clean-machine checks pass for one source identity
+- **THEN** the first destructive R9b change may begin
+- **AND** final package and real-machine gates remain pending
+
+#### Scenario: Candidate evidence is absent or mixed
+- **WHEN** a target is missing, source identities differ, or a result is only inferred from local tests
+- **THEN** destructive retirement remains blocked
+
+### Requirement: R9 current-state documentation SHALL match executable ownership
+
+The Rust migration plan and active Synthesis architecture documents SHALL state
+the actual production owner, route readiness, mutation state, retained
+retirement inventory, dependent R9b changes, and pending external evidence.
+They MUST NOT describe completed native routing as pending or report unexecuted
+remote evidence as passing.
+
+#### Scenario: R9a baseline is reviewed
+- **WHEN** code, contract, test, and documentation inventories are compared
+- **THEN** ownership and readiness statements agree with the executable gates
+- **AND** every retained legacy/Node area is assigned to one downstream deletion change

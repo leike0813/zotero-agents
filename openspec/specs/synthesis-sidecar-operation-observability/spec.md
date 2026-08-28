@@ -73,3 +73,17 @@ Host transport and wire adapters SHALL treat lifecycle events from the native ru
 - **WHEN** a Host adapter receives a pending or running public maintenance view
 - **THEN** it SHALL classify the invocation envelope according to the production manifest
 - **AND** it SHALL NOT append a lifecycle started event from that view
+
+### Requirement: Accepted layout work SHALL converge after runtime faults
+
+Citation Graph layout SHALL use its declared worker-phase deadline and SHALL publish one terminal after worker timeout, worker panic, parent dispatch panic, cancellation, or finalization failure. A failed attempt MUST preserve the prior ready layout, release compute admission, and allow a later unrelated operation to proceed.
+
+#### Scenario: Layout worker exceeds its phase deadline
+- **WHEN** a Citation Graph layout worker exceeds 90 seconds inside the 120-second maintenance budget
+- **THEN** the operation becomes timed out without promoting coordinates
+- **AND** the worker and compute admission are replaced or released before the next operation
+
+#### Scenario: Detached maintenance dispatch panics
+- **WHEN** a detached maintenance controller panics or cannot persist its first terminal
+- **THEN** bounded reconciliation exposes a stable failed or timed-out terminal
+- **AND** the receipt does not remain running indefinitely
