@@ -37,6 +37,8 @@ logs
 .codebuddy/
 .qwen/
 .codebuddy/
+!.commandcode/taste/taste.md
+.commandcode/
 .codegraph/
 .agents/*
 !.agents/skills/

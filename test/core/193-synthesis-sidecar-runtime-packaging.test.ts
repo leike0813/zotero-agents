@@ -33,7 +33,6 @@ import {
 } from "../../scripts/stage-synthesis-sidecar-runtime-prebuilds";
 import { syncSynthesisSidecarRuntimePrebuilds } from "../../scripts/sync-synthesis-sidecar-runtime-prebuilds";
 import {
-  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult,
   assertSynthesisSidecarRuntimePrebuildResultIdentity,
   assertSynthesisSidecarRuntimePrebuildResultSet,
   rebuildSynthesisSidecarVerificationResult,
@@ -190,11 +189,19 @@ describe("Synthesis sidecar native runtime packaging", function () {
       "native/synthesis-sidecar/crates/synthesis-test-support/src/lib.rs",
     );
     assert.include(
-      inputs.verification,
+      inputs.verificationPipeline,
       ".github/workflows/verify-synthesis-sidecar.yml",
     );
     assert.include(
-      inputs.pipeline,
+      inputs.verification,
+      "packages/synthesis-application/src/index.ts",
+    );
+    assert.include(
+      inputs.verification,
+      "apps/synthesis-service/src/isolatedRepository.ts",
+    );
+    assert.include(
+      inputs.prebuildPipeline,
       ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
     );
     const identities = await computeSynthesisSidecarRuntimeIdentities(ROOT);
@@ -202,7 +209,9 @@ describe("Synthesis sidecar native runtime packaging", function () {
       identities.sourceFingerprint,
       identities.buildFingerprint,
       identities.verificationFingerprint,
-      identities.pipelineRevision,
+      identities.prebuildPipelineRevision,
+      identities.verificationPipelineRevision,
+      identities.releasePipelineRevision,
     ]) {
       assert.match(value, /^[a-f0-9]{64}$/);
     }
@@ -210,28 +219,46 @@ describe("Synthesis sidecar native runtime packaging", function () {
 
   it("accepts only trusted closed three-host verification evidence", function () {
     const receipt = rebuildSynthesisSidecarVerificationResult({
-      schema: "synthesis-sidecar-verification-result.v1",
+      schema: "synthesis-sidecar-verification-result.v2",
       repository: "example/zotero-agents",
       workflow: "verify-synthesis-sidecar.yml",
       runId: 41,
       event: "push",
       sourceSha: "a".repeat(40),
+      sourceFingerprint: "d".repeat(64),
+      buildFingerprint: "e".repeat(64),
       verificationFingerprint: "b".repeat(64),
-      pipelineRevision: "c".repeat(64),
+      verificationPipelineRevision: "c".repeat(64),
       hosts: { linux: "passed", windows: "passed", macos: "passed" },
     });
     assert.equal(receipt.event, "push");
     assert.equal(
       selectTrustedSynthesisSidecarVerification({
-        receipts: [
-          { ...receipt, sourceSha: "d".repeat(40), runId: 40 },
-          receipt,
+        candidates: [
+          {
+            value: { ...receipt, sourceSha: "d".repeat(40), runId: 40 },
+            run: {
+              runId: 40,
+              sourceSha: "d".repeat(40),
+              event: "push",
+            },
+          },
+          {
+            value: receipt,
+            run: {
+              runId: receipt.runId,
+              sourceSha: receipt.sourceSha,
+              event: receipt.event,
+            },
+          },
         ],
         repository: receipt.repository,
         sourceSha: receipt.sourceSha,
+        sourceFingerprint: receipt.sourceFingerprint,
+        buildFingerprint: receipt.buildFingerprint,
         verificationFingerprint: receipt.verificationFingerprint,
-        pipelineRevision: receipt.pipelineRevision,
-      })?.runId,
+        verificationPipelineRevision: receipt.verificationPipelineRevision,
+      }).receipt?.runId,
       41,
     );
     assert.throws(() =>
@@ -246,6 +273,28 @@ describe("Synthesis sidecar native runtime packaging", function () {
         hosts: { linux: "passed", windows: "failed", macos: "passed" },
       }),
     );
+    const mismatchedMetadata = selectTrustedSynthesisSidecarVerification({
+      candidates: [
+        {
+          value: receipt,
+          run: {
+            runId: receipt.runId + 1,
+            sourceSha: receipt.sourceSha,
+            event: receipt.event,
+          },
+        },
+      ],
+      repository: receipt.repository,
+      sourceSha: receipt.sourceSha,
+      sourceFingerprint: receipt.sourceFingerprint,
+      buildFingerprint: receipt.buildFingerprint,
+      verificationFingerprint: receipt.verificationFingerprint,
+      verificationPipelineRevision: receipt.verificationPipelineRevision,
+    });
+    assert.isNull(mismatchedMetadata.receipt);
+    assert.deepEqual(mismatchedMetadata.diagnostics, [
+      { code: "run_metadata_mismatch", runId: receipt.runId + 1 },
+    ]);
   });
 
   it("discovers cross-SHA cache candidates without trusting expired artifacts", async function () {
@@ -567,14 +616,19 @@ describe("Synthesis sidecar native runtime packaging", function () {
       "check:synthesis-native-worker-transfer-parity",
     );
     assert.include(verificationWorkflowSource, "windows-2025");
+    assert.include(
+      verificationWorkflowSource,
+      "synthesis-sidecar-verification-result.v2",
+    );
+    assert.include(verificationWorkflowSource, "verificationPipelineRevision");
     assert.include(workflowSource, "request_id:");
     assert.include(workflowSource, "source_sha:");
     assert.include(
       workflowSource,
       'test "$GITHUB_SHA" = "${{ inputs.source_sha }}"',
     );
-    assert.include(workflowSource, "verification_fingerprint:");
-    assert.include(workflowSource, "pipeline_revision:");
+    assert.notInclude(workflowSource, "verification_fingerprint:");
+    assert.include(workflowSource, "prebuild_pipeline_revision:");
     assert.include(workflowSource, "SYNTHESIS_RUST_BUILD_FINGERPRINT:");
     assert.include(
       workflowSource,
@@ -584,10 +638,13 @@ describe("Synthesis sidecar native runtime packaging", function () {
       workflowSource,
       'smoke-synthesis-rust-sidecar-worker.ts "$binary" "$bundle/provenance.json"',
     );
-    assert.include(workflowSource, "resolve-synthesis-sidecar-verification.ts");
+    assert.notInclude(
+      workflowSource,
+      "resolve-synthesis-sidecar-verification.ts",
+    );
     assert.include(
       workflowSource,
-      "synthesis-sidecar-runtime-prebuild-result.v3",
+      "publish-synthesis-sidecar-runtime-prebuild.ts",
     );
     assert.include(workflowSource, "--archive-root=.scaffold/prebuild");
     assert.notInclude(workflowSource, "mkdir extracted");
@@ -736,7 +793,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
       ]),
     );
     const resultDocument = {
-      schema: "synthesis-sidecar-runtime-prebuild-result.v3",
+      schema: "synthesis-sidecar-runtime-prebuild-result.v4",
       repository: "example/zotero-agents",
       workflow: "prebuild-synthesis-sidecar-runtime.yml",
       runId: 42,
@@ -744,13 +801,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
       sourceSha: "b".repeat(40),
       sourceFingerprint: "a".repeat(64),
       buildFingerprint: build.fingerprint,
-      verificationFingerprint: "e".repeat(64),
-      pipelineRevision: "f".repeat(64),
-      verification: {
-        runId: 41,
-        sourceSha: "b".repeat(40),
-        event: "push",
-      },
+      prebuildPipelineRevision: "f".repeat(64),
       aggregate: staged.aggregate,
       prebuildBranch: "synthesis-sidecar-runtime-prebuilds",
       prebuildCommit: "c".repeat(40),
@@ -758,7 +809,6 @@ describe("Synthesis sidecar native runtime packaging", function () {
       targets: targetEvidence,
     };
     const result = rebuildSynthesisSidecarRuntimePrebuildResult(resultDocument);
-    assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(result);
     const missingTarget = { ...targetEvidence };
     delete missingTarget["linux-arm"];
     assert.throws(() =>
@@ -782,21 +832,11 @@ describe("Synthesis sidecar native runtime packaging", function () {
         },
       }),
     );
-    const legacy = rebuildSynthesisSidecarRuntimePrebuildResult({
-      schema: "synthesis-sidecar-runtime-prebuild-result.v1",
-      repository: "example/zotero-agents",
-      workflow: "prebuild-synthesis-sidecar-runtime.yml",
-      runId: 1,
-      requestId: "legacy",
-      sourceSha: "b".repeat(40),
-      buildFingerprint: build.fingerprint,
-      aggregate: staged.aggregate,
-      prebuildBranch: "synthesis-sidecar-runtime-prebuilds",
-      prebuildCommit: "c".repeat(40),
-      setPath: `sets/${staged.aggregate}`,
-    });
     assert.throws(() =>
-      assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(legacy),
+      rebuildSynthesisSidecarRuntimePrebuildResult({
+        ...resultDocument,
+        schema: "synthesis-sidecar-runtime-prebuild-result.v3",
+      }),
     );
     assertSynthesisSidecarRuntimePrebuildResultIdentity(result, {
       aggregate: staged.aggregate,
@@ -939,7 +979,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
         prebuild: { aggregate: staged.aggregate },
       } as never,
       workflowRun: "test",
-      pipelineRevision: "test",
+      releasePipelineRevision: "test",
     });
     assert.throws(() =>
       advanceSynthesisSidecarRuntimeReleaseReceipt(

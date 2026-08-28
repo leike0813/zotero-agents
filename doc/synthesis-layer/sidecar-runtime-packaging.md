@@ -51,6 +51,24 @@ them. They are historical files, not runtime authority.
 
 ## Release boundary
 
-Changing sidecar bytes requires changing the XPI. Release/prebuild workflows
-may still verify and assemble all supported platform bundles, but no runtime
-code can fetch or promote a sidecar independently of plugin installation.
+Changing sidecar bytes requires changing the XPI. The manual prebuild workflow
+only constructs and publishes a seven-platform content-addressed set. Its v4
+result binds build facts and the exact commit containing the immutable set; it
+does not claim release eligibility and does not wait for verification.
+
+Formal release preparation independently resolves a closed Linux/Windows/macOS
+verification v2 receipt and joins it with prebuild v4 in release-set v2. The
+release workflow revalidates both documents, fetches the exact recorded
+prebuild commit even when the append-only branch has advanced, and atomically
+materializes all seven `addon/bin/<target>/synthesis-sidecar/` roots. Runtime
+code still cannot fetch or promote a sidecar independently of plugin
+installation.
+
+For routine development use:
+
+```bash
+npm run prebuild:synthesis-sidecar:dispatch -- --help
+```
+
+The command dispatches or resumes the exact run, synchronizes the local
+bundles, runs freshness, and reports formal-verification status separately.

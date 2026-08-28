@@ -1,70 +1,35 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult,
-  rebuildSynthesisSidecarRuntimePrebuildResult,
+  createSynthesisSidecarRuntimeReleaseSet,
+  rebuildSynthesisSidecarRuntimeReleaseSet,
+  type SynthesisSidecarRuntimeReleaseIdentities,
 } from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
+import { computeSynthesisSidecarRuntimeIdentities } from "./synthesis-sidecar-runtime-release-governance";
+
+export {
+  createSynthesisSidecarRuntimeReleaseSet,
+  rebuildSynthesisSidecarRuntimeReleaseSet,
+  type SynthesisSidecarRuntimeReleaseIdentities,
+};
 
 export const SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_PATH =
   "synthesis-sidecar/release-set.json";
 export const SYNTHESIS_SIDECAR_RUNTIME_RELEASE_RECEIPT_PATH =
   "synthesis-sidecar/latest-complete-release-receipt.json";
 
-function sha(value: string) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-export function createSynthesisSidecarRuntimeReleaseSet(args: {
-  sourceCommit: string;
-  prebuildResult: unknown;
-}) {
-  if (!/^[a-f0-9]{40}$/.test(args.sourceCommit)) {
-    throw new Error("Sidecar release source commit must be a full SHA");
-  }
-  const prebuild = rebuildSynthesisSidecarRuntimePrebuildResult(
-    args.prebuildResult,
-  );
-  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(prebuild);
-  if (prebuild.sourceSha !== args.sourceCommit) {
-    throw new Error("Prebuild result source SHA does not match release source");
-  }
-  const releaseSetId = `ssrs-${sha(`${args.sourceCommit}\n${prebuild.aggregate}\n${prebuild.prebuildCommit}\n`).slice(0, 20)}`;
-  return Object.freeze({
-    schema: "synthesis-sidecar-runtime-release-set.v1" as const,
-    releaseSetId,
-    sourceCommit: args.sourceCommit,
-    prebuild: {
-      result: prebuild,
-      aggregate: prebuild.aggregate,
-      buildFingerprint: prebuild.buildFingerprint,
-    },
-    materialized: {
-      addonRoot: "addon/bin",
-      targetBundleDirectory: "synthesis-sidecar",
-      targets: [
-        "win32-x64",
-        "darwin-x64",
-        "darwin-arm64",
-        "linux-x86",
-        "linux-x64",
-        "linux-arm",
-        "linux-arm64",
-      ],
-    },
-  });
-}
-
 export async function readSynthesisSidecarRuntimeReleaseSet(
   root = process.cwd(),
 ) {
-  return JSON.parse(
-    await fs.readFile(
-      path.join(root, SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_PATH),
-      "utf8",
+  return rebuildSynthesisSidecarRuntimeReleaseSet(
+    JSON.parse(
+      await fs.readFile(
+        path.join(root, SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_PATH),
+        "utf8",
+      ),
     ),
-  ) as ReturnType<typeof createSynthesisSidecarRuntimeReleaseSet>;
+  );
 }
 
 function argument(name: string) {
@@ -73,16 +38,32 @@ function argument(name: string) {
     ?.slice(name.length + 3);
 }
 
+function help() {
+  process.stdout.write(
+    "Usage: tsx scripts/synthesis-sidecar-runtime-release-set.ts --source-commit=<sha> --prebuild-result=<path> --verification-result=<path> [--output=<path>]\n",
+  );
+}
+
 async function main() {
+  if (process.argv.includes("--help")) return help();
   const sourceCommit = String(argument("source-commit") || "").trim();
-  const resultPath = String(argument("prebuild-result") || "").trim();
-  if (!sourceCommit || !resultPath)
-    throw new Error("--source-commit and --prebuild-result are required");
+  const prebuildPath = String(argument("prebuild-result") || "").trim();
+  const verificationPath = String(argument("verification-result") || "").trim();
+  if (!sourceCommit || !prebuildPath || !verificationPath) {
+    throw new Error(
+      "--source-commit, --prebuild-result, and --verification-result are required",
+    );
+  }
+  const identities = await computeSynthesisSidecarRuntimeIdentities();
   const releaseSet = createSynthesisSidecarRuntimeReleaseSet({
     sourceCommit,
     prebuildResult: JSON.parse(
-      await fs.readFile(path.resolve(resultPath), "utf8"),
+      await fs.readFile(path.resolve(prebuildPath), "utf8"),
     ),
+    verificationResult: JSON.parse(
+      await fs.readFile(path.resolve(verificationPath), "utf8"),
+    ),
+    identities,
   });
   const output = path.resolve(
     argument("output") || SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_PATH,

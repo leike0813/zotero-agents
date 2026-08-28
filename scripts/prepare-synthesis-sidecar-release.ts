@@ -6,6 +6,9 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_PATH,
   createSynthesisSidecarRuntimeReleaseSet,
 } from "./synthesis-sidecar-runtime-release-set";
+import { rebuildSynthesisSidecarRuntimePrebuildResult } from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
+import { resolveSynthesisSidecarVerification } from "./resolve-synthesis-sidecar-verification";
+import { computeSynthesisSidecarRuntimeIdentities } from "./synthesis-sidecar-runtime-release-governance";
 
 function argument(name: string) {
   return process.argv
@@ -18,6 +21,12 @@ function git(...args: string[]) {
 }
 
 async function main() {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(
+      "Usage: tsx scripts/prepare-synthesis-sidecar-release.ts --prebuild-result=<path> [--output=<path>]\n",
+    );
+    return;
+  }
   const resultPath = String(argument("prebuild-result") || "").trim();
   if (!resultPath) throw new Error("--prebuild-result is required");
   if (git("branch", "--show-current") !== "main")
@@ -27,11 +36,32 @@ async function main() {
       "Commit or stash changes before sidecar release preparation",
     );
   const sourceCommit = git("rev-parse", "HEAD");
+  git("fetch", "origin", "main");
+  if (git("rev-parse", "origin/main") !== sourceCommit) {
+    throw new Error("Sidecar release preparation requires synchronized main");
+  }
+  const prebuildResult = rebuildSynthesisSidecarRuntimePrebuildResult(
+    JSON.parse(await fs.readFile(path.resolve(resultPath), "utf8")),
+  );
+  const identities = await computeSynthesisSidecarRuntimeIdentities();
+  const verification = await resolveSynthesisSidecarVerification({
+    repository: prebuildResult.repository,
+    sourceSha: sourceCommit,
+    sourceFingerprint: identities.sourceFingerprint,
+    buildFingerprint: identities.buildFingerprint,
+    verificationFingerprint: identities.verificationFingerprint,
+    verificationPipelineRevision: identities.verificationPipelineRevision,
+  });
+  if (!verification.receipt) {
+    throw new Error(
+      `No trusted verification can authorize this release: ${JSON.stringify(verification.diagnostics)}`,
+    );
+  }
   const releaseSet = createSynthesisSidecarRuntimeReleaseSet({
     sourceCommit,
-    prebuildResult: JSON.parse(
-      await fs.readFile(path.resolve(resultPath), "utf8"),
-    ),
+    prebuildResult,
+    verificationResult: verification.receipt,
+    identities,
   });
   const output = path.resolve(
     argument("output") || SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_PATH,

@@ -63,9 +63,6 @@ None.
   completion.
 - `synthesis-sidecar-runtime-packaging`: Align sidecar materialization with the
   shared `addon/bin/<target>/` native asset layout.
-- `synthesis-sidecar-prebuild-release`: Consume the trusted-verification-bound
-  v3 result and its exact seven-target evidence as the synchronization
-  authorization boundary.
 - `synthesis-sidecar-debug-observability`: Keep raw canonical topic inspection
   available through the application port without exposing its storage owner or
   lock to the HTTP ingress adapter.
@@ -74,7 +71,9 @@ None.
 
 - Affects production capability/surface parity checkers, critical-smoke
   orchestration, activation evidence, existing R9a Core tests, Stage-1 gates,
-  sidecar materialization, and Synthesis current-state documentation.
+  sidecar materialization, governed sidecar evidence consumption, and
+  Synthesis current-state documentation. The evidence producer and release
+  join are owned by `decouple-synthesis-sidecar-prebuild-verification`.
 - Does not independently change public `SynthesisClient` methods, production ownership,
   reverse-Host authority, runtime distribution, or release state. The internal
   cutover receipt admits an explicit empty-profile source identity. The later

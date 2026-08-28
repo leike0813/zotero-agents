@@ -20,6 +20,58 @@ import { openSynthesisNodeSqliteAdapter } from "../apps/synthesis-service/src/re
 import { openSynthesisSidecarTopicCanonicalStore } from "../apps/synthesis-service/src/topicCanonicalStoreNode.js";
 import { normalizeSynthesisApplicationParityObservable } from "./synthesis-application-parity-policy.js";
 
+const MAX_PARITY_MISMATCH_LOCATIONS = 32;
+
+function parityLocation(parent: string, key: string | number) {
+  if (typeof key === "number") return `${parent}[${key}]`;
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
+    ? `${parent}.${key}`
+    : `${parent}[${JSON.stringify(key)}]`;
+}
+
+export function findSynthesisApplicationParityMismatchLocations(
+  left: unknown,
+  right: unknown,
+) {
+  const locations: string[] = [];
+  const visit = (leftValue: unknown, rightValue: unknown, location: string) => {
+    if (locations.length >= MAX_PARITY_MISMATCH_LOCATIONS) return;
+    if (Object.is(leftValue, rightValue)) return;
+    if (Array.isArray(leftValue) && Array.isArray(rightValue)) {
+      const length = Math.max(leftValue.length, rightValue.length);
+      for (let index = 0; index < length; index += 1) {
+        visit(
+          leftValue[index],
+          rightValue[index],
+          parityLocation(location, index),
+        );
+      }
+      return;
+    }
+    if (
+      leftValue &&
+      rightValue &&
+      typeof leftValue === "object" &&
+      typeof rightValue === "object" &&
+      !Array.isArray(leftValue) &&
+      !Array.isArray(rightValue)
+    ) {
+      const leftRecord = leftValue as Record<string, unknown>;
+      const rightRecord = rightValue as Record<string, unknown>;
+      const keys = [
+        ...new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)]),
+      ].sort();
+      for (const key of keys) {
+        visit(leftRecord[key], rightRecord[key], parityLocation(location, key));
+      }
+      return;
+    }
+    locations.push(location);
+  };
+  visit(left, right, "$");
+  return locations;
+}
+
 const CORPUS_PATH = path.resolve(
   import.meta.dirname,
   "../packages/synthesis-contracts/contract-set/synthesis-typed-application-parity-v1/corpus.json",
@@ -80,6 +132,7 @@ export type SynthesisTypedApplicationParityCheck = {
     node: { role: "oracle"; sourceFingerprint: string };
     rust: { role: "candidate"; sourceFingerprint: string };
   };
+  mismatchLocations: string[];
   errors: string[];
 };
 
@@ -999,6 +1052,7 @@ export async function checkSynthesisTypedApplicationParity(
 ): Promise<SynthesisTypedApplicationParityCheck> {
   const corpus = JSON.parse(fs.readFileSync(CORPUS_PATH, "utf8")) as Corpus;
   const errors: string[] = [];
+  const mismatchLocations: string[] = [];
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "synthesis-typed-application-parity-"),
   );
@@ -1072,10 +1126,18 @@ export async function checkSynthesisTypedApplicationParity(
     ) {
       errors.push("typed_application_expected_observable_missing");
     }
+    const comparableNode = comparable(node, "node");
+    const comparableRust = comparable(rust, "rust");
     if (
-      canonicalizeSynthesisContractJson(comparable(node, "node")) !==
-      canonicalizeSynthesisContractJson(comparable(rust, "rust"))
+      canonicalizeSynthesisContractJson(comparableNode) !==
+      canonicalizeSynthesisContractJson(comparableRust)
     ) {
+      mismatchLocations.push(
+        ...findSynthesisApplicationParityMismatchLocations(
+          comparableNode,
+          comparableRust,
+        ),
+      );
       const reportRoot = path.join(temporaryRoot, "reports");
       fs.mkdirSync(reportRoot, { recursive: true });
       fs.writeFileSync(
@@ -1112,6 +1174,7 @@ export async function checkSynthesisTypedApplicationParity(
       node: { role: "oracle", sourceFingerprint: nodeFingerprint },
       rust: { role: "candidate", sourceFingerprint: rustFingerprint },
     },
+    mismatchLocations,
     errors,
   };
 }

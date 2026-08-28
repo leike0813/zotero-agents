@@ -24,7 +24,7 @@ type Receipt = {
   sourceCommit: string;
   aggregate: string;
   workflowRun: string;
-  pipelineRevision: string;
+  releasePipelineRevision: string;
   updatedAt: string;
   steps: Record<Step, Status>;
   failure?: { step: Step; message: string };
@@ -33,7 +33,7 @@ type Receipt = {
 export function createSynthesisSidecarRuntimeReleaseReceipt(args: {
   releaseSet: Awaited<ReturnType<typeof readSynthesisSidecarRuntimeReleaseSet>>;
   workflowRun: string;
-  pipelineRevision: string;
+  releasePipelineRevision: string;
   now?: string;
 }): Receipt {
   return {
@@ -43,7 +43,7 @@ export function createSynthesisSidecarRuntimeReleaseReceipt(args: {
     sourceCommit: args.releaseSet.sourceCommit,
     aggregate: args.releaseSet.prebuild.aggregate,
     workflowRun: args.workflowRun,
-    pipelineRevision: args.pipelineRevision,
+    releasePipelineRevision: args.releasePipelineRevision,
     updatedAt: args.now || new Date().toISOString(),
     steps: {
       plan: "complete",
@@ -100,6 +100,12 @@ async function write(pathname: string, value: unknown) {
 }
 
 async function main() {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(
+      "Usage: tsx scripts/synthesis-sidecar-runtime-release-controller.ts init --workflow-run=<url> --release-pipeline-revision=<sha256> [--receipt=<path>]\n       tsx scripts/synthesis-sidecar-runtime-release-controller.ts advance --step=<step> [--status=<status>] [--failure=<message>] [--receipt=<path>]\n",
+    );
+    return;
+  }
   const command = process.argv[2];
   const releaseSet = await readSynthesisSidecarRuntimeReleaseSet();
   const receiptPath = path.resolve(
@@ -111,7 +117,9 @@ async function main() {
       createSynthesisSidecarRuntimeReleaseReceipt({
         releaseSet,
         workflowRun: String(argument("workflow-run") || "local"),
-        pipelineRevision: String(argument("pipeline-revision") || "local"),
+        releasePipelineRevision: String(
+          argument("release-pipeline-revision") || "local",
+        ),
       }),
     );
     return;

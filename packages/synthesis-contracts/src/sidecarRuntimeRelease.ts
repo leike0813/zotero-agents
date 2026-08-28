@@ -8,16 +8,12 @@ export const SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH =
   "synthesis-sidecar-runtime-prebuilds" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_SET_SCHEMA =
   "synthesis-sidecar-runtime-prebuild-set.v1" as const;
-export const SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA_V1 =
-  "synthesis-sidecar-runtime-prebuild-result.v1" as const;
-export const SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA_V2 =
-  "synthesis-sidecar-runtime-prebuild-result.v2" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA =
-  "synthesis-sidecar-runtime-prebuild-result.v3" as const;
+  "synthesis-sidecar-runtime-prebuild-result.v4" as const;
 export const SYNTHESIS_SIDECAR_VERIFICATION_RESULT_SCHEMA =
-  "synthesis-sidecar-verification-result.v1" as const;
+  "synthesis-sidecar-verification-result.v2" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_SCHEMA =
-  "synthesis-sidecar-runtime-release-set.v1" as const;
+  "synthesis-sidecar-runtime-release-set.v2" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_RELEASE_RECEIPT_SCHEMA =
   "synthesis-sidecar-runtime-release-receipt.v1" as const;
 
@@ -40,27 +36,6 @@ export type SynthesisSidecarRuntimePrebuildSet = Readonly<{
   archives: readonly SynthesisSidecarRuntimePrebuildArchive[];
 }>;
 
-export type SynthesisSidecarRuntimeLegacyPrebuildResult = Readonly<{
-  schema:
-    | typeof SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA_V1
-    | typeof SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA_V2;
-  repository: string;
-  workflow: "prebuild-synthesis-sidecar-runtime.yml";
-  runId: number;
-  requestId: string;
-  sourceSha: string;
-  buildFingerprint: string;
-  aggregate: string;
-  prebuildBranch: typeof SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH;
-  prebuildCommit: string;
-  setPath: string;
-  cache: Readonly<{
-    cacheHits: readonly SynthesisSidecarRuntimeTarget[];
-    cacheMisses: readonly SynthesisSidecarRuntimeTarget[];
-    cacheSourceRuns: readonly number[];
-  }> | null;
-}>;
-
 export type SynthesisSidecarVerificationResult = Readonly<{
   schema: typeof SYNTHESIS_SIDECAR_VERIFICATION_RESULT_SCHEMA;
   repository: string;
@@ -68,8 +43,10 @@ export type SynthesisSidecarVerificationResult = Readonly<{
   runId: number;
   event: "push" | "workflow_dispatch";
   sourceSha: string;
+  sourceFingerprint: string;
+  buildFingerprint: string;
   verificationFingerprint: string;
-  pipelineRevision: string;
+  verificationPipelineRevision: string;
   hosts: Readonly<{
     linux: "passed";
     windows: "passed";
@@ -88,7 +65,7 @@ export type SynthesisSidecarRuntimeTargetEvidence = Readonly<{
     | Readonly<{ status: "not_applicable" }>;
 }>;
 
-export type SynthesisSidecarRuntimePrebuildResultV3 = Readonly<{
+export type SynthesisSidecarRuntimePrebuildResult = Readonly<{
   schema: typeof SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA;
   repository: string;
   workflow: "prebuild-synthesis-sidecar-runtime.yml";
@@ -97,13 +74,7 @@ export type SynthesisSidecarRuntimePrebuildResultV3 = Readonly<{
   sourceSha: string;
   sourceFingerprint: string;
   buildFingerprint: string;
-  verificationFingerprint: string;
-  pipelineRevision: string;
-  verification: Readonly<{
-    runId: number;
-    sourceSha: string;
-    event: "push" | "workflow_dispatch";
-  }>;
+  prebuildPipelineRevision: string;
   aggregate: string;
   prebuildBranch: typeof SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH;
   prebuildCommit: string;
@@ -112,10 +83,6 @@ export type SynthesisSidecarRuntimePrebuildResultV3 = Readonly<{
     Record<SynthesisSidecarRuntimeTarget, SynthesisSidecarRuntimeTargetEvidence>
   >;
 }>;
-
-export type SynthesisSidecarRuntimePrebuildResult =
-  | SynthesisSidecarRuntimeLegacyPrebuildResult
-  | SynthesisSidecarRuntimePrebuildResultV3;
 
 function fail(code: string): never {
   throw new Error(`Invalid Synthesis sidecar runtime release: ${code}`);
@@ -239,109 +206,6 @@ export function rebuildSynthesisSidecarRuntimePrebuildSet(
   });
 }
 
-function rebuildLegacySynthesisSidecarRuntimePrebuildResult(
-  value: unknown,
-): SynthesisSidecarRuntimeLegacyPrebuildResult {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    fail("prebuild_result_fields");
-  }
-  const schema = (value as Record<string, unknown>).schema;
-  const isV2 = schema === SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA_V2;
-  const data = record(
-    value,
-    [
-      "schema",
-      "repository",
-      "workflow",
-      "runId",
-      "requestId",
-      "sourceSha",
-      "buildFingerprint",
-      "aggregate",
-      "prebuildBranch",
-      "prebuildCommit",
-      "setPath",
-      ...(isV2 ? ["cache"] : []),
-    ],
-    "prebuild_result_fields",
-  );
-  if (
-    (data.schema !== SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA_V1 &&
-      data.schema !== SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA_V2) ||
-    data.workflow !== "prebuild-synthesis-sidecar-runtime.yml" ||
-    data.prebuildBranch !== SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH ||
-    typeof data.repository !== "string" ||
-    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(data.repository) ||
-    typeof data.requestId !== "string" ||
-    !REQUEST.test(data.requestId)
-  )
-    fail("prebuild_result_identity");
-  const aggregate = sha(data.aggregate, "prebuild_result_aggregate");
-  if (data.setPath !== `sets/${aggregate}`) fail("prebuild_result_set_path");
-  let cache: SynthesisSidecarRuntimeLegacyPrebuildResult["cache"] = null;
-  if (isV2) {
-    const cacheData = record(
-      data.cache,
-      ["cacheHits", "cacheMisses", "cacheSourceRuns"],
-      "prebuild_result_cache_fields",
-    );
-    if (
-      !Array.isArray(cacheData.cacheHits) ||
-      !Array.isArray(cacheData.cacheMisses) ||
-      !Array.isArray(cacheData.cacheSourceRuns)
-    ) {
-      fail("prebuild_result_cache");
-    }
-    const cacheHits = cacheData.cacheHits as unknown[];
-    const cacheMisses = cacheData.cacheMisses as unknown[];
-    const cacheTargets = [...cacheHits, ...cacheMisses];
-    if (
-      cacheTargets.length !== SYNTHESIS_SIDECAR_RUNTIME_TARGETS.length ||
-      new Set(cacheTargets).size !== SYNTHESIS_SIDECAR_RUNTIME_TARGETS.length ||
-      cacheTargets.some(
-        (target) =>
-          typeof target !== "string" ||
-          !SYNTHESIS_SIDECAR_RUNTIME_TARGETS.includes(
-            target as SynthesisSidecarRuntimeTarget,
-          ),
-      )
-    ) {
-      fail("prebuild_result_cache_targets");
-    }
-    const cacheSourceRuns = cacheData.cacheSourceRuns.map((runId) =>
-      integer(runId, "prebuild_result_cache_run"),
-    );
-    if (
-      new Set(cacheSourceRuns).size !== cacheSourceRuns.length ||
-      (cacheHits.length === 0) !== (cacheSourceRuns.length === 0)
-    ) {
-      fail("prebuild_result_cache_runs");
-    }
-    cache = Object.freeze({
-      cacheHits: Object.freeze(cacheHits as SynthesisSidecarRuntimeTarget[]),
-      cacheMisses: Object.freeze(
-        cacheMisses as SynthesisSidecarRuntimeTarget[],
-      ),
-      cacheSourceRuns: Object.freeze(cacheSourceRuns),
-    });
-  }
-  return Object.freeze({
-    schema:
-      data.schema as SynthesisSidecarRuntimeLegacyPrebuildResult["schema"],
-    repository: data.repository,
-    workflow: "prebuild-synthesis-sidecar-runtime.yml",
-    runId: integer(data.runId, "prebuild_result_run"),
-    requestId: data.requestId,
-    sourceSha: sha(data.sourceSha, "prebuild_result_source", 40),
-    buildFingerprint: sha(data.buildFingerprint, "prebuild_result_fingerprint"),
-    aggregate,
-    prebuildBranch: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
-    prebuildCommit: sha(data.prebuildCommit, "prebuild_result_commit", 40),
-    setPath: data.setPath,
-    cache,
-  });
-}
-
 export function rebuildSynthesisSidecarVerificationResult(
   value: unknown,
 ): SynthesisSidecarVerificationResult {
@@ -354,8 +218,10 @@ export function rebuildSynthesisSidecarVerificationResult(
       "runId",
       "event",
       "sourceSha",
+      "sourceFingerprint",
+      "buildFingerprint",
       "verificationFingerprint",
-      "pipelineRevision",
+      "verificationPipelineRevision",
       "hosts",
     ],
     "verification_result_fields",
@@ -388,12 +254,20 @@ export function rebuildSynthesisSidecarVerificationResult(
     runId: integer(data.runId, "verification_result_run"),
     event: data.event,
     sourceSha: sha(data.sourceSha, "verification_result_source", 40),
+    sourceFingerprint: sha(
+      data.sourceFingerprint,
+      "verification_result_source_fingerprint",
+    ),
+    buildFingerprint: sha(
+      data.buildFingerprint,
+      "verification_result_build_fingerprint",
+    ),
     verificationFingerprint: sha(
       data.verificationFingerprint,
       "verification_result_fingerprint",
     ),
-    pipelineRevision: sha(
-      data.pipelineRevision,
+    verificationPipelineRevision: sha(
+      data.verificationPipelineRevision,
       "verification_result_pipeline_revision",
     ),
     hosts: Object.freeze({
@@ -490,9 +364,9 @@ function rebuildTargetEvidence(
   });
 }
 
-function rebuildSynthesisSidecarRuntimePrebuildResultV3(
+export function rebuildSynthesisSidecarRuntimePrebuildResult(
   value: unknown,
-): SynthesisSidecarRuntimePrebuildResultV3 {
+): SynthesisSidecarRuntimePrebuildResult {
   const data = record(
     value,
     [
@@ -504,9 +378,7 @@ function rebuildSynthesisSidecarRuntimePrebuildResultV3(
       "sourceSha",
       "sourceFingerprint",
       "buildFingerprint",
-      "verificationFingerprint",
-      "pipelineRevision",
-      "verification",
+      "prebuildPipelineRevision",
       "aggregate",
       "prebuildBranch",
       "prebuildCommit",
@@ -530,17 +402,6 @@ function rebuildSynthesisSidecarRuntimePrebuildResultV3(
   const sourceSha = sha(data.sourceSha, "prebuild_result_source", 40);
   const aggregate = sha(data.aggregate, "prebuild_result_aggregate");
   if (data.setPath !== `sets/${aggregate}`) fail("prebuild_result_set_path");
-  const verification = record(
-    data.verification,
-    ["runId", "sourceSha", "event"],
-    "prebuild_result_verification_fields",
-  );
-  if (
-    verification.event !== "push" &&
-    verification.event !== "workflow_dispatch"
-  ) {
-    fail("prebuild_result_verification_event");
-  }
   const targetData = record(
     data.targets,
     SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
@@ -573,23 +434,10 @@ function rebuildSynthesisSidecarRuntimePrebuildResultV3(
       data.buildFingerprint,
       "prebuild_result_build_fingerprint",
     ),
-    verificationFingerprint: sha(
-      data.verificationFingerprint,
-      "prebuild_result_verification_fingerprint",
-    ),
-    pipelineRevision: sha(
-      data.pipelineRevision,
+    prebuildPipelineRevision: sha(
+      data.prebuildPipelineRevision,
       "prebuild_result_pipeline_revision",
     ),
-    verification: Object.freeze({
-      runId: integer(verification.runId, "prebuild_result_verification_run"),
-      sourceSha: sha(
-        verification.sourceSha,
-        "prebuild_result_verification_source",
-        40,
-      ),
-      event: verification.event,
-    }),
     aggregate,
     prebuildBranch: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
     prebuildCommit: sha(data.prebuildCommit, "prebuild_result_commit", 40),
@@ -598,31 +446,10 @@ function rebuildSynthesisSidecarRuntimePrebuildResultV3(
   });
 }
 
-export function rebuildSynthesisSidecarRuntimePrebuildResult(
-  value: unknown,
-): SynthesisSidecarRuntimePrebuildResult {
-  const schema =
-    value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>).schema
-      : undefined;
-  return schema === SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA
-    ? rebuildSynthesisSidecarRuntimePrebuildResultV3(value)
-    : rebuildLegacySynthesisSidecarRuntimePrebuildResult(value);
-}
-
-export function assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(
-  result: SynthesisSidecarRuntimePrebuildResult,
-): asserts result is SynthesisSidecarRuntimePrebuildResultV3 {
-  if (result.schema !== SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA) {
-    fail("prebuild_result_release_eligibility");
-  }
-}
-
 export function assertSynthesisSidecarRuntimePrebuildResultSet(
   result: SynthesisSidecarRuntimePrebuildResult,
   set: SynthesisSidecarRuntimePrebuildSet,
-): asserts result is SynthesisSidecarRuntimePrebuildResultV3 {
-  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(result);
+): void {
   if (
     result.aggregate !== set.aggregate ||
     result.buildFingerprint !== set.buildFingerprint ||
@@ -657,4 +484,184 @@ export function assertSynthesisSidecarRuntimePrebuildResultIdentity(
       );
     }
   }
+}
+
+export type SynthesisSidecarRuntimeReleaseIdentities = Readonly<{
+  sourceFingerprint: string;
+  buildFingerprint: string;
+  verificationFingerprint: string;
+  prebuildPipelineRevision: string;
+  verificationPipelineRevision: string;
+  releasePipelineRevision: string;
+}>;
+
+export type SynthesisSidecarRuntimeReleaseSet = Readonly<{
+  schema: typeof SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_SCHEMA;
+  releaseSetId: string;
+  sourceCommit: string;
+  releasePipelineRevision: string;
+  prebuild: SynthesisSidecarRuntimePrebuildResult;
+  verification: SynthesisSidecarVerificationResult;
+  materialized: Readonly<{
+    addonRoot: "addon/bin";
+    targetBundleDirectory: "synthesis-sidecar";
+    targets: readonly SynthesisSidecarRuntimeTarget[];
+  }>;
+}>;
+
+function assertReleaseIdentity(
+  label: string,
+  actual: string,
+  expected: string,
+) {
+  if (!SHA256.test(expected) || actual !== expected) {
+    throw new Error(`Sidecar release ${label} does not match current identity`);
+  }
+}
+
+export function createSynthesisSidecarRuntimeReleaseSet(args: {
+  sourceCommit: string;
+  prebuildResult: unknown;
+  verificationResult: unknown;
+  identities: SynthesisSidecarRuntimeReleaseIdentities;
+}): SynthesisSidecarRuntimeReleaseSet {
+  if (!SHA1.test(args.sourceCommit)) {
+    throw new Error("Sidecar release source commit must be a full SHA");
+  }
+  const prebuild = rebuildSynthesisSidecarRuntimePrebuildResult(
+    args.prebuildResult,
+  );
+  const verification = rebuildSynthesisSidecarVerificationResult(
+    args.verificationResult,
+  );
+  if (prebuild.sourceSha !== args.sourceCommit) {
+    throw new Error("Prebuild result source SHA does not match release source");
+  }
+  assertReleaseIdentity(
+    "source fingerprint",
+    prebuild.sourceFingerprint,
+    args.identities.sourceFingerprint,
+  );
+  assertReleaseIdentity(
+    "build fingerprint",
+    prebuild.buildFingerprint,
+    args.identities.buildFingerprint,
+  );
+  assertReleaseIdentity(
+    "prebuild pipeline revision",
+    prebuild.prebuildPipelineRevision,
+    args.identities.prebuildPipelineRevision,
+  );
+  assertReleaseIdentity(
+    "verification source fingerprint",
+    verification.sourceFingerprint,
+    args.identities.sourceFingerprint,
+  );
+  assertReleaseIdentity(
+    "verification build fingerprint",
+    verification.buildFingerprint,
+    args.identities.buildFingerprint,
+  );
+  assertReleaseIdentity(
+    "verification fingerprint",
+    verification.verificationFingerprint,
+    args.identities.verificationFingerprint,
+  );
+  assertReleaseIdentity(
+    "verification pipeline revision",
+    verification.verificationPipelineRevision,
+    args.identities.verificationPipelineRevision,
+  );
+  if (!SHA256.test(args.identities.releasePipelineRevision)) {
+    throw new Error("Sidecar release pipeline revision is invalid");
+  }
+  const releaseSetId = `ssrs-${sha256SynthesisContractText(
+    `${[
+      args.sourceCommit,
+      prebuild.aggregate,
+      prebuild.prebuildCommit,
+      verification.verificationFingerprint,
+      verification.runId,
+      verification.verificationPipelineRevision,
+      args.identities.releasePipelineRevision,
+    ].join("\n")}\n`,
+  )
+    .slice("sha256:".length)
+    .slice(0, 20)}`;
+  return Object.freeze({
+    schema: SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_SCHEMA,
+    releaseSetId,
+    sourceCommit: args.sourceCommit,
+    releasePipelineRevision: args.identities.releasePipelineRevision,
+    prebuild,
+    verification,
+    materialized: Object.freeze({
+      addonRoot: "addon/bin" as const,
+      targetBundleDirectory: "synthesis-sidecar" as const,
+      targets: Object.freeze([...SYNTHESIS_SIDECAR_RUNTIME_TARGETS]),
+    }),
+  });
+}
+
+export function rebuildSynthesisSidecarRuntimeReleaseSet(
+  value: unknown,
+): SynthesisSidecarRuntimeReleaseSet {
+  const data = record(
+    value,
+    [
+      "schema",
+      "releaseSetId",
+      "sourceCommit",
+      "releasePipelineRevision",
+      "prebuild",
+      "verification",
+      "materialized",
+    ],
+    "release_set_fields",
+  );
+  if (
+    data.schema !== SYNTHESIS_SIDECAR_RUNTIME_RELEASE_SET_SCHEMA ||
+    typeof data.releaseSetId !== "string" ||
+    !/^ssrs-[a-f0-9]{20}$/.test(data.releaseSetId)
+  ) {
+    fail("release_set_identity");
+  }
+  const prebuild = rebuildSynthesisSidecarRuntimePrebuildResult(data.prebuild);
+  const verification = rebuildSynthesisSidecarVerificationResult(
+    data.verification,
+  );
+  const materialized = record(
+    data.materialized,
+    ["addonRoot", "targetBundleDirectory", "targets"],
+    "release_set_materialized_fields",
+  );
+  if (
+    materialized.addonRoot !== "addon/bin" ||
+    materialized.targetBundleDirectory !== "synthesis-sidecar" ||
+    !Array.isArray(materialized.targets) ||
+    materialized.targets.length !== SYNTHESIS_SIDECAR_RUNTIME_TARGETS.length ||
+    materialized.targets.some(
+      (target, index) => target !== SYNTHESIS_SIDECAR_RUNTIME_TARGETS[index],
+    )
+  ) {
+    fail("release_set_materialized");
+  }
+  const rebuilt = createSynthesisSidecarRuntimeReleaseSet({
+    sourceCommit: sha(data.sourceCommit, "release_set_source", 40),
+    prebuildResult: prebuild,
+    verificationResult: verification,
+    identities: {
+      sourceFingerprint: prebuild.sourceFingerprint,
+      buildFingerprint: prebuild.buildFingerprint,
+      verificationFingerprint: verification.verificationFingerprint,
+      prebuildPipelineRevision: prebuild.prebuildPipelineRevision,
+      verificationPipelineRevision: verification.verificationPipelineRevision,
+      releasePipelineRevision: sha(
+        data.releasePipelineRevision,
+        "release_set_pipeline_revision",
+      ),
+    },
+  });
+  if (data.releaseSetId !== rebuilt.releaseSetId) fail("release_set_id");
+  return rebuilt;
 }

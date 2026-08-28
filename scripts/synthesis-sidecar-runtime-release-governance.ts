@@ -122,18 +122,30 @@ const BUILD_STATIC_INPUTS = [
   "scripts/package-synthesis-sidecar-runtime.ts",
 ] as const;
 const VERIFICATION_STATIC_INPUTS = [
-  ".github/workflows/verify-synthesis-sidecar.yml",
-  "test/core/193-synthesis-sidecar-runtime-packaging.test.ts",
+  "scripts/synthesis-application-parity-policy.ts",
 ] as const;
-const PIPELINE_STATIC_INPUTS = [
+const PREBUILD_PIPELINE_STATIC_INPUTS = [
   ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
   "packages/synthesis-contracts/src/sidecarRuntimeRelease.ts",
   "scripts/download-synthesis-sidecar-runtime-cache.ts",
+  "scripts/publish-synthesis-sidecar-runtime-prebuild.ts",
   "scripts/resolve-synthesis-sidecar-runtime-cache.ts",
-  "scripts/resolve-synthesis-sidecar-verification.ts",
   "scripts/stage-synthesis-sidecar-runtime-prebuilds.ts",
+  "scripts/synthesis-sidecar-runtime-release-governance.ts",
+] as const;
+const VERIFICATION_PIPELINE_STATIC_INPUTS = [
+  ".github/workflows/verify-synthesis-sidecar.yml",
+  "packages/synthesis-contracts/src/sidecarRuntimeRelease.ts",
+  "scripts/synthesis-sidecar-runtime-release-governance.ts",
+] as const;
+const RELEASE_PIPELINE_STATIC_INPUTS = [
+  ".github/workflows/release-synthesis-sidecar.yml",
+  "packages/synthesis-contracts/src/sidecarRuntimeRelease.ts",
+  "scripts/prepare-synthesis-sidecar-release.ts",
+  "scripts/resolve-synthesis-sidecar-verification.ts",
   "scripts/sync-synthesis-sidecar-runtime-prebuilds.ts",
   "scripts/synthesis-sidecar-runtime-release-governance.ts",
+  "scripts/synthesis-sidecar-runtime-release-plan.ts",
   "scripts/synthesis-sidecar-runtime-release-set.ts",
 ] as const;
 
@@ -198,6 +210,17 @@ export async function synthesisSidecarRuntimeIdentityInputs(
     (file) =>
       /\/check-synthesis-/.test(file) || /\/smoke-synthesis-rust-/.test(file),
   );
+  const verificationOracleFiles = (
+    await Promise.all(
+      [
+        "apps/synthesis-service/src",
+        "packages/synthesis-application/src",
+        "packages/synthesis-contracts/contract-set",
+        "packages/synthesis-engine/src",
+        "packages/synthesis-repository/src",
+      ].map((directory) => collectFiles(root, directory)),
+    )
+  ).flat();
   const source = uniqueInputs([
     ...SOURCE_STATIC_INPUTS,
     ...runtimeRustFiles,
@@ -207,28 +230,63 @@ export async function synthesisSidecarRuntimeIdentityInputs(
   const verification = uniqueInputs([
     ...build,
     ...rustFiles,
+    ...verificationOracleFiles,
     ...verificationScripts,
     ...VERIFICATION_STATIC_INPUTS,
   ]);
-  const pipeline = uniqueInputs([...PIPELINE_STATIC_INPUTS]);
-  return Object.freeze({ source, build, verification, pipeline });
+  const prebuildPipeline = uniqueInputs([...PREBUILD_PIPELINE_STATIC_INPUTS]);
+  const verificationPipeline = uniqueInputs([
+    ...VERIFICATION_PIPELINE_STATIC_INPUTS,
+  ]);
+  const releasePipeline = uniqueInputs([...RELEASE_PIPELINE_STATIC_INPUTS]);
+  return Object.freeze({
+    source,
+    build,
+    verification,
+    prebuildPipeline,
+    verificationPipeline,
+    releasePipeline,
+  });
 }
 
 export async function computeSynthesisSidecarRuntimeIdentities(
   root = process.cwd(),
 ) {
   const inputs = await synthesisSidecarRuntimeIdentityInputs(root);
-  const [source, build, verification, pipeline] = await Promise.all([
+  const [
+    source,
+    build,
+    verification,
+    prebuildPipeline,
+    verificationPipeline,
+    releasePipeline,
+  ] = await Promise.all([
     hashInputs(root, "synthesis-sidecar-source.v1", inputs.source),
     hashInputs(root, "synthesis-sidecar-build.v1", inputs.build),
     hashInputs(root, "synthesis-sidecar-verification.v1", inputs.verification),
-    hashInputs(root, "synthesis-sidecar-pipeline.v1", inputs.pipeline),
+    hashInputs(
+      root,
+      "synthesis-sidecar-prebuild-pipeline.v1",
+      inputs.prebuildPipeline,
+    ),
+    hashInputs(
+      root,
+      "synthesis-sidecar-verification-pipeline.v1",
+      inputs.verificationPipeline,
+    ),
+    hashInputs(
+      root,
+      "synthesis-sidecar-release-pipeline.v1",
+      inputs.releasePipeline,
+    ),
   ]);
   return Object.freeze({
     sourceFingerprint: source.fingerprint,
     buildFingerprint: build.fingerprint,
     verificationFingerprint: verification.fingerprint,
-    pipelineRevision: pipeline.fingerprint,
+    prebuildPipelineRevision: prebuildPipeline.fingerprint,
+    verificationPipelineRevision: verificationPipeline.fingerprint,
+    releasePipelineRevision: releasePipeline.fingerprint,
     inputs,
   });
 }

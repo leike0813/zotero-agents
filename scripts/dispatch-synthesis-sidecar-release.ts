@@ -17,6 +17,32 @@ async function commandRunner(command: string, args: string[]) {
   return { stdout: result.stdout || "", stderr: result.stderr || "" };
 }
 
+export function assertSynthesisSidecarReleaseDispatchCheckout(args: {
+  branch: string;
+  status: string;
+  sourceCommit: string;
+  preparedCommit: string;
+  remoteCommit: string;
+}) {
+  if (args.branch !== "main" || args.status.trim()) {
+    throw new Error("Sidecar release dispatch requires clean main");
+  }
+  for (const [label, value] of [
+    ["source", args.sourceCommit],
+    ["prepared", args.preparedCommit],
+    ["remote", args.remoteCommit],
+  ]) {
+    if (!/^[a-f0-9]{40}$/.test(value)) {
+      throw new Error(`Sidecar release ${label} commit must be a full SHA`);
+    }
+  }
+  if (args.remoteCommit !== args.preparedCommit) {
+    throw new Error(
+      "Push the prepared release set to origin/main before dispatching",
+    );
+  }
+}
+
 export async function dispatchSynthesisSidecarRelease(args: {
   releaseSetId: string;
   repo: string;
@@ -32,18 +58,21 @@ export async function dispatchSynthesisSidecarRelease(args: {
   const branch = await run("git", ["branch", "--show-current"]);
   const status = await run("git", ["status", "--porcelain"]);
   const head = await run("git", ["rev-parse", "HEAD"]);
-  if (branch.stdout.trim() !== "main" || status.stdout.trim())
-    throw new Error("Sidecar release dispatch requires clean main");
-  if (head.stdout.trim() !== releaseSet.sourceCommit)
-    throw new Error(
-      "Release set must be committed at the dispatched main HEAD",
-    );
+  await run("git", [
+    "merge-base",
+    "--is-ancestor",
+    releaseSet.sourceCommit,
+    head.stdout.trim(),
+  ]);
   await run("git", ["fetch", "origin", "main"]);
   const remote = await run("git", ["rev-parse", "origin/main"]);
-  if (remote.stdout.trim() !== releaseSet.sourceCommit)
-    throw new Error(
-      "Push the prepared release set to origin/main before dispatching",
-    );
+  assertSynthesisSidecarReleaseDispatchCheckout({
+    branch: branch.stdout.trim(),
+    status: status.stdout,
+    sourceCommit: releaseSet.sourceCommit,
+    preparedCommit: head.stdout.trim(),
+    remoteCommit: remote.stdout.trim(),
+  });
   const requestId = args.requestId || createGithubWorkflowRequestId("ssr");
   const selected = await dispatchAndResolveGithubWorkflowRun({
     workflow: WORKFLOW,
@@ -52,16 +81,18 @@ export async function dispatchSynthesisSidecarRelease(args: {
     inputs: {
       release_set_id: releaseSet.releaseSetId,
       source_sha: releaseSet.sourceCommit,
+      prepared_sha: head.stdout.trim(),
       request_id: requestId,
     },
     expectedDisplayTitle: `Synthesis sidecar ${releaseSet.releaseSetId} (${requestId})`,
-    expectedHeadSha: releaseSet.sourceCommit,
+    expectedHeadSha: head.stdout.trim(),
     commandRunner: run,
   });
   return {
     schema: "synthesis-sidecar-runtime-dispatch-result.v1",
     releaseSetId: releaseSet.releaseSetId,
     sourceSha: releaseSet.sourceCommit,
+    preparedSha: head.stdout.trim(),
     aggregate: releaseSet.prebuild.aggregate,
     requestId,
     runId: selected.databaseId,
@@ -70,6 +101,12 @@ export async function dispatchSynthesisSidecarRelease(args: {
 }
 
 async function main() {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(
+      "Usage: tsx scripts/dispatch-synthesis-sidecar-release.ts --release-set-id=<ssrs-id> --repo=<owner/repository> [--request-id=<id>]\n",
+    );
+    return;
+  }
   const value = (name: string) =>
     process.argv
       .find((entry) => entry.startsWith(`--${name}=`))

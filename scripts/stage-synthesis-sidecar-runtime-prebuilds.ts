@@ -205,6 +205,12 @@ export async function stageSynthesisSidecarRuntimePrebuildArchives(args: {
 }
 
 async function main() {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(
+      "Usage: tsx scripts/stage-synthesis-sidecar-runtime-prebuilds.ts (--input-root=<path> | --archive-root=<path>) --output-root=<path> --build-fingerprint=<sha256> [--source-fingerprint=<sha256>]\n",
+    );
+    return;
+  }
   const root = process.cwd();
   const source = await computeSynthesisRustSidecarSourceFingerprint(root);
   const inputRoot = argument("input-root");

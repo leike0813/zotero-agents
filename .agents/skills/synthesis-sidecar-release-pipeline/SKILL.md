@@ -1,204 +1,275 @@
 ---
 name: synthesis-sidecar-release-pipeline
-description: Prepare, dispatch, resume, and verify a governed Synthesis sidecar runtime release set. Use when approved sidecar changes must be materialized as locked plugin release input.
+description: Prepare, dispatch, resume, and verify a governed Synthesis sidecar runtime release set. Use when approved native bundles must become locked plugin release input.
 ---
 
 # Synthesis Sidecar Release Pipeline
 
 ## Goal
 
-Turn one already verified seven-platform prebuild aggregate into committed
-plugin runtime input. The pipeline binds the release set, source commit,
-prebuild result, materialized addon inventory, workflow revision, and complete
-receipt. It is the only route for formal sidecar materialization.
+Promote one exact seven-platform build set into committed plugin runtime input.
+Formal promotion joins independently produced build and verification evidence,
+materializes all seven bundles atomically, records a complete receipt, and
+finalizes source `main`.
 
-## Preconditions
+This is the only sidecar path that may claim release eligibility.
 
-- An approved source change on a clean, synchronized `main` checkout.
-- Exact release-eligible `synthesis-sidecar-runtime-prebuild-result.v3`
-  evidence from `$synthesis-sidecar-prebuild`.
-- A valid v3 bundle set on `synthesis-sidecar-runtime-prebuilds`.
-- User authorization to prepare source files when preparation is requested.
-- Separate explicit user authorization before workflow dispatch, because it
-  writes the shared prebuild branch only indirectly and finalizes source main.
+## Non-goal
 
-## Boundaries
+This Skill does not:
 
-The pipeline owns only native sidecar release evidence and the seven
-`addon/bin/<target>/synthesis-sidecar/` roots. It does not select plugin versions, create a
-plugin release, modify Host Bridge releases, or synchronize Gitee.
+- produce a new prebuild as an implicit prerequisite;
+- weaken the Linux/Windows/macOS verification roster;
+- select or bump a plugin version;
+- publish a plugin tag or GitHub Release;
+- modify Host Bridge release state;
+- synchronize Gitee;
+- commit, push, or dispatch without the corresponding user authorization.
 
-## Inspect first
+Use `$synthesis-sidecar-prebuild` to create or resume development build
+evidence.
 
-1. Confirm branch is `main`.
-2. Confirm `git status --porcelain` is empty.
-3. Fetch `origin/main` and ensure local HEAD equals it.
-4. Read the prebuild result and validate its exact identity.
-5. Read the prebuild set manifest at the result's exact branch commit.
-6. Run `npm run check:synthesis-sidecar-runtime-freshness` when a previously
-   materialized set exists.
-7. Inspect any existing `synthesis-sidecar/release-set.json` and receipt.
+## Input contract
 
-Do not repair a failed prerequisite by committing, changing a version, or
-selecting a different prebuild without user direction.
+Release preparation requires:
 
-## Prepare
+- clean synchronized `main`;
+- exact full source commit at HEAD;
+- one strict `synthesis-sidecar-runtime-prebuild-result.v4` for that source;
+- its exact immutable set at the recorded prebuild commit;
+- current source, build, verification, prebuild-pipeline,
+  verification-pipeline, and release-pipeline identities;
+- one trusted `synthesis-sidecar-verification-result.v2` resolved from GitHub
+  run metadata;
+- authorization to write the local release-set file.
 
-Use `npm run prepare:synthesis-sidecar-release -- --prebuild-result=<file>`.
-The command derives a release-set ID from the exact source commit, aggregate,
-and prebuild branch commit. The result must bind its `sourceSha` to current
-HEAD. Write the resulting `synthesis-sidecar/release-set.json` once, review it,
-then commit and push the prepared set to `main` when authorized.
+Dispatch additionally requires explicit authorization for the remote workflow
+and its source-main finalization effect.
 
-Preparation does not materialize platform bytes. It creates the immutable
-intent that a later workflow must obey.
+## Output contract
 
-## Release-set validation
+Preparation writes one strict
+`synthesis-sidecar-runtime-release-set.v2` at
+`synthesis-sidecar/release-set.json`. It binds:
 
-Before dispatch, require all of the following facts in the prepared set:
+- release-set ID and exact source commit;
+- complete prebuild result v4;
+- complete verification result v2;
+- release pipeline revision;
+- fixed addon root, namespaced bundle directory, and seven targets.
 
-- `schema` is `synthesis-sidecar-runtime-release-set.v1`;
-- `releaseSetId` is present and equals the requested value;
-- `sourceCommit` equals the exact prepared `main` commit;
-- the embedded prebuild result uses v3, binds trusted verification, and has the
-  expected source SHA and four governed identities;
-- its aggregate and branch commit equal the release-set prebuild fields;
-- `materialized.addonRoot` is `addon/bin` and
-  `materialized.targetBundleDirectory` is `synthesis-sidecar`;
-- the target list contains exactly the seven supported targets once each.
+`sourceCommit` is the sidecar source that produced the prebuild. The later
+`main` commit containing `release-set.json` is the prepared commit used to
+dispatch the workflow; it is kept separate because a document cannot contain
+the hash of the commit that contains that same document.
 
-The release set is a binding document, not a suggestion. Do not edit it after
-it has been committed to make a different prebuild fit.
+The release-set ID covers source commit, aggregate, exact prebuild commit,
+verification identity and run, verification producer revision, and release
+pipeline revision.
 
-## Receipt transitions
+Successful workflow completion writes
+`synthesis-sidecar/latest-complete-release-receipt.json` and finalizes the same
+release set plus all seven materialized bundles on `main`.
 
-The receipt progresses in this order:
+## Formal verification contract
 
-1. `plan` records that the release set is bound to the workflow source.
-2. `prebuild` records that its exact content-addressed set was verified.
-3. `materialize` records that all seven addon directories were replaced.
-4. `receipt` records the complete local evidence document.
-5. `finalize` records source-main finalization.
+Verification v2 is produced only after:
 
-Each completed step is immutable. A receipt may enter `failed` with its first
-failed step and message. A recovery reads that same receipt and continues only
-from evidence that remains valid for its original release-set ID.
+- Rust format and Clippy pass on Linux;
+- the complete Rust workspace passes on Linux, Windows, and macOS;
+- all shared contract and durable-foundation gates pass;
+- all four typed application parity gates pass;
+- the Rust and bundled SQLite license inventory passes.
 
-## Authorization boundary
+The receipt binds repository, workflow, run ID, accepted event, source SHA,
+source/build/verification fingerprints, verification pipeline revision, and
+three passed hosts. Release preparation validates the artifact against GitHub
+run metadata. Release materialization validates it again.
 
-Preparation changes a local source file and needs the user's authorization for
-that source change. Dispatch and source-main finalization have separate remote
-effects and need explicit publication authorization in the current request.
+A receipt from another source SHA may be reused only when all governed source,
+build, verification, and verification-pipeline identities match.
 
-Do not infer permission from an approved design, a successful prebuild, a
-previous release, or a request to inspect a workflow. Do not use an automated
-push, tag workflow, or ordinary CI completion as release authorization.
+## Forbidden actions
 
-## Audit record
+- Do not create a release set from build evidence alone.
+- Do not embed verification into prebuild result v4.
+- Do not accept an unrecognized or partially successful host roster.
+- Do not choose a different prebuild, verification run, or branch head during
+  recovery.
+- Do not require the recorded prebuild commit to remain branch HEAD.
+- Do not materialize bytes before both evidence documents and the immutable
+  set validate.
+- Do not manually copy platform bundles.
+- Do not edit a committed release set to fit another result.
+- Do not infer dispatch authorization from prebuild authorization.
+- Do not publish a plugin or synchronize Gitee as part of this workflow.
 
-Keep the following values together in the final report and any handoff note:
+## Execution flow
 
-- release-set ID and source commit;
-- prebuild result schema, request ID, run ID, aggregate, and branch commit;
-- workflow URL and revision;
-- receipt path, status, and all step states;
-- finalization commit;
-- freshness and XPI inventory gate outcomes.
+### 1. Inspect the formal boundary
 
-If any value is unavailable, identify the exact operation that would produce
-it. Do not replace missing evidence with an inferred value.
-
-## Stop conditions
-
-Stop and request direction when the requested source commit is not on `main`,
-the worktree is not clean, the prebuild result is unavailable, the set branch
-commit differs, or a receipt binds another release set. These conditions change
-the release identity and cannot be resolved by local edits.
-
-Stop after a complete receipt and finalization have been verified. Plugin tag
-publication remains a separate authorized action with its own gates.
-
-## Local gates
-
-Before dispatch, run the sidecar packaging and contract checks relevant to the
-change. Require the release plan to identify the committed release-set ID,
-source commit, aggregate, and fingerprint. Verify that the release set's seven
-target list is complete and that its result uses the exact prebuild branch.
-
-If a complete receipt already matches the same release-set ID and aggregate,
-report it as complete. Do not prepare another set merely to repeat a completed
-materialization.
-
-## Dispatch
-
-Dispatch only after explicit publication authorization. Use:
+Run read-only checks:
 
 ```bash
-npm run release:synthesis-sidecar:dispatch -- \
-  --release-set-id=<ssrs-id> --repo=<owner/repository>
+git branch --show-current
+git status --porcelain=v1
+git rev-parse HEAD
+git fetch origin main
+git rev-parse origin/main
+npm run prepare:synthesis-sidecar-release -- --help
+npm run release:synthesis-sidecar:plan -- --help
 ```
 
-The dispatch command requires clean synchronized `main`, a committed release
-set at HEAD, an exact source SHA, and an exact workflow run selected by its
-request ID. It must never run from a development branch or choose a latest
-successful run.
+Require branch `main`, an empty status, and local HEAD equal to `origin/main`.
+Read the prebuild result through the shared contract. Do not inspect only its
+filename or selected JSON fields.
 
-## Workflow responsibilities
+### 2. Prepare the evidence join
 
-The workflow checks out the exact source SHA, confirms it is an ancestor of
-`origin/main`, clones the content-addressed branch, and requires the branch
-commit recorded by the result. It verifies all seven archives before replacing
-the addon runtime root.
+With local-write authorization, run:
 
-It initializes a receipt, records materialization, records the complete
-receipt state, and only then finalizes source main. The finalization commit
-contains all seven materialized `addon/bin/<target>/synthesis-sidecar/`
-directories, the release set, and the complete receipt together.
+```bash
+npm run prepare:synthesis-sidecar-release -- \
+  --prebuild-result=<prebuild-result.json>
+```
 
-## Resume
+The command:
 
-Resume only the same release-set ID, source SHA, aggregate, request ID, and
-workflow run. Check the existing receipt first. Its recorded aggregate and
-source SHA must equal the prepared release set.
+1. derives the exact source commit from clean `main`;
+2. computes all current governed identities;
+3. strictly validates prebuild result v4;
+4. resolves a trusted verification v2 with structured diagnostics;
+5. validates their source/build relationship and producer revisions;
+6. creates release-set v2 only when the join is exact.
 
-Never make a new release set, substitute a prebuild result, or switch to a
-newer branch commit to recover from a failed workflow. A changed aggregate is a
-new release and needs new preparation and authorization.
+Review the resulting release set. Committing and pushing it are separate
+actions; perform them only when explicitly authorized.
 
-## Complete receipt gate
+### 3. Run local gates
 
-A receipt is complete only when plan, prebuild, materialize, receipt, and
-finalize steps are all complete for the same release-set ID, source commit, and
-aggregate. A partial or failed receipt blocks plugin release. The receipt is
-not a log; it is the final materialization proof consumed by the plugin tag
-workflow.
-
-## Plugin release handoff
-
-After finalization, check the committed runtime with:
+Before dispatch, require:
 
 ```bash
 npm run release:synthesis-sidecar:plan
 npm run check:synthesis-sidecar-runtime-freshness
 ```
 
-The plugin release workflow must find the matching complete receipt and pass
-freshness and XPI inventory gates. It must not download a mutable sidecar
-GitHub Release tag.
+Run the focused packaging, contract, parity, license, Rust, lint, formatting,
+and OpenSpec gates appropriate to the source change. If the currently
+materialized bundles belong to an older build, freshness may remain open until
+formal materialization; record that fact instead of changing evidence.
 
-## Failure handling
+### 4. Dispatch formal materialization
 
-Preserve the release-set ID, source SHA, aggregate, prebuild result, workflow
-run URL, receipt, and transaction backup information. Report the first failed
-gate and whether source-main finalization occurred.
+Only after explicit publication authorization, run:
 
-If finalization did not occur, resume only the same set after the underlying
-infrastructure issue is resolved. If finalization did occur, verify the
-receipt and committed inventory rather than replaying publication.
+```bash
+npm run release:synthesis-sidecar:dispatch -- \
+  --release-set-id=<ssrs-id> \
+  --repo=<owner/repository>
+```
 
-## Completion report
+The dispatch command requires clean synchronized `main`, the committed release
+set at HEAD, the embedded source commit as its ancestor, and exact request/run
+identity. It sends both the source SHA and prepared HEAD SHA. It cannot select
+a latest run or dispatch from a development branch.
 
-Report release-set ID, source SHA, result schema, request/run IDs, aggregate,
-prebuild branch commit, seven-target materialization result, receipt status,
-source-main finalization commit, freshness result, and remaining plugin-release
-requirements. State explicitly that Gitee synchronization was not run.
+### 5. Workflow materialization
+
+The workflow must:
+
+1. bind the exact committed release-set ID and source commit;
+2. recompute all current identities and re-create the evidence join;
+3. revalidate verification receipt v2 against its exact GitHub run metadata;
+4. fetch the prebuild result's exact commit directly;
+5. prove `sets/<aggregate>/manifest.json` exists at that commit;
+6. validate all archives and atomically replace only the seven
+   `addon/bin/<target>/synthesis-sidecar/` roots;
+7. preserve sibling Host Bridge binaries;
+8. run freshness;
+9. advance the receipt in order;
+10. revalidate identities against the latest `origin/main` before finalizing;
+11. commit the seven bundles, release set, and complete receipt together.
+
+Branch-head advancement is normal. It does not invalidate the recorded exact
+commit.
+
+## Receipt state machine
+
+Receipt steps progress in this order:
+
+1. `plan`
+2. `prebuild`
+3. `materialize`
+4. `receipt`
+5. `finalize`
+
+A completed step does not regress. A failure records the first failed step and
+message. A complete receipt requires every step complete for one release-set
+ID, source commit, and aggregate.
+
+The receipt's producer identity is `releasePipelineRevision`. Do not use a
+generic pipeline revision to stand in for prebuild, verification, and release
+producers.
+
+## Resume and recovery
+
+Resume only the same release-set ID, source SHA, aggregate, prebuild commit,
+verification run, request ID, and workflow run. Read the receipt before doing
+anything else.
+
+| Failure | Recovery |
+| --- | --- |
+| No matching verification | Run or repair verification separately; do not rebuild solely for this reason |
+| Verification metadata mismatch | Reject the receipt and inspect its exact run |
+| Exact prebuild commit unavailable | Stop; branch head is not a substitute |
+| Archive or bundle mismatch | Preserve current addon bytes and stop |
+| Materialization failed before finalization | Resume the same workflow identity after the cause is repaired |
+| `origin/main` identities advanced | Prepare a new release set for the new identity |
+| Complete receipt already exists | Verify it; do not replay publication |
+
+Never create a new release set merely to conceal a failed run. A changed
+aggregate or governed identity is a new release attempt and needs fresh
+authorization.
+
+## LLM vs script responsibilities
+
+Scripts own deterministic mechanics:
+
+- strict v4/v2/v2 parsing;
+- identity computation and evidence joining;
+- verification discovery diagnostics and GitHub metadata binding;
+- release-set ID derivation;
+- exact-commit fetch and immutable archive validation;
+- transactional synchronization and rollback;
+- receipt transitions and release plan output.
+
+The Agent owns judgment and communication:
+
+- distinguish preparation, commit/push, dispatch, and plugin publication
+  authorizations;
+- select the exact user-approved evidence identity;
+- explain blockers without weakening gates;
+- preserve unrelated user changes;
+- report formal completion and remaining plugin-release work separately.
+
+## Completion conditions
+
+Formal sidecar materialization is complete only when:
+
+- the committed release set is v2 and revalidates against current identities;
+- its exact verification run remains trusted;
+- all seven bundles at the exact aggregate pass freshness;
+- the receipt is complete for the same release-set ID/source/aggregate;
+- source-main finalization succeeded.
+
+Plugin publication remains a separate authorized workflow. Explicitly state
+that Gitee synchronization was not run.
+
+## References
+
+- Evidence join: `scripts/prepare-synthesis-sidecar-release.ts`
+- Release-set contract: `scripts/synthesis-sidecar-runtime-release-set.ts`
+- Verification resolver: `scripts/resolve-synthesis-sidecar-verification.ts`
+- Materializer: `.github/workflows/release-synthesis-sidecar.yml`
+- Build producer: `$synthesis-sidecar-prebuild`

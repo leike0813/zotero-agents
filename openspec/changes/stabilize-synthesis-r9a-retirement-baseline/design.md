@@ -161,12 +161,12 @@ exists for a seven-platform native candidate and at least the representative
 clean-machine profiles agreed for the release milestone. This is a decision
 gate, not an automatic workflow action in this change.
 
-The evidence chain consumes the release-eligible v3 prebuild result produced by
-`stabilize-synthesis-sidecar-prebuild-pipeline`. It records the trusted
-three-host verifier, four governed identities, seven built/reused target
-records, per-target digest and size, current native smoke, and workflow run
-identity. It does not claim signing, final XPI, offline install, upgrade, or
-complete Stage 1 acceptance; those remain final R9b gates.
+The evidence chain consumes the release-set v2 defined by
+`decouple-synthesis-sidecar-prebuild-verification`. That release set joins an
+exact build-only seven-target prebuild result with an independently trusted
+three-host verification receipt and records their governed identities. It does
+not claim signing, final XPI, offline install, upgrade, or complete Stage 1
+acceptance; those remain final R9b gates.
 
 ### 6. Use one platform-first native asset layout
 

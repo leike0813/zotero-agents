@@ -35,6 +35,12 @@ export async function createSynthesisSidecarRuntimeReleasePlan(
 }
 
 async function main() {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(
+      "Usage: tsx scripts/synthesis-sidecar-runtime-release-plan.ts [--output=<path>]\n",
+    );
+    return;
+  }
   const plan = await createSynthesisSidecarRuntimeReleasePlan();
   const output = process.argv
     .find((entry) => entry.startsWith("--output="))

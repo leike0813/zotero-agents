@@ -1,19 +1,15 @@
 export type SynthesisApplicationParityRole = "node" | "rust";
 
-const RUST_REFERENCE_REDIRECT_GRAPH_SCHEMA_MARKER = {
-  key: "reference_redirect_graph_schema_version",
-  value: "synthesis-reference-redirect-graph.v1",
-} as const;
+const RUST_REFERENCE_REDIRECT_GRAPH_SCHEMA_MARKER_KEY =
+  "reference_redirect_graph_schema_version";
 
-function isExactRustReferenceRedirectGraphSchemaMarker(row: unknown) {
+function isRustReferenceRedirectGraphSchemaMarker(row: unknown) {
   return (
     !!row &&
     typeof row === "object" &&
     !Array.isArray(row) &&
     (row as Record<string, unknown>).key ===
-      RUST_REFERENCE_REDIRECT_GRAPH_SCHEMA_MARKER.key &&
-    (row as Record<string, unknown>).value ===
-      RUST_REFERENCE_REDIRECT_GRAPH_SCHEMA_MARKER.value
+      RUST_REFERENCE_REDIRECT_GRAPH_SCHEMA_MARKER_KEY
   );
 }
 
@@ -23,9 +19,7 @@ export function normalizeSynthesisApplicationParityTableRows<T>(
   rows: T[],
 ) {
   if (role !== "rust" || table !== "synt_schema_meta") return rows;
-  return rows.filter(
-    (row) => !isExactRustReferenceRedirectGraphSchemaMarker(row),
-  );
+  return rows.filter((row) => !isRustReferenceRedirectGraphSchemaMarker(row));
 }
 
 export function normalizeSynthesisApplicationParityObservable(

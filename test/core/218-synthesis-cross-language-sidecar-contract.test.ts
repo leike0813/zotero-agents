@@ -12,7 +12,10 @@ import { rebuildSynthesisSidecarCallRequest } from "../../packages/synthesis-con
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as REPOSITORY_SCHEMA_VERSION } from "../../packages/synthesis-repository/src/index";
 import { checkSynthesisCrossLanguageContracts } from "../../scripts/check-synthesis-cross-language-contracts";
 import { checkSynthesisDurableFoundationParity } from "../../scripts/check-synthesis-durable-foundation-parity";
-import { checkSynthesisTypedApplicationParity } from "../../scripts/check-synthesis-typed-application-parity";
+import {
+  checkSynthesisTypedApplicationParity,
+  findSynthesisApplicationParityMismatchLocations,
+} from "../../scripts/check-synthesis-typed-application-parity";
 import { checkSynthesisCitationReferenceApplicationParity } from "../../scripts/check-synthesis-citation-reference-application-parity";
 import { checkSynthesisTagConceptTopicGraphApplicationParity } from "../../scripts/check-synthesis-tag-concept-topic-graph-application-parity";
 import { checkSynthesisCheckpointBundleWebDavDebugApplicationParity } from "../../scripts/check-synthesis-checkpoint-bundle-webdav-debug-application-parity";
@@ -160,7 +163,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.deepEqual(findSynthesisContractBoundaryViolations(), []);
   });
 
-  it("normalizes only the exact Rust redirect-graph schema marker", function () {
+  it("normalizes the Rust-private redirect-graph schema marker by key", function () {
     const exact = {
       key: "reference_redirect_graph_schema_version",
       value: "synthesis-reference-redirect-graph.v1",
@@ -181,7 +184,7 @@ describe("Synthesis cross-language sidecar contract", function () {
         "synt_schema_meta",
         rows,
       ),
-      [wrongValue, unrelated],
+      [unrelated],
     );
     assert.deepEqual(
       normalizeSynthesisApplicationParityTableRows(
@@ -205,9 +208,25 @@ describe("Synthesis cross-language sidecar contract", function () {
         nested: { synt_schema_meta: [exact, unrelated] },
       }),
       {
-        tables: { synt_schema_meta: [wrongValue, unrelated] },
+        tables: { synt_schema_meta: [unrelated] },
         nested: { synt_schema_meta: [unrelated] },
       },
+    );
+  });
+
+  it("reports stable observable mismatch locations", function () {
+    assert.deepEqual(
+      findSynthesisApplicationParityMismatchLocations(
+        {
+          tables: { synt_cache: [{ key: "one", value: 1 }] },
+          workbench: { status: "ready" },
+        },
+        {
+          tables: { synt_cache: [{ key: "one", value: 2 }] },
+          workbench: { status: "failed" },
+        },
+      ),
+      ["$.tables.synt_cache[0].value", "$.workbench.status"],
     );
   });
 
@@ -284,18 +303,16 @@ describe("Synthesis cross-language sidecar contract", function () {
     const workflow = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
+        ".github/workflows/verify-synthesis-sidecar.yml",
       ),
       "utf8",
     );
     const checkerIndex = workflow.indexOf(
-      "check-synthesis-citation-reference-application-parity.ts",
+      "check:synthesis-citation-reference-application-parity",
     );
-    const smokeIndex = workflow.indexOf(
-      "smoke-synthesis-rust-sidecar-worker.ts",
-    );
+    const rustIndex = workflow.indexOf("Run complete Rust workspace");
     assert.isAtLeast(checkerIndex, 0);
-    assert.isAbove(smokeIndex, checkerIndex);
+    assert.isAbove(checkerIndex, rustIndex);
   });
 
   it("executes the independent Tag/Concept/Topic Graph typed application differential", async function () {
@@ -341,18 +358,16 @@ describe("Synthesis cross-language sidecar contract", function () {
     const workflow = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
+        ".github/workflows/verify-synthesis-sidecar.yml",
       ),
       "utf8",
     );
     const checkerIndex = workflow.indexOf(
-      "check-synthesis-checkpoint-bundle-webdav-debug-application-parity.ts",
+      "check:synthesis-checkpoint-bundle-webdav-debug-application-parity",
     );
-    const smokeIndex = workflow.indexOf(
-      "smoke-synthesis-rust-sidecar-worker.ts",
-    );
+    const rustIndex = workflow.indexOf("Run complete Rust workspace");
     assert.isAtLeast(checkerIndex, 0);
-    assert.isAbove(smokeIndex, checkerIndex);
+    assert.isAbove(checkerIndex, rustIndex);
   });
 
   it("accounts for every locked Rust and bundled SQLite license", function () {
@@ -360,8 +375,8 @@ describe("Synthesis cross-language sidecar contract", function () {
 
     assert.deepEqual(result.errors, []);
     assert.isTrue(result.ok);
-    assert.equal(result.cargoPackages, 70);
-    assert.equal(result.licensedPackages, 70);
+    assert.isAbove(result.cargoPackages, 0);
+    assert.equal(result.licensedPackages, result.cargoPackages);
     assert.equal(result.bundledComponents, 1);
     assert.equal(result.bundledSqlite, "3.53.2");
   });

@@ -1,30 +1,91 @@
 ---
 name: synthesis-sidecar-prebuild
-description: Dispatch or resume an exact seven-platform Synthesis sidecar prebuild and synchronize its verified content-addressed set. Use when a pushed source identity needs prebuild evidence before a governed sidecar release.
+description: Dispatch or resume an exact seven-platform Synthesis sidecar build and synchronize its content-addressed binaries. Use for routine development prebuilds from a pushed source SHA.
 ---
 
 # Synthesis Sidecar Prebuild
 
 ## Goal
 
-Produce one exact, seven-platform native sidecar prebuild set for a locked
-source commit. This is build-only work. It does not prepare a release set,
-materialize plugin files, commit source changes, publish a plugin, or run a
-Gitee synchronization.
+Complete the routine development prebuild path with one command: identify an
+exact pushed source, dispatch or resume its seven-platform build, validate the
+immutable result, synchronize all seven local bundles, and prove freshness.
 
-## Required inputs
+This Skill produces build evidence. It also reports whether matching formal
+verification exists, but verification status does not decide whether the
+development prebuild succeeded.
 
-- An attached branch with a configured upstream.
-- A clean worktree and the exact full 40-character source SHA.
-- The repository and branch that resolve to that source SHA.
-- A successful trusted `synthesis-sidecar-verification-result.v1` receipt whose
-  verification fingerprint and pipeline revision match the candidate.
-- An explicit user authorization for a new remote dispatch.
-- For recovery, the exact existing GitHub Actions run ID and request ID.
+## Non-goal
 
-## Target identity
+This Skill does not:
 
-The set always includes these targets, once each:
+- prepare `synthesis-sidecar/release-set.json`;
+- weaken or bypass formal release verification;
+- commit, push, tag, publish a plugin, or finalize `main`;
+- dispatch `verify-synthesis-sidecar.yml`;
+- synchronize Gitee;
+- treat a one-platform local build as seven-platform evidence.
+
+Use `$synthesis-sidecar-release-pipeline` when the user wants formal
+materialization or plugin release input.
+
+## Input contract
+
+The normal command derives its inputs from the current checkout. The checkout
+must have:
+
+- an attached branch;
+- a full current HEAD SHA;
+- a remote branch at the same SHA;
+- GitHub CLI authentication capable of reading Actions and, for a new run,
+  dispatching the prebuild workflow.
+
+Optional command inputs are:
+
+- `--repo=<owner/repository>` to override the repository;
+- `--ref=<branch>` to override the pushed ref;
+- `--source-sha=<40-character-sha>` to state the expected HEAD explicitly;
+- `--resume-run-id=<positive-id>` to continue an existing exact run;
+- `--overwrite-dirty-bundles` only when the user explicitly authorizes
+  replacing locally modified sidecar bundle files.
+
+Unrelated dirty paths are valid input. Report them; do not ask the user to
+clean or stash them.
+
+## Output contract
+
+Successful stdout is one
+`synthesis-sidecar-development-prebuild-operation.v1` JSON document. It binds:
+
+- repository, ref, source SHA, request ID, run ID, and run URL;
+- aggregate and exact prebuild commit;
+- the dirty paths observed before dispatch;
+- atomic synchronization result;
+- freshness result;
+- independent release-verification status.
+
+`releaseVerification.status` has separate meaning:
+
+- `eligible`: matching trusted verification v2 exists;
+- `blocked`: no matching trusted receipt exists;
+- `unavailable`: verification discovery could not be completed.
+
+All three statuses are compatible with a completed development prebuild when
+build, synchronization, and freshness succeeded.
+
+The workflow artifact is a strict
+`synthesis-sidecar-runtime-prebuild-result.v4`. It contains build-only facts:
+
+- source and build fingerprints;
+- prebuild pipeline revision;
+- aggregate, immutable set path, and exact containing commit;
+- exactly seven target evidence records.
+
+It contains no verification receipt or release-eligibility claim.
+
+## Target set
+
+The immutable set contains each target exactly once:
 
 - `win32-x64`
 - `darwin-x64`
@@ -34,218 +95,158 @@ The set always includes these targets, once each:
 - `linux-arm`
 - `linux-arm64`
 
-The prebuild branch is `synthesis-sidecar-runtime-prebuilds`. A set lives at
-`sets/<aggregate>/`; it is immutable evidence, never a mutable release tag.
+Sets live on `synthesis-sidecar-runtime-prebuilds` at
+`sets/<aggregate>/`. The branch is append-only. A result binds the exact commit
+that contains its set; that commit does not need to remain branch HEAD.
 
-## Inspect before any action
+## Forbidden actions
 
-1. Read the source SHA with `git rev-parse HEAD`.
-2. Read the current branch with `git branch --show-current`.
-3. Inspect `git status --porcelain`; stop if it is nonempty.
-4. Fetch the requested upstream ref and compare it with the requested source
-   SHA. The SHA must be full, current, and exact.
-5. Read all four identities using the release-governance helper: source
-   fingerprint, build fingerprint, verification fingerprint, and pipeline
-   revision.
-6. Resolve the trusted Linux/Windows/macOS verification receipt. It must come
-   from a same-repository `push` or `workflow_dispatch`. A receipt from another
-   SHA is valid only when both governed verification identities match.
-7. Record repository, ref, source SHA, request ID, receipt run, and intended
-   command.
+- Do not manually run the workflow when the supported command can perform the
+  same operation.
+- Do not dispatch a new run without explicit authorization for the remote
+  workflow side effect.
+- Do not dispatch a replacement when `--resume-run-id` identifies a
+  recoverable run.
+- Do not require a clean worktree.
+- Do not overwrite a dirty
+  `addon/bin/<target>/synthesis-sidecar/` root without the explicit overwrite
+  option and current user authorization.
+- Do not choose a “latest successful” result in place of the exact request.
+- Do not fetch only the prebuild branch head when the result records another
+  commit.
+- Do not copy individual platform directories by hand.
+- Do not force-push or rewrite the prebuild branch.
+- Do not infer evidence from terminal output when the typed result or manifest
+  is absent.
 
-Do not create a commit, push a branch, select a version, or change a source
-file in order to make these checks pass.
+## Execution flow
 
-## Classify the request
+### 1. Inspect without mutation
 
-Use one of the following paths:
-
-1. A developer needs a local native binary: use the normal local Rust build.
-   This is not seven-platform evidence.
-2. A user explicitly authorizes a new seven-platform build: dispatch
-   `prebuild-synthesis-sidecar-runtime.yml` once with exact `source_sha` and
-   `request_id` inputs.
-3. A known run already exists and observation or synchronization stopped:
-   resume the same run and reuse its original result artifact. Do not dispatch
-   a replacement run.
-
-## Artifact candidate reuse
-
-The workflow searches non-expired artifacts from prior runs of the same
-prebuild workflow, including runs at another source SHA. Discovery produces a
-candidate, not a trusted cache hit. Each target job downloads and validates the
-candidate before deciding whether to build.
-
-- Reuse requires exact source fingerprint, build fingerprint, target, closed
-  bundle manifest, archive layout, file inventory, size, and SHA-256.
-- Missing, expired, incomplete, or mismatched candidates become a typed miss;
-  only that target is rebuilt.
-- A native-smoke target always runs worker-transfer parity, worker smoke, and
-  durable process smoke in the current run, including when its bytes are reused.
-- Every target uploads its archive and one current-run evidence record. A
-  reused record preserves donor run ID, donor source SHA, archive digest, and
-  byte count.
-
-Artifact retention limits reuse duration. Expiry is an ordinary miss and does
-not weaken the immutable set or result requirements.
-
-The staging step also short-circuits when `sets/<aggregate>/manifest.json`
-already exists on the prebuild branch and matches the expected build and
-source fingerprints. This combines with the artifact cache to let a re-dispatch
-publish in a few seconds when nothing has changed.
-
-## New dispatch
-
-Only dispatch after the user has explicitly authorized the remote side effect.
-The authorization must cover a write to the shared prebuild branch.
-
-Use a unique request ID that is safe in workflow input and stable for the
-entire attempt. Pass the exact repository, `main` or approved development ref,
-and the complete source SHA. The workflow run title and its result document
-must contain the same request ID.
-
-The command must not choose the latest successful workflow run. A new dispatch
-is identified by all of: workflow filename, repository, exact source SHA,
-request ID, and the run ID returned after dispatch.
-
-## Resume
-
-Resume only when the user or the recorded receipt provides a specific run ID.
-Before reading artifacts, verify that run's workflow, event type, repository,
-head SHA, request ID, and conclusion. A failed run is evidence of failure; do
-not substitute a newer successful run.
-
-If the result artifact is available, preserve its path and checksum in the
-operation report. If it is unavailable, report the recovery blocker with the
-run ID; do not infer result values from branch contents.
-
-## Result proof
-
-Read `synthesis-sidecar-runtime-prebuild-result.v3` and reject it unless all
-of these are exact matches:
-
-- repository;
-- workflow `prebuild-synthesis-sidecar-runtime.yml`;
-- run ID;
-- request ID;
-- full source SHA;
-- source, build, verification, and pipeline identities;
-- trusted verification run, source SHA, and event;
-- prebuild branch;
-- aggregate SHA-256;
-- prebuild commit;
-- `sets/<aggregate>` path;
-- `targets` contains exactly the seven target keys;
-- each target evidence digest and byte count match its immutable-set archive;
-- built evidence names the current run/source, reused evidence names its donor,
-  and every native-smoke record names the current run.
-
-The result document is the authorization boundary for synchronization. A
-matching branch directory alone is insufficient evidence.
-
-## Archive checks
-
-Fetch the prebuild branch at the result's exact commit. Read only
-`sets/<aggregate>/manifest.json` and its declared archives. Reject the set if
-the aggregate, fingerprint, source fingerprint, archive count, names, target
-mapping, size, or SHA-256 does not match.
-
-Require exactly seven archives. Each archive must extract to exactly one target
-directory and validate its v3 native bundle manifest and file inventory. A
-single target archive may not exceed 15 MiB; the aggregate may not exceed 75
-MiB.
-
-## Local synchronization
-
-Run the synchronization command with the aggregate, store root, result file,
-repository, source SHA, request ID, and run ID. It validates every archive
-before replacing the seven `addon/bin/<target>/synthesis-sidecar/` roots.
-
-Do not manually copy individual platform directories. Do not partially replace
-the addon root. The command stages all targets, verifies all bundles, renames
-atomically, and restores the previous root when replacement fails.
-
-After synchronization, run:
+Run:
 
 ```bash
-npm run check:synthesis-sidecar-runtime-freshness
+git branch --show-current
+git rev-parse HEAD
+git status --porcelain=v1
+npm run prebuild:synthesis-sidecar:dispatch -- --help
 ```
 
-The command must pass before prebuild work is complete.
+Record unrelated dirty paths. If any dirty path is inside a sidecar bundle
+root, tell the user that synchronization will stop unless they explicitly
+authorize `--overwrite-dirty-bundles`.
 
-## Evidence record
+### 2. Choose dispatch or resume
 
-Keep one compact operation record while working. It must contain:
+For a new authorized build, use:
 
-- the full local and remote source SHA;
-- repository and ref;
-- build fingerprint and Rust source fingerprint;
-- request ID, workflow run ID, and run URL;
-- result-artifact path and schema;
-- aggregate, prebuild commit, and immutable set path;
-- archive size and digest for every target;
-- per-target built/reused mode, donor identity when present, retained archive
-  SHA-256/bytes, and current-run smoke status;
-- synchronization target root and freshness result.
+```bash
+npm run prebuild:synthesis-sidecar:dispatch -- \
+  --repo=<owner/repository> \
+  --ref=<pushed-branch> \
+  --source-sha=<full-sha>
+```
 
-Use values read from the result and manifest. Do not reconstruct an aggregate
-from memory or a terminal transcript. A value that cannot be read from the
-result, set manifest, or verified command output is unknown and must be
-reported as such.
+For an existing run, use the same identity and add:
 
-## Decision table
+```bash
+--resume-run-id=<run-id>
+```
 
-| Condition | Required action |
-| --- | --- |
-| User asks for a local build | Build locally; do not call it a prebuild set. |
-| Exact result artifact is available | Validate it, then synchronize its set. |
-| Exact run is still running | Watch that run; do not dispatch another. |
-| Exact run failed | Report the failed run and stop. |
-| Result identity differs | Stop; the requested set is not proven. |
-| Archive verification differs | Preserve current addon bytes and stop. |
-| Freshness fails after sync | Report the root and diagnostics; do not release. |
-| Validated candidate for a platform | Reuse exact bytes and run current native smoke when applicable. |
-| Cache miss for a platform | Rebuild from the current sources and smokes. |
-| Candidate manifest or fingerprint mismatch | Treat that platform as a miss and rebuild. |
-| Candidate artifact expired | Treat that platform as a miss and rebuild. |
+The command validates the run's workflow, event, repository, ref, source SHA,
+request ID, and result identity. Resume never redispatches.
 
-## Command discipline
+### 3. Let the command finish the common path
 
-Pass options in their explicit form even when a command provides defaults. Use
-the complete SHA, never an abbreviated SHA. Keep the downloaded result file in
-a stable temporary location until reporting is complete. Use a separate,
-throwaway store checkout for prebuild verification and never alter its branch
-history.
+The command performs these operations as one bounded workflow:
 
-If a command would write a remote branch, state that side effect before running
-it and confirm the current request carries the required authorization. A watch,
-download, validation, or local synchronization operation does not imply
-authorization for a new dispatch.
+1. fetch the requested remote ref and require equality with HEAD;
+2. dispatch or bind the exact workflow run;
+3. watch that run and retain its recovery identity on failure;
+4. download and strictly rebuild result v4;
+5. recheck dirty bundle roots immediately before replacement;
+6. fetch the result's exact prebuild commit;
+7. validate all archive digests, layouts, manifests, targets, and sizes;
+8. atomically replace the seven namespaced bundle roots while preserving
+   sibling Host Bridge binaries;
+9. run sidecar runtime freshness;
+10. report formal verification status independently.
 
-## Explicit exclusions
+Do not repeat these steps manually after the command succeeds.
 
-- Do not prepare `synthesis-sidecar/release-set.json`.
-- Do not invoke `release:synthesis-sidecar:dispatch`.
-- Do not create a GitHub Release or use a release tag as the prebuild store.
-- Do not run plugin release or Gitee synchronization.
-- Do not make local one-platform output stand in for the seven-platform set.
-- Do not bypass an identity mismatch with a flag or environment variable.
+### 4. Interpret failures
 
-## Failure handling
+Classify the first failed boundary:
 
-Preserve the request ID, run ID, source SHA, aggregate if known, result file,
-and any transaction backup path. State whether the failure occurred before
-dispatch, during workflow execution, result validation, archive validation, or
-local synchronization.
+| Boundary | Meaning | Recovery |
+| --- | --- | --- |
+| Remote ref mismatch | Requested bytes are not pushed | Push only if separately authorized, then rerun |
+| Workflow failed | Native construction or publication failed | Inspect the exact run; resume that run after repair |
+| Result mismatch | Artifact is not the requested operation | Stop; do not substitute another run |
+| Immutable-set mismatch | Branch bytes do not prove the result | Stop and preserve local addon bytes |
+| Dirty bundle overlap | Synchronization would overwrite user work | Ask for explicit overwrite authorization |
+| Atomic sync failure | Replacement did not complete | Report diagnostics; the previous root is restored |
+| Freshness failure | Local bundles do not match current build identity | Report diagnostics; do not call the operation complete |
+| Verification blocked | Formal release evidence is absent | Development prebuild is complete; formal release remains blocked |
 
-When the same run is recoverable, give the exact resume command with its
-original inputs. When any source, result, aggregate, archive, or digest differs,
-report that it is a different prebuild and stop.
+When watch fails, preserve the run ID printed by the command and give the exact
+resume command. Never hide a failed run by dispatching another.
 
-## Completion report
+## Artifact and cache rules
 
-Report repository, ref, full source SHA, all four identities, verification run,
-request ID, prebuild run ID, result schema, aggregate, prebuild commit, set
-path, all seven target evidence records, and the freshness-gate result. Mention
-that this is build-only evidence and
-hand release preparation to `$synthesis-sidecar-release-pipeline` when needed.
+Prior per-target workflow artifacts are cache candidates only. Reuse requires
+the exact source fingerprint, build fingerprint, target, closed bundle
+manifest, archive layout, file inventory, size, and digest. A missing, expired,
+or mismatched candidate becomes a miss for that target.
+
+Native-smoke targets execute current-run worker and durable process smoke even
+when archive bytes are reused. Result evidence records donor run/source for
+reused bytes and current run/source for built bytes.
+
+The publisher validates the complete candidate before appending it. It retries
+bounded non-fast-forward races from the latest branch state, never force
+pushes, and accepts an existing set only when every byte matches.
+
+## LLM vs script responsibilities
+
+The script owns deterministic mechanics:
+
+- source/ref equality;
+- workflow dispatch, resolution, resume, watch, and artifact download;
+- strict v4 parsing and identity comparison;
+- exact-commit fetch;
+- archive and bundle validation;
+- dirty bundle overlap detection;
+- transactional synchronization, rollback, freshness, and JSON output.
+
+The Agent owns judgment and communication:
+
+- confirm remote-dispatch authorization;
+- decide whether the request is new dispatch or resume;
+- avoid expanding authorization into push, release, or overwrite actions;
+- explain the first failed boundary and recovery command;
+- summarize build completion separately from formal release eligibility.
+
+Do not duplicate script checks with a long manual gate sequence.
+
+## Completion conditions
+
+The development prebuild is complete only when the operation JSON has:
+
+- `status: "complete"`;
+- the requested repository/ref/source/run identity;
+- an exact aggregate and prebuild commit;
+- successful seven-target synchronization;
+- `freshness.ok: true`.
+
+Report release-verification status on a separate sentence. A blocked or
+unavailable verification status means “not ready for formal release,” not
+“prebuild failed.”
+
+## References
+
+- Development command: `scripts/dispatch-synthesis-sidecar-prebuild.ts`
+- Build-only producer: `.github/workflows/prebuild-synthesis-sidecar-runtime.yml`
+- Immutable publisher: `scripts/publish-synthesis-sidecar-runtime-prebuild.ts`
+- Atomic synchronizer: `scripts/sync-synthesis-sidecar-runtime-prebuilds.ts`
+- Formal promotion: `$synthesis-sidecar-release-pipeline`

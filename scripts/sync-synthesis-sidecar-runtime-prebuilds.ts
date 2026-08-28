@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SYNTHESIS_SIDECAR_RUNTIME_TARGETS } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
-  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult,
   assertSynthesisSidecarRuntimePrebuildResultIdentity,
   assertSynthesisSidecarRuntimePrebuildResultSet,
   rebuildSynthesisSidecarRuntimePrebuildResult,
@@ -38,20 +38,27 @@ function run(command: string, args: string[]) {
     throw result.error || new Error(`${command} exited ${result.status}`);
 }
 
-async function remoteStore(args: { repo: string; branch: string }) {
-  const root = path.join(
-    ".scaffold",
-    `synthesis-sidecar-prebuilds-${process.pid}`,
+async function remoteStore(args: { repo: string; commit: string }) {
+  const root = await fs.mkdtemp(
+    path.join(os.tmpdir(), "synthesis-sidecar-prebuilds-"),
   );
-  await fs.rm(root, { recursive: true, force: true });
+  run("git", ["-C", root, "init"]);
   run("git", [
-    "clone",
-    "--depth=1",
-    "--branch",
-    args.branch,
-    `https://github.com/${args.repo}.git`,
+    "-C",
     root,
+    "remote",
+    "add",
+    "origin",
+    `https://github.com/${args.repo}.git`,
   ]);
+  run("git", ["-C", root, "fetch", "--depth=1", "origin", args.commit]);
+  run("git", ["-C", root, "checkout", "--detach", "FETCH_HEAD"]);
+  const actual = spawnSync("git", ["-C", root, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  });
+  if (actual.status !== 0 || actual.stdout.trim() !== args.commit) {
+    throw new Error("Fetched prebuild commit does not match result");
+  }
   return root;
 }
 
@@ -70,7 +77,6 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
   if (manifest.aggregate !== args.aggregate)
     throw new Error("Prebuild aggregate mismatch");
   const result = rebuildSynthesisSidecarRuntimePrebuildResult(args.result);
-  assertReleaseEligibleSynthesisSidecarRuntimePrebuildResult(result);
   assertSynthesisSidecarRuntimePrebuildResultIdentity(result, {
     aggregate: args.aggregate,
     prebuildBranch: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
@@ -167,13 +173,24 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
 }
 
 async function main() {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(
+      "Usage: tsx scripts/sync-synthesis-sidecar-runtime-prebuilds.ts --aggregate=<sha256> --result=<path> [--store-root=<path> | --repo=<owner/name>] [--addon-root=<path>]\n",
+    );
+    return;
+  }
   const aggregate = required("aggregate");
   const resultPath = required("result");
+  const resultDocument = JSON.parse(
+    await fs.readFile(path.resolve(resultPath), "utf8"),
+  );
+  const parsedResult =
+    rebuildSynthesisSidecarRuntimePrebuildResult(resultDocument);
   const storeRoot =
     argument("store-root") ||
     (await remoteStore({
       repo: required("repo"),
-      branch: argument("branch") || SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
+      commit: parsedResult.prebuildCommit,
     }));
   const expected: Record<string, unknown> = {};
   for (const [argumentName, field] of [
@@ -192,7 +209,7 @@ async function main() {
     addonRoot: argument("addon-root")
       ? path.resolve(argument("addon-root")!)
       : undefined,
-    result: JSON.parse(await fs.readFile(path.resolve(resultPath), "utf8")),
+    result: resultDocument,
     expected,
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);

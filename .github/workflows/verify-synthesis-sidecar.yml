@@ -1,32 +1,37 @@
 name: Verify Synthesis Sidecar
 
 on:
-  workflow_call:
   workflow_dispatch:
   push:
     paths:
       - "native/synthesis-sidecar/**"
+      - "apps/synthesis-service/src/**"
+      - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
+      - "packages/synthesis-engine/src/**"
+      - "packages/synthesis-repository/src/**"
       - "scripts/check-synthesis-*.ts"
       - "scripts/smoke-synthesis-rust-*.ts"
-      - "scripts/*synthesis-sidecar-runtime*.ts"
-      - "scripts/resolve-synthesis-sidecar-verification.ts"
+      - "scripts/synthesis-application-parity-policy.ts"
+      - "scripts/synthesis-sidecar-runtime-release-governance.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/verify-synthesis-sidecar.yml"
-      - ".github/workflows/prebuild-synthesis-sidecar-runtime.yml"
   pull_request:
     paths:
       - "native/synthesis-sidecar/**"
+      - "apps/synthesis-service/src/**"
+      - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
+      - "packages/synthesis-engine/src/**"
+      - "packages/synthesis-repository/src/**"
       - "scripts/check-synthesis-*.ts"
       - "scripts/smoke-synthesis-rust-*.ts"
-      - "scripts/*synthesis-sidecar-runtime*.ts"
-      - "scripts/resolve-synthesis-sidecar-verification.ts"
+      - "scripts/synthesis-application-parity-policy.ts"
+      - "scripts/synthesis-sidecar-runtime-release-governance.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/verify-synthesis-sidecar.yml"
-      - ".github/workflows/prebuild-synthesis-sidecar-runtime.yml"
 
 permissions:
   contents: read
@@ -134,9 +139,11 @@ jobs:
             --arg event "$GITHUB_EVENT_NAME" \
             --arg source_sha "$GITHUB_SHA" \
             --arg run_id "$GITHUB_RUN_ID" \
+            --arg source_fingerprint "$(jq -r .sourceFingerprint <<<"$identities")" \
+            --arg build_fingerprint "$(jq -r .buildFingerprint <<<"$identities")" \
             --arg verification_fingerprint "$(jq -r .verificationFingerprint <<<"$identities")" \
-            --arg pipeline_revision "$(jq -r .pipelineRevision <<<"$identities")" \
-            '{schema:"synthesis-sidecar-verification-result.v1",repository:$repository,workflow:"verify-synthesis-sidecar.yml",runId:($run_id|tonumber),event:$event,sourceSha:$source_sha,verificationFingerprint:$verification_fingerprint,pipelineRevision:$pipeline_revision,hosts:{linux:"passed",windows:"passed",macos:"passed"}}' \
+            --arg verification_pipeline_revision "$(jq -r .verificationPipelineRevision <<<"$identities")" \
+            '{schema:"synthesis-sidecar-verification-result.v2",repository:$repository,workflow:"verify-synthesis-sidecar.yml",runId:($run_id|tonumber),event:$event,sourceSha:$source_sha,sourceFingerprint:$source_fingerprint,buildFingerprint:$build_fingerprint,verificationFingerprint:$verification_fingerprint,verificationPipelineRevision:$verification_pipeline_revision,hosts:{linux:"passed",windows:"passed",macos:"passed"}}' \
             > verification-result.json
           npx tsx -e 'import { readFileSync } from "node:fs"; import { rebuildSynthesisSidecarVerificationResult } from "./packages/synthesis-contracts/src/sidecarRuntimeRelease.ts"; rebuildSynthesisSidecarVerificationResult(JSON.parse(readFileSync("verification-result.json", "utf8")))'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
