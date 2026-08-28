@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -241,8 +241,14 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
   };
 }
 
-async function main() {
-  const args = process.argv.slice(2);
+export async function runSynthesisSidecarRuntimeCacheCommand(
+  args: string[],
+  dependencies: {
+    listRuns?: typeof listRecentWorkflowRuns;
+    listArtifacts?: typeof listRunArtifacts;
+    writeStdout?: (value: string) => void;
+  } = {},
+) {
   const repo = requiredFlag("repo", args);
   const sourceSha = requiredFlag("source-sha", args);
   const buildFingerprint = requiredFlag("build-fingerprint", args);
@@ -265,12 +271,18 @@ async function main() {
     buildFingerprint,
     sourceFingerprint,
     excludeRunId,
+    listRuns: dependencies.listRuns,
+    listArtifacts: dependencies.listArtifacts,
   });
   const serialized = JSON.stringify(resolution, null, 2);
   if (outputFlag) {
-    await writeFile(path.resolve(outputFlag), `${serialized}\n`, "utf8");
+    const output = path.resolve(outputFlag);
+    await mkdir(path.dirname(output), { recursive: true });
+    await writeFile(output, `${serialized}\n`, "utf8");
   } else {
-    process.stdout.write(`${serialized}\n`);
+    (dependencies.writeStdout || ((value) => process.stdout.write(value)))(
+      `${serialized}\n`,
+    );
   }
 }
 
@@ -278,10 +290,12 @@ const invokedModule = process.argv[1]
   ? pathToFileURL(path.resolve(process.argv[1])).href
   : "";
 if (import.meta.url === invokedModule) {
-  main().catch((error) => {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`,
-    );
-    process.exitCode = 1;
-  });
+  runSynthesisSidecarRuntimeCacheCommand(process.argv.slice(2)).catch(
+    (error) => {
+      process.stderr.write(
+        `${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      process.exitCode = 1;
+    },
+  );
 }

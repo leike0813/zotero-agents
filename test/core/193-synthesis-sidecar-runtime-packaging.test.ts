@@ -45,7 +45,10 @@ import {
 } from "../../scripts/synthesis-sidecar-runtime-release-controller";
 import { loopbackRequest } from "../../scripts/smoke-synthesis-rust-durable-candidate";
 import { selectTrustedSynthesisSidecarVerification } from "../../scripts/resolve-synthesis-sidecar-verification";
-import { resolveSynthesisSidecarRuntimeCache } from "../../scripts/resolve-synthesis-sidecar-runtime-cache";
+import {
+  resolveSynthesisSidecarRuntimeCache,
+  runSynthesisSidecarRuntimeCacheCommand,
+} from "../../scripts/resolve-synthesis-sidecar-runtime-cache";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -325,6 +328,28 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.equal(resolution.platforms["linux-x64"].sourceSha, donorSha);
     assert.isFalse(resolution.platforms["linux-arm"].candidate);
     assert.equal(resolution.platforms["linux-arm"].reason, "artifact_expired");
+  });
+
+  it("writes cache resolution output when its parent directory does not exist", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-sidecar-cache-"));
+    const output = path.join(root, "nested", "cache-resolution.json");
+    await runSynthesisSidecarRuntimeCacheCommand(
+      [
+        "--repo=example/zotero-agents",
+        `--source-sha=${"1".repeat(40)}`,
+        `--build-fingerprint=${"2".repeat(64)}`,
+        `--source-fingerprint=${"3".repeat(64)}`,
+        `--output=${output}`,
+      ],
+      { listRuns: async () => [] },
+    );
+
+    const resolution = JSON.parse(fs.readFileSync(output, "utf8"));
+    assert.equal(
+      resolution.schema,
+      "synthesis-sidecar-runtime-cache-resolution.v3",
+    );
+    assert.equal(resolution.repository, "example/zotero-agents");
   });
 
   it("strictly rebuilds the XPI-owned native manifest", function () {
