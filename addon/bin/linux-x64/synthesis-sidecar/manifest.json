@@ -1,29 +1,30 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "c8ed57925e297fa8f503a419a1afa989d88559341e8944b81d1d465f7fc9f006",
+  "bundleId": "76b8a0726ec402386566acce64c5bc48ee12715f49cdc1b3a38f11915a8bd0bc",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "linux-x64",
   "targetTriple": "x86_64-unknown-linux-gnu",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "83f157b23e51eb7a3f560baeba664acefbbf49f104062f31fe2a4f60ab036b2d",
+  "buildFingerprint": "2194ba37b3a0210ff05d878660dcfb01f1d6970a788b0a0a4cf4e85b550e91e7",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
+    "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-07-31T04:11:22.000Z",
+  "createdAt": "2026-08-28T03:19:29.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "a6906e6a411e1135e808d1b60cc620fa456dfe112acfa9b59ea84302b8d352d9",
+    "sourceFingerprint": "e679caf6b4803db13871e638c7ac7d88fad73ff44f808afa1805c50222a0c8d2",
     "toolchain": "nightly-2026-07-25",
-    "cargoLockSha256": "ff91fdcf6949880da14c82907b72ae531fdebebf88c391ab3c43c31db6519c54",
+    "cargoLockSha256": "5f4f34013784c8ecf40105e16ac54a2b7f9a7b484c6401e28a6cae49e70a0599",
     "licenseInventory": "licenses.json"
   },
   "files": [
@@ -42,13 +43,13 @@
     {
       "path": "provenance.json",
       "bytes": 382,
-      "sha256": "c714ae26f1ef55dcd83b62babbc55018d108c9dc84ed97215c4b3c54e997dacd",
+      "sha256": "d4c1fb88121b6bad1331ef390d1359a632562cd916b5e47a2cf9f766e1be637c",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 133272088,
-      "sha256": "ade030c29f816c557133d1c55501743bc5bc57c6eec657b5d692a05346a1d7a5",
+      "bytes": 7983928,
+      "sha256": "58c3319468143b035b43e1b174710d7b6ae2217dfe6ed30befb34b39d251323d",
       "executable": true
     }
   ]

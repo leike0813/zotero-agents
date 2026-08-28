@@ -1,29 +1,30 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "1c8812d1a9e6505e330e091ac06d970155a2ed92e0d9117833c283fe9debd062",
+  "bundleId": "06177a00fb74ba04e6c0aec769231c443800ff90f637dcfea84c69ddc058c8b6",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "linux-arm64",
   "targetTriple": "aarch64-unknown-linux-gnu",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "9cea52483ab180a82ee19c1a629daf4442974fb72d8f5386386a63335b0aef6c",
+  "buildFingerprint": "2194ba37b3a0210ff05d878660dcfb01f1d6970a788b0a0a4cf4e85b550e91e7",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
+    "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-07-29T09:52:46.000Z",
+  "createdAt": "2026-08-28T03:18:07.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "44e45f0fc993bbe0e64fa104ef25f273cdc87351a4ee2242f3b452ae90148545",
+    "sourceFingerprint": "e679caf6b4803db13871e638c7ac7d88fad73ff44f808afa1805c50222a0c8d2",
     "toolchain": "nightly-2026-07-25",
-    "cargoLockSha256": "ff91fdcf6949880da14c82907b72ae531fdebebf88c391ab3c43c31db6519c54",
+    "cargoLockSha256": "5f4f34013784c8ecf40105e16ac54a2b7f9a7b484c6401e28a6cae49e70a0599",
     "licenseInventory": "licenses.json"
   },
   "files": [
@@ -42,13 +43,13 @@
     {
       "path": "provenance.json",
       "bytes": 385,
-      "sha256": "10ee1008243cfe544b517bccf50199380031f40905e25246a07f38e962e7ab0c",
+      "sha256": "98c065ccfa9ff33b6e725a6a6d137470ca1ce48f83cbef365f05ca3521843c61",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 4804608,
-      "sha256": "45f5f82c9c7c9ce4cce5efb0c24708912e10c2cf1e4404b53a8f7908686de896",
+      "bytes": 6246400,
+      "sha256": "ac98075c66687673a85aad89f40ad5bfa490872a53e8fd4e24bb90e02b4069fd",
       "executable": true
     }
   ]
