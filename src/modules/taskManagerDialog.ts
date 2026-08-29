@@ -807,9 +807,7 @@ function compactError(error: unknown) {
 
 function resolveAcpRuntimeCaptureEnvironment() {
   const zoteroVersion = String(Zotero?.version || "unknown").trim();
-  const parsedMajor = Number.parseInt(zoteroVersion, 10);
-  const zoteroMajor =
-    parsedMajor === 7 || parsedMajor === 9 ? parsedMajor : "unknown";
+  const zoteroMajor = parseSupportedZoteroMajor(zoteroVersion);
   const platform = Zotero?.isWin ? "win32" : Zotero?.isMac ? "darwin" : "linux";
   return {
     pluginVersion: version,
@@ -4683,3 +4681,4 @@ export async function resetTaskManagerDialogRuntimeForTests() {
   }
   taskManagerDialog = undefined;
 }
+import { parseSupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";

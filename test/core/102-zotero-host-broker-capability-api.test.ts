@@ -628,12 +628,15 @@ describe("zotero host broker capability api", function () {
         },
       });
       resetWorkflowHostApiForTests();
-      const currentCollection =
-        createWorkflowHostApi().context.getCurrentView().currentCollection;
+      const currentView = createWorkflowHostApi().context.getCurrentView();
+      const currentCollection = currentView.currentCollection;
       assert.equal(currentCollection?.id, collection.id);
       assert.equal(currentCollection?.key, collection.key);
       assert.equal(currentCollection?.name, collection.name);
       assert.equal(currentCollection?.libraryId, collection.libraryID);
+      assert.deepEqual(currentView.libraryIds, [String(collection.libraryID)]);
+      assert.equal(currentView.libraryId, String(collection.libraryID));
+      assert.equal(currentView.selectedSources[0]?.kind, "collection");
 
       (Zotero as any).getMainWindow = () => ({
         ZoteroPane: {
@@ -645,12 +648,51 @@ describe("zotero host broker capability api", function () {
         },
       });
       resetWorkflowHostApiForTests();
-      assert.notProperty(
-        createWorkflowHostApi().context.getCurrentView(),
-        "currentCollection",
+      const specialView = createWorkflowHostApi().context.getCurrentView();
+      assert.notProperty(specialView, "currentCollection");
+      assert.equal(specialView.selectedSources[0]?.kind, "special");
+    } finally {
+      (Zotero as any).getMainWindow = previousGetMainWindow;
+    }
+  });
+
+  it("preserves Zotero 10 plural collection-tree selection order", function () {
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    try {
+      (Zotero as any).getMainWindow = () => ({
+        ZoteroPane: {
+          getSelectedItems: () => [],
+          getSelectedLibraryIDs: () => [1, 2],
+          getCollectionTreeRows: () => [
+            {
+              type: "library",
+              isLibrary: () => true,
+              ref: { libraryID: 1, name: "My Library" },
+            },
+            {
+              type: "group",
+              isLibrary: () => true,
+              ref: { libraryID: 2, name: "Team Library" },
+            },
+          ],
+        },
+      });
+      resetWorkflowHostApiForTests();
+      const currentView = createWorkflowHostApi().context.getCurrentView();
+      assert.deepEqual(currentView.libraryIds, ["1", "2"]);
+      assert.notProperty(currentView, "libraryId");
+      assert.notProperty(currentView, "currentCollection");
+      assert.deepEqual(
+        currentView.selectedSources.map((source) => source.kind),
+        ["library", "library"],
+      );
+      assert.deepEqual(
+        currentView.selectedSources.map((source) => source.libraryId),
+        [1, 2],
       );
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
+      resetWorkflowHostApiForTests();
     }
   });
 

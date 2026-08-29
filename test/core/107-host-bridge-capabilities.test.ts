@@ -1959,7 +1959,22 @@ describe("host bridge capability calls", function () {
     (Zotero as any).getMainWindow = () => ({
       ZoteroPane: {
         getSelectedItems: () => [item],
-        getSelectedLibraryID: () => Zotero.Libraries.userLibraryID,
+        getSelectedLibraryIDs: () => [Zotero.Libraries.userLibraryID, 2],
+        getCollectionTreeRows: () => [
+          {
+            type: "library",
+            isLibrary: () => true,
+            ref: {
+              libraryID: Zotero.Libraries.userLibraryID,
+              name: "My Library",
+            },
+          },
+          {
+            type: "group",
+            isLibrary: () => true,
+            ref: { libraryID: 2, name: "Team Library" },
+          },
+        ],
       },
       Zotero_Tabs: {
         selectedID: "",
@@ -1985,6 +2000,14 @@ describe("host bridge capability calls", function () {
         "Bridge MCP Compatibility",
       );
       assert.lengthOf(structured.data.selectedItems, 1);
+      assert.deepEqual(structured.data.libraryIds, ["1", "2"]);
+      assert.notProperty(structured.data, "libraryId");
+      assert.deepEqual(
+        structured.data.selectedSources.map(
+          (source: { libraryId: number }) => source.libraryId,
+        ),
+        [1, 2],
+      );
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }

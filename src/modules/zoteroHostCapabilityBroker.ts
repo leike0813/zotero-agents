@@ -6,7 +6,11 @@ import {
   type HostBridgeFileDescriptor,
 } from "./hostBridgeFileRegistry";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
-import { buildCurrentAcpHostContext } from "./acpContextBuilder";
+import {
+  buildCurrentAcpHostContext,
+  resolveSelectedLibraryIds,
+  resolveSelectedLibraryTreeRows,
+} from "./acpContextBuilder";
 import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
@@ -124,10 +128,33 @@ export type ZoteroHostCollectionDto = {
   path?: string[];
 };
 
-export type ZoteroHostCurrentViewDto = AcpHostContext & {
+export type ZoteroHostSelectedSourceDto =
+  | ({ kind: "collection" } & ZoteroHostCollectionDto)
+  | {
+      kind: "saved-search";
+      id: number | string;
+      key: string;
+      name: string;
+      libraryId: number;
+    }
+  | {
+      kind: "library";
+      libraryId: number;
+      name?: string;
+    }
+  | {
+      kind: "special";
+      type: string;
+      libraryId?: number;
+      label?: string;
+    };
+
+export type ZoteroHostCurrentViewDto = Omit<AcpHostContext, "libraryIds"> & {
+  libraryIds: string[];
   currentItem?: AcpHostContext["currentItem"] &
     Partial<ZoteroHostItemSummaryDto>;
   selectedItems: ZoteroHostItemSummaryDto[];
+  selectedSources: ZoteroHostSelectedSourceDto[];
   currentCollection?: ZoteroHostCollectionDto;
 };
 
@@ -3418,33 +3445,108 @@ function getSelectedItems() {
     .map(serializeZoteroItemSummary);
 }
 
-function getCurrentCollection() {
+function selectedRowFlag(row: any, method: string) {
+  try {
+    return typeof row?.[method] === "function" && row[method]() === true;
+  } catch {
+    return false;
+  }
+}
+
+function serializeSelectedSource(row: any): ZoteroHostSelectedSourceDto {
+  const ref = row?.ref || {};
+  const id = parsePositiveInteger(
+    ref?.id ?? ref?.collectionID ?? ref?.searchID,
+  );
+  const libraryId = normalizeLibraryId(ref?.libraryID ?? ref?.libraryId);
+  const collection = id ? resolveZotero().Collections?.get?.(id) : null;
+  if (
+    collection &&
+    trimText((collection as any).key) &&
+    !selectedRowFlag(row, "isSearch")
+  ) {
+    return { kind: "collection", ...serializeCollection(collection) };
+  }
+  if (selectedRowFlag(row, "isSearch")) {
+    return {
+      kind: "saved-search",
+      id: id || trimText(ref?.key) || "unknown",
+      key: trimText(ref?.key),
+      name: trimText(ref?.name ?? row?.name),
+      libraryId,
+    };
+  }
+  if (
+    selectedRowFlag(row, "isLibrary") ||
+    selectedRowFlag(row, "isGroup") ||
+    ["library", "group"].includes(trimText(row?.type).toLowerCase())
+  ) {
+    return {
+      kind: "library",
+      libraryId,
+      ...(trimText(ref?.name ?? row?.name)
+        ? { name: trimText(ref?.name ?? row?.name) }
+        : {}),
+    };
+  }
+  return {
+    kind: "special",
+    type:
+      trimText(row?.type ?? row?.id ?? ref?.type).toLowerCase() || "unknown",
+    ...(libraryId ? { libraryId } : {}),
+    ...(trimText(ref?.name ?? row?.name)
+      ? { label: trimText(ref?.name ?? row?.name) }
+      : {}),
+  };
+}
+
+function getSelectedSources() {
   const win =
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
-  const ref = win?.ZoteroPane?.collectionsView?.selectedTreeRow?.ref;
-  const id = parsePositiveInteger(ref?.id ?? ref?.collectionID);
-  if (!id) {
-    return undefined;
-  }
-  const collection = resolveZotero().Collections?.get?.(id);
-  if (!collection || !trimText((collection as any).key)) {
-    return undefined;
-  }
-  return serializeCollection(collection);
+  if (!win) return [];
+  return resolveSelectedLibraryTreeRows(win).map(serializeSelectedSource);
 }
 
 function getCurrentView() {
   const context = buildCurrentAcpHostContext();
+  const win =
+    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
+  const selectedSources = getSelectedSources();
+  const selectedSourceLibraryIds = selectedSources
+    .map((source) => source.libraryId)
+    .filter(
+      (libraryId): libraryId is number =>
+        typeof libraryId === "number" && libraryId > 0,
+    )
+    .map(String);
+  const libraryIds = [
+    ...new Set([
+      ...(win ? resolveSelectedLibraryIds(win) : []),
+      ...selectedSourceLibraryIds,
+      ...(context.libraryIds || []),
+    ]),
+  ];
+  const uniqueLibraryId = libraryIds.length === 1 ? libraryIds[0] : undefined;
   const currentItem = context.currentItem
     ? resolveItem({
         id: context.currentItem.id,
         key: context.currentItem.key,
-        libraryId: context.libraryId,
+        libraryId: uniqueLibraryId,
       })
     : null;
-  const currentCollection = getCurrentCollection();
+  const selectedCollection =
+    selectedSources.length === 1 && selectedSources[0]?.kind === "collection"
+      ? selectedSources[0]
+      : undefined;
+  const {
+    libraryId: _legacyLibraryId,
+    libraryIds: _legacyLibraryIds,
+    ...rest
+  } = context;
   return {
-    ...context,
+    ...rest,
+    libraryIds,
+    ...(uniqueLibraryId ? { libraryId: uniqueLibraryId } : {}),
     currentItem: currentItem
       ? {
           ...context.currentItem,
@@ -3452,7 +3554,26 @@ function getCurrentView() {
         }
       : context.currentItem,
     selectedItems: getSelectedItems(),
-    ...(currentCollection ? { currentCollection } : {}),
+    selectedSources,
+    ...(selectedCollection
+      ? {
+          currentCollection: {
+            id: selectedCollection.id,
+            key: selectedCollection.key,
+            name: selectedCollection.name,
+            libraryId: selectedCollection.libraryId,
+            ...(selectedCollection.parentId !== undefined
+              ? { parentId: selectedCollection.parentId }
+              : {}),
+            ...(selectedCollection.parentKey
+              ? { parentKey: selectedCollection.parentKey }
+              : {}),
+            ...(selectedCollection.path
+              ? { path: selectedCollection.path }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 

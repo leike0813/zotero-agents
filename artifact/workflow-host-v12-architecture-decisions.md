@@ -1,46 +1,38 @@
 # Workflow Host v12 Architecture Decision Record
 
-> 状态：方案已完成集中式契约闭合与最终架构审阅，等待实施授权。
-> 最近更新：2026-08-27
-> 当前阶段：制定方案；尚未批准 Git 集成、OpenSpec 创建或代码实施。
+> 状态：方案已完成集中式契约闭合、最终架构审阅与 OpenSpec implementation topology 落地。
+> 最近更新：2026-08-29
+> 当前阶段：OpenSpec 实施工件已就绪；尚未开始 production/test code 实施。
 > 来源：`/tmp/architecture-review-20260825-122610.html` 的 candidate 06、随后开展的 Workflow Host v12 hardening 讨论，以及 2026-08-27 的 runtime adapter deepening 审阅。
 
 ## 1. 工件用途
 
 本文件记录本轮已经确认的架构决策、被推翻或明确排除的方案、实现前置条件和仍待讨论的问题。后续讨论每确认一项，就直接更新本文件，避免依赖对话上下文还原设计。
 
-本文件不是实现规格，也不授权修改代码、切换分支、合并分支或发布。设计收敛后，应基于完成集成后的固定 baseline 创建 OpenSpec change，再进入实施阶段。
+本文件是跨 change 的架构决策与依赖总图，不替代各 OpenSpec change 的 proposal、delta specs、design 与 tasks，也不授权提交、切换分支、改写 Git 历史或发布。代码实施必须以本文件记录的固定 baseline 与 OpenSpec tasks 为共同约束。
 
 ## 2. Git 与实现基线
 
 ### 2.1 已核实的分支状态
 
 - 当前工作分支：`dev`
-- 当前 `dev`：`6365806751757f00079c940a6190b747227da0f9`
-- `origin/dev-refactor` 与本地 `dev-refactor`：`455d7e4466a8b7ab816312b57774abd09b1be53d`
-- 两者共同基线：`b5193e0c4674f02a6a294c2b47a53a1d0c1576df`
-- `dev-refactor` 相对共同基线有 185 个独有 commits。
-- `dev` 相对共同基线有 4 个新 commits：
-  - `979d76a5`：固化 Zotero Host Capability Broker
-  - `82322737`：深化 Workflow Host runtime adaptation
-  - `e6e3a678`：深化 Research Bundle Materialization
-  - `63658067`：深化 Workflow Host Contract Identity
-- `integration/dev-into-dev-refactor` 当前仍指向 `455d7e44`，尚未集成上述 4 个 commits。
+- 当前 `dev` 与 `origin/dev`：`4dbddc24e884921262c559428bf851db5eadf2d7`
+- 本地 `dev-refactor` 与 `origin/dev-refactor`：`57325c375e4896df2e8e5016241b7d80fd8cb878`
+- `dev-refactor` 是当前 `dev` 的祖先；两者 merge base 为 `57325c375e4896df2e8e5016241b7d80fd8cb878`，ahead/behind 为 `0/3`。
+- `dev` 已包含 `35f2f77d`（合入 `dev-refactor`）、`5505a789` 与 `4dbddc24`，也包含此前四个 Host hardening commits：`979d76a5`、`82322737`、`e6e3a678`、`63658067`。
+- 旧 `integration/dev-into-dev-refactor` worktree 仍指向 `455d7e4466a8b7ab816312b57774abd09b1be53d`；它不再是本轮 baseline 来源。
+- 本轮固定实现 baseline `B` 为 `4dbddc24e884921262c559428bf851db5eadf2d7`。当前工作区中不属于该 commit 的既有未提交改动不进入 `B`，也不得被本轮 change 覆盖或回滚。
 
 ### 2.2 已确认的实施前置条件
 
-v12 不得直接基于当前 `dev` 或当前未更新的 `dev-refactor` 实施。正确顺序是：
+此前要求的 `dev`/`dev-refactor` 集成结果已经进入当前 `dev`。本轮不再执行旧 integration worktree 的 merge、fast-forward 或分支切换，而是直接固定当前 `dev` HEAD 为 `B`，并以它完成 OpenSpec implementation topology。
 
-1. 先将最新 `dev` 集成到 `dev-refactor`。
-2. 冲突解决必须同时保留：
-   - `dev-refactor` 的 Rust Synthesis sidecar ownership；
-   - `dev` 的 Broker SSOT、runtime late binding、Research Bundle deepening 与 Contract Identity。
-3. 运行集成后的相关门禁，确认 production seam。
-4. 记录新的固定 baseline commit。
-5. 以该 baseline 创建 Workflow Host v12 OpenSpec change。
-6. 再开始 TDD 实施。
+后续代码实施必须：
 
-只读 merge simulation 已确认 `AGENTS.md`、`CONTEXT.md`、`src/workflows/hostApi.ts`、`src/workflows/types.ts`、`src/modules/synthesis/service.ts` 与多个 specs 存在真实重叠或冲突。先在 `dev` 实施 v12 会围绕旧 Synthesis owner 重做工作；直接在当前 `dev-refactor` 实施则会漏掉最近四个 Host hardening commits。
+1. 从 `B` 的 production seam 出发核对每个 change 的 file-level tasks；若在当前脏工作区实施，先逐文件确认不会覆盖用户改动，更稳妥的执行方式是在以 `B` 为基础的独立 clean task worktree 中完成各切片。
+2. 保留 Rust Synthesis sidecar ownership、Broker SSOT、runtime late binding、Research Bundle deepening 与 Contract Identity；这些事实已经共同存在于 `B`。
+3. 每个切片遵循 tasks 中的 TDD 顺序，并运行该切片的最小必要门禁。
+4. 只有所有前置切片完成后，才执行 `harden-workflow-host-api-v12` 的原子 v12 activation。
 
 ## 3. 总体目标与 seam
 
@@ -5997,55 +5989,42 @@ public Workflow Host 删除 `requiresConfirmation`；authorization、permission 
 
 ## 19. 已确认的实施方案
 
-本节只定义未来执行顺序，不授权执行任何 Git 写操作、OpenSpec 创建或代码修改。
+本节记录已经落地的 OpenSpec implementation topology 与后续代码执行顺序。它不授权提交、分支切换、Git 历史改写或发布。
 
 ### 19.1 集成与固定 baseline
 
-当前已核实：
+当前已核实并固定：
 
-- `dev`：`6365806751757f00079c940a6190b747227da0f9`；
-- `dev-refactor`：`455d7e4466a8b7ab816312b57774abd09b1be53d`；
-- merge base：`b5193e0c4674f02a6a294c2b47a53a1d0c1576df`；
-- `dev` 有 4 个独有 commits，`dev-refactor` 有 185 个独有 commits；
-- `integration/dev-into-dev-refactor` 位于独立 worktree，当前与 `dev-refactor` 指向同一 commit。
+- `dev` 与 `origin/dev`：`4dbddc24e884921262c559428bf851db5eadf2d7`；
+- `dev-refactor` 与 `origin/dev-refactor`：`57325c375e4896df2e8e5016241b7d80fd8cb878`；
+- `dev-refactor` 是 `dev` 的祖先，`dev` 已包含目标集成结果；
+- Workflow Host v12 唯一实现 baseline `B`：`4dbddc24e884921262c559428bf851db5eadf2d7`；
+- `B` 已写入九个 change 的 proposal、design 与 tasks，未以 branch name 或浮动 ref 代替；
+- 当前未提交改动不属于 `B`，本轮仅新增 OpenSpec 工件并更新本 ADR，没有把这些改动纳入 baseline。
 
-未来获得明确执行授权后，按以下顺序形成 baseline：
-
-1. 在现有 integration worktree 确认工作区 clean。
-2. 以普通 merge 把 `dev` 合入 `integration/dev-into-dev-refactor`；不 rebase、不 squash、不 cherry-pick、不改写两条分支历史。
-3. 冲突解决同时保留：
-   - `dev-refactor` 的 Rust Synthesis sidecar production ownership；
-   - `dev` 的 Zotero Host Capability Broker SSOT；
-   - runtimePersistence late binding；
-   - Research Bundle deepening；
-   - Workflow Host contract identity hardening。
-4. 运行 §19.5 的 integration baseline gates。
-5. 只有所有 baseline gates 通过，才把 `dev-refactor` fast-forward 到集成结果。
-6. 将该结果 commit 的完整 40 位 hash 记为 `B`。`B` 是 Workflow Host v12 唯一实现 baseline。
-7. 把 `B` 写入本工件及 OpenSpec proposal、design 与 tasks；不得用 branch name、浮动 ref 或当前旧 hash 代替。
-
-任一 gate 失败、merge result 仍有未解释 drift，或 Synthesis production owner 无法确认时，不得固定 `B`，也不得在该状态上开始 v12 实施。
+代码实施前不需要重做旧 integration merge。执行者必须从 `B` 核对 production evidence；如在包含既有未提交改动的工作区继续，需逐文件保护用户改动，不能用 reset、checkout 或覆盖式操作清理工作区。
 
 ### 19.2 OpenSpec implementation topology
 
 不再把全部 v12 工作塞入单一 mega change。设计阶段由本工件统一持有完整 member manifest、跨模块不变量、删除清单、依赖顺序与最终切换条件；实施阶段按 deep-module seam 拆为可独立审阅、测试和归因的 vertical OpenSpec changes。
 
-计划切片如下；exact change name 与 file list 在 baseline `B` 上固定：
+切片已按以下 exact change names 落地；每个目录均包含 proposal、delta specs、design 与文件级 tasks：
 
-1. **Contract foundation**：projection-neutral error contract、portable refs、strict JSON DTO、closed unions、call control 与 Broker/adapter ownership rules。
-2. **Runtime host adaptation deepening**：production-wide ordinary async filesystem closure、批准的 native workload allowlist、`runtimeBridge`/`filePicker` owner convergence、per-call late binding 与 adapter governance；不改变 v12 public member manifest。
-3. **Library live reads**：常规 item/collection/annotation/note/attachment reads、bounded pages、traversal 与 completion evidence；不得冒充 stable snapshot。
-4. **Full-library snapshot feed**：Broker snapshot session、Workflow callback projection、Host Bridge paged projection、CLI/Hermes transactional refresh 与 agent-facing surface gates。
-5. **Mutation authority**：process-local operation registry、CAS/revision、三类高风险 preview、receipt/attempt、notes、attachments、managed staging、compensation 与 repair outcome。
-6. **Research product I/O**：Research Bundle graph import/export、file/archive/resources 与相关 materialization/import seam；各 nested module 仍分别接受 deep-module 审阅。
-7. **Synthesis facade**：grouped Workflow projection、tag-audit run contract、atomic promotion、regulation acknowledgement；lease/fencing/cleanup/telemetry 留在 Synthesis internal spec。
-8. **Atomic v12 activation**：迁移全部 consumers，建立 exact `WorkflowHostApi` projection 与 contract identity，删除 v11/raw escape hatches，并一次性启用 `version: 12`。
+1. `01-establish-workflow-host-v12-contract-foundation`：projection-neutral error contract、portable refs、strict JSON DTO、closed unions、call control 与 Broker/adapter ownership rules。
+2. `02-deepen-workflow-host-runtime-adaptation-v12`：production-wide ordinary async filesystem closure、批准的 native workload allowlist、`runtimeBridge`/`filePicker` owner convergence、per-call late binding 与 adapter governance；不改变 v12 public member manifest。
+3. `02p-consolidate-platform-subprocess-one-shot-seam`：plugin-internal subprocess companion，深化 `src/platform/subprocess.ts`、迁移 one-shot callers，并保留 ACP/bridge/domain lifecycle ownership。
+4. `03-add-workflow-host-library-live-reads`：常规 item/collection/annotation/note/attachment reads、bounded pages、traversal 与 completion evidence；不得冒充 stable snapshot。
+5. `04-add-workflow-host-library-snapshot-feed`：Broker snapshot session、Workflow callback projection、Host Bridge paged projection、CLI/Hermes transactional refresh 与 agent-facing surface gates。
+6. `05-establish-workflow-host-mutation-authority`：process-local operation registry、CAS/revision、三类高风险 preview、receipt/attempt、notes、attachments、managed staging、compensation 与 repair outcome。
+7. `06-establish-workflow-host-research-product-io`：Research Bundle graph import/export、file/archive/resources 与相关 materialization/import seam；各 nested module 分别接受 deep-module 审阅。
+8. `07-add-workflow-host-synthesis-facade`：grouped Workflow projection、tag-audit run contract、atomic promotion、regulation acknowledgement；lease/fencing/cleanup/telemetry 留在 Synthesis internal spec。
+9. `harden-workflow-host-api-v12`：迁移全部 consumers，建立 exact `WorkflowHostApi` projection 与 contract identity，删除 v11/raw escape hatches，并一次性启用 `version: 12`。
 
-另设一个 plugin-internal **Platform subprocess deepening** companion change：深化 `src/platform/subprocess.ts`、迁移 one-shot callers 并保留 ACP/bridge/domain lifecycle ownership。它可以在 baseline `B` 固定后与 v12 领域切片并行，不阻塞 v12 public contract 或 atomic activation；但“Zotero 版本相关 runtime adapter 已完全收敛”的总体完成条件必须同时包含该 companion change 通过 §18/§19.5 门禁。
+`02p` 可以与 v12 领域切片并行，不阻塞 public contract 或 atomic activation；但“Zotero 版本相关 runtime adapter 已完全收敛”的总体完成条件仍要求该 companion change 通过 §18/§19.5 门禁。
 
 依赖关系为：contract foundation 先行；runtime host adaptation deepening 可以与 library、snapshot、mutation 和 Synthesis 切片并行，但必须在 research product I/O 与 atomic v12 activation 前完成；atomic v12 activation 依赖全部七个前置 v12 slices 完成并通过门禁。Platform subprocess companion 不在 public v12 activation dependency chain 中，不能因此把 subprocess 成员加入 Workflow Host manifest。切片完成只表示对应 owner capability 可用，不得提前投影残缺的 `version: 12`，也不得对外发布多个 shape 不一致的 v12。
 
-最终 activation change 固定使用：
+最终 activation change 使用：
 
 ```text
 harden-workflow-host-api-v12
@@ -6060,7 +6039,7 @@ openspec/changes/harden-workflow-host-api-v12/tasks.md
 openspec/changes/harden-workflow-host-api-v12/specs/workflow-host-api-v12/spec.md
 ```
 
-各 vertical change 只为实际发生语义变化的 owner capability 增加 delta specs；没有语义变化的历史 spec 不做机械改写。当前已知可能涉及：
+各 vertical change 只为实际发生语义变化的 owner capability 增加 delta specs；没有语义变化的历史 spec 不做机械改写。已落地的 capability 范围以各 change 的 `specs/*/spec.md` 为准，包括：
 
 ```text
 zotero-host-capability-broker
@@ -6260,13 +6239,12 @@ Platform subprocess companion 的完成证据必须包括：
 - `runtimeBridge`/`filePicker` 分离 ownership、`platform/subprocess` one-shot ownership、保留在 ACP/bridge/domain callers 的 lifecycle 以及新增 symbol deletion list 已闭合；
 - runtime host adaptation v12 前置切片与 platform subprocess companion 的依赖和总体完成条件已闭合。
 
-以下只依赖 integration baseline `B` 才能机械落定，不是 public contract gap：
+以下 private implementation facts 仍需在逐 change TDD 实施中机械落定，不是 public contract gap：
 
-- merge 后的 exact modified/added/deleted file list；
 - canonical package 中最终 import path、symbol placement 与 private helper 分拆；
 - Broker、Rust sidecar、repository 与 runtime adapter 的 private implementation mechanism；
-- OpenSpec vertical change 的 exact names、task IDs 与 delta-spec file paths；
-- Host Bridge agent-facing materialized baseline metrics 和批准删除清单。
+- 每个 tasks 文件所列候选范围在实现后形成的 exact modified/added/deleted file list；
+- Host Bridge agent-facing materialized baseline metrics。`04-add-workflow-host-library-snapshot-feed` 已将固定 baseline、空删除清单、四类计数与相对厚度门禁写入执行任务。
 
 继续延期且不进入 v12 exact surface：symmetric related-item high-level operation、item/note/attachment restore、collection tree/detail/children、typed MIME clipboard、legacy TypeScript `SynthesisService` 最终删除，以及除 full-library snapshot 之外的 Host Bridge/MCP 新 member exposure。
 
@@ -6307,7 +6285,7 @@ Platform subprocess companion 的完成证据必须包括：
 - runtime filesystem ownership 已从 Workflow Host caller 扩展到 production-wide ordinary async I/O，同时以闭合 allowlist 保留真正需要 native object/threading/streaming 语义的 internal seams；
 - runtime/global/Window 与 picker ownership 已分离，subprocess one-shot execution 与 ACP/bridge lifecycle 也已分离；不存在新的 generic runtime/process facade。
 
-以下看似不同的行为是明确的 projection 差异，不是矛盾：Workflow snapshot 使用 callback 隐藏分页，Host Bridge snapshot 使用 opaque cursor；Workflow attachment DTO 在可信进程内可含 local path，Host Bridge/MCP 必须删除 path；mutation registry 是 process-local，Synthesis tag-audit ledger 是 durable。`dev` 与 `dev-refactor` 尚未集成属于 implementation baseline 风险，不能用来改变已经冻结的 owner/seam。
+以下看似不同的行为是明确的 projection 差异，不是矛盾：Workflow snapshot 使用 callback 隐藏分页，Host Bridge snapshot 使用 opaque cursor；Workflow attachment DTO 在可信进程内可含 local path，Host Bridge/MCP 必须删除 path；mutation registry 是 process-local，Synthesis tag-audit ledger 是 durable。当前 `dev` 已包含 `dev-refactor` 集成结果；后续实现风险来自跨 change 的并发编辑、当前脏工作区保护和 owner parity，不能用来改变已经冻结的 owner/seam。
 
 #### 19.7.3 过度设计审阅
 
@@ -6350,15 +6328,12 @@ Platform subprocess companion 的完成证据必须包括：
 
 ## 20. 当前停止点
 
-Workflow Host v12 方案已经完成 implementation-readiness contract closure 与最终审阅。exact surface 作为 design draft 冻结；production runtime filesystem、runtime/window/picker 与 subprocess ownership 也已闭合。没有剩余 public member、DTO、error、lifetime、partial-success 或 runtime adapter owner 决策等待 grilling。
+Workflow Host v12 方案已经完成 implementation-readiness contract closure、最终审阅与九个 OpenSpec changes 的工件落地。exact surface 已在 final activation delta spec 中冻结；production runtime filesystem、runtime/window/picker 与 subprocess ownership 也已分配到对应 changes。没有剩余 public member、DTO、error、lifetime、partial-success 或 runtime adapter owner 决策等待讨论。
 
-本工件仍不授权：
+本轮已授权并完成 OpenSpec proposal、delta specs、design 与 tasks 的创建，尚未执行 production/test code。以下事项仍未获授权：
 
 - merge、fast-forward、commit、branch switch 或其他 Git 写操作；
-- 创建 OpenSpec change；
-- 修改 production/test code；
+- 修改 production/test code 或将 tasks 标记为已完成；
 - 运行发布流程。
 
-本次用户授权只覆盖将已确认架构决策写入本工件，不构成 §19 的 merge、OpenSpec 或 implementation 授权。
-
-只有用户另行明确授权执行 §19 的实现方案后，才从 §19.1 的 integration worktree clean check 开始。先形成并验证 baseline `B`，再创建 vertical OpenSpec changes；不得跳过集成门禁直接实施。若集成后的 production evidence 与本工件的 public semantics 发生真实冲突，必须回到【制定方案】说明冲突，不能在 implementation 中自行改 contract。
+开始代码实施时，从 `01-establish-workflow-host-v12-contract-foundation` 的 TDD tasks 起步；`02`、`02p` 与后续领域线按 §19.2 的依赖关系推进，最后执行 `harden-workflow-host-api-v12`。若 `B` 上的 production evidence 与本工件或 delta specs 的 public semantics 发生真实冲突，必须回到【制定方案】说明冲突，不能在 implementation 中自行改 contract。

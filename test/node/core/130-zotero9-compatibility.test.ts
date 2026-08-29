@@ -209,7 +209,7 @@ function installZotero9SandboxFileRuntime(tempRoot: string) {
   };
 }
 
-describe("Zotero 9 compatibility baseline", function () {
+describe("Zotero 7/9/10 compatibility baseline", function () {
   afterEach(function () {
     clearLatestBuiltinWorkflowSyncResultForTests();
   });
@@ -419,7 +419,7 @@ describe("Zotero 9 compatibility baseline", function () {
     }
   });
 
-  it("declares Zotero 7 through Zotero 9.0 manifest compatibility", async function () {
+  it("declares Zotero 7 through Zotero 10.0 manifest compatibility", async function () {
     const manifest = JSON.parse(
       await fs.readFile(
         path.join(process.cwd(), "addon", "manifest.json"),
@@ -427,7 +427,7 @@ describe("Zotero 9 compatibility baseline", function () {
       ),
     );
     assert.equal(manifest.applications.zotero.strict_min_version, "7.0");
-    assert.equal(manifest.applications.zotero.strict_max_version, "9.0.*");
+    assert.equal(manifest.applications.zotero.strict_max_version, "10.0.*");
   });
 
   it("keeps high-risk Zotero runtime API access behind compatibility helpers", async function () {

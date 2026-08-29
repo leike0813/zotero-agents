@@ -52,6 +52,10 @@ import type {
   AcpSkillRunnerRunContext,
 } from "./acpSkillRunnerOrchestrator";
 import {
+  parseSupportedZoteroMajor,
+  type SupportedZoteroMajor,
+} from "../shared/zoteroRuntimeVersion";
+import {
   autoApproveAcpSkillRunPermissionRequest,
   setAcpSkillRunPermissionRequest,
 } from "./acpSkillRunPermissionQueue";
@@ -132,9 +136,8 @@ export function recordAcpSkillRunAdapterDiagnostic(args: {
   });
 }
 
-export function resolveAcpProfileZoteroMajor(): 7 | 9 | "unknown" {
-  const major = Number.parseInt(String(Zotero?.version || ""), 10);
-  return major === 7 || major === 9 ? major : "unknown";
+export function resolveAcpProfileZoteroMajor(): SupportedZoteroMajor {
+  return parseSupportedZoteroMajor(Zotero?.version);
 }
 export function isObservableAcpPromptOutputUpdateKind(value: unknown) {
   return ACP_OBSERVABLE_PROMPT_OUTPUT_UPDATE_KINDS.has(normalizeString(value));

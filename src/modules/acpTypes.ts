@@ -165,6 +165,7 @@ export type AcpRemoteSessionRestoreStatus =
 
 export type AcpHostContext = {
   target: AcpSidebarTarget;
+  libraryIds?: string[];
   libraryId?: string;
   selectionEmpty: boolean;
   currentItem?: {

@@ -739,6 +739,42 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.include((response as any).result.content[0].text, "libraryId=1");
   });
 
+  it("preserves plural library identity in current-view MCP output", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "plural-current-view",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+          arguments: {},
+        },
+      },
+      {
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
+            context: {
+              getCurrentView: () => ({
+                target: "library",
+                libraryIds: ["1", "2"],
+                selectionEmpty: true,
+                selectedItems: [],
+                selectedSources: [
+                  { kind: "library", libraryId: 1 },
+                  { kind: "library", libraryId: 2 },
+                ],
+              }),
+            },
+          }),
+      },
+    );
+
+    const result = (response as any).result;
+    assert.deepEqual(result.structuredContent.data.libraryIds, ["1", "2"]);
+    assert.notProperty(result.structuredContent.data, "libraryId");
+    assert.include(result.content[0].text, "libraryIds=1,2");
+  });
+
   it("routes read tools through the capability broker and returns structured content", async function () {
     const response = await handleZoteroMcpRequestForTests(
       {

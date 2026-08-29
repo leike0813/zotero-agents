@@ -162,7 +162,7 @@ export type AcpRuntimeProfileContext = {
   requestId: string;
   displayMode: "live" | "boundary" | "silent";
   transport: "stdio" | "websocket" | "unknown";
-  zoteroMajor: 7 | 9 | "unknown";
+  zoteroMajor: SupportedZoteroMajor;
 };
 
 export type AcpRuntimeMetricSnapshot = {
@@ -912,3 +912,4 @@ export function resetAcpRuntimePerformanceProfilerForTests() {
   disableAcpRuntimePerformanceProfiler();
   testOptions = {};
 }
+import type { SupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";

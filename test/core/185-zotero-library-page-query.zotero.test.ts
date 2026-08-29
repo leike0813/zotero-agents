@@ -24,6 +24,12 @@ function isRealZoteroRuntime() {
 
 const describeZotero = isRealZoteroRuntime() ? describe : describe.skip;
 
+const reverseHostRequestHeaders = {
+  authorization: "",
+  "content-type": "application/json",
+  "zotero-allowed-request": "1",
+};
+
 describeZotero("zotero library page query in Zotero runtime", function () {
   it("transfers one large Unicode reverse Host response with exact framing", async function () {
     setDebugModeOverrideForTests(true);
@@ -32,10 +38,39 @@ describeZotero("zotero library page query in Zotero runtime", function () {
     const serviceInstanceId = "service-unicode";
     const diagnosticEvents: SynthesisSidecarObservationEvent[] = [];
     let value = `目录治理 ${"文献".repeat(32_000)}`;
+    const artifactReadPayload = {
+      locator: "fixture:unicode",
+      expectedHash: "fixture-unicode-hash",
+    };
     const handlers = Object.fromEntries(
       SYNTHESIS_REVERSE_HOST_CAPABILITIES.map((capability) => [
         capability,
-        async () => ({ capability, value }),
+        async () =>
+          capability === "library.artifacts.read"
+            ? {
+                status: "available",
+                payloadHash: artifactReadPayload.expectedHash,
+                content: { kind: "json", value: { value } },
+                diagnostics: [],
+              }
+            : capability === "library.artifacts.scan_page"
+              ? {
+                  cursor: "",
+                  nextCursor: "",
+                  hasMore: false,
+                  returned: 1,
+                  limit: 1,
+                  artifacts: [
+                    {
+                      paperRef: "1:UNICODE",
+                      artifactType: "digest",
+                      payloadType: "digest-markdown",
+                      status: "missing",
+                      diagnostics: value.match(/[\s\S]{1,60000}/g) || [],
+                    },
+                  ],
+                }
+              : { capability, value },
       ]),
     ) as SynthesisReverseHostHandlers;
     const endpoint = createSynthesisReverseHostEndpoint({
@@ -61,8 +96,8 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         {
           method: "POST",
           headers: {
+            ...reverseHostRequestHeaders,
             authorization: `Bearer ${authorizationToken}`,
-            "content-type": "application/json",
           },
           body: JSON.stringify({
             schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
@@ -73,7 +108,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             trace,
             capability: "library.artifacts.read",
             deadlineAtMs: Date.now() + 30_000,
-            payload: {},
+            payload: artifactReadPayload,
           }),
         },
       ).catch((error) => {
@@ -86,12 +121,18 @@ describeZotero("zotero library page query in Zotero runtime", function () {
           )}`,
         );
       });
-      assert.equal(response.status, 200);
+      assert.equal(
+        response.status,
+        200,
+        `reverse Host response: ${source}; diagnostics: ${JSON.stringify(
+          diagnosticEvents.slice(-3),
+        )}`,
+      );
       assert.equal(
         Number(response.headers.get("content-length")),
         new TextEncoder().encode(source).byteLength,
       );
-      assert.equal(JSON.parse(source).result.value, value);
+      assert.equal(JSON.parse(source).result.content.value.value, value);
 
       value = "文".repeat(400_000);
       const aboveGeneralLimit = await fetch(
@@ -99,8 +140,8 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         {
           method: "POST",
           headers: {
+            ...reverseHostRequestHeaders,
             authorization: `Bearer ${authorizationToken}`,
-            "content-type": "application/json",
           },
           body: JSON.stringify({
             schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
@@ -111,7 +152,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             trace,
             capability: "library.artifacts.read",
             deadlineAtMs: Date.now() + 30_000,
-            payload: {},
+            payload: artifactReadPayload,
           }),
         },
       ).catch((error) => {
@@ -127,7 +168,10 @@ describeZotero("zotero library page query in Zotero runtime", function () {
           );
         });
       assert.equal(aboveGeneralLimit.status, 200);
-      assert.equal(JSON.parse(aboveGeneralLimitSource).result.value, value);
+      assert.equal(
+        JSON.parse(aboveGeneralLimitSource).result.content.value.value,
+        value,
+      );
 
       value = "页".repeat(300_000);
       const scanResponse = await fetch(
@@ -135,8 +179,8 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         {
           method: "POST",
           headers: {
+            ...reverseHostRequestHeaders,
             authorization: `Bearer ${authorizationToken}`,
-            "content-type": "application/json",
           },
           body: JSON.stringify({
             schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
@@ -157,7 +201,10 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         Number(scanResponse.headers.get("content-length")),
         new TextEncoder().encode(scanSource).byteLength,
       );
-      assert.equal(JSON.parse(scanSource).result.value, value);
+      assert.equal(
+        JSON.parse(scanSource).result.artifacts[0].diagnostics.join(""),
+        value,
+      );
 
       value = "文".repeat(2_800_000);
       const oversized = await fetch(
@@ -165,8 +212,8 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         {
           method: "POST",
           headers: {
+            ...reverseHostRequestHeaders,
             authorization: `Bearer ${authorizationToken}`,
-            "content-type": "application/json",
           },
           body: JSON.stringify({
             schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
@@ -177,7 +224,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             trace,
             capability: "library.artifacts.read",
             deadlineAtMs: Date.now() + 30_000,
-            payload: {},
+            payload: artifactReadPayload,
           }),
         },
       ).catch((error) => {

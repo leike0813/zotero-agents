@@ -285,6 +285,9 @@ function resolveCapabilityBroker(options: ZoteroMcpHandlerOptions) {
 function summarizeCurrentView(context: ZoteroHostCurrentViewDto) {
   const parts = [
     `target=${context.target}`,
+    context.libraryIds.length > 1
+      ? `libraryIds=${context.libraryIds.join(",")}`
+      : "",
     context.libraryId ? `libraryId=${context.libraryId}` : "",
     context.selectionEmpty ? "selection=empty" : "selection=present",
     context.currentItem?.key ? `itemKey=${context.currentItem.key}` : "",

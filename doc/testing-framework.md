@@ -239,8 +239,8 @@ lite 模式下：
 
 `187-runtime-log-persistence.zotero.test.ts` 是 R8 的真实宿主机制门禁。它通过真实
 `IOUtils` 验证异步 hydration、single-flight true flush，以及分块临时文件完成后再
-替换为可解析 JSON；测试不设置机器相关耗时断言。当前验收环境为 Zotero 9.0.4，
-Zotero 7 仍是明确的后续宿主验证项。
+替换为可解析 JSON；测试不设置机器相关耗时断言。该机制现在由下文的固定版本
+兼容矩阵在 Zotero 7.0.32、9.0.6 和 10.0.1 中重复验证。
 
 补充治理约定：
 
@@ -519,3 +519,65 @@ Testing expectations:
   - `workflow:full`
 - 任一分段失败，都必须使整体 `full` gate 失败
 - 分段执行是 gate 稳定性 hardening，不是 coverage 收缩
+
+## Zotero 7/9/10 跨平台兼容夹具
+
+兼容夹具位于现有 `lite/full` 与 `core/ui/workflow` 分类外层，不定义新的
+测试成员集合。`test/zotero/compatibility-matrix.json` 是版本、下载地址、
+SHA-256、runner、架构和门禁策略的唯一事实源。当前固定代表版本为：
+
+- Zotero 7.0.32：Windows x64、Linux x64；
+- Zotero 9.0.6：Windows x64、Linux x64；
+- Zotero 10.0.1：Windows x64、Linux x64；
+- Zotero 10.0.1：macOS Intel、Apple Silicon 的正式 XPI smoke 证据。
+
+Windows/Linux 单元是阻塞门禁。pull request 运行六个 `lite` 行为单元；
+`main` 与 release 运行六个 `full` 行为单元和六个正式 XPI 安装 smoke。
+macOS 两个单元使用 GitHub 托管的 Intel 与 ARM64 runner，暂时
+`continue-on-error`，其 receipt 仍会保留并上传。
+
+常用命令：
+
+```bash
+# 查看由清单生成的 PR 计划
+npx tsx scripts/run-zotero-compatibility-matrix.ts plan \
+  --gate pull-request --json
+
+# 只获取并验证一个宿主
+npx tsx scripts/run-zotero-compatibility-matrix.ts acquire \
+  --target zotero-10-linux-x64
+
+# 使用已经构建的 .scaffold/build 运行一个真实宿主单元
+npx tsx scripts/run-zotero-compatibility-matrix.ts run \
+  --target zotero-10-linux-x64 --mode behavior --suite lite
+
+# 安装同一个正式 XPI，验证启动和卸载清理
+npx tsx scripts/run-zotero-compatibility-matrix.ts run \
+  --target zotero-10-linux-x64 --mode xpi-smoke --suite lite
+```
+
+运行前先执行 `npm run build`，或通过 `--build-root` 指向 CI 下载的规范构建
+目录。兼容 worker 会跳过 scaffold 的生产插件 rebuild，只生成当前测试资源，
+所以一个 workflow 内所有宿主使用完全相同的 add-on 目录与 XPI 字节。
+
+下载缓存默认位于用户缓存目录。清单使用 `download.zotero.org/client/release`
+下带精确版本和归档名的不可变官方 URL；缓存键以 SHA-256 为主，命中时仍重新
+计算摘要。不匹配的归档会被丢弃并重新下载。Linux tar 与 Windows ZIP 在解压前
+检查绝对路径、盘符、父目录穿越、链接、设备和重复条目。macOS DMG 以只读方式
+挂载，验证 `Zotero.app` 后才复制到 staging。预期 executable 和安装目录内
+`application.ini` 的 Version 都与清单一致后，staging 才会发布为宿主基线。
+
+共享宿主基线不会直接启动。每个测试分段先把它物化到本次 run root 下，再从
+run-local executable 启动；这可以隔离 Zotero 自更新或其它运行期安装目录写入。
+同一桌面会话中的 Zotero GUI host 由机器级锁串行化，避免 Zotero 单实例转发把
+一个版本的启动请求交给另一个版本。CI 的矩阵并行发生在相互独立的 VM 上。
+
+每个运行和 full 分段均有独立 host copy、profile、data、runtime、scaffold
+resource、诊断目录和端口。超时清理先发送正常终止，再只针对当前 worker 创建
+的进程组或 Windows process tree 强制终止；禁止按进程名清理全局 Zotero 实例。
+
+每个顶层单元都会写入 `zotero-agents.zotero-compatibility-receipt.v1` JSON。
+receipt 同时记录请求版本和真实宿主上报版本、源码状态、XPI 与宿主摘要、执行
+阶段、错误码、诊断路径和清理结果。失败日志位于 receipt 相邻单元的
+`diagnostics/runner.stdout.log`、`runner.stderr.log` 与 `host-facts.json`。
+CI 使用 `if: always()` 上传整个运行目录；不得仅凭控制台文本推断通过。
