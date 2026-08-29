@@ -36,6 +36,8 @@ logs
 .kimi-code/
 .codebuddy/
 .qwen/
+.pi/
+.omp/
 .codebuddy/
 !.commandcode/taste/taste.md
 .commandcode/

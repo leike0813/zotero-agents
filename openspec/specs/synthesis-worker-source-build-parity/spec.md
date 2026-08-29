@@ -5,53 +5,23 @@ Defines the synthesis worker source build parity capability for the Synthesis pl
 
 ## Requirements
 
-### Requirement: Source Workers SHALL resolve source-owned runtime modules
+### Requirement: Rust worker source/build parity SHALL be the sole implementation gate
 
+Worker source/build identity SHALL cover the Rust worker/service source, Cargo
+workspace and lockfile, pinned toolchain, features, all production compute
+operations, operation mapping, licenses, provenance, and build recipe. Rust
+tests SHALL cover framing, bounds, transfer integrity, deadline, cancellation,
+busy admission, crash, hang kill, respawn, fuse, shutdown, and cleanup. No
+TypeScript/Node worker executable or source/build comparison may be required.
 
-Source Worker harnesses SHALL resolve TypeScript engine entrypoints against the
-modules present in the source tree and SHALL NOT require generated JavaScript
-shims beside source files.
+#### Scenario: Rust worker candidate is built
+- **WHEN** a supported target candidate is assembled
+- **THEN** source/build fingerprints, closed operation inventory, worker reliability tests, provenance, licenses, and size gates agree
+- **AND** any Node worker source, fixture, emitted module, or undeclared operation fails the gate
 
-#### Scenario: Topic Graph source Worker starts
-
-- **WHEN** the Topic Graph index Worker fixture loads the engine from the source tree
-- **THEN** every runtime-relative engine dependency resolves without `ERR_MODULE_NOT_FOUND`
-- **AND** no compiled JavaScript shim is required in the source tree
-
-### Requirement: Compiled Workers SHALL use native Node ESM extensions
-
-
-The Synthesis service build SHALL rewrite relative TypeScript module specifiers
-to `.js` in emitted JavaScript and SHALL NOT leave runtime `.ts` specifiers in
-compiled engine modules.
-
-#### Scenario: Topic Graph engine is compiled
-
-- **WHEN** the Synthesis service build emits `topicGraphIndex.js`
-- **THEN** its runtime import and re-export reference `topicGraphCore.js`
-- **AND** the emitted module contains no runtime reference to `topicGraphCore.ts`
-
-### Requirement: Direct and Worker execution SHALL remain semantically equal
-
-
-The source and compiled Topic Graph Worker canaries SHALL rebuild canonical
-results that equal direct in-process engine execution for the same request.
-
-#### Scenario: Canonical Topic Graph request crosses a Worker boundary
-
-- **WHEN** a bounded canonical request is executed directly and through a Topic Graph Worker
-- **THEN** the rebuilt Worker result equals the rebuilt direct result
-- **AND** public service inventory and package contents remain unchanged
-
-### Requirement: Topic Graph TypeScript Worker parity SHALL survive Rust routing
-
-Moving the private sidecar Topic Graph operation to Rust SHALL NOT remove or weaken the source and compiled TypeScript Worker canaries that guard environment-neutral engine resolution.
-
-#### Scenario: Topic Graph canaries run after migration
-
-- **WHEN** source and emitted Topic Graph Worker fixtures execute the same canonical request as the direct TypeScript engine
-- **THEN** both rebuilt results SHALL remain equal
-- **AND** no source-tree JavaScript shim SHALL exist.
+#### Scenario: Rust worker input changes
+- **WHEN** source, Cargo dependency, toolchain, feature, operation mapping, or build recipe changes
+- **THEN** candidate freshness and build identity change together
 
 ### Requirement: Worker audit surfaces SHALL cover fourteen Rust operations
 
@@ -62,16 +32,6 @@ Source fingerprinting, build fingerprinting, runtime freshness, operation invent
 - **WHEN** a native worker candidate is assembled
 - **THEN** undeclared, stale, missing, duplicate, or source/build-divergent operation artifacts SHALL fail the build
 - **AND** compressed candidate size SHALL remain below 15 MiB.
-
-### Requirement: Migrated Node worker fixtures SHALL be removed
-
-Node source and compiled worker parity fixtures SHALL remain only for the R6 Citation Graph layout kernel; matcher, Topic Structured Artifact, and Citation Graph Build worker fixtures and compute branches SHALL be absent.
-
-#### Scenario: Worker sources are inspected after R5
-
-- **WHEN** static parity checks enumerate Node worker operations
-- **THEN** no migrated R5 operation SHALL be present
-- **AND** the remaining Node worker surface SHALL be limited to layout.
 
 ### Requirement: Source and build parity SHALL inventory Layout v2
 
@@ -98,8 +58,18 @@ The source/build inventory SHALL include the repository, canonical-store, and ap
 
 ### Requirement: Candidate smoke SHALL cover compute and durable reads
 
-Candidate smoke SHALL execute all fifteen compute operations plus authenticated `workbench.chrome.read` and `topics.canonical.inspect`, including invalid identity/payload and bounded-result cases.
+Candidate smoke SHALL execute every public native compute operation,
+authenticated durable reads, production service identity/handshake, and the
+exact forward capability roster. The source-bound native production-route gate
+SHALL verify the exact production-operation catalog and at least one bounded
+non-mutating RPC from each of the seven production operation surfaces. Full
+operation behavior SHALL remain covered by language-neutral corpora and
+Rust/public route tests; package smoke MUST NOT depend on a Node executable.
 
 #### Scenario: Smoke inventory is incomplete
-- **WHEN** the built candidate omits a compute operation or one of the two read canaries
+- **WHEN** candidate smoke omits a public compute operation, required durable read, production identity field, or forward-roster entry, or the source-bound route gate omits a production catalog entry or representative surface RPC
 - **THEN** source/build smoke fails before packaging acceptance
+
+#### Scenario: Smoke attempts Node comparison
+- **WHEN** candidate smoke requires a Node service, JavaScript worker, Node build output, or removed workspace fixture
+- **THEN** the native-only source/build gate fails

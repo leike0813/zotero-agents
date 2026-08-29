@@ -55,19 +55,20 @@
 - [x] 6.2 Update candidate smoke to cover every public native compute operation, durable reads, production identity/handshake, and the exact forward capability roster; keep the exact production-operation catalog and one bounded non-mutating RPC from each production surface in the source-bound native production-route gate
 - [x] 6.3 Update source/package/XPI inventory checks to require seven manifest-v3 Rust bundles in the fixed `current` installation and reject Node/npm executables or archives, JavaScript service/package trees, v1 manifests, Node entrypoints and legacy runtime pointers, D3 runtime, implementation selectors, stale or undeclared binaries, and fingerprint drift
 - [x] 6.4 Enforce the 15 MiB per-target, 75 MiB seven-target aggregate, and 100 MiB final universal XPI compressed budgets
-- [ ] 6.5 Prove all native-only gates run successfully with `apps/synthesis-service` and every deleted Node fixture absent
+- [x] 6.5 Prove all native-only gates run successfully with `apps/synthesis-service` and every deleted Node fixture absent
 
 ## 7. Local Verification and Documentation
 
 - [x] 7.1 Run strict validation for this change and all modified current specs
 - [x] 7.2 Run the full language-neutral production contract/corpus suite, exact capability/ready/dispatcher checks, zero-legacy boundary checks, R9a Core tests, and renamed native Stage-1 suite
 - [x] 7.3 Run all surviving TypeScript package/plugin checks, readonly harness tests/build, and production build without starting a development server
-- [ ] 7.4 Run Rust format, clippy, workspace tests, repository/canonical/application/worker/service tests, smoke, freshness, license, provenance, SBOM, and local size gates
+- [x] 7.4 Run Rust format, clippy, workspace tests, repository/canonical/application/worker/service tests, smoke, freshness, license, provenance, SBOM, and local size gates
 - [x] 7.5 Scan source, workspaces, scripts, tests, workflows, package outputs, and XPI inputs for forbidden Node/npm/JavaScript service/D3 runtime identities and all implementation selectors
 - [x] 7.6 Update the Rust migration plan and active Synthesis architecture, runtime, persistence, packaging, performance, testing, and recovery documentation to current Rust-only state
 
 ## 8. Post-Deletion Candidate and Acceptance Handoff
 
-- [ ] 8.1 Under separate execution authorization, build and verify the post-deletion seven-target native candidate for one source/toolchain/lock identity, including fingerprints, SBOM/provenance/licenses, and 15/75 MiB budgets
-- [ ] 8.2 Record the candidate identity and results as the input to `complete-synthesis-r9-stage1-acceptance`; do not claim final XPI, installation, recovery, real-machine, R9, or Stage-1 acceptance here
+- [x] 8.1 Under separate execution authorization, build and verify the post-deletion seven-target native candidate for one source/toolchain/lock identity, including fingerprints, SBOM/provenance/licenses, and 15/75 MiB budgets
+- [x] 8.2 Record the candidate identity and results as the input to `complete-synthesis-r9-stage1-acceptance`; do not claim final XPI, installation, recovery, real-machine, R9, or Stage-1 acceptance here
 - [x] 8.3 Verify release publication, tags/assets, feed advancement, and Gitee synchronization remain outside this change unless separately and explicitly authorized
+

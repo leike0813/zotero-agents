@@ -51,6 +51,7 @@
 - [x] 7.2 Run strict OpenSpec validation for this change and modified specs
 - [x] 7.3 Run focused client/default-lifecycle/consumer/harness/supervisor/boundary tests and the governed Synthesis Stage-1 suite
 - [x] 7.4 Run relevant Stage-1 tests, TypeScript package/plugin checks, readonly harness build/tests, and production build without starting a development server
-- [ ] 7.5 Run Rust format, clippy, workspace tests, service/worker smoke, and package freshness checks to prove plugin deletion did not weaken native behavior
+- [x] 7.5 Run Rust format, clippy, workspace tests, service/worker smoke, and package freshness checks to prove plugin deletion did not weaken native behavior
 - [x] 7.6 Verify the final source/build inventory contains no constructible plugin legacy owner and that the successor removes the recorded Node-sidecar inventory
 - [x] 7.7 Do not publish or release the intermediate tree; continue to `remove-synthesis-node-sidecar-stack`
+
