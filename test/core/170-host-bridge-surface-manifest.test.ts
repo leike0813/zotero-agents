@@ -185,7 +185,7 @@ describe("host bridge surface definitions", function () {
         "zotero-library-curation",
       ],
     );
-    assert.lengthOf(bundle.files, 159);
+    assert.lengthOf(bundle.files, 162);
     const paths = new Set<string>();
     for (const file of bundle.files as Array<{
       path: string;

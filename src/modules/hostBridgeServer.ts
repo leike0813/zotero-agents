@@ -113,12 +113,8 @@ import {
   readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 import {
-  createZoteroHostCapabilityBrokerApis,
-  ZoteroCollectionNotFoundError,
-  ZoteroInvalidObjectRefError,
-  ZoteroItemNotFoundError,
-  ZoteroNavigationUnavailableError,
-  ZoteroNoteNotFoundError,
+  resolveZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
 } from "./zoteroHostCapabilityBroker";
 import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
 import {
@@ -1999,52 +1995,26 @@ function asRequestObject(value: unknown): Record<string, unknown> {
 }
 
 function navigationErrorResponse(error: unknown) {
-  if (error instanceof ZoteroInvalidObjectRefError) {
+  if (error instanceof ZoteroHostCapabilityError) {
+    const notFound =
+      error.code === "item_not_found" ||
+      error.code === "note_not_found" ||
+      error.code === "collection_not_found";
+    const unavailable = error.code === "navigation_unavailable";
     return response(
-      400,
-      "Bad Request",
-      hostBridgeError("invalid_object_ref", error.message, "validation", {
-        ref: error.ref,
-      }),
-      "invalid_object_ref",
-    );
-  }
-  if (error instanceof ZoteroItemNotFoundError) {
-    return response(
-      404,
-      "Not Found",
-      hostBridgeError("item_not_found", error.message, "not_found", {
-        ref: error.ref,
-      }),
-      "item_not_found",
-    );
-  }
-  if (error instanceof ZoteroNoteNotFoundError) {
-    return response(
-      404,
-      "Not Found",
-      hostBridgeError("note_not_found", error.message, "not_found", {
-        ref: error.ref,
-      }),
-      "note_not_found",
-    );
-  }
-  if (error instanceof ZoteroCollectionNotFoundError) {
-    return response(
-      404,
-      "Not Found",
-      hostBridgeError("collection_not_found", error.message, "not_found", {
-        ref: error.ref,
-      }),
-      "collection_not_found",
-    );
-  }
-  if (error instanceof ZoteroNavigationUnavailableError) {
-    return response(
-      503,
-      "Service Unavailable",
-      hostBridgeError("navigation_unavailable", error.message, "internal"),
-      "navigation_unavailable",
+      unavailable ? 503 : notFound ? 404 : 400,
+      unavailable
+        ? "Service Unavailable"
+        : notFound
+          ? "Not Found"
+          : "Bad Request",
+      hostBridgeError(
+        error.code,
+        error.message,
+        unavailable ? "internal" : notFound ? "not_found" : "validation",
+        error.details,
+      ),
+      error.code,
     );
   }
   return response(
@@ -2063,7 +2033,8 @@ function parseNavigationBody(request: HttpRequest) {
   try {
     return parseJsonBody(request.body || "");
   } catch {
-    throw new ZoteroInvalidObjectRefError(
+    throw new ZoteroHostCapabilityError(
+      "invalid_object_ref",
       "navigation request body must be JSON",
     );
   }
@@ -3442,7 +3413,7 @@ async function getCurrentContext(request: HttpRequest) {
   }
   try {
     const currentView =
-      createZoteroHostCapabilityBrokerApis().context.getCurrentView();
+      resolveZoteroHostCapabilityBroker().context.getCurrentView();
     const page = paginateRequestRows(
       request,
       "context current",
@@ -3480,7 +3451,7 @@ async function getCurrentSelection(request: HttpRequest) {
     const page = paginateRequestRows(
       request,
       "context selection get",
-      createZoteroHostCapabilityBrokerApis().context.getSelectedItems(),
+      resolveZoteroHostCapabilityBroker().context.getSelectedItems(),
     );
     return response(
       200,
@@ -3521,7 +3492,7 @@ async function openContextItem(request: HttpRequest) {
       200,
       "OK",
       hostBridgeOk(
-        await createZoteroHostCapabilityBrokerApis().context.openItem(
+        await resolveZoteroHostCapabilityBroker().navigation.openItem(
           ref as never,
         ),
       ),
@@ -3553,7 +3524,7 @@ async function openContextNote(request: HttpRequest) {
       200,
       "OK",
       hostBridgeOk(
-        await createZoteroHostCapabilityBrokerApis().context.openNote(
+        await resolveZoteroHostCapabilityBroker().navigation.openNote(
           ref as never,
         ),
       ),
@@ -3592,7 +3563,7 @@ async function openContextCollection(request: HttpRequest) {
       200,
       "OK",
       hostBridgeOk(
-        await createZoteroHostCapabilityBrokerApis().context.openCollection({
+        await resolveZoteroHostCapabilityBroker().navigation.openCollection({
           key: String(
             object.key || object.collectionKey || collection.key || "",
           ),
@@ -3621,7 +3592,7 @@ async function openContextSelection(request: HttpRequest) {
         ? payload
         : [];
     const result =
-      await createZoteroHostCapabilityBrokerApis().context.openSelection({
+      await resolveZoteroHostCapabilityBroker().navigation.openSelection({
         items: items as never[],
       });
     const target = asRequestObject(result.target);

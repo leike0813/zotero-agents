@@ -3,7 +3,7 @@ import {
   createWorkflowHostApi,
   resetWorkflowHostApiForTests,
 } from "../../src/workflows/hostApi";
-import { resolveRuntimeFilePickerParentWindow } from "../../src/platform/filePicker";
+import { openRuntimeFilePicker } from "../../src/platform/filePicker";
 import { isZoteroRuntime } from "../zotero/workflow-test-utils";
 
 type RuntimeWithToolkit = typeof globalThis & {
@@ -92,17 +92,35 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     resetWorkflowHostApiForTests();
   });
 
-  it("falls back to the main window when the dialog lacks a browsing context", function () {
+  it("falls back to the main window when the dialog lacks a browsing context", async function () {
     const mainWindow = { browsingContext: {} } as Window;
     const runtime = globalThis as RuntimeWithToolkit;
     runtime.addon = { data: { dialog: { window: {} as Window } } };
     runtime.Zotero ||= {};
     runtime.Zotero.getMainWindow = () => mainWindow;
+    let parentWindow: Window | undefined;
+    runtime.ztoolkit = {
+      FilePicker: class {
+        constructor(
+          _title: string,
+          _mode: string,
+          _filters: [string, string][],
+          _suggestion: string,
+          window: Window | undefined,
+        ) {
+          parentWindow = window;
+        }
+        open() {
+          return null;
+        }
+      },
+    };
 
-    assert.strictEqual(resolveRuntimeFilePickerParentWindow(), mainWindow);
+    await openRuntimeFilePicker({ mode: "open" });
+    assert.strictEqual(parentWindow, mainWindow);
   });
 
-  it("falls back to the main window when the dialog has closed", function () {
+  it("falls back to the main window when the dialog has closed", async function () {
     const mainWindow = { browsingContext: {} } as Window;
     const closedDialogWindow = {
       browsingContext: {},
@@ -112,19 +130,55 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     runtime.addon = { data: { dialog: { window: closedDialogWindow } } };
     runtime.Zotero ||= {};
     runtime.Zotero.getMainWindow = () => mainWindow;
+    let parentWindow: Window | undefined;
+    runtime.ztoolkit = {
+      FilePicker: class {
+        constructor(
+          _title: string,
+          _mode: string,
+          _filters: [string, string][],
+          _suggestion: string,
+          window: Window | undefined,
+        ) {
+          parentWindow = window;
+        }
+        open() {
+          return null;
+        }
+      },
+    };
 
-    assert.strictEqual(resolveRuntimeFilePickerParentWindow(), mainWindow);
+    await openRuntimeFilePicker({ mode: "open" });
+    assert.strictEqual(parentWindow, mainWindow);
   });
 
-  it("prefers a live dialog window with a browsing context", function () {
+  it("prefers a live dialog window with a browsing context", async function () {
     const dialogWindow = { browsingContext: {} } as Window;
     const mainWindow = { browsingContext: {} } as Window;
     const runtime = globalThis as RuntimeWithToolkit;
     runtime.addon = { data: { dialog: { window: dialogWindow } } };
     runtime.Zotero ||= {};
     runtime.Zotero.getMainWindow = () => mainWindow;
+    let parentWindow: Window | undefined;
+    runtime.ztoolkit = {
+      FilePicker: class {
+        constructor(
+          _title: string,
+          _mode: string,
+          _filters: [string, string][],
+          _suggestion: string,
+          window: Window | undefined,
+        ) {
+          parentWindow = window;
+        }
+        open() {
+          return null;
+        }
+      },
+    };
 
-    assert.strictEqual(resolveRuntimeFilePickerParentWindow(), dialogWindow);
+    await openRuntimeFilePicker({ mode: "open" });
+    assert.strictEqual(parentWindow, dialogWindow);
   });
 
   it("picks a directory through the workflow host file facade", async function () {
@@ -214,7 +268,7 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     ]);
   });
 
-  it("picks multiple files through the workflow host file facade with filters", async function () {
+  it("picks multiple files through the shared picker interface with filters", async function () {
     const calls: Array<Record<string, unknown>> = [];
     (globalThis as RuntimeWithToolkit).ztoolkit = {
       FilePicker: class {
@@ -240,9 +294,9 @@ describeFilePickerSuite("workflow host api file pickers", function () {
       },
     };
 
-    const hostApi = createWorkflowHostApi();
-    const selected = await hostApi.file.pickFiles({
+    const selected = await openRuntimeFilePicker({
       title: "Import Custom Notes",
+      mode: "multiple",
       filters: [["Markdown", "*.md"]],
       directory: "D:/imports",
     });
@@ -371,9 +425,9 @@ describeFilePickerSuite("workflow host api file pickers", function () {
       },
     };
 
-    const hostApi = createWorkflowHostApi();
-    const selected = await hostApi.file.pickFiles({
+    const selected = await openRuntimeFilePicker({
       title: "Import Custom Notes",
+      mode: "multiple",
       filters: [["Markdown", "*.md"]],
       directory: "D:/imports",
     });

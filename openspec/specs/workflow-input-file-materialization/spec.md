@@ -7,25 +7,30 @@ Defines the workflow host API contract for materializing generated provider inpu
 
 ### Requirement: Workflow host API materializes provider input files under managed runtime tmp
 
-The workflow host API SHALL provide a file materialization operation for files that workflow hooks generate as provider inputs, and the operation SHALL write under the plugin-managed runtime tmp root.
+The Workflow Input Materialization module SHALL implement the workflow host file
+operation for files that workflow hooks generate as provider inputs. It SHALL
+write under the plugin-managed runtime tmp root through strict runtime filesystem
+operations while preserving the Workflow Host API v11 interface.
 
 #### Scenario: Text input file is materialized
 
-- **WHEN** a workflow hook materializes a text provider input file with workflow id, input key, file name, and content
-- **THEN** the host API SHALL write the file under `runtime/tmp/workflow-inputs`
-- **AND** it SHALL return an absolute local path to the written file
+- **WHEN** a workflow hook materializes a text provider input file with workflow
+  id, input key, file name, and content
+- **THEN** the host SHALL write the file under `runtime/tmp/workflow-inputs`
+- **AND** it SHALL return an absolute local path to the written file.
 
 #### Scenario: Binary input file is materialized
 
-- **WHEN** a workflow hook materializes a binary provider input file with workflow id, input key, file name, and bytes
-- **THEN** the host API SHALL write the file under `runtime/tmp/workflow-inputs`
-- **AND** it SHALL return an absolute local path to the written file
+- **WHEN** a workflow hook materializes a binary provider input file with
+  workflow id, input key, file name, and bytes
+- **THEN** the host SHALL write the file under `runtime/tmp/workflow-inputs`
+- **AND** it SHALL return an absolute local path to the written file.
 
 #### Scenario: Invalid materialization request fails
 
-- **WHEN** a workflow hook requests materialization without exactly one content payload
-- **THEN** the host API SHALL fail deterministically
-- **AND** it SHALL NOT write a provider input file
+- **WHEN** a workflow hook requests materialization without exactly one content
+  payload
+- **THEN** the operation SHALL fail before writing a provider input file.
 
 ### Requirement: Managed input materialization isolates workflow and key paths
 

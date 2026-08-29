@@ -9149,6 +9149,76 @@
       "pagination": "none",
       "payloadSchemaSource": "target-capability"
     },
+    "synthesis topic get-planning-context": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "query": {
+          "token": "--query",
+          "required": false,
+          "requiredWhen": [],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {},
+              "prerequisites": [
+                "Replace limits with values valid for the active connection profile before execution."
+              ],
+              "description": "Minimal JSON shape for --query."
+            }
+          ],
+          "schemaSource": "target-capability"
+        }
+      },
+      "outputBoundary": {
+        "strategy": "file",
+        "fileField": "data.delivery.bundle"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "topics.get_planning_context",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads state without changing Zotero-managed data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The registered planning snapshot cannot be downloaded.",
+          "stateCheck": "command-result",
+          "requiresHandles": [],
+          "action": "Retry the read, then run the returned downloadCommand with the new file handle.",
+          "nextCommand": "file download"
+        }
+      ],
+      "operationalAliases": [
+        "synthesis topic get-planning-context",
+        "synthesis",
+        "topic",
+        "get-planning-context",
+        "planning",
+        "coverage",
+        "query"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
     "synthesis topic get-report": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {

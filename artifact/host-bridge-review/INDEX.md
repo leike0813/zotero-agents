@@ -1,14 +1,14 @@
 # Host Bridge 中文审阅镜像
 
-生成时间：2026-08-24T14:00:34.971Z
+生成时间：2026-08-29T04:27:13.196Z
 
 本目录按发布面所有权保存中文译文；继承内容只在其所有者目录出现一次。有效组成由下表的继承链和文件数表达。
 
 | 发布面 | 类型 | 继承链 | 自有文件 | 继承文件 | 有效文件 |
 | --- | --- | --- | ---: | ---: | ---: |
-| `zotero-bridge-cli` | `minimum-core` | `zotero-bridge-cli` | 131 | 0 | 131 |
-| `zotero-library-agent` | `generic-agent` | `zotero-bridge-cli` → `zotero-library-agent` | 13 | 131 | 144 |
-| `zotero-librarian` | `hosted-agent` | `zotero-bridge-cli` → `zotero-library-agent` → `zotero-librarian` | 6 | 144 | 150 |
+| `zotero-bridge-cli` | `minimum-core` | `zotero-bridge-cli` | 132 | 0 | 132 |
+| `zotero-library-agent` | `generic-agent` | `zotero-bridge-cli` → `zotero-library-agent` | 13 | 132 | 145 |
+| `zotero-librarian` | `hosted-agent` | `zotero-bridge-cli` → `zotero-library-agent` → `zotero-librarian` | 6 | 145 | 151 |
 
 ## zotero-bridge-cli
 
@@ -119,6 +119,7 @@
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md): 当前发布面语义源的中文审阅译文。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md): 当前发布面语义源的中文审阅译文。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md): 当前发布面语义源的中文审阅译文。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md): 当前发布面语义源的中文审阅译文。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md): 当前发布面语义源的中文审阅译文。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md): 当前发布面语义源的中文审阅译文。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md): 当前发布面语义源的中文审阅译文。

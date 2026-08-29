@@ -30,6 +30,7 @@ import {
   writeRuntimeBytes,
 } from "../../src/modules/runtimePersistence";
 import { joinPath } from "../../src/utils/path";
+import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
 
 const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "context.get_current_view";
 const ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS = "context.get_selected_items";
@@ -494,13 +495,18 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostContext: () => {
+        resolveZoteroHostCapabilityBroker: () => {
           called = true;
-          return {
-            target: "library",
-            libraryId: "1",
-            selectionEmpty: true,
-          };
+          return createFailClosedZoteroHostCapabilityBroker({
+            context: {
+              getCurrentView: () => ({
+                target: "library",
+                libraryId: "1",
+                selectionEmpty: true,
+                selectedItems: [],
+              }),
+            },
+          });
         },
       },
     );
@@ -703,16 +709,22 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostContext: () => ({
-          target: "library",
-          libraryId: "1",
-          selectionEmpty: false,
-          currentItem: {
-            id: 42,
-            key: "ABCD1234",
-            title: "A Zotero Paper",
-          },
-        }),
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
+            context: {
+              getCurrentView: () => ({
+                target: "library",
+                libraryId: "1",
+                selectionEmpty: false,
+                currentItem: {
+                  id: 42,
+                  key: "ABCD1234",
+                  title: "A Zotero Paper",
+                },
+                selectedItems: [],
+              }),
+            },
+          }),
         onToolCall: (event) => {
           observedTool = event.toolName;
         },
@@ -727,7 +739,7 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.include((response as any).result.content[0].text, "libraryId=1");
   });
 
-  it("routes read tools through hostApi and returns structured content", async function () {
+  it("routes read tools through the capability broker and returns structured content", async function () {
     const response = await handleZoteroMcpRequestForTests(
       {
         jsonrpc: "2.0",
@@ -739,8 +751,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             context: {
               getSelectedItems: () => [
                 {
@@ -758,7 +770,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 },
               ],
             },
-          }) as any,
+          }),
       },
     );
 
@@ -798,8 +810,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             library: {
               listItems: async (args: any) => {
                 observedArgs = args;
@@ -830,7 +842,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 };
               },
             },
-          }) as any,
+          }),
       },
     );
 
@@ -870,8 +882,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             library: {
               listItems: async (args: any) => {
                 observedArgs = args;
@@ -885,7 +897,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 };
               },
             },
-          }) as any,
+          }),
       },
     );
 
@@ -907,8 +919,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             library: {
               getItemDetail: async () => ({
                 id: 10,
@@ -931,7 +943,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 relatedItemKeys: [],
               }),
             },
-          }) as any,
+          }),
       },
     );
 
@@ -963,8 +975,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             library: {
               getItemNotes: async () => [
                 {
@@ -978,7 +990,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 },
               ],
             },
-          }) as any,
+          }),
       },
     );
     const notesPage = (notesResponse as any).result.structuredContent.data;
@@ -1016,8 +1028,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             library: {
               getNoteDetail: async () => ({
                 id: 11,
@@ -1033,7 +1045,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 truncated: true,
               }),
             },
-          }) as any,
+          }),
       },
     );
     const note = (detailResponse as any).result.structuredContent.data;
@@ -1063,14 +1075,14 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             library: {
               listItems: async () => {
                 throw new TypeError("backend exploded");
               },
             },
-          }) as any,
+          }),
         onToolCall: (event) => {
           observedError = event.error?.message || "";
         },
@@ -1113,8 +1125,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             library: {
               getItemAttachments: async () => [
                 {
@@ -1146,7 +1158,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 },
               ],
             },
-          }) as any,
+          }),
       },
     );
 
@@ -1254,7 +1266,7 @@ describe("embedded Zotero MCP server protocol", function () {
   });
 
   it("lists and reads Zotero note payloads for workflow notes", async function () {
-    const hostApi = {
+    const broker = createFailClosedZoteroHostCapabilityBroker({
       library: {
         listNotePayloads: async () => [
           {
@@ -1294,7 +1306,7 @@ describe("embedded Zotero MCP server protocol", function () {
           truncated: true,
         }),
       },
-    } as any;
+    });
 
     const listed = await handleZoteroMcpRequestForTests(
       {
@@ -1310,7 +1322,7 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () => hostApi,
+        resolveZoteroHostCapabilityBroker: () => broker,
       },
     );
     const listedText = toolText(listed);
@@ -1348,7 +1360,7 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () => hostApi,
+        resolveZoteroHostCapabilityBroker: () => broker,
       },
     );
     const detailPayload = (detail as any).result.structuredContent.data;
@@ -1377,8 +1389,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             mutations: {
               preview: async () => ({
                 ok: true,
@@ -1393,7 +1405,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 throw new Error("should not execute");
               },
             },
-          }) as any,
+          }),
         requestToolPermission: () => {
           permissionCalls += 1;
           return true;
@@ -1437,8 +1449,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             mutations: {
               preview: async () => ({
                 ok: true,
@@ -1463,7 +1475,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 };
               },
             },
-          }) as any,
+          }),
         requestToolPermission: () => ({
           outcome: "approved",
         }),
@@ -1916,8 +1928,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             mutations: {
               preview: async (mutation: any) => ({
                 ok: true,
@@ -1932,7 +1944,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 throw new Error("should not execute");
               },
             },
-          }) as any,
+          }),
         requestToolPermission: () => ({
           outcome: "denied",
           reason: "test denial",
@@ -2013,8 +2025,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             mutations: {
               preview: async (mutation: any) => {
                 mutationContent = mutation.content;
@@ -2045,7 +2057,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 },
               }),
             },
-          }) as any,
+          }),
         requestToolPermission: () => ({
           outcome: "approved",
         }),
@@ -2063,7 +2075,7 @@ describe("embedded Zotero MCP server protocol", function () {
 
   it("updates markdown-backed notes through generic mutation.execute", async function () {
     let executeCalls = 0;
-    const hostApi = {
+    const broker = createFailClosedZoteroHostCapabilityBroker({
       mutations: {
         preview: async (mutation: any) => ({
           ok: true,
@@ -2092,7 +2104,7 @@ describe("embedded Zotero MCP server protocol", function () {
           };
         },
       },
-    } as any;
+    });
     const updated = await handleZoteroMcpRequestForTests(
       {
         jsonrpc: "2.0",
@@ -2112,7 +2124,7 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () => hostApi,
+        resolveZoteroHostCapabilityBroker: () => broker,
         requestToolPermission: () => true,
       },
     );
@@ -2160,8 +2172,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             mutations: {
               preview: async () => ({
                 ok: true,
@@ -2176,7 +2188,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 throw new Error("should not execute");
               },
             },
-          }) as any,
+          }),
         requestToolPermission: () => ({
           outcome: "denied",
           reason: "user_denied",
@@ -2198,8 +2210,8 @@ describe("embedded Zotero MCP server protocol", function () {
         },
       },
       {
-        resolveHostApi: () =>
-          ({
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
             mutations: {
               preview: async () => ({
                 ok: true,
@@ -2214,7 +2226,7 @@ describe("embedded Zotero MCP server protocol", function () {
                 throw new Error("should not execute");
               },
             },
-          }) as any,
+          }),
       },
     );
 
@@ -2237,16 +2249,22 @@ describe("embedded Zotero MCP server protocol", function () {
     }
     this.timeout(10000);
     const token = configureZoteroMcpServerForTests({
-      resolveHostContext: () => ({
-        target: "library",
-        libraryId: "7",
-        selectionEmpty: false,
-        currentItem: {
-          id: 99,
-          key: "SDKTEST1",
-          title: "SDK Compatibility Paper",
-        },
-      }),
+      resolveZoteroHostCapabilityBroker: () =>
+        createFailClosedZoteroHostCapabilityBroker({
+          context: {
+            getCurrentView: () => ({
+              target: "library",
+              libraryId: "7",
+              selectionEmpty: false,
+              currentItem: {
+                id: 99,
+                key: "SDKTEST1",
+                title: "SDK Compatibility Paper",
+              },
+              selectedItems: [],
+            }),
+          },
+        }),
     });
     const server = await createNodeMcpTestServer();
     await new Promise<void>((resolve) => {
@@ -2351,11 +2369,17 @@ describe("embedded Zotero MCP server protocol", function () {
 
   it("serializes concurrent Streamable HTTP tool calls and records timing diagnostics", async function () {
     const token = configureZoteroMcpServerForTests({
-      resolveHostContext: () => ({
-        target: "library",
-        libraryId: "1",
-        selectionEmpty: true,
-      }),
+      resolveZoteroHostCapabilityBroker: () =>
+        createFailClosedZoteroHostCapabilityBroker({
+          context: {
+            getCurrentView: () => ({
+              target: "library",
+              libraryId: "1",
+              selectionEmpty: true,
+              selectedItems: [],
+            }),
+          },
+        }),
     });
     const body = JSON.stringify({
       jsonrpc: "2.0",
@@ -2406,11 +2430,17 @@ describe("embedded Zotero MCP server protocol", function () {
     let releaseFirst!: () => void;
     let shouldBlock = true;
     const token = configureZoteroMcpServerForTests({
-      resolveHostContext: () => ({
-        target: "library",
-        libraryId: "queue-policy",
-        selectionEmpty: true,
-      }),
+      resolveZoteroHostCapabilityBroker: () =>
+        createFailClosedZoteroHostCapabilityBroker({
+          context: {
+            getCurrentView: () => ({
+              target: "library",
+              libraryId: "queue-policy",
+              selectionEmpty: true,
+              selectedItems: [],
+            }),
+          },
+        }),
       beforeToolCallForTests: async () => {
         if (!shouldBlock) {
           return;
@@ -2829,11 +2859,17 @@ describe("embedded Zotero MCP server protocol", function () {
 
   it("records host-side MCP runtime logs for a successful tool call", async function () {
     const token = configureZoteroMcpServerForTests({
-      resolveHostContext: () => ({
-        target: "library",
-        libraryId: "1",
-        selectionEmpty: true,
-      }),
+      resolveZoteroHostCapabilityBroker: () =>
+        createFailClosedZoteroHostCapabilityBroker({
+          context: {
+            getCurrentView: () => ({
+              target: "library",
+              libraryId: "1",
+              selectionEmpty: true,
+              selectedItems: [],
+            }),
+          },
+        }),
     });
     await handleZoteroMcpHttpRequestForTests({
       method: "POST",

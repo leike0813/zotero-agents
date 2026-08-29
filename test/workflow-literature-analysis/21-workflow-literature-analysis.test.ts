@@ -834,9 +834,17 @@ describe("workflow: literature-analysis", function () {
       fields: { title: "Workflow Result Parent" },
     });
 
-    const bundle = new ZipBundleReader(
+    const currentBundle = new ZipBundleReader(
       fixturePath("literature-analysis", "run_bundle.zip"),
     );
+    const legacyBundle = {
+      async readText(entryPath: string) {
+        if (entryPath === "artifacts/literature_score.json") {
+          throw new Error(`bundle entry not found: ${entryPath}`);
+        }
+        return currentBundle.readText(entryPath);
+      },
+    };
 
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
@@ -849,7 +857,7 @@ describe("workflow: literature-analysis", function () {
       await executeWorkflowApplyResult({
         workflow: workflow!,
         parent,
-        bundleReader: bundle,
+        bundleReader: legacyBundle,
       });
     } catch (error) {
       thrown = error;
@@ -2965,7 +2973,7 @@ describe("workflow: literature-analysis", function () {
   );
 
   itFullOnly(
-    "reports accurate skipped counts for filtered and parent-selected idempotent inputs (selected parent item is skipped during build)",
+    "builds score-only for a parent-selected item with the legacy triplet",
     async function () {
       const workflow = await getLiteratureDigestWorkflow();
       const { parent } = await createDigestAttachmentParent({
@@ -2980,18 +2988,14 @@ describe("workflow: literature-analysis", function () {
       });
 
       const context = await buildSelectionContext([parent]);
-      let thrown: unknown = null;
-      try {
-        await executeBuildRequests({
-          workflow,
-          selectionContext: context,
-        });
-      } catch (error) {
-        thrown = error;
-      }
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: context,
+      })) as LiteratureAnalysisSequenceRequest[];
 
-      assert.isOk(thrown, "expected parent-selection build request to skip");
-      assert.match(String(thrown), /has no valid input units after filtering/);
+      assert.lengthOf(requests, 1);
+      assert.equal(requests[0]?.targetParentID, parent.id);
+      assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
     },
   );
 });

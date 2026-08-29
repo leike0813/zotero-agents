@@ -489,6 +489,10 @@ async function resolveGeneratedNoteKind(note: LibraryArtifactItem) {
   if (markerKind) {
     return markerKind;
   }
+  const legacyHeadingKind = resolveLegacyGeneratedHeadingKind(noteHtml);
+  if (legacyHeadingKind) {
+    return legacyHeadingKind;
+  }
   const headingKind = resolveGeneratedSchemaHeadingKind(noteHtml);
   if (!headingKind) {
     return "";
@@ -499,6 +503,22 @@ async function resolveGeneratedNoteKind(note: LibraryArtifactItem) {
       : "";
   }
   return resolveGeneratedNoteKindFromEmbeddedPayload(note, headingKind);
+}
+
+function resolveLegacyGeneratedHeadingKind(noteHtml: unknown) {
+  const heading = cleanHtmlText(
+    String(noteHtml || "").match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "",
+  );
+  if (/^literature digest$/i.test(heading)) {
+    return "digest";
+  }
+  if (/^references json$/i.test(heading)) {
+    return "references";
+  }
+  if (/^citation analysis$/i.test(heading)) {
+    return "citation-analysis";
+  }
+  return "";
 }
 
 function normalizeGeneratedNoteKindFromMarkers(noteHtml: unknown) {

@@ -185,6 +185,16 @@ The executable command contract owns the base source, fixed values, field mappin
       "description": "Result data owned by library.get_item_attachments.",
       "properties": {
         "attachments": {
+          "items": {
+            "additionalProperties": true,
+            "not": {
+              "required": [
+                "path"
+              ]
+            },
+            "type": "object",
+            "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+          },
           "type": "array"
         },
         "hasMore": {
@@ -572,6 +582,16 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "description": "Result data owned by library.get_item_attachments.",
         "properties": {
           "attachments": {
+            "items": {
+              "additionalProperties": true,
+              "not": {
+                "required": [
+                  "path"
+                ]
+              },
+              "type": "object",
+              "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+            },
             "type": "array"
           },
           "hasMore": {

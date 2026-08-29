@@ -55,6 +55,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `topics.export_research_bundle` | topics | `none` | `object` | `synthesis topic export-research-bundle` | response:file-output, mcp-mirror |
 | `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | response:selector-bounded, mcp-mirror |
 | `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | response:file-output, mcp-mirror |
+| `topics.get_planning_context` | topics | `none` | `object` | `synthesis topic get-planning-context` | response:file-output, mcp-mirror |
 | `topics.get_report` | topics | `none` | `object` | `synthesis topic get-report` | response:selector-bounded, mcp-mirror |
 | `topics.get_review_input` | topics | `none` | `object` | `synthesis topic get-review-input` | response:limit-bounded, mcp-mirror |
 | `topics.list` | topics | `none` | `object` | `synthesis topic list` | response:paged, mcp-mirror |
@@ -136,6 +137,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `synthesis topic export-research-bundle` | `topics.export_research_bundle` | capability | - |
 | `synthesis topic find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
 | `synthesis topic get-context` | `topics.get_context` | capability | - |
+| `synthesis topic get-planning-context` | `topics.get_planning_context` | capability | - |
 | `synthesis topic get-report` | `topics.get_report` | capability | - |
 | `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
 | `synthesis topic list` | `topics.list` | capability | - |

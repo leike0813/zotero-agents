@@ -13,7 +13,7 @@
       "path": "runtime/payloads/core-synthesis.json"
     },
     "stage_50_kg_enrichment_payload": {
-      "hash": "sha256:c9510936d396616eb32a24df8b100e934ddd3566353a3a66a116c9531f3908f9",
+      "hash": "sha256:e0c0b7678ac236f69b21f3aff32018a6cf66742016743cdd461ec5334d599f43",
       "path": "runtime/payloads/kg-enrichment.json"
     },
     "topic_graph_relation_proposals": {

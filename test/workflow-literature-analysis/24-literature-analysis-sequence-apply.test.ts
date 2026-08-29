@@ -3,6 +3,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import {
+  createLiteratureAnalysisFixtureHelpers,
+  workflowsPath,
+} from "./workflow-test-utils";
 
 describe("workflow: literature-analysis sequence step apply", function () {
   it("declares per-step apply for digest and tag-regulator steps", async function () {
@@ -18,6 +23,11 @@ describe("workflow: literature-analysis sequence step apply", function () {
       getCreators: () => [],
       getTags: () => [],
     };
+    const loaded = await loadWorkflowManifests(workflowsPath());
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-analysis",
+    );
+    assert.isOk(workflow, "missing literature-analysis workflow");
     const runtime = {
       hostApiVersion: 6,
       hostApi: {
@@ -54,11 +64,7 @@ describe("workflow: literature-analysis sequence step apply", function () {
           exportTagVocabularyForRegulator: async () => ["segmentation"],
         },
       },
-      helpers: {
-        resolveItemRef: () => parent,
-        getAttachmentFilePath: (entry: { filePath?: string }) =>
-          entry.filePath || "",
-      },
+      helpers: createLiteratureAnalysisFixtureHelpers(Zotero),
     };
 
     try {
@@ -80,6 +86,7 @@ describe("workflow: literature-analysis sequence step apply", function () {
             auto_tag_regulator: true,
           },
         },
+        manifest: workflow!.manifest,
         runtime,
       })) as {
         steps: Array<{

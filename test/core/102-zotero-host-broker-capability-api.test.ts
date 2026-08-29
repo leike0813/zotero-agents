@@ -1,12 +1,20 @@
 import { assert } from "chai";
-import fs from "node:fs/promises";
 import { handlers } from "../../src/handlers";
-import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   createWorkflowHostApi,
   resetWorkflowHostApiForTests,
-  WORKFLOW_HOST_API_VERSION,
 } from "../../src/workflows/hostApi";
+import {
+  inspectWorkflowHostContract,
+  resolveWorkflowHostContractVersion,
+  WORKFLOW_HOST_API_VERSION,
+  type WorkflowHostContractVariant,
+} from "../../src/workflows/workflowHostContract";
+import { createNonInteractiveWorkflowHostApi } from "../../src/modules/hostBridgeWorkflowResources";
+import type {
+  WorkflowHostApi,
+  WorkflowResourceApi,
+} from "../../src/workflows/types";
 import {
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
@@ -21,6 +29,12 @@ import {
   setDefaultSynthesisClientCompositionFactoryForTests,
 } from "../../src/modules/synthesisClient/defaultClient";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
+import {
+  createZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
+} from "../../src/modules/zoteroHostCapabilityBroker";
+import { assertStrictJsonValue } from "../helpers/zoteroHostCapabilityBrokerHarness";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -181,6 +195,37 @@ describe("zotero host broker capability api", function () {
     await resetDefaultSynthesisClientForTests();
   });
 
+  it("keeps the canonical broker portable and strict JSON-safe", async function () {
+    const item = await createParentItem("Strict Broker DTO");
+    (item as any).getCollections = () => [1, "COLLECTION", new Date(), 1n];
+    const broker = createZoteroHostCapabilityBroker();
+
+    assert.deepEqual(Object.keys(broker.context).sort(), [
+      "getCurrentView",
+      "getSelectedItems",
+    ]);
+    assert.deepEqual(Object.keys(broker.navigation).sort(), [
+      "openCollection",
+      "openItem",
+      "openNote",
+      "openSelection",
+    ]);
+
+    const detail = await broker.library.getItemDetail(item.id);
+    assert.deepEqual(detail?.collections, [1, "COLLECTION"]);
+    assertStrictJsonValue(detail);
+
+    try {
+      await broker.library.getNoteDetail(item as never);
+      assert.fail("expected a portable-ref error");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      const brokerError = error as ZoteroHostCapabilityError;
+      assert.strictEqual(brokerError.code, "invalid_object_ref");
+      assertStrictJsonValue(brokerError.details);
+    }
+  });
+
   it("exposes v11 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
@@ -194,6 +239,25 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.metadata.translateIdentifier);
     assert.isFunction(hostApi.images.prepareForNoteEmbedding);
     assert.isFunction(hostApi.notes.importEmbeddedImage);
+    assert.sameMembers(Object.keys(hostApi.context), [
+      "getCurrentView",
+      "getSelectedItems",
+    ]);
+    assert.sameMembers(Object.keys(hostApi.library), [
+      "listItems",
+      "syncSnapshot",
+      "searchItems",
+      "getItemDetail",
+      "getItemNotes",
+      "getNoteDetail",
+      "listNotePayloads",
+      "getNotePayload",
+      "getItemAttachments",
+    ]);
+    assert.strictEqual(
+      (await hostApi.library.getItemDetail(item))?.key,
+      item.key,
+    );
     assert.isFunction(hostApi.file.readBytes);
     assert.isFunction(hostApi.file.writeBytes);
     assert.isFunction(hostApi.file.copy);
@@ -214,6 +278,173 @@ describe("zotero host broker capability api", function () {
       title: "Broker Legacy Updated",
     });
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
+  });
+
+  it("inspects interactive and non-interactive Workflow Host contract variants", function () {
+    const interactive = createWorkflowHostApi();
+    const interactiveInspection = inspectWorkflowHostContract(
+      interactive,
+      "interactive",
+    );
+
+    assert.deepInclude(interactiveInspection.summary, {
+      items: true,
+      command: true,
+      resources: false,
+      saveFile: true,
+    });
+    assert.deepEqual(interactiveInspection.conformance, {
+      ok: true,
+      missingCapabilities: [],
+      unexpectedCapabilities: [],
+      versionMismatch: null,
+    });
+
+    const resources: WorkflowResourceApi = {
+      mode: "non-interactive",
+      getInput: () => null,
+      getInputs: () => [],
+      async allocateOutput() {
+        throw new Error("unused");
+      },
+      async publishOutput() {
+        throw new Error("unused");
+      },
+      listOutputs: () => [],
+    };
+    const nonInteractive = createNonInteractiveWorkflowHostApi({
+      base: interactive,
+      resources,
+    });
+    const nonInteractiveInspection = inspectWorkflowHostContract(
+      nonInteractive,
+      "non-interactive",
+    );
+
+    assert.strictEqual(nonInteractiveInspection.summary.resources, true);
+    assert.strictEqual(nonInteractiveInspection.conformance.ok, true);
+
+    const drifted = {
+      ...interactive,
+      version: interactive.version + 1,
+      experimental: {},
+    } as WorkflowHostApi & { experimental: object };
+    delete (drifted as Partial<WorkflowHostApi>).items;
+
+    for (const variant of [
+      "interactive",
+      "non-interactive",
+    ] satisfies WorkflowHostContractVariant[]) {
+      const inspection = inspectWorkflowHostContract(drifted, variant);
+      assert.deepEqual(inspection.conformance.missingCapabilities, [
+        "items",
+        ...(variant === "non-interactive" ? ["resources"] : []),
+      ]);
+      assert.deepEqual(inspection.conformance.unexpectedCapabilities, [
+        "experimental",
+      ]);
+      assert.deepEqual(inspection.conformance.versionMismatch, {
+        expected: WORKFLOW_HOST_API_VERSION,
+        actual: WORKFLOW_HOST_API_VERSION + 1,
+      });
+      assert.strictEqual(inspection.conformance.ok, false);
+    }
+  });
+
+  it("resolves Workflow Host versions without labeling unknown adapters as current", function () {
+    const cases = [
+      {
+        label: "explicit compatibility override",
+        input: {
+          explicitVersion: 6,
+          hostApi: { version: 11 },
+          currentProjection: true,
+        },
+        expected: 6,
+      },
+      {
+        label: "selected projection identity",
+        input: { hostApi: { version: 9 }, currentProjection: false },
+        expected: 9,
+      },
+      {
+        label: "internally-created current projection",
+        input: { currentProjection: true },
+        expected: 11,
+      },
+      {
+        label: "unknown external adapter",
+        input: { hostApi: {}, currentProjection: false },
+        expected: 0,
+      },
+      {
+        label: "non-finite explicit override",
+        input: {
+          explicitVersion: Number.NaN,
+          hostApi: { version: 8 },
+          currentProjection: false,
+        },
+        expected: 8,
+      },
+    ];
+
+    for (const testCase of cases) {
+      assert.strictEqual(
+        resolveWorkflowHostContractVersion(testCase.input),
+        testCase.expected,
+        testCase.label,
+      );
+    }
+  });
+
+  it("materializes Research Bundle papers through the cached v11 projection", async function () {
+    const client = createSynthesisClientFromPort({
+      async readPaperArtifacts() {
+        return { artifacts: [], diagnostics: [] };
+      },
+    });
+    setDefaultSynthesisClientCompositionFactoryForTests(() => ({
+      client,
+      invalidate() {},
+      async dispose() {},
+    }));
+    const hostApi = createWorkflowHostApi();
+    const item = await createParentItem("Late-bound Research Bundle Paper");
+    const paperRef = `${item.libraryID}:${item.key}`;
+
+    const result = await hostApi.researchBundles.materializePapers({
+      papers: [
+        { paperRef },
+        { paperRef: "invalid-paper-ref" },
+        { paperRef: `${item.libraryID}:MISSING1` },
+      ],
+      sourcePaperRefs: [paperRef],
+    });
+
+    assert.sameMembers(Object.keys(result), ["entries", "warnings", "papers"]);
+    assert.deepEqual(
+      result.papers.map((paper) => paper.paper_ref),
+      [paperRef],
+    );
+    assert.includeDeepMembers(result.warnings, [
+      {
+        code: "paper_missing",
+        paper_ref: "invalid-paper-ref",
+        reason: "invalid_paper_ref",
+      },
+      {
+        code: "paper_missing",
+        paper_ref: `${item.libraryID}:MISSING1`,
+      },
+      {
+        code: "core_source_missing",
+        paper_ref: paperRef,
+      },
+    ]);
+    assert.notInclude(
+      result.warnings.map((warning) => warning.code),
+      "source_missing",
+    );
   });
 
   it("exports item text with ordered translator fallback", async function () {
@@ -420,54 +651,6 @@ describe("zotero host broker capability api", function () {
       );
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
-    }
-  });
-
-  it("materializes workflow input files under managed runtime tmp", async function () {
-    const hostApi = createWorkflowHostApi();
-    const paths = getRuntimePersistencePaths();
-
-    const first = await hostApi.file.materializeWorkflowInputFile({
-      workflowId: "tag-regulator/../unsafe",
-      key: "valid_tags",
-      fileName: "CON.yaml",
-      content: "- topic:sequence\n",
-    });
-    const second = await hostApi.file.materializeWorkflowInputFile({
-      workflowId: "tag-regulator/../unsafe",
-      key: "valid_tags",
-      fileName: "CON.yaml",
-      content: "- topic:other\n",
-    });
-    const binary = await hostApi.file.materializeWorkflowInputFile({
-      workflowId: "literature-deep-reading",
-      key: "source_bundle_path",
-      fileName: "source_bundle.zip",
-      bytes: new Uint8Array([1, 2, 3]),
-    });
-
-    const normalizedTmp = paths.tmpDir.replace(/\\/g, "/");
-    for (const materialized of [first, second, binary]) {
-      const normalized = materialized.path.replace(/\\/g, "/");
-      assert.include(normalized, `${normalizedTmp}/workflow-inputs/`);
-      assert.notInclude(normalized, "../");
-    }
-    assert.notEqual(first.path, second.path);
-    assert.equal(await fs.readFile(first.path, "utf8"), "- topic:sequence\n");
-    assert.deepEqual(
-      Array.from(new Uint8Array(await fs.readFile(binary.path))),
-      [1, 2, 3],
-    );
-
-    try {
-      await hostApi.file.materializeWorkflowInputFile({
-        workflowId: "tag-regulator",
-        key: "valid_tags",
-        fileName: "valid_tags.yaml",
-      });
-      assert.fail("expected missing content/bytes to fail");
-    } catch (error) {
-      assert.match(String(error), /exactly one of content or bytes/);
     }
   });
 

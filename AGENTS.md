@@ -196,6 +196,23 @@
 - `maintenance-started` 按 operation 只发布一次：initial/retry insert winner 发布，continue 不发布。所有 success、failure、cancel、timeout、spawn failure 与 restart classification 只能由 terminal compare-and-set winner 发布 `maintenance-terminal`；后续 trace 必须按 operation ID 解除 originating trace 的 active pin。
 - maintenance interface 只返回 typed operation view/receipt，不得向 wire adapter、Workbench 或 Host observation 暴露 `OperationRecord`、持久化 basis 或 diagnostics storage 格式。分页缓存、Host receipt inference 和进程内事件不得成为 durable operation 正确性的事实源。
 
+# Workflow Host Runtime Adaptation硬约束
+
+- `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。
+- Workflow Host runtime adapter 必须按调用晚绑定；不得因 `createWorkflowHostApi()` 缓存 projection 而缓存运行时 global、picker window 或 filesystem adapter。
+- `src/workflows/hostApi.ts` 只负责 Workflow Host API v11 的显式组合与投影；输入物化、文件选择、图片准备、stored attachment import 和 archive 的内部 adapter 不得泄漏为公共 host 成员。
+- `attachments.importStoredFile` 的 companion 路径与源文件必须在创建 Zotero attachment 前完成校验与 managed staging；创建后的复制或清理失败必须尝试删除新 attachment，并保留原始失败为主错误。
+
+# Zotero Host Capability Broker硬约束
+
+- `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。
+- broker 公共输入只接受 portable JSON refs，公共 DTO 只允许 strict JSON 值；raw `Zotero.Item` / `Zotero.Collection` 仅可由 `src/workflows/hostApi.ts` 在 Workflow Host API v11 adapter 内归一化。
+- `WorkflowHostApi` 必须通过 member-level `Pick` 和显式对象字面量投影 broker；不得传播整个 broker domain，不得使用 spread、proxy、运行时 capability catalog 或隐式成员继承。
+- broker 不负责 authorization、permission、exposure、noninteractive policy、transport 或 remote locality；这些规则属于 Host Bridge/MCP adapter。
+- Host Bridge 是 attachment remote locality 的唯一 adapter。`library.get_item_attachments` 与 `mutation.execute` 的 attachment 输出必须共用同一投影，删除本地 `path`，只返回 opaque file handle 或 unavailable；MCP 必须复用 Host Bridge handler，不得另建路径策略。
+- broker 失败统一使用 `ZoteroHostCapabilityError` 的稳定 `code`、`retryable` 和 strict-JSON `details`；不得把 raw ref、native cause 或宿主对象放入错误详情。
+- broker 测试替身必须完整且 fail-closed；不得用 partial object、`as any` 或默认真实 Zotero runtime 掩盖未配置能力。
+
 # 发布流程硬约束
 
 - Host Bridge 发布只能由 Agent 在版本、release set、本地门禁和用户授权明确后，通过 `npm run release:host-bridge:dispatch` 显式触发；普通 `main` push 和 CI 不得触发发布。

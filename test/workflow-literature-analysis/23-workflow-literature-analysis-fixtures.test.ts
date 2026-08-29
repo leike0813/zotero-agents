@@ -1,13 +1,15 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { createHookHelpers } from "../../src/workflows/helpers";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import { LITERATURE_ANALYSIS_FIXTURE_CASES } from "./literature-analysis-fixture-cases";
 import { isFullTestMode } from "./testMode";
-import { workflowsPath } from "./workflow-test-utils";
+import {
+  createLiteratureAnalysisFixtureHelpers,
+  workflowsPath,
+} from "./workflow-test-utils";
 
 type FilteredSelection = {
   items?: { attachments?: Array<{ filePath?: string }> };
@@ -113,7 +115,7 @@ describeFixtureMatrixSuite(
     const hookRuntime = {
       handlers,
       zotero: Zotero,
-      helpers: createHookHelpers(Zotero),
+      helpers: createLiteratureAnalysisFixtureHelpers(Zotero),
     };
 
     function createFixtureRequestRuntime() {
@@ -137,27 +139,7 @@ describeFixtureMatrixSuite(
             },
           },
         },
-        helpers: {
-          ...hookRuntime.helpers,
-          resolveItemRef(ref: number | string) {
-            const id = Number(ref);
-            return {
-              id,
-              key: `fixture-parent-${id}`,
-              itemType: "journalArticle",
-              libraryID: 1,
-              getField(field: string) {
-                return field === "title" ? `Fixture Parent ${id}` : "";
-              },
-              getCreators() {
-                return [];
-              },
-              getTags() {
-                return [];
-              },
-            };
-          },
-        },
+        helpers: hookRuntime.helpers,
       };
     }
 

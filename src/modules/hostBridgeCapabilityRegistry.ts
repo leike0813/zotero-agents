@@ -42,7 +42,8 @@ import type {
   HostBridgeStatusSnapshot,
 } from "./hostBridgeProtocol";
 import {
-  createZoteroHostCapabilityBrokerApis,
+  resolveZoteroHostCapabilityBroker,
+  type ZoteroHostCapabilityBroker,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
   type ZoteroHostMutationRequest,
@@ -81,16 +82,12 @@ import {
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
-  resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
+  resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
   resolveDirectResearchBundleApplication?: () =>
     | DirectResearchBundleApplication
     | Promise<DirectResearchBundleApplication>;
 };
-
-export type ZoteroHostCapabilityBrokerApis = ReturnType<
-  typeof createZoteroHostCapabilityBrokerApis
->;
 
 export type JsonSerializableValue =
   | null
@@ -274,19 +271,17 @@ function toBridgeAttachmentDescriptor(
   };
 }
 
-function resolveHostBridgeApis(context: HostBridgeCapabilityContext) {
+function resolveCapabilityBroker(context: HostBridgeCapabilityContext) {
   return (
-    context.resolveHostBridgeApis?.() || createZoteroHostCapabilityBrokerApis()
+    context.resolveZoteroHostCapabilityBroker?.() ||
+    resolveZoteroHostCapabilityBroker()
   );
 }
 
-async function toBridgeAttachmentDescriptorsWithContext(
-  input: unknown,
-  context: HostBridgeCapabilityContext,
+async function toBridgeAttachmentDescriptors(
+  attachments: ZoteroHostAttachmentDto[],
+  capability: "library.get_item_attachments" | "mutation.execute",
 ) {
-  const attachments = await resolveHostBridgeApis(
-    context,
-  ).library.getItemAttachments(itemRefFromInput(input));
   const registerable = attachments.filter(
     (attachment) =>
       String(attachment.path || "").trim() && !attachment.errors?.length,
@@ -298,7 +293,7 @@ async function toBridgeAttachmentDescriptorsWithContext(
       displayName: attachment.filename || attachment.title,
       contentType: attachment.contentType,
       owner: {
-        capability: "library.get_item_attachments",
+        capability,
         itemKey: attachment.parent?.key || attachment.key,
         libraryId: attachment.libraryId,
       },
@@ -313,6 +308,41 @@ async function toBridgeAttachmentDescriptorsWithContext(
       canRegister ? files[fileIndex++] : undefined,
     );
   });
+}
+
+async function toBridgeAttachmentDescriptorsWithContext(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const attachments = await resolveCapabilityBroker(
+    context,
+  ).library.getItemAttachments(itemRefFromInput(input));
+  return toBridgeAttachmentDescriptors(
+    attachments,
+    "library.get_item_attachments",
+  );
+}
+
+async function executeMutationWithBridgeProjection(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const response = await resolveCapabilityBroker(context).mutations.execute(
+    asObject(input) as ZoteroHostMutationRequest,
+  );
+  if (!response.ok || !response.result.attachments?.length) {
+    return response;
+  }
+  return {
+    ...response,
+    result: {
+      ...response.result,
+      attachments: await toBridgeAttachmentDescriptors(
+        response.result.attachments,
+        "mutation.execute",
+      ),
+    },
+  };
 }
 
 function capability(
@@ -770,6 +800,48 @@ async function applySynthesisOutputBoundary(
   }
   if (capabilityName === "paper_artifacts.resolve_topic_digest") {
     return synthesisTextChunk(result, "digest_markdown", input);
+  }
+  if (capabilityName === "topics.get_planning_context") {
+    const object = asObject(result);
+    const library = asObject(object.library);
+    const graph = asObject(object.topic_graph);
+    const papers = Array.isArray(library.papers) ? library.papers : [];
+    const topics = Array.isArray(object.topics) ? object.topics : [];
+    const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+    const edges = Array.isArray(graph.edges) ? graph.edges : [];
+    const previewLimit = Math.max(
+      1,
+      Math.min(5000, Math.floor(Number(input.limit) || 100)),
+    );
+    const displayName = "synthesis-topic-planning-context.json";
+    const file = await registerBoundedOutputFile({
+      capability: capabilityName,
+      displayName,
+      contentType: "application/json",
+      content: `${JSON.stringify(result, null, 2)}\n`,
+    });
+    return {
+      summary: {
+        totalPapers: Math.max(
+          papers.length,
+          Math.floor(Number(library.total_papers) || 0),
+        ),
+        totalTopics: topics.length,
+        graphNodes: nodes.length,
+        graphEdges: edges.length,
+        paperRefs: papers.slice(0, previewLimit).map((entry) => {
+          const paper = asObject(entry);
+          return paper.paper_ref || paper.paperRef || paper.key;
+        }),
+        previewTruncated: papers.length > previewLimit,
+      },
+      diagnostics: asObject(object.diagnostics),
+      delivery: {
+        mode: "bridge-download",
+        bundle: file,
+        downloadCommand: `zotero-bridge file download ${file.fileId} --output ${displayName}`,
+      },
+    };
   }
   if (capabilityName === "topics.get_review_input") {
     const object = asObject(result);
@@ -1239,6 +1311,7 @@ type SynthesisClientCapabilityMethod =
   | "listTopics"
   | "findTopicsByPaperRef"
   | "getTopicContext"
+  | "getTopicPlanningContext"
   | "getTopicReport"
   | "getSchemas"
   | "queryConceptKb"
@@ -1314,6 +1387,8 @@ function invokeSynthesisClientCapability(
         rebuildSynthesisTopicContextRequest(input),
         delivery,
       );
+    case "getTopicPlanningContext":
+      return client.topics.getPlanningContext();
     case "getTopicReport":
       return client.topics.getTopicReport(topicReportRequest(input));
     case "getSchemas":
@@ -1399,9 +1474,9 @@ async function resolveDirectResearchBundleApplication(
 ) {
   const injected = context.resolveDirectResearchBundleApplication?.();
   if (injected) return injected;
-  const [client, apis] = await Promise.all([
+  const [client, broker] = await Promise.all([
     context.resolveSynthesisClient?.() || getDefaultSynthesisClient(),
-    resolveHostBridgeApis(context),
+    resolveCapabilityBroker(context),
   ]);
   return createDirectResearchBundleApplication({
     client,
@@ -1409,11 +1484,11 @@ async function resolveDirectResearchBundleApplication(
       async resolveItems(selectors) {
         const papers = [];
         for (const selector of selectors) {
-          const detail = await apis.library.getItemDetail(
+          const detail = await broker.library.getItemDetail(
             selector as ZoteroHostItemRefInput,
           );
           if (!detail) continue;
-          const attachments = await apis.library.getItemAttachments({
+          const attachments = await broker.library.getItemAttachments({
             key: detail.key,
             libraryId: detail.libraryId,
           });
@@ -1551,10 +1626,10 @@ async function callSynthesisDebugClient(
 
 const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("context.get_current_view", (_input, context) =>
-    resolveHostBridgeApis(context).context.getCurrentView(),
+    resolveCapabilityBroker(context).context.getCurrentView(),
   ),
   capability("context.get_selected_items", (_input, context) => {
-    const items = resolveHostBridgeApis(context).context.getSelectedItems();
+    const items = resolveCapabilityBroker(context).context.getSelectedItems();
     return {
       items,
       nextCursor: null,
@@ -1565,7 +1640,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     };
   }),
   capability("library.search_items", async (input, context) => {
-    const page = await resolveHostBridgeApis(context).library.listItems(
+    const page = await resolveCapabilityBroker(context).library.listItems(
       asObject(input) as {
         query: string;
         limit?: number | string;
@@ -1578,22 +1653,22 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     };
   }),
   capability("library.list_items", (input, context) =>
-    resolveHostBridgeApis(context).library.listItems(
+    resolveCapabilityBroker(context).library.listItems(
       libraryListArgsFromInput(input),
     ),
   ),
   capability("library.sync_snapshot", (input, context) =>
-    resolveHostBridgeApis(context).library.syncSnapshot(
+    resolveCapabilityBroker(context).library.syncSnapshot(
       libraryListArgsFromInput(input),
     ),
   ),
   capability("library.readiness_audit", (input, context) =>
-    resolveHostBridgeApis(context).library.readinessAudit(
+    resolveCapabilityBroker(context).library.readinessAudit(
       libraryListArgsFromInput(input),
     ),
   ),
   capability("library.get_item_detail", (input, context) =>
-    resolveHostBridgeApis(context).library.getItemDetail(
+    resolveCapabilityBroker(context).library.getItemDetail(
       itemRefFromInput(input),
     ),
   ),
@@ -1602,7 +1677,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     const notes = [];
     const sourceLimit = 100;
     for (let cursor = 0; ; cursor += sourceLimit) {
-      const batch = await resolveHostBridgeApis(context).library.getItemNotes(
+      const batch = await resolveCapabilityBroker(context).library.getItemNotes(
         itemRefFromInput(input),
         {
           ...object,
@@ -1621,7 +1696,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     });
   }),
   capability("library.get_note_detail", (input, context) =>
-    resolveHostBridgeApis(context).library.getNoteDetail(
+    resolveCapabilityBroker(context).library.getNoteDetail(
       itemRefFromInput(input),
       asObject(input) as ZoteroHostNoteDetailArgs,
     ),
@@ -1631,13 +1706,13 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       scope: "library note payloads",
       section: "payloads",
       input: asObject(input),
-      rows: await resolveHostBridgeApis(context).library.listNotePayloads(
+      rows: await resolveCapabilityBroker(context).library.listNotePayloads(
         itemRefFromInput(input),
       ),
     }),
   ),
   capability("library.get_note_payload", (input, context) =>
-    resolveHostBridgeApis(context).library.getNotePayload(
+    resolveCapabilityBroker(context).library.getNotePayload(
       itemRefFromInput(input),
       asObject(input) as ZoteroHostNotePayloadDetailArgs,
     ),
@@ -1655,14 +1730,14 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       scope: "library annotation list",
       section: "annotations",
       input: asObject(input),
-      rows: await resolveHostBridgeApis(context).library.listAnnotations(
+      rows: await resolveCapabilityBroker(context).library.listAnnotations(
         itemRefFromInput(input),
       ),
     }),
   ),
   capability("library.export_annotations", async (input, context) => {
     const object = asObject(input);
-    const exported = await resolveHostBridgeApis(
+    const exported = await resolveCapabilityBroker(
       context,
     ).library.exportAnnotations(
       itemRefFromInput(input),
@@ -1749,15 +1824,11 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     return { productId: product.productId, removed: true };
   }),
   capability("mutation.preview", (input, context) =>
-    resolveHostBridgeApis(context).mutations.preview(
+    resolveCapabilityBroker(context).mutations.preview(
       asObject(input) as ZoteroHostMutationRequest,
     ),
   ),
-  capability("mutation.execute", (input, context) =>
-    resolveHostBridgeApis(context).mutations.execute(
-      asObject(input) as ZoteroHostMutationRequest,
-    ),
-  ),
+  capability("mutation.execute", executeMutationWithBridgeProjection),
   capability("diagnostic.get_status", (_input, context) => context.getStatus()),
   debugCapability("debug.status", debugStatus),
   debugCapability("debug.persistence.snapshot", debugPersistenceSnapshot),
@@ -1817,6 +1888,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   synthesisCapability("topics.list", "listTopics"),
   synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),
   synthesisCapability("topics.get_context", "getTopicContext"),
+  synthesisCapability("topics.get_planning_context", "getTopicPlanningContext"),
   synthesisCapability("topics.get_report", "getTopicReport"),
   directResearchBundleCapability(
     "topics.export_research_bundle",

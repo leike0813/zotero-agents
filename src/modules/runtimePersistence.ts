@@ -918,9 +918,15 @@ export async function runtimePathExists(pathRaw: string) {
   return false;
 }
 
-export async function ensureRuntimeDirectory(pathRaw: string) {
+async function ensureRuntimeDirectoryInternal(
+  pathRaw: string,
+  surfaceErrors: boolean,
+) {
   const path = normalizeRuntimeFsPath(pathRaw);
   if (!path) {
+    if (surfaceErrors) {
+      throw new Error("runtime directory path is missing");
+    }
     return;
   }
   assertNativeRuntimeFsPath(path, "create runtime directory");
@@ -977,6 +983,17 @@ export async function ensureRuntimeDirectory(pathRaw: string) {
     ensureOne(file);
     return;
   }
+  if (surfaceErrors) {
+    throw new Error("No runtime directory creation API is available");
+  }
+}
+
+export function ensureRuntimeDirectory(pathRaw: string) {
+  return ensureRuntimeDirectoryInternal(pathRaw, false);
+}
+
+export function ensureRuntimeDirectoryStrict(pathRaw: string) {
+  return ensureRuntimeDirectoryInternal(pathRaw, true);
 }
 
 export async function copyRuntimeFileIfMissing(args: {
@@ -1300,9 +1317,18 @@ function parentPath(pathRaw: string) {
   return path.slice(0, index);
 }
 
-export async function readRuntimeTextFile(pathRaw: string) {
+async function readRuntimeTextFileInternal(
+  pathRaw: string,
+  surfaceErrors: boolean,
+) {
   const path = normalizeString(pathRaw);
-  if (!path || !(await runtimePathExists(path))) {
+  if (!path) {
+    if (surfaceErrors) {
+      throw new Error("text file path does not exist");
+    }
+    return "";
+  }
+  if (!surfaceErrors && !(await runtimePathExists(path))) {
     return "";
   }
   const runtime = globalThis as {
@@ -1329,7 +1355,18 @@ export async function readRuntimeTextFile(pathRaw: string) {
   if (fs) {
     return fs.readFile(path, "utf8");
   }
+  if (surfaceErrors) {
+    throw new Error("No text file read API is available");
+  }
   return "";
+}
+
+export function readRuntimeTextFile(pathRaw: string) {
+  return readRuntimeTextFileInternal(pathRaw, false);
+}
+
+export function readRuntimeTextFileStrict(pathRaw: string) {
+  return readRuntimeTextFileInternal(pathRaw, true);
 }
 
 export async function readRuntimeTextRange(
@@ -1526,13 +1563,20 @@ export async function scanRuntimeUtf8Lines(args: {
   };
 }
 
-export async function writeRuntimeTextFile(pathRaw: string, content: string) {
+async function writeRuntimeTextFileInternal(
+  pathRaw: string,
+  content: string,
+  surfaceErrors: boolean,
+) {
   const path = normalizeString(pathRaw);
   if (!path) {
+    if (surfaceErrors) {
+      throw new Error("text file path is missing");
+    }
     return;
   }
   assertNativeRuntimeFsPath(path, "write text runtime file");
-  await ensureRuntimeDirectory(parentPath(path));
+  await ensureRuntimeDirectoryInternal(parentPath(path), surfaceErrors);
   const runtime = globalThis as {
     IOUtils?: {
       writeUTF8?: (path: string, content: string) => Promise<unknown>;
@@ -1562,7 +1606,19 @@ export async function writeRuntimeTextFile(pathRaw: string, content: string) {
   const fs = await tryNodeFs();
   if (fs) {
     await fs.writeFile(path, content, "utf8");
+    return;
   }
+  if (surfaceErrors) {
+    throw new Error("No text file write API is available");
+  }
+}
+
+export function writeRuntimeTextFile(pathRaw: string, content: string) {
+  return writeRuntimeTextFileInternal(pathRaw, content, false);
+}
+
+export function writeRuntimeTextFileStrict(pathRaw: string, content: string) {
+  return writeRuntimeTextFileInternal(pathRaw, content, true);
 }
 
 let atomicRuntimeWriteCounter = 0;

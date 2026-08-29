@@ -1745,7 +1745,15 @@
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
         "properties": {
           "attachments": {
-            "type": "array"
+            "type": "array",
+            "items": {
+              "type": "object",
+              "not": {
+                "required": ["path"]
+              },
+              "additionalProperties": true,
+              "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+            }
           },
           "nextCursor": {
             "type": ["string", "null"]
@@ -2835,7 +2843,27 @@
         "type": "object",
         "description": "Result data owned by mutation.execute.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "result": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "Mutation operations own result fields, while attachment file access is exposed through issued transfer descriptors.",
+            "properties": {
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "not": {
+                    "required": ["path"]
+                  },
+                  "additionalProperties": true,
+                  "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+                }
+              }
+            }
+          }
+        }
       },
       "effect": "state-change",
       "approval": "zotero-ui-required",
@@ -3639,6 +3667,67 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
+    "topics.get_planning_context": {
+      "category": "topics",
+      "summary": "Return one complete library-wide topic planning snapshot through registered file delivery.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5000
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Planning snapshot summary and registered file delivery owned by topics.get_planning_context.",
+        "required": ["delivery"],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The planning application owns bounded summary counters while the command envelope remains closed."
+          },
+          "diagnostics": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The planning application owns diagnostic fields while the command envelope remains closed."
+          },
+          "delivery": {
+            "type": "object",
+            "required": ["mode", "bundle", "downloadCommand"],
+            "properties": {
+              "mode": {
+                "enum": ["bridge-download"]
+              },
+              "bundle": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "downloadCommand": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
       },
       "effect": "read",
       "approval": "none",

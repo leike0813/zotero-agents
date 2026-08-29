@@ -40,9 +40,12 @@ type HostBridgeCapabilityDefinition =
 
 type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
-  connectionMode: "local" | "remote";
-  resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
+  connectionMode: HostBridgeConnectionMode;
+  resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+  resolveDirectResearchBundleApplication?: () =>
+    | DirectResearchBundleApplication
+    | Promise<DirectResearchBundleApplication>;
 };
 ```
 
@@ -51,6 +54,12 @@ requirement, input schema) with a callable handler function. The handler
 receives the caller's `input` and a `context` object providing access to the
 Host Bridge status snapshot, connection mode, and an optional Synthesis client
 resolver used by tests. Production resolution uses the cached default client.
+
+Zotero capability handlers resolve the canonical broker directly. The registry
+does not depend on `WorkflowHostApi`, and MCP calls the same handlers instead of
+maintaining a second tool implementation. The registry also owns the remote
+attachment projection: library reads and mutation results both remove local
+paths before returning opaque Host Bridge file handles.
 
 ---
 
@@ -107,7 +116,7 @@ dispatcher.
 | `reference_index` | 2 | `reference_index.get`, `reference_sidecar.refresh` |
 | `resolvers` | 1 | `resolvers.resolve` |
 | `schemas` | 1 | `schemas.get` |
-| `topics` | 6 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
+| `topics` | 7 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_planning_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
 | `workflow_products` | 4 | `workflow_products.export`, `workflow_products.get`, `workflow_products.list`, `workflow_products.read_asset` |
 <!-- host-bridge-surface:capability-categories:end -->
 

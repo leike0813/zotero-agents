@@ -1304,6 +1304,7 @@ fn topics_input(command: TopicsCommand) -> BridgeQueryArgs {
         TopicsCommand::List(args)
         | TopicsCommand::FindByPaperRef(args)
         | TopicsCommand::GetContext(args)
+        | TopicsCommand::GetPlanningContext(args)
         | TopicsCommand::GetReport(args)
         | TopicsCommand::GetReviewInput(args) => args,
         TopicsCommand::ExportResearchBundle(_) => {
@@ -2881,6 +2882,10 @@ mod tests {
                 "topics.find_by_paper_ref",
             ),
             ("synthesis topic get-context", "topics.get_context"),
+            (
+                "synthesis topic get-planning-context",
+                "topics.get_planning_context",
+            ),
             ("synthesis topic get-report", "topics.get_report"),
             (
                 "synthesis topic get-review-input",

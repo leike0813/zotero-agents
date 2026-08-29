@@ -9,15 +9,19 @@ import {
   appendRuntimeTextFile,
   cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
+  ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
   getSynthesisSidecarLifecyclePaths,
   replacePrivateRuntimeTextFileAtomically,
+  readRuntimeTextFile,
+  readRuntimeTextFileStrict,
   registerRuntimeLogClearer,
   replaceRuntimeTextFileAtomically,
   scanRuntimePersistenceUsage,
   validateManagedAbsolutePath,
   validateManagedRelativePath,
   validateManagedRelativePathSet,
+  writeRuntimeTextFileStrict,
 } from "../../src/modules/runtimePersistence";
 import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
 import { RuntimeFileIoError } from "../../src/modules/runtimeFileRangeReader";
@@ -112,6 +116,70 @@ describe("runtime persistence governance", function () {
       process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
     }
     await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("keeps missing tolerant reads distinct from strict empty-file reads", async function () {
+    const missingPath = path.join(tempRoot, "missing.txt");
+    const emptyPath = path.join(tempRoot, "empty.txt");
+    await fs.writeFile(emptyPath, "", "utf8");
+
+    assert.equal(await readRuntimeTextFile(missingPath), "");
+    assert.equal(await readRuntimeTextFileStrict(emptyPath), "");
+
+    let missingError: unknown;
+    try {
+      await readRuntimeTextFileStrict(missingPath);
+    } catch (error) {
+      missingError = error;
+    }
+    assert.instanceOf(missingError, Error);
+  });
+
+  it("rejects strict writes when no runtime filesystem adapter is available", async function () {
+    const runtime = globalThis as Record<string, unknown>;
+    const names = ["process", "IOUtils", "OS", "Zotero", "Components"];
+    const descriptors = new Map(
+      names.map((name) => [
+        name,
+        Object.getOwnPropertyDescriptor(runtime, name),
+      ]),
+    );
+    for (const name of names) {
+      Object.defineProperty(runtime, name, {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+    }
+    try {
+      for (const operation of [
+        () =>
+          writeRuntimeTextFileStrict(
+            path.join(tempRoot, "unavailable", "file.txt"),
+            "content",
+          ),
+        () =>
+          ensureRuntimeDirectoryStrict(
+            path.join(tempRoot, "unavailable", "directory"),
+          ),
+      ]) {
+        let operationError: unknown;
+        try {
+          await operation();
+        } catch (error) {
+          operationError = error;
+        }
+        assert.instanceOf(operationError, Error);
+      }
+    } finally {
+      for (const [name, descriptor] of descriptors) {
+        if (descriptor) {
+          Object.defineProperty(runtime, name, descriptor);
+        } else {
+          delete runtime[name];
+        }
+      }
+    }
   });
 
   it("serializes chunked Zotero IOUtils appends without splitting Unicode", async function () {

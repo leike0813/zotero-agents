@@ -666,13 +666,17 @@ Hook 接收的 `runtime` 对象包含：
 - `hostApi.file.getTempDirectoryPath()`：获取短生命周期 scratch 临时目录；不得用于 provider 请求输入文件
 - `hostApi.file.pickDirectory(args?)`：选择目录（返回路径或 null）
 - `hostApi.file.pickFile(args?)`：选择单个文件（返回路径或 null）
-- `hostApi.file.pickFiles(args?)`：**v0.3.0 新增** 选择多个文件（返回路径数组或 null）
+- `hostApi.file.pickFiles(args?)`：选择多个文件（返回路径数组或 null；优先使用 Zotero 原生多选，运行时不支持时回退到 toolkit）
+
+文件运行时适配统一由 `src/modules/runtimePersistence.ts` 持有并在每次调用时解析。`hostApi.file.readText/writeText/makeDirectory` 使用严格失败语义；输入文件的安全命名、唯一性和 text/bytes 互斥由 Workflow Input Materialization 模块负责。
 
 ### 其他操作
 
 - `hostApi.items.get/resolve/getByLibraryAndKey/getAll`：条目操作
 - `hostApi.prefs.get/set/clear`：偏好设置操作
 - `hostApi.parents/notes/attachments/tags/collections/command`：Handler 快捷访问
+- `hostApi.images.prepareForNoteEmbedding(source, options?)`：准备有界图片数据，不修改 Zotero note
+- `hostApi.attachments.importStoredFile(args)`：导入 stored attachment；companion 文件先校验并暂存，后续失败时回滚新建 attachment
 - `hostApi.editor.openSession/registerRenderer/unregisterRenderer`：编辑器会话
 - `hostApi.notifications.toast`：通知提示
 - `hostApi.logging.appendRuntimeLog`：运行日志

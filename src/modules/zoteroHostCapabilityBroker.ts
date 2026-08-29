@@ -26,8 +26,14 @@ import {
 import type { AcpHostContext } from "./acpTypes";
 import { queryZoteroLibraryPage } from "./zoteroLibraryPageQuery";
 
+export type JsonPrimitive = null | boolean | string | number;
+export type JsonValue =
+  | JsonPrimitive
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
+
 export type ZoteroHostItemRefInput =
-  | Zotero.Item
   | number
   | string
   | {
@@ -40,7 +46,6 @@ export type ZoteroHostItemRefInput =
 export type ZoteroHostCollectionRefInput =
   | number
   | string
-  | Zotero.Collection
   | {
       id?: number | string | null;
       key?: string | null;
@@ -299,8 +304,9 @@ export type ZoteroHostNotePayloadSummaryDto = Omit<
 
 export type ZoteroHostNotePayloadDetailDto = Omit<
   ZoteroNotePayloadDetail,
-  "encodedValue" | "decodedText"
+  "encodedValue" | "decodedText" | "payload"
 > & {
+  payload: JsonValue | null;
   maxChars: number;
 };
 
@@ -403,44 +409,25 @@ export type ZoteroHostAnnotationDto = {
 export type ZoteroHostMutationError = {
   code: string;
   message: string;
-  details?: unknown;
+  details?: JsonValue;
 };
 
-export class ZoteroItemNotFoundError extends Error {
-  constructor(readonly ref?: unknown) {
-    super("item not found");
-    this.name = "ZoteroItemNotFoundError";
-  }
-}
+export type ZoteroHostCapabilityErrorCode =
+  | "invalid_object_ref"
+  | "item_not_found"
+  | "note_not_found"
+  | "collection_not_found"
+  | "navigation_unavailable";
 
-export class ZoteroNoteNotFoundError extends Error {
-  constructor(readonly ref?: unknown) {
-    super("note not found");
-    this.name = "ZoteroNoteNotFoundError";
-  }
-}
-
-export class ZoteroCollectionNotFoundError extends Error {
-  constructor(readonly ref?: unknown) {
-    super("collection not found");
-    this.name = "ZoteroCollectionNotFoundError";
-  }
-}
-
-export class ZoteroInvalidObjectRefError extends Error {
+export class ZoteroHostCapabilityError extends Error {
   constructor(
-    message = "invalid object ref",
-    readonly ref?: unknown,
+    readonly code: ZoteroHostCapabilityErrorCode,
+    message: string,
+    readonly details?: JsonObject,
+    readonly retryable = false,
   ) {
     super(message);
-    this.name = "ZoteroInvalidObjectRefError";
-  }
-}
-
-export class ZoteroNavigationUnavailableError extends Error {
-  constructor(message = "Zotero pane navigation is unavailable") {
-    super(message);
-    this.name = "ZoteroNavigationUnavailableError";
+    this.name = "ZoteroHostCapabilityError";
   }
 }
 
@@ -534,7 +521,7 @@ export type ZoteroHostMetadataItemDto = {
 export type ZoteroHostMetadataDiagnosticDto = {
   code: string;
   message: string;
-  details?: Record<string, unknown>;
+  details?: JsonObject;
 };
 
 export type ZoteroHostMetadataTranslateIdentifierResponse = {
@@ -544,6 +531,92 @@ export type ZoteroHostMetadataTranslateIdentifierResponse = {
   translators: ZoteroHostMetadataTranslatorDto[];
   diagnostics: ZoteroHostMetadataDiagnosticDto[];
 };
+
+export type ZoteroHostAnnotationExportDto = {
+  format: string;
+  annotations: ZoteroHostAnnotationDto[];
+  markdown?: string;
+};
+
+export interface ZoteroHostCapabilityBroker {
+  readonly context: {
+    getCurrentView(): ZoteroHostCurrentViewDto;
+    getSelectedItems(): ZoteroHostItemSummaryDto[];
+  };
+  readonly navigation: {
+    openItem(
+      ref: ZoteroHostItemRefInput,
+    ): Promise<ZoteroHostNavigationResultDto>;
+    openNote(
+      ref: ZoteroHostItemRefInput,
+    ): Promise<ZoteroHostNavigationResultDto>;
+    openCollection(
+      args: ZoteroHostCollectionOpenArgs,
+    ): Promise<ZoteroHostNavigationResultDto>;
+    openSelection(
+      args: ZoteroHostSelectionOpenArgs,
+    ): Promise<ZoteroHostNavigationResultDto>;
+  };
+  readonly library: {
+    listItems(
+      args: ZoteroHostLibraryListArgs,
+    ): Promise<ZoteroHostLibraryListResponse>;
+    syncSnapshot(
+      args: ZoteroHostLibraryListArgs,
+    ): Promise<ZoteroHostLibrarySyncSnapshotResponse>;
+    readinessAudit(
+      args: ZoteroHostLibraryReadinessAuditArgs,
+    ): Promise<ZoteroHostLibraryReadinessAuditResponse>;
+    searchItems(
+      args: ZoteroHostItemSearchArgs,
+    ): Promise<ZoteroHostItemSummaryDto[]>;
+    getItemDetail(
+      ref: ZoteroHostItemRefInput,
+    ): Promise<ZoteroHostItemDetailDto | null>;
+    getItemNotes(
+      ref: ZoteroHostItemRefInput,
+      args?: {
+        limit?: number | string;
+        cursor?: number | string;
+        maxExcerptChars?: number | string;
+      },
+    ): Promise<ZoteroHostNoteDto[]>;
+    getNoteDetail(
+      ref: ZoteroHostItemRefInput,
+      args?: ZoteroHostNoteDetailArgs,
+    ): Promise<ZoteroHostNoteDetailChunkDto>;
+    listNotePayloads(
+      ref: ZoteroHostItemRefInput,
+    ): Promise<ZoteroHostNotePayloadSummaryDto[]>;
+    getNotePayload(
+      ref: ZoteroHostItemRefInput,
+      args?: ZoteroHostNotePayloadDetailArgs,
+    ): Promise<ZoteroHostNotePayloadDetailDto>;
+    listAnnotations(
+      ref: ZoteroHostItemRefInput,
+    ): Promise<ZoteroHostAnnotationDto[]>;
+    exportAnnotations(
+      ref: ZoteroHostItemRefInput,
+      args?: { format?: string },
+    ): Promise<ZoteroHostAnnotationExportDto>;
+    getItemAttachments(
+      ref: ZoteroHostItemRefInput,
+    ): Promise<ZoteroHostAttachmentDto[]>;
+  };
+  readonly metadata: {
+    translateIdentifier(
+      args: ZoteroHostMetadataTranslateIdentifierArgs,
+    ): Promise<ZoteroHostMetadataTranslateIdentifierResponse>;
+  };
+  readonly mutations: {
+    preview(
+      request: ZoteroHostMutationRequest,
+    ): Promise<ZoteroHostMutationPreviewResponse>;
+    execute(
+      request: ZoteroHostMutationRequest,
+    ): Promise<ZoteroHostMutationExecuteResponse>;
+  };
+}
 
 const SUMMARY_TEXT_LIMIT = 300;
 const FIELD_TEXT_LIMIT = 4000;
@@ -623,6 +696,93 @@ function escapeAttribute(value: unknown) {
 function parsePositiveInteger(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function assertJsonValue(
+  value: unknown,
+  path = "$",
+  seen = new WeakSet<object>(),
+): asserts value is JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error(`${path} must contain only finite numbers`);
+    }
+    return;
+  }
+  if (typeof value !== "object") {
+    throw new Error(`${path} must be strict JSON data`);
+  }
+  if (seen.has(value)) {
+    throw new Error(`${path} must not contain cycles`);
+  }
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      assertJsonValue(entry, `${path}[${index}]`, seen),
+    );
+    seen.delete(value);
+    return;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error(`${path} must contain only plain objects`);
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    assertJsonValue(entry, `${path}.${key}`, seen);
+  }
+  seen.delete(value);
+}
+
+function safeObjectRefDetails(ref: unknown): JsonObject | undefined {
+  if (typeof ref === "number" && Number.isFinite(ref)) {
+    return { ref };
+  }
+  if (typeof ref === "string") {
+    const value = ref.trim();
+    return value ? { ref: value } : undefined;
+  }
+  if (!ref || typeof ref !== "object") {
+    return undefined;
+  }
+  try {
+    const candidate = ref as {
+      id?: unknown;
+      key?: unknown;
+      libraryId?: unknown;
+      libraryID?: unknown;
+    };
+    const details: JsonObject = {};
+    const id = parsePositiveInteger(candidate.id);
+    const key = typeof candidate.key === "string" ? candidate.key.trim() : "";
+    const libraryId = parsePositiveInteger(
+      candidate.libraryId ?? candidate.libraryID,
+    );
+    if (id) details.id = id;
+    if (key) details.key = key;
+    if (libraryId) details.libraryId = libraryId;
+    return Object.keys(details).length ? details : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function capabilityError(
+  code: ZoteroHostCapabilityErrorCode,
+  message: string,
+  ref?: unknown,
+) {
+  return new ZoteroHostCapabilityError(
+    code,
+    message,
+    safeObjectRefDetails(ref),
+  );
 }
 
 function parseBooleanInput(value: unknown) {
@@ -734,7 +894,20 @@ function getTags(item: Zotero.Item) {
 
 function getCollections(item: Zotero.Item) {
   try {
-    return (item.getCollections?.() || []).slice(0, TARGET_LIMIT_MAX);
+    const collections = (item.getCollections?.() || []) as unknown[];
+    if (!Array.isArray(collections)) {
+      return [];
+    }
+    const result: Array<number | string> = [];
+    for (const entry of collections) {
+      if (typeof entry === "number" && Number.isFinite(entry) && entry > 0) {
+        result.push(Math.floor(entry));
+      } else if (typeof entry === "string" && entry.trim()) {
+        result.push(entry.trim());
+      }
+      if (result.length >= TARGET_LIMIT_MAX) break;
+    }
+    return result;
   } catch {
     return [];
   }
@@ -783,12 +956,14 @@ export function serializeZoteroItemSummary(
     publicationTitle: readField(item, "publicationTitle"),
     tags: getTags(item),
     collections: getCollections(item),
-    parent: parentSummary
+    ...(parentSummary
       ? {
-          id: parentSummary.id,
-          key: parentSummary.key,
+          parent: {
+            id: parentSummary.id,
+            key: parentSummary.key,
+          },
         }
-      : undefined,
+      : {}),
   };
 }
 
@@ -960,7 +1135,7 @@ async function translateMetadataIdentifier(
   const empty = (
     code: string,
     message: string,
-    details?: Record<string, unknown>,
+    details?: JsonObject,
   ): ZoteroHostMetadataTranslateIdentifierResponse => ({
     ok: false,
     item: null,
@@ -1128,8 +1303,8 @@ function serializeNoteSummary(
     textExcerpt: trimText(text, excerptLimit),
     textLength: text.length,
     htmlLength: html.length,
-    parent,
-    warnings: warnings.length ? warnings : undefined,
+    ...(parent ? { parent } : {}),
+    ...(warnings.length ? { warnings } : {}),
   };
 }
 
@@ -1150,8 +1325,8 @@ function serializeNote(item: Zotero.Item): ZoteroHostNoteDto {
     textExcerpt: trimText(text, NOTE_EXCERPT_DEFAULT),
     textLength: text.length,
     htmlLength: html.length,
-    parent,
-    warnings: warnings.length ? warnings : undefined,
+    ...(parent ? { parent } : {}),
+    ...(warnings.length ? { warnings } : {}),
   };
 }
 
@@ -1192,8 +1367,8 @@ function serializeNoteDetailChunk(
     totalChars: fullContent.length,
     truncated: nextOffset < fullContent.length,
     maxChars,
-    parent,
-    warnings: warnings.length ? warnings : undefined,
+    ...(parent ? { parent } : {}),
+    ...(warnings.length ? { warnings } : {}),
   };
 }
 
@@ -1249,9 +1424,9 @@ async function serializeNotePayloadSummary(
     encoding: entry.encoding,
     estimatedSize: entry.estimatedSize,
     format: entry.format,
-    errors: entry.errors,
-    source: entry.source,
-    attachmentKey: entry.attachmentKey,
+    ...(entry.errors ? { errors: entry.errors } : {}),
+    ...(entry.source ? { source: entry.source } : {}),
+    ...(entry.attachmentKey ? { attachmentKey: entry.attachmentKey } : {}),
   }));
 }
 
@@ -1266,18 +1441,20 @@ async function serializeNotePayloadDetail(
     selected?.source === "embedded-image-attachment"
       ? getPayloadDetailFromBlock(selected, args)
       : getNotePayloadDetail(html, args);
+  const payload = detail.payload ?? null;
+  assertJsonValue(payload, "note payload");
   return {
     payloadType: detail.payloadType,
     noteKind: detail.noteKind,
     version: detail.version,
     encoding: detail.encoding,
     estimatedSize: detail.estimatedSize,
-    payload: detail.payload,
-    markdown: detail.markdown,
+    payload,
+    ...(detail.markdown !== undefined ? { markdown: detail.markdown } : {}),
     format: detail.format,
-    errors: detail.errors,
-    source: detail.source,
-    attachmentKey: detail.attachmentKey,
+    ...(detail.errors ? { errors: detail.errors } : {}),
+    ...(detail.source ? { source: detail.source } : {}),
+    ...(detail.attachmentKey ? { attachmentKey: detail.attachmentKey } : {}),
     content: detail.content,
     offset: detail.offset,
     nextOffset: detail.nextOffset,
@@ -1384,17 +1561,20 @@ function serializeCollection(
         .parentCollectionID,
   );
   const parent = parentId ? resolveZotero().Collections?.get?.(parentId) : null;
+  const rawId = (collection as unknown as { id?: unknown }).id;
+  const numericId = parsePositiveInteger(rawId);
+  const stringId = typeof rawId === "string" ? rawId.trim() : "";
   return {
-    id: (collection as unknown as { id?: number | string }).id || "",
+    id: numericId || stringId,
     key: trimText((collection as unknown as { key?: unknown }).key),
     name: trimText((collection as unknown as { name?: unknown }).name),
     libraryId: normalizeLibraryId(
       (collection as unknown as { libraryID?: unknown }).libraryID,
     ),
-    parentId: parentId || undefined,
-    parentKey: parent
-      ? trimText((parent as unknown as { key?: unknown }).key)
-      : undefined,
+    ...(parentId ? { parentId } : {}),
+    ...(parent
+      ? { parentKey: trimText((parent as unknown as { key?: unknown }).key) }
+      : {}),
   };
 }
 
@@ -1593,25 +1773,29 @@ function isRegularVisibleItem(item: Zotero.Item) {
 function rejectUnsafeObjectRefString(value: string) {
   const ref = value.trim();
   if (!ref) {
-    throw new ZoteroInvalidObjectRefError(
+    throw capabilityError(
+      "invalid_object_ref",
       "object ref must be non-empty",
       value,
     );
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(ref)) {
-    throw new ZoteroInvalidObjectRefError(
+    throw capabilityError(
+      "invalid_object_ref",
       "object ref must be a Zotero handle, not a URI",
       value,
     );
   }
   if (/^[A-Za-z]:[\\/]/.test(ref) || ref.startsWith("\\\\")) {
-    throw new ZoteroInvalidObjectRefError(
+    throw capabilityError(
+      "invalid_object_ref",
       "object ref must be a Zotero handle, not a local path",
       value,
     );
   }
   if (ref.includes(":") && !/^\d+:[A-Za-z0-9]+$/.test(ref)) {
-    throw new ZoteroInvalidObjectRefError(
+    throw capabilityError(
+      "invalid_object_ref",
       "object ref must be an item key, numeric id, or libraryId:key",
       value,
     );
@@ -1636,7 +1820,11 @@ function resolveItem(ref: ZoteroHostItemRefInput | undefined | null) {
     return null;
   }
   if (isRawZoteroItem(ref)) {
-    return ref;
+    throw capabilityError(
+      "invalid_object_ref",
+      "broker item refs must be portable",
+      ref,
+    );
   }
   if (typeof ref === "number") {
     return zotero.Items.get(ref) || null;
@@ -1684,7 +1872,7 @@ function requireItem(
 ) {
   const item = resolveItem(ref);
   if (!item) {
-    throw new ZoteroItemNotFoundError(ref || label);
+    throw capabilityError("item_not_found", "item not found", ref || label);
   }
   return item;
 }
@@ -1692,7 +1880,7 @@ function requireItem(
 function requireNote(ref: ZoteroHostItemRefInput | undefined | null) {
   const item = resolveItem(ref);
   if (!item || !item.isNote?.()) {
-    throw new ZoteroNoteNotFoundError(ref || "note");
+    throw capabilityError("note_not_found", "note not found", ref || "note");
   }
   return item;
 }
@@ -1705,7 +1893,11 @@ function resolveCollection(
     return null;
   }
   if (typeof ref === "object" && ("name" in ref || "saveTx" in ref)) {
-    return ref as Zotero.Collection;
+    throw capabilityError(
+      "invalid_object_ref",
+      "broker collection refs must be portable",
+      ref,
+    );
   }
   if (typeof ref === "number") {
     return zotero.Collections?.get?.(ref) || null;
@@ -1782,7 +1974,9 @@ function requireCollectionForList(args: ZoteroHostLibraryListArgs) {
   }
   const collection = resolveCollectionFromListArgs(args);
   if (!collection) {
-    throw new ZoteroCollectionNotFoundError(
+    throw capabilityError(
+      "collection_not_found",
+      "collection not found",
       args.collection ?? {
         id: args.collectionId,
         key: args.collectionKey,
@@ -2039,14 +2233,12 @@ function normalizeJsonSafePayload(value: unknown) {
   if (value === undefined) {
     throw new Error("payload is required");
   }
+  assertJsonValue(value, "payload");
   const text = JSON.stringify(value);
-  if (text === undefined) {
-    throw new Error("payload must be JSON-safe");
-  }
   if (text.length > NOTE_PAYLOAD_MAX_BYTES) {
     throw new Error(`payload cannot exceed ${NOTE_PAYLOAD_MAX_BYTES} bytes`);
   }
-  return { payload: JSON.parse(text), text };
+  return { payload: value, text };
 }
 
 function base64ToBytes(value: string) {
@@ -3269,7 +3461,10 @@ function resolveZoteroPane() {
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
   const pane = win?.ZoteroPane;
   if (!pane) {
-    throw new ZoteroNavigationUnavailableError();
+    throw capabilityError(
+      "navigation_unavailable",
+      "Zotero pane navigation is unavailable",
+    );
   }
   return { win, pane };
 }
@@ -3279,7 +3474,7 @@ async function selectZoteroItems(items: Zotero.Item[]) {
     .map((item) => parsePositiveInteger(item.id))
     .filter((id) => id > 0);
   if (itemIds.length === 0) {
-    throw new ZoteroInvalidObjectRefError("item has no numeric id");
+    throw capabilityError("invalid_object_ref", "item has no numeric id");
   }
   const { win, pane } = resolveZoteroPane();
   if (itemIds.length === 1 && typeof pane.selectItem === "function") {
@@ -3289,7 +3484,8 @@ async function selectZoteroItems(items: Zotero.Item[]) {
   } else if (typeof pane.selectItem === "function") {
     await pane.selectItem(itemIds[0]);
   } else {
-    throw new ZoteroNavigationUnavailableError(
+    throw capabilityError(
+      "navigation_unavailable",
       "Zotero pane cannot select items",
     );
   }
@@ -3312,7 +3508,8 @@ async function selectZoteroCollection(collection: Zotero.Collection) {
   } else if (typeof collectionsView?.selectByID === "function") {
     await collectionsView.selectByID(collectionId || collectionKey);
   } else {
-    throw new ZoteroNavigationUnavailableError(
+    throw capabilityError(
+      "navigation_unavailable",
       "Zotero pane cannot select collections",
     );
   }
@@ -3322,7 +3519,11 @@ async function selectZoteroCollection(collection: Zotero.Collection) {
 function collectionRefFromOpenArgs(args: ZoteroHostCollectionOpenArgs) {
   const key = trimText(args.key || args.collectionKey);
   if (!key) {
-    throw new ZoteroInvalidObjectRefError("collection key is required", args);
+    throw capabilityError(
+      "invalid_object_ref",
+      "collection key is required",
+      args,
+    );
   }
   rejectUnsafeObjectRefString(key);
   return {
@@ -3369,7 +3570,7 @@ async function openZoteroCollection(
   const ref = collectionRefFromOpenArgs(args);
   const collection = resolveCollection(ref);
   if (!collection) {
-    throw new ZoteroCollectionNotFoundError(ref);
+    throw capabilityError("collection_not_found", "collection not found", ref);
   }
   await selectZoteroCollection(collection);
   return {
@@ -3388,7 +3589,8 @@ async function openZoteroSelection(
 ): Promise<ZoteroHostNavigationResultDto> {
   const refs = Array.isArray(args.items) ? args.items : [];
   if (refs.length === 0) {
-    throw new ZoteroInvalidObjectRefError(
+    throw capabilityError(
+      "invalid_object_ref",
       "selection open requires items",
       args,
     );
@@ -3406,13 +3608,15 @@ async function openZoteroSelection(
   };
 }
 
-export function createZoteroHostCapabilityBrokerApis() {
+export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
   return {
     context: {
       getCurrentView(): ZoteroHostCurrentViewDto {
         return getCurrentView();
       },
       getSelectedItems,
+    },
+    navigation: {
       openItem: openZoteroItem,
       openNote: openZoteroNote,
       openCollection: openZoteroCollection,
@@ -3592,4 +3796,8 @@ export function createZoteroHostCapabilityBrokerApis() {
       },
     },
   };
+}
+
+export function resolveZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
+  return createZoteroHostCapabilityBroker();
 }

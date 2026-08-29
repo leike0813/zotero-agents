@@ -320,6 +320,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge synthesis topic export-research-bundle` | Export one or more Topic research bundles | [Open card](commands/synthesis/topic/export-research-bundle.md) |
 | `zotero-bridge synthesis topic find-by-paper-ref` | Find active topic synthesis topics by paper_ref | [Open card](commands/synthesis/topic/find-by-paper-ref.md) |
 | `zotero-bridge synthesis topic get-context` | Read one topic synthesis context | [Open card](commands/synthesis/topic/get-context.md) |
+| `zotero-bridge synthesis topic get-planning-context` | Read the library-wide topic planning context | [Open card](commands/synthesis/topic/get-planning-context.md) |
 | `zotero-bridge synthesis topic get-report` | Read one topic synthesis report markdown body | [Open card](commands/synthesis/topic/get-report.md) |
 | `zotero-bridge synthesis topic get-review-input` | Read review workflow input from Synthesis | [Open card](commands/synthesis/topic/get-review-input.md) |
 | `zotero-bridge synthesis topic list` | List existing topic synthesis topics | [Open card](commands/synthesis/topic/list.md) |

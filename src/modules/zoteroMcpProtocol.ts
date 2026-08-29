@@ -1,22 +1,18 @@
-import { createWorkflowHostApi } from "../workflows/hostApi";
 import {
   executeHostBridgeCapability,
   getHostBridgeCapability,
   listHostBridgeCapabilities,
-  type ZoteroHostCapabilityBrokerApis,
 } from "./hostBridgeCapabilityRegistry";
 import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
 import type { DirectResearchBundleApplication } from "./researchBundleService";
 import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
 import { HostBridgeCursorError } from "./hostBridgePagination";
 import {
-  ZoteroCollectionNotFoundError,
-  ZoteroItemNotFoundError,
-  ZoteroNoteNotFoundError,
+  resolveZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
+  type ZoteroHostCapabilityBroker,
 } from "./zoteroHostCapabilityBroker";
 import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
-import type { WorkflowHostApi } from "../workflows/types";
-import type { AcpHostContext } from "./acpTypes";
 import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityManifestEntry,
@@ -25,12 +21,14 @@ import type {
 import type {
   ZoteroHostAttachmentDto,
   ZoteroHostCollectionRefInput,
+  ZoteroHostCurrentViewDto,
   ZoteroHostItemRefInput,
   ZoteroHostItemSummaryDto,
   ZoteroHostLibraryListArgs,
   ZoteroHostMutationPreviewResponse,
   ZoteroHostMutationRequest,
   ZoteroHostNoteDto,
+  ZoteroHostNotePayloadDetailDto,
   ZoteroHostNotePayloadSummaryDto,
 } from "./zoteroHostCapabilityBroker";
 
@@ -132,7 +130,6 @@ export type ZoteroMcpJsonRpcResult =
 export type ZoteroMcpToolCallEvent = {
   toolName: string;
   arguments: Record<string, unknown>;
-  hostContext?: AcpHostContext;
   result?: unknown;
   error?: {
     name: string;
@@ -156,9 +153,7 @@ export type ZoteroMcpToolPermissionRequest = {
 };
 
 export type ZoteroMcpHandlerOptions = {
-  resolveHostContext?: () => AcpHostContext;
-  resolveHostApi?: () => WorkflowHostApi;
-  resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
+  resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
   resolveDirectResearchBundleApplication?: () =>
     | DirectResearchBundleApplication
@@ -182,7 +177,6 @@ type JsonObjectSchema = Record<string, unknown> & {
 
 type ToolContext = {
   options: ZoteroMcpHandlerOptions;
-  hostApi: WorkflowHostApi;
 };
 
 type ToolDefinition = {
@@ -281,61 +275,14 @@ function validateJsonRpcId(id: unknown) {
 const MCP_LIBRARY_LIST_LIMIT_DEFAULT = 25;
 const MCP_LIBRARY_LIST_LIMIT_MAX = 50;
 
-function resolveHostApi(options: ZoteroMcpHandlerOptions) {
-  return options.resolveHostApi?.() || createWorkflowHostApi();
+function resolveCapabilityBroker(options: ZoteroMcpHandlerOptions) {
+  return (
+    options.resolveZoteroHostCapabilityBroker?.() ||
+    resolveZoteroHostCapabilityBroker()
+  );
 }
 
-function resolveHostBridgeApis(
-  options: ZoteroMcpHandlerOptions,
-  hostApi: WorkflowHostApi,
-): ZoteroHostCapabilityBrokerApis {
-  if (options.resolveHostBridgeApis) {
-    return options.resolveHostBridgeApis();
-  }
-  const contextApi = (hostApi as { context?: Record<string, unknown> }).context;
-  const libraryApi = (hostApi as { library?: Record<string, unknown> }).library;
-  const mutationsApi = (hostApi as { mutations?: Record<string, unknown> })
-    .mutations;
-  return {
-    context: {
-      getCurrentView: () => {
-        if (options.resolveHostContext) {
-          const hostContext = options.resolveHostContext();
-          const getSelectedItems = contextApi?.getSelectedItems;
-          const selectedItems =
-            typeof getSelectedItems === "function" ? getSelectedItems() : [];
-          return {
-            ...hostContext,
-            selectedItems,
-          };
-        }
-        const getCurrentView = contextApi?.getCurrentView;
-        if (typeof getCurrentView === "function") {
-          return getCurrentView();
-        }
-        const hostContext = {
-          target: "library",
-          selectionEmpty: true,
-        };
-        const getSelectedItems = contextApi?.getSelectedItems;
-        const selectedItems =
-          typeof getSelectedItems === "function" ? getSelectedItems() : [];
-        return {
-          ...hostContext,
-          selectedItems,
-        };
-      },
-      getSelectedItems: () => {
-        const getSelectedItems = contextApi?.getSelectedItems;
-        return typeof getSelectedItems === "function" ? getSelectedItems() : [];
-      },
-    },
-    library: libraryApi || {},
-    mutations: mutationsApi || {},
-  } as unknown as ZoteroHostCapabilityBrokerApis;
-}
-
-function summarizeCurrentView(context: AcpHostContext) {
+function summarizeCurrentView(context: ZoteroHostCurrentViewDto) {
   const parts = [
     `target=${context.target}`,
     context.libraryId ? `libraryId=${context.libraryId}` : "",
@@ -764,16 +711,67 @@ function formatPayloadLine(payload: Partial<ZoteroHostNotePayloadSummaryDto>) {
   return `- ${fields.join(" ")}`;
 }
 
-function parseBoundedPositiveInteger(
-  value: unknown,
-  fallback: number,
-  max: number,
+function buildNotePayloadsSummary(
+  ref: ZoteroHostItemRefInput,
+  payloads: ZoteroHostNotePayloadSummaryDto[],
 ) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return fallback;
-  }
-  return Math.min(max, Math.max(1, Math.floor(numeric)));
+  const firstPayload = payloads.find((entry) => !entry.errors?.length);
+  const refArgs = isPlainObject(ref)
+    ? (ref as Record<string, unknown>)
+    : { ref };
+  return buildReadToolSummary({
+    title: `Found ${payloads.length} Zotero note payload block(s) for ${JSON.stringify(ref)}.`,
+    lines: payloads.map(formatPayloadLine),
+    nextCalls: firstPayload
+      ? [
+          {
+            tool: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+            args: {
+              ...refArgs,
+              payloadType: firstPayload.payloadType,
+            },
+          },
+        ]
+      : [],
+  });
+}
+
+function buildNotePayloadDetailSummary(
+  ref: ZoteroHostItemRefInput,
+  detail: ZoteroHostNotePayloadDetailDto,
+) {
+  return buildReadToolSummary({
+    title: [
+      `Read Zotero note payload ${detail.payloadType}.`,
+      `note=${JSON.stringify(ref)}`,
+      `noteKind=${detail.noteKind || "unknown"}`,
+      `format=${detail.format}`,
+      `offset=${detail.offset}`,
+      `nextOffset=${detail.nextOffset}`,
+      `totalChars=${detail.totalChars}`,
+      `hasMore=${Boolean(detail.hasMore)}`,
+    ].join(" "),
+    lines: [
+      formatPayloadLine(detail),
+      detail.content
+        ? `- contentExcerpt="${compactText(detail.content, 240)}"`
+        : "",
+    ].filter(Boolean),
+    nextCalls: detail.hasMore
+      ? [
+          {
+            tool: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+            args: {
+              ...(isPlainObject(ref)
+                ? (ref as Record<string, unknown>)
+                : { ref }),
+              payloadType: detail.payloadType,
+              offset: detail.nextOffset,
+            },
+          },
+        ]
+      : [],
+  });
 }
 
 function buildMcpStatusSummary(status: Record<string, unknown>) {
@@ -826,6 +824,16 @@ function resolveProtocolVersion(params: unknown) {
   return requestedVersion || ZOTERO_MCP_PROTOCOL_VERSION;
 }
 
+function parseBoundedPositiveInteger(
+  value: unknown,
+  fallback: number,
+  maximum: number,
+) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(maximum, Math.floor(parsed))
+    : fallback;
+}
 function buildLibraryListArgs(
   args: Record<string, unknown>,
 ): ZoteroHostLibraryListArgs {
@@ -930,7 +938,7 @@ function summarizeHostBridgeCapabilityResult(
   const payload = isPlainObject(data) ? data : {};
   const parts = [`${capabilityName} Host Bridge capability result.`];
   if (capabilityName === "context.get_current_view" && isPlainObject(data)) {
-    parts.push(summarizeCurrentView(data as unknown as AcpHostContext));
+    parts.push(summarizeCurrentView(data as ZoteroHostCurrentViewDto));
     if (Array.isArray(payload.selectedItems)) {
       parts.push(`selectedItems=${payload.selectedItems.length}`);
     }
@@ -1128,8 +1136,8 @@ async function requestCapabilityApprovalForMcp(args: {
                 (args.context.options.resolveMcpStatus?.() ||
                   {}) as HostBridgeStatusSnapshot),
             connectionMode: "local",
-            resolveHostBridgeApis: () =>
-              resolveHostBridgeApis(args.context.options, args.context.hostApi),
+            resolveZoteroHostCapabilityBroker: () =>
+              resolveCapabilityBroker(args.context.options),
             resolveSynthesisClient: args.context.options.resolveSynthesisClient,
             resolveDirectResearchBundleApplication:
               args.context.options.resolveDirectResearchBundleApplication,
@@ -1231,8 +1239,8 @@ async function callHostBridgeCapabilityAsMcpTool(
           (context.options.resolveMcpStatus?.() ||
             {}) as HostBridgeStatusSnapshot),
       connectionMode: "local",
-      resolveHostBridgeApis: () =>
-        resolveHostBridgeApis(context.options, context.hostApi),
+      resolveZoteroHostCapabilityBroker: () =>
+        resolveCapabilityBroker(context.options),
       resolveSynthesisClient: context.options.resolveSynthesisClient,
       resolveDirectResearchBundleApplication:
         context.options.resolveDirectResearchBundleApplication,
@@ -1373,10 +1381,8 @@ export async function handleZoteroMcpJsonRpc(
         });
       }
       try {
-        const hostApi = resolveHostApi(options);
         const result = await tool.handler(toolArguments, {
           options,
-          hostApi,
         });
         await options.onToolCall?.({
           toolName,
@@ -1393,21 +1399,20 @@ export async function handleZoteroMcpJsonRpc(
           error instanceof Error
             ? error.message
             : String(error || "Tool failed");
-        const isItemNotFound = error instanceof ZoteroItemNotFoundError;
-        const isNoteNotFound = error instanceof ZoteroNoteNotFoundError;
-        const isCollectionNotFound =
-          error instanceof ZoteroCollectionNotFoundError;
+        const brokerError =
+          error instanceof ZoteroHostCapabilityError ? error : null;
         const isInvalidLibraryCursor =
           error instanceof ZoteroLibraryCursorError;
-        const structuredCode = isItemNotFound
-          ? "zotero_item_not_found"
-          : isNoteNotFound
-            ? "zotero_note_not_found"
-            : isCollectionNotFound
-              ? "zotero_collection_not_found"
-              : isInvalidLibraryCursor
-                ? error.code
-                : undefined;
+        const structuredCode =
+          brokerError?.code === "item_not_found"
+            ? "zotero_item_not_found"
+            : brokerError?.code === "note_not_found"
+              ? "zotero_note_not_found"
+              : brokerError?.code === "collection_not_found"
+                ? "zotero_collection_not_found"
+                : isInvalidLibraryCursor
+                  ? error.code
+                  : undefined;
         await options.onToolCall?.({
           toolName,
           arguments: toolArguments,
@@ -1428,9 +1433,7 @@ export async function handleZoteroMcpJsonRpc(
               details:
                 error instanceof ZoteroLibraryCursorError
                   ? error.details
-                  : error instanceof Error && "ref" in error
-                    ? (error as { ref?: unknown }).ref
-                    : undefined,
+                  : brokerError?.details,
             }),
           };
         }

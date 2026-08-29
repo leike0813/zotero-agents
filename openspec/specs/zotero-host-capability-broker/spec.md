@@ -15,23 +15,20 @@ The system SHALL treat `handlers` as an internal library for common Zotero mutat
 
 ### Requirement: Host API is the broker SSOT
 
-The system SHALL treat `hostApi` and its broker-owned modules as the
-forward-facing Host Capability Broker for workflow package code, Host Bridge
-service endpoints, CLI access through the Host Bridge, and MCP tool backends.
+The system SHALL treat `ZoteroHostCapabilityBroker` as the canonical owner of JSON-safe Zotero context, navigation, library, metadata, and controlled mutation capabilities. `WorkflowHostApi` SHALL remain the workflow compatibility interface and SHALL expose broker capabilities only through an explicit projection. Host Bridge SHALL consume the canonical broker directly, and MCP SHALL consume the Host Bridge capability mirror.
 
 #### Scenario: A new Zotero capability is added
 
-- **WHEN** a future change adds a Zotero capability intended for workflow
-  package, Host Bridge, CLI, or MCP use
-- **THEN** the capability SHOULD be modeled through `hostApi` or a broker
-  module owned by `hostApi`
-- **AND** direct exposure of Zotero native objects SHOULD be avoided at external
-  boundaries.
+- **WHEN** a future change adds a Zotero capability intended for workflow package, Host Bridge, CLI, or MCP use
+- **THEN** its canonical DTOs and operation signature SHALL be owned by the Zotero Host Capability Broker
+- **AND** its workflow exposure SHALL require an explicit `WorkflowHostApi` projection decision
+- **AND** its Host Bridge or MCP exposure SHALL require the applicable permission and locality adapter decision.
 
 #### Scenario: Workflow package needs read-only metadata translation
 
 - **WHEN** a workflow package needs Zotero Translate Search metadata for a stable identifier
 - **THEN** it SHALL request the lookup through `runtime.hostApi.metadata`
+- **AND** the workflow projection SHALL delegate to the canonical broker capability
 - **AND** it SHALL NOT require raw `runtime.zotero` access under the package host-api contract.
 
 ### Requirement: Handlers remain available for legacy workflow hooks
@@ -105,7 +102,7 @@ The system SHALL maintain `doc/components/zotero-host-capability-broker-ssot.md`
 
 #### Scenario: Host API exposes image preparation
 - **WHEN** a workflow package receives `runtime.hostApi`
-- **THEN** `hostApi.images.prepareForNoteEmbedding` SHALL be available on Host API v4
+- **THEN** `hostApi.images.prepareForNoteEmbedding` SHALL be available on the current Workflow Host API
 - **AND** it SHALL apply the representative note image compression policy before returning prepared image data.
 
 ### Requirement: Workflow Host API SHALL Expose Embedded Image Import
@@ -145,11 +142,11 @@ the default ACP host access path.
 that need to round-trip sidecar artifacts without embedding bytes in JSON.
 
 #### Scenario: Workflow writes binary sidecar artifact
-- **WHEN** a workflow package receives Host API v5
+- **WHEN** a workflow package receives the current Workflow Host API
 - **THEN** `hostApi.file.readBytes`, `hostApi.file.writeBytes`, and `hostApi.file.copy` SHALL be available
 - **AND** those operations SHALL support local workflow sidecar files such as representative note images.
 
-### Requirement: Workflow Host API v8 SHALL expose a save-file picker
+### Requirement: Workflow Host API SHALL expose a save-file picker
 
 `WorkflowHostApi.file` SHALL expose a save-file operation accepting a title, filters, initial directory, and suggested filename, backed by Zotero's file picker save mode.
 
@@ -158,7 +155,7 @@ that need to round-trip sidecar artifacts without embedding bytes in JSON.
 - **THEN** the Host SHALL return the confirmed target path, including replacement confirmation handled by the native picker
 - **AND** cancellation SHALL return `null`.
 
-### Requirement: Workflow Host API v8 SHALL expose safe streaming ZIP operations
+### Requirement: Workflow Host API SHALL expose safe streaming ZIP operations
 
 The Host SHALL expose workflow-agnostic ZIP writing and scoped extraction operations implemented with Zotero/Gecko facilities and SHALL NOT require Node.js archive or filesystem modules in the plugin environment.
 
@@ -177,7 +174,7 @@ The Host SHALL expose workflow-agnostic ZIP writing and scoped extraction operat
 - **THEN** the Host SHALL read and hash those files without exposing host paths or transferring file bytes through the package boundary
 - **AND** it SHALL reject unsafe, duplicate, or non-enumerated entry names.
 
-### Requirement: Workflow Host API v8 SHALL expose portable item materialization primitives
+### Requirement: Workflow Host API SHALL expose portable item materialization primitives
 
 The Host SHALL expose generic operations to export complete Zotero item JSON, create a new item from sanitized Zotero JSON in an explicit library, remove a created item, import a local path and sidecars as a stored-file attachment under a parent, and create a URL attachment with caller-controlled deduplication.
 
@@ -205,7 +202,7 @@ The Host SHALL expose generic operations to export complete Zotero item JSON, cr
 - **WHEN** a workflow asks the Host to remove a parent created during the current operation
 - **THEN** the Host SHALL erase that parent and its newly created children through Zotero's transactional item APIs.
 
-### Requirement: Workflow Host API v8 current view SHALL identify a real selected collection
+### Requirement: Workflow Host API v11 current view SHALL identify a real selected collection
 
 The current-view DTO SHALL include an optional normalized collection ref only when the selected library tree row represents a real Zotero collection.
 
@@ -218,14 +215,70 @@ The current-view DTO SHALL include an optional normalized collection ref only wh
 - **THEN** the current-view DTO SHALL omit the current collection
 - **AND** it SHALL still report the current library id when available.
 
-### Requirement: Workflow Host API version consumers SHALL recognize v8
+### Requirement: Workflow Host API version consumers SHALL recognize v11
 
-All package runtime guards, loader globals, capability summaries, debug probes, tests, and SSOT documentation that declare the supported Workflow Host API version SHALL be synchronized to version 8.
+The current Workflow Host Contract Identity SHALL declare version 11 once. Internally created workflow projections, loader globals, runtime contexts, capability summaries, debug probes, tests, and current SSOT documentation SHALL resolve that version from the identity owner rather than maintaining independent current-version declarations.
 
-#### Scenario: Built-in package consumes Host API v8
-- **WHEN** a precompiled built-in workflow hook resolves its runtime Host API
-- **THEN** version 8 SHALL pass the package runtime compatibility guard
-- **AND** versions outside the declared supported range SHALL continue to fail deterministically.
+#### Scenario: Current projection is carried into a workflow runtime
+
+- **WHEN** the system creates or injects the current Workflow Host projection without an explicit compatibility override
+- **THEN** the runtime, loader global, and diagnostics SHALL report version 11
+- **AND** the reported version SHALL agree with the projection's own version.
+
+#### Scenario: Explicit legacy version is supplied
+
+- **WHEN** a test or legacy adapter supplies an explicit finite Workflow Host version
+- **THEN** that explicit version SHALL take precedence over the selected projection's version
+- **AND** an unidentifiable external adapter SHALL remain unknown rather than being reported as the current version.
+
+#### Scenario: Built-in package checks its compatibility policy
+
+- **WHEN** the self-contained built-in package resolves a Workflow Host version
+- **THEN** versions 2 through the current version SHALL pass its declared compatibility range
+- **AND** versions outside that range SHALL fail deterministically
+- **AND** conformance verification SHALL fail when the range no longer accepts the current contract identity.
+
+### Requirement: Workflow Host contract variants SHALL have explicit capability conformance
+
+The system SHALL distinguish interactive and non-interactive Workflow Host Contract Variants from hook execution modes. Conformance gates SHALL validate each variant against the declared top-level capability identities without turning the production runtime into an eager whole-contract rejection path.
+
+#### Scenario: Interactive projection is checked
+
+- **WHEN** conformance verifies the interactive projection
+- **THEN** every declared interactive capability SHALL be present
+- **AND** `resources` MAY be absent.
+
+#### Scenario: Non-interactive projection is checked
+
+- **WHEN** conformance verifies the non-interactive projection
+- **THEN** `resources` SHALL be present
+- **AND** interactive picker and editor members SHALL remain structurally available while interaction attempts fail with `workflow_interaction_required`.
+
+#### Scenario: Projection shape drifts
+
+- **WHEN** a tested projection omits a variant-required top-level capability or exposes an undeclared top-level capability
+- **THEN** conformance SHALL return structured missing or unexpected capability identities
+- **AND** the test/build gate SHALL fail.
+
+### Requirement: Workflow Host capability summaries SHALL report observed availability
+
+Workflow Host capability summaries SHALL be runtime observations derived from the declared capability identities. A summary SHALL NOT define the contract identity or silently omit a declared top-level capability.
+
+#### Scenario: Variant summary is emitted
+
+- **WHEN** loader, runtime, input-planning, or debug diagnostics summarize a selected Workflow Host projection
+- **THEN** they SHALL use the shared identity owner
+- **AND** the summary SHALL preserve existing diagnostic fields while reporting `command` and `resources` availability.
+
+### Requirement: Active Workflow Host documentation SHALL declare only the current version
+
+Current SSOT documentation and active OpenSpec SHALL describe the current Workflow Host contract. Archived changes MAY retain historical version declarations.
+
+#### Scenario: Documentation version declarations are checked
+
+- **WHEN** the contract governance test scans explicit `Workflow Host API vN` declarations in current SSOT documentation and active OpenSpec
+- **THEN** every declaration SHALL match the current contract identity version
+- **AND** archived change documents SHALL be excluded.
 
 ### Requirement: Workflow Host file pickers SHALL use a valid native parent context
 
@@ -244,3 +297,70 @@ directory, single-file, save-file, and multi-file picker modes.
 
 - **WHEN** the preferred dialog window is open and has a browsing context
 - **THEN** the host SHALL pass that dialog window to the picker
+
+### Requirement: Workflow broker projection is explicit and closed
+
+`WorkflowHostApi` SHALL expose only the broker members declared by its public v11 contract. Adding a canonical broker member SHALL NOT implicitly add it to the workflow interface.
+
+#### Scenario: Broker gains a new member
+
+- **WHEN** a capability family gains a new broker operation
+- **THEN** existing workflow host objects SHALL not expose that operation unless the workflow projection is explicitly updated
+- **AND** runtime workflow objects SHALL not contain undeclared broker members.
+
+### Requirement: Workflow Host runtime adaptation uses owned deep modules
+
+Workflow Host API v11 SHALL compose workflow-local filesystem, input
+materialization, picker, note-image preparation, stored-attachment import, and
+archive behavior through explicitly owned modules. Runtime adapter selection and
+workflow-local policy SHALL NOT be implemented inline in the projection
+composition root or exposed as new public host members.
+
+#### Scenario: Workflow Host API is constructed
+
+- **WHEN** `createWorkflowHostApi()` constructs the v11 projection
+- **THEN** it SHALL bind each workflow-local interface explicitly
+- **AND** it SHALL NOT expose internal filesystem, picker, media, or attachment
+  adapters.
+
+#### Scenario: Cached host projection performs a runtime operation
+
+- **WHEN** a cached Workflow Host API invokes a runtime-sensitive operation
+- **THEN** the owning module SHALL resolve the current runtime adapter for that
+  invocation
+- **AND** it SHALL NOT retain a stale picker window or runtime global captured
+  during initial composition.
+
+### Requirement: Stored attachment companion import fails closed
+
+Workflow stored-attachment import SHALL validate and stage every companion file
+before creating a Zotero attachment. A failure after attachment creation SHALL
+trigger best-effort removal of the newly created attachment and cleanup of
+managed staging data.
+
+#### Scenario: Companion path is unsafe
+
+- **WHEN** a stored-attachment import includes an absolute, empty, or traversal
+  companion path
+- **THEN** the import SHALL fail before creating a Zotero attachment
+- **AND** no companion file SHALL be written to Zotero storage.
+
+#### Scenario: Companion copy fails after attachment creation
+
+- **WHEN** staged companion content cannot be copied into the new attachment
+  storage directory
+- **THEN** the operation SHALL report the primary failure
+- **AND** it SHALL attempt to remove the new attachment and clean staging data.
+
+### Requirement: Workflow note-image preparation remains behavior compatible
+
+Moving note-image preparation behind its owned module SHALL preserve the v11
+source forms, default options, bounded dimensions, output MIME behavior, quality
+candidate policy, diagnostics, hard-cap failure, and embedded-image import seam.
+
+#### Scenario: Workflow prepares a note image
+
+- **WHEN** a workflow supplies a supported path, Blob, or byte source
+- **THEN** `hostApi.images.prepareForNoteEmbedding` SHALL return the same
+  caller-observable prepared-image contract as before the module deepening
+- **AND** Zotero note mutation SHALL remain a separate operation.

@@ -300,13 +300,7 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
     if (!isRealZoteroRuntime()) {
       this.skip();
     }
-    const descriptor = await ensureZoteroMcpServer({
-      resolveHostContext: () => ({
-        target: "library",
-        libraryId: "zotero-runtime-test",
-        selectionEmpty: true,
-      }),
-    });
+    const descriptor = await ensureZoteroMcpServer();
     const authHeader = descriptor.headers.find(
       (entry) => entry.name.toLowerCase() === "authorization",
     );

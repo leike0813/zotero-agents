@@ -107,7 +107,7 @@
     },
     {
       "artifact_key": "stage_50_kg_enrichment_payload",
-      "hash": "sha256:9e48c83ea41501848ee5d4fa044466feef37e0dc9a1bfcfd0d7f8f3268e213aa",
+      "hash": "sha256:e0c0b7678ac236f69b21f3aff32018a6cf66742016743cdd461ec5334d599f43",
       "path": "runtime/payloads/kg-enrichment.json",
       "skill_id": "topic-synthesis-core-enrichment",
       "stage_id": "stage_50_kg_enrichment"

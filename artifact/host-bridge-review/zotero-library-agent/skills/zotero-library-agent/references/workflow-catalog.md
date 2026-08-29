@@ -380,7 +380,7 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 
 **Topic Planner**
 
-在开始综合之前，以增量方式将当前文献库组织为 Planned Topics 和 Topic Graph 关系。
+在开展综合之前，逐步把当前文献库整理为 Planned Topics 及 Topic Graph 关系。
 
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/topic-planner/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
@@ -392,14 +392,14 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 - Workflow options:
   - `language`: `{"type":"string","title":"Language","description":"Language for Planned Topic titles, definitions, and planning explanations.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `topic-planner`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
-- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
+- Invocation inputs: 使用 workflow id `topic-planner`、声明的无选择项形式、声明的 workflow 选项，以及 provider 要求时另行验证过的兼容 provider profile。
+- External invocation inputs: 声明了资源要求时，按照实时 slot 合同使用已上传的不透明输入 handle 和 bridge-download 输出交付；绝不传递 client 或 Host 路径。
 
 ### `create-topic-synthesis`
 
 **Create Topic Synthesis**
 
-将一个 active Planned Topic 实体化；或者先把自然语言 seed 解析为已有 Planned Topic，再创建新的综合主题。
+物化一个活动 Planned Topic，或先把自然语言种子解析到已有 Planned Topic，再创建新的综合主题。
 
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
