@@ -1,4 +1,5 @@
 import {
+  aggregateCitationGraphVisualEdges,
   buildCitationGraphNodeImportance,
   citationGraphNodeSize,
   CITATION_GRAPH_INCOMING_EDGE_COLOR,
@@ -7,6 +8,7 @@ import {
   GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT,
+  projectCitationGraphVisibility,
 } from "./citationGraphVisualRules";
 
 export type CitationGraphNodeKind = "library_paper" | "external_reference";
@@ -51,6 +53,11 @@ export type CitationGraphRenderModel = {
   diagnostics?: unknown;
 };
 
+type ProjectedCitationGraphRenderModel = CitationGraphRenderModel & {
+  hoverOnlyNodes: CitationGraphNode[];
+  hoverOnlyEdges: CitationGraphEdge[];
+};
+
 export type CitationGraphRenderOptions = {
   readonly?: boolean;
   labels?: Partial<Record<CitationGraphLabelKey, string>>;
@@ -69,7 +76,7 @@ type CitationGraphLabelKey =
   | "scope";
 
 type RuntimeState = {
-  hoveredNode?: string;
+  pointerHoveredNode?: string;
   hoverClearTimer?: number;
 };
 
@@ -257,7 +264,7 @@ function truncateTitle(title: string) {
 
 function renderSvgCitationGraph(
   container: HTMLElement,
-  model: CitationGraphRenderModel,
+  model: ProjectedCitationGraphRenderModel,
   options: CitationGraphRenderOptions,
   state: RuntimeState,
 ) {
@@ -268,42 +275,67 @@ function renderSvgCitationGraph(
   if (!stage) return;
   const graphStage = stage;
 
-  const importanceByNodeId = buildCitationGraphNodeImportance(
-    model.nodes,
-    model.edges,
-  );
-  const nodeById = new Map(model.nodes.map((node) => [node.id, node]));
-  const adjacency = new Map<string, Set<string>>();
-  for (const edge of model.edges) {
-    if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
-    if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
-    adjacency.get(edge.source)?.add(edge.target);
-    adjacency.get(edge.target)?.add(edge.source);
-  }
-
   function connectedToActive(edge: CitationGraphEdge, activeNode: string) {
     return edge.source === activeNode || edge.target === activeNode;
   }
 
   function redrawStage() {
-    const projector = svgPointProjector(model.nodes, graphStage);
-    const activeNode = state.hoveredNode;
-    const edgeHtml = model.edges
+    const selectedNode =
+      model.selectedElement?.kind === "node"
+        ? model.selectedElement.id
+        : undefined;
+    const pointerNode = state.pointerHoveredNode;
+    const visibleNodeIds = new Set(model.nodes.map((node) => node.id));
+    const ownerIds = Array.from(
+      new Set(
+        [selectedNode, pointerNode].filter((nodeId): nodeId is string =>
+          Boolean(nodeId && visibleNodeIds.has(nodeId)),
+        ),
+      ),
+    );
+    const visibleNodes = model.nodes;
+    const visibleEdges = ownerIds.length
+      ? aggregateCitationGraphVisualEdges(model.edges).filter(
+          (edge) =>
+            ownerIds.some((ownerId) => connectedToActive(edge, ownerId)) &&
+            visibleNodeIds.has(edge.source) &&
+            visibleNodeIds.has(edge.target),
+        )
+      : [];
+    const projector = svgPointProjector(visibleNodes, graphStage);
+    const importanceByNodeId = buildCitationGraphNodeImportance(
+      model.nodes,
+      aggregateCitationGraphVisualEdges(model.edges),
+    );
+    const nodeById = new Map(visibleNodes.map((node) => [node.id, node]));
+    const adjacency = new Map<string, Set<string>>();
+    for (const edge of visibleEdges) {
+      if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
+      if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
+      adjacency.get(edge.source)?.add(edge.target);
+      adjacency.get(edge.target)?.add(edge.source);
+    }
+    const edgeHtml = visibleEdges
       .map((edge) => {
         const source = nodeById.get(edge.source);
         const target = nodeById.get(edge.target);
         if (!source || !target) return "";
         const sourcePoint = projector.project(source);
         const targetPoint = projector.project(target);
-        const active = activeNode ? connectedToActive(edge, activeNode) : false;
+        const directionOwner =
+          pointerNode && connectedToActive(edge, pointerNode)
+            ? pointerNode
+            : selectedNode && connectedToActive(edge, selectedNode)
+              ? selectedNode
+              : undefined;
         const color =
-          activeNode && edge.target === activeNode
+          directionOwner && edge.target === directionOwner
             ? CITATION_GRAPH_INCOMING_EDGE_COLOR
             : CITATION_GRAPH_OUTGOING_EDGE_COLOR;
-        return `<line class="graph-edge${active ? " is-active" : ""}" x1="${sourcePoint.x.toFixed(2)}" y1="${sourcePoint.y.toFixed(2)}" x2="${targetPoint.x.toFixed(2)}" y2="${targetPoint.y.toFixed(2)}" stroke="${color}" stroke-width="${active ? 1.8 : 0.75}" stroke-opacity="${active ? 0.72 : activeNode ? 0.08 : 0.16}" marker-end="url(#zs-cg-arrow)" />`;
+        return `<line class="graph-edge is-active" x1="${sourcePoint.x.toFixed(2)}" y1="${sourcePoint.y.toFixed(2)}" x2="${targetPoint.x.toFixed(2)}" y2="${targetPoint.y.toFixed(2)}" stroke="${color}" stroke-width="1.8" stroke-opacity="0.72" marker-end="url(#zs-cg-arrow)" />`;
       })
       .join("");
-    const nodeHtml = model.nodes
+    const nodeHtml = visibleNodes
       .map((node) => {
         const point = projector.project(node);
         const importance = importanceByNodeId.get(node.id);
@@ -314,19 +346,21 @@ function renderSvgCitationGraph(
           isCurrentPaperNode(node, model),
         );
         const radius = Math.max(4, baseSize * 1.75);
-        const neighbor = activeNode
-          ? node.id === activeNode ||
-            Boolean(adjacency.get(activeNode)?.has(node.id))
-          : false;
-        const faded = Boolean(activeNode && !neighbor && !currentPaper);
+        const neighbor = ownerIds.some(
+          (ownerId) =>
+            node.id === ownerId ||
+            Boolean(adjacency.get(ownerId)?.has(node.id)),
+        );
+        const faded = Boolean(ownerIds.length && !neighbor && !currentPaper);
         const color =
           importance?.halo || currentPaper
             ? graphNodeImportanceColor(node, model)
             : graphNodeColor(node, model);
         const labelVisible =
-          node.id === activeNode ||
+          node.id === pointerNode ||
+          node.id === selectedNode ||
           (neighbor && node.kind === "library_paper") ||
-          (currentPaper && !activeNode);
+          (currentPaper && !ownerIds.length);
         const showHalo = importance?.halo || currentPaper;
         const halo = showHalo
           ? (() => {
@@ -367,20 +401,27 @@ function renderSvgCitationGraph(
         const nodeId = nodeEl.dataset.nodeId;
         cancelScheduledHoverClear(state);
         state.hoverClearTimer = window.setTimeout(() => {
-          state.hoveredNode = nodeId;
+          state.pointerHoveredNode = nodeId;
           redrawStage();
         }, 60);
       });
       nodeEl.addEventListener("mouseleave", () => {
         cancelScheduledHoverClear(state);
         state.hoverClearTimer = window.setTimeout(() => {
-          state.hoveredNode = undefined;
+          state.pointerHoveredNode = undefined;
           redrawStage();
         }, 80);
       });
     });
   }
 
+  graphStage.addEventListener("mouseleave", () => {
+    cancelScheduledHoverClear(state);
+    state.hoverClearTimer = window.setTimeout(() => {
+      state.pointerHoveredNode = undefined;
+      redrawStage();
+    }, 80);
+  });
   redrawStage();
   container.dataset.zsCgStatus = "ready";
   delete container.dataset.zsCgError;
@@ -406,12 +447,26 @@ export function renderCitationGraph(
     return;
   }
   const drawableIds = new Set(drawableNodes.map((node) => node.id));
-  const drawableModel = {
-    ...model,
+  const projection = projectCitationGraphVisibility({
     nodes: drawableNodes,
     edges: model.edges.filter(
       (edge) => drawableIds.has(edge.source) && drawableIds.has(edge.target),
     ),
+  });
+  if (!projection.defaultNodes.length) {
+    renderEmpty(
+      container,
+      options,
+      label(options, "noGraph", "当前没有可显示的引用关系。"),
+    );
+    return;
+  }
+  const drawableModel = {
+    ...model,
+    nodes: projection.defaultNodes,
+    edges: projection.defaultEdges,
+    hoverOnlyNodes: projection.hoverOnlyNodes,
+    hoverOnlyEdges: projection.hoverOnlyEdges,
   };
   try {
     renderSvgCitationGraph(container, drawableModel, options, {});

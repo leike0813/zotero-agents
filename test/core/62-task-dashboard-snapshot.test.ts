@@ -178,6 +178,41 @@ describe("task dashboard snapshot", function () {
     assert.equal(normalized, "products");
   });
 
+  it("exposes Synthesis sidecar diagnostics only when both gates are enabled", function () {
+    assert.equal(
+      normalizeDashboardTabKey({
+        requestedTabKey: "synthesis-sidecar",
+        backends: [],
+        debugModeEnabled: true,
+        synthesisSidecarDiagnosticsEnabled: true,
+      }),
+      "synthesis-sidecar",
+    );
+    for (const gates of [
+      {
+        debugModeEnabled: false,
+        synthesisSidecarDiagnosticsEnabled: true,
+      },
+      {
+        debugModeEnabled: true,
+        synthesisSidecarDiagnosticsEnabled: false,
+      },
+      {
+        debugModeEnabled: false,
+        synthesisSidecarDiagnosticsEnabled: false,
+      },
+    ]) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: "synthesis-sidecar",
+          backends: [],
+          ...gates,
+        }),
+        "home",
+      );
+    }
+  });
+
   it("keeps SkillRunner connection audit tab only when both gates are enabled", function () {
     const backends = [makeBackend("skillrunner-primary", "skillrunner")];
     assert.equal(

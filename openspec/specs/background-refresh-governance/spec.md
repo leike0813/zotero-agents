@@ -109,3 +109,16 @@ ACP Skills SHALL NOT perform an initial workspace activity scan, register a work
 - **WHEN** mode leaves silent while the same prompt remains active
 - **THEN** scoped workspace observation resumes
 - **AND** cleanup still removes its timer and preference subscription.
+
+### Requirement: Synthesis sidecar supervision has a low-interference timer budget
+
+
+The sidecar supervisor SHALL register one service-scoped background owner and
+SHALL not read Synthesis domain, Workbench, operation, task, run, or history
+state during lifecycle ticks.
+
+#### Scenario: Ready supervisor runs in the background
+- **WHEN** its deadline scheduler wakes
+- **THEN** it SHALL access only the current profile lease, process state, and
+  loopback health
+- **AND** unchanged successful results SHALL not publish a new snapshot.

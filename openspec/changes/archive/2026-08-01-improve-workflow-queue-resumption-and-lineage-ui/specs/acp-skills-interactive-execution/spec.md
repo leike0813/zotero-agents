@@ -15,4 +15,3 @@ For a Host-submitted run that yielded, ACP Skills SHALL retain user reply, autho
 - **WHEN** cancellation is confirmed while a reply is resumption-pending
 - **THEN** the cached reply callback SHALL not run
 - **AND** terminal settlement SHALL not leak or double-release a slot
-

@@ -1,0 +1,186 @@
+{
+  "schema": "synthesis-citation-reference-application-parity.v1",
+  "reportSchema": "synthesis-citation-reference-application-parity-report.v1",
+  "profileId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "dataRootId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "clock": "2026-07-26T00:00:00.000Z",
+  "operationIds": ["citation:rebuild:1", "citation:rebuild:2"],
+  "preparationIds": ["refresh:1", "matching:1"],
+  "faultPhases": ["projection", "receipt", "worker"],
+  "fixture": {
+    "citationInput": {
+      "contractVersion": "synthesis-citation-graph-build.v1",
+      "scope": {
+        "kind": "full",
+        "sourceIds": ["paper:a", "paper:b"]
+      },
+      "rolePriority": ["background"],
+      "libraryNodes": [
+        {
+          "nodeId": "paper:a",
+          "title": "Alpha",
+          "year": "2020",
+          "authors": ["A"],
+          "aliases": []
+        },
+        {
+          "nodeId": "paper:b",
+          "title": "Beta",
+          "year": "2024",
+          "authors": ["B"],
+          "aliases": []
+        }
+      ],
+      "references": [
+        {
+          "referenceId": "reference:1",
+          "edgeId": "edge:1",
+          "sourceId": "paper:a",
+          "targetId": "paper:b",
+          "targetKind": "library_paper",
+          "targetAuthors": ["B"],
+          "targetAliases": [],
+          "roles": ["background"],
+          "weight": 1
+        }
+      ]
+    },
+    "refresh": {
+      "items": [
+        {
+          "paperRef": "1:A",
+          "libraryId": 1,
+          "itemKey": "A",
+          "itemType": "journalArticle",
+          "title": "Alpha source",
+          "year": "2024",
+          "date": "2024",
+          "creators": ["Author"],
+          "tags": [],
+          "collections": [],
+          "doi": "",
+          "arxiv": "",
+          "isbn": "",
+          "url": "",
+          "citekey": "alpha-source",
+          "dateAdded": "2026-07-26"
+        }
+      ],
+      "artifacts": [
+        {
+          "paperRef": "1:A",
+          "artifactType": "digest",
+          "payloadType": "text/markdown",
+          "status": "available",
+          "locator": "1:A/digest/1",
+          "payloadHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "diagnostics": []
+        },
+        {
+          "paperRef": "1:A",
+          "artifactType": "references",
+          "payloadType": "references-json",
+          "status": "available",
+          "locator": "1:A/references/1",
+          "payloadHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "diagnostics": []
+        },
+        {
+          "paperRef": "1:A",
+          "artifactType": "citation_analysis",
+          "payloadType": "citation-analysis-json",
+          "status": "available",
+          "locator": "1:A/citation-analysis/1",
+          "payloadHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "diagnostics": []
+        },
+        {
+          "paperRef": "1:A",
+          "artifactType": "literature_score",
+          "payloadType": "literature_score.v1",
+          "status": "available",
+          "locator": "1:A/literature-score/1",
+          "payloadHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "diagnostics": [],
+          "literatureQuality": {
+            "status": "available",
+            "schema": "literature_score.v1",
+            "rubric_id": "literature-quality.v1",
+            "paper_type": "empirical",
+            "overall_score": 80,
+            "confidence": 0.8,
+            "confidence_adjusted_score": 74,
+            "quality_prior": 0.74,
+            "payload_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "diagnostics": []
+          }
+        }
+      ],
+      "references": {
+        "references": [
+          {
+            "title": "Target paper",
+            "year": "2024",
+            "authors": ["Target Author"],
+            "citekey": "target-paper"
+          }
+        ]
+      },
+      "citationAnalysis": {
+        "citations": [
+          {
+            "reference_index": 0,
+            "role": "background"
+          }
+        ]
+      }
+    },
+    "matchingHostCandidates": [
+      {
+        "libraryId": 1,
+        "itemKey": "TARGET",
+        "title": "Target paper",
+        "year": "2024",
+        "authors": ["Target Author"]
+      }
+    ]
+  },
+  "coverage": {
+    "citationGraph": [
+      "create",
+      "update",
+      "unchanged",
+      "basis_mismatch",
+      "pagination_50_20",
+      "rollback",
+      "metrics_layout",
+      "supersession",
+      "worker_fault",
+      "receipt_warning",
+      "busy_cancel_drain_reopen"
+    ],
+    "referenceRefresh": [
+      "changed_read_plan",
+      "descriptor_only_digest",
+      "full_and_scoped_promotion",
+      "payload_validation",
+      "protected_decisions",
+      "staleness",
+      "receipt_warning",
+      "discard_drain_reopen"
+    ],
+    "referenceMatching": [
+      "double_pass",
+      "stale_basis",
+      "proposal_lifecycle",
+      "rejected_suppression",
+      "accept_reverse_reject_reopen_delete_retarget",
+      "partial_batch",
+      "fact_revocation",
+      "drain_reopen"
+    ],
+    "crossApplication": [
+      "refresh_matching_review_graph_rebuild_without_automatic_downstream_dispatch"
+    ]
+  }
+}

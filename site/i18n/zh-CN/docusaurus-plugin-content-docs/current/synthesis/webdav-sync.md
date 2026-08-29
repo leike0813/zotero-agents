@@ -2,7 +2,7 @@
 
 ## Overview
 
-WebDAV Sync is the cross-device synchronization mechanism for the Synthesis Workbench, replacing the deprecated Git Sync. It exchanges deterministic durable-state bundle snapshots via the WebDAV protocol.
+WebDAV Sync is the cross-device durable-sync mechanism for the Synthesis Workbench. It exchanges deterministic durable-state bundle snapshots via the WebDAV protocol.
 
 Works with any WebDAV-compliant server (Nextcloud, ownCloud, Synology, etc.). No Git required.
 
@@ -116,4 +116,3 @@ The Workbench Home page sync panel shows conflict details and action buttons.
 
 - [Home dashboard](home) — view sync status
 - [Preferences](../preferences) — configure WebDAV sync
-- [Git Sync](git-sync) (deprecated) — historical reference

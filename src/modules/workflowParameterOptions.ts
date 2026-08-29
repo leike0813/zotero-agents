@@ -2,7 +2,8 @@ import type {
   WorkflowParameterOption,
   WorkflowParameterOptionsSource,
 } from "../workflows/types";
-import type { SynthesisWorkflowTopicOptionsResult } from "./synthesis/service";
+import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
+import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import { listZoteroCollections } from "./zoteroHostCapabilityBroker";
 
 export type WorkflowParameterOptionsResult = {
@@ -31,23 +32,12 @@ function compactKeySuffix(key: string) {
   return value.length > 6 ? value.slice(-6) : value;
 }
 
-type SynthesisTopicOptionsService = {
-  listWorkflowTopicOptions: (args?: {
-    filter?: unknown;
-  }) => Promise<SynthesisWorkflowTopicOptionsResult>;
-};
-
-async function getDefaultSynthesisTopicOptionsService(): Promise<SynthesisTopicOptionsService> {
-  const { getDefaultSynthesisService } = await import("./synthesis/service");
-  return getDefaultSynthesisService();
-}
-
 async function resolveSynthesisTopicOptions(
   source: WorkflowParameterOptionsSource,
-  service: SynthesisTopicOptionsService,
+  client: Pick<SynthesisClient, "topics">,
 ): Promise<WorkflowParameterOptionsResult> {
-  const result = await service.listWorkflowTopicOptions({
-    filter: source.filter,
+  const result = await client.topics.listWorkflowOptions({
+    filter: source.filter === "updatable" ? "updatable" : "all",
   });
   return {
     options: result.options as WorkflowParameterOption[],
@@ -58,7 +48,7 @@ async function resolveSynthesisTopicOptions(
 export async function resolveWorkflowParameterOptionsSource(
   source: WorkflowParameterOptionsSource | undefined,
   deps?: {
-    synthesisService?: SynthesisTopicOptionsService;
+    synthesisClient?: Pick<SynthesisClient, "topics">;
   },
 ): Promise<WorkflowParameterOptionsResult> {
   if (!source || typeof source !== "object") {
@@ -68,8 +58,7 @@ export async function resolveWorkflowParameterOptionsSource(
     try {
       return await resolveSynthesisTopicOptions(
         source,
-        deps?.synthesisService ||
-          (await getDefaultSynthesisTopicOptionsService()),
+        deps?.synthesisClient || (await getDefaultSynthesisClient()),
       );
     } catch (error) {
       return {

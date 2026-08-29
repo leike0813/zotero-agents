@@ -14,4 +14,3 @@ ACP Skills queued, running, waiting, and resumption-pending task rows owned by a
 
 - **WHEN** an ACP task becomes terminal
 - **THEN** its row SHALL no longer display a submission symbol
-

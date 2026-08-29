@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change redesign-topic-synthesis-structured-artifact. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Topic synthesis has a structured canonical artifact
 
 
@@ -18,59 +20,7 @@ Topic synthesis SHALL use its structured JSON artifact and
 - **AND** current metadata SHALL NOT include markdown/export hashes
 - **AND** the persisted artifact SHALL include `synthesis_report.body` as the
   report Markdown source.
-### Requirement: Claims and timeline events use library paper evidence
 
-
-
-
-
-
-
-
-Structured topic claims and timeline events SHALL be grounded in library papers
-from the resolved paper set.
-
-#### Scenario: Claim is represented
-
-- **WHEN** a claim appears in the structured artifact
-- **THEN** it SHALL reference at least one `paper_evidence` entry
-- **AND** each referenced paper evidence entry SHALL correspond to a resolved
-  library paper.
-
-#### Scenario: Timeline event is represented
-
-- **WHEN** a timeline event appears in the structured artifact
-- **THEN** it SHALL reference at least one `paper_evidence` entry or explicit
-  topic phase derived from library paper evidence
-- **AND** it SHALL NOT rely on an external reference as the main evidence node.
-### Requirement: External literature is analyzed separately
-
-
-
-
-
-
-
-
-External references from references and citation-analysis artifacts SHALL be
-summarized in a dedicated external literature analysis section rather than
-promoted into main timeline evidence nodes.
-
-#### Scenario: External references are available
-
-- **WHEN** references or citation-analysis artifacts contain library-external
-  works relevant to the topic
-- **THEN** the structured artifact SHALL include external literature analysis
-  prose
-- **AND** it SHALL include representative references and citation contexts when
-  available.
-
-#### Scenario: External references are sparse
-
-- **WHEN** external reference metadata is incomplete
-- **THEN** external literature analysis SHALL record limitations or confidence
-  constraints
-- **AND** it SHALL NOT fabricate missing bibliographic details.
 ### Requirement: Topic synthesis final products remain structured-only
 
 
@@ -92,6 +42,7 @@ The topic synthesis skill runtime SHALL not emit run-workspace markdown exports.
 - **AND** manifest entry hashes SHALL NOT be required
 - **AND** no `preview.md`, `export.md`, or `markdown_path` is part of the skill
   output contract.
+
 ### Requirement: Structured topic artifacts preserve staged section semantics
 
 
@@ -112,10 +63,11 @@ their authoring-stage semantic validation.
 
 #### Scenario: Core analytical sections are persisted
 
-- **WHEN** final topic sections include claims, comparison, debates, gaps,
-  positioning, or review outline
+- **WHEN** final topic sections include claims, improvement dimensions,
+  debates, future directions, or review outline
 - **THEN** those sections SHALL match the Stage 8 validated core artifact unless
   explicitly replaced by a valid patch.
+
 ### Requirement: Topic synthesis artifacts SHALL expose a complete structured content contract
 
 
@@ -134,6 +86,7 @@ core sections plus `statistics` and `synthesis_report`.
   route analysis, timeline progression details, external literature coverage
   judgment, statistics, or report prose
 - **THEN** validation SHALL reject the artifact before apply succeeds.
+
 ### Requirement: Topic synthesis content SHALL support both Workbench reading and review writing
 
 
@@ -144,14 +97,15 @@ core sections plus `statistics` and `synthesis_report`.
 
 
 The content contract SHALL require route analysis, timeline progression,
-argued findings, external literature analysis, coverage/statistics, and a
-continuous report suitable for downstream literature writing workflows.
+argued findings, coverage/statistics, and a continuous report suitable for
+downstream literature writing workflows.
 
-#### Scenario: External literature is analyzed separately from primary evidence
+#### Scenario: External context is represented through current sections
 
-- **WHEN** external references are present
-- **THEN** they SHALL be analyzed in `external_literature_analysis`
+- **WHEN** external references affect coverage or interpretation
+- **THEN** their limitations SHALL be represented through coverage and report content
 - **AND** they SHALL NOT become primary claim or timeline evidence.
+
 ### Requirement: Taxonomy contains integrated route synthesis
 
 
@@ -168,6 +122,7 @@ integrated analysis of all taxonomy nodes.
 
 - **WHEN** a complete topic synthesis artifact omits `taxonomy.summary`
 - **THEN** validation fails before apply.
+
 ### Requirement: Timeline contains integrated historical synthesis
 
 
@@ -185,6 +140,7 @@ with `summary` and `events`.
 - **WHEN** a new complete topic synthesis artifact uses a bare array for
   `timeline_events`
 - **THEN** validation fails before apply.
+
 ### Requirement: Report records section-source chapters
 
 
@@ -203,6 +159,7 @@ chapters derive from `taxonomy.summary` and `timeline_events.summary`.
   without `source_section_chapters`
 - **THEN** validation fails before apply
 - **AND** the error identifies the missing report source binding.
+
 ### Requirement: Skill output uses structured-only run artifacts
 
 
@@ -220,8 +177,9 @@ the host.
 - **WHEN** a complete topic synthesis final bundle or section manifest includes
   `markdown_path`, `preview.md`, or `export.md` as run-workspace outputs
 - **THEN** validation fails before host persistence
-- **AND** host apply renders canonical `current/export.md` only after the
-  structured artifact has been materialized.
+- **AND** Host apply SHALL use `synthesis_report.body` without creating a
+  separate canonical Markdown export.
+
 ### Requirement: Relation proposals remain sidecar artifacts
 
 
@@ -238,6 +196,7 @@ Topic graph relation proposals SHALL NOT become structured topic artifact sectio
 - **WHEN** a topic synthesis final bundle includes `topic_graph_relation_proposals_path`
 - **THEN** the host SHALL keep relation proposals outside the structured artifact sections
 - **AND** structured artifact validation SHALL NOT require a relation proposal section.
+
 ### Requirement: Concept card proposals remain sidecar artifacts
 
 
@@ -254,6 +213,7 @@ Concept card proposals SHALL NOT become structured topic artifact sections or Ma
 - **WHEN** a topic synthesis final bundle includes `concept_cards_proposal_path`
 - **THEN** the host SHALL keep concept card proposals outside structured artifact sections
 - **AND** structured artifact validation SHALL NOT require a concept card section.
+
 ### Requirement: KG proposals remain outside structured topic artifact source of truth
 
 
@@ -270,6 +230,7 @@ Concept card proposals and topic graph relation proposals SHALL remain sidecars 
 - **WHEN** runtime assembles `result/topic-analysis.json` or `result/topic-analysis.patch.json`
 - **THEN** it SHALL NOT include concept cards or topic graph relation proposal bodies
 - **AND** host apply SHALL consume those proposals only through final bundle sidecar paths.
+
 ### Requirement: Timeline events expose runtime-derived markers
 
 
@@ -286,7 +247,7 @@ primary timeline rendering input for new artifacts.
 
 - **WHEN** a new complete topic synthesis artifact contains `timeline_events`
 - **THEN** it SHALL include `timeline_events.markers`
-- **AND** each marker SHALL identify a paper evidence id and year when
+- **AND** each marker SHALL identify a source paper ref and year when
   available
 - **AND** marker type, event id, and deduplication SHALL be runtime-derived.
 
@@ -295,6 +256,7 @@ primary timeline rendering input for new artifacts.
 - **WHEN** an agent authors timeline events in the core synthesis payload
 - **THEN** those events SHALL be treated as milestone candidates
 - **AND** the agent-facing payload SHALL NOT expose `marker_kind`.
+
 ### Requirement: Improvement dimensions replace comparison matrix authoring
 
 
@@ -319,6 +281,7 @@ preferred representation for method progress and tradeoffs.
 
 - **WHEN** a new artifact uses improvement dimensions
 - **THEN** validation SHALL NOT require an agent-authored `comparison_matrix`.
+
 ### Requirement: Statistics and report are runtime materialized
 
 
@@ -344,6 +307,7 @@ runtime-materialized sections.
 - **THEN** `synthesis_report` SHALL be rendered from a fixed template and
   validated section sources
 - **AND** the agent SHALL NOT author the final report body directly.
+
 ### Requirement: Host apply avoids digest hash freshness blocking
 
 
@@ -365,9 +329,10 @@ Host apply SHALL treat digest references as locators, not freshness proofs.
 
 #### Scenario: Digest body is embedded
 
-- **WHEN** a topic synthesis artifact embeds full digest markdown in
-  `paper_evidence`
+- **WHEN** a topic synthesis artifact embeds full digest markdown instead of a
+  `source_papers[].digest_ref` locator
 - **THEN** Host apply SHALL reject the artifact.
+
 ### Requirement: Topic synthesis structured artifact SHALL use consolidated sections
 
 
@@ -393,19 +358,22 @@ repeat a single neighboring concept.
   `coverage.external_literature`
 - **AND** the manifest SHALL NOT contain an `external_literature_analysis`
   section.
+
 ### Requirement: Complete topic artifact sections
 
 
 
 
-The complete topic synthesis artifact SHALL NOT include a top-level
-`positioning` section.
+The complete topic synthesis artifact SHALL NOT include top-level `gaps` or
+`positioning` sections.
 
 #### Scenario: Complete manifest removes positioning
 
 - **WHEN** split finalize materializes a complete topic artifact
 - **THEN** the manifest sections do not include `positioning`
 - **AND** the assembled artifact does not include `positioning`
+- **AND** neither the manifest nor assembled artifact includes `gaps`
+
 ### Requirement: Summary section shape
 
 
@@ -420,6 +388,7 @@ The summary section SHALL avoid duplicated synonymous fields.
 - **THEN** the summary object contains `brief`, `summary`, and
   `key_takeaways`
 - **AND** it does not contain `long_summary`
+
 ### Requirement: Future directions source refs
 
 
@@ -433,6 +402,7 @@ Future directions SHALL use `source_paper_refs` to reference source papers.
 - **WHEN** a complete artifact is validated
 - **THEN** each `future_directions[]` row with `source_paper_refs` references
   existing `source_papers[].paper_ref`
+
 ### Requirement: Coverage caveats are coverage-owned
 
 
@@ -446,6 +416,7 @@ Coverage caveats SHALL remain inside `coverage.coverage_caveats`.
 - **WHEN** Stage 60 submits coverage caveats
 - **THEN** they remain in the coverage section
 - **AND** runtime does not copy them into `future_directions`
+
 ### Requirement: Topic scope boundary
 
 
@@ -460,6 +431,7 @@ scope boundary.
 - **THEN** `topic.scope_boundary` is accepted as the topic boundary
 - **AND** no `positioning.scope_boundary` is required or accepted as a
   contract field
+
 ### Requirement: Review writing strategies
 
 
@@ -475,6 +447,7 @@ The review outline section SHALL describe review-writing strategies.
 - **AND** `review_outline.recommended_strategy_id` references an existing
   strategy id
 - **AND** strategy `source_paper_refs` reference existing source papers
+
 ### Requirement: Coverage section
 
 
@@ -492,3 +465,38 @@ runtime-generated duplicate summary fields.
   `claim_coverage_summary`, `timeline_coverage_summary`,
   `reliability_summary`, or `external_literature`
 - **AND** artifact validation accepts the minimal coverage section as complete
+
+### Requirement: Host structured artifact computation SHALL route through the configured engine
+
+Host apply SHALL use the configured Topic Structured Artifact engine for
+manifest validation, section patch computation, artifact assembly, and artifact
+validation.
+
+#### Scenario: Complete artifact is applied
+
+- **WHEN** Host apply reads a valid complete manifest and its sections
+- **THEN** the configured engine SHALL assemble and validate the artifact before canonical persistence
+- **AND** the persisted artifact shape SHALL remain unchanged.
+
+### Requirement: Current evidence links use source paper references
+
+Current evidence links SHALL use `source_paper_refs` to identify rows in the
+artifact's `source_papers` section for claims, timeline events, debates, future
+directions, improvement dimensions, taxonomy entries, and review-outline
+entries.
+
+#### Scenario: Referenced source paper is missing
+
+- **WHEN** a required `source_paper_refs` value does not identify a current `source_papers` row
+- **THEN** structured artifact validation SHALL reject the artifact before apply.
+
+### Requirement: Current complete sections SHALL exclude removed sections
+
+Current complete manifests and artifacts SHALL exclude
+`improvement_dimension_summary`, `external_literature_analysis`, `gaps`, and
+`positioning`.
+
+#### Scenario: Removed section is present
+
+- **WHEN** a complete manifest or assembled artifact contains a removed section
+- **THEN** structured artifact validation SHALL reject it.

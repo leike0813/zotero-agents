@@ -1,5 +1,8 @@
 # mineru-long-pdf-page-range-splitting Specification
 
+## Purpose
+Defines the MinerU workflow behavior for splitting long PDFs into ordered page-range request units when preflight determines the PDF exceeds the page limit, including outline-aware split boundary selection and physical-PDF-split-free submission.
+
 ## Requirements
 ### Requirement: MinerU Workflow SHALL Split PDFs Above The Page Limit
 The MinerU workflow SHALL split a PDF into ordered page-range request units when preflight can determine that the PDF has more than 200 pages.

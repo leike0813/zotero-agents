@@ -15,7 +15,7 @@ Synthesis Workbench besteht aus 8 Oberflächen, die jeweils eine andere Funktion
 
 | Oberfläche | Funktion | Doku |
 |------------|----------|------|
-| **Home** | Bibliotheksübersichts-Dashboard: Bibliothekseinblicke (registrierte Paper / Themenanzahl / Graph-Knoten), Git-Sync-Status-Panel, Trendthemen-Kartenliste | [Details](home) |
+| **Home** | Bibliotheksübersicht mit Einblicken, WebDAV-Sync-Status und Trendthemen | [Details](home) |
 | **Topics** | Themenliste und -verwaltung: 3 Ansichtsmodi (Graph / Raster / Liste), Themen erstellen und aktualisieren, Themensuche und -sortierung | [Details](topic-synthesis) |
 | **Index** | Canonical-Reference-Index: Paper-Registry-Ansicht (Paper-Liste + Zitationszeilen + Bindungsstatus), Canonical-Reference-Ansicht (Suche / Zusammenführung / Umleitung / Deduplizierung) | [Details](index-and-citation) |
 | **Review** | Review-Zentrale: 3 Unter-Tabs – Citation-Match-Review (Bindungsvorschläge annehmen/ablehnen), Konzept-Review, Themen-Graph-Beziehungs-Review | [Details](review) |
@@ -41,7 +41,7 @@ synthesis/
 ├── topic-graph/        # Themen-Graph-Knoten und -Kanten
 ├── citation-graph/     # Zitationsgraph-Snapshots
 ├── tags/               # Kontrolliertes Tag-Vokabular
-├── sync/               # Git-Sync-Arbeitsbaum
+├── bundles/            # Dauerhafte WebDAV-Austauschpakete
 └── state/              # Laufzeitstatus (Transaktionen, Belege, Caches usw.)
 ```
 
@@ -90,7 +90,7 @@ Zotero Library
     │                   ├──→ Themen-Graph (Themenbeziehungen)
     │                   └──→ Konzeptassoziationen (Konzept-Wissensbasis)
     │
-    └──→ Git Sync ←→ Remote-Repository (Versionskontrolle und Sicherung)
+    └──→ WebDAV Sync ←→ Remote Snapshots
 ```
 
 ## Voraussetzungen
@@ -108,4 +108,4 @@ Die Nutzung von Synthesis Workbench erfordert:
 - [Themensynthese erstellen](topic-synthesis) – Themenanalysen erstellen
 - [Review-Zentrale](review) – Zitations-Matches, Konzepte und Themen-Graph-Vorschläge prüfen
 - [Konzept-Wissensbasis](concepts) – Kernkonzepte verwalten
-- [Git Sync](git-sync) – Datensynchronisierung und -sicherung konfigurieren
+- [WebDAV Sync](webdav-sync) – Dauerhafte Datensynchronisierung konfigurieren

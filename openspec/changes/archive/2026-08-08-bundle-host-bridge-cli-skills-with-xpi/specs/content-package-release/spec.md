@@ -14,4 +14,3 @@ Preparing or publishing a Content Package SHALL not require a Host Bridge comple
 #### Scenario: Content publication has no matching Host Bridge receipt
 - **WHEN** an otherwise valid Content Package release is prepared without a matching Host Bridge complete receipt
 - **THEN** Host Bridge receipt state does not block Content Package preparation or publication
-

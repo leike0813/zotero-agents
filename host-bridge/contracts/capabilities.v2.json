@@ -3682,7 +3682,7 @@
     },
     "topics.get_planning_context": {
       "category": "topics",
-      "summary": "Return one bounded library-wide topic planning snapshot; complete snapshots may be written to outputPath.",
+      "summary": "Return one complete library-wide topic planning snapshot through registered file delivery.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3690,26 +3690,28 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 5000
-          },
-          "outputPath": {
-            "type": "string"
-          },
-          "output_path": {
-            "type": "string"
-          },
-          "overwrite": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
-        "description": "Planning context or local/remote file delivery data owned by topics.get_planning_context.",
+        "description": "Planning snapshot summary and registered file delivery owned by topics.get_planning_context.",
+        "required": ["delivery"],
         "properties": {
+          "summary": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The planning application owns bounded summary counters while the command envelope remains closed."
+          },
+          "diagnostics": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The planning application owns diagnostic fields while the command envelope remains closed."
+          },
           "delivery": {
             "type": "object",
-            "description": "Registered remote-file delivery instructions when direct local output is unavailable.",
+            "required": ["mode", "bundle", "downloadCommand"],
             "properties": {
               "mode": {
                 "enum": ["bridge-download"]
@@ -3720,16 +3722,12 @@
               },
               "downloadCommand": {
                 "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
               }
             },
             "additionalProperties": false
           }
         },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The planning snapshot owns library, topic, graph, coverage, and output fields; the command envelope remains closed."
+        "additionalProperties": false
       },
       "effect": "read",
       "approval": "none",

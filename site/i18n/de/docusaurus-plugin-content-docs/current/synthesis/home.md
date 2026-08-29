@@ -14,13 +14,13 @@ Der obere Bereich der Seite zeigt eine Reihe von Statistik-Karten, die den aktue
 | **Themenanzahl** | Anzahl der erstellten Themensynthesen |
 | **Graph-Knoten** | Gesamtanzahl der Knoten im Zitationsgraphen (Bibliothekspapers + externe Referenzen) |
 | **Graph-Kanten** | Gesamtanzahl der Zitationsbeziehungen im Zitationsgraphen |
-| **Sync-Status** | Laufender Status der WebDAV/Git-Synchronisierung |
+| **Sync-Status** | Laufender Status der WebDAV-Synchronisierung |
 
 Diese Metriken helfen Ihnen, den Strukturierungsgrad und den Synthesefortschritt Ihrer Bibliothek schnell zu verstehen.
 
 ## Sync-Panel
 
-Wenn [WebDAV Sync](webdav-sync) (empfohlen) oder [Git Sync](git-sync) (veraltet) konfiguriert ist, zeigt die Home-Seite ein Sync-Status-Panel:
+Wenn [WebDAV Sync](webdav-sync) konfiguriert ist, zeigt die Home-Seite ein Sync-Status-Panel:
 
 ### WebDAV Sync
 
@@ -37,9 +37,7 @@ Für detaillierte Konfiguration und Nutzung von WebDAV Sync siehe [WebDAV Sync](
 Die Auto-Sync-Funktion von WebDAV Sync wurde nicht gründlich getestet. Es wird empfohlen, in dieser Phase **nur manuellen Sync zu verwenden** und Auto-Sync zu aktivieren, nachdem es in einer zukünftigen Version verbessert wurde.
 :::
 
-### Git Sync (Veraltet)
 
-Siehe [Git Sync](git-sync) als historische Referenz.
 
 ## Review-Elemente-Panel
 

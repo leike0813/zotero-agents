@@ -108,4 +108,4 @@ Zotero 文献库
 - [创建 Topic 综合](#doc/synthesis%2Ftopic-synthesis) — 创建主题分析
 - [审核中心](#doc/synthesis%2Freview) — 审核引用匹配、概念和主题图提案
 - [概念知识库](#doc/synthesis%2Fconcepts) — 管理核心概念
-- [Git 同步](#doc/synthesis%2Fgit-sync) — 配置数据同步和备份
+- [WebDAV 同步](#doc/synthesis%2Fwebdav-sync) — 配置持久数据同步

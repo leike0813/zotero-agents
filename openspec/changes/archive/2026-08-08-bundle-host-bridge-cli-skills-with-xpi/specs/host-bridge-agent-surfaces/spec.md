@@ -19,4 +19,3 @@ Relocating generated Skills SHALL preserve every source instruction, direct refe
 - **WHEN** the materialized Skill validator compares the new bundle with the fixed pre-relocation commit
 - **THEN** every governed file is compared against its former path
 - **AND** the substantive-line, normalized-prose, reachability, and semantic-parity gates remain satisfied
-

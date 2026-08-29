@@ -18,6 +18,9 @@ describe("runtime diagnostics release elision", function () {
       assert.isAbove(result.debugBytes[name], 0);
     }
     assert.equal(result.releaseExclusiveBytes, 0);
+    assert.deepEqual(result.retainedProductionContractMarkers, [
+      "synthesis-sidecar-observation.v2",
+    ]);
     assert.include(result.retainedStaticMarkers, "acp-trace-replay");
     assert.isTrue(result.releaseReplayOutputEqual);
   });

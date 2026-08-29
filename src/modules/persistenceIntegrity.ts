@@ -345,11 +345,7 @@ export async function scanPersistenceIntegrity(args?: {
 
   const runtimeSynthesis = joinPath(paths.runtimeRoot, "synthesis");
   if (await runtimePathExists(runtimeSynthesis)) {
-    const allowedRuntimeSynthesisRoots = new Set([
-      "git-sync",
-      "git-sync-worktree",
-      "webdav-sync",
-    ]);
+    const allowedRuntimeSynthesisRoots = new Set(["webdav-sync"]);
     for (const child of await listRuntimeChildren(runtimeSynthesis)) {
       const childName = basenameOf(child);
       if (allowedRuntimeSynthesisRoots.has(childName)) {

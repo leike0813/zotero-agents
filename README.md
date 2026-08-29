@@ -285,6 +285,8 @@ The Workbench is a full Workspace Tab in Zotero, containing 8 Surfaces:
 
 The Workbench includes built-in **WebDAV sync**, which can synchronize structured data such as tag vocabularies, topic synthesis, and concept knowledge bases to a remote server via the WebDAV protocol, enabling lightweight cross-device sync and backup.
 
+Library maintenance such as reference refresh, graph/index rebuilds, and WebDAV synchronization returns a durable Public Maintenance Operation. The sidecar owns its admission, execution, cancel/retry/continue controls, progress, and terminal receipt. After a restart, pending work requires explicit continuation and work that may already have crossed an external-effect boundary is reported as failed rather than replayed automatically.
+
 <table>
 <tr>
 <td width="50%"><img src="assets/home.png" alt="Synthesis Workbench Home" width="100%" /></td>
@@ -565,7 +567,7 @@ For more architecture details, see [Documentation Site: Custom Workflows](https:
 
 | Limitation | Description | Plan |
 |------------|-------------|------|
-| **Synthesis heavy computation blocks UI** | Operations like refreshing the index, rebuilding the Citation Graph, and Advance Matching are computationally intensive; under Zotero's single host process architecture, they cause brief UI freezes. Please be patient during execution | Planned to be resolved in a future refactor |
+| **Native Synthesis retirement acceptance is not final** | Rust is the only production application, persistence, canonical-store, and compute owner. The plugin legacy owner and the external Node service/worker stack have been removed from the development source tree. Source-local contract, boundary, TypeScript, Rust, packaging, and representative process gates remain mandatory; a source-fresh seven-platform bundle/XPI inventory and Zotero 7/9 real-machine acceptance are still separate release evidence. | Complete `complete-synthesis-r9-stage1-acceptance` before treating the retirement lineage as release-ready |
 | **WebDAV sync not fully tested** | The auto-sync feature has not been thoroughly tested; if using it, stick to manual sync as much as possible | Will be improved in a future release |
 | **Large library performance** | Performance has not been sufficiently tested on large-scale libraries | To be addressed in future updates |
 

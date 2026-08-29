@@ -15,4 +15,3 @@ The embedded MCP server SHALL expose Host Bridge capability names as MCP tool na
 
 - **WHEN** a client calls a listed MCP tool
 - **THEN** validation, permission, broker invocation, error mapping, and remote output projection SHALL follow the same Host Bridge capability path used by `/bridge/v2/call`.
-

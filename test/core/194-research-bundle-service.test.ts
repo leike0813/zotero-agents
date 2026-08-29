@@ -1,9 +1,10 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  createDirectResearchBundleApplication,
   createResearchBundleMaterializer,
   materializeResearchBundlePapers,
   publishDirectResearchBundle,
@@ -282,6 +283,172 @@ describe("Research Bundle service", function () {
       } else {
         process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
       }
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("owns paper bundle selection, artifact reads, and publication behind one application seam", async function () {
+    const tempRoot = await mkdtemp(join(tmpdir(), "zs-research-bundle-app-"));
+    const outputDir = join(tempRoot, "bundle");
+    const observed: string[] = [];
+    const application = createDirectResearchBundleApplication({
+      host: {
+        async resolveItems(selectors) {
+          observed.push(`resolve:${JSON.stringify(selectors)}`);
+          return [
+            {
+              paperRef: "1:ABCD1234",
+              libraryId: 1,
+              itemKey: "ABCD1234",
+              title: "Alpha Paper",
+              metadata: { key: "ABCD1234", title: "Alpha Paper" },
+              attachments: [],
+            },
+          ];
+        },
+      },
+      client: {
+        artifacts: {
+          async readPaperArtifacts(request) {
+            observed.push(`artifacts:${request.paper_refs.join(",")}`);
+            return { artifacts: [], diagnostics: [] } as any;
+          },
+        },
+        topics: {},
+      } as any,
+    });
+
+    try {
+      const result = await application.exportPapers(
+        {
+          items: [{ key: "ABCD1234", libraryId: 1 }],
+          output_dir: outputDir,
+        },
+        { mode: "local" },
+      );
+      assert.equal(result.delivery.mode, "local");
+      assert.deepEqual(observed, [
+        'resolve:[{"key":"ABCD1234","libraryId":1}]',
+        "artifacts:1:ABCD1234",
+      ]);
+      const manifest = JSON.parse(
+        await readFile(join(outputDir, "manifest.json"), "utf8"),
+      );
+      assert.equal(manifest.schema_id, "research_bundle.direct_export");
+      assert.equal(manifest.schema_version, "1.0.0");
+      assert.equal(manifest.papers[0].paper_ref, "1:ABCD1234");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unresolved paper selectors before reading or publishing artifacts", async function () {
+    let artifactReads = 0;
+    const application = createDirectResearchBundleApplication({
+      host: {
+        async resolveItems() {
+          return [];
+        },
+      },
+      client: {
+        artifacts: {
+          async readPaperArtifacts() {
+            artifactReads += 1;
+            return { artifacts: [], diagnostics: [] } as any;
+          },
+        },
+        topics: {},
+      } as any,
+    });
+
+    await assert.rejects(
+      application.exportPapers(
+        { items: [{ key: "MISSING", libraryId: 1 }], output_dir: "unused" },
+        { mode: "local" },
+      ),
+      (error: any) => error?.code === "invalid_research_bundle_selector",
+    );
+    assert.equal(artifactReads, 0);
+  });
+
+  it("deduplicates Topic source papers globally in the manifest", async function () {
+    const tempRoot = await mkdtemp(join(tmpdir(), "zs-topic-bundle-app-"));
+    const outputDir = join(tempRoot, "bundle");
+    const application = createDirectResearchBundleApplication({
+      host: {
+        async resolveItems() {
+          return [
+            {
+              paperRef: "1:ABCD1234",
+              libraryId: 1,
+              itemKey: "ABCD1234",
+              title: "Shared Paper",
+              metadata: {},
+              attachments: [],
+            },
+          ];
+        },
+      },
+      client: {
+        artifacts: {
+          async readPaperArtifacts() {
+            return {
+              artifacts: [
+                {
+                  paper_ref: "1:ABCD1234",
+                  artifact_type: "digest",
+                  status: "available",
+                  markdown: "## Shared digest\n",
+                },
+              ],
+              diagnostics: [],
+            } as any;
+          },
+        },
+        topics: {
+          async getTopicReport({ topicId }: { topicId: string }) {
+            return {
+              ok: true,
+              status: "available",
+              topic_id: topicId,
+              title: topicId,
+              format: "markdown",
+              markdown: `# ${topicId}\n`,
+              diagnostics: [],
+            } as any;
+          },
+          async getContext({ topicId }: { topicId: string }) {
+            return {
+              schema_id: "synthesis.topic_context",
+              schema_version: "2.0.0",
+              topic_id: topicId,
+              view: "semantic",
+              semantic: {
+                source_papers: [
+                  { paper_ref: "1:ABCD1234", title: "Shared Paper" },
+                ],
+              },
+            } as any;
+          },
+        },
+      } as any,
+    });
+
+    try {
+      await application.exportTopics(
+        { topic_ids: ["topic-a", "topic-b"], output_dir: outputDir },
+        { mode: "local" },
+      );
+      const manifest = JSON.parse(
+        await readFile(join(outputDir, "manifest.json"), "utf8"),
+      );
+      assert.equal(manifest.papers.length, 1);
+      assert.equal(manifest.topics.length, 2);
+      assert.deepEqual(manifest.papers_by_ref["1:ABCD1234"].topic_ids, [
+        "topic-a",
+        "topic-b",
+      ]);
+    } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });

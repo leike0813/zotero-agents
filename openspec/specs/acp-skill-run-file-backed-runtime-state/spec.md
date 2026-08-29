@@ -1,9 +1,9 @@
 # acp-skill-run-file-backed-runtime-state Specification
 
 ## Purpose
-Define the file-backed ACP Skills runtime, transcript paging, minimal Workspace
-projection, independent UI state axes, and durable owner-scoped persistence
-boundaries.
+Defines the file-backed ACP Skills runtime, including transcript paging, output
+revision and continuation state, minimal Workspace projection, independent UI
+state axes, and durable owner-scoped persistence boundaries.
 ## Requirements
 ### Requirement: ACP Skill runtime state is file-backed
 

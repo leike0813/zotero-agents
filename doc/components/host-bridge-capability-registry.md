@@ -42,14 +42,18 @@ type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
-  resolveSynthesisService?: () => SynthesisMcpService;
+  resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+  resolveDirectResearchBundleApplication?: () =>
+    | DirectResearchBundleApplication
+    | Promise<DirectResearchBundleApplication>;
 };
 ```
 
-`HostBridgeCapabilityDefinition` is assembled by looking up the canonical
-contract entry for an ID and attaching one private handler. The handler receives
-the already validated input and a context object providing connection mode,
-Host Bridge status, and optional broker or Synthesis services.
+Each capability pairs a manifest entry (name, category, summary, approval
+requirement, input schema) with a callable handler function. The handler
+receives the caller's `input` and a `context` object providing access to the
+Host Bridge status snapshot, connection mode, and an optional Synthesis client
+resolver used by tests. Production resolution uses the cached default client.
 
 Zotero capability handlers resolve the canonical broker directly. The registry
 does not depend on `WorkflowHostApi`, and MCP calls the same handlers instead of
@@ -80,12 +84,16 @@ handler. A missing contract entry is a startup error.
 The canonical entry still owns category and schemas. The wrapper adds only the
 runtime debug-mode availability check before invoking the handler.
 
-### `synthesisCapability(name, methodName)` — Synthesis-backed
+### `synthesisCapability(name, category, summary, invoke)` — Synthesis-backed
 
-The handler resolves the Synthesis service from `context.resolveSynthesisService()`
-(or falls back to `getDefaultSynthesisService()`), then calls `methodName` on
-the resolved service with the already validated input. The contract still owns
-all public metadata.
+The handler resolves a grouped `SynthesisClient` from
+`context.resolveSynthesisClient()` or `getDefaultSynthesisClient()`, rebuilds
+the input as a JSON object, and invokes an explicit domain lambda. Topic
+Context and filtered artifact export also receive an environment-neutral
+delivery context derived from the Host Bridge connection mode. The embedded
+MCP server derives both its tool list and dispatch handlers from this same
+capability registry; it has no separate tool registry or Synthesis service
+dispatcher.
 
 ---
 

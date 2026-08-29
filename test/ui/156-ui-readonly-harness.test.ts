@@ -12,7 +12,12 @@ import { filterHarnessVisibleWorkflows } from "../../src/modules/harness/dashboa
 import { createDashboardReadonlyModel } from "../../src/modules/harness/dashboardReadonlyModel";
 import { createAssistantReadonlyModel } from "../../src/modules/harness/assistantReadonlyModel";
 import { createReadonlySqliteAdapter } from "../../src/modules/harness/sqliteReadonly";
-import { createZoteroReadonlyLibraryAdapter } from "../../src/modules/harness/zoteroReadonlyLibraryAdapter";
+import { createReadonlySqliteDatabase } from "../../src/modules/harness/sqliteReadonly";
+import { createSynthesisReadonlyPort } from "../../src/modules/harness/synthesisReadonlyPort";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
+import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
+import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
+import { createZoteroReadonlyHostReadPort } from "../../src/modules/harness/zoteroReadonlyLibraryAdapter";
 import {
   buildHarnessSynthesisI18nEnvelope,
   resolveHarnessSynthesisLocale,
@@ -698,33 +703,247 @@ describe("UI readonly harness", function () {
     `);
     db.close();
 
-    const adapter = await createZoteroReadonlyLibraryAdapter({
+    const adapter = await createZoteroReadonlyHostReadPort({
       dbPath,
       libraryId: 1,
     });
     try {
-      const inputs = await adapter.getRegistryInputs();
-      assert.equal(inputs.length, 1);
-      assert.equal(inputs[0].itemKey, "ABCD1234");
-      assert.equal(inputs[0].title, "Harness Paper");
-      assert.deepEqual(inputs[0].creators, ["Ada Lovelace"]);
-      assert.deepEqual(inputs[0].tags, ["synthesis"]);
-      assert.deepEqual(inputs[0].collections, ["COLL1234"]);
-      assert.equal(inputs[0].notes?.[0].key, "NOTE1234");
-      const index = await adapter.getLibraryIndex();
-      assert.equal(index.papers[0].paper_ref, "1:ABCD1234");
-      assert.equal(index.collections[0].name, "Harness Collection");
+      const page = await adapter.library.listItemsPage({
+        libraryId: 1,
+        limit: 50,
+      });
+      assert.equal(page.items.length, 1);
+      assert.equal(page.items[0].itemKey, "ABCD1234");
+      assert.equal(page.items[0].title, "Harness Paper");
+      assert.deepEqual(page.items[0].creators, ["Ada Lovelace"]);
+      assert.deepEqual(page.items[0].tags, ["synthesis"]);
+      assert.deepEqual(page.items[0].collections, ["COLL1234"]);
+      assert.equal(Object.hasOwn(page.items[0], "notes"), false);
+      const scan = await adapter.artifacts.scanPage({
+        libraryId: 1,
+        paperRefs: ["1:ABCD1234"],
+        artifactTypes: ["digest"],
+        limit: 50,
+      });
+      assert.equal(scan.artifacts[0].paperRef, "1:ABCD1234");
+      assert.equal(Object.hasOwn(scan.artifacts[0], "payload"), false);
     } finally {
       adapter.close();
       await rm(dir, { recursive: true, force: true });
     }
   });
 
+  it("serves every Synthesis surface from a bounded readonly port and blocks mutations", async function () {
+    const dir = await mkdtemp(path.join(tmpdir(), "zs-synthesis-readonly-"));
+    const dbPath = path.join(dir, "synthesis.sqlite");
+    const source = await createDatabase(dbPath);
+    source.exec(`
+      CREATE TABLE snapshot_marker(id INTEGER PRIMARY KEY);
+      CREATE TABLE synt_topic_application_state(
+        topic_id TEXT, path_id TEXT, title TEXT, definition TEXT, language TEXT,
+        operation TEXT, manifest_hash TEXT, artifact_hash TEXT, metadata_hash TEXT,
+        bundle_hash TEXT, paper_count INTEGER, topic_definition_json TEXT,
+        topic_resolver_json TEXT, resolved_paper_set_json TEXT,
+        created_at TEXT, updated_at TEXT
+      );
+      INSERT INTO synt_topic_application_state VALUES(
+        'topic:readonly', 'readonly', 'Readonly Topic', 'Fixture definition',
+        'en', 'create', 'manifest', 'artifact', 'metadata', 'bundle', 3,
+        '{}', '{}', '{}', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z'
+      );
+      CREATE TABLE synt_reference_source(
+        paper_ref TEXT, library_id INTEGER, item_key TEXT, title TEXT, year TEXT,
+        metadata_hash TEXT, summary_json TEXT, updated_at TEXT
+      );
+      INSERT INTO synt_reference_source VALUES(
+        '1:ABCD1234', 1, 'ABCD1234', 'Readonly Paper', '2025',
+        'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+        '{}', '2026-01-02T00:00:00Z'
+      );
+      CREATE TABLE synt_review_item(status TEXT);
+      INSERT INTO synt_review_item VALUES('open'), ('resolved');
+      CREATE TABLE synt_tag_vocabulary_entry(
+        tag TEXT, facet TEXT, note TEXT, source TEXT, deprecated INTEGER,
+        replacement TEXT, aliases_json TEXT, abbrev_json TEXT, usage_count INTEGER,
+        last_synced_at TEXT, created_at TEXT, updated_at TEXT
+      );
+      INSERT INTO synt_tag_vocabulary_entry VALUES(
+        'method:survey', 'method', 'Survey', 'fixture', 0, '', '[]', '[]', 2,
+        '', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z'
+      );
+      CREATE TABLE synt_concept(
+        concept_id TEXT, label TEXT, aliases_json TEXT, concept_type TEXT,
+        domain TEXT, status TEXT, short_definition TEXT, definition TEXT,
+        usage_note TEXT, editorial_note TEXT, sense_ids_json TEXT,
+        created_at TEXT, updated_at TEXT
+      );
+      INSERT INTO synt_concept VALUES(
+        'concept:readonly', 'Readonly Concept', '[]', 'method', 'research',
+        'active', 'Short', 'Definition', '', '', '[]',
+        '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z'
+      );
+      CREATE TABLE synt_topic_graph_node(
+        topic_id TEXT, title TEXT, definition TEXT, aliases_json TEXT,
+        node_type TEXT, definition_status TEXT, current_artifact_path TEXT,
+        is_root INTEGER, level TEXT, paper_count INTEGER, last_synthesis_at TEXT,
+        created_at TEXT, updated_at TEXT, planning_json TEXT
+      );
+      INSERT INTO synt_topic_graph_node VALUES(
+        'topic:readonly', 'Readonly Topic', 'Fixture definition', '[]',
+        'materialized', 'has_synthesis', '', 0, 'normal', 3,
+        '2026-01-02T00:00:00Z', '2026-01-01T00:00:00Z',
+        '2026-01-02T00:00:00Z', '{}'
+      );
+      CREATE TABLE synt_citation_graph_application_state(
+        singleton_id TEXT, graph_hash TEXT, input_hash TEXT, metrics_hash TEXT,
+        node_count INTEGER, edge_count INTEGER, updated_at TEXT
+      );
+      INSERT INTO synt_citation_graph_application_state VALUES(
+        'active',
+        'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+        'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+        '', 1, 0, '2026-01-02T00:00:00Z'
+      );
+      CREATE TABLE synt_citation_node(
+        literature_item_id TEXT, node_status TEXT, has_zotero_binding INTEGER,
+        title TEXT, year TEXT, authors_json TEXT, summary_json TEXT, updated_at TEXT
+      );
+      INSERT INTO synt_citation_node VALUES(
+        '1:ABCD1234', 'active', 1, 'Readonly Paper', '2025',
+        '["Ada Lovelace"]', '{}', '2026-01-02T00:00:00Z'
+      );
+    `);
+    source.close();
+    const database = await createReadonlySqliteDatabase(dbPath);
+    try {
+      const client = createSynthesisClientFromPort(
+        createSynthesisReadonlyPort({ database, libraryId: 1 }),
+      );
+      const state = toSynthesisWorkbenchReadState(
+        createDefaultSynthesisUiState(),
+      );
+      const chrome = await client.workbench.readChrome({ state });
+      assert.equal(chrome.readonly, true);
+      for (const surface of [
+        "home",
+        "topics",
+        "index",
+        "review",
+        "graph",
+        "tags",
+        "concepts",
+        "reader",
+      ] as const) {
+        try {
+          const projection = await client.workbench.readSurface({
+            surface,
+            state,
+          });
+          assert.equal(projection.libraryId, 1);
+        } catch (error) {
+          throw new Error(
+            `readonly surface failed: ${surface} ${JSON.stringify((error as any)?.details || {})}`,
+            {
+              cause: error,
+            },
+          );
+        }
+      }
+      const home = await client.workbench.readSurface({
+        surface: "home",
+        state,
+      });
+      const index = await client.workbench.readSurface({
+        surface: "index",
+        state,
+      });
+      const tags = await client.workbench.readSurface({
+        surface: "tags",
+        state,
+      });
+      const concepts = await client.workbench.readSurface({
+        surface: "concepts",
+        state,
+      });
+      const topics = await client.workbench.readSurface({
+        surface: "topics",
+        state,
+      });
+      const graph = await client.workbench.readSurface({
+        surface: "graph",
+        state,
+      });
+      assert.deepEqual(
+        home.artifacts.map((row) => row.id),
+        ["topic:readonly"],
+      );
+      assert.deepEqual(
+        index.registry.rows.map((row) => row.paper_ref),
+        ["1:ABCD1234"],
+      );
+      assert.equal(index.reviews.summary.openCount, 1);
+      assert.equal(index.reviews.summary.indexCount, 1);
+      assert.deepEqual(
+        tags.tags.entries.map((row) => row.tag),
+        ["method:survey"],
+      );
+      assert.deepEqual(
+        concepts.concepts.concepts.map((row) => row.concept_id),
+        ["concept:readonly"],
+      );
+      assert.deepEqual(
+        topics.topicGraph.nodes.map((row) => row.topic_id),
+        ["topic:readonly"],
+      );
+      assert.deepEqual(
+        graph.graph.nodes.map((row) => row.id),
+        ["1:ABCD1234"],
+      );
+      await assert.rejects(
+        client.graph.rebuildCitationGraphCacheNow({}),
+        (error: any) => error?.code === "unavailable",
+      );
+    } finally {
+      database.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps Synthesis harness bridge aligned with structured topic detail and readonly review actions", async function () {
     const source = await readFile("scripts/ui-harness-serve.ts", "utf8");
+    const composition = await readFile(
+      "src/modules/harness/synthesisReadonlyClient.ts",
+      "utf8",
+    );
 
     assert.ok(source.includes('command === "openTopicArtifact"'));
-    assert.ok(source.includes("runtime.service.readTopicDetail"));
+    assert.ok(source.includes("runtime.client.workbench.readChrome"));
+    assert.ok(source.includes("runtime.client.workbench.readSurface"));
+    assert.ok(source.includes("runtime.client.workbench.readTopicDetail"));
+    assert.ok(source.includes("runtime.client.workbench.readPaperDigest"));
+    assert.ok(source.includes("toSynthesisWorkbenchReadState"));
+    assert.ok(source.includes("toSynthesisUiSnapshotInput"));
+    assert.ok(source.includes("toSynthesisWorkbenchPaperDigestReadRequest"));
+    assert.equal(source.includes("function paperDigestReadRequest"), false);
+    assert.equal(
+      source.includes(
+        'toSynthesisJsonObject(runtime.state, "$.workbench.state")',
+      ),
+      false,
+    );
+    assert.equal(
+      source.includes("input as unknown as SynthesisUiSnapshotInput"),
+      false,
+    );
+    assert.equal(source.includes("runtime.service"), false);
+    assert.equal(source.includes("getSynthesisSnapshot"), false);
+    assert.ok(composition.includes("createSynthesisClientFromPort"));
+    assert.ok(composition.includes("createSynthesisReadonlyPort"));
+    assert.equal(composition.includes("legacyComposition"), false);
+    assert.equal(composition.includes("synthesis/service"), false);
+    assert.equal(composition.includes("synthesis/repository"), false);
+    assert.equal(composition.includes("getRuntimePersistencePaths"), false);
+    assert.equal(composition.includes("createNativeSynthesisClient"), false);
     assert.ok(source.includes('refreshSynthesisInput(runtime, "concepts")'));
     assert.ok(source.includes('type: "synthesis:topic-detail"'));
     assert.equal(source.includes('type: "synthesis:artifact"'), false);

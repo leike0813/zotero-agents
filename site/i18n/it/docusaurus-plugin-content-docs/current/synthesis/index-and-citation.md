@@ -145,7 +145,7 @@ Il grafo delle citazioni può calcolare varie metriche per aiutare a identificar
 
 | Layout | Descrizione | Caso d'uso |
 |--------|-------------|------------|
-| **Force (Force-Directed)** | Layout d3-force | Esplorare la struttura complessiva |
+| **Force (Force-Directed)** | Layout ForceAtlas2 (Rust) | Esplorare la struttura complessiva |
 | **Radial** | Espansione attorno a un nodo selezionato | Analizzare la rete di citazioni di un articolo |
 | **Components** | Raggruppamento per componenti connesse | Scoprire cluster di citazioni indipendenti |
 

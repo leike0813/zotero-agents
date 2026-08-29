@@ -4,29 +4,32 @@
 
 The Synthesis Knowledge Graph (KG) subsystem manages structured knowledge assets
 on top of the Synthesis sidecar cache. It provides a canonical file-based asset
-store, a projection/index system for runtime queries, and a Git-based sync
-service for cross-instance knowledge sharing.
+store, a projection/index system for runtime queries, and a WebDAV durable
+bundle service for cross-instance knowledge sharing.
 
-Eight modules implement this subsystem:
+Core production modules are:
 
-| Module | File | Role |
-|--------|------|------|
-| Foundation | `src/modules/synthesis/foundation.ts` | Canonical store, envelopes, sharding, transaction support, projection registry |
-| Git Sync | `src/modules/synthesis/gitSync.ts` | Git-based KG synchronization service |
-| Citation Graph | `src/modules/synthesis/citationGraph.ts` | Citation graph building, metrics, layout |
-| Topic Graph | `src/modules/synthesis/topicGraph.ts` | Topic graph relations, review, proposals |
-| Concept KB | `src/modules/synthesis/conceptKb.ts` | Concept knowledge base |
-| Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | Tag vocabulary with protocol enforcement |
-| Reference Matcher | `src/modules/synthesis/referenceMatcher.ts` | Reference matching and canonical deduplication |
-| Registry | `src/modules/synthesis/registry.ts` | Reference sidecar registry index rows |
+| Module | Production owner | Role |
+| --- | --- | --- |
+| Application | `native/synthesis-sidecar/crates/synthesis-application` | Topic/Graph/Concept/Tag/Reference/checkpoint/durable/WebDAV use cases, validation, receipts, and promotion policy |
+| Repository | `native/synthesis-sidecar/crates/synthesis-repository` | Foundation v2 SQLite facts, bounded queries, migrations, and the single-writer boundary |
+| Canonical store | `native/synthesis-sidecar/crates/synthesis-canonical-store` | Topic representation validation and derivation, typed current views, transport-neutral assets, basis-guarded staging, transaction identity, journal, receipt, and recovery |
+| Worker engines | Rust engine crates and bounded worker mode | Deterministic graph, matcher, Tag, Concept, Topic Graph, and structured-artifact compute without commit authority |
+| Client/Host composition | TypeScript `SynthesisClient` and Host ports | UI orchestration, DTO transport, Zotero reads/effects, WebDAV credentials/HTTP, and export delivery |
+
+TypeScript retains language-neutral contracts and pure helpers that still have
+live client, Host, corpus, or test callers. The plugin application/repository
+services and executable Node oracle are absent; no TypeScript module can own
+production Synthesis storage or application state.
 
 Core concepts:
 
-- **Canonical Store** — file-system-backed, versioned knowledge asset storage
-  with envelope format and transaction support
+- **Canonical Store** — file-system-backed Topic representation owner. It
+  prepares local drafts, decodes durable assets, exposes typed reads, and
+  accepts only opaque prepared promotions.
 - **Projection/Index** — build-time queryable projections from the canonical
   store into SQLite for hot-read paths
-- **Git Sync** — export canonical assets to Git and import remote snapshots
+- **WebDAV Sync** — export canonical durable bundles and import remote snapshots
 
 ---
 
@@ -34,7 +37,9 @@ Core concepts:
 
 ### Canonical Envelope
 
-Every KG asset is wrapped in a `CanonicalEnvelope<T>`:
+Generic Foundation assets may use a `CanonicalEnvelope<T>`. Topic current
+content has its own complete manifest/artifact/metadata/sections
+representation and does not expose this envelope as a write DTO:
 
 ```typescript
 // src/modules/synthesis/foundation.ts
@@ -89,23 +94,30 @@ type NoteShardEnvelope = {
 
 ### Transaction System
 
-Asset mutations go through `writeCanonicalTransaction()`:
+Topic canonical mutations cross one representation boundary:
 
-1. Stage all assets to a temporary directory
-2. Validate each asset's envelope
-3. On success: promote staged assets into the canonical store
-4. On failure: rollback (discard staging directory)
-5. Record a `CanonicalTransactionReceipt` and emit a `CanonicalStoreChangedEvent`
-6. Mark affected projections as stale
+1. The application validates the use case and asks the structured-artifact
+   engine to assemble domain content.
+2. The canonical store prepares a draft or decodes transport-neutral durable
+   assets, deriving the path, declared hashes, bounds, and typed read view.
+3. The application attaches the expected basis to the opaque prepared value.
+4. The canonical store allocates the transaction identity, stages the complete
+   representation, and performs the basis-guarded promotion.
+5. Journal and receipt recovery prove the committed file state; application
+   projections remain owned by their repository transaction.
+
+Application and transport adapters never construct the persisted snapshot,
+section filenames, promotion DTO, or canonical transaction identity. Durable
+export receives canonical assets; durable import returns those assets to the
+same decoder before staging.
 
 ```typescript
-type CanonicalTransactionReceipt = {
+type TopicCanonicalReceipt = {
   transactionId: string;
-  status: "committed" | "rolled_back";
-  assetCount: number;
-  promotedAssets: string[];
-  rolledBackAssets: string[];
-  diagnostics: CanonicalDiagnostic[];
+  topicId: string;
+  pathId: string;
+  manifestHash: string;
+  artifactHash: string;
 };
 ```
 
@@ -159,10 +171,10 @@ projection registry state is stored through DB-backed cache-basis rows.
 
 ---
 
-## Git Sync
+## WebDAV Durable Sync
 
-`createSynthesisGitSyncService(options)` manages cross-instance KG
-synchronization via Git.
+`createSynthesisWebDavSyncService(options)` manages cross-instance knowledge
+exchange through the strict, secret-free `SynthesisHostWebDavSyncPort`.
 
 ### Sync State Machine
 
@@ -176,32 +188,29 @@ idle → queued → syncing → blocked_conflict → failed_retryable → idle
 
 ### Sync Cycle (`runSync()`)
 
-1. **Lock** — acquire exclusive lock
-2. **Export** — `exportCanonicalSnapshot()` writes eligible canonical assets as
-   a `SynthesisGitSyncManifest` to a temporary export directory
-3. **Copy** — move exports to the sync worktree
-4. **Fetch** — `SynthesisGitSyncAdapter.fetch()` pull remote refs
-5. **Merge** — `SynthesisGitSyncAdapter.merge()` resolve with remote
-6. **Validate** — `validateGitSyncImportSnapshot()` verify imported assets
-7. **Push** — `SynthesisGitSyncAdapter.push()` send merged state to remote
-8. **Import** — `importCanonicalSnapshot()` apply remote changes as a canonical
-   transaction
-9. **Cleanup** — remove temporary files, release lock
+1. **Describe** — rebuild the strict Host description and reject disabled or
+   incomplete configuration.
+2. **Read** — read `HEAD.json` and download the referenced manifest and bundles.
+3. **Preview** — validate paths, hashes, schema, duplicates, and durable conflicts
+   before any SQLite write.
+4. **Apply** — import clean durable facts through repository/domain APIs and mark
+   rebuildable projections stale.
+5. **Export** — render the current durable state with the `webdav-sync.v1`
+   capability into local staging.
+6. **Upload** — upload the immutable snapshot and conditionally replace
+   `HEAD.json` using the observed ETag.
+7. **Recover** — classify conflict and permanent validation failures without
+   retry; retry transport failures at most four times when enabled.
 
-### Git Sync Adapter Interface
-
-```typescript
-type SynthesisGitSyncAdapter = {
-  validateConfiguration?(): ValidationResult;
-  describeRemote?(url: string): RemoteDescription;
-  fetch?(worktreeDir: string): FetchResult;
-  merge?(worktreeDir: string): MergeResult;
-  push?(worktreeDir: string): PushResult;
-};
-```
-
-The adapter pattern allows pluggable Git implementations. The default adapter
-uses the system `git` binary.
+Canonical-write autosync follows the Host setting and is disabled by default.
+The Rust production composition observes application results at its shared
+post-commit boundary and schedules only fixed-baseline canonical mutations that
+also produced a repository SQL write. Inline writes use a five-second trailing
+debounce; concurrent Reference refresh receipt workers publish after their
+shared maintenance epoch drains. No-op, failed, projection-only, staged-only,
+job/log, and WebDAV-import writes are excluded. Explicit WebDAV controls and
+runtime shutdown cancel pending debounce work, while remote sync failure leaves
+the already committed local mutation intact.
 
 ---
 
@@ -209,14 +218,15 @@ uses the system `git` binary.
 
 Each knowledge domain follows a similar service pattern:
 
-| Domain | Entry Function | Core Operations |
-|--------|---------------|-----------------|
-| Citation Graph | `buildUnifiedCitationGraph()` | `computeCitationGraphMetrics()`, `computeCitationGraphLayout()` (force/radial/components) |
-| Topic Graph | `createSynthesisTopicGraphService()` | upsertNode/Edge, reconcileTopicPlan, decideRelation, applyReviewAction, ingestProposals, exportCheckpoint, rebuildIndex |
-| Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
-| Tag Vocabulary | `createSynthesisTagVocabularyService()` | validate, previewImport, applyImport, stage/Promote Suggestions, rebuildIndex |
-| Reference Matcher | `buildReferenceMatcherIndex()` | `resolveReferenceWithPolicy()`, `dedupeCanonicalReferencesClustered()` (5 policies, clustering with 10 edge types) |
-| Registry | `buildReferenceSidecarIndexRow()` | Scan note payloads, compute 5 facets (identity/metadata/artifact/reference/topic_usage) |
+| Domain | Rust production behavior |
+| --- | --- |
+| Citation Graph | Bounded build, slice, metrics, layout, basis recapture, and repository promotion; large builds use authenticated paged transfer. |
+| Topic Graph | Manifest-CAS proposals, decisions, cleanup, discovery coordination, public DTOs, and guarded index promotion. |
+| Topic artifact lifecycle | Structured validation/assembly plus Rust-owned canonical hashing, promotion, metadata, and downstream coordination. |
+| Concept KB | Proposal/review/delete/query behavior and captured-manifest index promotion. |
+| Tag Vocabulary | Validation, import/checkpoint state, staged suggestions, pending Host effects, and revision-CAS index promotion. |
+| Knowledge Checkpoint | Deterministic capture, verification, preview, and atomic three-domain replacement. |
+| Reference Matcher | Bounded binding/dedupe compute and basis-guarded promotion of accepted facts or review proposals. |
 
 ### Topic Graph Relations
 
@@ -229,7 +239,18 @@ type SynthesisTopicGraphRelation =
 Proposals enter via `ingestRelationProposals()`: low-confidence proposals route
 to review items, high-confidence proposals become edges directly.
 
-Topic Planner uses the same service through `reconcileTopicPlan()`. A plan can
+The rebuildable Topic Graph projection derives only `roots` and `unplaced`
+through the environment-neutral `SynthesisTopicGraphIndexEngine`. Requests are
+strictly JSON-safe and capped at 25,000 nodes, 100,000 edges, and 4,096 code
+units per string. The application rejoins those identifiers with complete
+node, edge, review, and diagnostic rows, then promotes projection registry
+state only after strict result validation. Proposal ingestion, cycle checks, review decisions, mutations, and Workbench
+neighborhood/search filtering do not cross this compute boundary. The Rust
+production application invokes the bounded worker, promotes only against the
+captured manifest, and preserves the last-good index on failure.
+
+Topic Planner enters the Topic Graph application through a durable reconcile
+operation. A plan can
 create, revise, mark stale, or reactivate placeholder nodes with Planned Topic
 metadata and reconcile relation proposals in one graph-hash compare-and-swap.
 Planned nodes store definitions and resolvers, not provisional paper members;
@@ -253,6 +274,16 @@ type SynthesisConcept = {
 Concepts link to topics via `SynthesisTopicConceptLink` entries, forming the
 bridge between the concept KB and the topic system.
 
+Concept search rows, overlay entries, and bounded exact label/alias queries run
+through the environment-neutral `SynthesisConceptKbIndexEngine`. Its strict
+JSON-safe requests are capped at 25,000 concepts, 100,000 senses, 250,000
+aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per
+string. The application continues to own SQLite reads and writes, manifest
+basis, relations and review rows, projection registry promotion, diagnostics,
+public snake_case DTO assembly, and all proposal merge/create/review decisions.
+The Rust production application uses bounded worker index/query operations,
+promotes only against a captured manifest, and keeps queries repository-read-only.
+
 ### Tag Vocabulary Facets
 
 ```typescript
@@ -262,9 +293,18 @@ const SYNTHESIS_TAG_FACETS = [
 ];
 ```
 
-The vocabulary enforces a tag pattern (`^[a-z_]+:[a-zA-Z0-9/_.-]+$`) and
-supports staged suggestions: new tags are proposed via `stageTagSuggestions()`,
-then promoted to the live vocabulary via `promoteStagedTagSuggestions()`.
+The environment-neutral engine enforces the tag pattern
+(`^[a-z_]+:[a-zA-Z0-9/_.-]+$`), facet and abbreviation rules, replacement and
+alias checks, active-tag selection, and search-index construction. Requests are
+strictly JSON-safe and bounded to 25,000 entries, 50,000 global aliases, 10,000
+abbreviations, and 256 facets. The Rust production application invokes bounded validation and owns SQLite
+mapping, canonical manifests and hashes, import policy, diagnostics, projection
+promotion, and WebDAV scheduling. Network and credential authority remains in
+the reverse-Host adapter.
+
+Staged suggestions remain application-owned: new tags are proposed via
+`stageTagSuggestions()`, then promoted to the live vocabulary via
+`promoteStagedTagSuggestions()` with Host Tag effects after commit.
 
 ---
 
@@ -306,8 +346,8 @@ Background rebuild jobs re-derive the projection into SQLite for UI consumption.
 │  ├─ Reference Matcher: buildIndex → match → dedupe    │
 │  └─ Registry: scan note payloads → buildIndexRow      │
 │                                                        │
-│  Git Sync                                              │
-│  └─ export → fetch → merge → validate → push → import │
+│  WebDAV Durable Sync                                   │
+│  └─ read → preview → apply → export → upload          │
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼

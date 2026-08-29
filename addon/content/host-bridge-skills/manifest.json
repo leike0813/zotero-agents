@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.5",
     "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-    "commandCatalogChecksum": "c44609deb780b40197cfd3bc657f2ce840cc05055531a42dca9e6701bd40e8e7"
+    "commandCatalogChecksum": "0b68e2b6a8fbe3f21d82dcb6d24d0f91e8539cd079cf2ec4b8cde10140d32505"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 931168,
-      "sha256": "c2adad195725adb9d579e46dbd6cee611cc7452434e2945cba590934555d6649"
+      "bytes": 930997,
+      "sha256": "cef93dca0813fd6045810045314144320c6762f00f12128cba8886a8d6529ddc"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -612,8 +612,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md",
-      "bytes": 13508,
-      "sha256": "849fa6d7bcae42073aa42025020fd9f78dfce7520d04ec7d76f8a5f4d8556ace"
+      "bytes": 13264,
+      "sha256": "529f9b10c769b153dca8e6e3ff96e75bd23b408a33b9f34a3fca6576b9ffc806"
     },
     {
       "path": "zotero-bridge-cli/references/commands/synthesis/topic/get-report.md",
@@ -866,5 +866,5 @@
       "sha256": "48d26f5b33fa8b53f29a67f7c5104917bf4c4d0bbad0e3b6b383c89852956a0b"
     }
   ],
-  "aggregateSha256": "25a9694b7bb444d60a8dde8106a3a6a3b051bd29c386b9af6bf6488a8cdc67e6"
+  "aggregateSha256": "c888862f7ca80c0288034f2e3a2d19d2231950761b7fc9fa2927ff3eb78966c9"
 }

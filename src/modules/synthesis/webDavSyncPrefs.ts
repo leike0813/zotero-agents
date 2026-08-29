@@ -1,25 +1,21 @@
 import { getPref, setPref } from "../../utils/prefs";
 import {
   createDefaultSynthesisWebDavHttpClient,
-  sanitizeWebDavUrl,
   webDavCredentialForRequest,
-  webDavRemoteUrl,
   type SynthesisWebDavHttpClient,
 } from "./webDavSyncClient";
+import { sanitizeWebDavUrl, webDavRemoteUrl } from "./webDavSyncRemote";
 import { storeSynthesisWebDavSyncCredential } from "./webDavSyncCredentialPrefs";
-
-export type SynthesisWebDavSyncConfigStatus =
-  | "disabled"
-  | "incomplete"
-  | "configured"
-  | "invalid";
-
-export type SynthesisWebDavSyncDiagnostic = {
-  code: string;
-  severity: "info" | "warning" | "error";
-  message: string;
-  details?: unknown;
-};
+import type {
+  SynthesisWebDavSyncConfigStatus,
+  SynthesisWebDavSyncConnectionTestResult,
+  SynthesisWebDavSyncDiagnostic,
+} from "./webDavSyncTypes";
+export type {
+  SynthesisWebDavSyncConfigStatus,
+  SynthesisWebDavSyncConnectionTestResult,
+  SynthesisWebDavSyncDiagnostic,
+} from "./webDavSyncTypes";
 
 export type SynthesisWebDavSyncPrefsStatus = {
   enabled: boolean;
@@ -42,13 +38,6 @@ export type SynthesisWebDavSyncPrefsSaveInput = {
   username?: string;
   autoSyncEnabled?: boolean;
   autoRetryEnabled?: boolean;
-};
-
-export type SynthesisWebDavSyncConnectionTestResult = {
-  ok: boolean;
-  tested_at: string;
-  config_status: SynthesisWebDavSyncConfigStatus;
-  diagnostics: SynthesisWebDavSyncDiagnostic[];
 };
 
 function cleanString(value: unknown) {

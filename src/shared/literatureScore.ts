@@ -1,6 +1,17 @@
-export const LITERATURE_SCORE_SCHEMA = "literature_score.v1" as const;
-export const LITERATURE_SCORE_PAYLOAD_TYPE = "literature-score-json" as const;
-export const LITERATURE_SCORE_NOTE_KIND = "literature-score" as const;
+import {
+  LITERATURE_SCORE_NOTE_KIND,
+  LITERATURE_SCORE_PAYLOAD_TYPE,
+  LITERATURE_SCORE_SCHEMA,
+  type LiteratureQualityDiagnostic,
+  type LiteratureQualitySnapshot,
+} from "../../packages/synthesis-contracts/src/literatureArtifacts";
+
+export {
+  LITERATURE_SCORE_NOTE_KIND,
+  LITERATURE_SCORE_PAYLOAD_TYPE,
+  LITERATURE_SCORE_SCHEMA,
+};
+export type { LiteratureQualityDiagnostic, LiteratureQualitySnapshot };
 
 export const LITERATURE_SCORE_DIMENSION_KEYS = [
   "methodological_rigor",
@@ -28,23 +39,6 @@ export type LiteratureScoreSummary = {
   confidence: number;
   confidenceAdjustedScore: number;
   dimensions: LiteratureScoreDimension[];
-};
-
-export type LiteratureQualityDiagnostic =
-  | "literature_score_missing"
-  | "literature_score_invalid";
-
-export type LiteratureQualitySnapshot = {
-  status: "available" | "missing" | "invalid";
-  schema?: typeof LITERATURE_SCORE_SCHEMA;
-  rubric_id?: string;
-  paper_type?: string;
-  overall_score?: number;
-  confidence?: number;
-  confidence_adjusted_score?: number;
-  quality_prior: number;
-  payload_hash?: string;
-  diagnostics: LiteratureQualityDiagnostic[];
 };
 
 export type LiteratureStarModel = {

@@ -1,7 +1,8 @@
 # agent-cli-self-description Specification
 
 ## Purpose
-TBD - created by syncing change unify-host-bridge-cli-contracts-and-parameter-errors. Update Purpose after archive.
+
+Define the governed self-description contract for published CLI commands, structured inputs, and context-dependent examples.
 
 ## Requirements
 

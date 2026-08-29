@@ -28,9 +28,16 @@ import { setDebugModeOverrideForTests } from "./debugMode";
 import { setDiagnosticVerboseOverrideForTests } from "./diagnosticVerbosity";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "./skillRunnerInteractiveAutoReply";
 import { resetWorkflowRuntimeForTests } from "./workflowRuntime";
+import { resetSynthesisSidecarRuntimeSupervisorForTests } from "./synthesisSidecarRuntimeSupervisor";
+import {
+  resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
+} from "./synthesisClient/defaultClient";
 import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 
 type CleanupDeps = {
+  setDefaultSynthesisClientCompositionFactoryForTests: () => void;
+  resetDefaultSynthesisClientForTests: () => void | Promise<void>;
   stopSkillRunnerModelCacheAutoRefresh: () => void;
   stopSkillRunnerBackendReachabilityCoordinator: () => void;
   resetManagedLocalRuntimeLoopsForTests: () => void;
@@ -57,10 +64,14 @@ type CleanupDeps = {
   setDiagnosticVerboseOverrideForTests: () => void;
   setSkillRunnerInteractiveAutoReplyEnabledForTests: () => void;
   resetWorkflowRuntimeForTests: () => void;
+  resetSynthesisSidecarRuntimeSupervisorForTests: () => void | Promise<void>;
   resetWorkflowSubmissionQueueForTests: () => void;
 };
 
 const defaultCleanupDeps: CleanupDeps = {
+  setDefaultSynthesisClientCompositionFactoryForTests: () =>
+    setDefaultSynthesisClientCompositionFactoryForTests(null),
+  resetDefaultSynthesisClientForTests,
   stopSkillRunnerModelCacheAutoRefresh,
   stopSkillRunnerBackendReachabilityCoordinator,
   resetManagedLocalRuntimeLoopsForTests,
@@ -87,6 +98,7 @@ const defaultCleanupDeps: CleanupDeps = {
   setDiagnosticVerboseOverrideForTests,
   setSkillRunnerInteractiveAutoReplyEnabledForTests,
   resetWorkflowRuntimeForTests,
+  resetSynthesisSidecarRuntimeSupervisorForTests,
   resetWorkflowSubmissionQueueForTests: () =>
     workflowSubmissionQueue.resetForTests(),
 };
@@ -105,6 +117,11 @@ export function setBackgroundRuntimeCleanupDepsForTests(
 }
 
 export async function cleanupBackgroundRuntimeForZoteroTests() {
+  cleanupDeps.setDefaultSynthesisClientCompositionFactoryForTests();
+  await Promise.resolve(cleanupDeps.resetDefaultSynthesisClientForTests());
+  await Promise.resolve(
+    cleanupDeps.resetSynthesisSidecarRuntimeSupervisorForTests(),
+  );
   await Promise.resolve(cleanupDeps.resetSkillRunnerRunDialogForTests());
   cleanupDeps.resetSkillRunnerAutoReplyObserverForTests();
   await Promise.resolve(cleanupDeps.resetTaskManagerDialogRuntimeForTests());

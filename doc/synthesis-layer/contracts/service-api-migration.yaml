@@ -1,0 +1,38 @@
+schema: synthesis.service_api_retirement.v3
+description: Fixed pre-retirement service identity and current Synthesis production boundary.
+
+baseline:
+  commit: e210997a11e0054a3cb4ae0656e5cfb96102a09c
+  service_source: src/modules/synthesis/service.ts
+  service_factory: createSynthesisService
+  public_method_count: 131
+  canonicalization: sorted-newline-terminated
+  fingerprint_sha256: 86cf1654ea210b9fc9af1d1230045e3703d666cbc84495d73a3012aa1aedfa3e
+  status: historical_observable_fixture_identity
+
+current_boundary:
+  production_owner: native/synthesis-sidecar
+  application_owner: rust_sidecar
+  database_owner: rust_repository
+  canonical_store_owner: rust_canonical_store
+  compute_owner: rust_worker
+  typescript_responsibilities:
+    - grouped_client_mapping_and_validation
+    - workbench_and_workflow_orchestration
+    - reverse_host_zotero_authority
+    - credential_network_and_delivery_authority
+    - bounded_readonly_harness_projection
+  absent_source_owners:
+    - src/modules/synthesis/service.ts
+    - src/modules/synthesis/repository.ts
+    - src/modules/synthesisClient/legacyComposition.ts
+    - src/modules/synthesisClient/inProcessClient.ts
+    - apps/synthesis-service
+  fallback: forbidden
+  external_acceptance_change: complete-synthesis-r9-stage1-acceptance
+
+evidence:
+  boundary_checker: scripts/check-synthesis-service-boundary.ts
+  native_suite: scripts/synthesis-native-stage1-suite.ts
+  invariant_contract: doc/synthesis-layer/contracts/invariants.yaml
+  retirement_baseline: artifact/synthesis_r9a_retirement_baseline_20260727.md

@@ -1,0 +1,168 @@
+{
+  "schema": "synthesis-webdav-maintenance-surface-parity.v1",
+  "requestCodec": "synthesis-client-args.v1",
+  "resultCodec": "synthesis-client-result.v1",
+  "baselineFixture": "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
+  "bounds": {
+    "requestBytes": 1048576,
+    "responseBytes": 1048576,
+    "deadlineMs": 10000
+  },
+  "operations": [
+    {
+      "id": "client.syncWebDavNow",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "host_failure",
+        "remote_success_local_crash",
+        "restart"
+      ]
+    },
+    {
+      "id": "client.pauseWebDavSync",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "restart"
+      ]
+    },
+    {
+      "id": "client.resumeWebDavSync",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "restart"
+      ]
+    },
+    {
+      "id": "client.retryWebDavSync",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "host_failure",
+        "restart"
+      ]
+    },
+    {
+      "id": "client.resolveWebDavSyncConflict",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "conflict_policy",
+        "restart"
+      ]
+    },
+    {
+      "id": "client.getPublicMaintenanceOperation",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order"
+      ]
+    },
+    {
+      "id": "client.controlPublicMaintenanceOperation",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "cancel",
+        "continue",
+        "retry",
+        "restart"
+      ]
+    },
+    {
+      "id": "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "restart",
+        "rust_only_repair"
+      ]
+    },
+    {
+      "id": "client.resetSynthesisDatabase",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "owner_conflict",
+        "admission_conflict",
+        "checkpoint_required",
+        "exclusive_lease",
+        "reset_phase",
+        "rust_only_repair"
+      ]
+    },
+    {
+      "id": "client.debugSynthesisCleanInstallReset",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "owner_conflict",
+        "admission_conflict",
+        "checkpoint_required",
+        "exclusive_lease",
+        "reset_phase",
+        "rust_only_repair"
+      ]
+    }
+  ]
+}

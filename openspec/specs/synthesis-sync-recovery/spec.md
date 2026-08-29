@@ -2,178 +2,64 @@
 
 ## Purpose
 TBD - created by archiving change add-synthesis-sync-recovery. Update Purpose after archive.
+
 ## Requirements
-### Requirement: Sync recovery never overwrites canonical assets automatically
-
-The recovery model SHALL treat canonical assets as the source of truth when
-they exist.
-
-#### Scenario: Canonical assets exist and mirror is stale
-
-- **WHEN** canonical assets are present
-- **AND** the mirror manifest hash does not match canonical state
-- **THEN** the recovery plan SHALL prefer rebuilding the mirror from canonical
-  assets
-- **AND** it SHALL NOT restore from shards automatically.
-
-### Requirement: Missing canonical root can be recovered from valid shards only with confirmation
-
-The recovery model SHALL allow note shards to be used as a disaster recovery
-source only when canonical assets are missing and the user explicitly confirms.
-
-#### Scenario: Root is missing and manifest shard plus data shards are valid
-
-- **WHEN** the canonical synthesis root is missing
-- **AND** a Zotero anchor contains a valid manifest shard and all referenced
-  data shards
-- **THEN** sync assessment SHALL expose `recover_from_shards`
-- **AND** recovery SHALL require explicit confirmation
-- **AND** confirmed recovery SHALL write only current state assets and active
-  topic current assets described by shard `asset_path`.
-
-#### Scenario: Recovery validates shard asset paths
-
-- **WHEN** recovery reads manifest and data shard `asset_path` values
-- **THEN** each path SHALL be normalized and restricted to known synthesis-root
-  relative paths
-- **AND** recovery SHALL reject absolute paths, parent-directory traversal,
-  drive prefixes, UNC paths, backslash traversal, empty path segments,
-  duplicate `asset_id` entries, and unknown current-asset paths.
-- **AND** recoverable sidecar assets SHALL be restricted to exactly
-  `sidecar/index.json`, `sidecar/topic-definitions.json`,
-  `sidecar/resolvers.json`, `sidecar/resolved-paper-sets.json`,
-  `sidecar/artifact-state.json`, and
-  `sidecar/deleted-topic-artifacts.json`
-- **AND** graph/layout/history/run-workspace paths SHALL be outside the recovery
-  allowlist.
-
-#### Scenario: Recovery validates asset identity against paths
-
-- **WHEN** a manifest entry declares `asset_id`, `asset_path`, and
-  `content_type`
-- **THEN** recovery SHALL verify that the logical asset id maps to the expected
-  path shape
-- **AND** it SHALL verify that `content_type` matches the asset kind and path
-  extension
-- **AND** it SHALL reject mismatched asset identity, path, or content type.
-
-#### Scenario: Recovery validates shard integrity
-
-- **WHEN** recovery reads manifest and data shards
-- **THEN** every referenced shard SHALL pass payload hash, encoded hash,
-  seq/total, and content type checks
-- **AND** missing shards, duplicate shards, hash mismatches, and sequence
-  mismatches SHALL make the recovery plan invalid or degraded.
-
-#### Scenario: Multiple manifests are present
-
-- **WHEN** multiple manifest shards exist under the Zotero anchor
-- **THEN** recovery MAY choose only the newest complete manifest that validates
-  with all referenced shards
-- **AND** multiple valid manifests with different content SHALL be reported as
-  ambiguous/degraded rather than recovered automatically.
-
-#### Scenario: Confirmed recovery uses a temporary directory
-
-- **WHEN** shard recovery is confirmed for a missing canonical root
-- **THEN** recovery SHALL write decoded assets into a temporary restore
-  directory first
-- **AND** it SHALL promote the restored root only after all path, hash,
-  manifest, and canonical health checks pass
-- **AND** a failed promote SHALL NOT leave a half-restored current state.
-
-#### Scenario: Canonical root exists while shards also exist
-
-- **WHEN** canonical synthesis assets already exist
-- **AND** Zotero shards also exist
-- **THEN** shard recovery SHALL NOT overwrite canonical assets
-- **AND** the recovery plan SHALL prefer rebuilding the mirror from canonical
-  assets when the mirror is stale or degraded.
-
-#### Scenario: Recovered state lacks citation graph snapshots
-
-- **WHEN** canonical current assets are recovered from Zotero shards
-- **AND** citation graph or layout snapshots are absent
-- **THEN** the recovered root SHALL NOT be treated as corrupt solely because
-  graph/layout snapshots are missing
-- **AND** graph/layout SHOULD be regenerated through the existing local rebuild
-  or query path.
-
-### Requirement: Degraded mirrors are diagnostic and rebuildable
-
-The mirror validator SHALL report degraded mirror state when manifest and shard
-summaries disagree, and the Workbench/host SHALL allow explicit rebuild from
-canonical assets when canonical assets are healthy.
-
-#### Scenario: Existing mirror is missing or degraded while canonical exists
-
-- **WHEN** canonical synthesis assets exist and pass basic health checks
-- **AND** the Zotero mirror is missing, empty, or degraded
-- **THEN** sync assessment SHALL expose `rebuild_mirror_from_canonical`
-- **AND** executing the planned rebuild action SHALL recreate data shards and
-  the manifest shard from canonical current assets
-- **AND** it SHALL NOT require restoring from shards.
-
-#### Scenario: Note shard creation avoids invalid note title mutation
-
-- **WHEN** the Zotero mirror adapter creates or updates a note shard
-- **THEN** it SHALL store shard identity in the hidden shard envelope
-- **AND** it SHALL NOT require setting a Zotero note `title` field.
 
 ### Requirement: Local indexes are disposable
 
-Local materialized indexes SHALL be rebuildable when corrupt or missing.
+
+Local materialized indexes SHALL remain rebuildable when corrupt or missing without consulting Topic mirror state.
 
 #### Scenario: Local index is corrupt
 
 - **WHEN** local index health is `corrupt`
-- **THEN** the recovery plan SHALL include a rebuild-index action
+- **THEN** the recovery assessment SHALL include a rebuild-index action
 - **AND** it SHALL NOT mark canonical assets as corrupt.
+
+#### Scenario: Local index is missing
+
+- **WHEN** local index health is `missing`
+- **THEN** the recovery assessment SHALL include a rebuild-index action
+- **AND** it SHALL remain independent of any Zotero anchor or shard item.
 
 ### Requirement: Startup checks honor preferences
 
-Startup hash checks SHALL run only when enabled by preferences.
+
+Startup hash checks SHALL run only when enabled by preferences and SHALL assess canonical root, local index, and local conflict state only.
 
 #### Scenario: Startup hash check is disabled
 
 - **WHEN** `runHashCheckOnStartup` is false
-- **THEN** startup assessment SHALL return `check_skipped`.
+- **THEN** startup assessment SHALL return `check_skipped`
+- **AND** it SHALL NOT inspect Zotero Topic mirror data.
+
+#### Scenario: Startup hash check is enabled
+
+- **WHEN** `runHashCheckOnStartup` is true
+- **THEN** startup assessment SHALL report canonical root, local index, and local conflict actions
+- **AND** its request and result SHALL contain no mirror fields.
 
 ### Requirement: Conflict candidates remain local-only
 
-Conflict candidate summaries SHALL be listed, cleared, and retried locally, and
-SHALL NOT be mirrored to Zotero note shards.
 
-#### Scenario: Conflict candidate exists during mirror refresh
+Conflict candidate summaries SHALL remain local-only and SHALL expose only local retry and clear actions.
 
-- **WHEN** conflict candidates exist under local synthesis storage
-- **AND** the Zotero mirror is refreshed
-- **THEN** conflict candidate files SHALL be excluded from mirror shards
-- **AND** recovery from shards SHALL NOT recreate conflict candidates.
+#### Scenario: Open conflict candidates are assessed
 
-### Requirement: Synthesis sync recovery treats canonical files as source of truth
+- **WHEN** recovery assessment receives local conflict candidates
+- **THEN** it SHALL retain only open candidates in deterministic order
+- **AND** it SHALL expose local retry and clear actions
+- **AND** it SHALL NOT create a mirror rebuild or shard recovery action.
 
-Synthesis sync recovery SHALL keep Zotero mirror recovery separate from Git Sync and SHALL NOT use mirror shards as the Git remote synchronization mechanism.
+### Requirement: WebDAV recovery remains explicit and non-destructive
 
-#### Scenario: Git Sync is disabled
+WebDAV durable recovery SHALL validate and preview remote state before apply and
+SHALL NOT overwrite canonical facts automatically when a conflict or invalid
+payload is present.
 
-- **WHEN** Git Sync has no configured adapter or remote
-- **THEN** Zotero mirror recovery SHALL continue to provide its existing local recovery behavior
-- **AND** mirror recovery SHALL NOT require Git Sync state.
+#### Scenario: Remote recovery payload conflicts
 
-#### Scenario: Git Sync conflict exists
-
-- **WHEN** Git Sync is blocked by a remote conflict
-- **THEN** Zotero mirror recovery SHALL NOT automatically resolve or import the conflicted Git worktree content.
-
-### Requirement: Recovery excludes normal note mirror operation
-
-Synthesis recovery SHALL treat Zotero note mirror as a legacy migration source
-only.
-
-#### Scenario: Mirror recovery action is not advertised
-
-- **WHEN** Synthesis sync/recovery status is computed during normal plugin
-  runtime
-- **THEN** it SHALL NOT advertise `rebuild_mirror_from_canonical` or
-  `recover_canonical_from_mirror` as normal actions.
+- **WHEN** WebDAV recovery detects an invalid payload or an unsafe local/remote
+  canonical conflict
+- **THEN** it SHALL keep the local canonical state unchanged
+- **AND** require an explicit supported recovery or conflict action.

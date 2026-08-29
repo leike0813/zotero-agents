@@ -2855,6 +2855,15 @@ describe("skillrunner.sequence.v1 runtime", function () {
     const tempRoot = await mkTempDir(
       "zotero-skills-literature-analysis-sequence",
     );
+    const manifest = JSON.parse(
+      await fs.readFile(
+        path.join(
+          process.cwd(),
+          "workflows_builtin/literature-workbench-package/literature-analysis/workflow.json",
+        ),
+        "utf8",
+      ),
+    );
     const parentItem = {
       id: 42,
       key: "PARENT42",
@@ -2874,7 +2883,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
         inspectGeneratedNoteReadiness: async () => ({
           accepted: true,
           mode: "full",
-          evidenceHash: "test-readiness-evidence",
+          evidenceHash: "fixture:literature-analysis-ready",
+          artifacts: {},
         }),
       },
       hostApi: {
@@ -2926,12 +2936,6 @@ describe("skillrunner.sequence.v1 runtime", function () {
       },
     };
 
-    const manifest = JSON.parse(
-      await fs.readFile(
-        "workflows_builtin/literature-workbench-package/literature-analysis/workflow.json",
-        "utf8",
-      ),
-    );
     const digestOnly = (await buildLiteratureDigestRequest({
       selectionContext,
       executionOptions: {

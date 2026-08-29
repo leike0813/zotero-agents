@@ -151,16 +151,12 @@ import {
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
 import {
-  getDefaultSynthesisService,
-  invalidateDefaultSynthesisService,
-} from "./modules/synthesis/service";
-import {
-  clearGitSyncToken,
-  getGitSyncPrefsStatus,
-  saveGitSyncPrefs,
-  saveGitSyncToken,
-  testGitSyncConfiguration,
-} from "./modules/synthesis/gitSyncPrefs";
+  getDefaultSynthesisClient,
+  invalidateDefaultSynthesisClient,
+  shutdownDefaultSynthesisClient,
+} from "./modules/synthesisClient/defaultClient";
+import type { SynthesisClient } from "../packages/synthesis-contracts/src/index";
+import { cleanupRetiredSynthesisGitSyncRuntime } from "./modules/synthesis/syncRuntimeCleanup";
 import {
   clearWebDavSyncCredential,
   getWebDavSyncPrefsStatus,
@@ -188,6 +184,10 @@ import {
   preflightRuntimeProcessControlOnStartup,
   type RuntimeProcessControlSnapshot,
 } from "./platform/processControl";
+import {
+  startDefaultSynthesisProductionOwner,
+  stopDefaultSynthesisProductionOwner,
+} from "./modules/synthesisProductionOwner";
 import { shutdownAcpSkillRunConversations } from "./modules/acpSkillRunActions";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
@@ -697,13 +697,6 @@ function prewarmSynthesisWorkbenchAfterStartup() {
 
 function reconcileRecoveredRuntimeTasksOnStartup() {
   try {
-    getDefaultSynthesisService().reconcileSynthesisRuntimeWorkStateOnStartup();
-  } catch (error) {
-    if (typeof console !== "undefined") {
-      console.warn("[startup-reconcile] synthesis runtime work failed", error);
-    }
-  }
-  try {
     reconcileAcpSkillRunWorkflowTasksOnStartup();
     reconcileWorkflowTaskProjectionsOnStartup();
   } catch (error) {
@@ -832,12 +825,40 @@ async function onStartup() {
   registerZoteroPaneStylesheet();
 
   await ensureStartupRuntimePreflight();
+  const synthesisProductionReady = startDefaultSynthesisProductionOwner();
+  void synthesisProductionReady.catch((error) => {
+    emitVerboseConsole(
+      "warn",
+      "[synthesis-production] owner startup failed",
+      error,
+    );
+  });
+  await cleanupRetiredSynthesisGitSyncRuntime(
+    getRuntimePersistencePaths().runtimeRoot,
+  ).catch((error) => {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[synthesis-sync] retired Git runtime cleanup failed",
+        error,
+      );
+    }
+  });
   try {
     await initializeWorkflowProductStorage();
   } catch (error) {
     Zotero.logError(error instanceof Error ? error : new Error(String(error)));
   }
-  await initializeSynthesisBuiltinTagsOnStartup();
+  void synthesisProductionReady
+    .then(async () => {
+      await initializeSynthesisBuiltinTagsOnStartup();
+    })
+    .catch((error) => {
+      emitVerboseConsole(
+        "warn",
+        "[synthesis-production] post-readiness reconcile failed",
+        error,
+      );
+    });
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   const hostBridgeSkillBundle = await materializeHostBridgePluginSkillBundle();
@@ -891,14 +912,12 @@ async function onStartup() {
 }
 
 export async function initializeSynthesisBuiltinTagsOnStartup(
-  service: Pick<
-    ReturnType<typeof getDefaultSynthesisService>,
-    "initializeBuiltinTagPolicy"
-  > = getDefaultSynthesisService(),
+  tags?: Pick<SynthesisClient["tags"], "initializeBuiltinTagPolicy">,
 ) {
   addon.data.startupError = undefined;
   try {
-    await service.initializeBuiltinTagPolicy();
+    const clientTags = tags || (await getDefaultSynthesisClient()).tags;
+    await clientTags.initializeBuiltinTagPolicy();
   } catch (error) {
     addon.data.initialized = false;
     addon.data.startupError = {
@@ -1129,6 +1148,14 @@ async function runShutdownStepWithTimeout(
 async function onShutdown(): Promise<void> {
   await runShutdownStepWithTimeout("workflow-submission-queue-shutdown", () =>
     workflowSubmissionQueue.shutdown(),
+  );
+  await runShutdownStepWithTimeout(
+    "synthesis-client-dispose",
+    shutdownDefaultSynthesisClient,
+  );
+  await runShutdownStepWithTimeout(
+    "synthesis-production-owner-stop",
+    stopDefaultSynthesisProductionOwner,
   );
   await runShutdownStepWithTimeout(
     "reachability-coordinator-stop",
@@ -1537,37 +1564,8 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       return { cleanup, usage, integrity };
     }
     case "resetSynthesisDatabase":
-      return getDefaultSynthesisService().resetSynthesisDatabase({
-        confirmationText: data.confirmationText,
-      });
-    case "getGitSyncPrefsStatus":
-      return getGitSyncPrefsStatus();
-    case "saveGitSyncPrefs": {
-      const result = saveGitSyncPrefs({
-        enabled: data.enabled,
-        remoteUrl: data.remoteUrl,
-        branch: data.branch,
-        autoSyncEnabled: data.autoSyncEnabled,
-        autoRetryEnabled: data.autoRetryEnabled,
-      });
-      if (result.ok) {
-        invalidateDefaultSynthesisService();
-      }
-      return result;
-    }
-    case "saveGitSyncToken": {
-      const result = await saveGitSyncToken(String(data.token || ""));
-      invalidateDefaultSynthesisService();
-      return result;
-    }
-    case "clearGitSyncToken": {
-      const result = await clearGitSyncToken();
-      invalidateDefaultSynthesisService();
-      return result;
-    }
-    case "testGitSyncConfiguration":
-      return testGitSyncConfiguration({
-        cwd: getRuntimePersistencePaths().dataDir,
+      return (await getDefaultSynthesisClient()).maintenance.resetDatabase({
+        confirmationText: String(data.confirmationText || ""),
       });
     case "getWebDavSyncPrefsStatus":
       return getWebDavSyncPrefsStatus();
@@ -1581,7 +1579,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         autoRetryEnabled: data.autoRetryEnabled,
       });
       if (result.ok) {
-        invalidateDefaultSynthesisService();
+        invalidateDefaultSynthesisClient();
       }
       return result;
     }
@@ -1589,12 +1587,12 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       const result = await saveWebDavSyncCredential(
         String(data.credential || ""),
       );
-      invalidateDefaultSynthesisService();
+      invalidateDefaultSynthesisClient();
       return result;
     }
     case "clearWebDavSyncCredential": {
       const result = await clearWebDavSyncCredential();
-      invalidateDefaultSynthesisService();
+      invalidateDefaultSynthesisClient();
       return result;
     }
     case "testWebDavSyncConfiguration":

@@ -144,6 +144,10 @@ function findCitationAnalysisNote(notes) {
   return findGeneratedNote(notes, "citation-analysis");
 }
 
+function findLiteratureScoreNote(notes) {
+  return findGeneratedNote(notes, "literature-score");
+}
+
 const LITERATURE_MATCHING_METADATA_SCHEMA = "literature_matching_metadata.v1";
 const LITERATURE_MATCHING_METADATA_ARRAY_LIMITS = {
   key_terms: 12,
@@ -649,6 +653,7 @@ async function applyResultImpl({
   const digestNote = findDigestNote(applied?.notes);
   const referencesNote = findReferencesNote(applied?.notes);
   const citationAnalysisNote = findCitationAnalysisNote(applied?.notes);
+  const literatureScoreNote = findLiteratureScoreNote(applied?.notes);
   const sidecarApply = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:applySidecar",
     {},
@@ -659,12 +664,14 @@ async function applyResultImpl({
         digestNote,
         referencesNote,
         citationAnalysisNote,
+        literatureScoreNote,
         digestText: digestResolved.text,
         digestEntryPath: digestResolved.entryPath,
         referencesEntryPath: referencesResolved.entryPath,
         citationAnalysisEntryPath: citationAnalysisResolved.entryPath,
         referencesPayload: referencesPayload.payload,
         citationAnalysisPayload: citationPayload,
+        literatureScorePayload,
         literatureMatchingMetadata: literatureMatchingMetadataResolved.payload,
       }),
   );

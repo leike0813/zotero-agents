@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-synthesis-kg-concept-kb. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Concept KB canonical files are persisted
 
 Synthesis Concept KB SHALL persist canonical concept, sense, alias, relation, manifest, and topic concept-link files using Foundation canonical transactions.
@@ -71,12 +73,26 @@ Concept enrichment SHALL normalize proposals and preflight the complete batch ag
 
 ### Requirement: Concept KB projection is rebuildable
 
-Synthesis Concept KB SHALL maintain a rebuildable `concept-kb-index` projection DTO including review queue state.
 
-#### Scenario: Projection contains review queue
+Synthesis Concept KB SHALL use the configured Concept KB index engine to
+compute deterministic search and overlay rows for the rebuildable
+`concept-kb-index` projection while the application owns repository reads,
+manifest basis, review rows, relations, diagnostics, progress, and projection
+registry promotion.
 
-- **WHEN** the concept projection is rebuilt from canonical files
-- **THEN** it SHALL include concept review items from canonical review assets.
+#### Scenario: Projection is rebuilt
+
+- **WHEN** an explicit Concept KB projection rebuild runs
+- **THEN** the application SHALL build and strictly validate the index against
+  the current manifest basis through the configured engine
+- **AND** only a valid result SHALL advance projection registry state.
+
+#### Scenario: Engine computation fails
+
+- **WHEN** the engine throws, is cancelled, exceeds bounds, or returns a
+  malformed result
+- **THEN** the last durable Concept KB state and projection registry state
+  SHALL remain unchanged.
 
 ### Requirement: Concept diagnostics are sanitized
 
@@ -144,22 +160,28 @@ Concept Review Queue SHALL require an explicit target concept choice before merg
 
 ### Requirement: Concept KB exposes read-only alias matching context
 
-Synthesis Concept KB SHALL expose bounded read-only candidate matching context
-for topic synthesis KG enrichment.
+
+Synthesis Concept KB SHALL use the configured Concept KB index engine to expose
+bounded read-only candidate matching context for topic synthesis enrichment.
 
 #### Scenario: Candidate labels are queried
 
 - **WHEN** runtime queries Concept KB with `concept_candidate_labels[]`
-- **THEN** the service SHALL return existing concept candidates, alias matches,
-  ambiguous matches, and diagnostics suitable for agent guidance
-- **AND** it SHALL NOT mutate canonical concept assets or review queue state.
+- **THEN** the service SHALL preserve existing exact, alias, sense candidate,
+  ambiguity, and diagnostic response semantics
+- **AND** it SHALL NOT mutate canonical Concept KB or review state.
 
-#### Scenario: Candidate query is ambiguous
+### Requirement: Concept KB exposes overlay entries only for high-confidence, unambiguous aliases
 
-- **WHEN** multiple existing concepts match a candidate label or alias
-- **THEN** the response SHALL mark the match as ambiguous
-- **AND** KG enrichment SHALL require explicit agent-side disambiguation fields
-  rather than silently merging concepts.
+
+Synthesis Concept KB SHALL compute overlay entries through the configured
+Concept KB index engine and expose only aliases that are active,
+non-low-confidence, unambiguous, and attached to an active concept.
+
+#### Scenario: Alias resolves to multiple concepts
+
+- **WHEN** the same normalized active alias points to multiple concepts
+- **THEN** the alias SHALL be excluded from overlay entries.
 
 ### Requirement: Existing aliases have an explicit structural audit workflow
 
@@ -183,4 +205,3 @@ Concept KB SHALL expose a deterministic audit that creates review items for stru
 - **THEN** Concept KB SHALL remove the exact alias record and synchronize the owning concept and its senses
 - **AND** it SHALL NOT delete a concept or sense
 - **AND** the review item SHALL close as rejected.
-

@@ -28,11 +28,8 @@ import {
   writeRuntimeBytes,
   writeRuntimeTextFileStrict,
 } from "../modules/runtimePersistence";
-import {
-  getDefaultSynthesisService,
-  type SynthesisService,
-} from "../modules/synthesis/service";
-import { notifySynthesisWorkbenchSidecarChanged } from "../modules/synthesisWorkbenchInvalidation";
+import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
+import { getDefaultSynthesisClient } from "../modules/synthesisClient/defaultClient";
 import {
   resolveRuntimeAddon,
   resolveRuntimeZotero,
@@ -63,62 +60,7 @@ import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
 import { createResearchBundleMaterializer } from "../modules/researchBundleService";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 
-export {
-  WORKFLOW_HOST_API_VERSION,
-} from "./workflowHostContract";
-
-function createWorkflowSynthesisHostApi(): SynthesisService {
-  const service = getDefaultSynthesisService();
-  const applyLiteratureDigestSidecar = service.applyLiteratureDigestSidecar;
-  const replaceTagAuditRecords = service.replaceTagAuditRecords;
-  const clearTagAuditRecord = service.clearTagAuditRecord;
-  if (
-    typeof applyLiteratureDigestSidecar !== "function" &&
-    typeof replaceTagAuditRecords !== "function" &&
-    typeof clearTagAuditRecord !== "function"
-  ) {
-    return service;
-  }
-  return {
-    ...service,
-    async applyLiteratureDigestSidecar(
-      args?: Parameters<SynthesisService["applyLiteratureDigestSidecar"]>[0],
-    ) {
-      const result = await applyLiteratureDigestSidecar.call(service, args);
-      const output = (result || {}) as {
-        sourceRef?: unknown;
-        source_ref?: unknown;
-      };
-      const sourceRef = String(output.sourceRef || output.source_ref || "").trim();
-      notifySynthesisWorkbenchSidecarChanged({
-        sourceRefs: sourceRef ? [sourceRef] : [],
-        reason: "literature_digest_apply",
-        graphMayHaveChanged: true,
-      });
-      return result;
-    },
-    async replaceTagAuditRecords(
-      args: Parameters<SynthesisService["replaceTagAuditRecords"]>[0],
-    ) {
-      const result = await replaceTagAuditRecords.call(service, args);
-      notifySynthesisWorkbenchSidecarChanged({
-        reason: "tag_audit_apply",
-        graphMayHaveChanged: false,
-      });
-      return result;
-    },
-    async clearTagAuditRecord(
-      args: Parameters<SynthesisService["clearTagAuditRecord"]>[0],
-    ) {
-      const result = await clearTagAuditRecord.call(service, args);
-      notifySynthesisWorkbenchSidecarChanged({
-        reason: "tag_regulation_apply",
-        graphMayHaveChanged: false,
-      });
-      return result;
-    },
-  };
-}
+export { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 
 function resolveHostAddonConfig() {
   const addonConfig = resolveRuntimeAddon()?.data?.config || null;
@@ -195,7 +137,8 @@ async function transitionBuiltinStatusTags(args: {
       `Builtin status keys cannot be added and removed together: ${overlapping.join(", ")}`,
     );
   }
-  if (!getDefaultSynthesisService().isBuiltinTagPolicyInitialized()) {
+  const synthesisClient = await getDefaultSynthesisClient();
+  if (!(await synthesisClient.tags.isBuiltinTagPolicyInitialized())) {
     throw new Error("Builtin status tag policy is not initialized");
   }
   const item = assertHostItem(args.item);
@@ -460,8 +403,9 @@ export function createWorkflowHostApi(): WorkflowHostApi {
             })),
         };
       },
-      readArtifacts({ paperRefs, artifactTypes }) {
-        return getDefaultSynthesisService().readPaperArtifacts({
+      async readArtifacts({ paperRefs, artifactTypes }) {
+        const client = await getDefaultSynthesisClient();
+        return client.artifacts.readPaperArtifacts({
           paper_refs: paperRefs,
           artifact_types: artifactTypes,
         });

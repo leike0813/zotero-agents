@@ -53,7 +53,7 @@ the debug database.
 ## Scope
 
 This harness runs `dedupeCanonicalReferencesClustered()` from
-`src/modules/synthesis/referenceMatcher.ts`, the same canonical external dedupe
+`packages/synthesis-engine/src/referenceMatcher.ts`, the same canonical external dedupe
 algorithm used by production `runAdvancedReferenceMatchingNow()`. Harness runs
 still do not call production services, do not modify Workbench Review UI, and do
 not write real `synt_reference_match_proposal` or redirect rows.

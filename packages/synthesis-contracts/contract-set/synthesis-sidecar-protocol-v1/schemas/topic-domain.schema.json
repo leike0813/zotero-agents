@@ -1,0 +1,1254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/topic-domain.schema.json",
+  "$defs": {
+    "String": { "type": "string", "maxLength": 65536 },
+    "NonEmptyString": { "type": "string", "minLength": 1, "maxLength": 65536 },
+    "Strings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/$defs/String" }
+    },
+    "NonEmptyStrings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/$defs/NonEmptyString" }
+    },
+    "StringMap": {
+      "type": "object",
+      "maxProperties": 256,
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$": { "$ref": "#/$defs/String" }
+      },
+      "additionalProperties": false
+    },
+    "HashMap": {
+      "type": "object",
+      "maxProperties": 256,
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "additionalProperties": false
+    },
+    "ArtifactDependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["papers", "artifacts"],
+      "properties": {
+        "papers": { "$ref": "#/$defs/Strings" },
+        "artifacts": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "ArtifactMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "runtime": { "$ref": "#/$defs/String" },
+        "markdown_path": { "$ref": "#/$defs/String" },
+        "analysis_source_path": { "$ref": "#/$defs/String" },
+        "update_reason": { "$ref": "#/$defs/String" },
+        "depends_on": { "$ref": "#/$defs/ArtifactDependencies" }
+      }
+    },
+    "TopicDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "$ref": "#/$defs/NonEmptyString" },
+        "title": { "$ref": "#/$defs/NonEmptyString" },
+        "name": { "$ref": "#/$defs/NonEmptyString" },
+        "definition": { "$ref": "#/$defs/String" },
+        "scope": { "$ref": "#/$defs/String" },
+        "discipline": { "$ref": "#/$defs/String" },
+        "research_field": { "$ref": "#/$defs/String" },
+        "scope_boundary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["include", "exclude"],
+          "properties": {
+            "include": { "$ref": "#/$defs/Strings" },
+            "exclude": { "$ref": "#/$defs/Strings" }
+          }
+        },
+        "aliases": { "$ref": "#/$defs/Strings" },
+        "scope_include": { "$ref": "#/$defs/Strings" },
+        "scope_exclude": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "ResolverTag": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "and": { "$ref": "#/$defs/NonEmptyStrings" },
+        "or": { "$ref": "#/$defs/NonEmptyStrings" },
+        "not": { "$ref": "#/$defs/NonEmptyStrings" }
+      }
+    },
+    "TopicResolver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_refs", "collection_key", "combine"],
+      "properties": {
+        "paper_refs": { "$ref": "#/$defs/NonEmptyStrings" },
+        "collection_key": { "$ref": "#/$defs/NonEmptyStrings" },
+        "tag": { "$ref": "#/$defs/ResolverTag" },
+        "combine": { "enum": ["union", "intersection"] }
+      }
+    },
+    "DigestReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref", "payload_type"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/NonEmptyString" },
+        "payload_type": { "const": "digest-markdown" },
+        "note_key": { "$ref": "#/$defs/NonEmptyString" },
+        "path": { "$ref": "#/$defs/NonEmptyString" },
+        "locator": { "$ref": "#/$defs/NonEmptyString" },
+        "payload_hash": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "library_id": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "ResolvedPaper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/NonEmptyString" },
+        "item_key": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "year": { "$ref": "#/$defs/String" },
+        "summary": { "$ref": "#/$defs/String" },
+        "synthesis_role": { "$ref": "#/$defs/String" },
+        "match_reasons": { "$ref": "#/$defs/Strings" },
+        "authors": { "$ref": "#/$defs/Strings" },
+        "role": { "$ref": "#/$defs/String" },
+        "literature_quality": { "$ref": "#/$defs/LiteratureQuality" },
+        "context_selection_score": { "type": "number" },
+        "caveats": { "$ref": "#/$defs/Strings" },
+        "digest_ref": { "$ref": "#/$defs/DigestReference" }
+      }
+    },
+    "LiteratureQuality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "quality_prior", "diagnostics"],
+      "properties": {
+        "status": { "enum": ["available", "missing", "invalid"] },
+        "schema": { "const": "literature_score.v1" },
+        "rubric_id": { "$ref": "#/$defs/String" },
+        "paper_type": { "$ref": "#/$defs/String" },
+        "overall_score": { "type": "number" },
+        "confidence": { "type": "number" },
+        "confidence_adjusted_score": { "type": "number" },
+        "quality_prior": { "type": "number", "minimum": 0, "maximum": 1 },
+        "payload_hash": { "type": "string", "maxLength": 128 },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "enum": ["literature_score_missing", "literature_score_invalid"]
+          }
+        }
+      }
+    },
+    "ResolvedPaperSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["papers"],
+      "properties": {
+        "papers": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ResolvedPaper" }
+        }
+      }
+    },
+    "ConceptCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "aliases",
+        "concept_type",
+        "definition",
+        "topic_relevance"
+      ],
+      "properties": {
+        "label": { "$ref": "#/$defs/NonEmptyString" },
+        "aliases": { "$ref": "#/$defs/Strings" },
+        "concept_type": { "$ref": "#/$defs/NonEmptyString" },
+        "domain": { "$ref": "#/$defs/String" },
+        "short_definition": { "$ref": "#/$defs/String" },
+        "definition": { "$ref": "#/$defs/String" },
+        "disambiguation": { "$ref": "#/$defs/String" },
+        "topic_relevance": { "$ref": "#/$defs/String" },
+        "confidence": { "$ref": "#/$defs/ConceptConfidence" },
+        "evidence": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ConceptEvidence" }
+        },
+        "relations": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ConceptRelation" }
+        }
+      }
+    },
+    "ConceptConfidence": { "enum": ["high", "medium", "low"] },
+    "ConceptEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/NonEmptyString" },
+        "quote_or_summary": { "$ref": "#/$defs/String" },
+        "section": { "$ref": "#/$defs/String" }
+      }
+    },
+    "ConceptRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_concept_id", "relation", "confidence"],
+      "properties": {
+        "target_concept_id": { "$ref": "#/$defs/NonEmptyString" },
+        "relation": { "$ref": "#/$defs/NonEmptyString" },
+        "confidence": { "$ref": "#/$defs/ConceptConfidence" },
+        "provenance": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ConceptEvidence" }
+        }
+      }
+    },
+    "TopicRelationType": {
+      "enum": [
+        "target_is_broader_topic_candidate",
+        "target_is_narrower_topic_candidate",
+        "related_topic_candidate",
+        "overlap_topic_candidate",
+        "contrast_topic_candidate"
+      ]
+    },
+    "ExistingTopicRelationProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_topic_id",
+        "relation_type",
+        "confidence",
+        "rationale",
+        "source_paper_refs"
+      ],
+      "properties": {
+        "target_topic_id": { "$ref": "#/$defs/NonEmptyString" },
+        "target_topic_title": { "$ref": "#/$defs/String" },
+        "relation_type": { "$ref": "#/$defs/TopicRelationType" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rationale": { "$ref": "#/$defs/NonEmptyString" },
+        "source_paper_refs": { "$ref": "#/$defs/NonEmptyStrings" }
+      }
+    },
+    "ConceptCardsProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_id": { "const": "synthesis.concept_cards_proposal" },
+        "schema_version": { "const": "1.0.0" },
+        "cards": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ConceptCard" }
+        }
+      }
+    },
+    "TopicRelationProposals": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_id": { "const": "synthesis.topic_graph_relation_proposals" },
+        "schema_version": { "const": "1.0.0" },
+        "proposals": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ExistingTopicRelationProposal" }
+        }
+      }
+    },
+    "TopicInterestMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "topic_interest_metadata.v1" },
+        "topic_id": { "$ref": "#/$defs/NonEmptyString" },
+        "include_terms": { "$ref": "#/$defs/NonEmptyStrings" },
+        "must_have_terms": { "$ref": "#/$defs/NonEmptyStrings" },
+        "methods": { "$ref": "#/$defs/NonEmptyStrings" },
+        "exclude_terms": { "$ref": "#/$defs/NonEmptyStrings" },
+        "seed_literature_item_ids": { "$ref": "#/$defs/NonEmptyStrings" }
+      }
+    },
+    "TopicGraphProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic", "relations"],
+      "properties": {
+        "topic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["topic_id", "title", "definition", "artifact_hash"],
+          "properties": {
+            "topic_id": { "$ref": "#/$defs/NonEmptyString" },
+            "title": { "$ref": "#/$defs/String" },
+            "definition": { "$ref": "#/$defs/String" },
+            "artifact_hash": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        },
+        "relations": { "$ref": "#/$defs/TopicRelationProposals" }
+      }
+    },
+    "TopicDependencyArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "hash"],
+      "properties": {
+        "status": { "$ref": "#/$defs/String" },
+        "hash": { "$ref": "#/$defs/String" }
+      }
+    },
+    "TopicDependencyArtifactMap": {
+      "type": "object",
+      "maxProperties": 8,
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]{0,63}$": {
+          "$ref": "#/$defs/TopicDependencyArtifact"
+        }
+      },
+      "additionalProperties": false
+    },
+    "TopicDependencySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_refs", "paper_artifacts", "missing_artifacts"],
+      "properties": {
+        "paper_refs": { "$ref": "#/$defs/NonEmptyStrings" },
+        "paper_artifacts": {
+          "type": "object",
+          "maxProperties": 25000,
+          "patternProperties": {
+            "^.{1,512}$": { "$ref": "#/$defs/TopicDependencyArtifactMap" }
+          },
+          "additionalProperties": false
+        },
+        "missing_artifacts": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TopicReadinessProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline_input_hash",
+        "baseline_dependencies",
+        "current_input_hash",
+        "current_dependencies",
+        "baseline_initialized_at",
+        "last_scanned_at"
+      ],
+      "properties": {
+        "baseline_input_hash": { "$ref": "#/$defs/String" },
+        "baseline_dependencies": {
+          "anyOf": [
+            { "$ref": "#/$defs/TopicDependencySnapshot" },
+            { "type": "null" }
+          ]
+        },
+        "current_input_hash": { "$ref": "#/$defs/String" },
+        "current_dependencies": {
+          "anyOf": [
+            { "$ref": "#/$defs/TopicDependencySnapshot" },
+            { "type": "null" }
+          ]
+        },
+        "baseline_initialized_at": { "$ref": "#/$defs/String" },
+        "last_scanned_at": { "$ref": "#/$defs/String" }
+      }
+    },
+    "TopicProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "freshness",
+        "source_materials_status",
+        "source_materials_percent",
+        "stale_reasons",
+        "dirty_reasons",
+        "missing_sections"
+      ],
+      "properties": {
+        "topicGraph": { "$ref": "#/$defs/TopicGraphProjection" },
+        "concepts": { "$ref": "#/$defs/ConceptCardsProposal" },
+        "interestMetadata": { "$ref": "#/$defs/TopicInterestMetadata" },
+        "discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source_paper_refs"],
+          "properties": {
+            "source_paper_refs": { "$ref": "#/$defs/NonEmptyStrings" },
+            "readiness": { "$ref": "#/$defs/TopicReadinessProjection" }
+          }
+        },
+        "recommendedUpdate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["actionLabel", "freshness", "sourceMaterialsStatus"],
+          "properties": {
+            "actionLabel": { "const": "Update" },
+            "freshness": {
+              "enum": [
+                "fresh",
+                "stale",
+                "dirty",
+                "queued",
+                "running",
+                "failed",
+                "unknown"
+              ]
+            },
+            "sourceMaterialsStatus": {
+              "enum": ["complete", "partial", "missing"]
+            },
+            "blocked": { "type": "boolean" }
+          }
+        },
+        "freshness": {
+          "enum": [
+            "fresh",
+            "stale",
+            "dirty",
+            "queued",
+            "running",
+            "failed",
+            "unknown"
+          ]
+        },
+        "source_materials_status": {
+          "enum": ["complete", "partial", "missing"]
+        },
+        "source_materials_percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "stale_reasons": { "$ref": "#/$defs/Strings" },
+        "dirty_reasons": { "$ref": "#/$defs/Strings" },
+        "missing_sections": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TextSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": { "$ref": "#/$defs/String" },
+        "analysis": { "$ref": "#/$defs/String" },
+        "overview": { "$ref": "#/$defs/String" },
+        "brief": { "$ref": "#/$defs/String" },
+        "report_excerpt": { "$ref": "#/$defs/String" },
+        "key_takeaways": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TaxonomyRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "definition": { "$ref": "#/$defs/String" },
+        "core_problem": { "$ref": "#/$defs/String" },
+        "mechanism": { "$ref": "#/$defs/String" },
+        "strengths": { "$ref": "#/$defs/Strings" },
+        "limitations": { "$ref": "#/$defs/Strings" },
+        "maturity": { "$ref": "#/$defs/String" },
+        "representative_papers": { "$ref": "#/$defs/Strings" },
+        "source_paper_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TaxonomyAxis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["axis_type", "nodes"],
+      "properties": {
+        "axis_type": {
+          "enum": [
+            "problem_formulation",
+            "technical_mechanism",
+            "evidence_scope",
+            "research_route",
+            "application_context"
+          ]
+        },
+        "axis_rationale": { "$ref": "#/$defs/String" },
+        "nodes": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/TaxonomyRoute" }
+        }
+      }
+    },
+    "Taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "primary_axis": { "$ref": "#/$defs/String" },
+        "axis_rationale": { "$ref": "#/$defs/String" },
+        "summary": { "$ref": "#/$defs/TextSummary" },
+        "axes": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/TaxonomyAxis" }
+        },
+        "nodes": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/TaxonomyRoute" }
+        }
+      }
+    },
+    "Claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "text": { "$ref": "#/$defs/String" },
+        "analysis": { "$ref": "#/$defs/String" },
+        "scope": { "$ref": "#/$defs/String" },
+        "applicability": { "$ref": "#/$defs/String" },
+        "limitations": { "$ref": "#/$defs/Strings" },
+        "confidence": { "$ref": "#/$defs/String" },
+        "source_paper_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "ImprovementDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "analysis": { "$ref": "#/$defs/String" },
+        "source_paper_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "ImprovementDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "dimensions"],
+      "properties": {
+        "summary": { "$ref": "#/$defs/TextSummary" },
+        "dimensions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/ImprovementDimension" }
+        }
+      }
+    },
+    "TimelineEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "label": { "$ref": "#/$defs/String" },
+        "year": { "type": "integer" },
+        "description": { "$ref": "#/$defs/String" },
+        "historical_role": { "$ref": "#/$defs/String" },
+        "phase": { "$ref": "#/$defs/String" },
+        "source_paper_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "Timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "events"],
+      "properties": {
+        "summary": { "$ref": "#/$defs/TextSummary" },
+        "events": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/TimelineEvent" }
+        }
+      }
+    },
+    "Debate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_paper_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "evidence_type": { "$ref": "#/$defs/String" },
+        "current_judgment": { "$ref": "#/$defs/String" },
+        "source_paper_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "FutureDirection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "direction_type": {
+          "enum": [
+            "method_limitation",
+            "evaluation_gap",
+            "data_or_benchmark_need",
+            "application_extension",
+            "theory_or_mechanism_question",
+            "integration_opportunity"
+          ]
+        },
+        "current_limitation": { "$ref": "#/$defs/String" },
+        "future_direction": { "$ref": "#/$defs/String" },
+        "rationale": { "$ref": "#/$defs/String" },
+        "source_paper_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "WritingStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "review_thesis": { "$ref": "#/$defs/String" },
+        "writing_strategy": { "$ref": "#/$defs/String" },
+        "section_plan": { "$ref": "#/$defs/Strings" },
+        "best_for": { "$ref": "#/$defs/String" },
+        "risks": { "$ref": "#/$defs/String" },
+        "source_paper_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "ReviewOutline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "topic_importance": { "$ref": "#/$defs/String" },
+        "writing_strategies": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/WritingStrategy" }
+        },
+        "recommended_strategy_id": { "$ref": "#/$defs/String" }
+      }
+    },
+    "Coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verdict": { "$ref": "#/$defs/String" },
+        "reason": { "$ref": "#/$defs/String" },
+        "caveats": { "$ref": "#/$defs/Strings" },
+        "paper_count": { "type": "integer", "minimum": 0 },
+        "external_literature_count": { "type": "integer", "minimum": 0 },
+        "coverage_verdict": { "$ref": "#/$defs/String" },
+        "coverage_reason": { "$ref": "#/$defs/String" },
+        "coverage_caveats": { "$ref": "#/$defs/Strings" },
+        "external_context_summary": { "$ref": "#/$defs/String" },
+        "suggested_collection_directions": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "Statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paper_count": { "type": "integer", "minimum": 0 },
+        "time_span": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["earliest", "latest"],
+              "properties": {
+                "earliest": { "$ref": "#/$defs/String" },
+                "latest": { "$ref": "#/$defs/String" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["start_year", "end_year"],
+              "properties": {
+                "start_year": { "type": "integer" },
+                "end_year": { "type": "integer" }
+              }
+            }
+          ]
+        },
+        "route_coverage": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["routes"],
+              "properties": { "routes": { "type": "integer", "minimum": 0 } }
+            },
+            { "$ref": "#/$defs/String" }
+          ]
+        },
+        "coverage_verdict": { "$ref": "#/$defs/String" }
+      }
+    },
+    "SynthesisReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "$ref": "#/$defs/String" },
+        "body": { "$ref": "#/$defs/String" },
+        "markdown": { "$ref": "#/$defs/String" },
+        "summary": { "$ref": "#/$defs/String" },
+        "sections": { "$ref": "#/$defs/Strings" },
+        "source_section_chapters": { "$ref": "#/$defs/StringMap" }
+      }
+    },
+    "ArtifactEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/String" },
+        "path": { "$ref": "#/$defs/String" },
+        "hash": { "type": "string", "maxLength": 80 },
+        "skill_id": { "$ref": "#/$defs/String" },
+        "stage_id": { "$ref": "#/$defs/String" },
+        "content_type": { "const": "json" },
+        "schema_id": { "$ref": "#/$defs/String" }
+      }
+    },
+    "SourceArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resolver_manifest": {
+          "oneOf": [{ "$ref": "#/$defs/ArtifactEntry" }, { "type": "null" }]
+        },
+        "prepare_handoff": {
+          "oneOf": [{ "$ref": "#/$defs/ArtifactEntry" }, { "type": "null" }]
+        },
+        "core_handoff": {
+          "oneOf": [{ "$ref": "#/$defs/ArtifactEntry" }, { "type": "null" }]
+        }
+      }
+    },
+    "SourceArtifactRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref", "artifact_type", "payload_type", "status"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/NonEmptyString" },
+        "artifact_type": { "$ref": "#/$defs/NonEmptyString" },
+        "payload_type": { "$ref": "#/$defs/NonEmptyString" },
+        "status": { "enum": ["available", "missing", "invalid"] },
+        "path": { "$ref": "#/$defs/String" },
+        "hash": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "TopicArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_id": { "const": "synthesis.topic_synthesis_artifact" },
+        "schema_version": { "$ref": "#/$defs/String" },
+        "language": { "$ref": "#/$defs/String" },
+        "topic": { "$ref": "#/$defs/TopicDefinition" },
+        "summary": { "$ref": "#/$defs/TextSummary" },
+        "taxonomy": { "$ref": "#/$defs/Taxonomy" },
+        "comparison_matrix": { "$ref": "#/$defs/ComparisonMatrix" },
+        "improvement_dimensions": {
+          "oneOf": [
+            { "$ref": "#/$defs/ImprovementDimensions" },
+            {
+              "type": "array",
+              "maxItems": 1000,
+              "items": { "$ref": "#/$defs/ImprovementDimension" }
+            }
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/Claim" }
+        },
+        "timeline_events": { "$ref": "#/$defs/Timeline" },
+        "source_papers": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ResolvedPaper" }
+        },
+        "debates": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/Debate" }
+        },
+        "coverage": { "$ref": "#/$defs/Coverage" },
+        "statistics": { "$ref": "#/$defs/Statistics" },
+        "synthesis_report": { "$ref": "#/$defs/SynthesisReport" },
+        "future_directions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/FutureDirection" }
+        },
+        "review_outline": { "$ref": "#/$defs/ReviewOutline" },
+        "source_artifacts": {
+          "oneOf": [
+            { "$ref": "#/$defs/SourceArtifacts" },
+            {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "$ref": "#/$defs/SourceArtifactRecord" }
+            }
+          ]
+        },
+        "diagnostics": {
+          "oneOf": [
+            { "$ref": "#/$defs/Strings" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["warnings"],
+              "properties": {
+                "warnings": { "$ref": "#/$defs/Strings" },
+                "quality_flags": { "$ref": "#/$defs/Strings" },
+                "limitations": { "$ref": "#/$defs/Strings" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "TopicManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_id": { "$ref": "#/$defs/String" },
+        "schema_version": { "$ref": "#/$defs/String" },
+        "topic_id": { "$ref": "#/$defs/String" },
+        "operation": { "$ref": "#/$defs/String" },
+        "language": { "$ref": "#/$defs/String" },
+        "sections": {
+          "type": "object",
+          "maxProperties": 256,
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_-]{0,127}$": {
+              "$ref": "#/$defs/ArtifactEntry"
+            }
+          },
+          "additionalProperties": false
+        },
+        "sidecars": {
+          "type": "object",
+          "maxProperties": 64,
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_-]{0,127}$": {
+              "$ref": "#/$defs/ArtifactEntry"
+            }
+          },
+          "additionalProperties": false
+        },
+        "artifact_hash": { "type": "string", "maxLength": 128 },
+        "metadata_hash": { "type": "string", "maxLength": 128 },
+        "section_hashes": { "$ref": "#/$defs/HashMap" }
+      }
+    },
+    "TopicMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_id": { "$ref": "#/$defs/String" },
+        "schema_version": { "$ref": "#/$defs/String" },
+        "topic_id": { "$ref": "#/$defs/String" },
+        "language": { "$ref": "#/$defs/String" },
+        "updated_at": { "$ref": "#/$defs/String" },
+        "paper_count": { "type": "integer", "minimum": 0 },
+        "external_literature_count": { "type": "integer", "minimum": 0 },
+        "prospective_topic_relation_proposals": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/TopicRelationProposal" }
+        }
+      }
+    },
+    "TopicRelationProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_topic_id": { "$ref": "#/$defs/String" },
+        "target_topic_id": { "$ref": "#/$defs/String" },
+        "target_title": { "$ref": "#/$defs/String" },
+        "relation": { "$ref": "#/$defs/String" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TopicDigestContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "title",
+        "definition",
+        "language",
+        "updated_at",
+        "summary",
+        "paper_count",
+        "external_literature_count"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "definition": { "$ref": "#/$defs/String" },
+        "language": { "$ref": "#/$defs/String" },
+        "updated_at": { "$ref": "#/$defs/String" },
+        "summary": { "$ref": "#/$defs/TextSummary" },
+        "paper_count": { "type": "integer", "minimum": 0 },
+        "external_literature_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "TopicSemanticContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "language",
+        "topic_definition",
+        "topic_resolver",
+        "resolved_paper_set"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "language": { "$ref": "#/$defs/String" },
+        "topic_definition": { "$ref": "#/$defs/TopicDefinition" },
+        "topic_resolver": { "$ref": "#/$defs/TopicResolver" },
+        "resolved_paper_set": { "$ref": "#/$defs/ResolvedPaperSet" },
+        "prospective_topic_relation_proposals": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/TopicRelationProposal" }
+        },
+        "topic": { "$ref": "#/$defs/TopicDefinition" },
+        "summary": { "$ref": "#/$defs/TextSummary" },
+        "taxonomy": { "$ref": "#/$defs/Taxonomy" },
+        "comparison_matrix": { "$ref": "#/$defs/ComparisonMatrix" },
+        "improvement_dimensions": { "$ref": "#/$defs/ImprovementDimensions" },
+        "claims": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/Claim" }
+        },
+        "timeline_events": { "$ref": "#/$defs/Timeline" },
+        "source_papers": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ResolvedPaper" }
+        },
+        "debates": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/Debate" }
+        },
+        "future_directions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/FutureDirection" }
+        },
+        "review_outline": { "$ref": "#/$defs/ReviewOutline" },
+        "synthesis_report": { "$ref": "#/$defs/SynthesisReport" },
+        "markdown": { "$ref": "#/$defs/String" }
+      }
+    },
+    "ComparisonMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "columns": { "$ref": "#/$defs/Strings" },
+        "dimensions": { "$ref": "#/$defs/Strings" },
+        "rows": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": { "$ref": "#/$defs/String" },
+              "title": { "$ref": "#/$defs/String" },
+              "source_paper_refs": { "$ref": "#/$defs/Strings" },
+              "values": { "$ref": "#/$defs/StringMap" }
+            }
+          }
+        }
+      }
+    },
+    "SourcePaperTriage": {
+      "type": "object",
+      "maxProperties": 25000,
+      "patternProperties": { "^.{1,512}$": { "$ref": "#/$defs/TriageRecord" } },
+      "additionalProperties": false
+    },
+    "TriageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/String" },
+        "relevance_level": { "$ref": "#/$defs/String" },
+        "relevance_reason": { "$ref": "#/$defs/String" },
+        "core_digest": { "$ref": "#/$defs/String" },
+        "caveats": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "Freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "freshness": {
+          "enum": [
+            "fresh",
+            "stale",
+            "dirty",
+            "queued",
+            "running",
+            "failed",
+            "unknown"
+          ]
+        },
+        "source_materials_status": {
+          "enum": ["complete", "partial", "missing"]
+        },
+        "source_materials_percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "stale_reasons": { "$ref": "#/$defs/Strings" },
+        "dirty_reasons": { "$ref": "#/$defs/Strings" },
+        "missing_sections": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TopicAuditContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "language",
+        "paths",
+        "current_metadata",
+        "current_manifest",
+        "current_hashes",
+        "section_hashes",
+        "topic_resolver",
+        "resolved_paper_set",
+        "source_paper_triage",
+        "source_materials"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "language": { "$ref": "#/$defs/String" },
+        "paths": { "$ref": "#/$defs/StringMap" },
+        "current_metadata": { "$ref": "#/$defs/TopicMetadata" },
+        "current_manifest": { "$ref": "#/$defs/TopicManifest" },
+        "current_hashes": { "$ref": "#/$defs/HashMap" },
+        "section_hashes": { "$ref": "#/$defs/HashMap" },
+        "topic_resolver": { "$ref": "#/$defs/TopicResolver" },
+        "resolved_paper_set": { "$ref": "#/$defs/ResolvedPaperSet" },
+        "source_paper_triage": { "$ref": "#/$defs/SourcePaperTriage" },
+        "freshness": { "$ref": "#/$defs/Freshness" },
+        "source_materials": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "percent"],
+          "properties": {
+            "status": { "enum": ["complete", "partial", "missing"] },
+            "percent": { "type": "integer", "minimum": 0, "maximum": 100 }
+          }
+        }
+      }
+    },
+    "DigestArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "noteKey": { "$ref": "#/$defs/String" },
+        "payloadHash": { "type": "string", "maxLength": 80 },
+        "content": { "$ref": "#/$defs/String" }
+      }
+    },
+    "ReferenceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "year": { "$ref": "#/$defs/String" },
+        "authors": { "$ref": "#/$defs/Strings" },
+        "doi": { "$ref": "#/$defs/String" },
+        "url": { "$ref": "#/$defs/String" },
+        "text": { "$ref": "#/$defs/String" }
+      }
+    },
+    "ReferencesArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "noteKey": { "$ref": "#/$defs/String" },
+        "payloadHash": { "type": "string", "maxLength": 80 },
+        "references": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ReferenceEntry" }
+        }
+      }
+    },
+    "CitationAnalysisItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/String" },
+        "ref_index": { "type": "integer", "minimum": 0 },
+        "reference_index": { "type": "integer", "minimum": 0 },
+        "index": { "type": "integer", "minimum": 0 },
+        "title": { "$ref": "#/$defs/String" },
+        "year": { "$ref": "#/$defs/String" },
+        "function": { "$ref": "#/$defs/String" },
+        "role": { "$ref": "#/$defs/String" },
+        "roles": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "CitationAnalysisArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "noteKey": { "$ref": "#/$defs/String" },
+        "payloadHash": { "type": "string", "maxLength": 80 },
+        "items": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/CitationAnalysisItem" }
+        },
+        "citations": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/CitationAnalysisItem" }
+        }
+      }
+    },
+    "LiteratureScore": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "score": { "type": "number" },
+        "level": { "$ref": "#/$defs/String" },
+        "reason": { "$ref": "#/$defs/String" },
+        "dimensions": {
+          "type": "object",
+          "maxProperties": 64,
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$": { "type": "number" }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "LiteratureMatchingMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "key_terms",
+        "methods",
+        "problems",
+        "datasets",
+        "exclude_terms"
+      ],
+      "properties": {
+        "schema": { "const": "synthesis.literature_matching_metadata.v1" },
+        "key_terms": { "$ref": "#/$defs/Strings" },
+        "methods": { "$ref": "#/$defs/Strings" },
+        "problems": { "$ref": "#/$defs/Strings" },
+        "datasets": { "$ref": "#/$defs/Strings" },
+        "exclude_terms": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "MatchedReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "raw_reference_id": { "$ref": "#/$defs/String" },
+        "canonical_reference_id": { "$ref": "#/$defs/String" },
+        "library_id": { "type": "integer", "minimum": 1 },
+        "item_key": { "$ref": "#/$defs/String" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "status": { "$ref": "#/$defs/String" },
+        "reasons": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "MatchedReferences": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/$defs/MatchedReference" }
+    },
+    "WorkflowSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workflowId": { "$ref": "#/$defs/String" },
+        "runId": { "$ref": "#/$defs/String" },
+        "skillId": { "$ref": "#/$defs/String" },
+        "artifactPath": { "$ref": "#/$defs/String" }
+      }
+    },
+    "ResolverDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["final_count", "warnings"],
+      "properties": {
+        "final_count": { "type": "integer", "minimum": 0 },
+        "warnings": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TopicResultBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "operation", "language", "topic_definition"],
+      "properties": {
+        "kind": { "const": "topic_synthesis" },
+        "operation": { "enum": ["create", "update_full", "update_patch"] },
+        "mode": { "$ref": "#/$defs/String" },
+        "language": { "$ref": "#/$defs/NonEmptyString" },
+        "base_hashes": { "$ref": "#/$defs/HashMap" },
+        "create_base_hashes_ignored": { "type": "boolean" },
+        "topic_id": { "$ref": "#/$defs/NonEmptyString" },
+        "read_section_hashes": { "$ref": "#/$defs/HashMap" },
+        "topic_definition": { "$ref": "#/$defs/TopicDefinition" },
+        "topic_resolver": { "$ref": "#/$defs/TopicResolver" },
+        "resolved_paper_set": { "$ref": "#/$defs/ResolvedPaperSet" },
+        "resolver_manifest_path": { "$ref": "#/$defs/String" },
+        "artifact_manifest_path": { "$ref": "#/$defs/String" },
+        "resolver_diagnostics": { "$ref": "#/$defs/ResolverDiagnostics" },
+        "artifact_metadata": { "$ref": "#/$defs/ArtifactMetadata" },
+        "analysis_manifest_path": { "$ref": "#/$defs/String" },
+        "topic_interest_metadata_path": { "$ref": "#/$defs/String" },
+        "concept_cards_proposal_path": { "$ref": "#/$defs/String" },
+        "topic_graph_relation_proposals_path": { "$ref": "#/$defs/String" },
+        "markdown": { "$ref": "#/$defs/String" },
+        "markdown_path": { "$ref": "#/$defs/String" },
+        "timeline": { "$ref": "#/$defs/Timeline" }
+      }
+    }
+  }
+}

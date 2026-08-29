@@ -1,16 +1,12 @@
-import { buildMarkdownBackedNoteContent } from "./notePayloadCodec";
 import {
   executeHostBridgeCapability,
   getHostBridgeCapability,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
+import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
+import type { DirectResearchBundleApplication } from "./researchBundleService";
 import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
 import { HostBridgeCursorError } from "./hostBridgePagination";
-import type {
-  SynthesisMcpService,
-  SynthesisMcpServiceMethod,
-} from "./synthesis/mcpService";
-import { getDefaultSynthesisService } from "./synthesis/service";
 import {
   resolveZoteroHostCapabilityBroker,
   ZoteroHostCapabilityError,
@@ -26,17 +22,11 @@ import type {
   ZoteroHostAttachmentDto,
   ZoteroHostCollectionRefInput,
   ZoteroHostCurrentViewDto,
-  ZoteroHostItemDetailDto,
   ZoteroHostItemRefInput,
   ZoteroHostItemSummaryDto,
-  ZoteroHostLibraryItemSummaryDto,
   ZoteroHostLibraryListArgs,
-  ZoteroHostLibraryListResponse,
-  ZoteroHostMutationExecuteResponse,
   ZoteroHostMutationPreviewResponse,
   ZoteroHostMutationRequest,
-  ZoteroHostNoteDetailArgs,
-  ZoteroHostNoteDetailChunkDto,
   ZoteroHostNoteDto,
   ZoteroHostNotePayloadDetailDto,
   ZoteroHostNotePayloadSummaryDto,
@@ -99,10 +89,10 @@ export const ZOTERO_MCP_TOOL_CITATION_GRAPH_RANK_LIBRARY_PAPERS =
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_GET_MANIFEST =
   "paper_artifacts.get_manifest";
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_READ = "paper_artifacts.read";
-export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED =
-  "paper_artifacts.export_filtered";
 export const ZOTERO_MCP_TOOL_ITEMS_EXPORT_RESEARCH_BUNDLE =
   "items.export_research_bundle";
+export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED =
+  "paper_artifacts.export_filtered";
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_RESOLVE_TOPIC_DIGEST =
   "paper_artifacts.resolve_topic_digest";
 export const ZOTERO_MCP_TOOL_INSIGHTS_GET_ATTENTION_QUEUE =
@@ -164,7 +154,10 @@ export type ZoteroMcpToolPermissionRequest = {
 
 export type ZoteroMcpHandlerOptions = {
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
-  resolveSynthesisService?: () => SynthesisMcpService;
+  resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+  resolveDirectResearchBundleApplication?: () =>
+    | DirectResearchBundleApplication
+    | Promise<DirectResearchBundleApplication>;
   resolveMcpStatus?: () => Record<string, unknown>;
   resolveHostBridgeStatus?: () => HostBridgeStatusSnapshot;
   requestToolPermission?: (
@@ -260,25 +253,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function parseJsonObjectString(value: unknown) {
-  if (typeof value !== "string") {
-    return value;
-  }
-  const text = value.trim();
-  if (!text.startsWith("{") && !text.startsWith("[")) {
-    return value;
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return value;
-  }
-}
-
-function normalizeRefInput<T>(value: T): T {
-  return parseJsonObjectString(value) as T;
-}
-
 function objectSchema(
   properties: Record<string, unknown> = {},
   required: string[] = [],
@@ -297,25 +271,6 @@ function objectSchema(
 function validateJsonRpcId(id: unknown) {
   return typeof id === "string" || typeof id === "number";
 }
-
-const itemRefProperties = {
-  ref: {
-    description:
-      'Item reference. Prefer {"key":"ABCD1234","libraryId":1} or {"id":123}.',
-  },
-  id: {
-    type: ["number", "string"],
-    description: "Zotero item id. Use either id or key/libraryId.",
-  },
-  key: {
-    type: "string",
-    description: "Zotero item key, usually with libraryId.",
-  },
-  libraryId: {
-    type: ["number", "string"],
-    description: "Zotero library id for key-based refs.",
-  },
-};
 
 const MCP_LIBRARY_LIST_LIMIT_DEFAULT = 25;
 const MCP_LIBRARY_LIST_LIMIT_MAX = 50;
@@ -587,102 +542,6 @@ function hasInvalidLibraryCursorType(
   );
 }
 
-function summarizeSynthesisResult(toolName: string, result: unknown) {
-  const payload = isPlainObject(result) ? result : {};
-  const parts = [`${toolName} synthesis result.`];
-  if (Array.isArray(payload.rows)) {
-    parts.push(`rows=${payload.rows.length}`);
-  }
-  if (Array.isArray(payload.papers)) {
-    parts.push(`papers=${payload.papers.length}`);
-  }
-  if (Array.isArray(payload.nodes)) {
-    parts.push(`nodes=${payload.nodes.length}`);
-  }
-  if (Array.isArray(payload.edges)) {
-    parts.push(`edges=${payload.edges.length}`);
-  }
-  if (Array.isArray(payload.artifacts)) {
-    parts.push(`artifacts=${payload.artifacts.length}`);
-  }
-  if (payload.nextCursor || payload.next_cursor) {
-    parts.push(
-      `nextCursor=${compactText(payload.nextCursor || payload.next_cursor)}`,
-    );
-  }
-  if (payload.has_more !== undefined) {
-    parts.push(`hasMore=${Boolean(payload.has_more)}`);
-  }
-  if (payload.returned !== undefined) {
-    parts.push(`returned=${compactText(payload.returned)}`);
-  }
-  if (payload.total_papers !== undefined) {
-    parts.push(`totalPapers=${compactText(payload.total_papers)}`);
-  }
-  if (payload.topic_id) {
-    parts.push(`topic=${compactText(payload.topic_id)}`);
-  }
-  if (payload.paper_ref) {
-    parts.push(`paper=${compactText(payload.paper_ref)}`);
-  }
-  if (payload.total !== undefined) {
-    parts.push(`total=${compactText(payload.total)}`);
-  }
-  return parts.join(" ");
-}
-
-async function callSynthesisService(args: {
-  toolName: string;
-  method: SynthesisMcpServiceMethod;
-  toolArgs: Record<string, unknown>;
-  context: ToolContext;
-}) {
-  const service =
-    args.context.options.resolveSynthesisService?.() ||
-    (getDefaultSynthesisService() as unknown as SynthesisMcpService);
-  const method = service?.[args.method];
-  if (typeof method !== "function") {
-    throw new ZoteroMcpToolInputError(
-      `Synthesis service method is unavailable: ${String(args.method)}`,
-    );
-  }
-  const result = await method(args.toolArgs);
-  return buildToolResult({
-    tool: args.toolName,
-    summary: summarizeSynthesisResult(args.toolName, result),
-    structuredContent: {
-      result: isPlainObject(result) ? result : { value: result },
-    },
-  });
-}
-
-function synthesisTool(args: {
-  name: string;
-  title: string;
-  description: string;
-  method: SynthesisMcpServiceMethod;
-  properties?: Record<string, unknown>;
-  allowed?: string[];
-  required?: string[];
-}): ToolDefinition {
-  const allowed = args.allowed || Object.keys(args.properties || {});
-  return {
-    name: args.name,
-    title: args.title,
-    description: args.description,
-    inputSchema: objectSchema(args.properties || {}, args.required || []),
-    async handler(toolArgs, context) {
-      assertKnownArgs(args.name, toolArgs, allowed);
-      return callSynthesisService({
-        toolName: args.name,
-        method: args.method,
-        toolArgs,
-        context,
-      });
-    },
-  };
-}
-
 function compactText(value: unknown, limit = 160) {
   const text = String(value ?? "")
     .replace(/\s+/g, " ")
@@ -819,26 +678,6 @@ function formatNextCalls(
   ].join("\n");
 }
 
-function firstItemRefArgs(
-  value: Partial<ZoteroHostItemSummaryDto> | undefined | null,
-) {
-  if (!value) {
-    return undefined;
-  }
-  if (value.key) {
-    return {
-      key: value.key,
-      libraryId: value.libraryId,
-    };
-  }
-  if (value.id !== undefined) {
-    return {
-      id: value.id,
-    };
-  }
-  return undefined;
-}
-
 function buildReadToolSummary(args: {
   title: string;
   lines?: string[];
@@ -851,178 +690,6 @@ function buildReadToolSummary(args: {
   ]
     .filter(Boolean)
     .join("\n");
-}
-
-function buildSelectedItemsSummary(items: ZoteroHostItemSummaryDto[]) {
-  const firstRef = firstItemRefArgs(items[0]);
-  return buildReadToolSummary({
-    title: `Selected Zotero items: ${items.length}.`,
-    lines: items.map(formatItemLine),
-    nextCalls: firstRef
-      ? [
-          { tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL, args: firstRef },
-          { tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS, args: firstRef },
-          { tool: ZOTERO_MCP_TOOL_GET_ITEM_NOTES, args: firstRef },
-        ]
-      : [],
-  });
-}
-
-function buildSearchItemsSummary(
-  query: string,
-  items: ZoteroHostItemSummaryDto[],
-) {
-  const firstRef = firstItemRefArgs(items[0]);
-  return buildReadToolSummary({
-    title: `Found ${items.length} Zotero item(s) for query="${compactText(query)}".`,
-    lines: items.map(formatItemLine),
-    nextCalls: firstRef
-      ? [
-          { tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL, args: firstRef },
-          { tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS, args: firstRef },
-        ]
-      : [],
-  });
-}
-
-function buildLibraryItemsSummary(result: ZoteroHostLibraryListResponse) {
-  const firstRef = firstItemRefArgs(result.items[0]);
-  const filters = Object.entries(result.filters || {})
-    .filter(([, value]) => value !== undefined && value !== "")
-    .map(([key, value]) =>
-      typeof value === "object"
-        ? `${key}=${JSON.stringify(value)}`
-        : `${key}=${value}`,
-    )
-    .join(" ");
-  return buildReadToolSummary({
-    title: [
-      `Listed ${result.returned} Zotero parent item index entrie(s).`,
-      filters ? `filters: ${filters}` : "",
-      `hasMore=${Boolean(result.hasMore)}`,
-      result.nextCursor ? `nextCursor=${result.nextCursor}` : "",
-      `totalScanned=${result.totalScanned}`,
-      "Use get_item_detail for full metadata.",
-    ]
-      .filter(Boolean)
-      .join(" "),
-    lines: result.items.map(formatItemLine),
-    nextCalls: [
-      ...(firstRef
-        ? [{ tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL, args: firstRef }]
-        : []),
-      ...(result.hasMore && result.nextCursor
-        ? [
-            {
-              tool: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
-              args: { cursor: result.nextCursor },
-            },
-          ]
-        : []),
-    ],
-  });
-}
-
-function toLibraryIndexItem(item: ZoteroHostLibraryItemSummaryDto) {
-  return {
-    id: item.id,
-    key: item.key,
-    libraryId: item.libraryId,
-    itemType: item.itemType,
-    title: item.title,
-    year: item.year,
-    noteCount: item.noteCount,
-    attachmentCount: item.attachmentCount,
-  };
-}
-
-function compactLibraryListResult(result: ZoteroHostLibraryListResponse) {
-  return {
-    ...result,
-    items: result.items.map(toLibraryIndexItem),
-    compact: true,
-    itemShape:
-      "index-only: id,key,libraryId,itemType,title,year,noteCount,attachmentCount",
-  };
-}
-
-function buildItemDetailSummary(
-  ref: ZoteroHostItemRefInput,
-  item: ZoteroHostItemDetailDto | null,
-) {
-  if (!item) {
-    return buildReadToolSummary({
-      title: `Item not found for ${JSON.stringify(ref)}.`,
-    });
-  }
-  const itemRef = firstItemRefArgs(item);
-  const core = [
-    formatItemLine(item),
-    item.fields?.DOI ? `- DOI=${compactText(item.fields.DOI)}` : "",
-    item.fields?.url ? `- url=${compactText(item.fields.url, 200)}` : "",
-    item.fields?.abstractNote
-      ? `- abstract="${compactText(item.fields.abstractNote, 240)}"`
-      : "",
-    item.tags?.length
-      ? `- tags=${item.tags.map((tag) => `"${compactText(tag)}"`).join(", ")}`
-      : "",
-  ].filter(Boolean);
-  return buildReadToolSummary({
-    title: `Item detail: ${formatItemRef(item)} title="${compactText(item.title, 120)}".`,
-    lines: core,
-    nextCalls: itemRef
-      ? [
-          { tool: ZOTERO_MCP_TOOL_GET_ITEM_NOTES, args: itemRef },
-          { tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS, args: itemRef },
-        ]
-      : [],
-  });
-}
-
-function buildItemNotesSummary(
-  ref: ZoteroHostItemRefInput,
-  notes: ZoteroHostNoteDto[],
-) {
-  const firstRef = firstItemRefArgs(notes[0]);
-  return buildReadToolSummary({
-    title: `Found ${notes.length} Zotero note summary item(s) for ${JSON.stringify(ref)}.`,
-    lines: notes.map(formatNoteLine),
-    nextCalls: firstRef
-      ? [{ tool: ZOTERO_MCP_TOOL_GET_NOTE_DETAIL, args: firstRef }]
-      : [],
-  });
-}
-
-function buildNoteDetailSummary(note: ZoteroHostNoteDetailChunkDto) {
-  return buildReadToolSummary({
-    title: [
-      `Read Zotero note chunk ${note.offset}-${note.nextOffset} of ${note.totalChars}.`,
-      `offset=${note.offset}`,
-      `nextOffset=${note.nextOffset}`,
-      `totalChars=${note.totalChars}`,
-      `hasMore=${Boolean(note.hasMore)}`,
-      `format=${note.format}`,
-      `note=${formatItemRef(note)}`,
-    ].join(" "),
-    lines: [
-      note.title ? `- title="${compactText(note.title, 120)}"` : "",
-      note.content
-        ? `- contentExcerpt="${compactText(note.content, 220)}"`
-        : "",
-    ].filter(Boolean),
-    nextCalls: note.hasMore
-      ? [
-          {
-            tool: ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
-            args: {
-              key: note.key,
-              libraryId: note.libraryId,
-              offset: note.nextOffset,
-            },
-          },
-        ]
-      : [],
-  });
 }
 
 function formatPayloadLine(payload: Partial<ZoteroHostNotePayloadSummaryDto>) {
@@ -1167,7 +834,6 @@ function parseBoundedPositiveInteger(
     ? Math.min(maximum, Math.floor(parsed))
     : fallback;
 }
-
 function buildLibraryListArgs(
   args: Record<string, unknown>,
 ): ZoteroHostLibraryListArgs {
@@ -1472,8 +1138,9 @@ async function requestCapabilityApprovalForMcp(args: {
             connectionMode: "local",
             resolveZoteroHostCapabilityBroker: () =>
               resolveCapabilityBroker(args.context.options),
-            resolveSynthesisService:
-              args.context.options.resolveSynthesisService,
+            resolveSynthesisClient: args.context.options.resolveSynthesisClient,
+            resolveDirectResearchBundleApplication:
+              args.context.options.resolveDirectResearchBundleApplication,
           },
         )) as ZoteroHostMutationPreviewResponse)
       : ({
@@ -1574,7 +1241,9 @@ async function callHostBridgeCapabilityAsMcpTool(
       connectionMode: "local",
       resolveZoteroHostCapabilityBroker: () =>
         resolveCapabilityBroker(context.options),
-      resolveSynthesisService: context.options.resolveSynthesisService,
+      resolveSynthesisClient: context.options.resolveSynthesisClient,
+      resolveDirectResearchBundleApplication:
+        context.options.resolveDirectResearchBundleApplication,
     });
   } catch (error) {
     if (error instanceof HostBridgeCursorError) {

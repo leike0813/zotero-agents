@@ -10,7 +10,7 @@ import {
   assembleTopicArtifact,
   validateTopicAnalysisManifest,
   validateTopicSynthesisArtifact,
-} from "../../src/modules/synthesis/topicStructuredArtifact";
+} from "../../packages/synthesis-engine/src/topicStructuredArtifact";
 import {
   startHostBridgeCliFixtureHarness,
   type HostBridgeCliFixtureHarness,
@@ -1552,6 +1552,13 @@ describe("topic synthesis split skill runtime", function () {
         "runtime/payloads/resolver-and-workset.json",
       ],
       env,
+    );
+    const resolverManifest = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
+    );
+    assert.deepEqual(
+      resolverManifest.resolved_paper_set.papers,
+      resolverManifest.resolution_result.candidates,
     );
 
     await writeJson(

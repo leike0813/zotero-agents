@@ -74,6 +74,6 @@ jobs:
         with:
           toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
       - name: Initialize content submodules
-        run: git submodule update --init --recursive
+        run: git submodule update --init
       - name: Run release gate (blocking)
         run: npm run test:gate:release

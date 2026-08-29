@@ -38,6 +38,10 @@ import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
+import {
+  detectRuntimeArchitecture,
+  detectSynthesisSidecarRuntimeTarget,
+} from "../../src/platform/runtimePlatform";
 
 function redefineGlobalProperty(key: string, value: unknown) {
   const runtime = globalThis as Record<string, unknown>;
@@ -84,6 +88,48 @@ describe("runtime platform services", function () {
     assert.equal(
       joinNativePath("/tmp/zotero", "acp", "runs"),
       "/tmp/zotero/acp/runs",
+    );
+  });
+
+  it("detects supported Synthesis runtime targets without command discovery", function () {
+    assert.equal(detectRuntimeArchitecture("x64"), "x64");
+    assert.equal(detectRuntimeArchitecture("arm64"), "arm64");
+    assert.equal(detectRuntimeArchitecture("ia32"), "x86");
+    assert.equal(detectRuntimeArchitecture("armv7l"), "arm");
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "win32",
+        architecture: "x64",
+      }),
+      "win32-x64",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "darwin",
+        architecture: "arm64",
+      }),
+      "darwin-arm64",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "linux",
+        architecture: "ia32",
+      }),
+      "linux-x86",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "linux",
+        architecture: "armv7l",
+      }),
+      "linux-arm",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "win32",
+        architecture: "arm64",
+      }),
+      "unsupported",
     );
   });
 

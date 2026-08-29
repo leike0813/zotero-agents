@@ -9161,7 +9161,7 @@
               "kind": "shape-only",
               "value": {},
               "prerequisites": [
-                "Replace output paths and limits with values valid for the active connection profile before execution."
+                "Replace limits with values valid for the active connection profile before execution."
               ],
               "description": "Minimal JSON shape for --query."
             }
@@ -9199,10 +9199,10 @@
       "handleTransitions": [],
       "recovery": [
         {
-          "when": "The planning snapshot is truncated or remote delivery is returned.",
+          "when": "The registered planning snapshot cannot be downloaded.",
           "stateCheck": "command-result",
           "requiresHandles": [],
-          "action": "Request outputPath for a complete snapshot; for bridge-download, run the returned downloadCommand and unpack the bundle.",
+          "action": "Retry the read, then run the returned downloadCommand with the new file handle.",
           "nextCommand": "file download"
         }
       ],
@@ -9213,8 +9213,7 @@
         "get-planning-context",
         "planning",
         "coverage",
-        "query",
-        "JSON_OR_FILE"
+        "query"
       ],
       "hiddenFromIntentSearch": false,
       "pagination": "none",

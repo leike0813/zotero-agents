@@ -10,4 +10,3 @@ ACP Skills SHALL persist the validated Host Bridge plugin Skill bundle identity 
 #### Scenario: Recovery identity differs
 - **WHEN** a recoverable run's persisted bundle identity differs from the current validated bundle identity
 - **THEN** recovery fails with `host_bridge_plugin_skill_bundle_identity_changed` and requires a new run
-

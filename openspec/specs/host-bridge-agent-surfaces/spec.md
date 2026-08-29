@@ -1,7 +1,8 @@
 # host-bridge-agent-surfaces Specification
 
 ## Purpose
-TBD - created by syncing changes introduce-host-bridge-cli-interface and unify-host-bridge-cli-contracts-and-parameter-errors. Update Purpose after archive.
+
+Define how Host Bridge agent surfaces preserve complete, reachable, intent-oriented command guidance across governed references.
 
 ## Requirements
 

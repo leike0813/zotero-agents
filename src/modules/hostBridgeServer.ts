@@ -14,8 +14,12 @@ import {
   HostBridgeWorkflowProductError,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
+import {
+  SynthesisClientError,
+  type SynthesisClient,
+} from "../../packages/synthesis-contracts/src/index";
+import type { DirectResearchBundleApplication } from "./researchBundleService";
 import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
-import type { SynthesisMcpService } from "./synthesis/mcpService";
 import {
   describeHostBridgeWorkflow,
   requirementsForHostBridgeWorkflow,
@@ -139,10 +143,7 @@ import {
 import { writeHostBridgeWellKnownProfile } from "./hostBridgeProfileStore";
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import {
-  invalidateDefaultSynthesisService,
-  SynthesisMaintenanceError,
-} from "./synthesis/service";
+import { invalidateDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import { getPref, setPref } from "../utils/prefs";
 import {
   beginHostHttpRequestRead,
@@ -261,8 +262,14 @@ let serverSocketFactory: (port: number, bindMode: HostBridgeBindMode) => any =
   createServerSocket;
 let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
-let synthesisServiceResolverForTests: (() => SynthesisMcpService) | undefined =
-  undefined;
+let synthesisClientResolverForTests:
+  | (() => SynthesisClient | Promise<SynthesisClient>)
+  | undefined = undefined;
+let directResearchBundleApplicationResolverForTests:
+  | (() =>
+      | DirectResearchBundleApplication
+      | Promise<DirectResearchBundleApplication>)
+  | undefined = undefined;
 let serverGeneration = 0;
 const acceptedConnections = new Set<AcceptedHostConnection>();
 const CONNECTION_INITIALIZATION_ERROR_PREFIX =
@@ -1614,8 +1621,14 @@ async function callCapability(
       {
         getStatus: getHostBridgeServerStatus,
         connectionMode: parseConnectionModeHeader(request, transportContext),
-        ...(synthesisServiceResolverForTests
-          ? { resolveSynthesisService: synthesisServiceResolverForTests }
+        ...(synthesisClientResolverForTests
+          ? { resolveSynthesisClient: synthesisClientResolverForTests }
+          : {}),
+        ...(directResearchBundleApplicationResolverForTests
+          ? {
+              resolveDirectResearchBundleApplication:
+                directResearchBundleApplicationResolverForTests,
+            }
           : {}),
       },
     );
@@ -1675,8 +1688,8 @@ async function callCapability(
     if (error instanceof HostBridgeCursorError) {
       return paginationErrorResponse(error);
     }
-    if (error instanceof SynthesisMaintenanceError) {
-      const conflict = error.code === "maintenance_idempotency_conflict";
+    if (error instanceof SynthesisClientError) {
+      const conflict = error.code === "conflict";
       const code = conflict
         ? "synthesis_maintenance_idempotency_conflict"
         : "invalid_capability_input";
@@ -1689,7 +1702,10 @@ async function callCapability(
           "validation",
           {
             capability: capability.name,
-            reasonCode: error.code,
+            reasonCode:
+              typeof error.details?.reasonCode === "string"
+                ? error.details.reasonCode
+                : error.code,
           },
         ),
         code,
@@ -3967,8 +3983,14 @@ async function getSynthesisCacheStatus(
       {
         getStatus: getHostBridgeServerStatus,
         connectionMode: parseConnectionModeHeader(request, transportContext),
-        ...(synthesisServiceResolverForTests
-          ? { resolveSynthesisService: synthesisServiceResolverForTests }
+        ...(synthesisClientResolverForTests
+          ? { resolveSynthesisClient: synthesisClientResolverForTests }
+          : {}),
+        ...(directResearchBundleApplicationResolverForTests
+          ? {
+              resolveDirectResearchBundleApplication:
+                directResearchBundleApplicationResolverForTests,
+            }
           : {}),
       },
     );
@@ -4041,7 +4063,7 @@ async function invalidateSynthesisCache(request: HttpRequest) {
       source: "host-bridge-cli",
       scope: parsePermissionScopeHeader(request),
     });
-    invalidateDefaultSynthesisService();
+    invalidateDefaultSynthesisClient();
     return response(
       200,
       "OK",
@@ -5160,7 +5182,8 @@ export function resetHostBridgeServerForTests() {
   state = createEmptyState("idle");
   startingPromise = null;
   serverSocketFactory = createServerSocket;
-  synthesisServiceResolverForTests = undefined;
+  synthesisClientResolverForTests = undefined;
+  directResearchBundleApplicationResolverForTests = undefined;
   acceptedConnections.clear();
   resetHostBridgeWriteAutoApprovalScopesForTests();
   resetHostBridgeAgentRunStoreForTests();
@@ -5174,7 +5197,10 @@ export function configureHostBridgeServerForTests(
     endpoint?: string;
     lanEnabled?: boolean;
     portMode?: HostBridgePortMode;
-    resolveSynthesisService?: () => SynthesisMcpService;
+    resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+    resolveDirectResearchBundleApplication?: () =>
+      | DirectResearchBundleApplication
+      | Promise<DirectResearchBundleApplication>;
   } = {},
 ) {
   const lanEnabled = args.lanEnabled === true;
@@ -5194,7 +5220,9 @@ export function configureHostBridgeServerForTests(
     pinnedPort: getPinnedPort(),
     lastError: "",
   });
-  synthesisServiceResolverForTests = args.resolveSynthesisService;
+  synthesisClientResolverForTests = args.resolveSynthesisClient;
+  directResearchBundleApplicationResolverForTests =
+    args.resolveDirectResearchBundleApplication;
   return token;
 }
 

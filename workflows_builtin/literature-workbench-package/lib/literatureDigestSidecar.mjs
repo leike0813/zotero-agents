@@ -57,6 +57,16 @@ function buildCitationAnalysisInput(args) {
   };
 }
 
+function buildLiteratureScoreInput(args) {
+  if (!args.literatureScoreNote && !args.literatureScorePayload) {
+    return undefined;
+  }
+  return {
+    noteKey: cleanString(args.literatureScoreNote?.key),
+    payload: args.literatureScorePayload,
+  };
+}
+
 export async function applyLiteratureDigestSidecar(args) {
   const synthesis = requireHostApi(args.runtime)?.synthesis;
   if (
@@ -65,17 +75,28 @@ export async function applyLiteratureDigestSidecar(args) {
   ) {
     return null;
   }
-  return synthesis.applyLiteratureDigestSidecar({
-    parentItem: args.parentItem,
-    digest: buildDigestInput(args),
-    references: buildReferencesInput(args),
-    citationAnalysis: buildCitationAnalysisInput(args),
-    literatureMatchingMetadata: args.literatureMatchingMetadata || null,
-    source: {
-      workflow: cleanString(args.sourceWorkflow) || "literature-analysis",
-      digest_entry: args.digestEntryPath,
-      references_entry: args.referencesEntryPath,
-      citation_analysis_entry: args.citationAnalysisEntryPath,
-    },
-  });
+  try {
+    return await synthesis.applyLiteratureDigestSidecar({
+      parentItem: args.parentItem,
+      digest: buildDigestInput(args),
+      references: buildReferencesInput(args),
+      citationAnalysis: buildCitationAnalysisInput(args),
+      literatureScore: buildLiteratureScoreInput(args),
+      literatureMatchingMetadata: args.literatureMatchingMetadata || null,
+      source: {
+        workflow: cleanString(args.sourceWorkflow) || "literature-analysis",
+        digest_entry: args.digestEntryPath,
+        references_entry: args.referencesEntryPath,
+        citation_analysis_entry: args.citationAnalysisEntryPath,
+      },
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: "sidecar_apply_deferred",
+      retryable: true,
+      error_code: cleanString(error?.code) || "sidecar_apply_failed",
+      message: cleanString(error?.message) || "Synthesis sidecar apply failed",
+    };
+  }
 }

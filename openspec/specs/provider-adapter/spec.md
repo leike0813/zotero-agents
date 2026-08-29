@@ -111,7 +111,7 @@ SkillRunner provider/client/reconciler 全链路 SHALL 复用同一个插件侧�
 - **THEN** 插件 SHALL 立即对该托管后端执行一次后台对账
 - **AND** 插件启动阶段 SHALL NOT 对托管本地后端执行该一次性启动对账
 
-### Requirement: SkillRunner provider dispatch MUST not fabricate terminal failed after request creation
+### Requirement: SkillRunner post-create local failures MUST remain recoverable
 
 SkillRunner provider/queue integration MUST treat post-create local failure as a
 recoverable plugin-side diagnostic instead of terminal backend failure.
@@ -152,7 +152,7 @@ launched by `skillrunner.sequence.v1`.
   foreground ACP path
 - **AND** ACP apply state SHALL be written only for ACP skill-run request ids
 
-### Requirement: SkillRunner provider dispatch MUST not fabricate terminal failed after request creation
+### Requirement: SkillRunner provider dispatch MUST classify post-create failures by request scope
 
 SkillRunner provider/queue integration MUST treat post-create transport or backend availability failures as recoverable plugin-side diagnostics, but MUST NOT recover terminal run-level client errors for a known request.
 
@@ -467,7 +467,7 @@ settlement after `request-ready`.
 - **AND** the deferred result SHALL NOT include a separate `frontendStatus`
   request-ready marker.
 
-### Requirement: Pre-ready failures are terminal local failures
+### Requirement: Pre-ready create and upload failures are terminal local failures
 
 Failures before `request-ready` SHALL fail the local workflow job instead of
 creating background reconciler ownership.
@@ -620,7 +620,7 @@ A SkillRunner step inside a sequence workflow MUST use the same provider executi
 - **THEN** the provider adapter MUST NOT delete or replace the SkillRunner run
   projection through a synthetic step job.
 
-### Requirement: Pre-ready failures are terminal local failures
+### Requirement: Pre-ready failure settlement MUST close run-store and observation ownership
 
 Failures before `request-ready` SHALL fail the local workflow job instead of creating background reconciler ownership.
 

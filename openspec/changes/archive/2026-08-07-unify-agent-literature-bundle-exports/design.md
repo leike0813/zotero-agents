@@ -9,4 +9,3 @@ The root index is rendered from the already materialized Topic and paper arrays.
 Import reads and validates `manifest.json`, distinguishes the two schemas, and runs either the existing v1 graph importer or a new Product adapter. The Product adapter translates each paper into the existing `createFromJson`, stored-file, companion-file, and embedded-payload host APIs. Each paper is isolated in the same cleanup boundary as v1; topic/report/BibTeX files are read only for validation.
 
 Collection and library parent resolution use a shared keyset pagination helper with a hard page guard, opaque cursor forwarding, `libraryId:key` deduplication, top-level regular filtering, and deterministic ordering. Selection mode is the only path that depends on the selection context and preserves its order.
-

@@ -2,6 +2,11 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import os from "node:os";
+import { pathToFileURL } from "node:url";
+import {
+  resolveSynthesisNativeStage1Suite,
+  SYNTHESIS_NATIVE_STAGE1_SUITE_ID,
+} from "./synthesis-native-stage1-suite";
 
 type ShardId =
   | "core-acp-session-manager"
@@ -23,11 +28,12 @@ type ShardDefinition = {
 type ParsedArgs = {
   listShards: boolean;
   shardId: string;
+  suiteId: string;
   mochaArgs: string[];
 };
 
 type ShardRunResult = {
-  id: ShardId;
+  id: string;
   fileCount: number;
   exitCode: number;
   durationMs: number;
@@ -166,6 +172,7 @@ function parseArgs(args: string[]): ParsedArgs {
   const mochaArgs: string[] = [];
   let listShards = false;
   let shardId = "";
+  let suiteId = "";
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--list-shards") {
@@ -181,9 +188,18 @@ function parseArgs(args: string[]): ParsedArgs {
       shardId = arg.slice("--shard=".length);
       continue;
     }
+    if (arg === "--suite") {
+      suiteId = args[index + 1] || "";
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--suite=")) {
+      suiteId = arg.slice("--suite=".length);
+      continue;
+    }
     mochaArgs.push(arg);
   }
-  return { listShards, shardId, mochaArgs };
+  return { listShards, shardId, suiteId, mochaArgs };
 }
 
 function hasMochaExitFlag(args: string[]) {
@@ -230,7 +246,7 @@ function resolveShardDataRoot() {
   );
 }
 
-function buildShardEnv(shardId: ShardId, shardDataRoot: string) {
+function buildShardEnv(shardId: string, shardDataRoot: string) {
   return {
     ...process.env,
     ZOTERO_TEST_DATA_DIR: path.join(shardDataRoot, shardId, "Zotero_data"),
@@ -239,7 +255,7 @@ function buildShardEnv(shardId: ShardId, shardDataRoot: string) {
 }
 
 function runShard(args: {
-  shard: ShardDefinition;
+  shard: Pick<ShardDefinition, "label" | "setupFiles"> & { id: string };
   files: string[];
   mochaArgs: string[];
   shardDataRoot: string;
@@ -352,7 +368,10 @@ function printShardList(args: {
   }
 }
 
-function printSummary(results: ShardRunResult[]) {
+function printSummary(
+  results: ShardRunResult[],
+  rerunCommand?: (result: ShardRunResult) => string,
+) {
   console.log("");
   console.log("[node-test-shards:summary]");
   for (const result of results) {
@@ -367,9 +386,7 @@ function printSummary(results: ShardRunResult[]) {
   }
   console.log("[node-test-shards:failed]");
   for (const result of failed) {
-    console.log(
-      `- ${result.id}: npm run test:node:raw:sharded -- --shard ${result.id}`,
-    );
+    console.log(`- ${result.id}: ${rerunCommand?.(result) || ""}`);
   }
   console.log("");
   console.log("[node-test-shards:failed-output]");
@@ -387,35 +404,23 @@ function printSummary(results: ShardRunResult[]) {
   }
 }
 
-async function main() {
-  const parsed = parseArgs(process.argv.slice(2));
-  const allTestFiles = await collectTestFiles();
-  const { byShard, unassigned } = buildShardFileMap(allTestFiles);
-  if (parsed.listShards) {
-    printShardList({ byShard, unassigned });
-    process.exit(unassigned.length > 0 ? 1 : 0);
-  }
-  if (unassigned.length > 0) {
-    printShardList({ byShard, unassigned });
-    console.error("[node-test-shards:error] some test files are not assigned");
-    process.exit(1);
-  }
-  const selectedShards = parsed.shardId
-    ? SHARDS.filter((shard) => shard.id === parsed.shardId)
-    : SHARDS;
-  if (parsed.shardId && selectedShards.length === 0) {
-    printShardList({ byShard, unassigned });
-    console.error(`[node-test-shards:error] unknown shard: ${parsed.shardId}`);
-    process.exit(1);
-  }
+async function runSelectedShards(args: {
+  runs: Array<{
+    definition: Pick<ShardDefinition, "label" | "setupFiles"> & {
+      id: string;
+    };
+    files: string[];
+  }>;
+  mochaArgs: string[];
+  rerunCommand: (result: ShardRunResult) => string;
+}) {
   const shardDataRoot = resolveShardDataRoot();
   const results: ShardRunResult[] = [];
-  for (const shard of selectedShards) {
-    const files = byShard.get(shard.id) || [];
-    if (files.length === 0) {
-      console.log(`[node-test-shard:skip] ${shard.id} has no files`);
+  for (const run of args.runs) {
+    if (run.files.length === 0) {
+      console.log(`[node-test-shard:skip] ${run.definition.id} has no files`);
       results.push({
-        id: shard.id,
+        id: run.definition.id,
         fileCount: 0,
         exitCode: 0,
         durationMs: 0,
@@ -426,15 +431,90 @@ async function main() {
     }
     results.push(
       await runShard({
-        shard,
-        files,
-        mochaArgs: parsed.mochaArgs,
+        shard: run.definition,
+        files: run.files,
+        mochaArgs: args.mochaArgs,
         shardDataRoot,
       }),
     );
   }
-  printSummary(results);
-  process.exit(results.some((result) => result.exitCode !== 0) ? 1 : 0);
+  printSummary(results, args.rerunCommand);
+  return results.some((result) => result.exitCode !== 0) ? 1 : 0;
 }
 
-void main();
+async function main(cliArgs = process.argv.slice(2)) {
+  const parsed = parseArgs(cliArgs);
+  const allTestFiles = await collectTestFiles();
+  if (parsed.suiteId) {
+    if (parsed.shardId || parsed.listShards) {
+      console.error(
+        "[node-test-shards:error] --suite cannot be combined with --shard or --list-shards",
+      );
+      return 1;
+    }
+    if (parsed.suiteId !== SYNTHESIS_NATIVE_STAGE1_SUITE_ID) {
+      console.error(
+        `[node-test-shards:error] unknown suite: ${parsed.suiteId}`,
+      );
+      return 1;
+    }
+    let suite;
+    try {
+      suite = resolveSynthesisNativeStage1Suite(allTestFiles);
+    } catch (error) {
+      console.error(
+        `[node-test-shards:error] ${error instanceof Error ? error.message : "suite_inventory_invalid"}`,
+      );
+      return 1;
+    }
+    console.log(`[node-test-suite] ${suite.id}: ${suite.files.length} files`);
+    return runSelectedShards({
+      runs: suite.segments.map((segment) => ({
+        definition: {
+          id: segment.id,
+          label: segment.label,
+          setupFiles: CORE_SETUP_FILES,
+        },
+        files: segment.files,
+      })),
+      mochaArgs: parsed.mochaArgs,
+      rerunCommand: () => `npm run test:synthesis-native:stage1`,
+    });
+  }
+  const { byShard, unassigned } = buildShardFileMap(allTestFiles);
+  if (parsed.listShards) {
+    printShardList({ byShard, unassigned });
+    return unassigned.length > 0 ? 1 : 0;
+  }
+  if (unassigned.length > 0) {
+    printShardList({ byShard, unassigned });
+    console.error("[node-test-shards:error] some test files are not assigned");
+    return 1;
+  }
+  const selectedShards = parsed.shardId
+    ? SHARDS.filter((shard) => shard.id === parsed.shardId)
+    : SHARDS;
+  if (parsed.shardId && selectedShards.length === 0) {
+    printShardList({ byShard, unassigned });
+    console.error(`[node-test-shards:error] unknown shard: ${parsed.shardId}`);
+    return 1;
+  }
+  return runSelectedShards({
+    runs: selectedShards.map((shard) => ({
+      definition: shard,
+      files: byShard.get(shard.id) || [],
+    })),
+    mochaArgs: parsed.mochaArgs,
+    rerunCommand: (result) =>
+      `npm run test:node:raw:sharded -- --shard ${result.id}`,
+  });
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  void main().then((exitCode) => {
+    process.exit(exitCode);
+  });
+}

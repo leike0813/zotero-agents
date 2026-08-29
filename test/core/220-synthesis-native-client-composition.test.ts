@@ -1,0 +1,1428 @@
+import { assert } from "chai";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
+import { beginSynthesisSidecarBusinessAudit } from "../../src/modules/synthesisSidecarBusinessAudit";
+import {
+  SynthesisClientError,
+  SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+  SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
+  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+  canonicalizeSynthesisContractJsonArtifact,
+  hashSynthesisContractCanonicalJson,
+  type SynthesisSidecarProductionClientCapability,
+  type SynthesisWorkbenchReadState,
+  type SynthesisWorkbenchSurfaceName,
+} from "../../packages/synthesis-contracts/src";
+import { inspectSynthesisProductionCapabilities } from "../../scripts/check-synthesis-production-capabilities";
+import {
+  SYNTHESIS_PRODUCTION_BASELINE_FIXTURE,
+  inspectSynthesisProductionBaselineEvidence,
+  readSynthesisProductionSurfaceCorpora,
+  type SynthesisProductionBaselineFixture,
+} from "../../scripts/synthesisProductionSurfaceCorpora";
+import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
+import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
+import {
+  setDebugModeOverrideForTests,
+  setSynthesisSidecarDiagnosticsSourceOverrideForTests,
+} from "../../src/modules/debugMode";
+import { SynthesisSidecarRpcError } from "../../src/modules/synthesisSidecarRpcClient";
+import {
+  readSynthesisSidecarTraceSnapshot,
+  resetSynthesisSidecarTraceForTests,
+} from "../../src/modules/synthesisSidecarTrace";
+import {
+  SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
+  synthesisProductionOperationPolicy,
+  synthesisProductionOperationDeadlineMs,
+  synthesisProductionOperationWorkDeadlineMs,
+  synthesisProductionTransportDeadlineMs,
+} from "../../src/modules/synthesisProductionRpcPolicy";
+
+const ROOT = path.resolve(import.meta.dirname, "../..");
+
+const EMPTY_REVIEW_SUMMARY = {
+  openCount: 0,
+  indexCount: 0,
+  referenceMatchingCount: 0,
+  conceptCount: 0,
+  topicGraphCount: 0,
+};
+
+const EMPTY_REFERENCE_CACHE_STATUS = {
+  cache_key: "reference-sidecar:library",
+  status: "missing",
+  source_hash: "",
+  basis_hash: "",
+  refreshed_at: "",
+  updated_at: "",
+  diagnostics: [],
+  allowed_actions: [],
+};
+
+const EMPTY_TOPIC_PROJECTION = {
+  libraryId: 1,
+  artifacts: [],
+  deletedArtifacts: { rows: [], total: 0 },
+  topicPage: {
+    cursor: "",
+    next_cursor: "",
+    has_more: false,
+    returned: 0,
+    total: 0,
+    limit: 50,
+  },
+};
+
+const EMPTY_TOPIC_GRAPH = {
+  nodes: [],
+  edges: [],
+  reviewItems: [],
+  manifest: {
+    manifest_hash: null,
+    node_count: 0,
+    edge_count: 0,
+    review_count: 0,
+    updated_at: "",
+  },
+  projection: {
+    target: "topic-graph-index",
+    stale: false,
+    last_rebuild_at: "",
+    diagnostics: [],
+  },
+  diagnostics: [],
+};
+
+const EMPTY_CONCEPTS = {
+  concepts: [],
+  senses: [],
+  aliases: [],
+  relations: [],
+  manifest: {
+    manifest_hash: null,
+    concept_count: 0,
+    sense_count: 0,
+    alias_count: 0,
+    relation_count: 0,
+    updated_at: "",
+    projection_target: "concept-kb-index",
+  },
+  projection: {
+    target: "concept-kb-index",
+    stale: false,
+    last_rebuild_at: "",
+    diagnostics: [],
+  },
+  diagnostics: [],
+  overlayEntries: [],
+  reviewItems: [],
+  topicLinks: [],
+};
+
+function workbenchSurfaceResult(
+  surface: SynthesisWorkbenchSurfaceName,
+  state: SynthesisWorkbenchReadState,
+) {
+  if (surface === "home") return EMPTY_TOPIC_PROJECTION;
+  if (surface === "topics") {
+    return { ...EMPTY_TOPIC_PROJECTION, topicGraph: EMPTY_TOPIC_GRAPH };
+  }
+  if (surface === "index") {
+    return {
+      libraryId: 1,
+      registry: { rows: [], cacheStatus: EMPTY_REFERENCE_CACHE_STATUS },
+      reviews: { summary: EMPTY_REVIEW_SUMMARY },
+    };
+  }
+  if (surface === "review") {
+    if (state.reviews.activeTab === "concepts") {
+      return {
+        libraryId: 1,
+        concepts: {
+          ...EMPTY_CONCEPTS,
+          reviewPage: { cursor: "0", limit: 25, total: 0 },
+        },
+        reviews: { summary: EMPTY_REVIEW_SUMMARY },
+      };
+    }
+    if (state.reviews.activeTab === "topic_graph") {
+      return {
+        libraryId: 1,
+        topicGraph: {
+          ...EMPTY_TOPIC_GRAPH,
+          reviewPage: {
+            cursor: "0",
+            limit: 25,
+            edge_total: 0,
+            review_total: 0,
+          },
+        },
+        reviews: { summary: EMPTY_REVIEW_SUMMARY },
+      };
+    }
+    return {
+      libraryId: 1,
+      registry: {
+        rows: [],
+        cleanupProposals: [],
+        matchProposals: [],
+        matchTargetCandidates: [],
+        canonicalRows: [],
+        cacheStatus: EMPTY_REFERENCE_CACHE_STATUS,
+        reviewPage: {
+          cursor: "0",
+          next_cursor: "",
+          has_more: false,
+          limit: 25,
+          match_total: 0,
+          cleanup_total: 0,
+        },
+      },
+      reviews: { summary: EMPTY_REVIEW_SUMMARY },
+    };
+  }
+  if (surface === "graph") {
+    return {
+      libraryId: 1,
+      graph: {
+        graph_hash: "",
+        layoutStatus: "missing",
+        page: {
+          nextCursor: "",
+          hasMore: false,
+          totalNodes: 0,
+          totalEdges: 0,
+          totalHoverNodes: 0,
+          totalHoverEdges: 0,
+          returnedNodes: 0,
+          returnedEdges: 0,
+          returnedHoverNodes: 0,
+          returnedHoverEdges: 0,
+          querySignature: "",
+          layoutStatus: "missing",
+          windowStatus: "complete",
+          roleOptions: [],
+          responseBudgetBytes: 1,
+        },
+        diagnostics: {
+          storage: "sqlite",
+          bounded: true,
+          semantic_slice: "library_and_shared_external",
+          displayed_node_count: 0,
+          hover_only_external_count: 0,
+          displayed_edge_count: 0,
+          hover_only_edge_count: 0,
+          cache_status: "missing",
+          cache_key: "citation-graph:library",
+          layout_status: "missing",
+          layout_source: "sqlite",
+        },
+        topicScopes: [],
+        topicScopePage: {
+          cursor: "0",
+          nextCursor: "",
+          returned: 0,
+          total: 0,
+          limit: 100,
+          hasMore: false,
+        },
+        hoverOnlyNodes: [],
+        hoverOnlyEdges: [],
+        nodes: [],
+        edges: [],
+      },
+    };
+  }
+  if (surface === "tags") {
+    return {
+      libraryId: 1,
+      tags: {
+        entries: [],
+        aliases: {},
+        abbrev: {},
+        protocol: {
+          version: "1.0.0",
+          tag_pattern: "^[a-z]+:[a-z]+$",
+          max_tag_length: 128,
+          facets: ["method"],
+        },
+        manifest: {
+          manifest_hash: `sha256:${"0".repeat(64)}`,
+          entry_count: 0,
+          tag_count: 0,
+          active_count: 0,
+          updated_at: "",
+          source_protocol_version: "1.0.0",
+          projection_target: "tag-vocabulary-index",
+        },
+        validation_warnings: [],
+        staged: [],
+      },
+    };
+  }
+  if (surface === "concepts") {
+    return { libraryId: 1, concepts: EMPTY_CONCEPTS };
+  }
+  return {
+    libraryId: 1,
+    reader: {
+      ok: false,
+      status: "unavailable",
+      topicId: "",
+      title: "",
+      source_papers: [],
+      diagnostics: ["reader_topic_unselected"],
+    },
+  };
+}
+
+describe("Synthesis native client composition", function () {
+  beforeEach(function () {
+    void clearRuntimeLogs();
+  });
+
+  it("audits mutation terminals, read failures, and semantic non-success once", function () {
+    let clock = 10;
+    const mutation = beginSynthesisSidecarBusinessAudit({
+      operation: "client.runAdvancedReferenceMatchingNow",
+      now: () => clock++,
+    });
+    mutation.succeeded({ status: "worker_failed" });
+    mutation.failed({ code: "service_unavailable" });
+
+    const read = beginSynthesisSidecarBusinessAudit({
+      operation: "client.listTopics",
+      now: () => clock++,
+    });
+    read.failed({ code: "request_timeout" });
+
+    const entries = listRuntimeLogs({
+      component: "synthesis-sidecar-business",
+      order: "asc",
+    });
+    assert.deepEqual(
+      entries.map((entry) => [entry.operation, entry.stage]),
+      [
+        ["client.runAdvancedReferenceMatchingNow", "started"],
+        ["client.runAdvancedReferenceMatchingNow", "failed"],
+        ["client.listTopics", "failed"],
+      ],
+    );
+    assert.deepInclude(entries[1]?.details as Record<string, unknown>, {
+      semanticStatus: "worker_failed",
+      classification: "conflict",
+    });
+    assert.deepInclude(entries[2]?.details as Record<string, unknown>, {
+      classification: "timeout",
+    });
+    const serialized = JSON.stringify(entries);
+    for (const forbidden of [
+      "httpStatus",
+      "requestBytes",
+      "workerCode",
+      "traceId",
+    ]) {
+      assert.notInclude(serialized, forbidden);
+    }
+  });
+
+  it("classifies public maintenance receipts by lifecycle state for every receipt operation", function () {
+    const receiptCapabilities =
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(
+        (capability) =>
+          synthesisProductionOperationPolicy(capability).receipt ===
+          "public-maintenance-operation",
+      );
+    assert.lengthOf(receiptCapabilities, 16);
+
+    for (const operation of receiptCapabilities) {
+      for (const status of ["pending", "running", "completed"] as const) {
+        const result = beginSynthesisSidecarBusinessAudit({
+          operation,
+        }).succeeded({
+          schema: "synthesis.maintenance_operation.v1",
+          operation_id: `maintenance:${operation}:${status}`,
+          status,
+        });
+        assert.deepEqual(
+          result,
+          { succeeded: true, semanticStatus: status },
+          `${operation}:${status}`,
+        );
+      }
+      for (const status of [
+        "failed",
+        "canceled",
+        "timed_out",
+        "not_found",
+        "unexpected",
+      ] as const) {
+        const result = beginSynthesisSidecarBusinessAudit({
+          operation,
+        }).succeeded({
+          schema: "synthesis.maintenance_operation.v1",
+          operation_id: `maintenance:${operation}:${status}`,
+          status,
+        });
+        assert.deepEqual(
+          result,
+          { succeeded: false, semanticStatus: status },
+          `${operation}:${status}`,
+        );
+      }
+      assert.deepEqual(
+        beginSynthesisSidecarBusinessAudit({ operation }).succeeded({
+          schema: "synthesis.maintenance_operation.v1",
+          operation_id: `maintenance:${operation}:missing-status`,
+        }),
+        { succeeded: false },
+        `${operation}:missing-status`,
+      );
+    }
+  });
+
+  it("does not infer maintenance lifecycle events from accepted receipts", async function () {
+    setDebugModeOverrideForTests(true);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
+    try {
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 1234,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "service-1",
+          },
+          clientToken: "token",
+        }),
+        rpcClient: {
+          async call(args) {
+            return args.rebuildResult({
+              schema: "synthesis.maintenance_operation.v1",
+              operation_id: `maintenance:${args.capability}`,
+              operation_type: args.capability,
+              status: "pending",
+            });
+          },
+        },
+      });
+      const invocations: Partial<
+        Record<
+          SynthesisSidecarProductionClientCapability,
+          () => Promise<unknown>
+        >
+      > = {
+        "client.startReferenceSidecarRefresh": () =>
+          composition.client.references.startRefresh(),
+        "client.refreshReferenceSidecarNow": () =>
+          composition.client.references.refreshReferenceSidecarNow(),
+        "client.retryReferenceSidecarRefresh": () =>
+          composition.client.references.retryReferenceSidecarRefresh(),
+        "client.runAdvancedReferenceMatchingNow": () =>
+          composition.client.references.runAdvancedReferenceMatchingNow(),
+        "client.retryAdvancedReferenceMatching": () =>
+          composition.client.references.retryAdvancedReferenceMatching(),
+        "client.startCitationGraphUpdate": () =>
+          composition.client.graph.startUpdate(),
+        "client.rebuildCitationGraphCacheNow": () =>
+          composition.client.graph.rebuildCitationGraphCacheNow(),
+        "client.refreshCitationGraphCacheIncrementalNow": () =>
+          composition.client.graph.refreshCitationGraphCacheIncrementalNow(),
+        "client.retryCitationGraphCacheRebuild": () =>
+          composition.client.graph.retryCitationGraphCacheRebuild(),
+        "client.refreshCitationGraphMetricsNow": () =>
+          composition.client.graph.refreshMetricsNow(),
+        "client.recomputeCitationGraphLayout": () =>
+          composition.client.graph.recomputeCitationGraphLayout({
+            algorithm: "radial",
+          }),
+        "client.rebuildTagVocabularyIndex": () =>
+          composition.client.tags.rebuildTagVocabularyIndex(),
+        "client.rebuildConceptKbIndex": () =>
+          composition.client.concepts.rebuildConceptKbIndex(),
+        "client.rebuildTopicGraphIndex": () =>
+          composition.client.topicGraph.rebuildTopicGraphIndex(),
+        "client.syncWebDavNow": () => composition.client.sync.webDav.runNow(),
+        "client.retryWebDavSync": () => composition.client.sync.webDav.retry(),
+      };
+      const receiptCapabilities =
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(
+          (capability) =>
+            synthesisProductionOperationPolicy(capability).receipt ===
+            "public-maintenance-operation",
+        );
+      assert.sameMembers(Object.keys(invocations), receiptCapabilities);
+
+      for (const operation of receiptCapabilities) {
+        resetSynthesisSidecarTraceForTests();
+        await invocations[operation]!();
+        const trace = readSynthesisSidecarTraceSnapshot().traces[0]!;
+        const terminal = trace.events.find(
+          (event) =>
+            event.boundary === "operation" && event.phase === "terminal",
+        )!;
+        assert.deepEqual(terminal.identities, { operation });
+        assert.equal(terminal.outcome, "succeeded", operation);
+        assert.isUndefined(terminal.code, operation);
+        assert.deepEqual(
+          terminal.facts,
+          { semanticStatus: "pending" },
+          operation,
+        );
+        assert.isFalse(trace.active, operation);
+        assert.isFalse(
+          trace.events.some((event) => event.phase === "maintenance-started"),
+          operation,
+        );
+      }
+    } finally {
+      resetSynthesisSidecarTraceForTests();
+      setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
+      setDebugModeOverrideForTests(undefined);
+    }
+  });
+
+  it("records a rejected Topic apply as a failed semantic trace", async function () {
+    setDebugModeOverrideForTests(true);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
+    try {
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 1234,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "service-1",
+          },
+          clientToken: "token",
+        }),
+        rpcClient: {
+          async call(args) {
+            return args.rebuildResult({
+              ok: false,
+              status: "invalid_request",
+              topicId: "large-language-models",
+              operationId: "",
+              hashes: {},
+              mismatches: [],
+              warnings: [],
+            });
+          },
+        },
+      });
+
+      const result =
+        await composition.client.workflowApply.applyTopicSynthesisResult({
+          bundle: {
+            kind: "topic_synthesis",
+            operation: "create",
+            language: "en",
+            topic_id: "large-language-models",
+            topic_definition: {
+              id: "large-language-models",
+              title: "Large Language Models",
+            },
+          },
+          assets: [],
+        });
+
+      assert.equal(result.status, "invalid_request");
+      const trace = readSynthesisSidecarTraceSnapshot().traces[0]!;
+      const terminal = trace.events.find(
+        (event) => event.boundary === "operation" && event.phase === "terminal",
+      )!;
+      assert.equal(terminal.outcome, "failed");
+      assert.equal(terminal.code, "semantic_non_success");
+      assert.deepEqual(terminal.facts, {
+        semanticStatus: "invalid_request",
+      });
+
+      const audit = listRuntimeLogs({
+        component: "synthesis-sidecar-business",
+        order: "asc",
+      }).find(
+        (entry) =>
+          entry.operation === "client.applyTopicSynthesisResult" &&
+          entry.stage === "failed",
+      );
+      assert.deepInclude(audit?.details as Record<string, unknown>, {
+        semanticStatus: "invalid_request",
+        classification: "invalid",
+      });
+    } finally {
+      resetSynthesisSidecarTraceForTests();
+      setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
+      setDebugModeOverrideForTests(undefined);
+    }
+  });
+
+  it("keeps the TypeScript port and manifests on one closed fingerprint", function () {
+    const report = inspectSynthesisProductionCapabilities();
+    assert.equal(report.capabilityCount, report.operationCount);
+    assert.equal(
+      report.fingerprint,
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+    );
+    assert.isTrue(
+      Object.values(report.errors).every((values) => values.length === 0),
+      JSON.stringify(report.errors),
+    );
+    assert.deepEqual(report.errors.surfaceCorpusIdentity, []);
+    assert.deepEqual(report.errors.surfaceCorpusSet, []);
+    assert.deepEqual(report.errors.surfaceCorpusDuplicates, []);
+    assert.deepEqual(report.errors.surfaceBaselineEvidence, []);
+    assert.deepEqual(report.errors.missingFromSurfaceCorpora, []);
+    assert.deepEqual(report.errors.unknownInSurfaceCorpora, []);
+    assert.deepEqual(report.errors.missingSurfaceEvidence, []);
+    assert.deepEqual(report.errors.legacyCompatModule, []);
+  });
+
+  it("fails closed for corrupted durable corpus and observable route evidence", function () {
+    const corpora = readSynthesisProductionSurfaceCorpora().map((surface) => ({
+      ...surface,
+      corpus: {
+        ...surface.corpus,
+        operations: surface.corpus.operations.map((operation) => ({
+          ...operation,
+          cases: [...operation.cases],
+        })),
+      },
+    }));
+    const topic = corpora.find((surface) => surface.id === "topic-workbench")!;
+    const citation = corpora.find(
+      (surface) => surface.id === "citation-graph",
+    )!;
+    const moved = topic.corpus.operations[0]!;
+    const citationOperation = citation.corpus.operations[0]!;
+    topic.corpus.operations[0] = {
+      ...citationOperation,
+      cases: citationOperation.cases.filter(
+        (value) => value !== "invalid_args",
+      ),
+    };
+    citation.corpus.operations[0] = {
+      ...moved,
+      access: "mutation",
+      cases: moved.cases.filter((value) => value !== "reopen"),
+    };
+    citation.corpus.operations[1] = {
+      ...citation.corpus.operations[1]!,
+      id: "client.unknown",
+    };
+    topic.corpus.operations[2] = {
+      ...topic.corpus.operations[2]!,
+      id: topic.corpus.operations[1]!.id,
+    };
+    const report = inspectSynthesisProductionCapabilities({
+      surfaceCorpora: corpora as never,
+    });
+
+    assert.isNotEmpty(report.errors.surfaceCorpusIdentity);
+    assert.isNotEmpty(report.errors.surfaceCorpusDuplicates);
+    assert.isNotEmpty(report.errors.surfaceBaselineEvidence);
+    assert.isNotEmpty(report.errors.missingFromSurfaceCorpora);
+    assert.deepEqual(report.errors.unknownInSurfaceCorpora, ["client.unknown"]);
+    assert.isNotEmpty(report.errors.missingBoundaryCases);
+    assert.isNotEmpty(report.errors.missingMutationReopen);
+  });
+
+  it("rejects unstable values in fixed-baseline observable fixtures", function () {
+    const corpora = readSynthesisProductionSurfaceCorpora();
+    const fixture = JSON.parse(
+      fs.readFileSync(
+        path.join(ROOT, SYNTHESIS_PRODUCTION_BASELINE_FIXTURE),
+        "utf8",
+      ),
+    ) as SynthesisProductionBaselineFixture;
+    fixture.surfaces[0]!.cases[0]!.expected.dtoSemantics.push(
+      "/tmp/runtime-dependent-result",
+      "2026-08-02T12:34:56.789Z",
+    );
+
+    const errors = inspectSynthesisProductionBaselineEvidence(
+      corpora,
+      ROOT,
+      fixture,
+    );
+    assert.includeMembers(errors, [
+      "unstable absolute path: .surfaces[0].cases[0].expected.dtoSemantics[1]",
+      "unstable timestamp: .surfaces[0].cases[0].expected.dtoSemantics[2]",
+    ]);
+  });
+
+  it("reproduces every inventory gate without an active OpenSpec change directory", function () {
+    this.timeout(30_000);
+    const fixture = fs.mkdtempSync(
+      path.join(os.tmpdir(), "synthesis-r9a-no-change-"),
+    );
+    try {
+      for (const name of [
+        "node_modules",
+        "doc",
+        "packages",
+        "src",
+        "native",
+        "scripts",
+        "test",
+        "package.json",
+      ]) {
+        fs.symlinkSync(path.join(ROOT, name), path.join(fixture, name));
+      }
+      for (const script of [
+        "check:synthesis-production-capabilities",
+        "check:synthesis-topic-workbench-surface-parity",
+        "check:synthesis-citation-graph-surface-parity",
+        "check:synthesis-reference-canonical-surface-parity",
+        "check:synthesis-tag-surface-parity",
+        "check:synthesis-concept-topic-graph-surface-parity",
+        "check:synthesis-artifact-library-debug-surface-parity",
+        "check:synthesis-webdav-maintenance-surface-parity",
+      ]) {
+        const result = spawnSync("npm", ["run", script], {
+          cwd: fixture,
+          encoding: "utf8",
+        });
+        assert.equal(result.status, 0, result.stderr || result.stdout);
+      }
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("reuses the grouped client facade over closed native capabilities", async function () {
+    const calls: Array<{
+      capability: SynthesisSidecarProductionClientCapability;
+      payload: unknown;
+      deadlineMs?: number;
+    }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({
+            capability:
+              args.capability as SynthesisSidecarProductionClientCapability,
+            payload: args.payload,
+            deadlineMs: args.deadlineMs,
+          });
+          return args.rebuildResult(
+            args.capability === "client.listTopics"
+              ? {
+                  topics: [],
+                  cursor: "",
+                  next_cursor: "",
+                  has_more: false,
+                  returned: 0,
+                  total: 0,
+                  limit: 50,
+                  diagnostics: {
+                    count: 0,
+                    total_count: 0,
+                    source: "rust-topic-application",
+                  },
+                }
+              : {
+                  schema: "synthesis.maintenance_operation.v1",
+                  operation_id: "maintenance:scenario",
+                  status: "canceled",
+                },
+          );
+        },
+      },
+    });
+
+    assert.deepEqual(
+      await composition.client.topics.list({ cursor: "", limit: 50 }),
+      {
+        topics: [],
+        cursor: "",
+        next_cursor: "",
+        has_more: false,
+        returned: 0,
+        total: 0,
+        limit: 50,
+        diagnostics: {
+          count: 0,
+          total_count: 0,
+          source: "rust-topic-application",
+        },
+      },
+    );
+    assert.deepEqual(
+      await composition.client.maintenance.controlOperation({
+        action: "cancel",
+        operation_id: "maintenance:scenario",
+      }),
+      {
+        schema: "synthesis.maintenance_operation.v1",
+        operation_id: "maintenance:scenario",
+        status: "canceled",
+      },
+    );
+    assert.deepEqual(calls, [
+      {
+        capability: "client.listTopics",
+        payload: { args: [{ cursor: "", limit: 50 }] },
+        deadlineMs: 12_000,
+      },
+      {
+        capability: "client.controlPublicMaintenanceOperation",
+        payload: {
+          args: [{ action: "cancel", operation_id: "maintenance:scenario" }],
+        },
+        deadlineMs: 12_000,
+      },
+    ]);
+  });
+
+  it("accepts every Workbench surface result at the native boundary", async function () {
+    const calls: Array<{ capability: string; payload: unknown }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({ capability: args.capability, payload: args.payload });
+          const wireArgs = (args.payload as { args: unknown[] }).args;
+          return args.rebuildResult(
+            args.capability === "client.getSynthesisWorkbenchChromeInput"
+              ? {
+                  maintenance: {
+                    summary: {
+                      status: "missing",
+                      latestUsable: {
+                        referenceSidecar: null,
+                        citationGraph: null,
+                      },
+                      pendingDirtyCount: 0,
+                      activeWorkerCount: 0,
+                      activeWorkerKind: null,
+                      canonicalSyncPending: false,
+                      canonicalEpoch: 0,
+                      stale: [],
+                      partial: [],
+                      missing: [
+                        "reference-sidecar:library",
+                        "citation-graph:library",
+                      ],
+                      recommendedCommands: [],
+                      diagnostics: [],
+                    },
+                    backgroundJobs: [],
+                  },
+                }
+              : workbenchSurfaceResult(
+                  wireArgs[0] as SynthesisWorkbenchSurfaceName,
+                  wireArgs[1] as SynthesisWorkbenchReadState,
+                ),
+          );
+        },
+      },
+    });
+    const state = toSynthesisWorkbenchReadState(
+      createDefaultSynthesisUiState(),
+    );
+
+    await composition.client.workbench.readChrome({ state });
+    for (const surface of [
+      "home",
+      "topics",
+      "index",
+      "graph",
+      "tags",
+      "concepts",
+      "reader",
+    ] as const) {
+      await composition.client.workbench.readSurface({ surface, state });
+    }
+    for (const activeTab of [
+      "reference_matching",
+      "concepts",
+      "topic_graph",
+    ] as const) {
+      await composition.client.workbench.readSurface({
+        surface: "review",
+        state: { ...state, reviews: { ...state.reviews, activeTab } },
+      });
+    }
+
+    assert.deepEqual(
+      calls.map((call) => call.capability),
+      [
+        "client.getSynthesisWorkbenchChromeInput",
+        ...Array.from(
+          { length: 10 },
+          () => "client.getSynthesisWorkbenchSurfaceInput",
+        ),
+      ],
+    );
+  });
+
+  it("keeps Host delivery context out of the Topic context wire arguments", async function () {
+    const calls: Array<{ capability: string; payload: unknown }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({ capability: args.capability, payload: args.payload });
+          return args.rebuildResult({
+            schema_id: "synthesis.topic_context",
+            schema_version: "2.0.0",
+            topic_id: "topic:delivery",
+            status: "not_found",
+            diagnostics: [],
+          });
+        },
+      },
+    });
+
+    await composition.client.topics.getContext(
+      { topicId: "topic:delivery", view: "full" },
+      { mode: "remote" },
+    );
+
+    assert.deepEqual(calls, [
+      {
+        capability: "client.getTopicContext",
+        payload: {
+          args: [{ topicId: "topic:delivery", view: "full" }],
+        },
+      },
+    ]);
+  });
+
+  it("sends only the six public Citation Graph command DTOs", async function () {
+    const calls: Array<{
+      capability: SynthesisSidecarProductionClientCapability;
+      payload: unknown;
+    }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({
+            capability:
+              args.capability as SynthesisSidecarProductionClientCapability,
+            payload: args.payload,
+          });
+          return args.rebuildResult({
+            schema: "synthesis.maintenance_operation.v1",
+            operation_id: `maintenance:${args.capability}`,
+            status: "pending",
+          });
+        },
+      },
+    });
+
+    await composition.client.graph.startUpdate({
+      scope: "papers",
+      paperRefs: ["7:AAAA1111"],
+      expectedReferenceBasisHash: "sha256:reference",
+      idempotencyKey: "graph-update-a",
+    });
+    await composition.client.graph.refreshMetricsNow({
+      graphHash: "sha256:graph",
+    });
+    await composition.client.graph.recomputeCitationGraphLayout({
+      algorithm: "radial",
+      force: true,
+    });
+    await composition.client.graph.rebuildCitationGraphCacheNow();
+    await composition.client.graph.refreshCitationGraphCacheIncrementalNow();
+    await composition.client.graph.retryCitationGraphCacheRebuild();
+    await composition.client.graph.startUpdate();
+    await composition.client.graph.refreshMetricsNow();
+
+    assert.deepEqual(calls, [
+      {
+        capability: "client.startCitationGraphUpdate",
+        payload: {
+          args: [
+            {
+              scope: "papers",
+              paperRefs: ["7:AAAA1111"],
+              expectedReferenceBasisHash: "sha256:reference",
+              idempotencyKey: "graph-update-a",
+            },
+          ],
+        },
+      },
+      {
+        capability: "client.refreshCitationGraphMetricsNow",
+        payload: { args: [{ graphHash: "sha256:graph" }] },
+      },
+      {
+        capability: "client.recomputeCitationGraphLayout",
+        payload: { args: [{ algorithm: "radial", force: true }] },
+      },
+      {
+        capability: "client.rebuildCitationGraphCacheNow",
+        payload: { args: [] },
+      },
+      {
+        capability: "client.refreshCitationGraphCacheIncrementalNow",
+        payload: { args: [] },
+      },
+      {
+        capability: "client.retryCitationGraphCacheRebuild",
+        payload: { args: [] },
+      },
+      {
+        capability: "client.startCitationGraphUpdate",
+        payload: { args: [{}] },
+      },
+      {
+        capability: "client.refreshCitationGraphMetricsNow",
+        payload: { args: [{}] },
+      },
+    ]);
+  });
+
+  it("derives production transport deadlines from the shared operation manifest", function () {
+    assert.equal(
+      synthesisProductionOperationDeadlineMs("client.listTopics"),
+      10_000,
+    );
+    for (const capability of [
+      "client.startReferenceSidecarRefresh",
+      "client.refreshReferenceSidecarNow",
+      "client.retryReferenceSidecarRefresh",
+    ] as const) {
+      assert.equal(synthesisProductionOperationDeadlineMs(capability), 10_000);
+      assert.equal(
+        synthesisProductionTransportDeadlineMs(capability),
+        10_000 + SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
+      );
+    }
+  });
+
+  it("resolves control, content, and receipt policy from the shared operation manifest", function () {
+    assert.deepEqual(synthesisProductionOperationPolicy("client.listTopics"), {
+      requestPlane: "control",
+      resultPlane: "control",
+      workModel: "bounded",
+      receipt: "inline",
+      controlTargetBytes: 768 * 1024,
+      requestBytes: 1024 * 1024,
+      responseBytes: 1024 * 1024,
+    });
+    assert.deepEqual(
+      synthesisProductionOperationPolicy(
+        "client.controlPublicMaintenanceOperation",
+      ),
+      {
+        requestPlane: "control",
+        resultPlane: "control",
+        workModel: "bounded",
+        receipt: "inline",
+        controlTargetBytes: 768 * 1024,
+        requestBytes: 1024 * 1024,
+        responseBytes: 1024 * 1024,
+      },
+    );
+    assert.include(
+      synthesisProductionOperationPolicy("client.applyTopicSynthesisResult"),
+      { requestPlane: "transfer" },
+    );
+    for (const capability of [
+      "client.readPaperArtifacts",
+      "client.getReviewInput",
+    ] as const) {
+      assert.include(synthesisProductionOperationPolicy(capability), {
+        resultPlane: "locator",
+      });
+    }
+    assert.include(
+      synthesisProductionOperationPolicy("client.exportFilteredPaperArtifacts"),
+      { resultPlane: "delivery" },
+    );
+    const receiptCapabilities = [
+      "client.startReferenceSidecarRefresh",
+      "client.refreshReferenceSidecarNow",
+      "client.retryReferenceSidecarRefresh",
+      "client.runAdvancedReferenceMatchingNow",
+      "client.retryAdvancedReferenceMatching",
+      "client.startCitationGraphUpdate",
+      "client.rebuildCitationGraphCacheNow",
+      "client.refreshCitationGraphCacheIncrementalNow",
+      "client.retryCitationGraphCacheRebuild",
+      "client.refreshCitationGraphMetricsNow",
+      "client.recomputeCitationGraphLayout",
+      "client.rebuildTagVocabularyIndex",
+      "client.rebuildConceptKbIndex",
+      "client.rebuildTopicGraphIndex",
+      "client.syncWebDavNow",
+      "client.retryWebDavSync",
+    ] as const;
+    for (const capability of receiptCapabilities) {
+      assert.include(synthesisProductionOperationPolicy(capability), {
+        workModel: "receipt",
+        receipt: "public-maintenance-operation",
+      });
+      assert.isAbove(
+        synthesisProductionOperationWorkDeadlineMs(capability),
+        synthesisProductionOperationDeadlineMs(capability),
+        capability,
+      );
+    }
+    assert.equal(
+      synthesisProductionOperationDeadlineMs(
+        "client.runAdvancedReferenceMatchingNow",
+      ),
+      10_000,
+    );
+    assert.equal(
+      synthesisProductionOperationWorkDeadlineMs(
+        "client.runAdvancedReferenceMatchingNow",
+      ),
+      30 * 60_000,
+    );
+    assert.equal(
+      synthesisProductionOperationWorkDeadlineMs(
+        "client.recomputeCitationGraphLayout",
+      ),
+      120_000,
+    );
+    assert.deepEqual(
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(
+        (capability) =>
+          synthesisProductionOperationPolicy(capability).workModel ===
+          "receipt",
+      ).sort(),
+      [...receiptCapabilities].sort(),
+    );
+    assert.deepEqual(
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter((capability) => {
+        const policy = synthesisProductionOperationPolicy(capability);
+        return (
+          policy.requestPlane !== "control" || policy.resultPlane !== "control"
+        );
+      }).sort(),
+      [
+        "client.applyTopicSynthesisResult",
+        "client.exportFilteredPaperArtifacts",
+        "client.getReviewInput",
+        "client.readPaperArtifacts",
+      ],
+    );
+  });
+
+  it("stages large Topic assets before sending the bounded apply control request", async function () {
+    const calls: Array<{ capability: string; payload: any }> = [];
+    const transferStatus = (state: "receiving_input" | "input_sealed") => ({
+      sessionId: "native-transfer:1",
+      state,
+      input: {
+        receivedPages: state === "receiving_input" ? 0 : 1,
+        totalPages: 1,
+        stagedBytes: 900_000,
+      },
+      execution: { attempts: 0 },
+      stagedBytes: 900_000,
+      createdAtMs: 1,
+      lastActivityAtMs: 2,
+    });
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({ capability: args.capability, payload: args.payload });
+          const action = (args.payload as { action?: string }).action;
+          if (action === "begin") {
+            return args.rebuildResult(transferStatus("receiving_input"));
+          }
+          if (action === "put_input_page") {
+            return args.rebuildResult(transferStatus("receiving_input"));
+          }
+          if (action === "seal_input") {
+            return args.rebuildResult(transferStatus("input_sealed"));
+          }
+          if (action === "cancel") {
+            return args.rebuildResult({ canceled: true });
+          }
+          return args.rebuildResult({
+            ok: true,
+            status: "persisted",
+            topicId: "topic:large",
+            operationId: "topic-apply:large",
+            hashes: {},
+            mismatches: [],
+            warnings: [],
+          });
+        },
+      },
+    });
+
+    const largeText = "x".repeat(900_000);
+    await composition.client.workflowApply.applyTopicSynthesisResult({
+      bundle: {
+        kind: "topic_synthesis",
+        operation: "create",
+        language: "en",
+        topic_id: "topic:large",
+        topic_definition: { id: "topic:large", title: "Large Topic" },
+      },
+      assets: [
+        { id: "asset/0001", mediaType: "text/markdown", text: largeText },
+      ],
+    });
+
+    const transferActions = calls
+      .filter((call) => call.capability === "transfer.content")
+      .map((call) => call.payload.action);
+    assert.equal(transferActions[0], "begin");
+    assert.isAbove(
+      transferActions.filter((action) => action === "put_input_page").length,
+      1,
+    );
+    assert.deepEqual(transferActions.slice(-2), ["seal_input", "cancel"]);
+    const control = calls.find(
+      (call) => call.capability === "client.applyTopicSynthesisResult",
+    )!;
+    assert.equal(control.capability, "client.applyTopicSynthesisResult");
+    assert.notInclude(JSON.stringify(control.payload), largeText.slice(0, 100));
+    assert.deepEqual(control.payload, {
+      args: [
+        {
+          bundle: {
+            kind: "topic_synthesis",
+            operation: "create",
+            language: "en",
+            topic_id: "topic:large",
+            topic_definition: { id: "topic:large", title: "Large Topic" },
+          },
+          assetTransfer: { sessionId: "native-transfer:1" },
+        },
+      ],
+    });
+  });
+
+  it("resolves a content-transfer locator without exposing transport authority", async function () {
+    const publicResult = {
+      artifacts: [
+        {
+          paper_ref: "1:AAAA1111",
+          artifact_type: "references",
+          payload_type: "references-json",
+          status: "available",
+          payload: { references: [{ title: "Large reference" }] },
+          payload_types_seen: ["references-json"],
+          diagnostics: [],
+        },
+      ],
+      diagnostics: [],
+      total: 1,
+    };
+    const reviewCorpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          ROOT,
+          "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-workflow-review.json",
+        ),
+        "utf8",
+      ),
+    ) as { cases: Array<{ id: string; value: unknown }> };
+    const reviewResult = reviewCorpus.cases.find(
+      (entry) => entry.id === "workflow-review-recursive-positive",
+    )!.value;
+    const transferredResult = (capability: string) =>
+      capability === "client.getReviewInput" ? reviewResult : publicResult;
+    const transferPage = (content: string) => {
+      const artifact = canonicalizeSynthesisContractJsonArtifact([content]);
+      return {
+        descriptor: {
+          kind: "content" as const,
+          pageIndex: 0,
+          rowCount: 1,
+          byteLength: artifact.byteLength,
+          sha256: artifact.sha256,
+        },
+        rows: [content] as [string],
+      };
+    };
+    const manifest = (capability: string, content: string) => {
+      const page = transferPage(content);
+      const body = {
+        transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+        encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+        direction: "output",
+        header: {
+          target: "production_client_result",
+          capability,
+          byteLength: new TextEncoder().encode(content).byteLength,
+          sha256: hashSynthesisContractCanonicalJson(content),
+        },
+        pages: [page.descriptor],
+      };
+      return {
+        ...body,
+        rootSha256: hashSynthesisContractCanonicalJson(body),
+      };
+    };
+    const actions: string[] = [];
+    let activeCapability = "";
+    let activeContent = "";
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          const action = (args.payload as { action?: string }).action;
+          if (!action) {
+            activeCapability = args.capability;
+            activeContent = JSON.stringify(transferredResult(activeCapability));
+            return args.rebuildResult({
+              contentTransfer: {
+                sessionId: "native-transfer:result",
+                rootSha256: manifest(activeCapability, activeContent)
+                  .rootSha256,
+              },
+            });
+          }
+          actions.push(action);
+          if (action === "get_output_manifest") {
+            return args.rebuildResult(
+              manifest(activeCapability, activeContent),
+            );
+          }
+          if (action === "get_output_page") {
+            return args.rebuildResult(transferPage(activeContent));
+          }
+          return args.rebuildResult({ canceled: true });
+        },
+      },
+    });
+
+    const result = await composition.client.artifacts.readPaperArtifacts({
+      paper_refs: ["1:AAAA1111"],
+    });
+    assert.deepEqual(result, publicResult);
+    assert.deepEqual(
+      await composition.client.workflowReview.getInput({ topicId: "topic:1" }),
+      reviewResult,
+    );
+    assert.deepEqual(actions, [
+      "get_output_manifest",
+      "get_output_page",
+      "cancel",
+      "get_output_manifest",
+      "get_output_page",
+      "cancel",
+    ]);
+    assert.notInclude(JSON.stringify(result), "native-transfer:");
+  });
+
+  it("fails closed after invalidation without resolving another owner", async function () {
+    let connectionReads = 0;
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => {
+        connectionReads += 1;
+        return null;
+      },
+      rpcClient: {
+        async call() {
+          throw new Error("unexpected");
+        },
+      },
+    });
+    composition.invalidate();
+    let failure: unknown;
+    try {
+      await composition.client.topics.list({ cursor: "", limit: 50 });
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "unavailable");
+    assert.equal(connectionReads, 0);
+    await composition.dispose();
+  });
+
+  it("preserves stable sidecar Graph codes and bounded safe reasons", async function () {
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call() {
+          throw new SynthesisSidecarRpcError("basis_mismatch", {
+            reason: "citation_graph_basis_changed",
+          });
+        },
+      },
+    });
+    let failure: unknown;
+    try {
+      await composition.client.graph.getOverview({});
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "conflict");
+    assert.deepEqual((failure as SynthesisClientError).details, {
+      sidecarCode: "basis_mismatch",
+      sidecarReason: "citation_graph_basis_changed",
+    });
+  });
+});

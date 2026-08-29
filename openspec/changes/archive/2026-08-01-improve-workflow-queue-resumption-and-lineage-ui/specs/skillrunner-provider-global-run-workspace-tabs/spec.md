@@ -9,4 +9,3 @@ SkillRunner queued, running, waiting, and resumption-pending task rows owned by 
 - **WHEN** tasks from one submission are queued, running, waiting, or resumption-pending
 - **THEN** every unfinished row SHALL retain the same symbol
 - **AND** its existing state text SHALL remain the sole task-state indicator
-

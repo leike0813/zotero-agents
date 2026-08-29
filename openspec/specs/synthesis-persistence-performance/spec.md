@@ -1,17 +1,25 @@
+# synthesis-persistence-performance Specification
+
 ## Purpose
 
-Synthesis persistence is optimized for sidecar cache reads, explicit decision writes, and explicit operation progress.
+Define responsiveness and memory bounds for production reads while large native transfers are active.
+
 ## Requirements
-### Requirement: Sidecar schema is cache and decision oriented
 
-Synthesis persistence SHALL optimize sidecar projection reads, explicit decision writes, and explicit operation progress rather than queue claiming or worker scheduling.
+### Requirement: Native large transfer SHALL keep control-plane reads responsive
 
-#### Scenario: Repository initializes after hard cut
-- **WHEN** the repository initializes
-- **THEN** it SHALL create sidecar cache, decision, and operation tables
-- **AND** it MAY drop old queue, job, WorkItem, WorkRun, and Registry rebuild tables.
+Paged transfer execution SHALL stream from disk with bounded frames and SHALL NOT hold the transfer session owner or repository/canonical owner across worker execution.
 
-### Requirement: Explicit operations are bounded
+#### Scenario: Transfer executes while reads arrive
+- **WHEN** a 15 MiB or 75 MiB graph transfer is executing
+- **THEN** health and canonical read calls SHALL continue to complete within their existing read deadlines
+
+#### Scenario: Large transfer memory is inspected
+- **WHEN** input and output exceed the monolithic compute envelope
+- **THEN** the service SHALL retain only descriptors, paths, and at most one unacknowledged frame per direction
+- **AND** it SHALL NOT hydrate the full transfer into a service-process JSON value
+
+### Requirement: Explicit operations SHALL remain bounded
 
 Explicit cache refresh and review operations SHALL use bounded reads, bounded writes, and progress checkpoints.
 
@@ -239,3 +247,72 @@ library page and SHALL NOT become canonical persisted Synthesis state.
 
 - **WHEN** MCP or Host Bridge returns the reference index
 - **THEN** literature rating fields SHALL NOT be added to that public DTO.
+
+### Requirement: Governed synthetic manifests SHALL materialize every sidecar locator
+
+Every sidecar locator declared by a governed synthetic Topic manifest SHALL resolve to a request asset containing a JSON object with the declared media type before production-route sampling begins.
+
+#### Scenario: Performance fixture is prepared
+- **WHEN** the 2k, 10k, or 25k synthetic Topic request is built
+- **THEN** every manifest sidecar path names an included JSON object asset
+- **AND** the strict production parser accepts setup without an unmaterialized-locator fallback
+
+### Requirement: Citation Graph reads SHALL remain available during graph computation
+
+Citation Graph application reads SHALL use bounded reader transactions from the repository reader pool. Host collection and build, metrics, and layout computation SHALL execute without holding the repository writer lock; writer ownership SHALL be limited to bounded basis validation and promotion transactions.
+
+#### Scenario: A graph build is computing
+- **WHEN** worker computation is blocked or long-running while a last-good graph exists
+- **THEN** a concurrent page read returns the last-good graph through a reader transaction
+- **AND** it does not wait for computation to release the writer
+
+#### Scenario: Promotion completes after a concurrent read
+- **WHEN** a read begins before promotion and another read begins after promotion commits
+- **THEN** each read returns one coherent graph basis
+- **AND** only the later read observes the promoted graph
+
+### Requirement: Production reads SHALL be bounded at the data source
+
+Pagination and filtering SHALL be applied by repository or Host queries before materialization. Returning one page MUST NOT require an unbounded table/library read, a per-row projection query, or a response-only slice of a full in-memory result.
+
+#### Scenario: Topic page is read
+- **WHEN** production lists one Topic page
+- **THEN** repository query count remains constant for the page
+- **AND** detail, resolver, resolved-set, and projection payloads are not loaded for every row
+
+#### Scenario: Graph page is read
+- **WHEN** production reads a Graph slice, metrics page, layout, or topic scope
+- **THEN** query count and DTO bytes are bounded by the requested window
+- **AND** they do not grow with unrelated total Topic or graph state
+
+### Requirement: Reference refresh SHALL scale with changed sources
+
+One Reference refresh operation SHALL capture Host item/artifact identity no more than once, determine changed sources, and process source-keyed batches without reloading complete current source, artifact, raw-reference, or binding state per batch.
+
+#### Scenario: Large library has a small changed set
+- **WHEN** a library snapshot contains many sources and only a bounded subset changed
+- **THEN** payload reads and projection work scale with the changed subset
+- **AND** the final sweep uses bounded source identity rather than full content
+
+### Requirement: Production scale gates SHALL cover the real native route
+
+The governed benchmark SHALL exercise TypeScript native composition, HTTP, Rust dispatch, SQLite, workers, and reverse Host. At 10k papers, chrome SHALL complete within 1 second, Index within 2.5 seconds, exact filter/Graph slice/metrics within 1.5 seconds, and a 50-paper Reference refresh within 2.5 seconds. At 25k papers, a UI read SHALL return a bounded result or explicit degraded state within 2.5 seconds without full-library DTO materialization.
+
+#### Scenario: Ten-thousand-paper benchmark runs
+- **WHEN** the fixed fixture is exercised through the real production route
+- **THEN** latency budgets pass and incremental UI-read RSS remains below 128 MiB
+- **AND** request/response bytes, SQL query count, Host call count, and p50/p95 are recorded
+
+#### Scenario: Stress fixture runs
+- **WHEN** the 25k fixture exceeds a complete-view budget
+- **THEN** the operation returns bounded degraded evidence
+- **AND** it does not hang, exhaust memory, or silently truncate without metadata
+
+### Requirement: Repository concurrency SHALL isolate reads from long work
+
+The native repository SHALL serialize writes through one owner and permit at most four bounded read-only connections. Host/file/worker work MUST occur outside write transactions, and an active long operation MUST NOT hold the repository owner while waiting on external or compute work.
+
+#### Scenario: Read arrives during long work
+- **WHEN** a long operation is computing or transferring content
+- **THEN** bounded chrome and status reads can use a read connection
+- **AND** promotion still validates its basis through the single writer

@@ -10,4 +10,3 @@ Each shared Skill catalog SHALL record the selected Host Bridge plugin bundle ag
 #### Scenario: Bundle is unavailable
 - **WHEN** no validated plugin bundle is registered
 - **THEN** the catalog contains no reserved Host Bridge Skill proxy and does not substitute an alternate source
-

@@ -1,0 +1,50 @@
+{
+  "schema": "synthesis-native-worker-transfer-parity.v1",
+  "lifecycle": [
+    "begin",
+    "put_input_page",
+    "seal_input",
+    "status",
+    "execute",
+    "get_output_manifest",
+    "get_output_page",
+    "cancel"
+  ],
+  "request": {
+    "contractVersion": "synthesis-citation-graph-build.v1",
+    "scope": {
+      "kind": "source_slice",
+      "sourceIds": ["paper:source"]
+    },
+    "rolePriority": ["background", "method"],
+    "libraryNodes": [
+      {
+        "nodeId": "paper:source",
+        "title": "Source",
+        "year": "2024",
+        "authors": ["Author A"],
+        "aliases": []
+      },
+      {
+        "nodeId": "paper:target",
+        "title": "Target",
+        "year": "2023",
+        "authors": ["Author B"],
+        "aliases": ["target:b"]
+      }
+    ],
+    "references": [
+      {
+        "referenceId": "reference:1",
+        "edgeId": "edge:1",
+        "sourceId": "paper:source",
+        "targetId": "paper:target",
+        "targetKind": "library_paper",
+        "targetAuthors": [],
+        "targetAliases": [],
+        "roles": ["background"],
+        "weight": 1
+      }
+    ]
+  }
+}

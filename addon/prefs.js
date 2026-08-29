@@ -65,18 +65,6 @@ pref("hostBridgeMasterTokenKeyMaterial", "");
 pref("hostBridgeDisableWriteApproval", false);
 pref("hostBridgeCli.installPrompt.dismissedIdentity", "");
 pref("mcpServer.enabled", true);
-// Deprecated hidden transport: Git Sync prefs are retained for existing
-// runtime state and service-level diagnostics, but no user-facing UI exposes
-// Git Sync configuration.
-pref("synthesisGitSyncEnabled", false);
-pref("synthesisGitSyncRemoteUrl", "");
-pref("synthesisGitSyncBranch", "main");
-pref("synthesisGitSyncTokenEncryptedJson", "");
-pref("synthesisGitSyncTokenMasked", "");
-pref("synthesisGitSyncTokenUpdatedAt", "");
-pref("synthesisGitSyncAutoSyncEnabled", false);
-pref("synthesisGitSyncAutoRetryEnabled", false);
-pref("synthesisGitSyncConnectionTestJson", "");
 pref("synthesisWebDavSyncEnabled", false);
 pref("synthesisWebDavSyncBaseUrl", "");
 pref("synthesisWebDavSyncRemotePath", "zotero-agents");

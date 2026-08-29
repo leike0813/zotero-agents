@@ -1,0 +1,12 @@
+[package]
+name = "synthesis-reference-matcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+synthesis-protocol = { path = "../synthesis-protocol" }
+unicode-normalization.workspace = true
+unicode_categories.workspace = true

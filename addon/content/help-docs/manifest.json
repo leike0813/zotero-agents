@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-08-13T03:15:29.781Z",
+  "generated_at": "2026-08-24T13:33:58.404Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -123,12 +123,6 @@
       "locale": "de",
       "title": "Konzept-Wissensbasis",
       "path": "docs/de/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "de",
-      "title": "Git Sync",
-      "path": "docs/de/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -467,12 +461,6 @@
       "path": "docs/en/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "en",
-      "title": "Git Sync",
-      "path": "docs/en/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "en",
       "title": "Home Dashboard",
@@ -807,12 +795,6 @@
       "locale": "es",
       "title": "Base de conocimiento de conceptos",
       "path": "docs/es/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "es",
-      "title": "Git Sync",
-      "path": "docs/es/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -1151,12 +1133,6 @@
       "path": "docs/fr/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "fr",
-      "title": "Synchronisation Git",
-      "path": "docs/fr/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "fr",
       "title": "Tableau de bord Home",
@@ -1491,12 +1467,6 @@
       "locale": "it",
       "title": "Base di Conoscenza dei Concetti",
       "path": "docs/it/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "it",
-      "title": "Git Sync",
-      "path": "docs/it/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -1835,12 +1805,6 @@
       "path": "docs/ja/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "ja",
-      "title": "Git Sync",
-      "path": "docs/ja/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "ja",
       "title": "Home ダッシュボード",
@@ -2175,12 +2139,6 @@
       "locale": "ko",
       "title": "개념 지식 베이스",
       "path": "docs/ko/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "ko",
-      "title": "Git 동기화",
-      "path": "docs/ko/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -2519,12 +2477,6 @@
       "path": "docs/ru/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "ru",
-      "title": "Git Sync",
-      "path": "docs/ru/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "ru",
       "title": "Главная панель",
@@ -2859,12 +2811,6 @@
       "locale": "zh-CN",
       "title": "概念知识库",
       "path": "docs/zh-CN/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "zh-CN",
-      "title": "Git 同步",
-      "path": "docs/zh-CN/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -3327,7 +3273,6 @@
             "id": "synthesis/concepts",
             "label": "Concept Knowledge Base"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -3595,7 +3540,6 @@
             "id": "synthesis/concepts",
             "label": "Konzept-Wissensbasis"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -3863,7 +3807,6 @@
             "id": "synthesis/concepts",
             "label": "Base de conocimiento de conceptos"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -4145,11 +4088,6 @@
           },
           {
             "type": "doc",
-            "id": "synthesis/git-sync",
-            "label": "Synchronisation Git"
-          },
-          {
-            "type": "doc",
             "id": "synthesis/webdav-sync",
             "label": "Synchronisation WebDAV"
           },
@@ -4419,7 +4357,6 @@
             "id": "synthesis/concepts",
             "label": "Base di Conoscenza dei Concetti"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -4687,7 +4624,6 @@
             "id": "synthesis/concepts",
             "label": "概念知識ベース"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -4939,7 +4875,6 @@
             "id": "synthesis/concepts",
             "label": "개념 지식 베이스"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git 동기화" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -5203,7 +5138,6 @@
             "id": "synthesis/concepts",
             "label": "База знаний концепций"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -5443,7 +5377,6 @@
           { "type": "doc", "id": "synthesis/home", "label": "Home 仪表板" },
           { "type": "doc", "id": "synthesis/review", "label": "审核中心" },
           { "type": "doc", "id": "synthesis/concepts", "label": "概念知识库" },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git 同步" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",

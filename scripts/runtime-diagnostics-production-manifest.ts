@@ -80,6 +80,19 @@ export const runtimeDiagnosticsFeatureGroups = {
       "resetSkillRunnerConnectionAudit",
     ],
   },
+  synthesisSidecar: {
+    switchKey: "synthesisSidecar",
+    define: "__synthesis_sidecar_diagnostics_enabled__",
+    exclusiveModules: [
+      "src/modules/synthesisSidecarTrace.ts",
+      "packages/synthesis-contracts/src/sidecarObservability.ts",
+    ],
+    forbiddenRuntimeMarkers: [
+      "synthesis-sidecar-trace-snapshot.v2",
+      "synthesis-sidecar-trace-patch.v2",
+      "synthesis-sidecar:events",
+    ],
+  },
 } as const;
 
 export type RuntimeDiagnosticsFeatureName =
@@ -110,6 +123,10 @@ export const forbiddenProductionRuntimeMarkers = [
   "zotero-agents.acp-runtime-semantic-trace.v1",
   "zotero-skills.acp-chat.diagnostic.v1",
   "acp-chat-diagnostic-audit",
+] as const;
+
+export const productionRuntimeContractMarkers = [
+  "synthesis-sidecar-observation.v2",
 ] as const;
 
 export const runtimeDiagnosticsStaticAllowances = {

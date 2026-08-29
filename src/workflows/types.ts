@@ -92,7 +92,22 @@ type WorkflowHostMetadataApi = Pick<
 >;
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 import type { ProductStorageApi } from "../modules/workflowProductStore";
-import type { SynthesisService } from "../modules/synthesis/service";
+import type {
+  SynthesisJsonObject,
+  SynthesisJsonValue,
+  SynthesisPaperArtifactsRequest,
+  SynthesisPaperArtifactsResult,
+  SynthesisTagAuditReplaceRequest,
+  SynthesisTagCommandResult,
+  SynthesisTagSelectionRequest,
+  SynthesisTagSuggestionStageRequest,
+  SynthesisTagStagedSuggestion,
+  SynthesisTagVocabularySnapshot,
+  SynthesisTagVocabularySaveRequest,
+  SynthesisTopicReportRequest,
+  SynthesisTopicReportResult,
+  SynthesisWorkflowItemSnapshot,
+} from "../../packages/synthesis-contracts/src/index";
 import type {
   BuiltinStatusKey,
   BuiltinStatusTag,
@@ -740,8 +755,63 @@ export type WorkflowHostApi = {
     }) => Promise<string[] | null>;
   };
   archive: import("./archive").WorkflowArchiveApi;
-  synthesis?: SynthesisService;
+  synthesis?: WorkflowSynthesisApi;
 };
+
+export type WorkflowSynthesisApplyContext = {
+  resultContext?: Pick<WorkflowResultContext, "resolveArtifact">;
+  bundleReader?: Pick<WorkflowResultContext["bundleReader"], "readText">;
+};
+
+export type WorkflowLiteratureDigestApplyInput = Partial<
+  SynthesisWorkflowItemSnapshot
+> & {
+  parentItem?: Zotero.Item | number | string | null;
+  item?: Zotero.Item | number | string | null;
+  digest?: unknown;
+  references?: unknown;
+  citationAnalysis?: unknown;
+  literatureMatchingMetadata?: unknown;
+  matchedReferences?: unknown;
+  source?: unknown;
+};
+
+export interface WorkflowSynthesisApi {
+  applyLiteratureDigestSidecar(
+    input?: WorkflowLiteratureDigestApplyInput,
+  ): Promise<SynthesisJsonObject>;
+  applyTopicSynthesisResult(
+    bundle: unknown,
+    context?: WorkflowSynthesisApplyContext,
+  ): Promise<SynthesisJsonObject>;
+  getTopicReport(
+    request: SynthesisTopicReportRequest,
+  ): Promise<SynthesisTopicReportResult>;
+  getTopicPlanningContext(): Promise<SynthesisJsonObject>;
+  applyTopicPlan(plan: SynthesisJsonObject): Promise<SynthesisJsonObject>;
+  readPaperArtifacts(
+    request: SynthesisPaperArtifactsRequest,
+  ): Promise<SynthesisPaperArtifactsResult>;
+  loadTagVocabulary(): Promise<SynthesisTagVocabularySnapshot>;
+  saveTagVocabulary(
+    request: SynthesisTagVocabularySaveRequest,
+  ): Promise<SynthesisJsonValue>;
+  exportTagVocabularyForRegulator(): Promise<string[]>;
+  listStagedTagSuggestions(): Promise<SynthesisTagStagedSuggestion[]>;
+  stageTagSuggestions(
+    request: SynthesisTagSuggestionStageRequest,
+  ): Promise<SynthesisJsonValue>;
+  discardStagedTagSuggestions(
+    request: SynthesisTagSelectionRequest,
+  ): Promise<SynthesisTagCommandResult>;
+  replaceTagAuditRecords(
+    request: SynthesisTagAuditReplaceRequest,
+  ): Promise<SynthesisJsonObject>;
+  clearTagAuditRecord(request: {
+    libraryId: number;
+    itemKey: string;
+  }): Promise<void>;
+}
 
 export type WorkflowImagePreparationOptions = {
   maxLongEdge?: number;

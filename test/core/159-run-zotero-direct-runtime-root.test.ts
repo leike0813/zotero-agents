@@ -4,8 +4,10 @@ import os from "node:os";
 import path from "path";
 import {
   buildZoteroLaunchEnv,
+  parseDirectSynthesisRuntimeLogDocument,
   patchRuntimeRootPref,
   resolveDirectRuntimeRoot,
+  resolveDirectSynthesisTarget,
 } from "../../scripts/run-zotero-direct";
 import {
   buildStartWithMockEnv,
@@ -68,6 +70,54 @@ describe("run-zotero-direct runtime root safety", function () {
       buildZoteroLaunchEnv(env).ZOTERO_SKILLS_RUNTIME_ROOT,
       "D:\\ZoteroSkillsRuntime",
     );
+  });
+
+  it("maps the host platform to the packaged Synthesis target", function () {
+    assert.equal(resolveDirectSynthesisTarget("linux", "x64"), "linux-x64");
+    assert.equal(resolveDirectSynthesisTarget("win32", "x64"), "win32-x64");
+    assert.equal(
+      resolveDirectSynthesisTarget("darwin", "arm64"),
+      "darwin-arm64",
+    );
+    assert.throws(
+      () => resolveDirectSynthesisTarget("win32", "arm64"),
+      /synthesis_sidecar_direct_target_unsupported/,
+    );
+  });
+
+  it("selects only unseen Synthesis lifecycle events for terminal output", function () {
+    const first = parseDirectSynthesisRuntimeLogDocument(
+      JSON.stringify({
+        entries: [
+          {
+            id: "log-1",
+            ts: "2026-07-30T00:00:00.000Z",
+            component: "other",
+            stage: "failed",
+            message: "ignored",
+          },
+          {
+            id: "log-2",
+            ts: "2026-07-30T00:00:01.000Z",
+            component: "synthesis-sidecar-lifecycle",
+            phase: "runtime-install",
+            stage: "running",
+            message: "installing",
+          },
+        ],
+      }),
+      new Set(),
+    );
+    assert.deepEqual(first.ids, ["log-2"]);
+    assert.include(first.lines[0], "runtime-install");
+    assert.include(first.lines[0], "installing");
+
+    const second = parseDirectSynthesisRuntimeLogDocument(
+      JSON.stringify({ entries: first.entries }),
+      new Set(first.ids),
+    );
+    assert.deepEqual(second.ids, []);
+    assert.deepEqual(second.lines, []);
   });
 
   it("applies the same runtime root to npm start with mock skillrunner", function () {

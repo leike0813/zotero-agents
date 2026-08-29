@@ -13,4 +13,3 @@ Persisted ACP Chat run state that can resume work using Host Bridge Skills SHALL
 #### Scenario: Plugin upgrade changes bundle identity
 - **WHEN** a user attempts to recover a persisted ACP Chat run whose bundle identity differs from the current plugin bundle
 - **THEN** the system refuses silent recovery, returns the structured identity-changed error, and directs the user to run again
-

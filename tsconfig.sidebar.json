@@ -9,6 +9,7 @@
   "include": [
     "src/sidebar/**/*.ts",
     "src/sidebar/**/*.tsx",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+    "packages/synthesis-contracts/src/**/*.ts"
   ]
 }

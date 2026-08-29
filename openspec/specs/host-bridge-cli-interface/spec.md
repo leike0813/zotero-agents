@@ -1,7 +1,8 @@
 # host-bridge-cli-interface Specification
 
 ## Purpose
-TBD - created by syncing changes upgrade-host-bridge-cli-machine-readable-contracts and unify-host-bridge-cli-contracts-and-parameter-errors. Update Purpose after archive.
+
+Define the mechanism-only Host Bridge CLI contract, including agent-surface metadata, structured-input discovery, examples, and continuation controls.
 
 ## Requirements
 

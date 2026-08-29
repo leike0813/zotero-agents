@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthesis sidecar runtime release receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "releaseSetId",
+    "sourceCommit",
+    "aggregate",
+    "steps"
+  ],
+  "properties": {
+    "schema": { "const": "synthesis-sidecar-runtime-release-receipt.v1" },
+    "status": { "enum": ["in_progress", "failed", "complete"] },
+    "releaseSetId": { "type": "string" },
+    "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "aggregate": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "steps": { "type": "object" }
+  }
+}

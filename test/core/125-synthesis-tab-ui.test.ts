@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
 import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
@@ -12,6 +13,26 @@ import {
   isSynthesisLiteratureScoreInvalidationEvent,
 } from "../../src/modules/synthesis/itemObserver";
 import { isTransientStorageBusyError } from "../../src/modules/guardedSqlite";
+import {
+  notifySynthesisWorkbenchSidecarChanged,
+  registerSynthesisWorkbenchSidecarChangeListener,
+} from "../../src/modules/synthesisWorkbenchInvalidation";
+import {
+  classifySynthesisWorkbenchGraphMutationResult,
+  createSynthesisWorkbenchGraphLayoutFailure,
+  isSynthesisWorkbenchGraphApplicationBusyError,
+  resolveSynthesisWorkbenchGraphLayoutStatus,
+  selectSynthesisWorkbenchGraphLayoutFailure,
+  toSynthesisWorkbenchReadState,
+} from "../../src/modules/synthesisClient/workbenchUiAdapter";
+import {
+  continueSynthesisCitationGraphWindow,
+  createSynthesisCitationGraphWindow,
+  failSynthesisCitationGraphWindow,
+  mergeSynthesisCitationGraphPage,
+  mergeSynthesisCitationGraphSlice,
+  retrySynthesisCitationGraphWindow,
+} from "../../src/shared/synthesisCitationGraphWindow";
 
 describe("Synthesis tab UI model", function () {
   async function readPngSize(filePath: string) {
@@ -87,6 +108,327 @@ describe("Synthesis tab UI model", function () {
     assert.fail(`Could not extract if (${condition})`);
   }
 
+  it("classifies Workbench Citation Graph mutation terminal results", function () {
+    const captureError = (run: () => unknown) => {
+      try {
+        run();
+      } catch (error) {
+        return error as Error & {
+          code?: string;
+          details?: Record<string, unknown>;
+        };
+      }
+      assert.fail("Expected Citation Graph mutation classification to fail");
+    };
+    for (const status of ["promoted", "unchanged"] as const) {
+      const result = { status, graphHash: "sha256:graph" };
+      assert.strictEqual(
+        classifySynthesisWorkbenchGraphMutationResult(result),
+        result,
+      );
+    }
+
+    for (const [status, code] of [
+      ["graph_application_busy", "storage_busy"],
+      ["worker_busy", "storage_busy"],
+      ["worker_failed", "internal"],
+      ["basis_mismatch", "conflict"],
+      ["invalid_request", "invalid_request"],
+      ["repair_required", "unavailable"],
+      ["stopping", "unavailable"],
+    ] as const) {
+      const error = captureError(() =>
+        classifySynthesisWorkbenchGraphMutationResult({ status }),
+      );
+      assert.equal(error.code, code, status);
+      assert.equal(error.details?.status, status);
+    }
+
+    for (const statuslessResult of [
+      { processed: 1, completed: 1, failed: 0 },
+    ]) {
+      assert.equal(
+        captureError(() =>
+          classifySynthesisWorkbenchGraphMutationResult(statuslessResult),
+        ).code,
+        "internal",
+      );
+    }
+    for (const unsupportedStatus of [
+      "completed",
+      "bootstrapped",
+      "skipped",
+      "superseded",
+    ]) {
+      const error = captureError(() =>
+        classifySynthesisWorkbenchGraphMutationResult({
+          ok: true,
+          status: unsupportedStatus,
+        }),
+      );
+      assert.equal(error.code, "internal");
+      assert.equal(error.details?.status, unsupportedStatus);
+    }
+    assert.equal(
+      captureError(() =>
+        classifySynthesisWorkbenchGraphMutationResult({
+          processed: 1,
+          completed: 0,
+          failed: 1,
+        }),
+      ).code,
+      "internal",
+    );
+    assert.equal(
+      captureError(() =>
+        classifySynthesisWorkbenchGraphMutationResult({
+          ok: false,
+          status: "failed",
+        }),
+      ).code,
+      "internal",
+    );
+  });
+
+  it("scopes Workbench Citation Graph layout failures to their basis", function () {
+    const failure = {
+      graphHash: "sha256:graph-a",
+      layoutAlgorithm: "force",
+      code: "invalid_request",
+      mutationStatus: "invalid_request",
+      message: "Layout failed.",
+      occurredAt: "2026-08-01T00:00:00.000Z",
+    };
+    for (const [layoutStatus, graphHash, layoutAlgorithm, expected] of [
+      ["missing", "sha256:graph-a", "force", "failed"],
+      ["stale", "sha256:graph-a", "force", "failed"],
+      ["ready", "sha256:graph-a", "force", "ready"],
+      ["missing", "sha256:graph-b", "force", "missing"],
+      ["stale", "sha256:graph-a", "radial", "stale"],
+    ] as const) {
+      assert.equal(
+        resolveSynthesisWorkbenchGraphLayoutStatus({
+          graphHash,
+          layoutAlgorithm,
+          layoutStatus,
+          failure,
+        }),
+        expected,
+      );
+    }
+    assert.strictEqual(
+      selectSynthesisWorkbenchGraphLayoutFailure({
+        graphHash: "sha256:graph-a",
+        layoutAlgorithm: "force",
+        failure,
+      }),
+      failure,
+    );
+    assert.isUndefined(
+      selectSynthesisWorkbenchGraphLayoutFailure({
+        graphHash: "sha256:graph-b",
+        layoutAlgorithm: "force",
+        failure,
+      }),
+    );
+  });
+
+  it("records bounded structured Workbench layout failure details", function () {
+    const failure = createSynthesisWorkbenchGraphLayoutFailure({
+      graphHash: " sha256:graph-a ",
+      layoutAlgorithm: " force ",
+      error: new SynthesisClientError(
+        "invalid_request",
+        "  Empty\nyear\u0000was rejected.  ",
+        { status: "invalid_request" },
+      ),
+      occurredAt: "2026-08-01T00:00:00.000Z",
+    });
+    assert.deepInclude(failure, {
+      graphHash: "sha256:graph-a",
+      layoutAlgorithm: "force",
+      code: "invalid_request",
+      mutationStatus: "invalid_request",
+      occurredAt: "2026-08-01T00:00:00.000Z",
+    });
+    assert.include(failure.message, "Empty year");
+    assert.notInclude(failure.message, "\u0000");
+  });
+
+  it("recognizes graph application contention without converting it to a layout failure", function () {
+    assert.isTrue(
+      isSynthesisWorkbenchGraphApplicationBusyError(
+        new SynthesisClientError("storage_busy", "Citation Graph is busy", {
+          status: "graph_application_busy",
+        }),
+      ),
+    );
+    assert.isFalse(
+      isSynthesisWorkbenchGraphApplicationBusyError(
+        new SynthesisClientError("invalid_request", "Bad layout request", {
+          status: "invalid_request",
+        }),
+      ),
+    );
+  });
+
+  it("merges Citation Graph pages by id and rejects stale generations", function () {
+    const initial = createSynthesisCitationGraphWindow({ generation: 3 });
+    const first = mergeSynthesisCitationGraphPage(initial, {
+      generation: 3,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [{ id: "a", x: 12, y: 24 }, { id: "b" }],
+      edges: [{ id: "a-b", source: "a", target: "b" }],
+      nextCursor: "cursor-1",
+      hasMore: true,
+      totalNodes: 3,
+      totalEdges: 2,
+    });
+    assert.isTrue(first.accepted);
+    const second = mergeSynthesisCitationGraphPage(first.window, {
+      generation: 3,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [
+        { id: "a", x: undefined, y: undefined },
+        { id: "b" },
+        { id: "c" },
+      ],
+      edges: [
+        { id: "a-b", source: "a", target: "b" },
+        { id: "b-c", source: "b", target: "c" },
+      ],
+      nextCursor: undefined,
+      hasMore: false,
+      totalNodes: 3,
+      totalEdges: 2,
+    });
+    assert.deepEqual(
+      second.window.nodes.map((node) => node.id),
+      ["a", "b", "c"],
+    );
+    assert.deepEqual(
+      second.window.edges.map((edge) => edge.id),
+      ["a-b", "b-c"],
+    );
+    assert.equal(second.window.status, "complete");
+
+    const stale = mergeSynthesisCitationGraphPage(second.window, {
+      generation: 2,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [{ id: "stale" }],
+      edges: [],
+      hasMore: false,
+      totalNodes: 1,
+      totalEdges: 0,
+    });
+    assert.isFalse(stale.accepted);
+    assert.equal(stale.reason, "stale_generation");
+    assert.deepEqual(stale.window, second.window);
+  });
+
+  it("pauses, resumes, retries, and merges slices without advancing the page cursor", function () {
+    const initial = createSynthesisCitationGraphWindow({
+      generation: 1,
+      nodeSoftLimit: 2,
+      edgeSoftLimit: 2,
+    });
+    const page = mergeSynthesisCitationGraphPage(initial, {
+      generation: 1,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [{ id: "a", x: 12, y: 24 }, { id: "b" }],
+      edges: [{ id: "a-b", source: "a", target: "b" }],
+      nextCursor: "cursor-1",
+      hasMore: true,
+      totalNodes: 3,
+      totalEdges: 2,
+    });
+    assert.equal(page.window.status, "paused");
+    const resumed = continueSynthesisCitationGraphWindow(page.window);
+    assert.equal(resumed.status, "loading");
+    assert.equal(resumed.nodeSoftLimit, 10_002);
+    assert.equal(resumed.edgeSoftLimit, 20_002);
+
+    const sliced = mergeSynthesisCitationGraphSlice(resumed, {
+      generation: 1,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [{ id: "b" }, { id: "c" }],
+      edges: [{ id: "b-c", source: "b", target: "c" }],
+    });
+    assert.isTrue(sliced.accepted);
+    assert.equal(sliced.window.nextCursor, "cursor-1");
+    assert.deepInclude(sliced.window.nodes[0], { id: "a", x: 12, y: 24 });
+    const repeated = mergeSynthesisCitationGraphSlice(sliced.window, {
+      generation: 1,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [{ id: "c" }],
+      edges: [{ id: "b-c", source: "b", target: "c" }],
+    });
+    assert.lengthOf(repeated.window.nodes, 3);
+    assert.lengthOf(repeated.window.edges, 2);
+
+    const failed = failSynthesisCitationGraphWindow(
+      repeated.window,
+      "response_body_too_large",
+      "page budget exhausted",
+    );
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.nextCursor, "cursor-1");
+    const retried = retrySynthesisCitationGraphWindow(failed);
+    assert.equal(retried.status, "loading");
+    assert.equal(retried.nextCursor, "cursor-1");
+  });
+
+  it("loads the current 7,432-node graph completely within the default soft window", function () {
+    const totalNodes = 7_432;
+    const totalEdges = 11_377;
+    let window = createSynthesisCitationGraphWindow({ generation: 9 });
+    let nodeOffset = 0;
+    let edgeOffset = 0;
+    while (nodeOffset < totalNodes || edgeOffset < totalEdges) {
+      const nextNodeOffset = Math.min(totalNodes, nodeOffset + 200);
+      const nextEdgeOffset = Math.min(totalEdges, edgeOffset + 400);
+      const hasMore =
+        nextNodeOffset < totalNodes || nextEdgeOffset < totalEdges;
+      const merged = mergeSynthesisCitationGraphPage(window, {
+        generation: 9,
+        graphHash: "graph-current-size",
+        querySignature: "query-all",
+        nodes: Array.from(
+          { length: nextNodeOffset - nodeOffset },
+          (_, index) => ({ id: `node-${nodeOffset + index}` }),
+        ),
+        edges: Array.from(
+          { length: nextEdgeOffset - edgeOffset },
+          (_, index) => ({
+            id: `edge-${edgeOffset + index}`,
+            source: "node-0",
+            target: "node-1",
+          }),
+        ),
+        nextCursor: hasMore
+          ? `cursor-${nextNodeOffset}-${nextEdgeOffset}`
+          : undefined,
+        hasMore,
+        totalNodes,
+        totalEdges,
+      });
+      assert.isTrue(merged.accepted);
+      assert.notEqual(merged.window.status, "paused");
+      window = merged.window;
+      nodeOffset = nextNodeOffset;
+      edgeOffset = nextEdgeOffset;
+    }
+    assert.equal(window.status, "complete");
+    assert.lengthOf(window.nodes, totalNodes);
+    assert.lengthOf(window.edges, totalEdges);
+  });
+
   it("normalizes a DTO-only snapshot with stable defaults", function () {
     const snapshot = normalizeSynthesisUiSnapshot({
       libraryId: 1,
@@ -118,24 +460,21 @@ describe("Synthesis tab UI model", function () {
         ],
         allowedActions: [],
         requiresConfirmation: false,
-        git: {
+        webdav: {
           queue_state: "blocked_conflict",
           paused: false,
           adapter_configured: true,
           config_status: "configured",
-          remote_url: "https://[redacted]@example.invalid/repo.git",
-          branch: "main",
-          token_masked: "ghp_ab...1234",
-          token_updated_at: "2026-06-14T00:00:00.000Z",
+          base_url: "https://dav.example.invalid/root",
+          remote_path: "zotero-agents",
           connection_test: {
             ok: true,
             tested_at: "2026-06-14T00:01:00.000Z",
-            remote_branch_state: "missing_initializable",
             diagnostics: [
               {
-                code: "git_sync_remote_branch_missing_initializable",
+                code: "webdav_sync_connection_ready",
                 severity: "info",
-                message: "remote branch will be initialized",
+                message: "WebDAV connection is ready",
               },
             ],
           },
@@ -155,10 +494,10 @@ describe("Synthesis tab UI model", function () {
             "save_remote_copy",
             "clear_after_manual_edit",
           ],
-          allowed_actions: ["retryGitSync", "resolveGitSyncConflict"],
+          allowed_actions: ["retryWebDavSync", "resolveWebDavSyncConflict"],
           diagnostics: [
             {
-              code: "git_sync_conflict",
+              code: "webdav_sync_conflict",
               severity: "warning",
               message: "Review required",
             },
@@ -257,6 +596,8 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.artifacts.rows[1]?.discovery_status, "candidates");
     assert.equal(snapshot.artifacts.rows[1]?.candidate_count, 2);
     assert.equal(snapshot.preferences.graphRebuildMode, "off");
+    assert.notProperty(snapshot.storage, "anchorState");
+    assert.notProperty(snapshot.storage, "mirrorState");
     assert.equal(snapshot.graph.layoutAlgorithm, "force");
     assert.equal(
       snapshot.actions.inFlight[0]?.command,
@@ -265,16 +606,12 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.actions.lastFailed?.status, "failed");
     assert.equal(snapshot.sync.status, "ready");
     assert.lengthOf(snapshot.sync.diagnostics, 1);
-    assert.equal(snapshot.sync.git?.queue_state, "blocked_conflict");
-    assert.equal(snapshot.sync.git?.config_status, "configured");
-    assert.equal(snapshot.sync.git?.token_masked, "ghp_ab...1234");
-    assert.equal(snapshot.sync.git?.connection_test?.ok, true);
-    assert.equal(
-      snapshot.sync.git?.connection_test?.remote_branch_state,
-      "missing_initializable",
-    );
-    assert.equal(snapshot.sync.git?.conflict_count, 1);
-    assert.deepEqual(snapshot.sync.git?.conflict_assets, [
+    assert.notProperty(snapshot.sync, "git");
+    assert.equal(snapshot.sync.webdav?.queue_state, "blocked_conflict");
+    assert.equal(snapshot.sync.webdav?.config_status, "configured");
+    assert.equal(snapshot.sync.webdav?.connection_test?.ok, true);
+    assert.equal(snapshot.sync.webdav?.conflict_count, 1);
+    assert.deepEqual(snapshot.sync.webdav?.conflict_assets, [
       {
         asset_path: "tags/vocabulary.json",
         reason: "both_changed",
@@ -283,12 +620,15 @@ describe("Synthesis tab UI model", function () {
         remote_hash: "sha256:remote",
       },
     ]);
-    assert.sameMembers(snapshot.sync.git?.conflictActions || [], [
+    assert.sameMembers(snapshot.sync.webdav?.conflictActions || [], [
       "keep_local",
       "save_remote_copy",
       "clear_after_manual_edit",
     ]);
-    assert.include(snapshot.sync.git?.allowedActions || [], "retryGitSync");
+    assert.include(
+      snapshot.sync.webdav?.allowedActions || [],
+      "retryWebDavSync",
+    );
     assert.equal(snapshot.maintenance.summary.status, "queued");
     assert.deepEqual(snapshot.maintenance.backgroundJobs.rows, []);
     assert.equal(
@@ -305,8 +645,10 @@ describe("Synthesis tab UI model", function () {
       ["conflict-a"],
     );
     assert.isArray(snapshot.hostCommands);
-    assert.include(snapshot.hostCommands, "syncNow");
-    assert.include(snapshot.hostCommands, "resolveGitSyncConflict");
+    assert.include(snapshot.hostCommands, "syncWebDavNow");
+    assert.include(snapshot.hostCommands, "resolveWebDavSyncConflict");
+    assert.notInclude(snapshot.hostCommands, "syncNow");
+    assert.notInclude(snapshot.hostCommands, "resolveGitSyncConflict");
     assert.include(snapshot.hostCommands, "runAdvancedReferenceMatchingNow");
     assert.include(snapshot.hostCommands, "applyReferenceMatchProposalAction");
     assert.include(snapshot.hostCommands, "applyReferenceMatchProposalActions");
@@ -341,7 +683,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-concepts-empty");
     assert.include(source, "synthesis-graph-no-data");
     assert.include(source, "synthesis-graph-drawing");
-    assert.include(source, "function addHoverNeighborhood");
     assert.include(source, "synthesis-graph-node-counts");
     assert.include(source, "display_tier");
     assert.include(source, "synthesis-tags-cache-ready");
@@ -437,7 +778,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "state.sigma?.refresh()");
     const focusSearchBlock = extractFunctionBlock(app, "focusSearch");
     assert.notInclude(focusSearchBlock, ".animate(");
-    assert.include(focusSearchBlock, "state.hoverLabelNode = match.id");
+    assert.include(focusSearchBlock, "state.focusedLabelNode = match.id");
     assert.include(app, "function currentGraphSearchQuery");
     assert.include(app, "function graphNodeMatchesSearchText");
     assert.include(app, "function graphTopicScopeOptions");
@@ -479,18 +820,18 @@ describe("Synthesis tab UI model", function () {
     assert.include(uiModel, "refreshCitationGraphCacheIncrementalNow");
     const filterGraphBlock = extractFunctionBlock(uiModel, "filterGraph");
     assert.include(filterGraphBlock, "topicScopes");
-    assert.include(filterGraphBlock, "topicSourceIds");
-    assert.include(filterGraphBlock, "topicScopedNodeIds");
+    assert.include(filterGraphBlock, "projectCitationGraphVisibility");
     assert.notInclude(
       filterGraphBlock,
       "includesText(searchable(node), filters.search)",
     );
   });
 
-  it("renders citation graph direction and hover labels for pinned external neighbors", async function () {
+  it("renders citation graph direction and interaction labels", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
     const block = extractFunctionBlock(source, "syncSigmaGraph");
+    const edgeAttributes = extractFunctionBlock(source, "sigmaEdgeAttributes");
 
     assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
     assert.include(source, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
@@ -506,36 +847,17 @@ describe("Synthesis tab UI model", function () {
       source,
       "graphNodeMatchesSearchText(data.searchable, query)",
     );
-    assert.include(block, 'type: "arrow"');
-    assert.include(block, "hidden: true");
-    assert.include(block, "size: CITATION_GRAPH_EDGE_SIZE");
+    assert.include(edgeAttributes, 'type: "arrow"');
+    assert.include(edgeAttributes, "hidden: true");
+    assert.include(edgeAttributes, "size: CITATION_GRAPH_EDGE_SIZE");
     assert.include(block, "hidden: !visible");
-    assert.include(block, "target === activeNode");
+    assert.include(block, "target === directionOwner");
     assert.include(block, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
     assert.include(block, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
-    assert.include(block, "hoverLabelNode");
-    assert.include(block, "graph.areNeighbors(node, pinnedNode)");
-    assert.include(block, "node === state.hoverLabelNode");
     assert.include(css, ".citation-graph-legend");
     assert.include(css, ".citation-graph-legend-edge::after");
     assert.include(css, ".graph-zoom-overlay");
     assert.include(css, ".graph-zoom-slider");
-  });
-
-  it("does not classify stale citation graph cache basis as missing only because rows are unavailable", async function () {
-    const source = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
-    const block = extractFunctionBlock(source, "buildMaintenanceSummary");
-
-    assert.include(block, 'citationCacheStatus === "stale"');
-    assert.include(block, "citation_graph_cache_rows_missing");
-    assert.notInclude(block, "||\n      !args.citationGraphFound");
-    assert.notInclude(
-      block,
-      'citationCacheStatus === "missing" ||\n      !args.citationGraphFound',
-    );
   });
 
   it("normalizes Synthesis background jobs without inventing progress", function () {
@@ -1128,7 +1450,11 @@ describe("Synthesis tab UI model", function () {
               facet: "topic",
               note: "candidate note",
               source_flow: "tag-regulator-suggest",
-              parent_bindings: [22, 11, 22],
+              parent_bindings: [
+                { libraryId: 1, itemKey: "ITEM0022" },
+                { libraryId: 1, itemKey: "ITEM0011" },
+                { libraryId: 1, itemKey: "ITEM0022" },
+              ],
               updated_at: "2026-06-05T00:00:00.000Z",
             },
             {
@@ -1191,10 +1517,10 @@ describe("Synthesis tab UI model", function () {
       snapshot.tags.visibleStagedRows.map((row) => row.tag),
       ["topic:candidate"],
     );
-    assert.deepEqual(
-      snapshot.tags.visibleStagedRows[0]?.parent_bindings,
-      [11, 22],
-    );
+    assert.deepEqual(snapshot.tags.visibleStagedRows[0]?.parent_bindings, [
+      { libraryId: 1, itemKey: "ITEM0011" },
+      { libraryId: 1, itemKey: "ITEM0022" },
+    ]);
     assert.equal(snapshot.tags.visibleStagedRows[0]?.parent_count, 2);
     assert.isTrue(snapshot.tags.projection.stale);
     assert.equal(snapshot.tags.importDraft, '{"entries":[]}');
@@ -1471,7 +1797,7 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(
       topicSynthesisBranch,
-      'return ["home", "topics", "graph", "review"]',
+      'return ["home", "topics", "concepts", "graph", "review"]',
     );
     assert.include(
       topicGraphReviewBranch,
@@ -1532,6 +1858,11 @@ describe("Synthesis tab UI model", function () {
       payload: { selectedElement: null },
     });
     assert.isUndefined(cleared.state.graph.selectedElement);
+    assert.isFalse(Object.hasOwn(cleared.state.graph, "selectedElement"));
+    assert.notProperty(
+      toSynthesisWorkbenchReadState(cleared.state).graph,
+      "selectedElement",
+    );
   });
 
   it("tracks the internal artifact reader view and selected topic", function () {
@@ -1627,10 +1958,15 @@ describe("Synthesis tab UI model", function () {
 
     assert.deepEqual(
       snapshot.graph.visibleNodes.map((node) => node.id),
-      ["paper:a", "ref:external:x"],
+      ["paper:a"],
+    );
+    assert.deepEqual(snapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      snapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      ["ref:external:x"],
     );
     assert.deepEqual(
-      snapshot.graph.visibleEdges.map((edge) => edge.id),
+      snapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
       ["e1"],
     );
     assert.deepEqual(
@@ -1684,11 +2020,16 @@ describe("Synthesis tab UI model", function () {
 
     assert.deepEqual(
       snapshot.graph.visibleNodes.map((node) => node.id),
-      ["zotero:item:A", "ref:X", "ref:Y"],
+      ["zotero:item:A"],
+    );
+    assert.deepEqual(snapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      snapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      ["ref:X"],
     );
     assert.deepEqual(
-      snapshot.graph.visibleEdges.map((edge) => edge.id),
-      ["e1", "e2"],
+      snapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+      ["e1"],
     );
     assert.equal(snapshot.graph.selectedTopicScope?.title, "Topic A");
 
@@ -1699,30 +2040,48 @@ describe("Synthesis tab UI model", function () {
     assert.equal(allState.graph.topicId, "all");
   });
 
-  it("keeps low-degree external graph nodes out of the rendered graph while preserving drawer data", function () {
+  it("derives filtered external visibility from distinct library sources while preserving drawer data", function () {
     const input = {
       libraryId: 1,
       graph: {
         graph_hash: "sha256:graph",
-        nodes: [{ id: "paper:a", label: "A", kind: "library_paper" as const }],
-        edges: [],
-        hoverOnlyNodes: [
+        nodes: [
+          { id: "paper:a", label: "A", kind: "library_paper" as const },
+          { id: "paper:b", label: "B", kind: "library_paper" as const },
+          {
+            id: "lit:shared",
+            label: "Shared External",
+            kind: "external_reference" as const,
+          },
           {
             id: "lit:single",
-            label: "Unique External",
+            label: "Single External",
             kind: "external_reference" as const,
-            visibility: "hover_only" as const,
-            display_tier: "single_external" as const,
-            external_degree: 1,
+          },
+          {
+            id: "lit:zero",
+            label: "Disconnected External",
+            kind: "unresolved_reference" as const,
           },
         ],
-        hoverOnlyEdges: [
+        edges: [
           {
-            id: "e-single",
+            id: "e-a-shared",
+            source: "paper:a",
+            target: "lit:shared",
+            primary_role: "background",
+          },
+          {
+            id: "e-b-shared",
+            source: "paper:b",
+            target: "lit:shared",
+            primary_role: "method",
+          },
+          {
+            id: "e-a-single",
             source: "paper:a",
             target: "lit:single",
-            primary_role: "citation",
-            visibility: "hover_only" as const,
+            primary_role: "background",
           },
         ],
       },
@@ -1732,36 +2091,44 @@ describe("Synthesis tab UI model", function () {
       input,
       createDefaultSynthesisUiState(),
     );
-    const searchState = applySynthesisUiAction(
-      createDefaultSynthesisUiState(),
-      {
-        action: "setFilters",
-        payload: { graph: { search: "Unique" } },
-      },
-    ).state;
-    const searchedSnapshot = buildSynthesisUiSnapshot(input, searchState);
+    const roleState = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "setGraphView",
+      payload: { role: "background" },
+    }).state;
+    const roleSnapshot = buildSynthesisUiSnapshot(input, roleState);
 
     assert.deepEqual(
       defaultSnapshot.graph.visibleNodes.map((node) => node.id),
-      ["paper:a"],
+      ["paper:a", "paper:b", "lit:shared"],
     );
-    assert.deepEqual(defaultSnapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      defaultSnapshot.graph.visibleEdges.map((edge) => edge.id),
+      ["e-a-shared", "e-b-shared"],
+    );
     assert.deepEqual(
       defaultSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
       ["lit:single"],
     );
     assert.deepEqual(
-      searchedSnapshot.graph.visibleNodes.map((node) => node.id),
-      ["paper:a"],
-    );
-    assert.deepEqual(searchedSnapshot.graph.visibleEdges, []);
-    assert.deepEqual(
-      searchedSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
-      ["lit:single"],
+      defaultSnapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+      ["e-a-single"],
     );
     assert.deepEqual(
-      searchedSnapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
-      ["e-single"],
+      roleSnapshot.graph.visibleNodes.map((node) => node.id),
+      ["paper:a", "paper:b"],
+    );
+    assert.deepEqual(roleSnapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      roleSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      ["lit:shared", "lit:single"],
+    );
+    assert.sameMembers(
+      roleSnapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+      ["e-a-shared", "e-a-single"],
+    );
+    assert.sameMembers(
+      defaultSnapshot.graph.nodes.map((node) => node.id),
+      ["paper:a", "paper:b", "lit:shared", "lit:single", "lit:zero"],
     );
   });
 
@@ -1852,6 +2219,7 @@ describe("Synthesis tab UI model", function () {
       "utf8",
     );
     const appSource = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const renderGraphBlock = extractFunctionBlock(appSource, "renderGraph");
 
     assert.include(tabSource, "recomputeCitationGraphLayout");
     assert.notInclude(tabSource, "runCitationGraphLayoutWorker");
@@ -1871,8 +2239,697 @@ describe("Synthesis tab UI model", function () {
       tabSource,
       ".rebuildCitationGraphProjection()\n      .finally",
     );
-    assert.include(appSource, "maybeRequestGraphLayoutRefresh");
-    assert.include(appSource, 'reason: "auto"');
+    assert.notInclude(appSource, "maybeRequestGraphLayoutRefresh");
+    assert.include(tabSource, "graphLayoutRefreshes");
+    assert.include(tabSource, "event.source !== runtime.frameWindow");
+    assert.include(renderGraphBlock, "layoutFailed");
+    assert.include(renderGraphBlock, "synthesis-graph-layout-failed-body");
+    assert.include(renderGraphBlock, "makeGraphLayoutRecomputeButton");
+    assert.include(appSource, "graphLayoutFailure(snapshot)");
+    assert.include(appSource, "makeCitationGraphLayoutFailureDebugDetails");
+    assert.include(appSource, "mutation status");
+  });
+
+  it("omits absent graph slice filters and keeps local publications on the current graph owner", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const expandBlock = extractFunctionBlock(host, "expandGraphNeighborhood");
+    const sendBlock = extractFunctionBlock(host, "performSurfaceSend");
+
+    assert.include(expandBlock, '...(runtime.state.graph.topicId === "all"');
+    assert.notInclude(
+      expandBlock,
+      "topicId:\n        runtime.state.graph.topicId",
+    );
+    assert.include(sendBlock, "currentSurfaceRequest");
+    assert.include(sendBlock, "presentationOnly");
+  });
+
+  it("coordinates graph layout once and rejects stale or cross-frame state", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const refreshBlock = extractFunctionBlock(
+      host,
+      "refreshGraphLayoutIfNeeded",
+    );
+    const recomputeBlock = extractFunctionBlock(
+      host,
+      "recomputeWorkbenchCitationGraphLayout",
+    );
+    const observeBlock = extractFunctionBlock(
+      host,
+      "observeCurrentCitationGraphLayout",
+    );
+    const bridgeBlock = extractFunctionBlock(host, "attachWorkbenchBridge");
+    const chromeBlock = extractFunctionBlock(host, "sendChrome");
+    const progressBlock = extractFunctionBlock(
+      host,
+      "refreshWorkbenchCommandProgress",
+    );
+
+    assert.notInclude(app, "maybeRequestGraphLayoutRefresh");
+    assert.include(refreshBlock, 'status === "refreshing"');
+    assert.include(refreshBlock, "observeCurrentCitationGraphLayout");
+    assert.include(recomputeBlock, "graphLayoutRefreshes.get(key)");
+    assert.include(
+      recomputeBlock,
+      "isSynthesisWorkbenchGraphApplicationBusyError",
+    );
+    assert.include(bridgeBlock, "event.source !== runtime.frameWindow");
+    assert.include(chromeBlock, "readRevision !== runtime.chromeReadRevision");
+    assert.include(
+      progressBlock,
+      "readRevision !== runtime.chromeReadRevision",
+    );
+    assert.include(observeBlock, "client.graph.getPersistedLayout");
+    assert.notInclude(observeBlock, "sendSurface");
+  });
+
+  it("routes Citation Graph commands through the callback-free Graph client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const automaticLayoutBlock = extractFunctionBlock(
+      tabSource,
+      "refreshGraphLayoutIfNeeded",
+    );
+    const layoutMutationBlock = extractFunctionBlock(
+      tabSource,
+      "recomputeWorkbenchCitationGraphLayout",
+    );
+    const cacheCommandRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildCitationGraphCacheNow"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "validateTagVocabulary"',
+      ),
+    );
+
+    assert.match(
+      handleActionBlock,
+      /manualRecomputeLayout[\s\S]{0,500}recomputeWorkbenchCitationGraphLayout\([\s\S]{0,160}true/,
+    );
+    assert.include(
+      layoutMutationBlock,
+      "classifySynthesisWorkbenchGraphMutationResult",
+    );
+    assert.include(
+      layoutMutationBlock,
+      "createSynthesisWorkbenchGraphLayoutFailure",
+    );
+    assert.include(layoutMutationBlock, "refreshFromService: false");
+    assert.match(
+      layoutMutationBlock,
+      /client\.graph\.recomputeCitationGraphLayout\(\{[\s\S]{0,160}force: true/,
+    );
+    for (const [command, method] of [
+      ["rebuildCitationGraphCacheNow", "rebuildCitationGraphCacheNow"],
+      [
+        "refreshCitationGraphCacheIncrementalNow",
+        "refreshCitationGraphCacheIncrementalNow",
+      ],
+      ["retryCitationGraphCacheRebuild", "retryCitationGraphCacheRebuild"],
+    ]) {
+      assert.match(
+        handleActionBlock,
+        new RegExp(
+          `${command}[\\s\\S]{0,500}classifySynthesisWorkbenchGraphMutationResult\\([\\s\\S]{0,160}client\\.graph\\s*\\.${method}\\(\\)[\\s\\S]{0,180}deferStart: true`,
+        ),
+      );
+    }
+    assert.notInclude(cacheCommandRegion, "onProgress");
+    assert.notInclude(cacheCommandRegion, "notifyWorkbenchCommandProgress");
+    assert.include(
+      automaticLayoutBlock,
+      'sendSurface(runtime, "graph", { refreshFromService: true })',
+    );
+    assert.match(
+      automaticLayoutBlock,
+      /recomputeWorkbenchCitationGraphLayout\(/,
+    );
+    assert.include(automaticLayoutBlock, 'status === "ready"');
+    assert.include(automaticLayoutBlock, 'status === "failed"');
+    assert.include(automaticLayoutBlock, "!graph?.graph_hash");
+    assert.include(automaticLayoutBlock, 'status === "refreshing"');
+    assert.notInclude(automaticLayoutBlock, "force: true");
+    assert.notInclude(automaticLayoutBlock, "getDefaultSynthesisService");
+    assert.notMatch(
+      tabSource,
+      /getDefaultSynthesisService\(\)\.(?:recomputeCitationGraphLayout|rebuildCitationGraphCacheNow|refreshCitationGraphCacheIncrementalNow|retryCitationGraphCacheRebuild)/,
+    );
+  });
+
+  it("routes Reference maintenance through the callback-free References client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const protectedBlock = extractFunctionBlock(
+      tabSource,
+      "isProtectedRebuildCommand",
+    );
+    const referenceRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "refreshReferenceSidecarNow"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyCanonicalRevisionReviewAction"',
+      ),
+    );
+    const retryRefreshRegion = referenceRegion.slice(
+      referenceRegion.indexOf(
+        'result.hostCommand?.command === "retryReferenceSidecarRefresh"',
+      ),
+      referenceRegion.indexOf(
+        'result.hostCommand?.command === "runAdvancedReferenceMatchingNow"',
+      ),
+    );
+
+    for (const [command, method] of [
+      ["refreshReferenceSidecarNow", "refreshReferenceSidecarNow"],
+      ["retryReferenceSidecarRefresh", "retryReferenceSidecarRefresh"],
+      ["runAdvancedReferenceMatchingNow", "runAdvancedReferenceMatchingNow"],
+      ["retryAdvancedReferenceMatching", "retryAdvancedReferenceMatching"],
+    ]) {
+      assert.match(
+        referenceRegion,
+        new RegExp(
+          `${command}[\\s\\S]{0,420}client\\.references\\s*\\.${method}\\(\\)`,
+        ),
+      );
+    }
+    assert.include(referenceRegion, "observePublicMaintenanceOperation");
+    assert.include(referenceRegion, ").then(failOnDiagnostic)");
+    for (const command of [
+      "refreshReferenceSidecarNow",
+      "runAdvancedReferenceMatchingNow",
+      "retryAdvancedReferenceMatching",
+    ]) {
+      assert.match(
+        referenceRegion,
+        new RegExp(`${command}[\\s\\S]{0,500}deferStart: true`),
+      );
+    }
+    assert.notInclude(retryRefreshRegion, "deferStart");
+    assert.notInclude(referenceRegion, "onProgress");
+    assert.notInclude(referenceRegion, "notifyWorkbenchCommandProgress");
+    assert.include(protectedBlock, 'command === "refreshReferenceSidecarNow"');
+    assert.include(
+      protectedBlock,
+      'command === "runAdvancedReferenceMatchingNow"',
+    );
+    assert.notInclude(protectedBlock, "retryReferenceSidecarRefresh");
+    assert.notInclude(protectedBlock, "retryAdvancedReferenceMatching");
+    assert.notMatch(
+      tabSource,
+      /getDefaultSynthesisService\(\)\.(?:refreshReferenceSidecarNow|retryReferenceSidecarRefresh|runAdvancedReferenceMatchingNow|retryAdvancedReferenceMatching)/,
+    );
+  });
+
+  it("routes Reference review actions through the strict References client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const reviewRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyCanonicalRevisionReviewAction"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "mergeEffectiveCanonicalReference"',
+      ),
+    );
+    const canonicalRegion = reviewRegion.slice(
+      0,
+      reviewRegion.indexOf(
+        'result.hostCommand?.command === "applyReferenceMatchProposalActions"',
+      ),
+    );
+    const batchRegion = reviewRegion.slice(
+      reviewRegion.indexOf(
+        'result.hostCommand?.command === "applyReferenceMatchProposalActions"',
+      ),
+      reviewRegion.indexOf(
+        'result.hostCommand?.command === "applyReferenceMatchProposalAction"',
+      ),
+    );
+    const singleRegion = reviewRegion.slice(
+      reviewRegion.indexOf(
+        'result.hostCommand?.command === "applyReferenceMatchProposalAction"',
+      ),
+    );
+
+    for (const [command, method] of [
+      [
+        "applyCanonicalRevisionReviewAction",
+        "applyCanonicalRevisionReviewAction",
+      ],
+      [
+        "applyReferenceMatchProposalActions",
+        "applyReferenceMatchProposalActions",
+      ],
+      [
+        "applyReferenceMatchProposalAction",
+        "applyReferenceMatchProposalAction",
+      ],
+    ]) {
+      assert.match(
+        reviewRegion,
+        new RegExp(
+          `${command}[\\s\\S]{0,1800}client\\.references\\s*\\.${method}\\(`,
+        ),
+      );
+    }
+    assert.include(canonicalRegion, "review_item_id");
+    assert.include(batchRegion, "proposal_id");
+    assert.include(batchRegion, "canonical_reference_id");
+    assert.include(batchRegion, "library_id");
+    assert.include(batchRegion, "item_key");
+    assert.include(batchRegion, 'requestedAction === "manual_target"');
+    assert.include(batchRegion, "if (!proposalId)");
+    assert.include(batchRegion, "return normalizedTarget");
+    assert.notInclude(singleRegion, "proposal_id");
+    assert.match(canonicalRegion, /\.then\(failOnDiagnostic\)/);
+    assert.match(batchRegion, /\.then\(failOnDiagnostic\)/);
+    assert.match(singleRegion, /\.then\(failOnDiagnostic\)/);
+    assert.match(
+      batchRegion,
+      /runWorkbenchCommandOnce\([\s\S]*?"applyReferenceMatchProposalActions",\s*\{\}/,
+    );
+    assert.notInclude(reviewRegion, "getDefaultSynthesisService");
+    assert.notInclude(reviewRegion, "confirmWorkbenchAction");
+    assert.notInclude(reviewRegion, "deferStart");
+    assert.notInclude(reviewRegion, "onProgress");
+    assert.notInclude(reviewRegion, "notifyWorkbenchCommandProgress");
+
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.include(diagnosticBlock, ".diagnostic");
+    assert.include(diagnosticBlock, '"ok" in result');
+    assert.include(diagnosticBlock, "row.ok === false");
+    assert.include(diagnosticBlock, '"diagnostics"');
+    assert.include(diagnosticBlock, ".diagnostics");
+    assert.include(diagnosticBlock, ".warnings");
+    assert.include(diagnosticBlock, '"synthesis.maintenance_receipt.v1"');
+    const maintenanceObserver = extractFunctionBlock(
+      tabSource,
+      "observePublicMaintenanceOperation",
+    );
+    assert.include(maintenanceObserver, "operation.operation_id");
+    assert.include(maintenanceObserver, "failOnDiagnostic");
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const reviewInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf(
+        'command === "applyReferenceMatchProposalAction"',
+      ),
+      invalidationBlock.indexOf(
+        'command === "updateCanonicalReferenceMetadata"',
+      ),
+    );
+    assert.include(
+      reviewInvalidation,
+      'command === "applyReferenceMatchProposalActions"',
+    );
+    assert.include(
+      reviewInvalidation,
+      'command === "applyCanonicalRevisionReviewAction"',
+    );
+    assert.include(reviewInvalidation, 'return ["index", "review", "graph"]');
+  });
+
+  it("routes canonical Reference mutations through the strict References client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const mutationRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "mergeEffectiveCanonicalReference"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "syncWebDavNow"',
+      ),
+    );
+    const singleMergeRegion = mutationRegion.slice(
+      0,
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "applyCanonicalRevisionMergeRequests"',
+      ),
+    );
+    const batchMergeRegion = mutationRegion.slice(
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "applyCanonicalRevisionMergeRequests"',
+      ),
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "updateCanonicalReferenceMetadata"',
+      ),
+    );
+    const metadataRegion = mutationRegion.slice(
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "updateCanonicalReferenceMetadata"',
+      ),
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "archiveCanonicalReference"',
+      ),
+    );
+    const archiveRegion = mutationRegion.slice(
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "archiveCanonicalReference"',
+      ),
+    );
+
+    for (const [command, method] of [
+      ["mergeEffectiveCanonicalReference", "mergeEffectiveCanonicalReference"],
+      [
+        "applyCanonicalRevisionMergeRequests",
+        "applyCanonicalRevisionMergeRequests",
+      ],
+      ["updateCanonicalReferenceMetadata", "updateCanonicalReferenceMetadata"],
+      ["archiveCanonicalReference", "archiveCanonicalReference"],
+    ]) {
+      assert.match(
+        mutationRegion,
+        new RegExp(
+          `${command}[\\s\\S]{0,2200}client\\.references\\s*\\.${method}\\(`,
+        ),
+      );
+    }
+    assert.include(singleMergeRegion, "source_effective_canonical_id");
+    assert.include(singleMergeRegion, "target_effective_canonical_id");
+    assert.include(
+      singleMergeRegion,
+      "Boolean(commandArgs.confirmRetargetGroup)",
+    );
+    assert.match(
+      singleMergeRegion,
+      /"mergeEffectiveCanonicalReference",\s*\{ sourceEffectiveCanonicalId, targetEffectiveCanonicalId \}/,
+    );
+    assert.include(batchMergeRegion, ".filter(");
+    assert.include(batchMergeRegion, ".map(");
+    assert.include(batchMergeRegion, "source_effective_canonical_id");
+    assert.include(batchMergeRegion, "target_effective_canonical_id");
+    assert.match(
+      batchMergeRegion,
+      /"applyCanonicalRevisionMergeRequests",\s*\{ count: requests\.length \}/,
+    );
+    assert.include(metadataRegion, "canonical_reference_id");
+    assert.include(metadataRegion, "normalized_title");
+    assert.include(metadataRegion, "normalizedTitle");
+    assert.match(
+      metadataRegion,
+      /"updateCanonicalReferenceMetadata",\s*\{ canonicalReferenceId \}/,
+    );
+    assert.include(archiveRegion, "canonical_reference_id");
+    assert.match(
+      archiveRegion,
+      /"archiveCanonicalReference",\s*\{ canonicalReferenceId \}/,
+    );
+    for (const region of [
+      singleMergeRegion,
+      batchMergeRegion,
+      metadataRegion,
+      archiveRegion,
+    ]) {
+      assert.match(region, /\.then\(failOnDiagnostic\)/);
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "confirmWorkbenchAction");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "notifyWorkbenchCommandProgress");
+    }
+    assert.notInclude(singleMergeRegion, "deferStart");
+    assert.include(batchMergeRegion, "deferStart: true");
+    assert.notInclude(metadataRegion, "deferStart");
+    assert.notInclude(archiveRegion, "deferStart");
+
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.include(diagnosticBlock, '"diagnostics"');
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const mergeInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf(
+        'command === "mergeEffectiveCanonicalReference"',
+      ) - 220,
+      invalidationBlock.indexOf(
+        'command === "updateCanonicalReferenceMetadata"',
+      ),
+    );
+    assert.include(
+      mergeInvalidation,
+      'command === "applyCanonicalRevisionMergeRequests"',
+    );
+    assert.include(mergeInvalidation, 'return ["index", "review", "graph"]');
+    const metadataInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf(
+        'command === "updateCanonicalReferenceMetadata"',
+      ),
+      invalidationBlock.indexOf(
+        'command === "refreshCitationGraphCacheIncrementalNow"',
+      ),
+    );
+    assert.include(
+      metadataInvalidation,
+      'command === "archiveCanonicalReference"',
+    );
+    assert.include(metadataInvalidation, 'return ["index", "review"]');
+  });
+
+  it("routes all Workbench Sync commands through fresh bounded clients", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleAction = extractFunctionBlock(host, "handleAction");
+    const syncRegion = handleAction.slice(
+      handleAction.indexOf('result.hostCommand?.command === "syncWebDavNow"'),
+      handleAction.indexOf(
+        'result.hostCommand?.command === "exportTagVocabulary"',
+      ),
+    );
+    const routes = [
+      ["syncWebDavNow", "webDav", "runNow"],
+      ["pauseWebDavSync", "webDav", "pause"],
+      ["resumeWebDavSync", "webDav", "resume"],
+      ["retryWebDavSync", "webDav", "retry"],
+      ["resolveWebDavSyncConflict", "webDav", "resolveConflict"],
+    ] as const;
+
+    assert.notMatch(host, /synthesis\/service["']/);
+    assert.notInclude(host, "getFreshSynthesisServiceForGitSyncCommand");
+    for (const [command, transport, method] of routes) {
+      const start = syncRegion.indexOf(
+        `result.hostCommand?.command === "${command}"`,
+      );
+      assert.isAtLeast(start, 0, `${command} route should exist`);
+      const laterStarts = routes
+        .map(([next]) =>
+          syncRegion.indexOf(
+            `result.hostCommand?.command === "${next}"`,
+            start + 1,
+          ),
+        )
+        .filter((index) => index > start);
+      const end = laterStarts.length
+        ? Math.min(...laterStarts)
+        : syncRegion.length;
+      const commandRegion = syncRegion.slice(start, end);
+      assert.include(commandRegion, "await getFreshDefaultSynthesisClient()");
+      assert.match(
+        commandRegion,
+        new RegExp(`client\\.sync\\s*\\.${transport}\\s*\\.${method}`),
+      );
+      if (command !== "syncWebDavNow") {
+        assert.notInclude(commandRegion, "deferStart");
+      }
+    }
+
+    const webDavRunStart = syncRegion.indexOf(
+      'result.hostCommand?.command === "syncWebDavNow"',
+    );
+    const webDavRunEnd = syncRegion.indexOf(
+      'result.hostCommand?.command === "pauseWebDavSync"',
+      webDavRunStart,
+    );
+    assert.include(
+      syncRegion.slice(webDavRunStart, webDavRunEnd),
+      "deferStart: true",
+    );
+    for (const command of ["syncWebDavNow", "retryWebDavSync"]) {
+      const start = syncRegion.indexOf(`command === "${command}"`);
+      assert.isAtLeast(start, 0);
+      assert.include(
+        syncRegion.slice(start, start + 700),
+        "failOnSyncFailureState",
+      );
+    }
+    assert.match(
+      syncRegion,
+      /String\(commandArgs\.action \|\| ""\)\.trim\(\) \|\|\s*"keep_local"/,
+    );
+
+    const syncCommandClassifier = extractFunctionBlock(
+      host,
+      "isSyncRuntimeCommand",
+    );
+    for (const [command] of routes) {
+      assert.include(syncCommandClassifier, `command === "${command}"`);
+    }
+    const progressBlock = extractFunctionBlock(
+      host,
+      "refreshWorkbenchCommandProgress",
+    );
+    assert.include(progressBlock, "hasInFlightSyncCommand(runtime)");
+    assert.include(progressBlock, "refreshFromService: true");
+  });
+
+  it("routes Concept commands through the strict Concepts client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const rebuildRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildConceptKbIndex"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildTopicGraphIndex"',
+      ),
+    );
+    const conceptRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateConceptDisplayText"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "refreshReferenceSidecarNow"',
+      ),
+    );
+    const displayRegion = conceptRegion.slice(
+      0,
+      conceptRegion.indexOf(
+        'result.hostCommand?.command === "applyConceptReviewAction"',
+      ),
+    );
+    const reviewRegion = conceptRegion.slice(
+      conceptRegion.indexOf(
+        'result.hostCommand?.command === "applyConceptReviewAction"',
+      ),
+      conceptRegion.indexOf(
+        'result.hostCommand?.command === "deleteConceptEntry"',
+      ),
+    );
+    const deleteRegion = conceptRegion.slice(
+      conceptRegion.indexOf(
+        'result.hostCommand?.command === "deleteConceptEntry"',
+      ),
+    );
+
+    assert.match(
+      rebuildRegion,
+      /client\.concepts\s*\.rebuildConceptKbIndex\(\)/,
+    );
+    assert.include(rebuildRegion, "await getDefaultSynthesisClient()");
+    assert.include(rebuildRegion, "deferStart: true");
+    assert.notInclude(rebuildRegion, "onProgress");
+    assert.notInclude(rebuildRegion, "notifyWorkbenchCommandProgress");
+    assert.notInclude(rebuildRegion, "getDefaultSynthesisService");
+
+    assert.match(
+      displayRegion,
+      /client\.concepts\s*\.updateConceptDisplayText\(/,
+    );
+    assert.include(displayRegion, 'String(commandArgs.conceptId || "").trim()');
+    assert.include(displayRegion, "Object.keys(fields).length");
+    assert.match(
+      displayRegion,
+      /"updateConceptDisplayText",\s*\{ conceptId \}/,
+    );
+    assert.notInclude(displayRegion, "failOnDiagnostic");
+
+    assert.match(
+      reviewRegion,
+      /client\.concepts\s*\.applyConceptReviewAction\(/,
+    );
+    for (const action of ["approve_create", "merge_into_existing", "reject"]) {
+      assert.include(reviewRegion, `action === "${action}"`);
+    }
+    assert.include(reviewRegion, "targetConceptId || undefined");
+    assert.match(
+      reviewRegion,
+      /"applyConceptReviewAction",\s*\{ reviewId, action, targetConceptId \}/,
+    );
+    assert.match(reviewRegion, /\.then\(failOnDiagnostic\)/);
+
+    assert.match(deleteRegion, /client\.concepts\s*\.deleteConceptEntries\(/);
+    assert.include(deleteRegion, "commandArgs.conceptIds");
+    assert.include(deleteRegion, "commandArgs.conceptId");
+    assert.include(deleteRegion, ".filter(Boolean)");
+    assert.match(
+      deleteRegion,
+      /"deleteConceptEntry",\s*\{ conceptId: conceptIds\[0\], conceptIds \}/,
+    );
+    assert.notInclude(deleteRegion, "failOnDiagnostic");
+
+    for (const region of [displayRegion, reviewRegion, deleteRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "notifyWorkbenchCommandProgress");
+    }
+
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.include(diagnosticBlock, '"diagnostics"');
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const conceptInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+      invalidationBlock.indexOf('command === "runSynthesizeTopic"'),
+    );
+    assert.include(conceptInvalidation, 'command === "deleteConceptEntry"');
+    assert.include(
+      conceptInvalidation,
+      'command === "updateConceptDisplayText"',
+    );
+    assert.include(
+      conceptInvalidation,
+      'command === "applyConceptReviewAction"',
+    );
+    assert.include(conceptInvalidation, 'return ["concepts", "review"]');
+
+    const protectedBlock = extractFunctionBlock(
+      tabSource,
+      "isProtectedRebuildCommand",
+    );
+    assert.include(protectedBlock, 'command === "rebuildConceptKbIndex"');
+    const progressBlock = extractFunctionBlock(
+      tabSource,
+      "refreshWorkbenchCommandProgress",
+    );
+    assert.match(progressBlock, /client\.workbench\s*\.readProgress/);
   });
 
   it("routes Workbench artifact delete and purge host commands", function () {
@@ -1907,6 +2964,632 @@ describe("Synthesis tab UI model", function () {
       command: "purgeDeletedTopicArtifacts",
       args: {},
     });
+  });
+
+  it("routes Topic commands through the strict Topics client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const hintRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rejectTopicDiscoveryHint"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateConceptDisplayText"',
+      ),
+    );
+    const deleteRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "deleteTopicArtifact"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "purgeDeletedTopicArtifacts"',
+      ),
+    );
+    const purgeRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "purgeDeletedTopicArtifacts"',
+      ),
+      handleActionBlock.indexOf("shouldRefreshGraphLayoutForAction"),
+    );
+
+    assert.include(hintRegion, 'String(commandArgs.hintId || "").trim()');
+    assert.match(hintRegion, /client\.topics\s*\.rejectTopicDiscoveryHint\(/);
+    assert.match(hintRegion, /client\.topics\s*\.restoreTopicDiscoveryHint\(/);
+    assert.match(
+      hintRegion,
+      /runWorkbenchCommandOnce\(runtime, command, \{ hintId \}/,
+    );
+    assert.match(hintRegion, /\.then\(failOnDiagnostic\)/);
+    assert.include(hintRegion, "refreshFromService: false");
+
+    assert.include(deleteRegion, 'String(commandArgs.topicId || "").trim()');
+    assert.include(deleteRegion, "synthesis-confirm-delete-topic-artifact");
+    assert.match(deleteRegion, /client\.topics\s*\.deleteTopicArtifact\(/);
+    assert.match(deleteRegion, /"deleteTopicArtifact",\s*\{ topicId \}/);
+    assert.include(deleteRegion, "if (!deleteResult.ok)");
+    assert.include(deleteRegion, "deleteResult.reason");
+
+    assert.include(
+      purgeRegion,
+      "synthesis-confirm-purge-deleted-topic-artifacts",
+    );
+    assert.match(
+      purgeRegion,
+      /client\.topics\s*\.purgeDeletedTopicArtifacts\(\)/,
+    );
+    assert.match(purgeRegion, /"purgeDeletedTopicArtifacts",\s*\{\},/);
+
+    for (const region of [hintRegion, deleteRegion, purgeRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "notifyWorkbenchCommandProgress");
+    }
+
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.include(diagnosticBlock, '"diagnostics"');
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const artifactInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "deleteTopicArtifact"'),
+    );
+    assert.include(
+      artifactInvalidation,
+      'command === "purgeDeletedTopicArtifacts"',
+    );
+    assert.include(artifactInvalidation, 'return ["home", "topics"]');
+    assert.notInclude(
+      invalidationBlock,
+      'command === "rejectTopicDiscoveryHint"',
+    );
+    assert.notInclude(
+      invalidationBlock,
+      'command === "restoreTopicDiscoveryHint"',
+    );
+  });
+
+  it("routes Topic Graph commands through a distinct strict client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const uiModelSource = await fs.readFile(
+      "src/modules/synthesis/uiModel.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const rebuildRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildTopicGraphIndex"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "acceptTopicGraphRelation"',
+      ),
+    );
+    const edgeRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "acceptTopicGraphRelation"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyTopicGraphReviewAction"',
+      ),
+    );
+    const reviewRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyTopicGraphReviewAction"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rejectTopicDiscoveryHint"',
+      ),
+    );
+
+    assert.match(
+      rebuildRegion,
+      /client\.topicGraph\s*\.rebuildTopicGraphIndex\(\)/,
+    );
+    assert.include(rebuildRegion, "await getDefaultSynthesisClient()");
+    assert.include(rebuildRegion, "deferStart: true");
+    assert.notInclude(rebuildRegion, "onProgress");
+    assert.notInclude(rebuildRegion, "notifyWorkbenchCommandProgress");
+    assert.notInclude(rebuildRegion, "getDefaultSynthesisService");
+
+    assert.include(edgeRegion, 'String(commandArgs.edgeId || "").trim()');
+    assert.match(
+      edgeRegion,
+      /client\.topicGraph\s*\.acceptTopicGraphRelation\(/,
+    );
+    assert.match(
+      edgeRegion,
+      /client\.topicGraph\s*\.rejectTopicGraphRelation\(/,
+    );
+    assert.match(
+      edgeRegion,
+      /runWorkbenchCommandOnce\(runtime, command, \{ edgeId \}/,
+    );
+    assert.match(edgeRegion, /\.then\(failOnDiagnostic\)/);
+    assert.include(edgeRegion, "refreshFromService: false");
+
+    assert.include(reviewRegion, 'String(commandArgs.reviewId || "").trim()');
+    assert.include(reviewRegion, '=== "approve_suggested"');
+    assert.include(reviewRegion, '? "approve_suggested"');
+    assert.include(reviewRegion, ': "reject"');
+    assert.match(
+      reviewRegion,
+      /client\.topicGraph\s*\.applyTopicGraphReviewAction\(/,
+    );
+    assert.match(
+      reviewRegion,
+      /"applyTopicGraphReviewAction",\s*\{ reviewId, action \}/,
+    );
+    assert.match(reviewRegion, /\.then\(failOnDiagnostic\)/);
+    assert.notInclude(reviewRegion, "if (reviewId)");
+
+    for (const region of [edgeRegion, reviewRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+    }
+
+    assert.include(uiModelSource, 'case "acceptTopicGraphRelation":');
+    assert.include(uiModelSource, 'case "rejectTopicGraphRelation":');
+    assert.include(
+      uiModelSource,
+      "`decideTopicGraphRelation:${keyPart(args.edgeId)}`",
+    );
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.include(diagnosticBlock, '"diagnostics"');
+    const protectedBlock = extractFunctionBlock(
+      tabSource,
+      "isProtectedRebuildCommand",
+    );
+    assert.include(protectedBlock, 'command === "rebuildTopicGraphIndex"');
+    const progressBlock = extractFunctionBlock(
+      tabSource,
+      "refreshWorkbenchCommandProgress",
+    );
+    assert.match(progressBlock, /client\.workbench\s*\.readProgress/);
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const mutationInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "acceptTopicGraphRelation"'),
+      invalidationBlock.indexOf('command === "deleteTopicArtifact"'),
+    );
+    assert.include(
+      mutationInvalidation,
+      'command === "rejectTopicGraphRelation"',
+    );
+    assert.include(
+      mutationInvalidation,
+      'command === "applyTopicGraphReviewAction"',
+    );
+    assert.include(
+      mutationInvalidation,
+      'return ["home", "topics", "graph", "review"]',
+    );
+    assert.notInclude(
+      invalidationBlock,
+      'command === "rebuildTopicGraphIndex"',
+    );
+  });
+
+  it("routes Tag vocabulary maintenance and export through the Tag client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const validateRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "validateTagVocabulary"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildTagVocabularyIndex"',
+      ),
+    );
+    const rebuildRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildTagVocabularyIndex"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildConceptKbIndex"',
+      ),
+    );
+    const exportRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "exportTagVocabulary"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "importTagVocabulary"',
+      ),
+    );
+
+    assert.match(validateRegion, /client\.tags\s*\.validateTagVocabulary\(\)/);
+    assert.match(
+      validateRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"validateTagVocabulary",\s*\{\}/,
+    );
+    assert.notInclude(validateRegion, "deferStart");
+    assert.notInclude(validateRegion, "failOnDiagnostic");
+
+    assert.match(
+      rebuildRegion,
+      /client\.tags\s*\.rebuildTagVocabularyIndex\(\)/,
+    );
+    assert.match(rebuildRegion, /"rebuildTagVocabularyIndex",\s*\{\}/);
+    assert.include(rebuildRegion, "deferStart: true");
+    assert.notInclude(rebuildRegion, "onProgress");
+    assert.notInclude(rebuildRegion, "notifyWorkbenchCommandProgress");
+
+    assert.match(
+      exportRegion,
+      /client\.tags\s*\.exportTagVocabularyForRegulator\(\)/,
+    );
+    assert.match(
+      exportRegion,
+      /runWorkbenchCommandOnce\(runtime, "exportTagVocabulary", \{\}/,
+    );
+    assert.include(exportRegion, "runtime.hostWindow.navigator?.clipboard");
+    assert.include(exportRegion, '`${tags.join("\\n")}\\n`');
+    assert.notInclude(exportRegion, "deferStart");
+    assert.notInclude(exportRegion, "failOnDiagnostic");
+
+    for (const region of [validateRegion, rebuildRegion, exportRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+    }
+
+    const protectedBlock = extractFunctionBlock(
+      tabSource,
+      "isProtectedRebuildCommand",
+    );
+    assert.include(protectedBlock, 'command === "rebuildTagVocabularyIndex"');
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    assert.include(tagInvalidation, 'return ["tags"]');
+    assert.notInclude(invalidationBlock, 'command === "validateTagVocabulary"');
+    assert.notInclude(invalidationBlock, 'command === "exportTagVocabulary"');
+  });
+
+  it("routes Tag import preview and apply through the strict Tag client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const previewRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "importTagVocabulary"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateStagedTagSuggestion"',
+      ),
+    );
+    const applyRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyTagVocabularyImport"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "openTopicArtifact"',
+      ),
+    );
+
+    assert.include(
+      previewRegion,
+      'result.hostCommand?.command === "previewTagVocabularyImport"',
+    );
+    assert.include(
+      previewRegion,
+      'typeof commandArgs.payload === "string" && commandArgs.payload.trim()',
+    );
+    assert.match(
+      previewRegion,
+      /"previewTagVocabularyImport",\s*\{\},\s*async \(\) =>/,
+    );
+    assert.match(
+      previewRegion,
+      /client\.tags\s*\.previewTagVocabularyImport\(\{\s*payload: commandArgs\.payload(?: as string)?,?\s*\}\)/,
+    );
+
+    assert.include(
+      applyRegion,
+      'const action = String(commandArgs.action || "").trim()',
+    );
+    assert.include(applyRegion, 'action === "use-imported"');
+    assert.include(applyRegion, 'action === "merge-non-conflicting"');
+    assert.match(applyRegion, /"applyTagVocabularyImport",\s*\{ action \}/);
+    assert.match(
+      applyRegion,
+      /client\.tags\s*\.applyTagVocabularyImport\(\{\s*payload: commandArgs\.payload(?: as string)?,\s*action,?\s*\}\)/,
+    );
+
+    for (const region of [previewRegion, applyRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.include(
+        region,
+        "sendActiveSurface(runtime, { refreshFromService: false })",
+      );
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "failOnDiagnostic");
+    }
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    assert.include(tagInvalidation, 'command === "previewTagVocabularyImport"');
+    assert.include(tagInvalidation, 'command === "applyTagVocabularyImport"');
+    assert.include(tagInvalidation, 'return ["tags"]');
+  });
+
+  it("routes staged Tag bulk commands through the strict Tag client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const promoteRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "promoteStagedTagSuggestions"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "discardStagedTagSuggestions"',
+      ),
+    );
+    const discardRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "discardStagedTagSuggestions"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "clearStagedTagSuggestions"',
+      ),
+    );
+    const clearRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "clearStagedTagSuggestions"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyTagVocabularyImport"',
+      ),
+    );
+
+    for (const [region, method] of [
+      [promoteRegion, "promoteStagedTagSuggestions"],
+      [discardRegion, "discardStagedTagSuggestions"],
+    ]) {
+      assert.include(region, "Array.isArray(commandArgs.tags)");
+      assert.include(
+        region,
+        'commandArgs.tags.map((tag) => String(tag || "").trim()).filter(Boolean)',
+      );
+      assert.include(
+        region,
+        '[String(commandArgs.tag || "").trim()].filter(Boolean)',
+      );
+      assert.include(region, "if (tags.length)");
+      assert.include(region, "{ tag: tags[0], tags }");
+      assert.match(
+        region,
+        new RegExp(`client\\.tags\\s*\\.${method}\\(\\{ tags \\}\\)`),
+      );
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.include(
+        region,
+        "sendActiveSurface(runtime, { refreshFromService: false })",
+      );
+    }
+
+    assert.match(clearRegion, /client\.tags\s*\.clearStagedTagSuggestions\(\)/);
+    assert.match(
+      clearRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"clearStagedTagSuggestions",\s*\{\}/,
+    );
+    assert.include(clearRegion, "await getDefaultSynthesisClient()");
+
+    for (const region of [promoteRegion, discardRegion, clearRegion]) {
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "failOnDiagnostic");
+    }
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    for (const command of [
+      "promoteStagedTagSuggestions",
+      "discardStagedTagSuggestions",
+      "clearStagedTagSuggestions",
+    ]) {
+      assert.include(tagInvalidation, `command === "${command}"`);
+    }
+    assert.include(tagInvalidation, 'return ["tags"]');
+  });
+
+  it("routes staged Tag updates through the strict atomic Tag client command", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const updateRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateStagedTagSuggestion"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateTagVocabularyEntry"',
+      ),
+    );
+
+    assert.include(
+      updateRegion,
+      'commandArgs.originalTag || commandArgs.tag || ""',
+    );
+    assert.include(updateRegion, 'String(commandArgs.tag || "").trim()');
+    assert.include(
+      updateRegion,
+      'commandArgs.facet || tag.split(":")[0] || "topic"',
+    );
+    assert.include(updateRegion, 'const note = String(commandArgs.note || "")');
+    assert.include(
+      updateRegion,
+      'commandArgs.source_flow || "tag-regulator-suggest"',
+    );
+    assert.include(updateRegion, "Array.isArray(commandArgs.parent_bindings)");
+    assert.match(
+      updateRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"updateStagedTagSuggestion",\s*\{ tag \}/,
+    );
+    assert.match(
+      updateRegion,
+      /client\.tags\s*\.updateStagedTagSuggestion\(\{[\s\S]*originalTag,[\s\S]*tag,[\s\S]*facet,[\s\S]*note,[\s\S]*sourceFlow,[\s\S]*parentBindings/,
+    );
+    assert.include(updateRegion, "await getDefaultSynthesisClient()");
+    assert.include(
+      updateRegion,
+      "sendActiveSurface(runtime, { refreshFromService: false })",
+    );
+    assert.notInclude(updateRegion, "getDefaultSynthesisService");
+    assert.notInclude(updateRegion, "stageTagSuggestions");
+    assert.notInclude(updateRegion, "discardStagedTagSuggestions");
+    assert.notInclude(updateRegion, "deferStart");
+    assert.notInclude(updateRegion, "onProgress");
+    assert.notInclude(updateRegion, "failOnDiagnostic");
+    assert.notInclude(updateRegion, "confirm");
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    assert.include(tagInvalidation, 'command === "updateStagedTagSuggestion"');
+    assert.include(tagInvalidation, 'return ["tags"]');
+  });
+
+  it("routes Tag Vocabulary entry mutations through strict atomic Tag client commands", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const appSource = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const updateRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateTagVocabularyEntry"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "deleteTagVocabularyEntry"',
+      ),
+    );
+    const deleteRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "deleteTagVocabularyEntry"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "promoteStagedTagSuggestions"',
+      ),
+    );
+
+    assert.include(
+      updateRegion,
+      'commandArgs.originalTag || commandArgs.tag || ""',
+    );
+    assert.include(updateRegion, 'String(commandArgs.tag || "").trim()');
+    assert.include(
+      updateRegion,
+      'commandArgs.facet || tag.split(":")[0] || "topic"',
+    );
+    assert.include(updateRegion, 'const note = String(commandArgs.note || "")');
+    assert.match(
+      updateRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"updateTagVocabularyEntry",\s*\{ originalTag \}/,
+    );
+    assert.match(
+      updateRegion,
+      /client\.tags\s*\.updateTagVocabularyEntry\(\{[\s\S]*originalTag,[\s\S]*tag,[\s\S]*facet,[\s\S]*note/,
+    );
+    assert.include(updateRegion, ".then(failOnDiagnostic)");
+
+    assert.include(
+      deleteRegion,
+      'commandArgs.originalTag || commandArgs.tag || ""',
+    );
+    assert.match(
+      deleteRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"deleteTagVocabularyEntry",\s*\{ originalTag \}/,
+    );
+    assert.match(
+      deleteRegion,
+      /client\.tags\s*\.deleteTagVocabularyEntry\(\{ originalTag \}\)/,
+    );
+    assert.include(deleteRegion, ".then(failOnDiagnostic)");
+
+    for (const region of [updateRegion, deleteRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.include(
+        region,
+        "sendActiveSurface(runtime, { refreshFromService: false })",
+      );
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "loadTagVocabulary");
+      assert.notInclude(region, "saveTagVocabulary");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "confirm");
+    }
+
+    const vocabularyRegion = extractFunctionBlock(
+      appSource,
+      "renderVocabularySubview",
+    );
+    assert.include(
+      vocabularyRegion,
+      'window.confirm(`Delete vocabulary tag "${tag}"?`)',
+    );
+    assert.include(vocabularyRegion, 'command: "deleteTagVocabularyEntry"');
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    assert.include(tagInvalidation, 'command === "updateTagVocabularyEntry"');
+    assert.include(tagInvalidation, 'command === "deleteTagVocabularyEntry"');
+    assert.include(tagInvalidation, 'return ["tags"]');
   });
 
   it("wires the Workbench run synthesis host command to workflow execution", async function () {
@@ -1983,14 +3666,27 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'command === "deleteTopicArtifact"');
     assert.include(source, 'command === "purgeDeletedTopicArtifacts"');
     assert.include(source, "confirmWorkbenchAction");
-    assert.include(source, "readTopicDetail");
-    assert.include(source, "getTopicReport");
+    assert.include(source, "client.workbench.readTopicDetail");
+    const reportExportBlock = extractFunctionBlock(
+      source,
+      "exportTopicSynthesisReport",
+    );
+    assert.include(reportExportBlock, "getDefaultSynthesisClient");
+    assert.include(reportExportBlock, "client.topics.getTopicReport");
+    assert.notInclude(reportExportBlock, "getDefaultSynthesisService");
+    const topicGuardIndex = reportExportBlock.indexOf("if (!topicId)");
+    const clientIndex = reportExportBlock.indexOf("getDefaultSynthesisClient");
+    const markdownIndex = reportExportBlock.indexOf("cleanReportExportString");
+    const pickerIndex = reportExportBlock.indexOf("pickTopicReportExportPath");
+    const writeIndex = reportExportBlock.indexOf("writeRuntimeTextFile");
+    assert.isAtLeast(topicGuardIndex, 0);
+    assert.isAbove(clientIndex, topicGuardIndex);
+    assert.isAbove(markdownIndex, clientIndex);
+    assert.isAbove(pickerIndex, markdownIndex);
+    assert.isAbove(writeIndex, pickerIndex);
+    assert.include(reportExportBlock, "Synthesis report body is unavailable.");
+    assert.include(reportExportBlock, 'markdown.endsWith("\\n")');
     assert.include(source, "buildTopicDetailHtmlExport");
-    assert.include(source, "ensureCachedTopicDetailHtmlExport");
-    assert.include(source, "topicDetailHtmlExportSignature");
-    assert.include(source, "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION");
-    assert.include(source, "currentTopicDetailHtml");
-    assert.include(source, "currentTopicDetailHtmlMetadata");
     assert.include(source, "resolveTopicExportDigests");
     assert.include(source, "readSynthesisExportAssets");
     assert.include(source, "pruneGraphToTopicSubgraph");
@@ -2005,7 +3701,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "content/synthesis/styles.css");
     assert.include(source, "resolveRuntimeToolkit");
     assert.include(source, "FilePicker");
-    assert.include(source, "copyRuntimeFile");
     assert.include(source, "writeRuntimeTextFile");
     assert.include(source, "sendTopicDetail");
     assert.include(source, '"synthesis:topic-detail"');
@@ -2169,12 +3864,9 @@ describe("Synthesis tab UI model", function () {
       source,
       "exportTopicDetailHtml",
     );
-    assert.include(exportTopicHtmlBlock, "ensureCachedTopicDetailHtmlExport");
-    assert.include(exportTopicHtmlBlock, "copyRuntimeFile");
-    assert.notInclude(
-      exportTopicHtmlBlock,
-      "const html = await buildTopicDetailHtmlExport",
-    );
+    assert.include(exportTopicHtmlBlock, "writeRuntimeTextFile");
+    assert.include(exportTopicHtmlBlock, "buildTopicDetailHtmlExport");
+    assert.notInclude(exportTopicHtmlBlock, "copyRuntimeFile");
 
     const exportPickerIndex = source.indexOf(
       "const outputPath = await pickTopicDetailHtmlExportPath",
@@ -2849,11 +4541,21 @@ describe("Synthesis tab UI model", function () {
     const hooks = await fs.readFile("src/hooks.ts", "utf8");
 
     assert.include(host, "snapshotInputLocked");
-    assert.include(host, "getSynthesisWorkbenchChromeInput");
-    assert.include(host, "getSynthesisWorkbenchSurfaceInput");
-    assert.include(host, "warmSynthesisWorkbenchSurfaces");
+    assert.include(host, "getDefaultSynthesisClient");
+    assert.include(host, "toSynthesisWorkbenchReadState");
+    assert.include(host, "toSynthesisUiSnapshotInput");
+    assert.include(host, "toSynthesisWorkbenchPaperDigestReadRequest");
+    assert.match(host, /client\.workbench\s*\.readChrome/);
+    assert.match(host, /client\.workbench\s*\.readSurface/);
+    assert.match(host, /client\.workbench\s*\.readTopicDetail/);
+    assert.match(host, /client\.workbench\s*\.readPaperDigest/);
+    assert.notInclude(host, ".getSynthesisWorkbenchChromeInput");
+    assert.notInclude(host, ".getSynthesisWorkbenchSurfaceInput");
+    assert.notInclude(host, ".resolveTopicPaperDigest");
+    assert.notInclude(host, ".warmSynthesisWorkbenchSurfaces");
     const chromeBlock = extractFunctionBlock(host, "sendChrome");
-    assert.include(chromeBlock, "getSynthesisWorkbenchChromeInput");
+    assert.match(chromeBlock, /client\.workbench\s*\.readChrome/);
+    assert.include(chromeBlock, "toSynthesisWorkbenchReadState");
     assert.include(host, '"synthesis:chrome"');
     assert.include(host, '"synthesis:surface"');
     assert.notInclude(host, ".getSynthesisSnapshotInput(runtime.state)");
@@ -2899,6 +4601,7 @@ describe("Synthesis tab UI model", function () {
       "performSurfaceSend",
     );
     assert.include(performSurfaceBlock, "requestId: request.requestId");
+    assert.include(performSurfaceBlock, "client.workbench.readSurface");
     assert.include(performSurfaceBlock, "isLatestSurfaceRefreshRequest");
     assert.include(performSurfaceBlock, "!isActiveSurface(runtime, surface)");
     assert.include(performSurfaceBlock, '"synthesis:surface-error"');
@@ -3080,7 +4783,7 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(filterBlock, "getDefaultSynthesisService");
   });
 
-  it("invalidates Index and Graph after workflow sidecar apply without marking Review dirty", async function () {
+  it("routes explicit workflow invalidation to the affected Workbench surfaces", async function () {
     const host = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
@@ -3089,17 +4792,11 @@ describe("Synthesis tab UI model", function () {
       "src/workflows/hostApi.ts",
       "utf8",
     );
-    const invalidationEvents = await fs.readFile(
-      "src/modules/synthesisWorkbenchInvalidation.ts",
-      "utf8",
-    );
-
     const invalidationBlock = extractFunctionBlock(
       host,
       "handleSynthesisWorkbenchSidecarChanged",
     );
-    assert.include(invalidationBlock, '"index", "graph"');
-    assert.notInclude(invalidationBlock, '"review"');
+    assert.include(invalidationBlock, "args.invalidatedSurfaces");
     assert.include(invalidationBlock, "markSurfaceDirty(runtime, surface)");
     assert.include(invalidationBlock, "scheduleLibraryReadModelSurfaceRefresh");
     assert.include(
@@ -3107,17 +4804,22 @@ describe("Synthesis tab UI model", function () {
       "sendChrome(runtime, { refreshFromService: true })",
     );
     assert.include(host, "registerSynthesisWorkbenchSidecarChangeListener");
+    assert.include(workflowHostApi, "createWorkflowSynthesisHostApi()");
 
-    const hostApiBlock = extractFunctionBlock(
-      workflowHostApi,
-      "createWorkflowSynthesisHostApi",
+    const observed: string[][] = [];
+    const unregister = registerSynthesisWorkbenchSidecarChangeListener(
+      (event) => observed.push(event.invalidatedSurfaces),
     );
-    assert.include(hostApiBlock, "applyLiteratureDigestSidecar");
-    assert.include(hostApiBlock, "notifySynthesisWorkbenchSidecarChanged");
-    assert.include(hostApiBlock, 'reason: "literature_digest_apply"');
-    assert.include(hostApiBlock, "graphMayHaveChanged: true");
-    assert.include(invalidationEvents, "sidecarChangeListeners");
-    assert.include(invalidationEvents, '["index", "graph"]');
+    try {
+      const result = notifySynthesisWorkbenchSidecarChanged({
+        invalidatedSurfaces: ["tags", "tags"],
+        reason: "tag_suggestions_stage",
+      });
+      assert.deepEqual(result.invalidatedSurfaces, ["tags"]);
+      assert.deepEqual(observed, [["tags"]]);
+    } finally {
+      unregister();
+    }
   });
 
   it("classifies Zotero item notifications for library read-model invalidation", function () {
@@ -3243,14 +4945,6 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesis/uiModel.ts",
       "utf8",
     );
-    const service = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
-    const repository = await fs.readFile(
-      "src/modules/synthesis/repository.ts",
-      "utf8",
-    );
     const workbenchTab = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
@@ -3271,6 +4965,26 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "sigmaGraphModelSignature");
     assert.include(source, "sigmaGraphLayoutSignature");
     assert.include(source, "state.sigma.setGraph(graph)");
+    assert.include(source, 'data.type === "synthesis:graph-page"');
+    assert.include(source, "updateGraphWindowManagedRegions(nextSnapshot)");
+    assert.include(source, "mergeSigmaGraphPage(snapshot)");
+    const graphPageHandlerStart = source.indexOf(
+      'if (data.type === "synthesis:graph-page")',
+    );
+    const graphPageHandlerEnd = source.indexOf(
+      'if (data.type === "synthesis:surface-error")',
+      graphPageHandlerStart,
+    );
+    assert.isAtLeast(graphPageHandlerStart, 0);
+    assert.isAbove(graphPageHandlerEnd, graphPageHandlerStart);
+    assert.notInclude(
+      source.slice(graphPageHandlerStart, graphPageHandlerEnd),
+      "renderSurface(",
+    );
+    assert.include(workbenchTab, "loadGraphContinuationPages");
+    assert.include(workbenchTab, "generation !== runtime.graphGeneration");
+    assert.include(workbenchTab, "readCompleteGraphSurfaceForExport");
+    assert.include(workbenchTab, "graph_export_limit_exceeded");
     assert.notInclude(source, "disposeGraphRenderer");
     assert.notInclude(source, ".kill()");
     assert.include(source, 'label: ""');
@@ -3288,35 +5002,26 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'from "sigma/rendering"');
     assert.include(source, "function drawGraphImportanceHalo");
     assert.include(source, "function drawGraphNodeHover");
-    assert.include(
-      source,
-      "if (data.importanceHalo && !data.importanceInteractive)",
-    );
     assert.include(source, "drawDiscNodeHover");
     assert.include(source, "defaultDrawNodeHover: drawGraphNodeHover");
     assert.include(source, "function graphNodeImportanceColor");
-    assert.include(source, "importanceInteractive");
-    assert.include(source, "activeHaloNode");
     assert.include(source, "GRAPH_LIBRARY_IMPORTANCE_HALO_DARK");
     assert.include(source, "GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT");
     assert.include(source, "GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK");
     assert.include(source, "GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT");
     assert.include(source, "importanceHalo");
-    assert.include(
-      source,
-      "highlighted: importance?.halo || currentPaperNode || false",
-    );
     assert.include(source, "currentPaperNode");
     assert.include(source, "isCurrentPaperGraphNode");
     assert.include(source, "synthesis-graph-legend-current-paper");
     assert.include(source, "graph-selection-drawer-compact");
     assert.include(
       source,
-      "currentPaperNode || (data.importanceHalo && searchMatch)",
+      '"synthesis-graph-incoming-source-papers-current-view"',
     );
-    assert.include(source, '"incoming citations"');
-    assert.include(source, '"authors"');
-    assert.include(source, "node?.authors?.length");
+    assert.include(
+      source,
+      '"synthesis-graph-incoming-citation-records-current-view"',
+    );
     assert.include(source, "if (!state.standaloneExport) {\n      fields.push");
     assert.include(source, "CITATION_GRAPH_EDGE_SIZE");
     assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
@@ -3325,39 +5030,15 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-graph-legend-node-size");
     assert.include(source, "synthesis-graph-legend-halo");
     assert.include(uiModel, "metrics?: {");
-    assert.include(uiModel, "authors?: string[]");
-    assert.include(uiModel, "authors: normalizeStringList(node.authors)");
-    assert.include(repository, "authorsJson?: string");
-    assert.include(repository, "authors_json TEXT NOT NULL DEFAULT '[]'");
-    assert.include(repository, "authorsJson: cleanString(row.authors_json)");
-    assert.include(repository, "authors_json: cleanString(record.authorsJson)");
-    assert.include(service, "CITATION_GRAPH_CACHE_POLICY_VERSION");
-    assert.include(service, "citation_graph_cache_policy_changed");
-    assert.include(service, "authorsForSourceRef");
-    assert.include(service, "authorsJson: JSON.stringify(authorsForSourceRef");
-    assert.include(
-      service,
-      "authors: normalizeStringListInput(parseJsonArray(args.node.authorsJson))",
-    );
-    assert.include(service, "authors: normalizeStringListInput(node.authors)");
-    assert.include(
-      service,
-      "authors: normalizeStringListInput(args.node.authors)",
-    );
-    assert.include(
-      workbenchTab,
-      "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 7",
-    );
+    assert.include(workbenchTab, "buildTopicDetailHtmlExport(runtime, topicId)");
+    assert.include(workbenchTab, "writeRuntimeTextFile(");
+    assert.notInclude(workbenchTab, "currentTopicDetailHtmlMetadata");
     assert.include(uiModel, "function normalizeGraphNodeMetrics");
     assert.include(uiModel, "internal_in_degree");
     assert.include(uiModel, "internal_out_degree");
-    assert.include(source, "addHoverNeighborhood");
     assert.include(source, "scheduleHoverClear");
     assert.include(source, "cancelScheduledHoverClear");
     assert.include(source, "showHoverLabel");
-    assert.include(source, "node === state.hoveredNode");
-    assert.include(source, "selectedGraphHoverNode");
-    assert.include(source, "pinnedHoverNode");
     assert.include(source, 'renderer.on("clickStage"');
     assert.include(source, "selectedElement: null");
     assert.include(source, "collectSelectedNodeCitations");
@@ -3370,11 +5051,14 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(source, "graph-selection-drawer");
     assert.include(source, "graph.selection");
-    assert.include(source, "snapshot.graph.hoverOnlyEdges");
-    assert.notInclude(
-      source,
-      "snapshot.graph.hoverOnlyNodes.map((node) => [node.id, node])",
-    );
+    assert.include(source, "aggregateCitationGraphVisualEdges");
+    assert.include(source, "graph.dropEdge");
+    assert.include(source, "graph.dropNode");
+    assert.include(source, "sidecar-runtime-indicator");
+    assert.include(source, "retrySynthesisSidecar");
+    assert.include(workbenchTab, "recoverDefaultSynthesisProductionOwner");
+    assert.include(css, ".sidecar-failure-actions");
+    assert.include(css, ".sidecar-runtime-indicator");
     assert.include(source, "enableEdgeEvents: false");
     assert.include(source, "zIndex: true");
     assert.include(source, "function graphNodeZIndex");
@@ -3994,7 +5678,6 @@ describe("Synthesis tab UI model", function () {
       "concept:cv:detr",
     );
     assert.include(snapshot.hostCommands, "rebuildConceptKbIndex");
-    assert.include(snapshot.hostCommands, "auditConceptAliases");
     assert.include(snapshot.hostCommands, "applyConceptReviewAction");
     assert.include(snapshot.hostCommands, "deleteConceptEntry");
     assert.deepEqual(command.hostCommand, {
@@ -4021,10 +5704,6 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
     );
-    const service = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
     assert.include(source, "renderConcepts");
@@ -4038,17 +5717,13 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-action-delete-selected");
     assert.include(source, 'command: "deleteConceptEntry"');
     assert.include(host, "deleteConceptEntries");
-    assert.include(service, "async function deleteConceptEntries");
     assert.include(source, "renderConceptReviewPanel");
     assert.include(source, "synthesis-concept-review-title");
     assert.include(source, "applyConceptReviewAction");
-    assert.include(source, "synthesis-concepts-audit-aliases");
     assert.include(source, "synthesis-action-keep-alias");
     assert.include(source, "synthesis-action-remove-alias");
-    assert.include(host, "auditConceptAliases");
     assert.include(host, 'action === "keep_alias"');
     assert.include(host, 'action === "remove_alias"');
-    assert.include(service, "async function auditConceptAliases");
     assert.include(source, "reviewMergeTargets");
     assert.include(source, "renderReviewMetadata");
     assert.include(source, "conceptReviewPanel");
@@ -4066,7 +5741,8 @@ describe("Synthesis tab UI model", function () {
       source,
       "applyConceptOverlay(renderTopicSection(detail, snapshot), snapshot)",
     );
-    assert.include(host, 'getSynthesisWorkbenchSurfaceInput("concepts"');
+    assert.include(host, "client.workbench.readSurface");
+    assert.include(host, 'surface: "concepts"');
     assert.include(source, "topicReportConceptEntries");
     assert.include(source, "renderTopicReportConceptNav");
     assert.include(source, "function elRawText");
@@ -4873,90 +6549,7 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
-  it("guards Workbench service hot paths against heavy surface reads", async function () {
-    const service = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
-    const chromeBlock = extractFunctionBlock(
-      service,
-      "getSynthesisWorkbenchChromeInput",
-    );
-    [
-      "readDbCitationGraphOverview",
-      "registryRowsFromCurrentLibraryAndSidecar",
-      "loadTagVocabulary",
-      "loadConceptKb",
-      "loadTopicGraph",
-    ].forEach((forbidden) => {
-      assert.notInclude(chromeBlock, forbidden);
-    });
-    const warmupBlock = extractFunctionBlock(
-      service,
-      "warmSynthesisWorkbenchSurfaces",
-    );
-    assert.include(warmupBlock, "args.surfaces !== undefined");
-    const surfaceBlock = extractFunctionBlock(
-      service,
-      "getSynthesisWorkbenchSurfaceInput",
-    );
-    assert.include(surfaceBlock, "activeReviewTab");
-    assert.include(surfaceBlock, 'activeReviewTab === "concepts"');
-    assert.include(surfaceBlock, "conceptKb.loadConceptKb()");
-    assert.include(surfaceBlock, "concepts: reviewConcepts");
-    assert.include(surfaceBlock, 'activeReviewTab === "topic_graph"');
-    assert.include(surfaceBlock, "topicGraphSnapshotForUi");
-    assert.include(surfaceBlock, "topicGraph: topicGraphSnapshot");
-    const graphSurfaceBranch = surfaceBlock.slice(
-      surfaceBlock.indexOf('if (surface === "graph")'),
-      surfaceBlock.indexOf('if (surface === "tags")'),
-    );
-    assert.include(
-      graphSurfaceBranch,
-      "const topicGraphContext = await topicGraphSnapshotForUi",
-    );
-    assert.include(graphSurfaceBranch, "topicGraph: topicGraphSnapshot");
-    assert.include(
-      graphSurfaceBranch,
-      "reviewItems: topicGraphSnapshot.review_items",
-    );
-    assert.include(graphSurfaceBranch, "topicGraphScopesFromGraphNodes");
-    assert.include(graphSurfaceBranch, "topicScopes");
-    assert.include(graphSurfaceBranch, "readArtifactStateRows(root)");
-    assert.include(surfaceBlock, "proposalQueryForReviewState");
-    assert.notInclude(
-      surfaceBlock,
-      "listReferenceMatchProposals({ limit: 100 })",
-    );
-    assert.notInclude(surfaceBlock, "synthesisRepository.listReviewItems()");
-    const reviewContextBlock = extractFunctionBlock(
-      service,
-      "registryRowsForReferenceMatchProposalContext",
-    );
-    assert.include(reviewContextBlock, "registryInputsForSourceRefs");
-    assert.notInclude(
-      reviewContextBlock,
-      "registryRowsFromCurrentLibraryAndSidecar",
-      "Review context must not load Index sidecar rows",
-    );
-    const registryRowsToUiBlock = extractFunctionBlock(
-      service,
-      "registryRowsWithReferenceFactsToUi",
-    );
-    assert.include(registryRowsToUiBlock, "includeReferences");
-    assert.include(registryRowsToUiBlock, "referenceSourceRefs");
-    assert.include(registryRowsToUiBlock, "loadedReferenceSourceRefs");
-    assert.include(registryRowsToUiBlock, "listReferenceFactSummariesBySource");
-    assert.include(registryRowsToUiBlock, "rawReferenceIds");
-    const liveMetadataBlock = extractFunctionBlock(
-      service,
-      "enrichRegistryRowsWithLiveMetadata",
-    );
-    assert.include(liveMetadataBlock, "getRegistryInputSummaryForItem");
-    assert.notInclude(liveMetadataBlock, "getRegistryInputForItem");
-    assert.notInclude(liveMetadataBlock, "childNotes");
-    const indexSurfaceBlock = extractIfBlock(service, 'surface === "index"');
-    assert.include(indexSurfaceBlock, "state.registry.expandedSourceRefs");
+  it("guards Workbench client and Host hot paths against heavy reads", async function () {
     const host = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
@@ -4965,51 +6558,95 @@ describe("Synthesis tab UI model", function () {
       host,
       "prewarmSynthesisWorkbenchSurfaces",
     );
-    assert.include(prewarmBlock, "surfaces: args.surfaces");
+    const publishPrewarmPhaseBlock = extractFunctionBlock(
+      host,
+      "publishSynthesisWorkbenchPrewarmPhase",
+    );
+    assert.notInclude(prewarmBlock, "getDefaultSynthesisService");
+    assert.notInclude(prewarmBlock, ".warmSynthesisWorkbenchSurfaces");
+    assert.include(prewarmBlock, "getDefaultSynthesisClient");
+    assert.include(prewarmBlock, "client.workbench.readChrome");
+    assert.include(prewarmBlock, "client.workbench.readSurface");
+    assert.include(prewarmBlock, "args.surfaces !== undefined");
+    assert.lengthOf(
+      prewarmBlock.match(/toSynthesisWorkbenchReadState/g) || [],
+      1,
+      "prewarm state should cross the client boundary once per run",
+    );
+    const defaultSurfaceOrder = [
+      '"index"',
+      '"review"',
+      '"graph"',
+      '"tags"',
+      '"concepts"',
+      '"topics"',
+    ];
+    let priorSurfaceIndex = -1;
+    for (const surface of defaultSurfaceOrder) {
+      const surfaceIndex = prewarmBlock.indexOf(surface, priorSurfaceIndex + 1);
+      assert.isAbove(
+        surfaceIndex,
+        priorSurfaceIndex,
+        `default prewarm surface ${surface} should retain its order`,
+      );
+      priorSurfaceIndex = surfaceIndex;
+    }
+    const surfaceLoopIndex = prewarmBlock.indexOf("for (const surface");
+    const yieldIndex = prewarmBlock.indexOf(
+      "await yieldToEventLoop()",
+      surfaceLoopIndex,
+    );
+    const surfaceReadIndex = prewarmBlock.indexOf(
+      "client.workbench.readSurface",
+      surfaceLoopIndex,
+    );
+    assert.isAtLeast(surfaceLoopIndex, 0);
+    assert.isAbove(yieldIndex, surfaceLoopIndex);
+    assert.isAbove(surfaceReadIndex, yieldIndex);
+    assert.include(prewarmBlock, "continue");
+    assert.include(prewarmBlock, ".catch(() => undefined)");
+    assert.include(prewarmBlock, "prewarmSynthesisSurfacesPromise = undefined");
+    assert.include(
+      publishPrewarmPhaseBlock,
+      "prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput",
+    );
+    const cacheMergeIndex = publishPrewarmPhaseBlock.indexOf(
+      "prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput",
+    );
+    const currentRuntimeIndex = publishPrewarmPhaseBlock.indexOf(
+      "const runtime = synthesisWorkbenchTab",
+    );
+    const runtimeMergeIndex = publishPrewarmPhaseBlock.indexOf(
+      "mergeRuntimeSnapshotInput",
+    );
+    assert.isAbove(currentRuntimeIndex, cacheMergeIndex);
+    assert.isAbove(runtimeMergeIndex, currentRuntimeIndex);
+    assert.include(publishPrewarmPhaseBlock, "sendChrome");
+    assert.include(publishPrewarmPhaseBlock, "markSurfaceLoaded");
+    assert.include(publishPrewarmPhaseBlock, "isActiveSurface");
+    assert.include(publishPrewarmPhaseBlock, "sendSurface");
+    assert.include(publishPrewarmPhaseBlock, "refreshFromService: false");
     const libraryAdapter = await fs.readFile(
       "src/modules/synthesis/libraryAdapter.ts",
       "utf8",
     );
-    const pageStart = libraryAdapter.indexOf("async getRegistryInputsPage");
-    const pageEnd = libraryAdapter.indexOf("async getRegistryInputForItem");
-    assert.isAtLeast(pageStart, 0, "getRegistryInputsPage should exist");
-    assert.isAbove(
-      pageEnd,
-      pageStart,
-      "getRegistryInputsPage should be bounded",
-    );
+    const pageStart = libraryAdapter.indexOf("async function listItemsPage");
+    const pageEnd = libraryAdapter.indexOf("async function getItemsByRef");
+    assert.isAtLeast(pageStart, 0, "Host listItemsPage should exist");
+    assert.isAbove(pageEnd, pageStart, "Host listItemsPage should be bounded");
     const pageBlock = libraryAdapter.slice(pageStart, pageEnd);
-    assert.include(pageBlock, "visibleTopLevelRegularItemsPage");
+    assert.include(pageBlock, "queryZoteroLibraryPage");
+    assert.include(pageBlock, "SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX");
     assert.notInclude(pageBlock, "getAllRegularZoteroItems");
-    assert.include(libraryAdapter, "getRegistryInputSummaryForItem");
-    const repository = await fs.readFile(
-      "src/modules/synthesis/repository.ts",
+    assert.include(libraryAdapter, "getItemsByRef");
+    const nativeComposition = await fs.readFile(
+      "src/modules/synthesisClient/nativeComposition.ts",
       "utf8",
     );
-    const factsStart = repository.indexOf("listReferenceFacts(");
-    const factsEnd = repository.indexOf(
-      "listReferenceFactSummariesBySource",
-      factsStart,
-    );
-    assert.isAtLeast(factsStart, 0, "listReferenceFacts should exist");
-    assert.isAbove(
-      factsEnd,
-      factsStart,
-      "listReferenceFacts should be bounded",
-    );
-    const factsBlock = repository.slice(factsStart, factsEnd);
-    assert.include(factsBlock, "sourceRefs: Array.from(sourceIds)");
-    assert.include(factsBlock, "rawReferenceIds: args.rawReferenceIds");
-    assert.include(factsBlock, "resolveEffectiveCanonicalReferenceIds");
-    assert.notInclude(factsBlock, "this.listCanonicalReferences().map");
-    assert.notInclude(
-      factsBlock,
-      "for (const binding of this.listReferenceBindings())",
-    );
-    assert.notInclude(
-      factsBlock,
-      'this.listRawReferences({ statuses: ["active"] })',
-    );
+    assert.include(nativeComposition, "createSynthesisSidecarRpcClient");
+    assert.include(nativeComposition, "createSynthesisClientFromPort");
+    assert.notInclude(nativeComposition, "synthesis/service");
+    assert.notInclude(nativeComposition, "synthesis/repository");
   });
 
   it("wires asynchronous Workbench action feedback and host single-flight", async function () {
@@ -5061,9 +6698,17 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "runWorkbenchCommandOnce");
     assert.include(host, "commandProgressTimer");
     assert.include(host, "ensureCommandProgressPolling");
-    assert.include(host, "notifyWorkbenchCommandProgress");
+    assert.notInclude(host, "notifyWorkbenchCommandProgress");
     assert.include(host, "refreshWorkbenchCommandProgress");
-    assert.include(host, "getSynthesisBackgroundJobRows");
+    const progressBlock = extractFunctionBlock(
+      host,
+      "refreshWorkbenchCommandProgress",
+    );
+    assert.match(progressBlock, /client\.workbench\s*\.readProgress/);
+    assert.include(progressBlock, "toSynthesisUiSnapshotInput");
+    assert.include(progressBlock, "mergeRuntimeSnapshotInput");
+    assert.notInclude(progressBlock, "getDefaultSynthesisService");
+    assert.notInclude(progressBlock, "getSynthesisBackgroundJobRows");
     assert.include(host, "refreshFromService: false");
     assert.notMatch(
       host,
@@ -5093,10 +6738,6 @@ describe("Synthesis tab UI model", function () {
     );
     const runtime = await fs.readFile(
       "src/utils/runtimeCompatibility.ts",
-      "utf8",
-    );
-    const service = await fs.readFile(
-      "src/modules/synthesis/service.ts",
       "utf8",
     );
     const i18n = await fs.readFile("src/synthesisWorkbenchI18n.ts", "utf8");
@@ -5132,10 +6773,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "deferStart?: boolean");
     assert.include(host, "globalThis.setTimeout(() => void start(), 0)");
     assert.include(host, "SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS");
-    assert.include(
-      host,
-      "getDefaultSynthesisService().rebuildTopicGraphIndex({",
-    );
+    assert.match(host, /client\.topicGraph\s*\.rebuildTopicGraphIndex\(\)/);
+    assert.match(host, /client\.tags\s*\.rebuildTagVocabularyIndex\(\)/);
+    assert.notInclude(host, "notifyWorkbenchCommandProgress");
     assert.notInclude(
       host,
       'retryReferenceSidecarRefresh" &&\n    !confirmProtectedRebuildCommand',
@@ -5149,10 +6789,5 @@ describe("Synthesis tab UI model", function () {
     }
     assert.include(runtime, "export async function yieldToEventLoop");
     assert.include(runtime, "globalThis.setTimeout");
-    assert.include(service, "yieldToEventLoop");
-    assert.include(service, "yieldControl: yieldToEventLoop");
-    assert.include(service, "runProjectionIndexRebuildWithProgress");
-    assert.include(service, "reportProgress");
-    assert.include(service, "onProgress");
   });
 });

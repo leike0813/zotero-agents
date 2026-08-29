@@ -90,7 +90,7 @@ Zotero Library
     │                   ├──→ トピックグラフ（トピック間関係）
     │                   └──→ 概念関連付け（Concept KB）
     │
-    └──→ Git Sync ←→ リモートリポジトリ（バージョン管理とバックアップ）
+    └──→ WebDAV Sync ←→ リモートスナップショット
 ```
 
 ## 前提条件
@@ -108,4 +108,4 @@ Synthesis Workbench を使用するには以下が必要である。
 - [トピック統合の作成](topic-synthesis) — トピック分析を作成
 - [レビューハブ](review) — 引用マッチ、概念、トピックグラフの提案をレビュー
 - [概念知識ベース](concepts) — コア概念を管理
-- [Git Sync](git-sync) — データの同期とバックアップを設定
+- [WebDAV Sync](webdav-sync) — 永続データ同期を設定

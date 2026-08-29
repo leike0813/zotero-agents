@@ -51,11 +51,26 @@ import {
   type ZoteroHostNotePayloadDetailArgs,
   type ZoteroHostAttachmentDto,
 } from "./zoteroHostCapabilityBroker";
-import { getDefaultSynthesisService } from "./synthesis/service";
 import type {
-  SynthesisMcpService,
-  SynthesisMcpServiceMethod,
-} from "./synthesis/mcpService";
+  SynthesisClient,
+  SynthesisDeliveryContext,
+  SynthesisJsonObject,
+  SynthesisPaperArtifactsRequest,
+  SynthesisTopicReportRequest,
+} from "../../packages/synthesis-contracts/src/index";
+import {
+  rebuildSynthesisTopicContextRequest,
+  rebuildSynthesisTopicFindRequest,
+  rebuildSynthesisTopicListRequest,
+  rebuildSynthesisTopicResolverRequest,
+  rebuildSynthesisWorkbenchPaperDigestReadRequest,
+  rebuildSynthesisWorkflowReviewRequest,
+} from "../../packages/synthesis-contracts/src/index";
+import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
+import {
+  createDirectResearchBundleApplication,
+  type DirectResearchBundleApplication,
+} from "./researchBundleService";
 import {
   getHostBridgeCapabilityContract,
   listHostBridgeCapabilityContractEntries,
@@ -68,7 +83,10 @@ export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
-  resolveSynthesisService?: () => SynthesisMcpService;
+  resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+  resolveDirectResearchBundleApplication?: () =>
+    | DirectResearchBundleApplication
+    | Promise<DirectResearchBundleApplication>;
 };
 
 export type JsonSerializableValue =
@@ -783,9 +801,52 @@ async function applySynthesisOutputBoundary(
   if (capabilityName === "paper_artifacts.resolve_topic_digest") {
     return synthesisTextChunk(result, "digest_markdown", input);
   }
+  if (capabilityName === "topics.get_planning_context") {
+    const object = asObject(result);
+    const library = asObject(object.library);
+    const graph = asObject(object.topic_graph);
+    const papers = Array.isArray(library.papers) ? library.papers : [];
+    const topics = Array.isArray(object.topics) ? object.topics : [];
+    const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+    const edges = Array.isArray(graph.edges) ? graph.edges : [];
+    const previewLimit = Math.max(
+      1,
+      Math.min(5000, Math.floor(Number(input.limit) || 100)),
+    );
+    const displayName = "synthesis-topic-planning-context.json";
+    const file = await registerBoundedOutputFile({
+      capability: capabilityName,
+      displayName,
+      contentType: "application/json",
+      content: `${JSON.stringify(result, null, 2)}\n`,
+    });
+    return {
+      summary: {
+        totalPapers: Math.max(
+          papers.length,
+          Math.floor(Number(library.total_papers) || 0),
+        ),
+        totalTopics: topics.length,
+        graphNodes: nodes.length,
+        graphEdges: edges.length,
+        paperRefs: papers.slice(0, previewLimit).map((entry) => {
+          const paper = asObject(entry);
+          return paper.paper_ref || paper.paperRef || paper.key;
+        }),
+        previewTruncated: papers.length > previewLimit,
+      },
+      diagnostics: asObject(object.diagnostics),
+      delivery: {
+        mode: "bridge-download",
+        bundle: file,
+        downloadCommand: `zotero-bridge file download ${file.fileId} --output ${displayName}`,
+      },
+    };
+  }
   if (capabilityName === "topics.get_review_input") {
     const object = asObject(result);
     const topic = asObject(object.topic);
+    const registryRows = asObject(object.registry_artifact_coverage).rows;
     const file = await registerBoundedOutputFile({
       capability: capabilityName,
       displayName: `synthesis-review-input-${String(topic.topic_id || input.topicId || input.topic_id || "topic")}.json`,
@@ -798,9 +859,7 @@ async function applySynthesisOutputBoundary(
         title: topic.title,
       },
       summary: {
-        registryRows: Array.isArray(object.registry_rows)
-          ? object.registry_rows.length
-          : 0,
+        registryRows: Array.isArray(registryRows) ? registryRows.length : 0,
         graphNodes: Array.isArray(asObject(object.citation_graph_slice).nodes)
           ? (asObject(object.citation_graph_slice).nodes as unknown[]).length
           : 0,
@@ -1248,44 +1307,279 @@ async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
   throw new Error("SkillRunner connection audit is unavailable");
 }
 
+type SynthesisClientCapabilityMethod =
+  | "listTopics"
+  | "findTopicsByPaperRef"
+  | "getTopicContext"
+  | "getTopicPlanningContext"
+  | "getTopicReport"
+  | "getSchemas"
+  | "queryConceptKb"
+  | "queryCitationGraphCluster"
+  | "getLibraryIndex"
+  | "resolveResolver"
+  | "getReferenceSidecarIndex"
+  | "startReferenceSidecarRefresh"
+  | "getPublicMaintenanceOperation"
+  | "queryCitationGraph"
+  | "getCitationGraphSlice"
+  | "getCitationGraphLayout"
+  | "getCitationGraphMetrics"
+  | "rankExternalReferences"
+  | "rankLibraryPapers"
+  | "refreshCitationGraphMetricsNow"
+  | "startCitationGraphUpdate"
+  | "getPaperArtifactManifest"
+  | "readPaperArtifacts"
+  | "exportFilteredPaperArtifacts"
+  | "resolveTopicPaperDigest"
+  | "getReviewInput"
+  | "getAttentionQueue";
+
+function topicReportRequest(
+  input: SynthesisJsonObject,
+): SynthesisTopicReportRequest {
+  return {
+    topicId: String(input.topicId || input.topic_id || "").trim(),
+  };
+}
+
+function paperArtifactsRequest(
+  input: SynthesisJsonObject,
+): SynthesisPaperArtifactsRequest {
+  const refs = [
+    ...(Array.isArray(input.paper_refs) ? input.paper_refs : []),
+    ...(Array.isArray(input.paperRefs) ? input.paperRefs : []),
+    input.paper_ref,
+    input.paperRef,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const artifactTypes = [
+    ...(Array.isArray(input.artifact_types) ? input.artifact_types : []),
+    ...(Array.isArray(input.artifactTypes) ? input.artifactTypes : []),
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return {
+    paper_refs: Array.from(new Set(refs)),
+    ...(artifactTypes.length
+      ? { artifact_types: Array.from(new Set(artifactTypes)) }
+      : {}),
+  };
+}
+
+function invokeSynthesisClientCapability(
+  client: SynthesisClient,
+  methodName: SynthesisClientCapabilityMethod,
+  input: SynthesisJsonObject,
+  delivery: SynthesisDeliveryContext,
+) {
+  switch (methodName) {
+    case "listTopics":
+      return client.topics.list(rebuildSynthesisTopicListRequest(input));
+    case "findTopicsByPaperRef":
+      return client.topics.findByPaperRef(
+        rebuildSynthesisTopicFindRequest(input),
+      );
+    case "getTopicContext":
+      return client.topics.getContext(
+        rebuildSynthesisTopicContextRequest(input),
+        delivery,
+      );
+    case "getTopicPlanningContext":
+      return client.topics.getPlanningContext();
+    case "getTopicReport":
+      return client.topics.getTopicReport(topicReportRequest(input));
+    case "getSchemas":
+      return client.maintenance.getSchemas();
+    case "queryConceptKb":
+      return client.concepts.query(input);
+    case "queryCitationGraphCluster":
+      return client.graph.queryCluster(input);
+    case "getLibraryIndex":
+      return client.libraryIndex.getPage(input);
+    case "resolveResolver":
+      return client.topics.resolveResolver(
+        rebuildSynthesisTopicResolverRequest(input),
+      );
+    case "getReferenceSidecarIndex":
+      return client.references.getSidecarIndex(input);
+    case "startReferenceSidecarRefresh":
+      return client.references.startRefresh(input);
+    case "getPublicMaintenanceOperation":
+      return client.maintenance.getOperation(
+        input as unknown as
+          | { operation_id: string; operationId?: never }
+          | { operationId: string; operation_id?: never },
+      );
+    case "queryCitationGraph":
+      return client.graph.getOverview(input);
+    case "getCitationGraphSlice":
+      return client.graph.getSlice(input);
+    case "getCitationGraphLayout":
+      return client.graph.getPersistedLayout(input);
+    case "getCitationGraphMetrics":
+      return client.graph.getMetrics(input);
+    case "rankExternalReferences":
+      return client.references.rankExternalReferences(input);
+    case "rankLibraryPapers":
+      return client.graph.rankLibraryPapers(input);
+    case "refreshCitationGraphMetricsNow":
+      return client.graph.refreshMetricsNow(input);
+    case "startCitationGraphUpdate":
+      return client.graph.startUpdate(input);
+    case "getPaperArtifactManifest":
+      return client.artifacts.getManifest(input);
+    case "readPaperArtifacts":
+      return client.artifacts.readPaperArtifacts(paperArtifactsRequest(input));
+    case "exportFilteredPaperArtifacts":
+      return client.artifacts.exportFiltered(input, delivery);
+    case "resolveTopicPaperDigest":
+      return client.artifacts.resolveTopicPaperDigest(
+        rebuildSynthesisWorkbenchPaperDigestReadRequest(input),
+      );
+    case "getReviewInput":
+      return client.workflowReview.getInput(
+        rebuildSynthesisWorkflowReviewRequest(input),
+      );
+    case "getAttentionQueue":
+      return client.references.getAttentionQueue(input);
+  }
+}
+
 function synthesisCapability(
   name: string,
-  methodName: SynthesisMcpServiceMethod,
+  methodName: SynthesisClientCapabilityMethod,
 ): HostBridgeCapabilityDefinition {
   return capability(name, async (input, context) => {
-    const service =
-      context.resolveSynthesisService?.() ||
-      (getDefaultSynthesisService() as unknown as SynthesisMcpService);
-    const method = service?.[methodName];
-    if (typeof method !== "function") {
-      throw new Error(
-        `Synthesis service method is unavailable: ${String(methodName)}`,
-      );
-    }
+    const client = await (context.resolveSynthesisClient?.() ||
+      getDefaultSynthesisClient());
     const normalizedInput = normalizeSynthesisCapabilityInput(
       name,
       asObject(input),
+    ) as SynthesisJsonObject;
+    const result = await invokeSynthesisClientCapability(
+      client,
+      methodName,
+      normalizedInput,
+      { mode: context.connectionMode },
     );
-    const result = await method(normalizedInput, {
-      hostBridge: {
-        connectionMode: context.connectionMode,
+    return applySynthesisOutputBoundary(name, normalizedInput, result);
+  });
+}
+
+async function resolveDirectResearchBundleApplication(
+  context: HostBridgeCapabilityContext,
+) {
+  const injected = context.resolveDirectResearchBundleApplication?.();
+  if (injected) return injected;
+  const [client, broker] = await Promise.all([
+    context.resolveSynthesisClient?.() || getDefaultSynthesisClient(),
+    resolveCapabilityBroker(context),
+  ]);
+  return createDirectResearchBundleApplication({
+    client,
+    host: {
+      async resolveItems(selectors) {
+        const papers = [];
+        for (const selector of selectors) {
+          const detail = await broker.library.getItemDetail(
+            selector as ZoteroHostItemRefInput,
+          );
+          if (!detail) continue;
+          const attachments = await broker.library.getItemAttachments({
+            key: detail.key,
+            libraryId: detail.libraryId,
+          });
+          papers.push({
+            paperRef: `${detail.libraryId}:${detail.key}`,
+            libraryId: detail.libraryId,
+            itemKey: detail.key,
+            title: detail.title,
+            metadata: detail,
+            attachments: attachments
+              .filter((attachment) => String(attachment.path || "").trim())
+              .map((attachment) => ({
+                path: attachment.path,
+                filename: attachment.filename,
+                contentType: attachment.contentType,
+              })),
+          });
+        }
+        return papers;
       },
+    },
+  });
+}
+
+function directResearchBundleCapability(
+  name: "items.export_research_bundle" | "topics.export_research_bundle",
+  method: "exportPapers" | "exportTopics",
+): HostBridgeCapabilityDefinition {
+  return capability(name, async (input, context) => {
+    const normalizedInput = normalizeSynthesisCapabilityInput(
+      name,
+      asObject(input),
+    ) as SynthesisJsonObject;
+    const application = await resolveDirectResearchBundleApplication(context);
+    const result = await application[method](normalizedInput, {
+      mode: context.connectionMode,
     });
     return applySynthesisOutputBoundary(name, normalizedInput, result);
   });
 }
 
-async function callSynthesisDebugService(methodName: string, input: unknown) {
+async function callSynthesisDebugClient(
+  context: HostBridgeCapabilityContext,
+  methodName: string,
+  input: unknown,
+) {
   const object = asObject(input);
-  const service = getDefaultSynthesisService() as unknown as Record<
-    string,
-    unknown
-  >;
-  const method = service[methodName];
-  if (typeof method !== "function") {
-    throw new Error(`Synthesis debug method is unavailable: ${methodName}`);
+  const client = await (context.resolveSynthesisClient?.() ||
+    getDefaultSynthesisClient());
+  const requiredString = (field: "paperRef" | "topicId") => {
+    const value = object[field];
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error(`Synthesis debug ${field} is required`);
+    }
+    return value;
+  };
+  let result: SynthesisJsonObject;
+  switch (methodName) {
+    case "debugSynthesisSnapshot":
+      result = await client.debug.snapshot(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisOperationsList":
+      result = await client.debug.listOperations(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisProfilerList":
+      result = await client.debug.listProfiler(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisPaperInspect":
+      result = await client.debug.inspectPaper({
+        paperRef: requiredString("paperRef"),
+      });
+      break;
+    case "debugSynthesisTopicInspect":
+      result = await client.debug.inspectTopic({
+        topicId: requiredString("topicId"),
+      });
+      break;
+    case "debugSynthesisDiff":
+      result = await client.debug.diff(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisCacheList":
+      result = await client.debug.listCache(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisCleanInstallReset":
+      result = await client.debug.cleanInstallReset(
+        object as SynthesisJsonObject,
+      );
+      break;
+    default:
+      throw new Error(`Synthesis debug method is unavailable: ${methodName}`);
   }
-  const result = await method(object);
   const includeFull =
     object.includeFull === true || object.include_full === true;
   const requiresFileDelivery =
@@ -1303,12 +1597,14 @@ async function callSynthesisDebugService(methodName: string, input: unknown) {
     return result;
   }
   const capability =
-    {
-      debugSynthesisSnapshot: "debug.synthesis.snapshot",
-      debugSynthesisProfilerList: "debug.synthesis.profiler.list",
-      debugSynthesisPaperInspect: "debug.synthesis.paper.inspect",
-      debugSynthesisTopicInspect: "debug.synthesis.topic.inspect",
-    }[methodName] || "debug.synthesis";
+    (
+      {
+        debugSynthesisSnapshot: "debug.synthesis.snapshot",
+        debugSynthesisProfilerList: "debug.synthesis.profiler.list",
+        debugSynthesisPaperInspect: "debug.synthesis.paper.inspect",
+        debugSynthesisTopicInspect: "debug.synthesis.topic.inspect",
+      } as Record<string, string>
+    )[methodName] || "debug.synthesis";
   const displayName = `${capability.replace(/[^A-Za-z0-9._-]+/g, "-")}.json`;
   const file = await registerBoundedOutputFile({
     capability,
@@ -1565,38 +1861,38 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     });
   }),
   debugCapability("debug.zotero.eval", (input) => debugZoteroEval(input)),
-  debugCapability("debug.synthesis.snapshot", (input) =>
-    callSynthesisDebugService("debugSynthesisSnapshot", input),
+  debugCapability("debug.synthesis.snapshot", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisSnapshot", input),
   ),
-  debugCapability("debug.synthesis.operations.list", (input) =>
-    callSynthesisDebugService("debugSynthesisOperationsList", input),
+  debugCapability("debug.synthesis.operations.list", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisOperationsList", input),
   ),
-  debugCapability("debug.synthesis.profiler.list", (input) =>
-    callSynthesisDebugService("debugSynthesisProfilerList", input),
+  debugCapability("debug.synthesis.profiler.list", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisProfilerList", input),
   ),
-  debugCapability("debug.synthesis.paper.inspect", (input) =>
-    callSynthesisDebugService("debugSynthesisPaperInspect", input),
+  debugCapability("debug.synthesis.paper.inspect", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisPaperInspect", input),
   ),
-  debugCapability("debug.synthesis.topic.inspect", (input) =>
-    callSynthesisDebugService("debugSynthesisTopicInspect", input),
+  debugCapability("debug.synthesis.topic.inspect", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisTopicInspect", input),
   ),
-  debugCapability("debug.synthesis.diff", (input) =>
-    callSynthesisDebugService("debugSynthesisDiff", input),
+  debugCapability("debug.synthesis.diff", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisDiff", input),
   ),
-  debugCapability("debug.synthesis.cache.list", (input) =>
-    callSynthesisDebugService("debugSynthesisCacheList", input),
+  debugCapability("debug.synthesis.cache.list", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisCacheList", input),
   ),
-  debugCapability("debug.synthesis.cleanInstallReset", (input) =>
-    callSynthesisDebugService("debugSynthesisCleanInstallReset", input),
+  debugCapability("debug.synthesis.cleanInstallReset", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisCleanInstallReset", input),
   ),
   synthesisCapability("topics.list", "listTopics"),
   synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),
   synthesisCapability("topics.get_context", "getTopicContext"),
   synthesisCapability("topics.get_planning_context", "getTopicPlanningContext"),
   synthesisCapability("topics.get_report", "getTopicReport"),
-  synthesisCapability(
+  directResearchBundleCapability(
     "topics.export_research_bundle",
-    "exportTopicResearchBundle",
+    "exportTopics",
   ),
   synthesisCapability("schemas.get", "getSchemas"),
   synthesisCapability("concepts.query", "queryConceptKb"),
@@ -1637,9 +1933,9 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "getPaperArtifactManifest",
   ),
   synthesisCapability("paper_artifacts.read", "readPaperArtifacts"),
-  synthesisCapability(
+  directResearchBundleCapability(
     "items.export_research_bundle",
-    "exportPaperResearchBundle",
+    "exportPapers",
   ),
   synthesisCapability(
     "paper_artifacts.export_filtered",

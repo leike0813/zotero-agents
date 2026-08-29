@@ -12,7 +12,6 @@ import {
   encodeRuntimeBase64Utf8,
   requireHostEditor,
   requireHostApi,
-  requireHostItems,
   requireHostPrefs,
   resolveRuntimeFetch,
   measureWorkflowTestSpan,
@@ -913,6 +912,13 @@ function resolveTagVocabularyBridge() {
     loadPersistedStagedState: loadSynthesisStagedState,
     persistStagedEntries: persistSynthesisStagedEntries,
     commitControlledEntries: commitSynthesisControlledEntries,
+    async promoteStagedSuggestions(tags) {
+      const synthesis = resolveSynthesisVocabularyApi();
+      if (typeof synthesis.promoteStagedTagSuggestions !== "function") {
+        throw new Error("Synthesis staged Tag promotion API is unavailable");
+      }
+      return synthesis.promoteStagedTagSuggestions({ tags });
+    },
     async removeStagedEntriesByTags(tags) {
       const synthesis = resolveSynthesisVocabularyApi();
       if (typeof synthesis.discardStagedTagSuggestions === "function") {
@@ -1158,63 +1164,23 @@ function buildStagedEntryFromSuggestTag(
   };
 }
 
-async function appendTagsToCurrentParentItem(parentItem, tags) {
-  if (!parentItem) {
-    return [];
-  }
-  const mutation = await applyTagMutations(
-    parentItem,
-    [],
-    normalizeAdvisoryStringArray(tags),
-  );
-  return mutation.added;
-}
-
-async function appendTagToBoundParentItem(parentItemId, tag) {
-  const numericParentId = Number(parentItemId);
-  const normalizedTag = asString(tag);
+function stableParentRef(parentItem) {
+  const libraryId = Number(parentItem?.libraryID ?? parentItem?.libraryId);
+  const itemKey = asString(parentItem?.key ?? parentItem?.itemKey);
   if (
-    !Number.isFinite(numericParentId) ||
-    numericParentId <= 0 ||
-    !normalizedTag
+    !Number.isSafeInteger(libraryId) ||
+    libraryId <= 0 ||
+    !/^[A-Za-z0-9]+$/.test(itemKey)
   ) {
-    return false;
+    return null;
   }
-  const item = requireHostItems().get(Math.trunc(numericParentId));
-  if (!item) {
-    return false;
-  }
-  const tags = Array.isArray(item.getTags?.()) ? item.getTags() : [];
-  if (
-    tags.some(
-      (entry) =>
-        asString(entry?.tag).toLowerCase() === normalizedTag.toLowerCase(),
-    )
-  ) {
-    return false;
-  }
-  item.addTag(normalizedTag);
-  await item.saveTx();
-  return true;
-}
-
-async function appendTagsToBoundParents(bindingsByTag) {
-  const applied = [];
-  for (const [tag, parentBindings] of bindingsByTag.entries()) {
-    for (const parentItemId of Array.isArray(parentBindings)
-      ? parentBindings
-      : []) {
-      await appendTagToBoundParentItem(parentItemId, tag);
-    }
-    applied.push(tag);
-  }
-  return applied;
+  return { libraryId, itemKey };
 }
 
 function buildBindingsMapForSelectedTags(
   stagedEntries,
   selectedTags,
-  currentParentItemId,
+  currentParentRef,
 ) {
   const bindingsByLower = collectParentBindingsByTag(
     stagedEntries,
@@ -1226,7 +1192,7 @@ function buildBindingsMapForSelectedTags(
     const existing = bindingsByLower.get(lowered) || [];
     const nextBindings = normalizeParentBindings([
       ...existing,
-      currentParentItemId,
+      ...(currentParentRef ? [currentParentRef] : []),
     ]);
     map.set(tag, nextBindings);
   }
@@ -1257,11 +1223,7 @@ async function intakeSuggestTagsToStaged(args) {
   const stagedSnapshot =
     await loadStagedVocabularySnapshot(tagVocabularyBridge);
   let nextStaged = [...stagedSnapshot.entries];
-  const currentParentItemId =
-    typeof args?.parentItem?.id === "number" &&
-    Number.isFinite(args.parentItem.id)
-      ? args.parentItem.id
-      : 0;
+  const currentParentRef = stableParentRef(args?.parentItem);
 
   for (const tag of summary.selected) {
     const lowered = tag.toLowerCase();
@@ -1288,7 +1250,7 @@ async function intakeSuggestTagsToStaged(args) {
     nextStaged = mergeParentBindingsIntoStagedEntries({
       entries: nextStaged,
       entry: built.entry,
-      parentBindings: [currentParentItemId],
+      parentBindings: currentParentRef ? [currentParentRef] : [],
       defaultSourceFlow: STAGED_SOURCE_FLOW,
     });
     summary.staged.push(tag);
@@ -1301,7 +1263,7 @@ async function intakeSuggestTagsToStaged(args) {
         stage: "staged-parent-bindings-merged",
         message: "tag-regulator merged staged parent bindings",
         details: {
-          parent_item_id: currentParentItemId || undefined,
+          parent_ref: currentParentRef || undefined,
           tag_count: summary.staged.length,
         },
       });
@@ -1775,9 +1737,7 @@ async function intakeSuggestTagsToVocabulary(args) {
 
   const controlledSnapshot =
     await loadControlledVocabularySnapshot(tagVocabularyBridge);
-  const existing = controlledSnapshot.entries;
   const existingLower = controlledSnapshot.lowerSet;
-  const nextEntries = [...existing];
 
   for (const tag of summary.selected) {
     const lowered = tag.toLowerCase();
@@ -1796,77 +1756,71 @@ async function intakeSuggestTagsToVocabulary(args) {
       });
       continue;
     }
-    nextEntries.push(built.entry);
     existingLower.add(lowered);
     summary.added.push(tag);
   }
 
   if (summary.added.length > 0) {
-    const currentParentItemId =
-      typeof args?.parentItem?.id === "number" &&
-      Number.isFinite(args.parentItem.id)
-        ? args.parentItem.id
-        : 0;
+    const currentParentRef = stableParentRef(args?.parentItem);
     const stagedSnapshot =
       await loadStagedVocabularySnapshot(tagVocabularyBridge);
     const bindingsByTag = buildBindingsMapForSelectedTags(
       stagedSnapshot.entries,
       summary.added,
-      currentParentItemId,
+      currentParentRef,
     );
     try {
       appendTagRegulatorSuggestLog({
         stage: "tag-regulator-join-publish-start",
         message: "tag-regulator started join publish transaction",
         details: {
-          parent_item_id: currentParentItemId || undefined,
+          parent_ref: currentParentRef || undefined,
           tag_count: summary.added.length,
         },
       });
-      const persistedState =
-        typeof tagVocabularyBridge.loadPersistedState === "function"
-          ? await tagVocabularyBridge.loadPersistedState()
-          : { mode: "synthesis" };
-      const mode = asString(persistedState?.mode) || "synthesis";
-      if (
-        mode === "subscription" &&
-        typeof tagVocabularyBridge.commitControlledEntries !== "function"
-      ) {
-        throw new Error("subscription commit bridge is unavailable");
+      let stagedForPromotion = [...stagedSnapshot.entries];
+      for (const tag of summary.added) {
+        const suggestEntry = suggestTagEntries.find(
+          (entry) => asString(entry?.tag).toLowerCase() === tag.toLowerCase(),
+        );
+        const built = buildStagedEntryFromSuggestTag(
+          suggestEntry,
+          bindingsByTag.get(tag) || [],
+        );
+        if (!built.ok || !built.entry) {
+          throw new Error(asString(built.reason || "invalid staged tag"));
+        }
+        stagedForPromotion = mergeParentBindingsIntoStagedEntries({
+          entries: stagedForPromotion,
+          entry: built.entry,
+          parentBindings: bindingsByTag.get(tag) || [],
+          defaultSourceFlow: STAGED_SOURCE_FLOW,
+        });
       }
-      const committed =
-        typeof tagVocabularyBridge.commitControlledEntries === "function"
-          ? await tagVocabularyBridge.commitControlledEntries({
-              workflowId: "tag-regulator",
-              entries: nextEntries,
-            })
-          : {
-              entries: (await tagVocabularyBridge.persistEntries(nextEntries))
-                .entries,
-              mode,
-            };
-      if (typeof tagVocabularyBridge.removeStagedEntriesByTags === "function") {
-        await tagVocabularyBridge.removeStagedEntriesByTags(summary.added);
+      await tagVocabularyBridge.persistStagedEntries(stagedForPromotion);
+      if (typeof tagVocabularyBridge.promoteStagedSuggestions !== "function") {
+        throw new Error("staged Tag promotion bridge is unavailable");
       }
-      await appendTagsToBoundParents(bindingsByTag);
-      summary.appliedToCurrentParent = await appendTagsToCurrentParentItem(
-        args?.parentItem,
+      const promoted = await tagVocabularyBridge.promoteStagedSuggestions(
         summary.added,
       );
-      if (String(committed?.mode || "") === "subscription") {
-        appendTagRegulatorSuggestLog({
-          stage: "tag-regulator-join-publish-succeeded",
-          message: "tag-regulator join publish transaction succeeded",
-          details: {
-            parent_item_id: currentParentItemId || undefined,
-            tag_count: summary.added.length,
-          },
-        });
-        showTagRegulatorToast({
-          text: `Tag Regulator publish succeeded (${summary.added.length} tag${summary.added.length === 1 ? "" : "s"})`,
-          type: "success",
-        });
-      }
+      summary.appliedToCurrentParent = Array.from(
+        new Set(
+          (Array.isArray(promoted?.applied_parent_tags)
+            ? promoted.applied_parent_tags
+            : [])
+            .filter(
+              (entry) =>
+                currentParentRef &&
+                Number(entry?.parent_ref?.libraryId) ===
+                  currentParentRef.libraryId &&
+                asString(entry?.parent_ref?.itemKey) ===
+                  currentParentRef.itemKey,
+            )
+            .map((entry) => asString(entry?.tag))
+            .filter(Boolean),
+        ),
+      );
     } catch (error) {
       const reason = `publish failed: ${asString(error?.message || error)}`;
       let fallbackStaged = (
@@ -1901,7 +1855,7 @@ async function intakeSuggestTagsToVocabulary(args) {
           stage: "tag-regulator-join-fallback-to-staged",
           message: "tag-regulator join publish fell back to staged entries",
           details: {
-            parent_item_id: currentParentItemId || undefined,
+            parent_ref: currentParentRef || undefined,
             tag_count: summary.staged.length,
           },
         });
@@ -1924,7 +1878,7 @@ async function intakeSuggestTagsToVocabulary(args) {
         level: "warn",
         message: "tag-regulator join publish transaction failed",
         details: {
-          parent_item_id: currentParentItemId || undefined,
+          parent_ref: currentParentRef || undefined,
           tag_count: summary.selected.length,
         },
         error,
@@ -2006,14 +1960,17 @@ function mergeUniqueStringArrays(...arrays) {
   return values;
 }
 
-function sameNormalizedNumberArray(left, right) {
+function sameNormalizedParentBindings(left, right) {
   const a = normalizeParentBindings(left);
   const b = normalizeParentBindings(right);
   if (a.length !== b.length) {
     return false;
   }
   for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) {
+    if (
+      a[i].libraryId !== b[i].libraryId ||
+      a[i].itemKey !== b[i].itemKey
+    ) {
       return false;
     }
   }
@@ -2032,11 +1989,7 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
   const suggestTagEntries = Array.isArray(args?.suggestTagEntries)
     ? args.suggestTagEntries
     : [];
-  const currentParentItemId =
-    typeof args?.parentItem?.id === "number" &&
-    Number.isFinite(args.parentItem.id)
-      ? Math.trunc(args.parentItem.id)
-      : 0;
+  const currentParentRef = stableParentRef(args?.parentItem);
   const stagedSnapshot =
     await loadStagedVocabularySnapshot(tagVocabularyBridge);
   const mergedEntries = normalizePersistedStagedEntries(stagedSnapshot.entries);
@@ -2056,8 +2009,7 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
     }
     const lowered = tag.toLowerCase();
     const stagedIndex = indexByTag.get(lowered);
-    const currentParentBindings =
-      currentParentItemId > 0 ? [currentParentItemId] : [];
+    const currentParentBindings = currentParentRef ? [currentParentRef] : [];
     let parentBindings = currentParentBindings;
 
     if (typeof stagedIndex === "number") {
@@ -2071,7 +2023,9 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
         ...existing.parentBindings,
         ...currentParentBindings,
       ]);
-      if (!sameNormalizedNumberArray(existing.parentBindings, parentBindings)) {
+      if (
+        !sameNormalizedParentBindings(existing.parentBindings, parentBindings)
+      ) {
         mergedEntries[stagedIndex] = {
           ...existing,
           parentBindings,
@@ -2100,7 +2054,7 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
         message:
           "tag-regulator merged current parent into existing staged suggest bindings",
         details: {
-          parent_item_id: currentParentItemId || undefined,
+          parent_ref: currentParentRef || undefined,
           tag_count: changedCount,
         },
       });
@@ -2111,7 +2065,7 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
         message:
           "tag-regulator failed to persist merged staged suggest bindings",
         details: {
-          parent_item_id: currentParentItemId || undefined,
+          parent_ref: currentParentRef || undefined,
           tag_count: changedCount,
         },
         error,

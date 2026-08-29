@@ -1,8 +1,10 @@
-## Purpose
+# runtime-persistence-governance Specification
 
+## Purpose
 Runtime persistence governance defines where indexed operational state is stored and how cold-path JSON assets are treated.
 
 ## Requirements
+
 ### Requirement: SQLite state stores indexed operational state
 
 Runtime persistence governance SHALL separate plugin workflow/runtime SQLite state from Synthesis SQLite state.
@@ -23,6 +25,7 @@ Runtime persistence governance SHALL separate plugin workflow/runtime SQLite sta
 - **WHEN** Synthesis needs state for UI, MCP, Host Bridge, review actions, workers, operation progress, or graph queries
 - **THEN** it SHALL use indexed SQLite tables in `state/synthesis.db`
 - **AND** it SHALL NOT store that hot state in `state/zotero-agents.db`, prefs, runtime files, or `plugin_task_rows.payload_json`.
+
 ### Requirement: Runtime SQLite access is concurrency guarded
 
 Plugin-owned access to runtime SQLite databases SHALL use guarded SQLite execution paths.
@@ -32,6 +35,7 @@ Plugin-owned access to runtime SQLite databases SHALL use guarded SQLite executi
 - **WHEN** plugin-owned runtime persistence code opens or writes `state/zotero-agents.db` or `state/synthesis.db`
 - **THEN** access for the same normalized DB path SHALL reuse one guarded connection/coordinator inside the process
 - **AND** nested guarded transactions on that connection SHALL not issue nested `BEGIN IMMEDIATE` statements.
+
 ### Requirement: Runtime persistence usage exposes cleanable runtime categories
 
 Runtime persistence governance SHALL expose cleanable runtime data categories for prefs diagnostics and cleanup.
@@ -111,6 +115,56 @@ diagnostics.
 - **GIVEN** the configured runtime root is a POSIX absolute path
 - **WHEN** runtime persistence paths are resolved
 - **THEN** child paths SHALL preserve POSIX path shape.
+
+### Requirement: Sidecar runtime installs have a fixed managed persistence root
+
+
+Runtime persistence governance SHALL reserve
+`runtime/synthesis/service-runtime` for product-owned Synthesis runtime
+versions, staging directories, and active/previous pointers.
+
+#### Scenario: Installer creates or repairs a runtime
+
+- **WHEN** the Synthesis runtime installer writes, moves, verifies, or removes
+  runtime assets
+- **THEN** every affected path SHALL remain below the fixed service-runtime root
+- **AND** arbitrary user or manifest-provided absolute paths SHALL not be used.
+
+### Requirement: Runtime pointer replacement is atomic
+
+
+Runtime persistence governance SHALL provide a fail-closed atomic text
+replacement primitive for managed pointer files.
+
+#### Scenario: Atomic replacement is available
+
+- **WHEN** active or previous runtime pointer content is updated
+- **THEN** a complete temporary sibling SHALL be atomically moved over the
+  target
+- **AND** readers SHALL observe either the prior or complete new document.
+
+#### Scenario: Atomic replacement is unavailable
+
+- **WHEN** the runtime cannot guarantee atomic replacement
+- **THEN** the pointer update SHALL fail
+- **AND** it SHALL not fall back to remove-then-write behavior.
+
+### Requirement: Sidecar lifecycle files remain profile and instance scoped
+
+
+Runtime persistence SHALL derive all sidecar lifecycle files below the fixed
+service-runtime profile directory and SHALL support atomic private text writes.
+
+#### Scenario: Supervisor creates a session
+- **WHEN** a profile-scoped sidecar session starts
+- **THEN** config and lease paths SHALL remain below that profile and session
+- **AND** private POSIX files SHALL use owner-only permissions.
+
+#### Scenario: Lifecycle cleanup runs
+- **WHEN** a service or supervisor cleans discovery, owner, or session state
+- **THEN** it SHALL first verify matching profile, supervisor, and service
+  identities
+- **AND** it SHALL not delete another instance's state.
 
 ### Requirement: Zotero runtime text I/O SHALL not block through synchronous Components streams
 

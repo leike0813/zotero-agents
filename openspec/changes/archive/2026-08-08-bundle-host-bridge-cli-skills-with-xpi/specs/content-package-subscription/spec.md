@@ -10,4 +10,3 @@ The seven Host Bridge Skill IDs resolved from the surface manifest SHALL be owne
 #### Scenario: Content Package is absent
 - **WHEN** no official Content Package has been installed
 - **THEN** the validated plugin-bundled Host Bridge Skills remain available to plugin consumers
-

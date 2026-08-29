@@ -11,6 +11,8 @@ import { tmpdir } from "os";
 import { dirname, extname, join, resolve } from "path";
 import ts from "typescript";
 import packageJson from "../../../package.json";
+import { getCiGateStages } from "../../../scripts/ci-gate-plan";
+import { resolveSynthesisNativeStage1Suite } from "../../../scripts/synthesis-native-stage1-suite";
 
 type ScriptsMap = Record<string, string>;
 
@@ -271,27 +273,97 @@ describe("suite governance constraints", function () {
 
   it("Risk: MR-02 keeps CI gate entries mapped to explicit pr/release targets", function () {
     const scripts = getScripts();
-    const gateSource = readFileSync(
-      join(process.cwd(), "scripts", "run-ci-gate.ts"),
-      "utf8",
-    );
 
     assert.match(scripts["test:gate:pr"] || "", /run-ci-gate\.ts\s+pr/i);
     assert.match(
       scripts["test:gate:release"] || "",
       /run-ci-gate\.ts\s+release/i,
     );
-    const contentGate = gateSource.indexOf('"check:host-bridge-content"');
-    const suiteGate = gateSource.indexOf("runNpmScript(suiteCommand)");
-    assert.isAtLeast(
-      contentGate,
-      0,
-      "PR and release CI gates must reject stale Host Bridge derivatives",
+    for (const gate of ["pr", "release"] as const) {
+      const stages = getCiGateStages(gate).map((stage) => stage.script);
+      assert.include(stages, "check:host-bridge-content");
+      assert.isBelow(
+        stages.indexOf("check:host-bridge-content"),
+        stages.indexOf(gate === "release" ? "test:full" : "test:lite"),
+        "Host Bridge derivative validation must run before the test suite",
+      );
+    }
+  });
+
+  it("Risk: the Synthesis Stage 1 milestone inventory stays complete and fail-closed", function () {
+    const files = readdirSync(join(process.cwd(), "test", "core"), {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
+      .map((entry) => `test/core/${entry.name}`);
+    const suite = resolveSynthesisNativeStage1Suite(files);
+
+    assert.equal(suite.files.length, 36);
+    assert.equal(
+      suite.files[0],
+      "test/core/175-synthesis-client-foundation.test.ts",
     );
-    assert.isBelow(
-      contentGate,
-      suiteGate,
-      "Host Bridge derivative validation must run before the test suite",
+    assert.equal(
+      suite.files.at(-1),
+      "test/core/239-synthesis-sidecar-build-promotion.test.ts",
+    );
+    assert.deepEqual(
+      suite.segments.map((segment) => segment.files.length),
+      [17, 2, 17],
+    );
+    assert.deepEqual(suite.segments[1].files, [
+      "test/core/193-synthesis-sidecar-runtime-packaging.test.ts",
+      "test/core/218-synthesis-cross-language-sidecar-contract.test.ts",
+    ]);
+
+    assert.throws(() =>
+      resolveSynthesisNativeStage1Suite(
+        files.filter((filePath) => !filePath.includes("/175-")),
+      ),
+    );
+    assert.throws(() =>
+      resolveSynthesisNativeStage1Suite([
+        ...files,
+        "test/core/175-synthesis-client-foundation.test.ts",
+      ]),
+    );
+    assert.throws(() =>
+      resolveSynthesisNativeStage1Suite(
+        files.map((filePath) =>
+          filePath.includes("/175-")
+            ? "test/core/175-unrelated-foundation.test.ts"
+            : filePath,
+        ),
+      ),
+    );
+  });
+
+  it("Risk: PR and release gates share one blocking native Synthesis Stage 1 milestone", function () {
+    const scripts = getScripts();
+
+    assert.match(
+      scripts["test:synthesis-native:stage1"] || "",
+      /run-node-test-shards\.ts\s+--suite\s+synthesis-native-stage1/i,
+    );
+    assert.deepEqual(
+      getCiGateStages("pr").map((stage) => stage.script),
+      [
+        "check:localization-governance",
+        "check:ssot-invariants",
+        "check:host-bridge-content",
+        "test:synthesis-native:stage1",
+        "test:lite",
+      ],
+    );
+    assert.deepEqual(
+      getCiGateStages("release").map((stage) => stage.script),
+      [
+        "check:localization-governance",
+        "check:ssot-invariants",
+        "check:host-bridge-content",
+        "test:synthesis-native:stage1",
+        "test:full",
+      ],
     );
   });
 

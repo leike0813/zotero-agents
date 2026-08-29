@@ -1,4 +1,10 @@
+import type { SynthesisSidecarRuntimeTarget } from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
+
 export type RuntimePlatform = "win32" | "darwin" | "linux" | "unknown";
+export type RuntimeArchitecture = "x86" | "x64" | "arm" | "arm64" | "unknown";
+export type SynthesisSidecarRuntimeTargetDetection =
+  | SynthesisSidecarRuntimeTarget
+  | "unsupported";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -49,6 +55,74 @@ export function detectRuntimePlatform(
   }
 
   return "unknown";
+}
+
+export function detectRuntimeArchitecture(
+  architectureOverride?: unknown,
+): RuntimeArchitecture {
+  const explicit = normalizeString(architectureOverride).toLowerCase();
+  if (explicit === "x64" || explicit === "amd64" || explicit === "x86_64") {
+    return "x64";
+  }
+  if (explicit === "x86" || explicit === "ia32" || explicit === "i686") {
+    return "x86";
+  }
+  if (explicit === "arm" || explicit === "armv7" || explicit === "armv7l") {
+    return "arm";
+  }
+  if (
+    explicit === "arm64" ||
+    explicit === "aarch64" ||
+    explicit === "arm64-v8a"
+  ) {
+    return "arm64";
+  }
+  if (explicit) {
+    return "unknown";
+  }
+  const runtime = globalThis as {
+    process?: { arch?: string };
+    Services?: { appinfo?: { XPCOMABI?: string } };
+  };
+  const nodeArchitecture = normalizeString(runtime.process?.arch);
+  if (nodeArchitecture) {
+    return detectRuntimeArchitecture(nodeArchitecture);
+  }
+  const abi = normalizeString(
+    runtime.Services?.appinfo?.XPCOMABI,
+  ).toLowerCase();
+  if (/\b(?:x86_64|amd64|x64)\b/.test(abi)) {
+    return "x64";
+  }
+  if (/\b(?:aarch64|arm64)\b/.test(abi)) {
+    return "arm64";
+  }
+  return "unknown";
+}
+
+export function detectSynthesisSidecarRuntimeTarget(
+  options: {
+    platform?: unknown;
+    architecture?: unknown;
+  } = {},
+): SynthesisSidecarRuntimeTargetDetection {
+  const platform = detectRuntimePlatform(options.platform);
+  const architecture = detectRuntimeArchitecture(options.architecture);
+  if (platform === "win32" && architecture === "x64") {
+    return "win32-x64";
+  }
+  if (
+    (platform === "darwin" &&
+      (architecture === "x64" || architecture === "arm64")) ||
+    (platform === "linux" &&
+      (architecture === "x86" ||
+        architecture === "x64" ||
+        architecture === "arm" ||
+        architecture === "arm64"))
+  ) {
+    return `${platform}-${architecture}` as SynthesisSidecarRuntimeTarget;
+  }
+  return "unsupported";
 }
 
 export function isWindowsRuntime(platformOverride?: unknown) {

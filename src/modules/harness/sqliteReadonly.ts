@@ -1,4 +1,8 @@
-import type { SqlAdapter, SqlParams, SqlRow } from "../synthesis/repository";
+import type {
+  SqlAdapter,
+  SqlParams,
+  SqlRow,
+} from "../../../packages/synthesis-repository/src/index";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";

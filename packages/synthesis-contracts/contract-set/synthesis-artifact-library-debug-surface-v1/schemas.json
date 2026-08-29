@@ -1,0 +1,15 @@
+{
+  "schema": "synthesis-artifact-library-debug-schemas.v1",
+  "schemas": {
+    "result_bundle": "synthesis.topic_synthesis_result_bundle@1.0.0",
+    "canonical_metadata": "synthesis.topic_artifact_metadata@1.0.0",
+    "artifact_manifest": "synthesis.paper_artifact_manifest@1.0.0",
+    "library_index": "synthesis.library_index@1.0.0",
+    "debug_snapshot": "synthesis.debug-maintenance.v1"
+  },
+  "redaction": {
+    "local_paths": "[redacted-path]",
+    "credentials": "omitted",
+    "host_objects": "omitted"
+  }
+}

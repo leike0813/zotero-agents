@@ -145,7 +145,7 @@ The citation graph can calculate various metrics to help identify core papers an
 
 | Layout | Description | Use Case |
 |--------|-------------|----------|
-| **Force (Force-Directed)** | d3-force layout | Explore overall structure |
+| **Force (Force-Directed)** | ForceAtlas2 (Rust) layout | Explore overall structure |
 | **Radial** | Expand around a selected node | Analyze a paper's citation network |
 | **Components** | Group by connected components | Discover independent citation clusters |
 

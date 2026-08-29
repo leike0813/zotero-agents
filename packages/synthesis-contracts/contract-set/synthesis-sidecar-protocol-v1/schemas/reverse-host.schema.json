@@ -1,0 +1,889 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json",
+  "$defs": {
+    "NonEmptyString": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "ItemKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9]+$"
+    },
+    "PositiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "StringArray": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": { "type": "string", "maxLength": 4096 }
+    },
+    "EmptyDiagnostics": { "type": "array", "maxItems": 0, "items": false },
+    "TextDiagnostics": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    },
+    "StructuredDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity"],
+      "properties": {
+        "code": { "$ref": "#/$defs/NonEmptyString" },
+        "message": { "type": "string", "maxLength": 4096 },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "field": { "$ref": "#/$defs/NonEmptyString" },
+        "reason": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "StructuredDiagnostics": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/StructuredDiagnostic" }
+    },
+    "ItemRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "itemKey"],
+      "properties": {
+        "libraryId": { "$ref": "#/$defs/PositiveInteger" },
+        "itemKey": { "$ref": "#/$defs/ItemKey" }
+      }
+    },
+    "LibraryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paperRef",
+        "libraryId",
+        "itemKey",
+        "itemType",
+        "title",
+        "year",
+        "date",
+        "creators",
+        "tags",
+        "collections",
+        "doi",
+        "arxiv",
+        "isbn",
+        "url",
+        "citekey",
+        "dateAdded"
+      ],
+      "properties": {
+        "paperRef": { "$ref": "#/$defs/NonEmptyString" },
+        "libraryId": { "$ref": "#/$defs/PositiveInteger" },
+        "itemKey": { "$ref": "#/$defs/ItemKey" },
+        "itemType": { "type": "string", "maxLength": 256 },
+        "title": { "type": "string", "maxLength": 65536 },
+        "year": { "type": "string", "maxLength": 64 },
+        "date": { "type": "string", "maxLength": 256 },
+        "creators": { "$ref": "#/$defs/StringArray" },
+        "tags": { "$ref": "#/$defs/StringArray" },
+        "collections": { "$ref": "#/$defs/StringArray" },
+        "doi": { "type": "string", "maxLength": 4096 },
+        "arxiv": { "type": "string", "maxLength": 4096 },
+        "isbn": { "type": "string", "maxLength": 4096 },
+        "url": { "type": "string", "maxLength": 16384 },
+        "citekey": { "type": "string", "maxLength": 4096 },
+        "dateAdded": { "type": "string", "maxLength": 256 },
+        "updatedAt": { "type": "string", "maxLength": 256 },
+        "metadataHash": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "LibraryItemsListPageRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 4096 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "LibraryItemsListPageResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cursor",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "limit",
+        "items"
+      ],
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 4096 },
+        "nextCursor": { "type": "string", "maxLength": 4096 },
+        "snapshotRevision": { "type": "string", "maxLength": 512 },
+        "hasMore": { "type": "boolean" },
+        "returned": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/LibraryItem" }
+        }
+      }
+    },
+    "LibraryItemsGetByRefRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paperRefs"],
+      "properties": {
+        "paperRefs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        }
+      }
+    },
+    "LibraryItemsGetByRefResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "missingPaperRefs"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/LibraryItem" }
+        },
+        "missingPaperRefs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        }
+      }
+    },
+    "LiteratureQuality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "quality_prior", "diagnostics"],
+      "properties": {
+        "status": { "enum": ["available", "missing", "invalid"] },
+        "schema": { "const": "literature_score.v1" },
+        "rubric_id": { "$ref": "#/$defs/NonEmptyString" },
+        "paper_type": { "$ref": "#/$defs/NonEmptyString" },
+        "overall_score": { "type": "number" },
+        "confidence": { "type": "number" },
+        "confidence_adjusted_score": { "type": "number" },
+        "quality_prior": { "type": "number" },
+        "payload_hash": { "type": "string", "maxLength": 128 },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "enum": ["literature_score_missing", "literature_score_invalid"]
+          }
+        }
+      }
+    },
+    "ArtifactDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paperRef",
+        "artifactType",
+        "payloadType",
+        "status",
+        "diagnostics"
+      ],
+      "properties": {
+        "paperRef": { "$ref": "#/$defs/NonEmptyString" },
+        "artifactType": {
+          "enum": [
+            "digest",
+            "references",
+            "citation_analysis",
+            "literature_score"
+          ]
+        },
+        "payloadType": { "$ref": "#/$defs/NonEmptyString" },
+        "status": {
+          "enum": ["available", "missing", "decode_error", "unsupported"]
+        },
+        "locator": { "type": "string", "maxLength": 4096 },
+        "payloadHash": { "type": "string", "maxLength": 128 },
+        "estimatedSize": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "diagnostics": { "$ref": "#/$defs/TextDiagnostics" },
+        "literatureQuality": { "$ref": "#/$defs/LiteratureQuality" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "artifactType": { "const": "literature_score" } },
+            "required": ["artifactType"]
+          },
+          "then": {
+            "required": ["literatureQuality"],
+            "properties": {
+              "literatureQuality": { "$ref": "#/$defs/LiteratureQuality" }
+            }
+          },
+          "else": { "properties": { "literatureQuality": false } }
+        }
+      ]
+    },
+    "LibraryArtifactsScanPageRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 4096 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "paperRefs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        },
+        "artifactTypes": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "enum": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ]
+          }
+        }
+      }
+    },
+    "LibraryArtifactsScanPageResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cursor",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "limit",
+        "artifacts"
+      ],
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 4096 },
+        "nextCursor": { "type": "string", "maxLength": 4096 },
+        "snapshotRevision": { "type": "string", "maxLength": 512 },
+        "hasMore": { "type": "boolean" },
+        "returned": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 400,
+          "items": { "$ref": "#/$defs/ArtifactDescriptor" }
+        }
+      }
+    },
+    "LibraryArtifactsReadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locator", "expectedHash"],
+      "properties": {
+        "locator": { "$ref": "#/$defs/NonEmptyString" },
+        "expectedHash": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "ArtifactContent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "json" },
+            "value": { "$ref": "common.schema.json#/$defs/opaqueCanonicalJson" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "text", "mediaType"],
+          "properties": {
+            "kind": { "const": "text" },
+            "text": { "type": "string", "maxLength": 8388608 },
+            "mediaType": { "enum": ["text/markdown", "text/plain"] }
+          }
+        }
+      ]
+    },
+    "LibraryArtifactsReadResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "diagnostics"],
+      "properties": {
+        "status": { "enum": ["available", "missing", "decode_error", "stale"] },
+        "payloadHash": { "type": "string", "maxLength": 128 },
+        "currentHash": { "type": "string", "maxLength": 128 },
+        "content": { "$ref": "#/$defs/ArtifactContent" },
+        "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+      }
+    },
+    "LibraryRepresentativeImageReadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "noteKey"],
+      "properties": {
+        "libraryId": { "$ref": "#/$defs/PositiveInteger" },
+        "noteKey": { "$ref": "#/$defs/ItemKey" }
+      }
+    },
+    "LibraryRepresentativeImageReadResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "diagnostics"],
+          "properties": {
+            "status": { "const": "absent" },
+            "diagnostics": { "$ref": "#/$defs/EmptyDiagnostics" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "diagnostics"],
+          "properties": {
+            "status": { "const": "unavailable" },
+            "attachmentKey": { "$ref": "#/$defs/ItemKey" },
+            "alt": { "type": "string", "maxLength": 4096 },
+            "caption": { "type": "string", "maxLength": 4096 },
+            "sourceKind": { "type": "string", "maxLength": 128 },
+            "strategy": { "type": "string", "maxLength": 128 },
+            "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "attachmentKey",
+            "mimeType",
+            "contentBase64",
+            "alt",
+            "caption",
+            "compressedBytes",
+            "diagnostics"
+          ],
+          "properties": {
+            "status": { "const": "available" },
+            "attachmentKey": { "$ref": "#/$defs/ItemKey" },
+            "mimeType": { "$ref": "#/$defs/NonEmptyString" },
+            "contentBase64": { "type": "string", "maxLength": 2796204 },
+            "alt": { "type": "string", "maxLength": 4096 },
+            "caption": { "type": "string", "maxLength": 4096 },
+            "width": { "$ref": "#/$defs/PositiveInteger" },
+            "height": { "$ref": "#/$defs/PositiveInteger" },
+            "compressedBytes": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "sourceKind": { "type": "string", "maxLength": 128 },
+            "strategy": { "type": "string", "maxLength": 128 },
+            "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+          }
+        }
+      ]
+    },
+    "OutputTransferReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionId", "rootSha256"],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/NonEmptyString" },
+        "rootSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "DeliveryExportPublishArchiveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "displayName", "contentTransfer"],
+      "properties": {
+        "capability": {
+          "enum": ["topics.get_context", "paper_artifacts.export_filtered"]
+        },
+        "displayName": { "$ref": "#/$defs/NonEmptyString" },
+        "contentTransfer": { "$ref": "#/$defs/OutputTransferReference" }
+      }
+    },
+    "DeliveryDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fileId",
+        "sourceKind",
+        "displayName",
+        "contentType",
+        "size",
+        "sha256",
+        "createdAt",
+        "expiresAt",
+        "owner"
+      ],
+      "properties": {
+        "fileId": { "$ref": "#/$defs/NonEmptyString" },
+        "sourceKind": { "const": "bridge-export" },
+        "displayName": { "$ref": "#/$defs/NonEmptyString" },
+        "contentType": { "const": "application/zip" },
+        "size": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "createdAt": { "$ref": "#/$defs/NonEmptyString" },
+        "expiresAt": { "$ref": "#/$defs/NonEmptyString" },
+        "owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["capability"],
+          "properties": {
+            "capability": {
+              "enum": ["topics.get_context", "paper_artifacts.export_filtered"]
+            }
+          }
+        }
+      }
+    },
+    "DeliveryProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "bundle", "downloadCommand", "unpackHint"],
+      "properties": {
+        "mode": { "const": "bridge-download" },
+        "bundle": { "$ref": "#/$defs/DeliveryDescriptor" },
+        "downloadCommand": { "$ref": "#/$defs/NonEmptyString" },
+        "unpackHint": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "DeliveryExportPublishArchiveResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "capability", "delivery", "diagnostics"],
+          "properties": {
+            "status": { "const": "available" },
+            "capability": {
+              "enum": ["topics.get_context", "paper_artifacts.export_filtered"]
+            },
+            "delivery": { "$ref": "#/$defs/DeliveryProjection" },
+            "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "capability", "diagnostics"],
+          "properties": {
+            "status": { "const": "unavailable" },
+            "capability": {
+              "enum": ["topics.get_context", "paper_artifacts.export_filtered"]
+            },
+            "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+          }
+        }
+      ]
+    },
+    "DeliveryExportMaterializeRunWorkspaceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "runRoot", "contentTransfer"],
+      "properties": {
+        "capability": { "const": "paper_artifacts.export_filtered" },
+        "runRoot": { "$ref": "#/$defs/NonEmptyString" },
+        "contentTransfer": { "$ref": "#/$defs/OutputTransferReference" }
+      }
+    },
+    "DeliveryExportMaterializeRunWorkspaceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "capability", "entryCount"],
+      "properties": {
+        "status": { "const": "materialized" },
+        "capability": { "const": "paper_artifacts.export_filtered" },
+        "entryCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
+    },
+    "WebDavDescribeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    },
+    "WebDavConnectionTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "tested_at", "config_status", "diagnostics"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "tested_at": { "type": "string", "maxLength": 64 },
+        "config_status": {
+          "enum": ["disabled", "incomplete", "configured", "invalid"]
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/WebDavConnectionDiagnostic" }
+        }
+      }
+    },
+    "WebDavConnectionDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/NonEmptyString" },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "message": { "type": "string", "maxLength": 4096 },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "body": { "type": "string", "maxLength": 4096 }
+          }
+        }
+      }
+    },
+    "WebDavDescribeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "configStatus",
+        "autoSyncEnabled",
+        "autoRetryEnabled",
+        "baseUrl",
+        "remotePath",
+        "username",
+        "diagnostics"
+      ],
+      "properties": {
+        "status": { "enum": ["available", "disabled", "unavailable"] },
+        "configStatus": {
+          "enum": ["disabled", "incomplete", "configured", "invalid"]
+        },
+        "autoSyncEnabled": { "type": "boolean" },
+        "autoRetryEnabled": { "type": "boolean" },
+        "baseUrl": { "type": "string", "maxLength": 4096 },
+        "remotePath": { "type": "string", "maxLength": 1024 },
+        "username": { "type": "string", "maxLength": 4096 },
+        "credentialUpdatedAt": { "type": "string", "maxLength": 64 },
+        "connectionTest": { "$ref": "#/$defs/WebDavConnectionTest" },
+        "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+      }
+    },
+    "ManagedPathRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?![A-Za-z]:)(?!.*\\\\).+$"
+        }
+      }
+    },
+    "WebDavReadTextRequest": { "$ref": "#/$defs/ManagedPathRequest" },
+    "WebDavReadTextResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "text", "diagnostics"],
+          "properties": {
+            "status": { "const": "available" },
+            "text": { "type": "string", "maxLength": 4194304 },
+            "etag": { "type": "string", "maxLength": 1024 },
+            "diagnostics": { "$ref": "#/$defs/EmptyDiagnostics" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "diagnostics"],
+          "properties": {
+            "status": { "const": "missing" },
+            "diagnostics": { "$ref": "#/$defs/EmptyDiagnostics" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "diagnostics"],
+          "properties": {
+            "status": { "const": "unavailable" },
+            "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+          }
+        }
+      ]
+    },
+    "WebDavWriteTextRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "text"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "text": { "type": "string", "maxLength": 4194304 },
+        "ifMatch": { "type": "string", "maxLength": 1024 }
+      }
+    },
+    "WebDavWriteTextResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "diagnostics"],
+          "properties": {
+            "status": { "const": "written" },
+            "etag": { "type": "string", "maxLength": 1024 },
+            "diagnostics": { "$ref": "#/$defs/EmptyDiagnostics" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "diagnostics"],
+          "properties": {
+            "status": { "enum": ["conflict", "unavailable"] },
+            "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+          }
+        }
+      ]
+    },
+    "WebDavEnsureCollectionRequest": { "$ref": "#/$defs/ManagedPathRequest" },
+    "WebDavEnsureCollectionResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "diagnostics"],
+          "properties": {
+            "status": { "const": "ready" },
+            "diagnostics": { "$ref": "#/$defs/EmptyDiagnostics" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "diagnostics"],
+          "properties": {
+            "status": { "const": "unavailable" },
+            "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
+          }
+        }
+      ]
+    },
+    "RelatedItemsEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effectId",
+        "action",
+        "source",
+        "target",
+        "provenance",
+        "permission"
+      ],
+      "properties": {
+        "effectId": { "$ref": "#/$defs/NonEmptyString" },
+        "action": { "enum": ["ensure_present", "ensure_absent"] },
+        "source": { "$ref": "#/$defs/ItemRef" },
+        "target": { "$ref": "#/$defs/ItemRef" },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["citationEdgeId", "kind"],
+          "properties": {
+            "citationEdgeId": { "$ref": "#/$defs/NonEmptyString" },
+            "kind": {
+              "enum": ["accepted_citation", "synthesis_created_relation"]
+            }
+          }
+        },
+        "permission": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope", "reason"],
+          "properties": {
+            "scope": { "const": "synthesis.related_items" },
+            "reason": {
+              "enum": ["accepted_citation", "revoke_synthesis_effect"]
+            }
+          }
+        }
+      }
+    },
+    "EffectReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effectId", "action", "status", "occurredAt", "diagnostics"],
+      "properties": {
+        "effectId": { "$ref": "#/$defs/NonEmptyString" },
+        "action": { "enum": ["ensure_present", "ensure_absent"] },
+        "status": {
+          "enum": ["applied", "already_satisfied", "not_found", "failed"]
+        },
+        "occurredAt": { "$ref": "#/$defs/NonEmptyString" },
+        "diagnostics": { "$ref": "#/$defs/StructuredDiagnostics" }
+      }
+    },
+    "RelatedItemsApplyBatchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effects"],
+      "properties": {
+        "effects": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/RelatedItemsEffect" }
+        }
+      }
+    },
+    "RelatedItemsApplyBatchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipts"],
+      "properties": {
+        "receipts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/EffectReceipt" }
+        }
+      }
+    },
+    "TagEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effectId",
+        "action",
+        "target",
+        "tag",
+        "provenance",
+        "precondition",
+        "permission"
+      ],
+      "properties": {
+        "effectId": { "$ref": "#/$defs/NonEmptyString" },
+        "action": { "const": "ensure_present" },
+        "target": { "$ref": "#/$defs/ItemRef" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "staged_tag_promotion" } }
+        },
+        "precondition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target"],
+          "properties": { "target": { "const": "exists" } }
+        },
+        "permission": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope", "reason"],
+          "properties": {
+            "scope": { "const": "synthesis.tags" },
+            "reason": { "const": "promote_staged_tag" }
+          }
+        }
+      }
+    },
+    "TagEffectReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effectId", "action", "status", "occurredAt", "diagnostics"],
+      "properties": {
+        "effectId": { "$ref": "#/$defs/NonEmptyString" },
+        "action": { "const": "ensure_present" },
+        "status": {
+          "enum": ["applied", "already_satisfied", "not_found", "failed"]
+        },
+        "occurredAt": { "$ref": "#/$defs/NonEmptyString" },
+        "diagnostics": { "$ref": "#/$defs/StructuredDiagnostics" }
+      }
+    },
+    "TagEffectsApplyBatchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effects"],
+      "properties": {
+        "effects": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/TagEffect" }
+        }
+      }
+    },
+    "TagEffectsApplyBatchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipts"],
+      "properties": {
+        "receipts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/TagEffectReceipt" }
+        }
+      }
+    },
+    "StagedTagBindingResolveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "itemIds"],
+      "properties": {
+        "libraryId": { "$ref": "#/$defs/PositiveInteger" },
+        "itemIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/PositiveInteger" }
+        }
+      }
+    },
+    "ResolvedBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemId", "ref"],
+      "properties": {
+        "itemId": { "$ref": "#/$defs/PositiveInteger" },
+        "ref": { "$ref": "#/$defs/ItemRef" }
+      }
+    },
+    "StagedTagBindingResolveResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resolved", "missingItemIds", "diagnostics"],
+      "properties": {
+        "resolved": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/ResolvedBinding" }
+        },
+        "missingItemIds": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/PositiveInteger" }
+        },
+        "diagnostics": { "$ref": "#/$defs/StructuredDiagnostics" }
+      }
+    }
+  }
+}

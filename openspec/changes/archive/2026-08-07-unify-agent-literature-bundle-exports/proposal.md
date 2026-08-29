@@ -16,4 +16,3 @@ The manuscript-driven Research Bundle can drop papers that were already resolved
 ## Scope
 
 The change is limited to built-in Research Bundle and Literature Workbench workflows, their shared materialization/import libraries, manifests, documentation, and regression tests. It does not change Zotero storage formats or backend APIs beyond existing bounded `library.listItems` and collection option surfaces.
-

@@ -1,7 +1,6 @@
 # runtime-platform-services Specification
 
 ## Purpose
-
 Runtime platform services provide shared platform-sensitive primitives for runtime platform detection, native path handling, environment/PATH handling, command resolution, and subprocess execution.
 
 ## Requirements
@@ -367,6 +366,52 @@ Runtime process control SHALL represent a launch-owned process group as a valida
 - **WHEN** the Node transport escalates a validated process group
 - **THEN** it SHALL pass the complete validated PGID through the direct process signal API
 - **AND** it MUST NOT accept an arbitrary unvalidated numeric target
+
+### Requirement: Runtime platform services expose normalized architecture
+
+
+Runtime platform services SHALL resolve the current CPU architecture separately
+from the operating-system platform and SHALL expose a stable supported runtime
+target.
+
+#### Scenario: Known platform and architecture are detected
+
+- **WHEN** runtime metadata identifies x64 or arm64 on Windows, macOS, or Linux
+- **THEN** platform services SHALL return the exact normalized target supported
+  by the Synthesis runtime matrix.
+
+#### Scenario: Architecture cannot be proven
+
+- **WHEN** runtime metadata is missing, conflicting, or unsupported
+- **THEN** platform services SHALL return an unknown or unsupported target
+- **AND** SHALL NOT guess from paths or perform command discovery.
+
+### Requirement: Synthesis runtime assets bypass command resolution
+
+
+Product-owned Synthesis runtime installation SHALL use packaged asset reads and
+verified managed absolute paths only.
+
+#### Scenario: Installer resolves the Node executable
+
+- **WHEN** a supported Synthesis runtime bundle is installed
+- **THEN** the resulting Node path SHALL be derived from the verified managed
+  installation
+- **AND** runtime command registry, PATH search, system Node, npm, npx, and user
+  shells SHALL not participate.
+
+### Requirement: Product-owned sidecar launch uses a sealed environment
+
+
+Runtime platform services SHALL support direct Mozilla Subprocess launch of the
+verified Synthesis runtime with an explicit environment and open stdin.
+
+#### Scenario: Sidecar subprocess is launched
+- **WHEN** the supervisor starts the verified runtime
+- **THEN** `environmentAppend` SHALL be false
+- **AND** only documented OS-required variables SHALL be copied
+- **AND** stdin, stdout, stderr, wait, and direct kill handles SHALL remain
+  available to the supervisor.
 
 ### Requirement: Mozilla subprocess transports SHALL drain pipes from process creation
 

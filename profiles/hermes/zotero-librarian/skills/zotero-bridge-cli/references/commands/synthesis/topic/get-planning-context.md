@@ -55,15 +55,6 @@ Required: `false`.
       "maximum": 5000,
       "minimum": 1,
       "type": "integer"
-    },
-    "outputPath": {
-      "type": "string"
-    },
-    "output_path": {
-      "type": "string"
-    },
-    "overwrite": {
-      "type": "boolean"
     }
   },
   "type": "object"
@@ -80,15 +71,6 @@ Required: `false`.
       "maximum": 5000,
       "minimum": 1,
       "type": "integer"
-    },
-    "outputPath": {
-      "type": "string"
-    },
-    "output_path": {
-      "type": "string"
-    },
-    "overwrite": {
-      "type": "boolean"
     }
   },
   "type": "object"
@@ -115,12 +97,11 @@ This command has no separate field-mapping program. Its binding mode is executab
       "const": "topics.get_planning_context"
     },
     "data": {
-      "additionalProperties": true,
-      "description": "Planning context or local/remote file delivery data owned by topics.get_planning_context.",
+      "additionalProperties": false,
+      "description": "Planning snapshot summary and registered file delivery owned by topics.get_planning_context.",
       "properties": {
         "delivery": {
           "additionalProperties": false,
-          "description": "Registered remote-file delivery instructions when direct local output is unavailable.",
           "properties": {
             "bundle": {
               "additionalProperties": true,
@@ -133,16 +114,30 @@ This command has no separate field-mapping program. Its binding mode is executab
               "enum": [
                 "bridge-download"
               ]
-            },
-            "unpackHint": {
-              "type": "string"
             }
           },
+          "required": [
+            "mode",
+            "bundle",
+            "downloadCommand"
+          ],
           "type": "object"
+        },
+        "diagnostics": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-openPropertiesReason": "The planning application owns diagnostic fields while the command envelope remains closed."
+        },
+        "summary": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-openPropertiesReason": "The planning application owns bounded summary counters while the command envelope remains closed."
         }
       },
-      "type": "object",
-      "x-openPropertiesReason": "The planning snapshot owns library, topic, graph, coverage, and output fields; the command envelope remains closed."
+      "required": [
+        "delivery"
+      ],
+      "type": "object"
     }
   },
   "required": [
@@ -166,7 +161,7 @@ zotero-bridge synthesis topic get-planning-context --query '{}'
 
 Prerequisites:
 
-- Replace output paths and limits with values valid for the active connection profile before execution.
+- Replace limits with values valid for the active connection profile before execution.
 
 ## Complete command descriptor
 
@@ -239,7 +234,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "description": "Minimal JSON shape for --query.",
           "kind": "shape-only",
           "prerequisites": [
-            "Replace output paths and limits with values valid for the active connection profile before execution."
+            "Replace limits with values valid for the active connection profile before execution."
           ],
           "value": {}
         }
@@ -253,15 +248,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "maximum": 5000,
             "minimum": 1,
             "type": "integer"
-          },
-          "outputPath": {
-            "type": "string"
-          },
-          "output_path": {
-            "type": "string"
-          },
-          "overwrite": {
-            "type": "boolean"
           }
         },
         "type": "object"
@@ -288,8 +274,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "get-planning-context",
     "planning",
     "coverage",
-    "query",
-    "JSON_OR_FILE"
+    "query"
   ],
   "outputBoundary": {
     "fileField": "data.delivery.bundle",
@@ -303,26 +288,17 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "maximum": 5000,
         "minimum": 1,
         "type": "integer"
-      },
-      "outputPath": {
-        "type": "string"
-      },
-      "output_path": {
-        "type": "string"
-      },
-      "overwrite": {
-        "type": "boolean"
       }
     },
     "type": "object"
   },
   "recovery": [
     {
-      "action": "Request outputPath for a complete snapshot; for bridge-download, run the returned downloadCommand and unpack the bundle.",
+      "action": "Retry the read, then run the returned downloadCommand with the new file handle.",
       "nextCommand": "file download",
       "requiresHandles": [],
       "stateCheck": "command-result",
-      "when": "The planning snapshot is truncated or remote delivery is returned."
+      "when": "The registered planning snapshot cannot be downloaded."
     }
   ],
   "resultSchema": {
@@ -336,12 +312,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "const": "topics.get_planning_context"
       },
       "data": {
-        "additionalProperties": true,
-        "description": "Planning context or local/remote file delivery data owned by topics.get_planning_context.",
+        "additionalProperties": false,
+        "description": "Planning snapshot summary and registered file delivery owned by topics.get_planning_context.",
         "properties": {
           "delivery": {
             "additionalProperties": false,
-            "description": "Registered remote-file delivery instructions when direct local output is unavailable.",
             "properties": {
               "bundle": {
                 "additionalProperties": true,
@@ -354,16 +329,30 @@ This closed descriptor is the machine-readable command contract returned by `sur
                 "enum": [
                   "bridge-download"
                 ]
-              },
-              "unpackHint": {
-                "type": "string"
               }
             },
+            "required": [
+              "mode",
+              "bundle",
+              "downloadCommand"
+            ],
             "type": "object"
+          },
+          "diagnostics": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-openPropertiesReason": "The planning application owns diagnostic fields while the command envelope remains closed."
+          },
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-openPropertiesReason": "The planning application owns bounded summary counters while the command envelope remains closed."
           }
         },
-        "type": "object",
-        "x-openPropertiesReason": "The planning snapshot owns library, topic, graph, coverage, and output fields; the command envelope remains closed."
+        "required": [
+          "delivery"
+        ],
+        "type": "object"
       }
     },
     "required": [
@@ -403,7 +392,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - Category: `read`; danger: `none`.
 - Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
-- Operational aliases: `synthesis topic get-planning-context`, `synthesis`, `topic`, `get-planning-context`, `planning`, `coverage`, `query`, `JSON_OR_FILE`.
+- Operational aliases: `synthesis topic get-planning-context`, `synthesis`, `topic`, `get-planning-context`, `planning`, `coverage`, `query`.
 
 ### Effects
 
@@ -439,11 +428,11 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ```json
 [
   {
-    "action": "Request outputPath for a complete snapshot; for bridge-download, run the returned downloadCommand and unpack the bundle.",
+    "action": "Retry the read, then run the returned downloadCommand with the new file handle.",
     "nextCommand": "file download",
     "requiresHandles": [],
     "stateCheck": "command-result",
-    "when": "The planning snapshot is truncated or remote delivery is returned."
+    "when": "The registered planning snapshot cannot be downloaded."
   }
 ]
 ```

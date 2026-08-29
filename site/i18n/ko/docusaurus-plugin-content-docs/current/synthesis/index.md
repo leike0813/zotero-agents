@@ -108,4 +108,4 @@ Synthesis Workbench를 사용하려면 다음이 필요합니다:
 - [토픽 통합 생성](topic-synthesis) — 토픽 분석 생성
 - [리뷰 허브](review) — 인용 매치, 개념 및 토픽 그래프 제안 리뷰
 - [개념 지식 베이스](concepts) — 핵심 개념 관리
-- [Git 동기화](git-sync) — 데이터 동기화 및 백업 구성
+- [WebDAV 동기화](webdav-sync) — 영구 데이터 동기화 구성

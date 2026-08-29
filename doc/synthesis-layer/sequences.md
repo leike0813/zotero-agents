@@ -4,6 +4,39 @@ This document defines the active cross-domain Synthesis sequences. It is the hum
 
 Historical index sync, dirty-event drain, startup reconcile, WorkItem/WorkRun worker execution, and full Registry rebuild sequences are removed implementation targets. New behavior uses direct Zotero/artifact reads, workflow apply sidecar sync, and explicit operations.
 
+## `seq.topic.apply_structured_artifact`
+
+Topic create/update keeps pure materialization separate from application-owned
+IO and durable promotion.
+
+```mermaid
+sequenceDiagram
+  participant W as Workflow Workspace
+  participant A as Synthesis Application
+  participant E as Structured Artifact Engine
+  participant C as Topic Canonical Root
+  A->>W: read and validate manifest locators
+  A->>E: validate manifest
+  A->>W: read declared sections
+  opt update_patch
+    A->>C: read current manifest and sections
+    A->>E: apply section read-set patch
+  end
+  A->>E: assemble artifact
+  A->>E: validate artifact
+  A->>A: validate digest availability and assemble metadata
+  A->>C: prepare draft; derive path, hashes, bounds, and typed view
+  C-->>A: opaque prepared representation and transparent read view
+  A->>C: promote prepared representation against expected basis
+  C->>C: allocate transaction ID, stage, journal, and publish receipt
+  A->>A: apply downstream sidecars, discovery, event log, and autosync
+```
+
+Engine throw, cancellation, bounds failure, malformed result, or patch conflict
+stops before canonical promotion and downstream durable effects.
+The application never constructs the persisted snapshot or promotion payload;
+durable import reaches the same promotion path by decoding canonical assets.
+
 ## `seq.sidecar.digest_apply_sync`
 
 Digest apply is the normal automatic sidecar update path for one literature item.
@@ -168,6 +201,42 @@ Constraints:
 - Graph cache refresh does not mark topic source-check state changed.
 - Graph metrics are optional enrichment for topic workflows.
 
+## `seq.graph.transfer_worker`
+
+The Rust production transfer path executes large graph-build compute without
+giving the worker repository, canonical, or Host authority.
+
+```mermaid
+sequenceDiagram
+  participant C as Internal Transfer Client
+  participant M as Service Main
+  participant P as Shared Worker Pool
+  participant W as Packed Worker
+
+  C->>M: begin, upload bounded pages, seal input
+  C->>M: execute(sessionId)
+  M->>P: admit queued attempt
+  P->>W: open task-scoped MessagePort
+  loop one input page in flight
+    M->>W: transferable canonical rows
+    W->>M: validated input ACK
+  end
+  W->>W: compute through packed graph-build adapter
+  loop one output page in flight
+    W->>M: transferable canonical rows
+    M->>W: persisted output ACK
+  end
+  M->>M: rebuild manifest and atomically commit attempt
+  C->>M: poll status and read committed pages
+```
+
+Constraints:
+
+- The worker receives no staging path, DB, canonical-file, Host, Zotero, or
+  subprocess capability.
+- A failed attempt returns to sealed input; session cancel destroys all state.
+- After the attempt commits, the Rust application recaptures the durable basis and promotes through the single repository writer.
+
 ## `seq.discovery.digest_apply_match`
 
 Discovery is a single-literature apply-time best-effort matcher.
@@ -198,6 +267,7 @@ sequenceDiagram
   participant O as Operation Row
   participant S as Sidecar Repository
   participant G as Graph Cache
+  participant H as Related Items Effect Port
   participant Z as Zotero Library
 
   U->>O: create visible related-items sync operation
@@ -206,57 +276,16 @@ sequenceDiagram
   else graph cache unavailable
     O->>S: resolve accepted edges from active raw refs, redirects, and bindings
   end
-  O->>Z: verify current related-item state
-  loop each selected edge
-    O->>Z: read current related-item state
-    alt missing and approved
-      O->>S: record pending effect
-      O->>Z: add relation
-      O->>S: record applied or failed effect
-    else already exists
-      O->>S: record already_existed
-    end
+  loop batches of at most 25 deterministic effects
+    O->>S: persist entire batch as pending_external_write
+    O->>H: apply canonical ensure-present / ensure-absent batch
+    H->>Z: inspect and mutate relation state idempotently
+    Z-->>H: current or updated relation state
+    H-->>O: one canonical receipt per effect
+    O->>S: reconcile ownership, status, diagnostics, and echo state
   end
+  Note over O,S: Transport or malformed receipts leave the current batch pending and stop later batches
 ```
-
-## `seq.git_sync.export_import`
-
-Git Sync exchanges durable Synthesis state through Git assets. It does not synchronize the live SQLite file.
-
-```mermaid
-sequenceDiagram
-  participant U as User or Autosync
-  participant G as Git Sync Service
-  participant S as Sidecar Repository
-  participant A as Topic Artifact Root
-  participant W as Git Worktree
-  participant R as Remote Git Repo
-
-  U->>G: request sync
-  G->>S: read durable facts
-  G->>A: read topics/<topicId>/current assets
-  G->>W: write durable envelopes and manifest.json
-  G->>R: fetch and merge
-  G->>W: validate path, manifest, asset hashes, schema, duplicates
-  G->>G: compare sync-index base, local export hash, remote hash
-  alt blocking conflict
-    G->>G: write conflict report
-    G-->>U: blocked_conflict
-  else clean preview
-    G->>R: push validated durable assets
-    G->>S: apply durable facts through repository/domain services
-    G->>A: restore topic current assets
-    G->>S: mark rebuildable projections stale
-    G-->>U: idle
-  end
-```
-
-Constraints:
-
-- Validation and dry-run happen before any SQLite write.
-- Same-entity local and remote edits block import.
-- Projection rows are not imported as durable facts; they become stale after durable import.
-- `zotero-agents.db`, `synthesis.db`, WAL/SHM, operations, logs, locks, credentials, and temp workspaces never enter Git.
 
 Constraints:
 
@@ -264,9 +293,56 @@ Constraints:
 - It never deletes user-created Zotero related links.
 - Current Zotero relation state is authoritative.
 
+## `seq.webdav_sync.export_import`
+
+WebDAV Sync exchanges durable Synthesis state through deterministic bundle assets. It does not synchronize the live SQLite file.
+
+```mermaid
+sequenceDiagram
+  participant U as User or Autosync
+  participant W as WebDAV Sync Service
+  participant H as Secret-free Host Port
+  participant S as Sidecar Repository
+  participant A as Topic Artifact Root
+  participant R as Remote WebDAV Collection
+
+  U->>W: request sync
+  W->>H: read HEAD.json
+  H->>R: read HEAD.json
+  W->>W: strictly rebuild pointer and observed ETag
+  W->>H: lazily read remote manifest and declared assets
+  H->>R: read remote snapshot
+  W->>W: validate path, manifest, asset hashes, schema, duplicates
+  W->>S: preview durable import
+  alt blocking conflict
+    W->>W: write conflict report
+    W-->>U: blocked_conflict
+  else clean preview
+    W->>W: require explicit composition policy for unbased updates
+    W->>S: apply durable facts through repository/domain services
+    W->>A: restore topic current assets
+    W->>S: read current durable facts
+    W->>H: upload sorted bundles, manifest, then conditional HEAD.json
+    H->>R: publish immutable snapshot and observed-ETag HEAD
+    W->>S: mark rebuildable projections stale
+    W-->>U: idle
+  end
+```
+
+Constraints:
+
+- Validation and dry-run happen before any SQLite write.
+- Same-entity local and remote edits block import.
+- Unbased remote updates block unless the composition explicitly acknowledges them.
+- A second HEAD observation or conditional write conflict fails retryably; it never overwrites a changed pointer.
+- Projection rows are not imported as durable facts; they become stale after durable import.
+- `zotero-agents.db`, `synthesis.db`, WAL/SHM, operations, logs, locks, credentials, and temp workspaces never enter WebDAV bundles.
+
 ## `seq.import.preview_apply`
 
-Import is preview-first and sidecar-scoped.
+Import is preview-first and sidecar-scoped. The Rust production durable
+application owns validation, repository CAS, and canonical promotion; remote
+WebDAV credentials and HTTP remain in the secret-free Host adapter.
 
 ```mermaid
 sequenceDiagram
@@ -274,17 +350,32 @@ sequenceDiagram
   participant I as Import Service
   participant B as File Bundle
   participant S as Sidecar Repository
+  participant C as Topic Canonical Store
 
   U->>I: import preview
   I->>B: read explicit bundle
   I->>S: compare with sidecar state
-  I-->>U: dry-run diff
-  U->>I: apply confirmed import
-  I->>S: validate bundle and write via repository APIs
+  I->>C: validate complete Topic JSON/Markdown snapshots
+  I-->>U: dry-run diff and single-use receipt
+  U->>I: apply receipt and unbased-update acknowledgement
+  I->>S: recapture aggregate and sync-index basis
+  I->>C: stage strict multi-Topic batch
+  I->>S: CAS durable facts, stale bases, index, and commit receipt
+  I->>I: enter shared consistency completion
+  I->>C: promote or recognize completed batch
+  I->>C: verify every canonical target
+  I->>S: clear commit receipt after verification
   I-->>U: import result summary
 ```
 
 Constraints:
 
-- Apply requires preview plus explicit confirmation.
-- Import scope must state whether user-approved binding/dedupe decisions are overwritten.
+- Apply consumes the receipt even when acknowledgement or basis checks fail.
+- Conflicts and tombstones never receive an apply receipt.
+- Restart rolls a batch forward only when its manifest/receipt matches SQLite;
+  an uncommitted batch is discarded and inconsistent evidence fails startup.
+- Production acquisition runs the same consistency completion before listener
+  bind and ready discovery. Once SQLite commits, recovery never compensates or
+  replays repository effects; it completes canonical promotion and clears the
+  receipt only after target verification.
+- WebDAV imports mark projections stale but do not schedule canonical autosync.

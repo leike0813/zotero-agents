@@ -1,0 +1,1949 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/worker.schema.json",
+  "$defs": {
+    "Text": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "OptionalText": { "type": "string", "maxLength": 4096 },
+    "StringArray": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/OptionalText" }
+    },
+    "IdentifierArray": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "common.schema.json#/$defs/identifier" }
+    },
+    "PageDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section", "pageIndex", "rowCount", "byteLength", "sha256"],
+      "properties": {
+        "section": { "$ref": "common.schema.json#/$defs/identifier" },
+        "pageIndex": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "rowCount": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "EmptySection": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    },
+    "StringRecordPair": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "$ref": "#/$defs/Text" },
+        { "$ref": "#/$defs/OptionalText" }
+      ],
+      "items": false
+    },
+    "TagEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "facet", "aliases", "abbrev"],
+      "properties": {
+        "tag": { "$ref": "#/$defs/Text" },
+        "facet": { "$ref": "#/$defs/Text" },
+        "note": { "$ref": "#/$defs/OptionalText" },
+        "deprecated": { "type": "boolean" },
+        "replacement": { "$ref": "#/$defs/OptionalText" },
+        "aliases": { "$ref": "#/$defs/StringArray" },
+        "abbrev": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "TagProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "tagPattern", "maxTagLength", "facets"],
+      "properties": {
+        "version": { "$ref": "#/$defs/Text" },
+        "tagPattern": { "$ref": "#/$defs/Text" },
+        "maxTagLength": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "facets": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "TagWarning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/Text" },
+        "severity": { "enum": ["warning", "error"] },
+        "tag": { "$ref": "#/$defs/OptionalText" },
+        "message": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "TagSearchRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "normalized", "facet", "aliases", "abbrev"],
+      "properties": {
+        "tag": { "$ref": "#/$defs/Text" },
+        "normalized": { "$ref": "#/$defs/OptionalText" },
+        "facet": { "$ref": "#/$defs/Text" },
+        "aliases": { "$ref": "#/$defs/StringArray" },
+        "abbrev": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "TagVocabularyValidateRunHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion", "protocol"],
+      "properties": {
+        "contractVersion": { "const": "synthesis-tag-vocabulary.v1" },
+        "algorithmVersion": { "const": "tag-vocabulary-validation.v1" },
+        "protocol": { "$ref": "#/$defs/TagProtocol" }
+      }
+    },
+    "TagVocabularyValidateInputSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/TagEntriesPage" },
+        { "$ref": "#/$defs/TagAliasesPage" },
+        { "$ref": "#/$defs/TagAbbrevPage" }
+      ]
+    },
+    "TagVocabularyValidateResultHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion"],
+      "properties": {
+        "contractVersion": { "const": "synthesis-tag-vocabulary.v1" },
+        "algorithmVersion": { "const": "tag-vocabulary-validation.v1" }
+      }
+    },
+    "TagVocabularyValidateResultSection": { "$ref": "#/$defs/TagWarningsPage" },
+    "TagVocabularyIndexRunHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "algorithmVersion",
+        "protocol",
+        "sourceManifestHash",
+        "rebuiltAt"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-tag-vocabulary.v1" },
+        "algorithmVersion": { "const": "tag-vocabulary-index.v1" },
+        "protocol": { "$ref": "#/$defs/TagProtocol" },
+        "sourceManifestHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "rebuiltAt": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "TagVocabularyIndexInputSection": {
+      "$ref": "#/$defs/TagVocabularyValidateInputSection"
+    },
+    "TagVocabularyIndexResultHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "algorithmVersion",
+        "schemaVersion",
+        "sourceManifestHash",
+        "rebuiltAt"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-tag-vocabulary.v1" },
+        "algorithmVersion": { "const": "tag-vocabulary-index.v1" },
+        "schemaVersion": { "const": "1.0.0" },
+        "sourceManifestHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "rebuiltAt": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "TagVocabularyIndexResultSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/TagNamesPage" },
+        { "$ref": "#/$defs/TagAliasesPage" },
+        { "$ref": "#/$defs/TagAbbrevPage" },
+        { "$ref": "#/$defs/TagSearchPage" },
+        { "$ref": "#/$defs/TagWarningsPage" }
+      ]
+    },
+    "TagEntriesPage": { "$ref": "#/$defs/TagEntriesPageBody" },
+    "TagEntriesPageBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": { "$ref": "#/$defs/TagEntriesDescriptor" },
+        "rows": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TagEntry" }
+        }
+      }
+    },
+    "TagEntriesDescriptor": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/PageDescriptor" },
+        {
+          "type": "object",
+          "properties": { "section": { "const": "entries" } }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TagAliasesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "aliases" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 50000,
+          "items": { "$ref": "#/$defs/StringRecordPair" }
+        }
+      }
+    },
+    "TagAbbrevPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "abbrev" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/StringRecordPair" }
+        }
+      }
+    },
+    "TagNamesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "tags" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/Text" }
+        }
+      }
+    },
+    "TagSearchPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "search" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TagSearchRow" }
+        }
+      }
+    },
+    "TagWarningsPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": {
+                "section": { "enum": ["warnings", "validationWarnings"] }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/TagWarning" }
+        }
+      }
+    },
+
+    "ConceptStatus": { "enum": ["active", "review", "deprecated"] },
+    "ConceptConfidence": { "enum": ["high", "medium", "low"] },
+    "Concept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conceptId",
+        "label",
+        "aliases",
+        "conceptType",
+        "domain",
+        "status"
+      ],
+      "properties": {
+        "conceptId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "label": { "$ref": "#/$defs/Text" },
+        "aliases": { "$ref": "#/$defs/StringArray" },
+        "conceptType": { "$ref": "#/$defs/Text" },
+        "domain": { "$ref": "#/$defs/Text" },
+        "status": { "$ref": "#/$defs/ConceptStatus" },
+        "shortDefinition": { "$ref": "#/$defs/OptionalText" },
+        "definition": { "$ref": "#/$defs/OptionalText" }
+      }
+    },
+    "Sense": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["senseId", "conceptId", "label", "confidence"],
+      "properties": {
+        "senseId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "conceptId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "label": { "$ref": "#/$defs/Text" },
+        "shortDefinition": { "$ref": "#/$defs/OptionalText" },
+        "definition": { "$ref": "#/$defs/OptionalText" },
+        "confidence": { "$ref": "#/$defs/ConceptConfidence" }
+      }
+    },
+    "ConceptAlias": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aliasId",
+        "alias",
+        "normalized",
+        "conceptId",
+        "status",
+        "confidence"
+      ],
+      "properties": {
+        "aliasId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "alias": { "$ref": "#/$defs/Text" },
+        "normalized": { "$ref": "#/$defs/Text" },
+        "conceptId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "senseId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "status": { "$ref": "#/$defs/ConceptStatus" },
+        "confidence": { "$ref": "#/$defs/ConceptConfidence" }
+      }
+    },
+    "ConceptSearchRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conceptId", "conceptType", "domain", "label", "normalized"],
+      "properties": {
+        "conceptId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "conceptType": { "$ref": "#/$defs/Text" },
+        "domain": { "$ref": "#/$defs/Text" },
+        "label": { "$ref": "#/$defs/Text" },
+        "normalized": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "ConceptOverlayEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "conceptId", "confidence", "label"],
+      "properties": {
+        "alias": { "$ref": "#/$defs/Text" },
+        "conceptId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "confidence": { "$ref": "#/$defs/ConceptConfidence" },
+        "definition": { "$ref": "#/$defs/OptionalText" },
+        "label": { "$ref": "#/$defs/Text" },
+        "senseId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "shortDefinition": { "$ref": "#/$defs/OptionalText" }
+      }
+    },
+    "ConceptAliasMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aliasId", "conceptId"],
+      "properties": {
+        "aliasId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "conceptId": { "$ref": "common.schema.json#/$defs/identifier" }
+      }
+    },
+    "ConceptQueryMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aliasMatches",
+        "ambiguous",
+        "exactConceptIds",
+        "label",
+        "senseIds"
+      ],
+      "properties": {
+        "aliasMatches": {
+          "type": "array",
+          "maxItems": 250000,
+          "items": { "$ref": "#/$defs/ConceptAliasMatch" }
+        },
+        "ambiguous": { "type": "boolean" },
+        "exactConceptIds": { "$ref": "#/$defs/IdentifierArray" },
+        "label": { "$ref": "#/$defs/Text" },
+        "senseIds": { "$ref": "#/$defs/IdentifierArray" }
+      }
+    },
+    "ConceptKbIndexRunHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "algorithmVersion",
+        "sourceManifestHash",
+        "rebuiltAt"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-concept-kb-index.v1" },
+        "algorithmVersion": { "const": "concept-kb-index.v1" },
+        "sourceManifestHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "rebuiltAt": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "ConceptKbQueryRunHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion"],
+      "properties": {
+        "contractVersion": { "const": "synthesis-concept-kb-index.v1" },
+        "algorithmVersion": { "const": "concept-kb-query.v1" }
+      }
+    },
+    "ConceptKbIndexResultHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "algorithmVersion",
+        "schemaVersion",
+        "sourceManifestHash",
+        "rebuiltAt"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-concept-kb-index.v1" },
+        "algorithmVersion": { "const": "concept-kb-index.v1" },
+        "schemaVersion": { "const": "1.0.0" },
+        "sourceManifestHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "rebuiltAt": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "ConceptKbQueryResultHeader": { "$ref": "#/$defs/ConceptKbQueryRunHeader" },
+    "ConceptKbIndexInputSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/ConceptsPage" },
+        { "$ref": "#/$defs/SensesPage" },
+        { "$ref": "#/$defs/ConceptAliasesPage" }
+      ]
+    },
+    "ConceptKbQueryInputSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/ConceptsPage" },
+        { "$ref": "#/$defs/SensesPage" },
+        { "$ref": "#/$defs/ConceptAliasesPage" },
+        { "$ref": "#/$defs/ConceptLabelsPage" }
+      ]
+    },
+    "ConceptKbIndexResultSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/ConceptSearchPage" },
+        { "$ref": "#/$defs/ConceptOverlayPage" }
+      ]
+    },
+    "ConceptKbQueryResultSection": { "$ref": "#/$defs/ConceptMatchesPage" },
+    "ConceptsPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "concepts" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/Concept" }
+        }
+      }
+    },
+    "SensesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "senses" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/Sense" }
+        }
+      }
+    },
+    "ConceptAliasesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "aliases" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/ConceptAlias" }
+        }
+      }
+    },
+    "ConceptLabelsPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "labels" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/Text" }
+        }
+      }
+    },
+    "ConceptSearchPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "search" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/ConceptSearchRow" }
+        }
+      }
+    },
+    "ConceptOverlayPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "overlayEntries" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/ConceptOverlayEntry" }
+        }
+      }
+    },
+    "ConceptMatchesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "matches" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/ConceptQueryMatch" }
+        }
+      }
+    },
+
+    "TopicGraphNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topicId", "isRoot"],
+      "properties": {
+        "topicId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "isRoot": { "type": "boolean" },
+        "level": { "enum": ["top", "normal"] },
+        "definitionStatus": {
+          "enum": ["has_synthesis", "placeholder", "deleted", "stale"]
+        }
+      }
+    },
+    "TopicGraphEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edgeId",
+        "sourceTopicId",
+        "targetTopicId",
+        "relation",
+        "status"
+      ],
+      "properties": {
+        "edgeId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "sourceTopicId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "targetTopicId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "relation": {
+          "enum": [
+            "broader_than",
+            "related_to",
+            "overlaps_with",
+            "contrasts_with"
+          ]
+        },
+        "status": {
+          "enum": ["suggested", "confirmed", "rejected", "stale", "deleted"]
+        }
+      }
+    },
+    "TopicGraphIndexRunHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "algorithmVersion",
+        "sourceManifestHash",
+        "rebuiltAt"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-topic-graph-index.v1" },
+        "algorithmVersion": { "const": "topic-graph-index.v1" },
+        "sourceManifestHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "rebuiltAt": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "TopicGraphIndexInputSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/TopicNodesPage" },
+        { "$ref": "#/$defs/TopicEdgesPage" }
+      ]
+    },
+    "TopicGraphIndexResultHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "algorithmVersion",
+        "schemaVersion",
+        "sourceManifestHash",
+        "rebuiltAt"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-topic-graph-index.v1" },
+        "algorithmVersion": { "const": "topic-graph-index.v1" },
+        "schemaVersion": { "const": "1.0.0" },
+        "sourceManifestHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "rebuiltAt": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "TopicGraphIndexResultSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/TopicRootsPage" },
+        { "$ref": "#/$defs/TopicUnplacedPage" }
+      ]
+    },
+    "TopicNodesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "nodes" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/TopicGraphNode" }
+        }
+      }
+    },
+    "TopicEdgesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "edges" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/TopicGraphEdge" }
+        }
+      }
+    },
+    "TopicRootsPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "roots" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": { "$ref": "#/$defs/IdentifierArray" }
+      }
+    },
+    "TopicUnplacedPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "unplaced" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": { "$ref": "#/$defs/IdentifierArray" }
+      }
+    },
+
+    "MatcherIdentifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/Text" },
+        "value": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "MatcherIdentifiers": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/MatcherIdentifier" }
+    },
+    "MatcherPaper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paperRef"],
+      "properties": {
+        "paperRef": { "$ref": "common.schema.json#/$defs/identifier" },
+        "itemKey": { "$ref": "common.schema.json#/$defs/identifier" },
+        "literatureItemId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "title": { "$ref": "#/$defs/OptionalText" },
+        "normalizedTitle": { "$ref": "#/$defs/OptionalText" },
+        "year": { "$ref": "#/$defs/OptionalText" },
+        "authors": { "$ref": "#/$defs/StringArray" },
+        "doi": { "$ref": "#/$defs/OptionalText" },
+        "arxiv": { "$ref": "#/$defs/OptionalText" },
+        "isbn": { "$ref": "#/$defs/OptionalText" },
+        "url": { "$ref": "#/$defs/OptionalText" },
+        "citekey": { "$ref": "#/$defs/OptionalText" },
+        "identifiers": { "$ref": "#/$defs/MatcherIdentifiers" }
+      }
+    },
+    "MatcherReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "referenceInstanceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "title": { "$ref": "#/$defs/OptionalText" },
+        "parsedTitle": { "$ref": "#/$defs/OptionalText" },
+        "normalizedTitle": { "$ref": "#/$defs/OptionalText" },
+        "year": { "$ref": "#/$defs/OptionalText" },
+        "authors": { "$ref": "#/$defs/StringArray" },
+        "rawReference": { "$ref": "#/$defs/OptionalText" },
+        "doi": { "$ref": "#/$defs/OptionalText" },
+        "arxiv": { "$ref": "#/$defs/OptionalText" },
+        "isbn": { "$ref": "#/$defs/OptionalText" },
+        "url": { "$ref": "#/$defs/OptionalText" },
+        "citekey": { "$ref": "#/$defs/OptionalText" }
+      }
+    },
+    "ReferenceBindingRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalReferenceId", "reference"],
+      "properties": {
+        "canonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "reference": { "$ref": "#/$defs/MatcherReference" }
+      }
+    },
+    "MatcherCandidateEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "author_overlap",
+        "author_overlap_count",
+        "year_delta",
+        "title_similarity"
+      ],
+      "properties": {
+        "author_overlap": { "$ref": "#/$defs/StringArray" },
+        "author_overlap_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "year_delta": { "type": "number" },
+        "title_similarity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "MatcherCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paperRef", "title", "year", "score", "reasons", "evidence"],
+      "properties": {
+        "paperRef": { "$ref": "common.schema.json#/$defs/identifier" },
+        "itemKey": { "$ref": "common.schema.json#/$defs/identifier" },
+        "literatureItemId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "title": { "$ref": "#/$defs/OptionalText" },
+        "year": { "$ref": "#/$defs/OptionalText" },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reasons": { "$ref": "#/$defs/StringArray" },
+        "evidence": { "$ref": "#/$defs/MatcherCandidateEvidence" }
+      }
+    },
+    "BindingDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "policy"],
+      "properties": {
+        "code": {
+          "enum": [
+            "reference_identifier_match",
+            "ambiguous_reference_identifier_match",
+            "reference_title_match",
+            "needs_resolution_review",
+            "reference_match_suggestions"
+          ]
+        },
+        "kind": { "$ref": "#/$defs/OptionalText" },
+        "policy": { "$ref": "#/$defs/MatcherPolicy" },
+        "candidates": { "$ref": "#/$defs/IdentifierArray" },
+        "reasons": { "$ref": "#/$defs/StringArray" },
+        "suggested_candidates": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/MatcherCandidate" }
+        }
+      }
+    },
+    "MatcherPolicy": {
+      "enum": [
+        "baseline",
+        "policy-a",
+        "policy-b",
+        "policy-c",
+        "policy-d",
+        "production"
+      ]
+    },
+    "BindingDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "confidence",
+        "diagnostics",
+        "suggestedCandidates"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["matched", "suggested", "unmatched", "ambiguous"]
+        },
+        "targetPaperRef": { "$ref": "common.schema.json#/$defs/identifier" },
+        "confidence": { "enum": ["deterministic", "high", "low", "review"] },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/BindingDiagnostic" }
+        },
+        "suggestedCandidates": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/MatcherCandidate" }
+        }
+      }
+    },
+    "BindingMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalReferenceId", "result"],
+      "properties": {
+        "canonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "result": { "$ref": "#/$defs/BindingDecision" }
+      }
+    },
+    "ReferenceBindingRunHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion", "policyId"],
+      "properties": {
+        "contractVersion": { "const": "synthesis-reference-matcher.v1" },
+        "algorithmVersion": { "const": "reference-binding.v1" },
+        "policyId": { "$ref": "#/$defs/MatcherPolicy" }
+      }
+    },
+    "ReferenceBindingInputSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/MatcherPapersPage" },
+        { "$ref": "#/$defs/MatcherReferencesPage" }
+      ]
+    },
+    "ReferenceBindingResultHeader": {
+      "$ref": "#/$defs/ReferenceBindingRunHeader"
+    },
+    "ReferenceBindingResultSection": { "$ref": "#/$defs/BindingMatchesPage" },
+    "MatcherPapersPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "papers" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/MatcherPaper" }
+        }
+      }
+    },
+    "MatcherReferencesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "references" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/ReferenceBindingRow" }
+        }
+      }
+    },
+    "BindingMatchesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "matches" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/BindingMatch" }
+        }
+      }
+    },
+
+    "DedupeTitleCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "source"],
+      "properties": {
+        "title": { "$ref": "#/$defs/Text" },
+        "normalizedTitle": { "$ref": "#/$defs/OptionalText" },
+        "year": { "$ref": "#/$defs/OptionalText" },
+        "authors": { "$ref": "#/$defs/StringArray" },
+        "identifiers": { "$ref": "#/$defs/MatcherIdentifiers" },
+        "rawReferenceIds": { "$ref": "#/$defs/IdentifierArray" },
+        "sourceCanonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "source": {
+          "enum": [
+            "input",
+            "effective_canonical",
+            "physical_canonical",
+            "raw_reference"
+          ]
+        },
+        "frequency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "DedupeCanonical": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalReferenceId"],
+      "properties": {
+        "canonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "title": { "$ref": "#/$defs/OptionalText" },
+        "normalizedTitle": { "$ref": "#/$defs/OptionalText" },
+        "year": { "$ref": "#/$defs/OptionalText" },
+        "authors": { "$ref": "#/$defs/StringArray" },
+        "acceptedBinding": { "type": "boolean" },
+        "stickyRepresentative": { "type": "boolean" },
+        "rawReferenceIds": { "$ref": "#/$defs/IdentifierArray" },
+        "rawHashes": { "$ref": "#/$defs/StringArray" },
+        "rawReferences": { "$ref": "#/$defs/StringArray" },
+        "sourceRefs": { "$ref": "#/$defs/IdentifierArray" },
+        "identifiers": { "$ref": "#/$defs/MatcherIdentifiers" },
+        "titleCandidates": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/DedupeTitleCandidate" }
+        }
+      }
+    },
+    "NoiseProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coreMarkerCount",
+        "weakVenueCount",
+        "hasDoiOrArxiv",
+        "hasProceedingsPhrase",
+        "hasPageMarker",
+        "hasVolumeIssuePagePattern",
+        "hasYearSuffix",
+        "hasPublisherOrEditorPhrase",
+        "score",
+        "reasons"
+      ],
+      "properties": {
+        "coreMarkerCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "weakVenueCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "hasDoiOrArxiv": { "type": "boolean" },
+        "hasProceedingsPhrase": { "type": "boolean" },
+        "hasPageMarker": { "type": "boolean" },
+        "hasVolumeIssuePagePattern": { "type": "boolean" },
+        "hasYearSuffix": { "type": "boolean" },
+        "hasPublisherOrEditorPhrase": { "type": "boolean" },
+        "score": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "reasons": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "DedupeRecordSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalReferenceId",
+        "title",
+        "normalizedTitle",
+        "year",
+        "rawCount",
+        "stickyRepresentative",
+        "acceptedBinding",
+        "eligibility",
+        "eligibilityReasons",
+        "noiseProfile",
+        "titleCandidateCount",
+        "selectedTitleCandidate",
+        "titleCandidates",
+        "representativeRationale"
+      ],
+      "properties": {
+        "canonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "title": { "$ref": "#/$defs/OptionalText" },
+        "normalizedTitle": { "$ref": "#/$defs/OptionalText" },
+        "year": { "$ref": "#/$defs/OptionalText" },
+        "rawCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "stickyRepresentative": { "type": "boolean" },
+        "acceptedBinding": { "type": "boolean" },
+        "eligibility": { "enum": ["eligible", "weak", "excluded"] },
+        "eligibilityReasons": { "$ref": "#/$defs/StringArray" },
+        "noiseProfile": { "$ref": "#/$defs/NoiseProfile" },
+        "titleCandidateCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "selectedTitleCandidate": { "$ref": "#/$defs/DedupeTitleCandidate" },
+        "titleCandidates": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/DedupeTitleCandidate" }
+        },
+        "representativeRationale": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "DedupeEvidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_reference_id",
+        "title",
+        "selected_title_candidate",
+        "normalized_title",
+        "year",
+        "raw_count",
+        "raw_sample"
+      ],
+      "properties": {
+        "canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "title": { "$ref": "#/$defs/OptionalText" },
+        "selected_title_candidate": { "$ref": "#/$defs/DedupeTitleCandidate" },
+        "normalized_title": { "$ref": "#/$defs/OptionalText" },
+        "year": { "$ref": "#/$defs/OptionalText" },
+        "raw_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "raw_sample": { "$ref": "#/$defs/OptionalText" }
+      }
+    },
+    "DedupeEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target", "token_dice", "year_delta"],
+      "properties": {
+        "source": { "$ref": "#/$defs/DedupeEvidenceRecord" },
+        "target": { "$ref": "#/$defs/DedupeEvidenceRecord" },
+        "token_dice": { "type": "number" },
+        "year_delta": { "type": "number" },
+        "matching_identifiers": { "$ref": "#/$defs/StringArray" },
+        "shorter_canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "longer_canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "extra_tokens": { "$ref": "#/$defs/StringArray" },
+        "extra_prefix_tokens": { "$ref": "#/$defs/StringArray" },
+        "extra_suffix_tokens": { "$ref": "#/$defs/StringArray" },
+        "containment_classification": { "$ref": "#/$defs/DedupeEdgeType" },
+        "bibliographic_reasons": { "$ref": "#/$defs/StringArray" },
+        "representative_canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "subcluster_representative_canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "supporting_edge_target_canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "pair_representative_canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "retarget_candidate_canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "representative": { "$ref": "#/$defs/DedupeRecordSummary" },
+        "source_record": { "$ref": "#/$defs/DedupeRecordSummary" },
+        "retarget_candidate": { "$ref": "#/$defs/DedupeRecordSummary" },
+        "representative_rationale": { "$ref": "#/$defs/StringArray" },
+        "retarget_rationale": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "DedupeEdgeType": {
+      "enum": [
+        "identifier_exact",
+        "exact_normalized_title_year",
+        "exact_compact_title_year",
+        "typo_equivalent_title",
+        "contained_bibliographic_noise",
+        "contained_author_noise",
+        "contained_extension_risk",
+        "weak_fuzzy_title"
+      ]
+    },
+    "DedupeEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edgeId",
+        "sourceCanonicalReferenceId",
+        "targetCanonicalReferenceId",
+        "edgeType",
+        "confidence",
+        "score",
+        "reasons",
+        "riskSignals",
+        "evidence"
+      ],
+      "properties": {
+        "edgeId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "sourceCanonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "targetCanonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "edgeType": { "$ref": "#/$defs/DedupeEdgeType" },
+        "confidence": { "enum": ["deterministic", "high", "low", "review"] },
+        "score": { "type": "number" },
+        "reasons": { "$ref": "#/$defs/StringArray" },
+        "riskSignals": { "$ref": "#/$defs/StringArray" },
+        "evidence": { "$ref": "#/$defs/DedupeEvidence" }
+      }
+    },
+    "DedupeAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId",
+        "action",
+        "sourceCanonicalReferenceId",
+        "targetCanonicalReferenceId",
+        "clusterId",
+        "subclusterId",
+        "edgeType",
+        "confidence",
+        "score",
+        "reasons",
+        "riskSignals",
+        "evidence"
+      ],
+      "properties": {
+        "actionId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "action": { "enum": ["redirect", "review"] },
+        "sourceCanonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "targetCanonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "clusterId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "subclusterId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "edgeType": { "$ref": "#/$defs/DedupeEdgeType" },
+        "confidence": { "enum": ["deterministic", "high", "low", "review"] },
+        "score": { "type": "number" },
+        "reasons": { "$ref": "#/$defs/StringArray" },
+        "riskSignals": { "$ref": "#/$defs/StringArray" },
+        "evidence": { "$ref": "#/$defs/DedupeEvidence" }
+      }
+    },
+    "DedupeSubcluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subclusterId",
+        "canonicalReferenceIds",
+        "representativeCanonicalReferenceId",
+        "edgeTypes",
+        "deterministic",
+        "representativeRationale"
+      ],
+      "properties": {
+        "subclusterId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "canonicalReferenceIds": { "$ref": "#/$defs/IdentifierArray" },
+        "representativeCanonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "edgeTypes": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/DedupeEdgeType" }
+        },
+        "deterministic": { "type": "boolean" },
+        "representativeRationale": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "DedupeCluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clusterId",
+        "canonicalReferenceIds",
+        "representativeCanonicalReferenceId",
+        "representativeRationale",
+        "members",
+        "subclusters"
+      ],
+      "properties": {
+        "clusterId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "canonicalReferenceIds": { "$ref": "#/$defs/IdentifierArray" },
+        "representativeCanonicalReferenceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "representativeRationale": { "$ref": "#/$defs/StringArray" },
+        "members": {
+          "type": "array",
+          "maxItems": 750000,
+          "items": { "$ref": "#/$defs/DedupeRecordSummary" }
+        },
+        "subclusters": {
+          "type": "array",
+          "maxItems": 750000,
+          "items": { "$ref": "#/$defs/DedupeSubcluster" }
+        }
+      }
+    },
+    "DedupeDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "canonical_reference_id",
+        "title",
+        "eligibility",
+        "reasons"
+      ],
+      "properties": {
+        "code": { "const": "cluster_dedupe_record_excluded" },
+        "canonical_reference_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "title": { "$ref": "#/$defs/OptionalText" },
+        "eligibility": { "const": "excluded" },
+        "reasons": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "DedupeCounters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_count",
+        "block_count",
+        "block_skipped_count",
+        "candidate_pair_count",
+        "candidate_pair_budget",
+        "edge_count",
+        "cluster_count",
+        "subcluster_count",
+        "redirect_action_count",
+        "review_action_count",
+        "extension_risk_edge_count",
+        "weak_record_count",
+        "excluded_record_count"
+      ],
+      "properties": {
+        "canonical_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "block_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "block_skipped_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "candidate_pair_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "candidate_pair_budget": { "const": 3000 },
+        "edge_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "cluster_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "subcluster_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "redirect_action_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "review_action_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "extension_risk_edge_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "weak_record_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "excluded_record_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
+    },
+    "ReferenceCanonicalDedupeRunHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion"],
+      "properties": {
+        "contractVersion": { "const": "synthesis-reference-matcher.v1" },
+        "algorithmVersion": { "const": "canonical-cluster-dedupe.v1" }
+      }
+    },
+    "ReferenceCanonicalDedupeInputSection": {
+      "$ref": "#/$defs/DedupeCanonicalsPage"
+    },
+    "ReferenceCanonicalDedupeResultHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion", "counters"],
+      "properties": {
+        "contractVersion": { "const": "synthesis-reference-matcher.v1" },
+        "algorithmVersion": { "const": "canonical-cluster-dedupe.v1" },
+        "counters": { "$ref": "#/$defs/DedupeCounters" }
+      }
+    },
+    "ReferenceCanonicalDedupeResultSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/DedupeClustersPage" },
+        { "$ref": "#/$defs/DedupeEdgesPage" },
+        { "$ref": "#/$defs/DedupeActionsPage" },
+        { "$ref": "#/$defs/DedupeDiagnosticsPage" }
+      ]
+    },
+    "DedupeCanonicalsPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "canonicals" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/DedupeCanonical" }
+        }
+      }
+    },
+    "DedupeClustersPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "clusters" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/DedupeCluster" }
+        }
+      }
+    },
+    "DedupeEdgesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "edges" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 3000,
+          "items": { "$ref": "#/$defs/DedupeEdge" }
+        }
+      }
+    },
+    "DedupeActionsPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "actions" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 6000,
+          "items": { "$ref": "#/$defs/DedupeAction" }
+        }
+      }
+    },
+    "DedupeDiagnosticsPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "diagnostics" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/DedupeDiagnostic" }
+        }
+      }
+    },
+
+    "TopicValidationRunHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion"],
+      "properties": {
+        "contractVersion": {
+          "const": "synthesis-topic-structured-artifact.v1"
+        },
+        "algorithmVersion": {
+          "enum": [
+            "topic-analysis-manifest-validation.v1",
+            "topic-structured-artifact-assembly.v1",
+            "topic-section-patch.v1"
+          ]
+        }
+      }
+    },
+    "TopicArtifactValidationRunHeaderBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion", "expectedLanguage"],
+      "properties": {
+        "contractVersion": {
+          "const": "synthesis-topic-structured-artifact.v1"
+        },
+        "algorithmVersion": {
+          "const": "topic-structured-artifact-validation.v1"
+        },
+        "expectedLanguage": { "$ref": "#/$defs/OptionalText" }
+      }
+    },
+    "CanonicalChunkPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": { "$ref": "#/$defs/PageDescriptor" },
+        "rows": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "common.schema.json#/$defs/canonicalTextChunk" }
+        }
+      }
+    },
+    "ValidationErrorsPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "errors" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/OptionalText" }
+        }
+      }
+    },
+    "TopicValidationResultHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion", "ok"],
+      "properties": {
+        "contractVersion": {
+          "const": "synthesis-topic-structured-artifact.v1"
+        },
+        "algorithmVersion": {
+          "enum": [
+            "topic-analysis-manifest-validation.v1",
+            "topic-structured-artifact-validation.v1"
+          ]
+        },
+        "ok": { "type": "boolean" }
+      }
+    },
+    "TopicManifestValidateRunHeader": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/TopicValidationRunHeader" },
+        {
+          "type": "object",
+          "properties": {
+            "algorithmVersion": {
+              "const": "topic-analysis-manifest-validation.v1"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TopicManifestValidateInputSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "manifest" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "common.schema.json#/$defs/canonicalTextChunk" }
+        }
+      }
+    },
+    "TopicManifestValidateResultHeader": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/TopicValidationResultHeader" },
+        {
+          "type": "object",
+          "properties": {
+            "algorithmVersion": {
+              "const": "topic-analysis-manifest-validation.v1"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TopicManifestValidateResultSection": {
+      "$ref": "#/$defs/ValidationErrorsPage"
+    },
+    "TopicArtifactAssembleRunHeader": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/TopicValidationRunHeader" },
+        {
+          "type": "object",
+          "properties": {
+            "algorithmVersion": {
+              "const": "topic-structured-artifact-assembly.v1"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TopicArtifactAssembleInputSection": {
+      "$ref": "#/$defs/CanonicalChunkPage"
+    },
+    "TopicArtifactAssembleResultHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion"],
+      "properties": {
+        "contractVersion": {
+          "const": "synthesis-topic-structured-artifact.v1"
+        },
+        "algorithmVersion": { "const": "topic-structured-artifact-assembly.v1" }
+      }
+    },
+    "TopicArtifactAssembleResultSection": {
+      "$ref": "#/$defs/CanonicalChunkPage"
+    },
+    "TopicArtifactValidateRunHeader": {
+      "$ref": "#/$defs/TopicArtifactValidationRunHeaderBase"
+    },
+    "TopicArtifactValidateInputSection": {
+      "$ref": "#/$defs/CanonicalChunkPage"
+    },
+    "TopicArtifactValidateResultHeader": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/TopicValidationResultHeader" },
+        {
+          "type": "object",
+          "properties": {
+            "algorithmVersion": {
+              "const": "topic-structured-artifact-validation.v1"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TopicArtifactValidateResultSection": {
+      "$ref": "#/$defs/ValidationErrorsPage"
+    },
+    "PatchMismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "base", "current"],
+      "properties": {
+        "name": { "$ref": "#/$defs/Text" },
+        "base": { "$ref": "#/$defs/OptionalText" },
+        "current": { "$ref": "#/$defs/OptionalText" }
+      }
+    },
+    "TopicSectionPatchRunHeader": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/TopicValidationRunHeader" },
+        {
+          "type": "object",
+          "properties": {
+            "algorithmVersion": { "const": "topic-section-patch.v1" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TopicSectionPatchInputSection": { "$ref": "#/$defs/CanonicalChunkPage" },
+    "TopicSectionPatchResultHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "algorithmVersion", "status"],
+      "properties": {
+        "contractVersion": {
+          "const": "synthesis-topic-structured-artifact.v1"
+        },
+        "algorithmVersion": { "const": "topic-section-patch.v1" },
+        "status": { "enum": ["conflict", "invalid", "applied"] }
+      }
+    },
+    "TopicSectionPatchResultSection": {
+      "oneOf": [
+        { "$ref": "#/$defs/CanonicalChunkPage" },
+        { "$ref": "#/$defs/PatchMismatchesPage" },
+        { "$ref": "#/$defs/ValidationErrorsPage" }
+      ]
+    },
+    "PatchMismatchesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/PageDescriptor" },
+            {
+              "type": "object",
+              "properties": { "section": { "const": "mismatches" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/PatchMismatch" }
+        }
+      }
+    },
+
+    "CitationGraphBuildRunHeader": {
+      "$ref": "transfer.schema.json#/$defs/CitationInputHeader"
+    },
+    "CitationGraphBuildInputSection": {
+      "oneOf": [{ "$ref": "transfer.schema.json#/$defs/CitationInputPage" }]
+    },
+    "CitationGraphBuildResultHeader": {
+      "$ref": "transfer.schema.json#/$defs/CitationOutputHeader"
+    },
+    "CitationGraphBuildResultSection": {
+      "$ref": "transfer.schema.json#/$defs/CitationOutputPage"
+    },
+    "CitationGraphBuildTransferRunHeader": {
+      "$ref": "#/$defs/CitationGraphBuildRunHeader"
+    },
+    "CitationGraphBuildTransferInputSection": {
+      "$ref": "#/$defs/CitationGraphBuildInputSection"
+    },
+    "CitationGraphBuildTransferResultHeader": {
+      "$ref": "#/$defs/CitationGraphBuildResultHeader"
+    },
+    "CitationGraphBuildTransferResultSection": {
+      "$ref": "#/$defs/CitationGraphBuildResultSection"
+    },
+    "CitationGraphMetricsRunHeader": {
+      "$ref": "compute.schema.json#/$defs/CitationGraphMetricsRequest"
+    },
+    "CitationGraphMetricsInputSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphMetricsResultHeader": {
+      "$ref": "compute.schema.json#/$defs/CitationGraphMetricsResult"
+    },
+    "CitationGraphMetricsResultSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphLayoutRunHeader": {
+      "$ref": "compute.schema.json#/$defs/CitationGraphLayoutRequest"
+    },
+    "CitationGraphLayoutInputSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphLayoutResultHeader": {
+      "$ref": "compute.schema.json#/$defs/CitationGraphLayoutResult"
+    },
+    "CitationGraphLayoutResultSection": { "$ref": "#/$defs/EmptySection" }
+  }
+}

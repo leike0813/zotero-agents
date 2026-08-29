@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-tag-regulator-workflow. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Tag regulator capability SHALL be delivered as a decoupled workflow package
 The `tag-regulator` capability MUST be implemented as a newly added workflow package and MUST remain decoupled from plugin source business branches.
 
@@ -53,7 +55,9 @@ The workflow MUST apply `remove_tags` and `add_tags` only when output mutation f
 - **AND** SHALL emit warnings/diagnostics for user review.
 
 ### Requirement: Suggested tags SHALL remain advisory outputs
-Tags in `suggest_tags` MUST NOT be written directly to parent items, and SHALL support user-confirmed intake into controlled vocabulary or staged inbox.
+
+
+Tags in `suggest_tags` MUST NOT be written directly to parent items, and SHALL support user-confirmed intake into controlled vocabulary or staged inbox through the Synthesis staged-promotion seam.
 
 #### Scenario: Result-time live reconcile suppresses stale suggestions
 - **WHEN** backend returns `suggest_tags`
@@ -66,12 +70,12 @@ Tags in `suggest_tags` MUST NOT be written directly to parent items, and SHALL s
 - **AND** one of those tags has already entered local staged inbox before result application
 - **THEN** that tag SHALL remain visible in the suggest-intake dialog
 - **AND** the workflow SHALL NOT create another staged entry for that tag
-- **AND** the workflow SHALL merge the current parent item into that staged record's `parentBindings` before opening the dialog
+- **AND** the workflow SHALL merge the current parent's stable ref into that staged record before opening the dialog
 
 #### Scenario: Suggest intake dialog supports immediate row actions
 - **WHEN** output contains non-empty `suggest_tags`
 - **THEN** workflow SHALL open a suggest-intake dialog with row-level `加入` and `拒绝` actions
-- **AND** row-level `加入` SHALL write directly to controlled vocabulary on success and remove the row
+- **AND** row-level `加入` SHALL stage then promote the selected tag through Synthesis and remove the row on success
 - **AND** row-level `拒绝` SHALL discard the row immediately
 
 #### Scenario: Suggest intake dialog shows parent binding counts
@@ -88,13 +92,13 @@ Tags in `suggest_tags` MUST NOT be written directly to parent items, and SHALL s
 
 #### Scenario: Staged intake does not mutate parent tags directly
 - **WHEN** a suggest tag enters staged inbox through row-level stage, global `全部暂存`, timeout close-policy, or join fallback
-- **THEN** the workflow SHALL record deferred parent bindings for future committed backfill
-- **AND** the workflow SHALL NOT append that tag to the parent item's tags at staged time
+- **THEN** the workflow SHALL record deferred stable parent refs for future committed backfill
+- **AND** the workflow SHALL NOT append that tag to any parent item at staged time
 
 #### Scenario: Parent tags are backfilled only after committed success
 - **WHEN** a user-approved suggest tag successfully enters committed controlled vocabulary
-- **THEN** the workflow SHALL append that tag to the current parent item
-- **AND** any staged `parentBindings` for that tag SHALL remain deferred until the committed update succeeds
+- **THEN** Synthesis Host effects SHALL ensure the tag on every bound parent
+- **AND** the workflow SHALL NOT call Zotero item/tag mutation APIs for bound-parent backfill
 
 #### Scenario: Timeout and manual close default to staged intake
 - **WHEN** suggest-intake dialog reaches 10-second timeout
@@ -231,7 +235,6 @@ The tag-regulator workflow SHALL materialize generated skill input files through
 - **WHEN** standalone tag-regulator builds a request with parent digest markdown
 - **THEN** it SHALL materialize the generated digest markdown through `runtime.hostApi.file.materializeWorkflowInputFile(...)`
 - **AND** SkillRunner upload packaging semantics SHALL remain unchanged.
-
 ### Requirement: Tag Regulator apply boundary SHALL preserve builtin workflow status instances
 The non-submodule apply boundary MUST filter all builtin status values from both `add_tags` and `remove_tags`, record structured diagnostics, and continue applying ordinary tag changes.
 
@@ -260,4 +263,3 @@ The Tag Regulator skill MUST treat plugin-provided builtin workflow status tags 
 - **WHEN** Tag Regulator generates suggestions without a controlled vocabulary
 - **THEN** it SHALL limit generated facets to `field`, `topic`, `method`, `model`, `ai_task`, `data`, `tool`, and user-defined `status`
 - **AND** it SHALL NOT infer workflow-owned builtin statuses from paper content or metadata
-

@@ -20,7 +20,7 @@ Queste metriche consentono di comprendere rapidamente il livello di strutturazio
 
 ## Pannello di sincronizzazione
 
-Se la sincronizzazione [WebDAV Sync](webdav-sync) (consigliata) o [Git Sync](git-sync) (deprecata) è configurata, la pagina Home mostra un pannello di stato della sincronizzazione:
+Se [WebDAV Sync](webdav-sync) è configurato, la pagina Home mostra un pannello di stato della sincronizzazione:
 
 ### WebDAV Sync
 
@@ -37,9 +37,7 @@ Per la configurazione dettagliata e l'utilizzo della sincronizzazione WebDAV, ve
 La funzionalità di sincronizzazione automatica di WebDAV Sync non è stata testata approfonditamente. Si raccomanda di **utilizzare solo la sincronizzazione manuale** in questa fase, e di abilitare la sincronizzazione automatica dopo che sarà migliorata in una release futura.
 :::
 
-### Git Sync (Deprecato)
 
-Vedere [Git Sync](git-sync) per riferimento storico.
 
 ## Pannello elementi da revisionare
 

@@ -111,4 +111,3 @@ before the merge itself.
   with its blocker
 - **AND** the AGENTS.md draft preserves each behavioral invariant of the
   current hard-constraint sections.
-

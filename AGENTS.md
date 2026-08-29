@@ -166,6 +166,36 @@
 - ACP transcript message coalescing 必须是协议/语义级通用逻辑，不得按 backend id、provider id、agent family、命令名或具体后端产品字符串做特判。
 - ACP Chat 与 ACP Skills 共享同一类 transcript boundary 分类；新增或修改 session update kind 时必须同步审查两条路径的 message coalescing 行为。
 
+# Synthesis Sidecar Runtime 生命周期硬约束
+
+- `native/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。
+- `runtime_service::serve(&Path)` 是生产生命周期唯一入口，必须统一负责 config 读取、资源组装、listener bind、ready publication、运行期终止、500 ms 有界清理和 typed terminal result。
+- discovery 原子发布是 sidecar ready commit；stdout listening 事件仅用于诊断。ready 之前的失败必须回滚已取得的 owner，ready 之后的所有生命周期终止必须进入同一清理路径并移除 discovery。
+- `system.shutdown` 成功响应只表示停止请求已接受，必须先刷出响应再发布 stopping；进程退出才表示清理完成。父输入关闭与 authenticated shutdown 共用 reason-bearing stop signal。
+- 正常停止原因可以合并；terminal result 形成前出现的第一个 lifecycle failure 必须成为 primary，后续 lifecycle/cleanup failure 只能作为 secondary issue，terminal result 形成后不得改变。
+- `runtime_server_loop` 只能持有 loopback listener、active connections、socket interruption 与 handler drain，不得发布 discovery、停止 application/compute/transfer/background owner、关闭 storage 或汇总 process failure。
+- capability dispatch 只接收字段私有的 request context；resource ownership 和显式清理顺序留在 `runtime_service`。background task 或 HTTP handler 未在共享 deadline 内退出时，不得关闭其仍可能引用的 repository/canonical storage。
+- worker-pool 状态机测试必须使用 module 内私有 execution seam；真实 executable/protocol 证据走 process integration test。不得通过 `#[path]` 重编译生产 runtime 源码，也不得为测试扩大 production API。
+
+# Citation Graph Application 硬约束
+
+- `CitationGraphApplication` 是 graph snapshot、basis-bound page/continuation/neighborhood、metrics/layout identity、私有 rebuild attempt 与 graph-specific persistence 的唯一 owner；runtime 只保留 wire DTO、Reference/Host facts 收集、public maintenance checkpoint 和跨域 Workbench projection。
+- Citation Graph application 直接依赖本地 `RepositoryPort`，不得恢复 `CitationGraphRepositoryPort`、新增仅转发 repository 方法的 persistence trait，或向 runtime 暴露 repository record、SQLite owner、锁和 SQL。
+- 每个 read view 只保存 graph/input/metrics basis；每次读取必须开启短 reader transaction 并重新校验 basis，不得跨调用持有 transaction。旧 cursor、旧 view 或变化后的 metrics identity 必须以 `basis_mismatch` 失败。
+- 每次实际 rebuild dispatch 必须创建新的 opaque graph attempt。Public operation ID、retry key、predecessor、diagnostics storage 和 Host payload 不得进入 application seam；attempt 必须由 `finish_rebuild` 消费并在成功、收集失败、compute 失败、取消或 basis mismatch 时收敛。
+- Graph rows/state、`citation-graph:library` ready basis 与私有 attempt terminal 必须在同一个 repository transaction 中提交或回滚。Host 读取、graph build、metrics 和 layout compute 不得持有 writer。
+- 无参数 Citation Graph retry 只复用最近 failed attempt 的 Full/Incremental mode，随后按当前 cache、Reference 和 Host facts 重新规划。Canceled attempt 不属于 failed retry 来源；没有 failed mode 时，只有 missing/failed/stale cache 可形成当前工作，ready cache 必须返回 unavailable。
+
+# Synthesis Public Maintenance Operation 硬约束
+
+- `runtime_public_maintenance_operation` 是 public maintenance admission、dispatch、running/terminal transition、typed view/receipt、cancel/retry/continue 和 restart reconciliation 的唯一生命周期 owner；WebDAV surface 只负责 wire validation/encoding，production catalog 只提供已解析的不透明 maintenance route。
+- durable insert winner 是 initial submit 与 retry successor 的 execution owner；`continuation_required -> queued` compare-and-set winner 是 continue 的 execution owner。非 winner 只能返回已存 view，不得 spawn worker、重复 Host effect 或发布 lifecycle event。
+- durable admission 之后的 spawn failure 必须在同一个 operation 上形成 terminal receipt；不得留下无法继续的 accepted receipt，也不得通过新 operation 掩盖 post-commit failure。
+- startup reconciliation 不得自动 replay 或 dispatch maintenance work。Public `pending` 必须转为 `continuation_required`；public `running` 必须以 `restart_external_effect_unknown` 失败；其它 stale `running` operation 保留通用 restart cancellation 语义。
+- running cancel 是 cooperative `cancel_requested`，只能在 promotion checkpoint 形成 canceled terminal；pending cancel 可以直接 terminalize。Retry 必须创建由 predecessor operation ID 与 retry key 唯一确定的新 successor；continue 保持原 operation identity。
+- `maintenance-started` 按 operation 只发布一次：initial/retry insert winner 发布，continue 不发布。所有 success、failure、cancel、timeout、spawn failure 与 restart classification 只能由 terminal compare-and-set winner 发布 `maintenance-terminal`；后续 trace 必须按 operation ID 解除 originating trace 的 active pin。
+- maintenance interface 只返回 typed operation view/receipt，不得向 wire adapter、Workbench 或 Host observation 暴露 `OperationRecord`、持久化 basis 或 diagnostics storage 格式。分页缓存、Host receipt inference 和进程内事件不得成为 durable operation 正确性的事实源。
+
 # Workflow Host Runtime Adaptation硬约束
 
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。

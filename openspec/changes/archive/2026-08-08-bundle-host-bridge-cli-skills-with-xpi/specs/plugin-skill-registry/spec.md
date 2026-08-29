@@ -26,4 +26,3 @@ The plugin SHALL verify the packaged bundle through the same asset resolver used
 #### Scenario: Replacement fails
 - **WHEN** validation or transactional replacement fails after staging begins
 - **THEN** the failed staging tree is not selected and the previous tree is not admitted as the current bundle
-

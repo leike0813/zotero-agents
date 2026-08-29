@@ -557,4 +557,3 @@ registry. Routes without known senders that are annotated
 
 - **WHEN** a `TODO(contract)` route is reached
 - **THEN** its existing behavior and marker annotation are unchanged.
-

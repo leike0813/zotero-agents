@@ -49,4 +49,3 @@ plugin-side lifecycle independently of Kilo behavior.
 - Adapter creation failures remain ordinary terminal failures.
 - Setup handle cleanup is idempotent and token-guarded.
 - Live cleanup retains current session/recovery state rules.
-

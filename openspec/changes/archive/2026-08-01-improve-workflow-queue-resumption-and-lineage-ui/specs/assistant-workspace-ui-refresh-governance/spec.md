@@ -9,4 +9,3 @@ Submission symbol, tooltip, provider/model display metadata, and resumption-pend
 - **WHEN** an unfinished row gains or changes resumption-pending or submission display fields
 - **THEN** the affected drawer row SHALL update
 - **AND** transcript, Runner pane, and every non-drawer managed region SHALL retain DOM identity
-

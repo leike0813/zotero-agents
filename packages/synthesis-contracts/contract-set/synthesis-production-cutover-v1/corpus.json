@@ -1,0 +1,120 @@
+{
+  "schema": "synthesis-production-cutover-corpus.v1",
+  "positive": [
+    {
+      "name": "backup verified receipt",
+      "kind": "cutoverReceipt",
+      "value": {
+        "schema": "synthesis-production-cutover-receipt.v1",
+        "receiptId": "receipt-1",
+        "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "phase": "backup_verified",
+        "sourceOwner": "legacy-plugin",
+        "targetOwner": "rust-native",
+        "backupId": "2222222222222222222222222222222222222222222222222222222222222222",
+        "sourceSchemaVersion": "synthesis-repository-foundation.v1",
+        "targetSchemaVersion": "synthesis-repository-foundation.v3",
+        "canonicalManifestSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "durableSummarySha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "bundleFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+        "capabilityFingerprint": "6666666666666666666666666666666666666666666666666666666666666666",
+        "serviceInstanceId": null,
+        "mutationEnabled": false,
+        "updatedAtMs": 1
+      }
+    },
+    {
+      "name": "mutation enabled receipt",
+      "kind": "cutoverReceipt",
+      "value": {
+        "schema": "synthesis-production-cutover-receipt.v1",
+        "receiptId": "receipt-2",
+        "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "phase": "mutation_enabled",
+        "sourceOwner": "legacy-plugin",
+        "targetOwner": "rust-native",
+        "backupId": "2222222222222222222222222222222222222222222222222222222222222222",
+        "sourceSchemaVersion": "synthesis-repository-foundation.v1",
+        "targetSchemaVersion": "synthesis-repository-foundation.v3",
+        "canonicalManifestSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "durableSummarySha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "bundleFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+        "capabilityFingerprint": "6666666666666666666666666666666666666666666666666666666666666666",
+        "serviceInstanceId": "service-1",
+        "mutationEnabled": true,
+        "updatedAtMs": 2
+      }
+    },
+    {
+      "name": "bounded reverse Host call",
+      "kind": "reverseHostCall",
+      "value": {
+        "schema": "synthesis-reverse-host-call.v1",
+        "requestId": "host-1",
+        "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "serviceInstanceId": "service-1",
+        "operationId": "operation-1",
+        "capability": "library.items.list_page",
+        "deadlineAtMs": 1000,
+        "payload": {
+          "libraryId": 1,
+          "cursor": null,
+          "limit": 50
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "name": "mutation cannot be enabled before final phase",
+      "kind": "cutoverReceipt",
+      "value": {
+        "schema": "synthesis-production-cutover-receipt.v1",
+        "receiptId": "receipt-invalid",
+        "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "phase": "native_owner",
+        "sourceOwner": "legacy-plugin",
+        "targetOwner": "rust-native",
+        "backupId": "2222222222222222222222222222222222222222222222222222222222222222",
+        "sourceSchemaVersion": "v1",
+        "targetSchemaVersion": "v1",
+        "canonicalManifestSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "durableSummarySha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "bundleFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+        "capabilityFingerprint": "6666666666666666666666666666666666666666666666666666666666666666",
+        "serviceInstanceId": "service-1",
+        "mutationEnabled": true,
+        "updatedAtMs": 2
+      }
+    },
+    {
+      "name": "reverse Host capability is closed",
+      "kind": "reverseHostCall",
+      "value": {
+        "schema": "synthesis-reverse-host-call.v1",
+        "requestId": "host-2",
+        "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "serviceInstanceId": "service-1",
+        "operationId": "operation-1",
+        "capability": "zotero.anything",
+        "deadlineAtMs": 1000,
+        "payload": {}
+      }
+    },
+    {
+      "name": "reverse Host call rejects extra authority",
+      "kind": "reverseHostCall",
+      "value": {
+        "schema": "synthesis-reverse-host-call.v1",
+        "requestId": "host-3",
+        "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "serviceInstanceId": "service-1",
+        "operationId": "operation-1",
+        "capability": "library.items.list_page",
+        "deadlineAtMs": 1000,
+        "payload": {},
+        "path": "/tmp/unsafe"
+      }
+    }
+  ]
+}

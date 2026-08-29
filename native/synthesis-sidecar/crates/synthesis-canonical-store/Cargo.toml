@@ -1,0 +1,17 @@
+[package]
+name = "synthesis-canonical-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+parity-harness = []
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+synthesis-protocol = { path = "../synthesis-protocol" }
+
+[dev-dependencies]
+synthesis-test-support = { path = "../synthesis-test-support" }

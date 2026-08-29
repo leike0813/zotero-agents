@@ -137,4 +137,3 @@
 | R3 | transcript_page_read_duration | publicationPhase=initialization, publicationSurface=acp-skills | - | - | - | 1 |
 | R3 | transcript_page_read | publicationPhase=initialization, publicationSurface=acp-skills | 1 | - | - | - |
 | R3 | transcript_page_scan_items | publicationPhase=initialization, publicationSurface=acp-skills | 1 | - | - | - |
-

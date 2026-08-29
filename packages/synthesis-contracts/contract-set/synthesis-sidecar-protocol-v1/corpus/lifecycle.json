@@ -1,0 +1,106 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "lifecycle-reverse-host-nested-positive",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/ReverseHost",
+      "valid": true,
+      "value": {
+        "host": "127.0.0.1",
+        "port": 23119,
+        "authorizationToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "runtime-provenance-path-positive",
+      "schemaRef": "schemas/runtime-bundle.schema.json#/$defs/Provenance",
+      "valid": true,
+      "value": {
+        "sourceFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "toolchain": "rustc-1.89.0",
+        "cargoLockSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "licenseInventory": "licenses.json"
+      }
+    },
+    {
+      "id": "sidecar-error-details-positive",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarError",
+      "valid": true,
+      "value": {
+        "code": "response_body_too_large",
+        "message": "Response exceeded the configured bound.",
+        "retryable": false,
+        "details": { "limit": 200000, "limitKind": "nodes" }
+      }
+    },
+    {
+      "id": "observation-event-nested-positive",
+      "schemaRef": "schemas/observability.schema.json#/$defs/ObservationEvent",
+      "valid": true,
+      "value": {
+        "schema": "synthesis-sidecar-observation.v2",
+        "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "spanId": "bbbbbbbbbbbbbbbb",
+        "attempt": 0,
+        "source": "rust-sidecar",
+        "boundary": "child-worker",
+        "phase": "execute",
+        "outcome": "succeeded",
+        "occurredAtMs": 1786492800000,
+        "identities": { "operation": "citation_graph_layout" },
+        "metrics": { "durationMs": 12 },
+        "facts": { "nodeCount": 3, "edgeCount": 2 }
+      }
+    },
+    {
+      "id": "lifecycle-reverse-host-open-negative",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/ReverseHost",
+      "valid": false,
+      "value": {
+        "host": "127.0.0.1",
+        "port": 23119,
+        "authorizationToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "headers": {}
+      }
+    },
+    {
+      "id": "runtime-provenance-hash-instead-of-path-negative",
+      "schemaRef": "schemas/runtime-bundle.schema.json#/$defs/Provenance",
+      "valid": false,
+      "value": {
+        "sourceFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "toolchain": "rustc-1.89.0",
+        "cargoLockSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "licenseInventory": "../licenses.json"
+      }
+    },
+    {
+      "id": "sidecar-error-details-open-negative",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarError",
+      "valid": false,
+      "value": {
+        "code": "invalid_request",
+        "message": "Invalid request.",
+        "retryable": false,
+        "details": { "payload": {} }
+      }
+    },
+    {
+      "id": "observation-event-facts-open-negative",
+      "schemaRef": "schemas/observability.schema.json#/$defs/ObservationEvent",
+      "valid": false,
+      "value": {
+        "schema": "synthesis-sidecar-observation.v2",
+        "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "spanId": "bbbbbbbbbbbbbbbb",
+        "attempt": 0,
+        "source": "rust-sidecar",
+        "boundary": "child-worker",
+        "phase": "execute",
+        "outcome": "succeeded",
+        "occurredAtMs": 1786492800000,
+        "facts": { "arbitrary": {} }
+      }
+    }
+  ]
+}

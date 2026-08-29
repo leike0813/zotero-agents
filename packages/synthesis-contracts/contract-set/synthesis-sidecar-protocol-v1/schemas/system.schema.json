@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/system.schema.json",
+  "$defs": {
+    "BareSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "EmptyRequest": { "type": "object", "additionalProperties": false },
+    "RuntimeTarget": {
+      "enum": [
+        "win32-x64",
+        "darwin-x64",
+        "darwin-arm64",
+        "linux-x86",
+        "linux-x64",
+        "linux-arm",
+        "linux-arm64"
+      ]
+    },
+    "TargetTriple": {
+      "enum": [
+        "x86_64-pc-windows-msvc",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "i686-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu",
+        "armv7-unknown-linux-gnueabihf",
+        "aarch64-unknown-linux-gnu"
+      ]
+    },
+    "PlatformSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "status", "signer"],
+      "properties": {
+        "scheme": {
+          "enum": ["authenticode", "apple-code-signing", "not-applicable"]
+        },
+        "status": {
+          "enum": ["verified", "unsigned-candidate", "not-applicable"]
+        },
+        "signer": { "type": ["string", "null"], "maxLength": 512 }
+      }
+    },
+    "RepositorySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "state", "schemaVersion", "repositoryId"],
+      "properties": {
+        "mode": { "const": "isolated_shadow" },
+        "state": { "enum": ["ready", "stopping"] },
+        "schemaVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "repositoryId": { "$ref": "#/$defs/BareSha256" }
+      }
+    },
+    "CanonicalStoreSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "schemaVersion", "storeId"],
+      "properties": {
+        "state": { "enum": ["ready", "stopping", "repair_required"] },
+        "schemaVersion": { "const": "synthesis-topic-canonical-store.v1" },
+        "storeId": { "$ref": "#/$defs/BareSha256" }
+      }
+    },
+    "ComputePoolSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "active", "queued", "restartCount", "failureCount"],
+      "properties": {
+        "state": { "enum": ["idle", "busy", "degraded", "stopping"] },
+        "active": { "enum": [0, 1] },
+        "queued": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "restartCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "failureCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
+    },
+    "TransferSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "sessions", "stagedBytes"],
+      "properties": {
+        "state": { "enum": ["idle", "active", "stopping"] },
+        "sessions": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "stagedBytes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
+    },
+    "Capability": {
+      "enum": [
+        "system.handshake",
+        "system.shutdown",
+        "workbench.chrome.read",
+        "topics.canonical.inspect",
+        "transfer.content",
+        "compute.citation_graph_layout",
+        "compute.citation_graph_metrics",
+        "compute.citation_graph_build",
+        "compute.citation_graph_build_transfer"
+      ]
+    },
+    "HandshakeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "bundleId",
+        "buildFingerprint",
+        "supervisorInstanceId"
+      ],
+      "properties": {
+        "schemaVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "bundleId": { "$ref": "#/$defs/BareSha256" },
+        "buildFingerprint": { "$ref": "#/$defs/BareSha256" },
+        "supervisorInstanceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        }
+      }
+    },
+    "HandshakeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "implementation",
+        "protocol",
+        "serviceVersion",
+        "serviceInstanceId",
+        "supervisorInstanceId",
+        "bundleId",
+        "target",
+        "targetTriple",
+        "buildFingerprint",
+        "platformSignature",
+        "profileId",
+        "schemaVersion",
+        "runtimeRootId",
+        "dataRootId",
+        "capabilities",
+        "mutationEnabled",
+        "lifecycleState",
+        "repository",
+        "canonicalStore",
+        "computePool",
+        "citationGraphTransfer"
+      ],
+      "properties": {
+        "implementation": { "const": "rust-native" },
+        "protocol": { "const": "synthesis-sidecar.v1" },
+        "serviceVersion": { "$ref": "common.schema.json#/$defs/identifier" },
+        "serviceInstanceId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "supervisorInstanceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "bundleId": { "$ref": "#/$defs/BareSha256" },
+        "target": { "$ref": "#/$defs/RuntimeTarget" },
+        "targetTriple": { "$ref": "#/$defs/TargetTriple" },
+        "buildFingerprint": { "$ref": "#/$defs/BareSha256" },
+        "platformSignature": { "$ref": "#/$defs/PlatformSignature" },
+        "profileId": { "$ref": "#/$defs/BareSha256" },
+        "schemaVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "runtimeRootId": { "$ref": "#/$defs/BareSha256" },
+        "dataRootId": { "$ref": "#/$defs/BareSha256" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Capability" }
+        },
+        "mutationEnabled": { "const": false },
+        "lifecycleState": { "const": "ready" },
+        "repository": { "$ref": "#/$defs/RepositorySnapshot" },
+        "canonicalStore": { "$ref": "#/$defs/CanonicalStoreSnapshot" },
+        "computePool": { "$ref": "#/$defs/ComputePoolSnapshot" },
+        "citationGraphTransfer": { "$ref": "#/$defs/TransferSnapshot" }
+      }
+    },
+    "Health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "implementation",
+        "protocol",
+        "serviceVersion",
+        "serviceInstanceId",
+        "supervisorInstanceId",
+        "bundleId",
+        "target",
+        "targetTriple",
+        "buildFingerprint",
+        "platformSignature",
+        "lifecycleState",
+        "repository",
+        "canonicalStore",
+        "computePool",
+        "citationGraphTransfer"
+      ],
+      "properties": {
+        "status": { "const": "ok" },
+        "implementation": { "const": "rust-native" },
+        "protocol": { "const": "synthesis-sidecar.v1" },
+        "serviceVersion": { "$ref": "common.schema.json#/$defs/identifier" },
+        "serviceInstanceId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "supervisorInstanceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "bundleId": { "$ref": "#/$defs/BareSha256" },
+        "target": { "$ref": "#/$defs/RuntimeTarget" },
+        "targetTriple": { "$ref": "#/$defs/TargetTriple" },
+        "buildFingerprint": { "$ref": "#/$defs/BareSha256" },
+        "platformSignature": { "$ref": "#/$defs/PlatformSignature" },
+        "lifecycleState": { "enum": ["starting", "ready", "stopping"] },
+        "repository": { "$ref": "#/$defs/RepositorySnapshot" },
+        "canonicalStore": { "$ref": "#/$defs/CanonicalStoreSnapshot" },
+        "computePool": { "$ref": "#/$defs/ComputePoolSnapshot" },
+        "citationGraphTransfer": { "$ref": "#/$defs/TransferSnapshot" }
+      }
+    },
+    "ShutdownRequest": { "$ref": "#/$defs/EmptyRequest" },
+    "ShutdownResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accepted", "lifecycleState"],
+      "properties": {
+        "accepted": { "const": true },
+        "lifecycleState": { "const": "stopping" }
+      }
+    },
+    "WorkbenchChromeReadRequest": { "$ref": "#/$defs/EmptyRequest" },
+    "CacheReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cacheKey", "cacheKind", "status"],
+      "properties": {
+        "cacheKey": {
+          "enum": ["reference-sidecar:library", "citation-graph:library"]
+        },
+        "cacheKind": { "enum": ["reference-sidecar", "citation_graph"] },
+        "status": {
+          "enum": ["missing", "ready", "stale", "refreshing", "failed"]
+        },
+        "refreshedAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 },
+        "staleReason": { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "JobProgress": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": { "const": "indeterminate" },
+            "label": { "type": "string", "maxLength": 4096 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "percent"],
+          "properties": {
+            "mode": { "const": "determinate" },
+            "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "current": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "total": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "label": { "type": "string", "maxLength": 4096 }
+          }
+        }
+      ]
+    },
+    "BackgroundJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "source", "status", "label", "progress"],
+      "properties": {
+        "job_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "source": {
+          "enum": [
+            "workbench",
+            "operation",
+            "reference_sidecar_refresh",
+            "citation_graph_cache_rebuild",
+            "citation_graph_layout",
+            "webdav_sync",
+            "canonical_maintenance"
+          ]
+        },
+        "status": {
+          "enum": ["submitted", "queued", "running", "waiting", "failed"]
+        },
+        "label": { "type": "string", "maxLength": 4096 },
+        "detail": { "type": "string", "maxLength": 4096 },
+        "updated_at": { "type": "string", "maxLength": 64 },
+        "progress": { "$ref": "#/$defs/JobProgress" }
+      }
+    },
+    "WorkbenchChromeReadResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maintenance"],
+      "properties": {
+        "maintenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cacheReadiness", "backgroundJobs"],
+          "properties": {
+            "cacheReadiness": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/CacheReadiness" }
+            },
+            "backgroundJobs": {
+              "type": "array",
+              "maxItems": 70,
+              "items": { "$ref": "#/$defs/BackgroundJob" }
+            }
+          }
+        }
+      }
+    },
+    "TopicsCanonicalInspectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topicId"],
+      "properties": {
+        "topicId": { "$ref": "common.schema.json#/$defs/identifier" }
+      }
+    },
+    "CanonicalSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "sha256", "bytes"],
+      "properties": {
+        "filename": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "bytes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }
+      }
+    },
+    "TopicsCanonicalInspectResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "topicId",
+        "pathId",
+        "manifestHash",
+        "artifactHash",
+        "metadataHash",
+        "sections",
+        "diagnostics"
+      ],
+      "properties": {
+        "status": { "enum": ["absent", "ready", "invalid"] },
+        "topicId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "pathId": { "type": "string", "maxLength": 512 },
+        "manifestHash": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "artifactHash": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "metadataHash": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "sections": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/CanonicalSection" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "topic_current_missing_file",
+              "unknown_current_entry",
+              "symlink_forbidden",
+              "invalid_json",
+              "snapshot_invalid",
+              "hash_mismatch",
+              "duplicate_section_filename",
+              "path_identity_mismatch"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

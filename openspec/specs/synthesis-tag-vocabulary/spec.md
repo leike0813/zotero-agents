@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-synthesis-kg-tag-vocabulary. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Canonical tag vocabulary files are initialized and persisted
 
 Synthesis Tag Vocabulary SHALL store its canonical state under `synthesis/tags/` using plugin-safe runtime persistence and the Synthesis foundation transaction boundary.
@@ -27,24 +29,25 @@ Synthesis Tag Vocabulary SHALL store its canonical state under `synthesis/tags/`
 
 ### Requirement: Tag protocol validation is deterministic
 
-Synthesis Tag Vocabulary SHALL validate tag entries against the TagVocab-compatible protocol before committing canonical state.
+
+Synthesis Tag Vocabulary SHALL validate tag entries through the configured Tag Vocabulary engine against the TagVocab-compatible protocol before committing canonical state.
 
 #### Scenario: Invalid tag format is reported
 
 - **WHEN** an entry tag does not match `^[a-z_]+:[a-zA-Z0-9/_.-]+$`
-- **THEN** validation SHALL return a structured warning for that tag
+- **THEN** engine validation SHALL return a structured warning for that tag
 - **AND** the warning SHALL identify the failing code and tag value.
 
 #### Scenario: Unknown facet is reported
 
 - **WHEN** an entry facet is not one of `field`, `topic`, `method`, `model`, `ai_task`, `data`, `tool`, or `status`
-- **THEN** validation SHALL return a structured warning for that tag
-- **AND** committing the invalid state SHALL fail.
+- **THEN** engine validation SHALL return a structured warning for that tag
+- **AND** committing the invalid state SHALL fail inside the existing repository transaction.
 
 #### Scenario: Deprecated replacement is checked
 
 - **WHEN** a deprecated entry declares a replacement tag that is missing from the vocabulary
-- **THEN** validation SHALL return a warning tied to the deprecated tag.
+- **THEN** engine validation SHALL return a warning tied to the deprecated tag.
 
 ### Requirement: Tag vocabulary import uses merge preview on conflicts
 
@@ -60,7 +63,7 @@ Synthesis Tag Vocabulary SHALL import TagVocab-compatible payloads through an ex
 
 - **WHEN** the user applies `use-imported` or `merge-non-conflicting`
 - **THEN** the service SHALL commit the resulting canonical vocabulary through the foundation transaction boundary
-- **AND** a successful commit SHALL be eligible for Git Sync autosync.
+- **AND** a successful commit SHALL be eligible for coalesced WebDAV autosync.
 
 #### Scenario: Conflicts are not silently replaced
 
@@ -69,7 +72,8 @@ Synthesis Tag Vocabulary SHALL import TagVocab-compatible payloads through an ex
 
 ### Requirement: Tag index projection is rebuildable
 
-Synthesis Tag Vocabulary SHALL maintain a rebuildable `tag-index` projection model for lookup, alias, abbrev, validation, and search data.
+
+Synthesis Tag Vocabulary SHALL use the configured Tag Vocabulary engine to build the rebuildable `tag-index` projection model for lookup, alias, abbrev, validation, and search data.
 
 #### Scenario: Canonical vocabulary change marks projection stale
 
@@ -78,13 +82,18 @@ Synthesis Tag Vocabulary SHALL maintain a rebuildable `tag-index` projection mod
 
 #### Scenario: Projection rebuild records state
 
-- **WHEN** the tag index projection is rebuilt from canonical files
+- **WHEN** the Tag Vocabulary engine returns a strictly rebuilt index for the current manifest basis
 - **THEN** the projection registry SHALL record schema version, source manifest hash, stale flag, last rebuild time, and diagnostics.
+
+#### Scenario: Projection computation fails
+
+- **WHEN** the configured engine throws, is cancelled, exceeds bounds, or returns a malformed result
+- **THEN** the previous projection registry state SHALL remain unchanged.
 
 #### Scenario: Projection cache is deleted
 
 - **WHEN** local projection cache state is missing
-- **THEN** the service SHALL be able to rebuild lookup data from canonical files.
+- **THEN** the service SHALL be able to rebuild lookup data from canonical SQLite state.
 
 ### Requirement: Tag vocabulary export serves tag-regulator
 
@@ -230,39 +239,59 @@ and table work area without a separate inspector panel.
 
 ### Requirement: Synthesis tag vocabulary owns staged regulator suggestions
 
-Synthesis Tag Vocabulary SHALL store and manage staged `tag-regulator`
-suggestions as part of the Synthesis tag vocabulary domain.
+
+Synthesis Tag Vocabulary SHALL store and manage staged `tag-regulator` suggestions as part of the Synthesis tag vocabulary domain, and current parent bindings SHALL be canonical stable item refs.
 
 #### Scenario: Regulator stages a suggestion
-
 - **WHEN** tag-regulator stages a suggested tag
-- **THEN** Synthesis Tag Vocabulary SHALL persist the staged entry with tag,
-  facet, note, source flow, and parent bindings when provided
-- **AND** the staged entry SHALL be readable through the Synthesis service API.
+- **THEN** Synthesis Tag Vocabulary SHALL persist the staged entry with tag, facet, note, source flow, and stable parent refs when provided
+- **AND** the staged entry SHALL be readable through the Synthesis service API
 
 #### Scenario: Existing staged suggestion is staged again
-
 - **WHEN** the same tag is staged more than once
-- **THEN** Synthesis Tag Vocabulary SHALL merge parent bindings
-- **AND** it SHALL NOT create duplicate staged rows for the same tag ignoring
-  case.
+- **THEN** Synthesis Tag Vocabulary SHALL merge, deduplicate, and deterministically sort stable parent refs
+- **AND** it SHALL NOT create duplicate staged rows for the same tag ignoring case
+
+#### Scenario: New request carries numeric binding
+- **WHEN** a stage or update request carries a numeric parent binding
+- **THEN** the request SHALL fail as invalid
+- **AND** staged state SHALL remain unchanged
+
+#### Scenario: Legacy numeric rows are present
+- **WHEN** staged storage contains legacy numeric parent bindings
+- **THEN** Synthesis SHALL resolve and atomically rewrite them before staged operations continue
+- **AND** missing targets SHALL remove only their binding while preserving the staged tag
+
+#### Scenario: Legacy migration is unavailable
+- **WHEN** the migration port is missing, fails, or returns a malformed result
+- **THEN** the stored row SHALL remain unchanged
+- **AND** staged list, update, and promote operations SHALL fail with stable unavailable diagnostics
 
 ### Requirement: Synthesis tag vocabulary promotes staged suggestions
 
-Synthesis Tag Vocabulary SHALL promote selected staged suggestions into the
-canonical controlled vocabulary through the normal canonical write boundary.
+
+Synthesis Tag Vocabulary SHALL promote selected staged suggestions into the canonical controlled vocabulary through the normal canonical write boundary and SHALL dispatch stable bound-parent Tag effects after commit.
 
 #### Scenario: Staged suggestion is promoted
-
 - **WHEN** a user or workflow promotes a staged tag
 - **THEN** the tag SHALL be added to canonical vocabulary if not already active
-- **AND** the staged entry SHALL be removed after a successful commit.
+- **AND** the staged entry SHALL be removed after a successful commit
+- **AND** bound-parent effects SHALL run only after that commit
 
 #### Scenario: Invalid staged suggestion is promoted
-
 - **WHEN** a staged tag violates the active tag protocol
 - **THEN** promotion SHALL fail with validation diagnostics
-- **AND** canonical vocabulary SHALL remain unchanged.
+- **AND** canonical vocabulary and Host targets SHALL remain unchanged
+
+#### Scenario: Host effect is unavailable
+- **WHEN** canonical promotion succeeds but the Tag effect port is absent, throws, or returns malformed receipts
+- **THEN** promotion SHALL remain committed
+- **AND** the result SHALL contain bounded stable diagnostics without raw Host errors
+
+#### Scenario: Host effect satisfies a target
+- **WHEN** a receipt is `applied` or `already_satisfied`
+- **THEN** `applied_parent_tags` SHALL identify the tag and stable `parent_ref`
+- **AND** no numeric item ID SHALL appear in the result
 
 ### Requirement: Synthesis tag vocabulary supports staged discard
 
@@ -321,6 +350,17 @@ viewing and managing staged `tag-regulator` suggestions.
 - **THEN** promotion SHALL report it as skipped
 - **AND** the staged row SHALL remain available for user action.
 
+### Requirement: Canonical tag writes schedule WebDAV autosync
+
+Successful canonical TagVocab imports, staged promotions, and other durable tag mutations SHALL enter the shared WebDAV autosync maintenance epoch after their write transaction succeeds.
+
+#### Scenario: Tag vocabulary mutation commits
+
+- **WHEN** a canonical tag vocabulary mutation commits successfully
+- **THEN** it SHALL schedule the same coalesced WebDAV autosync opportunity as
+  other canonical service writes
+- **AND** notification failure SHALL NOT roll back the tag mutation.
+
 ### Requirement: Synthesis Workbench SHALL identify and protect builtin status rows
 The Workbench MUST expose builtin identity in its row model and render a builtin marker. It MUST disable tag/facet identity editing and deletion while keeping note and existing aliases governance available.
 
@@ -346,3 +386,30 @@ Commands that save, import, remove, deprecate, or promote controlled vocabulary 
 - **THEN** preview SHALL distinguish retained builtin definitions from ordinary entries
 - **AND** applying the import SHALL not remove them
 
+### Requirement: Staged Tag entry points SHALL share one legacy-binding migration gate
+
+List, stage, update, promote, discard, and clear SHALL all pass through one mutually exclusive application migration gate. The gate SHALL preserve stable refs, classify positive numeric legacy IDs separately from invalid bindings, resolve sorted unique IDs through `effects.staged_tag_binding.resolve` in batches of at most one hundred, and reject new numeric bindings at the public DTO boundary.
+
+#### Scenario: Mixed historical bindings are migrated
+- **WHEN** staged rows contain stable refs, valid legacy IDs, missing IDs, and invalid bindings
+- **THEN** resolved refs are merged and sorted while missing or invalid bindings are removed without deleting the staged suggestion
+- **AND** all affected rows are rewritten by one staged-revision CAS
+
+#### Scenario: Host response is incomplete or invalid
+- **WHEN** resolved and missing IDs are not a complete duplicate-free partition of the requested batch, or a resolved ref belongs to another library
+- **THEN** migration fails with a stable unavailable outcome
+- **AND** staged JSON and revision remain byte-for-byte unchanged
+
+#### Scenario: Concurrent staged entry points arrive
+- **WHEN** multiple staged operations encounter unmigrated rows concurrently
+- **THEN** one migration attempt runs and the callers observe the same committed result
+- **AND** a failed attempt is not cached and may be retried by a later entry
+
+### Requirement: Startup SHALL attempt staged binding migration without blocking readiness
+
+Sidecar startup SHALL perform one best-effort migration attempt and record the fixed `staged-tag-binding-migration` operation with running and completed or failed state plus processed and discarded counts. Failure SHALL not prevent readiness, but staged entry points SHALL return stable unavailable until a later gate attempt succeeds.
+
+#### Scenario: Startup migration fails
+- **WHEN** Host resolution or atomic rewrite fails during startup
+- **THEN** the sidecar becomes ready and the migration operation records failure
+- **AND** the original staged rows remain unchanged for a later retry

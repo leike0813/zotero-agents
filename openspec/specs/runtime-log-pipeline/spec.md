@@ -226,3 +226,13 @@ The runtime log pipeline SHALL record high-signal backend cache refresh events f
 - **WHEN** a SkillRunner model cache refresh starts, succeeds, or fails
 - **THEN** the system SHALL append structured runtime logs with backend identity, operation, request path summaries, engine/model counts when available, duration when available, and sanitized error details.
 
+### Requirement: Runtime Log SHALL contain business semantics only
+
+Synthesis Runtime Log details SHALL contain operation, trigger, stage, outcome,
+duration, Host classification, and public semantic status only.
+
+#### Scenario: RPC transport fails
+- **WHEN** a Synthesis call fails after crossing HTTP and a worker boundary
+- **THEN** one Host-normalized business incident is stored
+- **AND** HTTP status, sizes, request IDs, worker codes, and trace data are absent
+

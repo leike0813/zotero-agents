@@ -1,19 +1,19 @@
 import { listNotePayloadBlocks } from "../notePayloadCodec";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import {
-  LITERATURE_SCORE_PAYLOAD_TYPE,
   parseLiteratureScore,
+  type LiteratureScoreSummary,
 } from "../../shared/literatureScore";
+import {
+  SYNTHESIS_PAPER_ARTIFACT_PAYLOAD_TYPES,
+  SYNTHESIS_PAPER_ARTIFACT_TYPES,
+  type SynthesisPaperArtifactType,
+} from "../../../packages/synthesis-contracts/src/literatureArtifacts";
 import { hashCanonicalJson, hashMarkdown } from "./foundation";
 
-export const PAPER_ARTIFACT_TYPES = [
-  "digest",
-  "references",
-  "citation_analysis",
-  "literature_score",
-] as const;
+export const PAPER_ARTIFACT_TYPES = SYNTHESIS_PAPER_ARTIFACT_TYPES;
 
-export type PaperArtifactType = (typeof PAPER_ARTIFACT_TYPES)[number];
+export type PaperArtifactType = SynthesisPaperArtifactType;
 
 export type ReferenceSidecarArtifactStatus = "available" | "missing" | "error";
 
@@ -97,6 +97,13 @@ export type ReferenceSidecarInput = {
   url?: string;
   citekey?: string;
   dateAdded?: string;
+  literatureAnalysisArtifacts?: {
+    digest: boolean;
+    references: boolean;
+    citationAnalysis: boolean;
+    literatureScore: "available" | "missing" | "invalid";
+  };
+  literatureScore?: LiteratureScoreSummary;
 };
 
 export type ReferenceSidecarIndexRow = {
@@ -116,10 +123,7 @@ export type ReferenceSidecarIndexRow = {
 };
 
 export const PAPER_ARTIFACT_PAYLOAD_TYPES: Record<PaperArtifactType, string> = {
-  digest: "digest-markdown",
-  references: "references-json",
-  citation_analysis: "citation-analysis-json",
-  literature_score: LITERATURE_SCORE_PAYLOAD_TYPE,
+  ...SYNTHESIS_PAPER_ARTIFACT_PAYLOAD_TYPES,
 };
 
 function normalizeString(value: unknown) {

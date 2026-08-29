@@ -21,9 +21,11 @@ import {
   type WorkflowArchiveEntry,
 } from "../workflows/archive";
 import {
-  PAPER_ARTIFACT_TYPES,
-  type PaperArtifactType,
-} from "./synthesis/registry";
+  SYNTHESIS_PAPER_ARTIFACT_TYPES,
+  SynthesisClient,
+  SynthesisDeliveryContext,
+  SynthesisPaperArtifactType,
+} from "../../packages/synthesis-contracts/src/index";
 
 const MAX_PAPER_SELECTORS = 100;
 const MAX_TOPIC_SELECTORS = 20;
@@ -31,9 +33,9 @@ const MAX_RESOLVED_PAPERS = 500;
 const MAX_BUNDLE_FILES = 5000;
 const MAX_BUNDLE_BYTES = 2 * 1024 * 1024 * 1024;
 
-export const RESEARCH_BUNDLE_ARTIFACT_TYPES = PAPER_ARTIFACT_TYPES;
+export const RESEARCH_BUNDLE_ARTIFACT_TYPES = SYNTHESIS_PAPER_ARTIFACT_TYPES;
 
-export type ResearchBundleArtifactType = PaperArtifactType;
+export type ResearchBundleArtifactType = SynthesisPaperArtifactType;
 
 export type DirectResearchBundleAttachment = {
   path: string;
@@ -1035,6 +1037,368 @@ export async function publishDirectResearchBundle(args: {
     }
   }
 }
+
+function normalizePaperSelectors(value: unknown) {
+  const selectors = Array.isArray(value) ? value : [];
+  const normalized: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  for (const selector of selectors) {
+    if (!isRecord(selector)) {
+      throw new DirectResearchBundleError(
+        "invalid_research_bundle_selector",
+        "Each paper selector must be an object containing id or key",
+      );
+    }
+    const id = cleanString(selector.id);
+    const key = cleanString(selector.key);
+    if ((!id && !key) || (id && key)) {
+      throw new DirectResearchBundleError(
+        "invalid_research_bundle_selector",
+        "Each paper selector must contain exactly one of id or key",
+        { selector },
+      );
+    }
+    const libraryId = Number(selector.libraryId);
+    if (
+      key &&
+      selector.libraryId !== undefined &&
+      (!Number.isInteger(libraryId) || libraryId <= 0)
+    ) {
+      throw new DirectResearchBundleError(
+        "invalid_research_bundle_selector",
+        "Paper selector libraryId must be a positive integer",
+        { selector },
+      );
+    }
+    const result = id
+      ? { id }
+      : {
+          key,
+          ...(selector.libraryId === undefined ? {} : { libraryId }),
+        };
+    const signature = id ? `id:${id}` : `key:${libraryId || ""}:${key}`;
+    if (!seen.has(signature)) {
+      seen.add(signature);
+      normalized.push(result);
+    }
+  }
+  validateDirectResearchBundleScope({
+    kind: "papers",
+    selectorCount: normalized.length,
+    resolvedPaperCount: 0,
+  });
+  return normalized;
+}
+
+function paperMatchesSelector(
+  paper: DirectResearchBundlePaper,
+  selector: Record<string, unknown>,
+) {
+  const id = cleanString(selector.id);
+  if (id) {
+    return [
+      paper.metadata.id,
+      paper.metadata.itemId,
+      paper.metadata.itemID,
+    ].some((value) => cleanString(value) === id);
+  }
+  const libraryId = Number(selector.libraryId);
+  return (
+    paper.itemKey === cleanString(selector.key) &&
+    (!Number.isInteger(libraryId) ||
+      libraryId <= 0 ||
+      paper.libraryId === libraryId)
+  );
+}
+
+function directBundleDelivery(
+  input: Record<string, unknown>,
+  delivery: SynthesisDeliveryContext = { mode: "local" },
+) {
+  const outputDir = cleanString(input.output_dir || input.outputDir);
+  if (delivery.mode === "local" && !outputDir) {
+    throw new DirectResearchBundleError(
+      "missing_output_dir",
+      "Local direct research bundle export requires output_dir",
+    );
+  }
+  if (delivery.mode === "remote" && outputDir) {
+    throw new DirectResearchBundleError(
+      "remote_output_dir_forbidden",
+      "Remote direct research bundle export cannot write a client-local directory",
+    );
+  }
+  return { connectionMode: delivery.mode, outputDir } as const;
+}
+
+function topicIdsFromInput(input: Record<string, unknown>) {
+  return uniqueStrings([
+    ...(Array.isArray(input.topic_ids) ? input.topic_ids : []),
+    ...(Array.isArray(input.topicIds) ? input.topicIds : []),
+    input.topic_id,
+    input.topicId,
+  ]);
+}
+
+function sourcePapersFromTopicContext(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.semantic)) return [];
+  const semantic = value.semantic;
+  const direct = Array.isArray(semantic.source_papers)
+    ? semantic.source_papers
+    : [];
+  const resolved = isRecord(semantic.resolved_paper_set)
+    ? semantic.resolved_paper_set.papers
+    : [];
+  return (direct.length ? direct : Array.isArray(resolved) ? resolved : [])
+    .filter(isRecord)
+    .map((paper) => ({
+      paperRef: cleanString(
+        paper.paper_ref ||
+          (isRecord(paper.digest_ref) && paper.digest_ref.paper_ref),
+      ),
+      title: cleanString(paper.title),
+    }))
+    .filter((paper) => paper.paperRef);
+}
+
+export function createDirectResearchBundleApplication(args: {
+  host: DirectResearchBundleHost;
+  client: Pick<SynthesisClient, "artifacts" | "topics">;
+}) {
+  async function resolvePapers(
+    selectors: Record<string, unknown>[],
+    kind: "papers" | "topics",
+  ) {
+    const papers = await args.host.resolveItems(selectors);
+    const unresolved = selectors.filter(
+      (selector) =>
+        !papers.some((paper) => paperMatchesSelector(paper, selector)),
+    );
+    const unexpected = papers.filter(
+      (paper) =>
+        !selectors.some((selector) => paperMatchesSelector(paper, selector)),
+    );
+    if (unresolved.length || unexpected.length) {
+      throw new DirectResearchBundleError(
+        "invalid_research_bundle_selector",
+        "Paper selectors did not resolve to the exact requested Zotero item set",
+        {
+          unresolved,
+          unexpected_paper_refs: unexpected.map((paper) => paper.paperRef),
+        },
+      );
+    }
+    const byRef = new Map<string, DirectResearchBundlePaper>();
+    for (const paper of papers) {
+      const parsed = parsePaperRef(paper.paperRef);
+      if (!parsed) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Resolved paper must expose a canonical libraryId:itemKey ref",
+          { paperRef: paper.paperRef },
+        );
+      }
+      byRef.set(parsed.paperRef, {
+        ...paper,
+        paperRef: parsed.paperRef,
+        libraryId: parsed.libraryId,
+        itemKey: parsed.itemKey,
+      });
+    }
+    const resolved = [...byRef.values()];
+    validateDirectResearchBundleScope({
+      kind,
+      selectorCount: kind === "papers" ? selectors.length : 1,
+      resolvedPaperCount: resolved.length,
+    });
+    return resolved;
+  }
+
+  async function exportPapers(
+    input: Record<string, unknown> = {},
+    delivery?: SynthesisDeliveryContext,
+  ) {
+    const selectors = normalizePaperSelectors(input.items);
+    const papers = await resolvePapers(selectors, "papers");
+    const materialized = await materializeResearchBundlePapers({
+      papers,
+      readArtifacts: ({ paperRefs, artifactTypes }) =>
+        args.client.artifacts.readPaperArtifacts({
+          paper_refs: paperRefs,
+          artifact_types: artifactTypes,
+        }),
+    });
+    return publishDirectResearchBundle({
+      kind: "papers",
+      capability: "items.export_research_bundle",
+      ...directBundleDelivery(input, delivery),
+      entries: materialized.entries,
+      papers: materialized.papers,
+      warnings: materialized.warnings,
+      zipName: "papers-research-bundle.zip",
+    });
+  }
+
+  async function exportTopics(
+    input: Record<string, unknown> = {},
+    delivery?: SynthesisDeliveryContext,
+  ) {
+    const topicIds = topicIdsFromInput(input);
+    validateDirectResearchBundleScope({
+      kind: "topics",
+      selectorCount: topicIds.length,
+      resolvedPaperCount: 0,
+    });
+    const topics: DirectResearchBundleTopic[] = [];
+    for (const topicId of topicIds) {
+      const [report, context] = await Promise.all([
+        args.client.topics.getTopicReport({ topicId }),
+        args.client.topics.getContext({ topicId, view: "semantic" }),
+      ]);
+      if (!report.ok || !cleanString(report.markdown)) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Topic selector did not resolve to an available report",
+          { topicId },
+        );
+      }
+      topics.push({
+        topicId: cleanString(report.topic_id) || topicId,
+        title: cleanString(report.title) || topicId,
+        report: report.markdown,
+        sourcePapers: sourcePapersFromTopicContext(context),
+        diagnostics: report.diagnostics,
+      });
+    }
+    const sourceRefs = uniqueStrings(
+      topics.flatMap((topic) =>
+        topic.sourcePapers.map((paper) => paper.paperRef),
+      ),
+    );
+    const selectors = sourceRefs.map((paperRef) => {
+      const parsed = parsePaperRef(paperRef);
+      if (!parsed) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Topic source paper must use a canonical libraryId:itemKey ref",
+          { paperRef },
+        );
+      }
+      return { key: parsed.itemKey, libraryId: parsed.libraryId };
+    });
+    const papers = selectors.length
+      ? await resolvePapers(selectors, "topics")
+      : [];
+    validateDirectResearchBundleScope({
+      kind: "topics",
+      selectorCount: topicIds.length,
+      resolvedPaperCount: papers.length,
+    });
+    const materialized = await materializeResearchBundlePapers({
+      papers,
+      readArtifacts: ({ paperRefs, artifactTypes }) =>
+        args.client.artifacts.readPaperArtifacts({
+          paper_refs: paperRefs,
+          artifact_types: artifactTypes,
+        }),
+      includeMetadata: false,
+      includeSource: false,
+      artifactTypes: ["digest"],
+    });
+    const availableDigestRefs = new Set(
+      materialized.papers
+        .filter((paper) =>
+          Array.isArray(paper.artifacts)
+            ? paper.artifacts.some(
+                (artifact) =>
+                  isRecord(artifact) &&
+                  cleanString(artifact.artifact_type) === "digest" &&
+                  cleanString(artifact.path),
+              )
+            : false,
+        )
+        .map((paper) => cleanString(paper.paper_ref)),
+    );
+    const entries = [...materialized.entries];
+    const warnings = [...materialized.warnings];
+    const topicRecords: Record<string, unknown>[] = [];
+    for (const topic of topics) {
+      const directory = `topics/${encodePathSegment(topic.topicId, "topic")}`;
+      const rewritten = rewriteTopicReportDigestLinks({
+        report: topic.report,
+        topicId: topic.topicId,
+        sourcePapers: topic.sourcePapers,
+        availableDigestRefs,
+      });
+      entries.push({
+        path: `${directory}/report.md`,
+        contentType: "text/markdown",
+        text: rewritten.report,
+      });
+      if (rewritten.fallbackSources) {
+        entries.push({
+          path: `${directory}/sources.md`,
+          contentType: "text/markdown",
+          text: rewritten.fallbackSources,
+        });
+      }
+      if (rewritten.warning) warnings.push(rewritten.warning);
+      for (const diagnostic of topic.diagnostics || []) {
+        warnings.push({
+          code: "topic_report_diagnostic",
+          topic_id: topic.topicId,
+          reason: diagnostic,
+        });
+      }
+      topicRecords.push({
+        topic_id: topic.topicId,
+        title: topic.title,
+        report_path: `${directory}/report.md`,
+        ...(rewritten.fallbackSources
+          ? { sources_path: `${directory}/sources.md` }
+          : {}),
+        paper_refs: topic.sourcePapers.map((paper) => paper.paperRef),
+      });
+    }
+    const papersByRef = Object.fromEntries(
+      materialized.papers.map((paper) => {
+        const paperRef = cleanString(paper.paper_ref);
+        return [
+          paperRef,
+          {
+            digest_path: availableDigestRefs.has(paperRef)
+              ? `${paperBundleDirectory(paperRef)}/digest.md`
+              : null,
+            topic_ids: topics
+              .filter((topic) =>
+                topic.sourcePapers.some(
+                  (sourcePaper) => sourcePaper.paperRef === paperRef,
+                ),
+              )
+              .map((topic) => topic.topicId),
+          },
+        ];
+      }),
+    );
+    return publishDirectResearchBundle({
+      kind: "topics",
+      capability: "topics.export_research_bundle",
+      ...directBundleDelivery(input, delivery),
+      entries,
+      papers: materialized.papers,
+      topics: topicRecords,
+      papersByRef,
+      warnings,
+      zipName: "topics-research-bundle.zip",
+    });
+  }
+
+  return { exportPapers, exportTopics };
+}
+
+export type DirectResearchBundleApplication = ReturnType<
+  typeof createDirectResearchBundleApplication
+>;
 
 export const directResearchBundleLimits = {
   paperSelectors: MAX_PAPER_SELECTORS,

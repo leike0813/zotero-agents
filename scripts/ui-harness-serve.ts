@@ -8,6 +8,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { type SynthesisClient } from "../packages/synthesis-contracts/src/index";
 import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
@@ -19,8 +20,13 @@ import {
   type SynthesisWorkbenchSurfaceName,
 } from "../src/modules/synthesis/uiModel";
 import { parseHarnessEnv } from "../src/modules/harness/env";
-import { createSynthesisReadonlyService } from "../src/modules/harness/synthesisReadonlyService";
+import { createSynthesisReadonlyClient } from "../src/modules/harness/synthesisReadonlyClient";
 import { buildHarnessSynthesisI18nEnvelope } from "../src/modules/harness/synthesisWorkbenchI18nEnvelope";
+import {
+  toSynthesisUiSnapshotInput,
+  toSynthesisWorkbenchPaperDigestReadRequest,
+  toSynthesisWorkbenchReadState,
+} from "../src/modules/synthesisClient/workbenchUiAdapter";
 import {
   installReadonlyZoteroPrefs,
   readZoteroPrefsStore,
@@ -46,9 +52,7 @@ type SynthesisRuntime = {
   state: SynthesisUiState;
   input: SynthesisUiSnapshotInput;
   warnings: SynthesisUiActionOperation[];
-  service?: Awaited<
-    ReturnType<typeof createSynthesisReadonlyService>
-  >["service"];
+  client?: SynthesisClient;
 };
 
 const diagnostics: string[] = [];
@@ -404,12 +408,15 @@ async function refreshSynthesisInput(
   runtime: SynthesisRuntime,
   surface: SynthesisWorkbenchSurfaceName,
 ) {
-  if (!runtime.service) return;
-  const input = await runtime.service.getSynthesisWorkbenchSurfaceInput(
+  if (!runtime.client) return;
+  const input = await runtime.client.workbench.readSurface({
     surface,
-    runtime.state,
+    state: toSynthesisWorkbenchReadState(runtime.state),
+  });
+  runtime.input = mergeSynthesisUiSnapshotInput(
+    runtime.input,
+    toSynthesisUiSnapshotInput(input),
   );
-  runtime.input = mergeSynthesisUiSnapshotInput(runtime.input, input);
 }
 
 async function handleSynthesisAction(
@@ -417,7 +424,7 @@ async function handleSynthesisAction(
   payload: Record<string, unknown>,
 ) {
   const runtime = synthesisRuntime;
-  if (!runtime?.service) {
+  if (!runtime?.client) {
     return {
       messages: [
         {
@@ -426,7 +433,7 @@ async function handleSynthesisAction(
             surface: "home",
             message:
               diagnostics.join("\n") ||
-              "Synthesis readonly service unavailable.",
+              "Synthesis readonly client unavailable.",
           },
         },
       ],
@@ -439,10 +446,13 @@ async function handleSynthesisAction(
   let surface = surfaceForTab(runtime.state.selectedTab);
 
   if (action === "ready") {
-    const chrome = await runtime.service.getSynthesisWorkbenchChromeInput(
-      runtime.state,
+    const chrome = await runtime.client.workbench.readChrome({
+      state: toSynthesisWorkbenchReadState(runtime.state),
+    });
+    runtime.input = mergeSynthesisUiSnapshotInput(
+      runtime.input,
+      toSynthesisUiSnapshotInput(chrome),
     );
-    runtime.input = mergeSynthesisUiSnapshotInput(runtime.input, chrome);
     await refreshSynthesisInput(runtime, surface);
     messages.push({ type: "synthesis:init", payload: snapshot(runtime) });
     messages.push({ type: "synthesis:chrome", payload: snapshot(runtime) });
@@ -460,7 +470,9 @@ async function handleSynthesisAction(
     if (command === "openTopicArtifact") {
       const topicId = String(args.topicId || args.id || "").trim();
       if (topicId) {
-        const detail = await runtime.service.readTopicDetail({ topicId });
+        const detail = await runtime.client.workbench.readTopicDetail({
+          topicId,
+        });
         const reader = applySynthesisUiAction(runtime.state, {
           action: "showArtifactReader",
           payload: { topicId },
@@ -477,7 +489,9 @@ async function handleSynthesisAction(
     } else if (command === "resolveTopicPaperDigest") {
       messages.push({
         type: "synthesis:digest",
-        payload: await runtime.service.resolveTopicPaperDigest(args),
+        payload: await runtime.client.workbench.readPaperDigest(
+          toSynthesisWorkbenchPaperDigestReadRequest(args),
+        ),
       });
     } else {
       const entry = logAction(
@@ -745,7 +759,7 @@ async function main() {
     (await exists(pluginDbPath)) &&
     (await exists(synthesisDbPath))
   ) {
-    const serviceHandle = await createSynthesisReadonlyService({
+    const clientHandle = await createSynthesisReadonlyClient({
       zoteroDbPath,
       pluginDbPath,
       synthesisDbPath,
@@ -753,19 +767,19 @@ async function main() {
       libraryId: 1,
     }).catch((error) => {
       diagnostics.push(
-        `Synthesis readonly service failed: ${
+        `Synthesis readonly client failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
       return null;
     });
-    if (serviceHandle) {
-      closeSynthesis = serviceHandle.close;
+    if (clientHandle) {
+      closeSynthesis = clientHandle.close;
       synthesisRuntime = {
         state: createDefaultSynthesisUiState(),
         input: buildDefaultSnapshotInput(),
         warnings: [],
-        service: serviceHandle.service,
+        client: clientHandle.client,
       };
     }
   }

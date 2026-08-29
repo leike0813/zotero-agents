@@ -14,4 +14,3 @@ The submission execution context SHALL expose typed operations to yield a held s
 
 - **WHEN** a yielded provider run becomes terminal with an applicable result
 - **THEN** the apply seam SHALL await priority slot reacquisition before invoking Host apply
-

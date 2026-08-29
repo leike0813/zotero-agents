@@ -18,6 +18,7 @@ tsconfig.sidebar.tsbuildinfo
 # Rust
 cli/zotero-bridge/target/
 native/acp-ws-bridge/target/
+native/synthesis-sidecar/target/
 
 # Scaffold
 .env
@@ -36,6 +37,8 @@ logs
 .codebuddy/
 .qwen/
 .codebuddy/
+!.commandcode/taste/taste.md
+.commandcode/
 .codegraph/
 .agents/*
 !.agents/skills/
@@ -52,6 +55,10 @@ logs
 !.agents/skills/zotero-agents-release-coordinator/**
 !.agents/skills/host-bridge-review-mirror/
 !.agents/skills/host-bridge-review-mirror/**
+!.agents/skills/synthesis-sidecar-prebuild/
+!.agents/skills/synthesis-sidecar-prebuild/**
+!.agents/skills/synthesis-sidecar-release-pipeline/
+!.agents/skills/synthesis-sidecar-release-pipeline/**
 
 .pnpmfile.cjs
 

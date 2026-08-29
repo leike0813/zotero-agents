@@ -1,0 +1,83 @@
+## Lifecycle dependency
+
+This change follows `simplify-xpi-owned-synthesis-sidecar-lifecycle`. Removing
+the Node oracle MUST preserve the fixed XPI `current` installer, Rust
+prebuild/package pipeline, launch-scoped discovery, process-held OS lock, and
+schema-migration-only backup boundary. It MUST NOT restore runtime pointers,
+rollback, cutover, admission, activation, owner/lease files, or persisted
+generations.
+
+## Why
+
+After native acceptance is durable and the plugin legacy owner is gone, the
+external Node Synthesis service, JavaScript worker stack, differential-only
+build path, and associated tests become redundant. R9 and Stage 1 cannot be
+completed while those obsolete delivery and implementation surfaces remain in
+the repository or build graph.
+
+## What Changes
+
+- **BREAKING (development tooling only)**: Delete `apps/synthesis-service`, its
+  Node HTTP/lifecycle/repository/application implementation, JavaScript worker
+  pool/protocol, and Node-specific runtime configuration.
+- Remove the Node sidecar build/prebuild workflow, package workspace, build
+  commands, benchmark/smoke scripts, release inventory, dependencies, and
+  implementation-detail tests.
+- Replace executable Node differential gates with accepted language-neutral
+  corpora, Rust-owned invariants, and public observable-behavior tests; delete
+  tests that only lock Node classes, module resolution, internal worker messages,
+  or build output.
+- Prune unreachable TypeScript engine/application/repository implementations
+  while retaining `synthesis-contracts` and any pure plugin-owned DTO,
+  canonicalization, projection, or Host-boundary logic with current callers.
+- Make source, build, package, freshness, SBOM/provenance, and XPI inventories
+  native-only. Node, npm, JavaScript service, D3 runtime, and re-enable switches
+  must be absent.
+- Run the post-deletion seven-platform candidate and local native-only gates,
+  then hand its pinned identity to
+  `complete-synthesis-r9-stage1-acceptance`. Final XPI,
+  clean/upgrade/corrupt/crash/offline, backup/restore, and Zotero 7/9
+  real-machine acceptance remain owned by that separately authorized change.
+
+## Capabilities
+
+### New Capabilities
+
+None.
+
+### Modified Capabilities
+
+- `synthesis-rust-sidecar-migration-governance`: Complete source retirement and
+  require a separately governed final cross-platform acceptance change before
+  declaring R9 or Stage 1 complete.
+- `synthesis-sidecar-stage1-node-milestone-gate`: Replace the transitional
+  development-only Node allowance with a zero-Node source/build/runtime rule.
+- `synthesis-sidecar-runtime-packaging`: Remove Node-era build and inventory
+  surfaces and retain only manifest-v3 Rust bundle delivery through the fixed
+  XPI `current` installation.
+- `synthesis-worker-source-build-parity`: Retire TypeScript/Node worker build
+  parity and make Rust source/build/operation parity the only worker gate.
+- `synthesis-sidecar-service-boundary`: Make the Rust executable the sole
+  Synthesis service implementation while keeping Zotero/Host authority in the
+  plugin.
+
+## Impact
+
+- Deletes `apps/synthesis-service/**`, the Node sidecar workflow and scripts,
+  Node-only tests, package workspace entries, dependencies, and obsolete release
+  inventory.
+- Prunes `packages/synthesis-engine`, `packages/synthesis-application`, and
+  `packages/synthesis-repository` by reachability; it does not delete
+  `packages/synthesis-contracts` or plugin-required pure logic.
+- Updates Stage-1 test-suite governance, package/XPI checks, Synthesis docs, and
+  the Rust migration plan.
+- Depends on `stabilize-synthesis-r9a-retirement-baseline`, every completed task
+  and external parity/10k/25k gate in
+  `restore-synthesis-rust-sidecar-main-parity`, and
+  `remove-synthesis-plugin-legacy-owner`. It also requires
+  `harden-synthesis-sidecar-recursive-dto-contracts` to be complete, so removal
+  cannot discard the executable oracle before all 119 capabilities and 15
+  worker operations have recursively closed language-neutral DTO evidence; no
+  release may occur between them.
+  Regression-repair results remain candidate evidence until those gates are
+  accepted for the same source identity.

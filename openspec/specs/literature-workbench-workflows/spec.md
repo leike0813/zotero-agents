@@ -340,32 +340,46 @@ Every direct ingest payload SHALL use item-type-compatible canonical Zotero meta
 ### Requirement: Literature analysis SHALL route by generated-note readiness
 
 The workflow SHALL derive one internal mode from the selected parent item's
-generated notes without exposing `score_only` as a workflow parameter.
+generated notes without exposing `score_only` as a workflow parameter. Note
+presence SHALL use the shared generated-artifact classifier; heading text alone
+is not artifact evidence.
 
-#### Scenario: Complete legacy triplet needs only a score
+#### Scenario: Complete recognized analysis triplet needs only a score
 
-- **GIVEN** digest, references, and citation-analysis notes are present
+- **GIVEN** digest, references, and citation-analysis artifacts are recognized
+  as present by the shared classifier
 - **AND** no valid literature-score payload is present
 - **WHEN** literature-analysis builds its request
 - **THEN** it SHALL run the literature-analysis Skill with `score_only: true`
 - **AND** it SHALL omit tag-regulator.
 
-#### Scenario: Any legacy artifact is absent
+#### Scenario: Any analysis artifact is absent
 
 - **GIVEN** at least one of digest, references, or citation-analysis is absent
 - **WHEN** literature-analysis builds its request
 - **THEN** it SHALL run with `score_only: false`
 - **AND** it MAY include tag-regulator according to the public option.
 
+#### Scenario: Generated-note headings have no artifact evidence
+
+- **GIVEN** notes contain generated-artifact headings
+- **AND** they have no recognized payload marker or anchor
+- **AND** they have no readable embedded payload recognized by the shared
+  classifier
+- **WHEN** literature-analysis builds its request
+- **THEN** those notes SHALL be treated as absent
+- **AND** it SHALL run with `score_only: false`.
+
 #### Scenario: All four artifacts are available
 
-- **GIVEN** the legacy triplet and a valid literature-score payload are present
+- **GIVEN** the recognized analysis triplet and a valid literature-score
+  payload are present
 - **WHEN** workflow availability or request construction is evaluated
 - **THEN** the parent item SHALL be rejected as an input.
 
 #### Scenario: Marked score note has an invalid payload
 
-- **GIVEN** the legacy triplet is present
+- **GIVEN** the recognized analysis triplet is present
 - **AND** a literature-score note has no decodable valid score payload
 - **WHEN** readiness is evaluated
 - **THEN** the score SHALL be treated as unavailable

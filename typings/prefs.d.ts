@@ -50,15 +50,6 @@ declare namespace _ZoteroTypes {
       "hostBridgeDisableWriteApproval": boolean;
       "hostBridgeCli.installPrompt.dismissedIdentity": string;
       "mcpServer.enabled": boolean;
-      "synthesisGitSyncEnabled": boolean;
-      "synthesisGitSyncRemoteUrl": string;
-      "synthesisGitSyncBranch": string;
-      "synthesisGitSyncTokenEncryptedJson": string;
-      "synthesisGitSyncTokenMasked": string;
-      "synthesisGitSyncTokenUpdatedAt": string;
-      "synthesisGitSyncAutoSyncEnabled": boolean;
-      "synthesisGitSyncAutoRetryEnabled": boolean;
-      "synthesisGitSyncConnectionTestJson": string;
       "synthesisWebDavSyncEnabled": boolean;
       "synthesisWebDavSyncBaseUrl": string;
       "synthesisWebDavSyncRemotePath": string;

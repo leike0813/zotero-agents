@@ -1,4 +1,5 @@
 import { getPref, setPref } from "../utils/prefs";
+import { timingSafeEqualString } from "../utils/timingSafeEqual";
 
 const TOKEN_BYTES = 24;
 const MASK_PREFIX = 6;
@@ -290,17 +291,6 @@ export function rotateHostBridgeToken() {
     tokenMasked: redactHostBridgeToken(token),
     rotatedAt: now,
   };
-}
-
-function timingSafeEqualString(a: string, b: string) {
-  if (!a || !b || a.length !== b.length) {
-    return false;
-  }
-  let diff = 0;
-  for (let index = 0; index < a.length; index += 1) {
-    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
-  }
-  return diff === 0;
 }
 
 export async function isHostBridgeAuthorizationValid(

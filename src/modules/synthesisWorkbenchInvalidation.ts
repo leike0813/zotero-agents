@@ -1,9 +1,9 @@
 import type { SynthesisWorkbenchSurfaceName } from "./synthesis/uiModel";
 
 export type SynthesisWorkbenchSidecarChangeEvent = {
+  invalidatedSurfaces: SynthesisWorkbenchSurfaceName[];
   sourceRefs?: string[];
   reason: string;
-  graphMayHaveChanged?: boolean;
 };
 
 export type SynthesisWorkbenchSidecarChangeResult = {
@@ -32,10 +32,15 @@ export function registerSynthesisWorkbenchSidecarChangeListener(
 export function notifySynthesisWorkbenchSidecarChanged(
   event: SynthesisWorkbenchSidecarChangeEvent,
 ): SynthesisWorkbenchSidecarChangeResult {
-  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
-    event.graphMayHaveChanged === false ? ["index"] : ["index", "graph"];
+  const invalidatedSurfaces = Array.from(
+    new Set<SynthesisWorkbenchSurfaceName>(event.invalidatedSurfaces),
+  );
+  const normalizedEvent = {
+    ...event,
+    invalidatedSurfaces,
+  };
   for (const listener of sidecarChangeListeners) {
-    listener(event);
+    listener(normalizedEvent);
   }
   return {
     invalidatedListeners: sidecarChangeListeners.size,

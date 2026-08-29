@@ -43,6 +43,25 @@ Aliases are interchangeable names for one concept in one sense: abbreviations an
 
 Concept ingestion failure should not roll back a successfully applied topic artifact unless the host apply command explicitly chose all-or-nothing behavior. Partial Concept facts may be committed only after validation; invalid proposals remain diagnostics/review inputs.
 
+## Index and Query Engine
+
+Concept KB search rows, overlay selection, and bounded exact label/alias
+matching use the environment-neutral `SynthesisConceptKbIndexEngine`.
+Application code converts SQLite-owned concept, sense, and alias rows into
+strict camelCase DTOs and strictly rebuilds every result before use.
+
+The engine does not own proposal matching. Token-overlap candidate scoring and
+the resulting merge/create/review decision remain in Concept KB application
+logic because they can materialize durable facts and review items.
+
+Index and query computation is capped at 25,000 concepts, 100,000 senses,
+250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code
+units per string. Engine failure, cancellation, bounds rejection, or malformed
+output cannot advance projection state or modify Concept KB rows. The Rust
+production application owns the manifest-CAS aggregate, invokes the bounded
+worker, promotes only a captured-basis index, exposes public DTOs through the
+native client, and never writes repository state during candidate query.
+
 ## Overlay Context
 
 Topics can read Concept KB through a read facade that returns `concept_overlay_context`.
@@ -78,7 +97,7 @@ Concept review actions map to Concept-owned durable effects:
 | accept topic-concept link | Concept-owned link fact or review outcome |
 | reject topic-concept link | rejected proposal outcome |
 
-These actions may mark Concept overlay/cache projections stale or recommend explicit Concept maintenance. They must not rewrite topic artifacts or topic graph relations. If a concept merge/delete changes overlay results, Topics observe it on the next overlay read.
+These actions mark the rebuildable Concept index stale and leave rebuild as an explicit maintenance operation. Review state itself remains readable from canonical SQLite facts, so an already-stale index does not hide pending decisions. They must not rewrite topic artifacts or topic graph relations. If a concept merge/delete changes overlay results, Topics observe it on the next overlay read.
 
 The Concepts page exposes an explicit deterministic alias audit. It opens `alias_conflict` reviews for aliases owned by one concept that collide with another canonical label, and `alias_equivalence_audit` reviews for inconsistent concept/sense/alias ownership or separately named senses. Audit is diagnostic-only until the user chooses Keep Alias or Remove Alias, and repeated audit does not duplicate an existing decision.
 
@@ -94,4 +113,4 @@ The Concepts page exposes an explicit deterministic alias audit. It opens `alias
 
 ## Performance
 
-Concept overlay reads should follow the general UI budgets in [Performance and Scale](./performance-and-scale.md). Proposal ingestion should use bounded candidate pools and indexed label/alias keys; all-pairs concept scans are forbidden on normal apply.
+Concept overlay reads should follow the general UI budgets in [Performance and Scale](./performance-and-scale.md). Search, overlay, and exact queries use the bounded engine contract. Proposal ingestion should use bounded candidate pools and indexed label/alias keys; all-pairs concept scans are forbidden on normal apply.

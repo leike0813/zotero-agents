@@ -69,7 +69,7 @@ the MCP route.
 - **WHEN** it calls authenticated `/bridge/v1/*` routes or `/mcp`
 - **THEN** the same token SHALL authorize both protocol surfaces.
 
-### Requirement: Host Bridge settings expose the minimal user controls
+### Requirement: Unified Host Access settings control both protocol surfaces
 
 The plugin SHALL expose Host Access controls for LAN binding, fixed port, token
 rotation, endpoint display, CLI installation, and MCP enablement without adding
@@ -255,5 +255,3 @@ The registered handler IDs and canonical capability IDs SHALL be identical, and 
 #### Scenario: Registry and contract differ
 - **WHEN** a capability or handler is missing, duplicated, or orphaned
 - **THEN** Host Bridge startup and contract validation SHALL fail before serving requests.
-
-

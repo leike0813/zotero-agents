@@ -8,6 +8,16 @@ An ad-hoc Create seed also resolves against the complete topic inventory before 
 
 Planner reconciliation covers the whole current library and applies all placeholder and relation changes atomically against the Topic Graph hash. A concurrent graph change rejects the whole plan. A library-index change can leave the graph reconciliation valid while marking its coverage result stale. Materialized Topics are read-only to Planner; update recommendations go through Update Topic Synthesis. Separate materialization runs may execute in parallel after the shared plan has established their identities and relation proposals.
 
+Production planning is a native sidecar route. `getTopicPlanningContext`
+returns the complete bounded library/topic context and
+`applyTopicPlan` accepts a strict typed plan with the observed graph and library
+bases. Create, update, stale, reactivation, and relation changes commit in one
+Topic Graph transaction. Revision or graph-basis mismatch rejects the whole
+plan; a library-basis mismatch preserves a valid graph reconciliation but marks
+its coverage stale. Planning never writes provisional paper memberships.
+Materialized Topic nodes are protected from Planner mutation, and a proposed
+hierarchy cycle rejects the plan before any write.
+
 ## Topic Artifacts
 
 A topic artifact owns:
@@ -67,9 +77,11 @@ The topic update action is always labeled `Update` in the UI. Its intent may sti
 
 ### Persisted Artifact State
 
-Topic source readiness is persisted in `sidecar/artifact-state.json` under `data.topics[*].source_materials_status`. New writes must not write the old topic-row `coverage` field for source readiness.
+The native Topic application owns source readiness in the Topic projection row in `state/synthesis.db`. The projection records the saved/current paper refs, the required `digest`, `references`, and `citation_analysis` availability and hashes, the baseline/current dependency hashes, and scan timestamps. `freshness`, `source_materials_status`, and `source_materials_percent` are derived from those facts for Home and Topics; they are not independent facts and are not supplied by Workbench defaults.
 
-Legacy artifact-state rows may contain `data.topics[*].coverage` from before the hard cut. Readers may map that legacy value to `source_materials_status` during migration or compatibility reads, but the next persisted state should contain only `source_materials_status`.
+Topic apply establishes a new baseline after the Topic aggregate commits. Bounded Topic reads compare current Reference artifact facts with that baseline without writing repository state. Existing Topic rows that predate the native readiness projection use the current complete dependency set as a deterministic read-only baseline; incomplete evidence is reported as dirty with `readiness_baseline_missing` until the next successful Topic apply establishes a persisted baseline.
+
+`sidecar/artifact-state.json` is legacy migration input only. Production Workbench and Topic update routing do not read or write it.
 
 This migration applies only to topic source readiness read-model state. It must not rename or rewrite:
 
@@ -102,6 +114,12 @@ Discovery candidate counts are topic-graph aware in the read model. A higher-lev
 - If the same literature is open for both parent and child, it counts once.
 - An open hint wins over a rejected duplicate for the same literature identity when deriving aggregate `discovery_status`.
 
+Topic Graph projection placement is a separate rebuildable concern. The
+environment-neutral Topic Graph index engine derives sorted root and unplaced
+topic identifiers from bounded node/edge DTOs. It does not own this confirmed
+hierarchy cascade, proposal/review decisions, graph mutations, or Workbench
+search and neighborhood filtering.
+
 The cascade affects:
 
 - Topics/Home list `candidate_count` and `discovery_status`;
@@ -111,6 +129,19 @@ The cascade affects:
 Accepting a suggested topic graph relation as `confirmed` may therefore change discovery counts for the accepted edge's source topic and its confirmed ancestors. Rejecting a relation must not add descendant candidates to a parent.
 
 Discovery cascade does not imply that parent topic content has consumed child candidates. It only exposes possible update work. Topic update remains an explicit workflow action.
+
+The Rust production Topic Graph application owns graph/review facts, the
+last-good index, and the discovery cascade. It coordinates Topic and Concept
+updates in the production repository while current Zotero/artifact facts remain
+Host-owned and enter through bounded reverse-Host reads.
+
+Topic create/update materialization uses the bounded Topic Structured Artifact
+engine for manifest validation, section-patch CAS/merge, artifact assembly, and
+deep content validation. The engine does not read run-workspace files, resolve
+digest locators against current literature artifacts, compute canonical hashes,
+write topic current assets, or apply Concept KB, Topic Graph, interest metadata,
+or discovery effects. Those application-owned steps run only after strict
+engine result rebuilding succeeds.
 
 ### Update Source Membership
 
@@ -124,6 +155,12 @@ Update preparation treats open discovery hints as a separate, bounded membership
 - the resolver manifest records base refs, candidate hint IDs and bases, unresolved refs, triage outcomes, accepted additions, screened refs, and effective refs.
 
 Host apply commits these exact hint outcomes only after topic validation, CAS checks, and canonical writes succeed. A conflict or failed apply leaves discovery rows unchanged.
+
+Each persisted discovery outcome carries the source basis that produced it.
+Repeating discovery against the same basis preserves a screened-out decision;
+a changed basis reopens that literature candidate for evaluation. Accepted and
+superseded outcomes remain explicit rather than being inferred from a missing
+open row.
 
 ## Metadata Snapshot Semantics
 

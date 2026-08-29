@@ -16,4 +16,3 @@ Host Bridge capability and MCP results SHALL NOT expose host-local attachment pa
 - **WHEN** `mutation.execute` successfully performs `item.attachFile`
 - **THEN** every attachment summary in the result SHALL omit its host-local path
 - **AND** the uploaded file and created Zotero attachment SHALL be represented only through remote-safe descriptors.
-
