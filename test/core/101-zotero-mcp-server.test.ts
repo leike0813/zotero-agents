@@ -502,6 +502,7 @@ describe("embedded Zotero MCP server protocol", function () {
               getCurrentView: () => ({
                 target: "library",
                 libraryId: "1",
+                libraryIds: ["1"],
                 selectionEmpty: true,
                 selectedItems: [],
               }),
@@ -715,6 +716,7 @@ describe("embedded Zotero MCP server protocol", function () {
               getCurrentView: () => ({
                 target: "library",
                 libraryId: "1",
+                libraryIds: ["1"],
                 selectionEmpty: false,
                 currentItem: {
                   id: 42,
@@ -1419,7 +1421,7 @@ describe("embedded Zotero MCP server protocol", function () {
           name: ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
           arguments: {
             operation: "item.addTags",
-            target: 1,
+            target: { libraryId: 1, key: "ITEM0001" },
             tags: ["mcp"],
           },
         },
@@ -1479,7 +1481,7 @@ describe("embedded Zotero MCP server protocol", function () {
           name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
           arguments: {
             operation: "item.addTags",
-            target: 1,
+            target: { libraryId: 1, key: "ITEM0001" },
             tags: ["approved"],
           },
         },
@@ -2202,7 +2204,7 @@ describe("embedded Zotero MCP server protocol", function () {
           name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
           arguments: {
             operation: "item.addTags",
-            target: 1,
+            target: { libraryId: 1, key: "ITEM0001" },
             tags: ["denied"],
           },
         },
@@ -2240,7 +2242,7 @@ describe("embedded Zotero MCP server protocol", function () {
           name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
           arguments: {
             operation: "item.addTags",
-            target: 1,
+            target: { libraryId: 1, key: "ITEM0001" },
             tags: ["unavailable"],
           },
         },
@@ -2291,6 +2293,7 @@ describe("embedded Zotero MCP server protocol", function () {
             getCurrentView: () => ({
               target: "library",
               libraryId: "7",
+              libraryIds: ["7"],
               selectionEmpty: false,
               currentItem: {
                 id: 99,
@@ -2411,6 +2414,7 @@ describe("embedded Zotero MCP server protocol", function () {
             getCurrentView: () => ({
               target: "library",
               libraryId: "1",
+              libraryIds: ["1"],
               selectionEmpty: true,
               selectedItems: [],
             }),
@@ -2472,6 +2476,7 @@ describe("embedded Zotero MCP server protocol", function () {
             getCurrentView: () => ({
               target: "library",
               libraryId: "queue-policy",
+              libraryIds: ["queue-policy"],
               selectionEmpty: true,
               selectedItems: [],
             }),
@@ -2901,6 +2906,7 @@ describe("embedded Zotero MCP server protocol", function () {
             getCurrentView: () => ({
               target: "library",
               libraryId: "1",
+              libraryIds: ["1"],
               selectionEmpty: true,
               selectedItems: [],
             }),

@@ -14,6 +14,7 @@ import {
   createZoteroHostCapabilityBroker,
   type ZoteroHostCollectionRefInput,
   type ZoteroHostItemRefInput,
+  type ZoteroHostLibraryListArgs,
   type ZoteroHostMutationRequest,
 } from "../modules/zoteroHostCapabilityBroker";
 import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
@@ -283,28 +284,19 @@ async function importEmbeddedImage(
 function toBrokerItemRef(
   ref: WorkflowHostItemRefInput,
 ): ZoteroHostItemRefInput {
-  if (typeof ref === "number" || typeof ref === "string") {
-    return ref;
-  }
-  const candidate = ref as {
-    id?: unknown;
+  const resolved =
+    typeof ref === "number" || typeof ref === "string"
+      ? resolveHostItem(ref)
+      : ref;
+  const candidate = (resolved || {}) as {
     key?: unknown;
     libraryId?: unknown;
     libraryID?: unknown;
   };
-  const id = Number(candidate.id);
-  if (Number.isFinite(id) && id > 0) {
-    return Math.floor(id);
-  }
   const key = typeof candidate.key === "string" ? candidate.key.trim() : "";
-  if (key) {
-    const libraryId = Number(candidate.libraryId ?? candidate.libraryID);
-    return {
-      key,
-      ...(Number.isFinite(libraryId) && libraryId > 0
-        ? { libraryId: Math.floor(libraryId) }
-        : {}),
-    };
+  const libraryId = Number(candidate.libraryId ?? candidate.libraryID);
+  if (key && Number.isSafeInteger(libraryId) && libraryId > 0) {
+    return { key, libraryId };
   }
   throw new Error("Workflow item ref cannot be normalized to a portable ref");
 }
@@ -312,59 +304,81 @@ function toBrokerItemRef(
 function toBrokerCollectionRef(
   ref: WorkflowHostCollectionRefInput,
 ): ZoteroHostCollectionRefInput {
+  let resolved: unknown = ref;
   if (typeof ref === "number" || typeof ref === "string") {
-    return ref;
+    const scopedKey = String(ref).trim().match(/^(\d+):([A-Z0-9]{8})$/);
+    if (scopedKey) {
+      return { libraryId: Number(scopedKey[1]), key: scopedKey[2] };
+    }
+    const zotero = resolveHostZotero();
+    const numericId = Number(ref);
+    resolved =
+      (Number.isSafeInteger(numericId) && numericId > 0
+        ? zotero.Collections?.get?.(numericId)
+        : null) ||
+      zotero.Collections?.getByLibraryAndKey?.(
+        zotero.Libraries.userLibraryID,
+        String(ref).trim(),
+      );
   }
-  const candidate = ref as {
-    id?: unknown;
+  const candidate = (resolved || {}) as {
     key?: unknown;
     libraryId?: unknown;
     libraryID?: unknown;
   };
-  const id = Number(candidate.id);
-  if (Number.isFinite(id) && id > 0) {
-    return Math.floor(id);
-  }
   const key = typeof candidate.key === "string" ? candidate.key.trim() : "";
-  if (key) {
-    const libraryId = Number(candidate.libraryId ?? candidate.libraryID);
-    return {
-      key,
-      ...(Number.isFinite(libraryId) && libraryId > 0
-        ? { libraryId: Math.floor(libraryId) }
-        : {}),
-    };
+  const libraryId = Number(candidate.libraryId ?? candidate.libraryID);
+  if (key && Number.isSafeInteger(libraryId) && libraryId > 0) {
+    return { key, libraryId };
   }
   throw new Error(
     "Workflow collection ref cannot be normalized to a portable ref",
   );
 }
 
+function toBrokerLibraryListArgs(
+  args: ZoteroHostLibraryListArgs,
+): ZoteroHostLibraryListArgs {
+  return args.collection === undefined
+    ? args
+    : { ...args, collection: toBrokerCollectionRef(args.collection) };
+}
+
 function toBrokerMutationRequest(
   request: WorkflowHostMutationRequest,
 ): ZoteroHostMutationRequest {
+  const {
+    target,
+    targets,
+    item,
+    items,
+    parent,
+    note,
+    collection,
+    ...portableRequest
+  } = request;
   return {
-    ...request,
-    ...(request.target !== undefined
-      ? { target: toBrokerItemRef(request.target) }
+    ...portableRequest,
+    ...(target !== undefined
+      ? { target: toBrokerItemRef(target) }
       : {}),
-    ...(request.targets !== undefined
-      ? { targets: request.targets.map(toBrokerItemRef) }
+    ...(targets !== undefined
+      ? { targets: targets.map(toBrokerItemRef) }
       : {}),
-    ...(request.item !== undefined
-      ? { item: toBrokerItemRef(request.item) }
+    ...(item !== undefined
+      ? { item: toBrokerItemRef(item) }
       : {}),
-    ...(request.items !== undefined
-      ? { items: request.items.map(toBrokerItemRef) }
+    ...(items !== undefined
+      ? { items: items.map(toBrokerItemRef) }
       : {}),
-    ...(request.parent !== undefined
-      ? { parent: toBrokerItemRef(request.parent) }
+    ...(parent !== undefined
+      ? { parent: toBrokerItemRef(parent) }
       : {}),
-    ...(request.note !== undefined
-      ? { note: toBrokerItemRef(request.note) }
+    ...(note !== undefined
+      ? { note: toBrokerItemRef(note) }
       : {}),
-    ...(request.collection !== undefined
-      ? { collection: toBrokerCollectionRef(request.collection) }
+    ...(collection !== undefined
+      ? { collection: toBrokerCollectionRef(collection) }
       : {}),
   };
 }
@@ -416,8 +430,10 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     getSelectedItems: zoteroBroker.context.getSelectedItems,
   } satisfies WorkflowHostApi["context"];
   const library = {
-    listItems: zoteroBroker.library.listItems,
-    syncSnapshot: zoteroBroker.library.syncSnapshot,
+    listItems: (args: ZoteroHostLibraryListArgs) =>
+      zoteroBroker.library.listItems(toBrokerLibraryListArgs(args)),
+    syncSnapshot: (args: ZoteroHostLibraryListArgs) =>
+      zoteroBroker.library.syncSnapshot(toBrokerLibraryListArgs(args)),
     searchItems: zoteroBroker.library.searchItems,
     getItemDetail: (ref: WorkflowHostItemRefInput) =>
       zoteroBroker.library.getItemDetail(toBrokerItemRef(ref)),

@@ -4,6 +4,8 @@ Workflow Host v12 cannot be implemented safely while portable references, strict
 
 The fixed implementation baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`.
 
+Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§3.1–3.9, 4.1–4.4, 17, and 18. That record remains authoritative where this change summarizes exact DTO fields, trusted in-process exceptions, projection rules, error details, budgets, or governance evidence.
+
 ## What Changes
 
 - Introduce one projection-neutral Workflow Host error contract with eleven stable codes, code-specific closed details, strict-JSON normalization, and safe construction helpers.

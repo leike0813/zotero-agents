@@ -43,7 +43,9 @@ import type {
 } from "./hostBridgeProtocol";
 import {
   resolveZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
   type ZoteroHostCapabilityBroker,
+  type ZoteroHostCollectionRefInput,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
   type ZoteroHostMutationRequest,
@@ -51,6 +53,7 @@ import {
   type ZoteroHostNotePayloadDetailArgs,
   type ZoteroHostAttachmentDto,
 } from "./zoteroHostCapabilityBroker";
+import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import type {
   SynthesisClient,
   SynthesisDeliveryContext,
@@ -221,16 +224,189 @@ function paginateCapabilityRows<T>(args: {
   };
 }
 
+type HostBridgePortableRefKind = "item" | "note" | "collection";
+
+function resolveHostBridgeZotero() {
+  const zotero =
+    resolveRuntimeZotero() ||
+    (typeof Zotero !== "undefined" ? Zotero : undefined);
+  if (!zotero) {
+    throw new ZoteroHostCapabilityError(
+      "unavailable",
+      "Zotero runtime is unavailable",
+      { reason: "capability" },
+      true,
+    );
+  }
+  return zotero;
+}
+
+function refNotFound(kind: HostBridgePortableRefKind, key?: string): never {
+  throw new ZoteroHostCapabilityError("not_found", `${kind} not found`, {
+    kind,
+    ...(key ? { opaqueKey: key } : {}),
+  });
+}
+
+function invalidProjectionRef(
+  kind: HostBridgePortableRefKind,
+  reason: "invalid_shape" | "invalid_library_id" | "invalid_key",
+): never {
+  throw new ZoteroHostCapabilityError(
+    "invalid_ref",
+    `${kind} ref cannot be normalized to a portable ref`,
+    { kind, reason },
+  );
+}
+
+function objectForLegacyRef(input: unknown) {
+  const object = asObject(input);
+  return Object.prototype.hasOwnProperty.call(object, "ref")
+    ? asObject(object.ref)
+    : object;
+}
+
+export function normalizeHostBridgeItemRef(
+  input: unknown,
+  kind: "item" | "note" = "item",
+): ZoteroHostItemRefInput {
+  const wrapper = asObject(input);
+  const value = Object.prototype.hasOwnProperty.call(wrapper, "ref")
+    ? wrapper.ref
+    : input;
+  const candidate = objectForLegacyRef(input);
+  const scopedKey =
+    typeof value === "string"
+      ? value.trim().match(/^(\d+):([A-Z0-9]{8})$/)
+      : null;
+  if (scopedKey) {
+    return { libraryId: Number(scopedKey[1]), key: scopedKey[2] };
+  }
+
+  const key =
+    typeof value === "string"
+      ? value.trim()
+      : typeof candidate.key === "string"
+        ? candidate.key.trim()
+        : "";
+  const libraryId = Number(candidate.libraryId ?? candidate.libraryID);
+  if (key && Number.isSafeInteger(libraryId) && libraryId > 0) {
+    return { libraryId, key };
+  }
+
+  const idValue =
+    typeof value === "number" ||
+    (typeof value === "string" && /^\d+$/.test(value.trim()))
+      ? value
+      : candidate.id;
+  const id = Number(idValue);
+  const zotero = resolveHostBridgeZotero();
+  if (Number.isSafeInteger(id) && id > 0) {
+    const item = zotero.Items.get(id);
+    if (!item) refNotFound(kind);
+    const itemCandidate = item as unknown as {
+      key?: unknown;
+      libraryID?: unknown;
+      libraryId?: unknown;
+    };
+    const itemKey = String(itemCandidate.key || "").trim();
+    const itemLibraryId = Number(
+      itemCandidate.libraryID ?? itemCandidate.libraryId,
+    );
+    if (itemKey && Number.isSafeInteger(itemLibraryId) && itemLibraryId > 0) {
+      return { libraryId: itemLibraryId, key: itemKey };
+    }
+    invalidProjectionRef(kind, "invalid_shape");
+  }
+
+  if (key) {
+    const defaultLibraryId = Number(zotero.Libraries.userLibraryID);
+    if (!Number.isSafeInteger(defaultLibraryId) || defaultLibraryId <= 0) {
+      invalidProjectionRef(kind, "invalid_library_id");
+    }
+    return { libraryId: defaultLibraryId, key };
+  }
+  invalidProjectionRef(kind, key ? "invalid_key" : "invalid_shape");
+}
+
+export function normalizeHostBridgeCollectionRef(
+  input: unknown,
+): ZoteroHostCollectionRefInput {
+  const wrapper = asObject(input);
+  const value = Object.prototype.hasOwnProperty.call(wrapper, "ref")
+    ? wrapper.ref
+    : input;
+  const candidate = objectForLegacyRef(input);
+  const scopedKey =
+    typeof value === "string"
+      ? value.trim().match(/^(\d+):([A-Z0-9]{8})$/)
+      : null;
+  if (scopedKey) {
+    return { libraryId: Number(scopedKey[1]), key: scopedKey[2] };
+  }
+  const key =
+    typeof value === "string"
+      ? value.trim()
+      : typeof candidate.key === "string"
+        ? candidate.key.trim()
+        : "";
+  const libraryId = Number(candidate.libraryId ?? candidate.libraryID);
+  if (key && Number.isSafeInteger(libraryId) && libraryId > 0) {
+    return { libraryId, key };
+  }
+
+  const idValue =
+    typeof value === "number" ||
+    (typeof value === "string" && /^\d+$/.test(value.trim()))
+      ? value
+      : candidate.id;
+  const id = Number(idValue);
+  const zotero = resolveHostBridgeZotero();
+  if (Number.isSafeInteger(id) && id > 0) {
+    const collection = zotero.Collections?.get?.(id);
+    if (!collection) refNotFound("collection");
+    const collectionCandidate = collection as unknown as {
+      key?: unknown;
+      libraryID?: unknown;
+      libraryId?: unknown;
+    };
+    const collectionKey = String(collectionCandidate.key || "").trim();
+    const collectionLibraryId = Number(
+      collectionCandidate.libraryID ?? collectionCandidate.libraryId,
+    );
+    if (
+      collectionKey &&
+      Number.isSafeInteger(collectionLibraryId) &&
+      collectionLibraryId > 0
+    ) {
+      return { libraryId: collectionLibraryId, key: collectionKey };
+    }
+    invalidProjectionRef("collection", "invalid_shape");
+  }
+
+  if (key) {
+    const defaultLibraryId = Number(zotero.Libraries.userLibraryID);
+    if (!Number.isSafeInteger(defaultLibraryId) || defaultLibraryId <= 0) {
+      invalidProjectionRef("collection", "invalid_library_id");
+    }
+    return { libraryId: defaultLibraryId, key };
+  }
+  invalidProjectionRef("collection", key ? "invalid_key" : "invalid_shape");
+}
+
 function itemRefFromInput(input: unknown): ZoteroHostItemRefInput {
   const object = asObject(input);
   if (Object.prototype.hasOwnProperty.call(object, "ref")) {
-    return object.ref as ZoteroHostItemRefInput;
+    return normalizeHostBridgeItemRef(object.ref);
   }
-  return input as ZoteroHostItemRefInput;
+  return normalizeHostBridgeItemRef(input);
 }
 
 function libraryListArgsFromInput(input: unknown): ZoteroHostLibraryListArgs {
   const args = { ...asObject(input) } as ZoteroHostLibraryListArgs;
+  if (args.collection !== undefined) {
+    args.collection = normalizeHostBridgeCollectionRef(args.collection);
+  }
   const limit = Number(args.limit);
   if (Number.isFinite(limit) && limit > 200) {
     args.limit = 200;
@@ -328,7 +504,7 @@ async function executeMutationWithBridgeProjection(
   context: HostBridgeCapabilityContext,
 ) {
   const response = await resolveCapabilityBroker(context).mutations.execute(
-    asObject(input) as ZoteroHostMutationRequest,
+    normalizeHostBridgeMutationRequest(input),
   );
   if (!response.ok || !response.result.attachments?.length) {
     return response;
@@ -343,6 +519,40 @@ async function executeMutationWithBridgeProjection(
       ),
     },
   };
+}
+
+export function normalizeHostBridgeMutationRequest(
+  input: unknown,
+): ZoteroHostMutationRequest {
+  const request = asObject(input);
+  const itemRefFields = ["target", "item", "parent", "note"] as const;
+  const itemRefArrayFields = ["targets", "items"] as const;
+  const normalized: Record<string, unknown> = { ...request };
+  for (const field of itemRefFields) {
+    if (request[field] !== undefined) {
+      normalized[field] = normalizeHostBridgeItemRef(
+        request[field],
+        field === "note" ? "note" : "item",
+      );
+    }
+  }
+  for (const field of itemRefArrayFields) {
+    const entries = request[field];
+    if (entries !== undefined) {
+      if (!Array.isArray(entries)) {
+        invalidProjectionRef("item", "invalid_shape");
+      }
+      normalized[field] = entries.map((entry) =>
+        normalizeHostBridgeItemRef(entry),
+      );
+    }
+  }
+  if (request.collection !== undefined) {
+    normalized.collection = normalizeHostBridgeCollectionRef(
+      request.collection,
+    );
+  }
+  return normalized as ZoteroHostMutationRequest;
 }
 
 function capability(
@@ -1485,7 +1695,7 @@ async function resolveDirectResearchBundleApplication(
         const papers = [];
         for (const selector of selectors) {
           const detail = await broker.library.getItemDetail(
-            selector as ZoteroHostItemRefInput,
+            normalizeHostBridgeItemRef(selector),
           );
           if (!detail) continue;
           const attachments = await broker.library.getItemAttachments({
@@ -1825,7 +2035,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   }),
   capability("mutation.preview", (input, context) =>
     resolveCapabilityBroker(context).mutations.preview(
-      asObject(input) as ZoteroHostMutationRequest,
+      normalizeHostBridgeMutationRequest(input),
     ),
   ),
   capability("mutation.execute", executeMutationWithBridgeProjection),

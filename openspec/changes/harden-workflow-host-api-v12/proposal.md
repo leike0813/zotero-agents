@@ -4,6 +4,8 @@ The preceding vertical slices can make each owner implementation-ready, but call
 
 The fixed implementation baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. Implementation requires `01-establish-workflow-host-v12-contract-foundation` through `07-add-workflow-host-synthesis-facade` to be complete and verified; the subprocess companion is required for the overall runtime-adaptation completion report but does not define this public surface.
 
+Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§3.3–3.9, 4.1–4.4, 7, 14.1–14.7, 15.1, 16–18, and 19.6–19.7. That record is authoritative for the exact 23/21/85 manifest, hard-cut deletion ledger, variant parity, deferred inventory, documentation closure, and final architecture review.
+
 ## What Changes
 
 - **BREAKING** Set Workflow Host identity to `version: 12` and add `interactionMode` while publishing the exact 23 top-level keys, 21 nested modules, and 85 callable members frozen by the architecture record.

@@ -4,6 +4,8 @@ See `proposal.md` for motivation. The Rust sidecar is the production owner of Sy
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. Contract foundation supplies strict shared DTO and error rules. Canonical Synthesis packages remain the cross-language wire identity.
 
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§8.5–8.6, 9, 10, 15.2, 17, 18, and 19. Its grouped member map, audit-run lifecycle, promotion and acknowledgement evidence, sidecar ownership, cancellation, cleanup, and parity requirements take precedence over abbreviated wording in this design.
+
 ## Goals / Non-Goals
 
 **Goals:**

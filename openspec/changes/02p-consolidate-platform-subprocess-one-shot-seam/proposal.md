@@ -4,6 +4,8 @@ One-shot subprocess execution currently depends on a shallow re-export and calle
 
 The fixed implementation baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. This companion change can run beside the v12 vertical slices and does not alter the v12 public manifest.
 
+Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§4.5, 14.9, 18, and 19. The architecture record is authoritative for the one-shot/long-lived lifecycle boundary, runtime adapter closure, bounded termination, and governance evidence summarized here.
+
 ## What Changes
 
 - Deepen `platform/subprocess` into the owner of host subprocess module resolution, one-shot spawn/capture, normalized stdout/stderr/exit, unavailable, timeout, and bounded termination.

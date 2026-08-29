@@ -4,6 +4,8 @@ Hermes cannot safely replace its local Zotero metadata index from ordinary live 
 
 The fixed implementation baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`; this change depends on `01-establish-workflow-host-v12-contract-foundation`.
 
+Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§5.3, 5.9, 17, 18, and 19. The architecture record is authoritative for stable snapshot identity, continuation and rescan semantics, bounded publication, Host Bridge exposure, and required recovery evidence summarized here.
+
 ## What Changes
 
 - Add a process-local, TTL-bounded full-library snapshot session with fixed ordering, hard limits, cancellation, and Host-issued completion evidence.

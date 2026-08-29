@@ -34,7 +34,16 @@ import {
   createZoteroHostCapabilityBroker,
   ZoteroHostCapabilityError,
 } from "../../src/modules/zoteroHostCapabilityBroker";
-import { assertStrictJsonValue } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import {
+  assertStrictJsonValue,
+  createFailClosedZoteroHostCapabilityBroker,
+} from "../helpers/zoteroHostCapabilityBrokerHarness";
+import {
+  assertWorkflowHostStrictJsonValue,
+  createWorkflowHostErrorData,
+  type WorkflowHostErrorCode,
+  type WorkflowHostErrorDetailsByCode,
+} from "../../src/workflows/workflowHostErrorContract";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -199,6 +208,7 @@ describe("zotero host broker capability api", function () {
     const item = await createParentItem("Strict Broker DTO");
     (item as any).getCollections = () => [1, "COLLECTION", new Date(), 1n];
     const broker = createZoteroHostCapabilityBroker();
+    const itemRef = { libraryId: item.libraryID, key: item.key };
 
     assert.deepEqual(Object.keys(broker.context).sort(), [
       "getCurrentView",
@@ -211,7 +221,7 @@ describe("zotero host broker capability api", function () {
       "openSelection",
     ]);
 
-    const detail = await broker.library.getItemDetail(item.id);
+    const detail = await broker.library.getItemDetail(itemRef);
     assert.deepEqual(detail?.collections, [1, "COLLECTION"]);
     assertStrictJsonValue(detail);
 
@@ -221,8 +231,191 @@ describe("zotero host broker capability api", function () {
     } catch (error) {
       assert.instanceOf(error, ZoteroHostCapabilityError);
       const brokerError = error as ZoteroHostCapabilityError;
-      assert.strictEqual(brokerError.code, "invalid_object_ref");
+      assert.strictEqual(brokerError.code, "invalid_ref");
+      assert.deepEqual(brokerError.details, {
+        kind: "note",
+        reason: "invalid_shape",
+      });
       assertStrictJsonValue(brokerError.details);
+    }
+  });
+
+  it("accepts only canonical portable refs at the Broker seam", async function () {
+    const item = await createParentItem("Portable Broker Ref");
+    const broker = createZoteroHostCapabilityBroker();
+
+    assert.strictEqual(
+      (
+        await broker.library.getItemDetail({
+          libraryId: item.libraryID,
+          key: item.key,
+        })
+      )?.key,
+      item.key,
+    );
+
+    const invalidRefs: Array<{ label: string; value: unknown }> = [
+      { label: "numeric item id", value: item.id },
+      { label: "bare key", value: item.key },
+      {
+        label: "legacy libraryID spelling",
+        value: { libraryID: item.libraryID, key: item.key },
+      },
+      { label: "missing library", value: { key: item.key } },
+      {
+        label: "non-finite library",
+        value: { libraryId: Number.NaN, key: item.key },
+      },
+      {
+        label: "non-canonical key",
+        value: { libraryId: item.libraryID, key: "bad:key" },
+      },
+      { label: "raw Zotero item", value: item },
+    ];
+
+    for (const testCase of invalidRefs) {
+      try {
+        await broker.library.getItemDetail(testCase.value as never);
+        assert.fail(`expected ${testCase.label} to be rejected`);
+      } catch (error) {
+        assert.instanceOf(error, ZoteroHostCapabilityError, testCase.label);
+        const brokerError = error as ZoteroHostCapabilityError;
+        assert.strictEqual(brokerError.code, "invalid_ref", testCase.label);
+        assert.deepEqual(
+          Object.keys(brokerError.details).sort(),
+          ["kind", "reason"],
+          testCase.label,
+        );
+        assertWorkflowHostStrictJsonValue(brokerError.details);
+      }
+    }
+  });
+
+  it("builds bounded strict-JSON errors from the closed public taxonomy", function () {
+    const detailsByCode: {
+      [Code in WorkflowHostErrorCode]: WorkflowHostErrorDetailsByCode[Code];
+    } = {
+      invalid_request: { reason: "invalid_value", field: "f".repeat(300) },
+      invalid_ref: { kind: "item", reason: "invalid_shape" },
+      not_found: { kind: "note", opaqueKey: "k".repeat(300) },
+      unsupported_operation: { memberOrOperation: "future.call".repeat(30) },
+      interaction_required: { member: "file.pickFile" },
+      permission_denied: { reason: "host_permission", kind: "attachment" },
+      resource_limited: { resource: "depth", limit: 32, observed: 33 },
+      conflict: { reason: "revision_mismatch", kind: "item" },
+      unavailable: { reason: "runtime", kind: "library" },
+      canceled: { reason: "caller_signal" },
+      execution_failed: {
+        phase: "read",
+        recovery: "retry_same_operation",
+        affectedCount: 1,
+        residualCount: 0,
+      },
+    };
+
+    for (const code of Object.keys(detailsByCode) as WorkflowHostErrorCode[]) {
+      const data = createWorkflowHostErrorData(code, detailsByCode[code], {
+        retryable: true,
+      });
+      assert.strictEqual(data.schema, "zotero-agents.workflow-host-error.v1");
+      assert.strictEqual(data.code, code);
+      assert.strictEqual(
+        data.retryable,
+        code === "unavailable" || code === "execution_failed",
+        code,
+      );
+      assertWorkflowHostStrictJsonValue(data);
+    }
+
+    const invalidRequest = createWorkflowHostErrorData(
+      "invalid_request",
+      detailsByCode.invalid_request,
+    );
+    assert.strictEqual(invalidRequest.details.field?.length, 128);
+    const missing = createWorkflowHostErrorData(
+      "not_found",
+      detailsByCode.not_found,
+    );
+    assert.strictEqual(missing.details.opaqueKey?.length, 128);
+
+    for (const unsafeDetails of [
+      {
+        phase: "read",
+        recovery: "none",
+        cause: new Error("native failure"),
+      },
+      {
+        kind: "item",
+        reason: "invalid_shape",
+        rawRef: { libraryID: 1, key: "ABC12345" },
+      },
+    ]) {
+      assert.throws(
+        () =>
+          new ZoteroHostCapabilityError(
+            unsafeDetails.phase ? "execution_failed" : "invalid_ref",
+            "safe message",
+            unsafeDetails as never,
+          ),
+        TypeError,
+      );
+    }
+  });
+
+  it("rejects lossy or unbounded JSON before it reaches an owner", function () {
+    const tooDeep: Record<string, unknown> = {};
+    let cursor = tooDeep;
+    for (let index = 0; index < 34; index += 1) {
+      cursor.next = {};
+      cursor = cursor.next as Record<string, unknown>;
+    }
+    const cases: Array<{ label: string; value: unknown }> = [
+      { label: "undefined", value: { value: undefined } },
+      { label: "function", value: { value() {} } },
+      { label: "non-finite number", value: Number.POSITIVE_INFINITY },
+      { label: "native object", value: new Date() },
+      { label: "excessive depth", value: tooDeep },
+      {
+        label: "excessive collection",
+        value: Array.from({ length: 10_001 }, () => null),
+      },
+    ];
+
+    for (const testCase of cases) {
+      assert.throws(
+        () => assertWorkflowHostStrictJsonValue(testCase.value),
+        Error,
+        undefined,
+        testCase.label,
+      );
+    }
+  });
+
+  it("keeps Broker test adapters complete and fail closed", async function () {
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      context: {
+        getCurrentView: () => ({
+          libraryId: 1,
+          libraryName: "Test",
+          collectionId: null,
+          collectionKey: null,
+          collectionName: null,
+          view: "library",
+        }),
+      },
+    });
+
+    assert.strictEqual(broker.context.getCurrentView().libraryName, "Test");
+    try {
+      await broker.library.getItemDetail({ libraryId: 1, key: "ABC12345" });
+      assert.fail("expected unconfigured capability to fail closed");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      const brokerError = error as ZoteroHostCapabilityError;
+      assert.strictEqual(brokerError.code, "unavailable");
+      assert.deepEqual(brokerError.details, {
+        reason: "capability",
+      });
     }
   });
 

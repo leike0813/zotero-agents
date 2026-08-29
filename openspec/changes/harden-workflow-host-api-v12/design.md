@@ -4,6 +4,8 @@ See `proposal.md` for motivation. Changes `01-establish-workflow-host-v12-contra
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. This change begins only after all seven public-contract prerequisites are complete and verified. `02p-consolidate-platform-subprocess-one-shot-seam` is outside the public dependency chain but remains part of the overall runtime-adaptation completion report.
 
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§3.3–3.9, 4.1–4.4, 7, 14.1–14.7, 15.1, 16–18, and 19.6–19.7. Its exact 23/21/85 manifest, hard-cut deletion ledger, variant parity, deferred inventory, documentation closure, and final-review criteria take precedence over abbreviated wording in this design.
+
 ## Goals / Non-Goals
 
 **Goals:**

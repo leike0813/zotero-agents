@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { assert } from "chai";
-import { WORKFLOW_HOST_API_VERSION } from "../../../src/workflows/workflowHostContract";
+import ts from "typescript";
+import {
+  defineWorkflowHostCandidateManifest,
+  inspectWorkflowHostCandidate,
+  inspectWorkflowHostContractVariants,
+  WORKFLOW_HOST_API_VERSION,
+} from "../../../src/workflows/workflowHostContract";
 import { requireHostApi } from "../../../workflows_builtin/literature-workbench-package/lib/runtime.mjs";
 
 describe("Workflow Host contract governance", function () {
@@ -54,6 +60,190 @@ describe("Workflow Host contract governance", function () {
         [WORKFLOW_HOST_API_VERSION],
         path,
       );
+    }
+  });
+
+  it("inspects candidate contracts recursively and bidirectionally", function () {
+    const manifest = defineWorkflowHostCandidateManifest({
+      version: "value",
+      interactionMode: "value",
+      library: {
+        getItemDetail: "function",
+        notes: {
+          getNoteDetail: "function",
+        },
+      },
+    });
+    const exactCandidate = {
+      version: 12,
+      interactionMode: "interactive",
+      library: {
+        getItemDetail() {},
+        notes: {
+          getNoteDetail() {},
+        },
+      },
+    };
+
+    assert.deepEqual(inspectWorkflowHostCandidate(exactCandidate, manifest), {
+      ok: true,
+      missingPaths: [],
+      unexpectedPaths: [],
+      nonFunctionPaths: [],
+      nonObjectPaths: [],
+    });
+
+    const drifted = {
+      ...exactCandidate,
+      library: {
+        getItemDetail: null,
+        notes: {},
+        internalSearch() {},
+      },
+    };
+    assert.deepEqual(inspectWorkflowHostCandidate(drifted, manifest), {
+      ok: false,
+      missingPaths: ["library.notes.getNoteDetail"],
+      unexpectedPaths: ["library.internalSearch"],
+      nonFunctionPaths: ["library.getItemDetail"],
+      nonObjectPaths: [],
+    });
+  });
+
+  it("requires interactive and non-interactive candidates to have one exact shape", function () {
+    const manifest = defineWorkflowHostCandidateManifest({
+      version: "value",
+      file: {
+        readText: "function",
+        pickFile: "function",
+      },
+    });
+    const result = inspectWorkflowHostContractVariants(manifest, {
+      interactive: {
+        version: 12,
+        file: { readText() {}, pickFile() {} },
+      },
+      "non-interactive": {
+        version: 12,
+        file: { readText() {}, availability: false },
+      },
+    });
+
+    assert.isFalse(result.ok);
+    assert.deepEqual(result.variants.interactive.missingPaths, []);
+    assert.deepEqual(result.variants["non-interactive"].missingPaths, [
+      "file.pickFile",
+    ]);
+    assert.deepEqual(result.variants["non-interactive"].unexpectedPaths, [
+      "file.availability",
+    ]);
+    assert.deepEqual(result.variantShapeMismatchPaths, [
+      "file.availability",
+      "file.pickFile",
+    ]);
+  });
+
+  it("rejects implicit Broker widening in a candidate projection", function () {
+    const manifest = defineWorkflowHostCandidateManifest({
+      library: {
+        getItemDetail: "function",
+      },
+    });
+    const widenedBroker = {
+      library: {
+        getItemDetail() {},
+        internalMaintenance() {},
+      },
+    };
+    const intentionallyWidenedProjection = {
+      library: { ...widenedBroker.library },
+    };
+
+    assert.deepEqual(
+      inspectWorkflowHostCandidate(intentionallyWidenedProjection, manifest)
+        .unexpectedPaths,
+      ["library.internalMaintenance"],
+    );
+  });
+
+  it("keeps shared public aliases uniquely declared and resolvable", async function () {
+    this.timeout(30_000);
+    const paths = [
+      "src/workflows/types.ts",
+      "src/workflows/workflowHostErrorContract.ts",
+      "src/modules/zoteroHostCapabilityBroker.ts",
+    ];
+    const canonicalNames = new Set([
+      "JsonPrimitive",
+      "JsonValue",
+      "JsonObject",
+      "PortableItemRef",
+      "PortableCollectionRef",
+      "WorkflowCallControl",
+      "WorkflowHostErrorCode",
+      "WorkflowHostErrorData",
+    ]);
+    const declarations = new Map<string, string[]>();
+    for (const path of paths) {
+      const text = await readFile(resolve(path), "utf8");
+      const source = ts.createSourceFile(
+        path,
+        text,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS,
+      );
+      for (const statement of source.statements) {
+        if (
+          (ts.isTypeAliasDeclaration(statement) ||
+            ts.isInterfaceDeclaration(statement)) &&
+          canonicalNames.has(statement.name.text)
+        ) {
+          const entries = declarations.get(statement.name.text) || [];
+          entries.push(path);
+          declarations.set(statement.name.text, entries);
+        }
+      }
+    }
+
+    for (const name of canonicalNames) {
+      assert.lengthOf(declarations.get(name) || [], 1, name);
+    }
+
+    const configPath = resolve("tsconfig.json");
+    const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+    const parsed = ts.parseJsonConfigFileContent(
+      configFile.config,
+      ts.sys,
+      resolve("."),
+    );
+    const program = ts.createProgram(parsed.fileNames, parsed.options);
+    const relevant = new Set(paths.map((path) => resolve(path)));
+    const unresolved = ts
+      .getPreEmitDiagnostics(program)
+      .filter(
+        (diagnostic) =>
+          diagnostic.file &&
+          relevant.has(resolve(diagnostic.file.fileName)) &&
+          [2300, 2304, 2307, 2456].includes(diagnostic.code),
+      );
+    assert.deepEqual(
+      unresolved.map((diagnostic) => diagnostic.code),
+      [],
+    );
+  });
+
+  it("keeps Workflow Host composition member-level and explicit", async function () {
+    const source = await readFile(resolve("src/workflows/hostApi.ts"), "utf8");
+    const forbidden = [
+      /\.\.\.\s*zoteroBroker\b/,
+      /\b(?:context|library|metadata|mutations)\s*:\s*zoteroBroker\.(?:context|library|metadata|mutations)\b/,
+      /new\s+Proxy\s*\(/,
+      /capabilityCatalog/,
+    ];
+
+    for (const pattern of forbidden) {
+      assert.notMatch(source, pattern);
     }
   });
 });

@@ -4,6 +4,8 @@ Workflow writes currently enter through handler-shaped and domain-specific paths
 
 The fixed implementation baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`; this change depends on `01-establish-workflow-host-v12-contract-foundation`.
 
+Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§8, 11.3–11.17, 12.5–12.9, 15.2, 17, 18, and 19. The architecture record is authoritative for the closed operation union, revisions, preview tokens, idempotency, receipts, attempts, specialized owner boundaries, cleanup, and recovery semantics summarized here.
+
 ## What Changes
 
 - Establish a process-local mutation registry with operation reservation, canonical request/plan digests, idempotent replay, revision/CAS, final-state verification, and bounded retention.

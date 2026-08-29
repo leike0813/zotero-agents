@@ -4,6 +4,8 @@ See `proposal.md` for motivation. The Broker already owns portable library summa
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. Contract foundation change `01-establish-workflow-host-v12-contract-foundation` supplies portable DTO, error, control, and projection rules.
 
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§5.1–5.8, 6, 7, 11.1–11.2, 12.0–12.12, 14.7, 17, and 18. Its exact DTOs, cursor and traversal budgets, completeness rules, owner boundaries, and recovery semantics take precedence over abbreviated wording in this design.
+
 ## Goals / Non-Goals
 
 **Goals:**

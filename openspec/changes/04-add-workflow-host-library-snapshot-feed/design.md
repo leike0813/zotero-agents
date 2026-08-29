@@ -4,6 +4,8 @@ See `proposal.md` for motivation. Ordinary live keyset pages cannot prove one st
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. Contract foundation change `01-establish-workflow-host-v12-contract-foundation` is required. Live read change `03-add-workflow-host-library-live-reads` owns reusable item serialization but does not define snapshot consistency.
 
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§5.3, 5.9, 17, 18, and 19. Its snapshot identity, continuation, rescan, publication, Host Bridge projection, bounds, and recovery requirements take precedence over abbreviated wording in this design.
+
 ## Goals / Non-Goals
 
 **Goals:**

@@ -4,6 +4,8 @@ Research Bundle materialization, graph import, archive handling, and resource pu
 
 The fixed implementation baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`; this change depends on `01-establish-workflow-host-v12-contract-foundation` and `02-deepen-workflow-host-runtime-adaptation-v12`.
 
+Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§12.13–12.19, 13, 17, 18, and 19. The architecture record is authoritative for graph import consistency, explicit target mapping, partial success, resource lifetimes, filesystem/archive boundaries, budgets, compensation, and recovery semantics summarized here.
+
 ## What Changes
 
 - Deepen Research Bundle materialization and add graph-aware `importPapers` with explicit target mapping, SCC consistency groups, dependency scheduling, late relation binding, partial success, receipts, attempts, cancellation, and compensation.

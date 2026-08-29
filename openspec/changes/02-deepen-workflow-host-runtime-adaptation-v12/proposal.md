@@ -4,6 +4,8 @@ Production TypeScript still selects filesystem, runtime-global, Window, and pick
 
 The fixed implementation baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`; this change depends on `01-establish-workflow-host-v12-contract-foundation`.
 
+Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§4.5, 13, 14.8, 18, and 19. The architecture record is authoritative for the closed native-workload exceptions, per-call late binding, owner boundaries, and required validation evidence summarized here.
+
 ## What Changes
 
 - Make `runtimePersistence` the sole owner of production ordinary asynchronous filesystem adapter selection, including strict and tolerant operations, atomic operations, Unicode-safe append, and temporary-path resolution.

@@ -1,58 +1,28 @@
-import type { ZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
+import {
+  ZoteroHostCapabilityError,
+  type ZoteroHostCapabilityBroker,
+} from "../../src/modules/zoteroHostCapabilityBroker";
+import { assertWorkflowHostStrictJsonValue } from "../../src/workflows/workflowHostErrorContract";
 
-type ZoteroHostCapabilityBrokerOverrides = {
-  [Domain in keyof ZoteroHostCapabilityBroker]?: Partial<
-    ZoteroHostCapabilityBroker[Domain]
-  >;
+type ZoteroHostCapabilityBrokerConfiguration = {
+  [Domain in keyof ZoteroHostCapabilityBroker]?: {
+    [Member in keyof ZoteroHostCapabilityBroker[Domain]]?: ZoteroHostCapabilityBroker[Domain][Member];
+  };
 };
 
-export function assertStrictJsonValue(
-  value: unknown,
-  path = "$",
-  seen = new WeakSet<object>(),
-): void {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
-    return;
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error(`${path} contains a non-finite number`);
-    }
-    return;
-  }
-  if (typeof value !== "object") {
-    throw new Error(`${path} contains ${typeof value}`);
-  }
-  if (seen.has(value)) {
-    throw new Error(`${path} contains a cycle`);
-  }
-  seen.add(value);
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) =>
-      assertStrictJsonValue(entry, `${path}[${index}]`, seen),
-    );
-    seen.delete(value);
-    return;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new Error(`${path} is not a plain object`);
-  }
-  for (const [key, entry] of Object.entries(value)) {
-    assertStrictJsonValue(entry, `${path}.${key}`, seen);
-  }
-  seen.delete(value);
+export function assertStrictJsonValue(value: unknown): void {
+  assertWorkflowHostStrictJsonValue(value);
 }
 
 export function createFailClosedZoteroHostCapabilityBroker(
-  overrides: ZoteroHostCapabilityBrokerOverrides = {},
+  configuration: ZoteroHostCapabilityBrokerConfiguration = {},
 ): ZoteroHostCapabilityBroker {
   const unexpected = (capability: string) => () => {
-    throw new Error(`unexpected broker capability: ${capability}`);
+    throw new ZoteroHostCapabilityError(
+      "unavailable",
+      `unexpected broker capability: ${capability}`,
+      { reason: "capability" },
+    );
   };
   const broker: ZoteroHostCapabilityBroker = {
     context: {
@@ -89,11 +59,10 @@ export function createFailClosedZoteroHostCapabilityBroker(
   };
   return {
     ...broker,
-    ...overrides,
-    context: { ...broker.context, ...overrides.context },
-    navigation: { ...broker.navigation, ...overrides.navigation },
-    library: { ...broker.library, ...overrides.library },
-    metadata: { ...broker.metadata, ...overrides.metadata },
-    mutations: { ...broker.mutations, ...overrides.mutations },
+    context: { ...broker.context, ...configuration.context },
+    navigation: { ...broker.navigation, ...configuration.navigation },
+    library: { ...broker.library, ...configuration.library },
+    metadata: { ...broker.metadata, ...configuration.metadata },
+    mutations: { ...broker.mutations, ...configuration.mutations },
   };
 }

@@ -4,6 +4,8 @@ See `proposal.md` for motivation. `runtimePersistence` already proves the cross-
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. Contract foundation change `01-establish-workflow-host-v12-contract-foundation` must be complete first. This change does not alter the Workflow Host member manifest.
 
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§4.5, 13, 14.8, 18, and 19. Its closed exception inventory, late-binding rules, owner boundaries, and validation matrix take precedence over abbreviated wording in this design.
+
 ## Goals / Non-Goals
 
 **Goals:**

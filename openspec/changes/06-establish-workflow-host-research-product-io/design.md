@@ -4,6 +4,8 @@ See `proposal.md` for motivation. The existing Research Bundle service already o
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. Contract foundation and runtime adaptation must be complete before this change is applied.
 
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§12.13–12.19, 13, 17, 18, and 19. Its graph consistency, target mapping, partial-success, resource lifetime, file/archive boundaries, budgets, compensation, and recovery requirements take precedence over abbreviated wording in this design.
+
 ## Goals / Non-Goals
 
 **Goals:**

@@ -177,7 +177,7 @@ describe("MCP Host Bridge capability mirror", function () {
           name: "mutation.execute",
           arguments: {
             operation: "item.attachFile",
-            item: 1,
+            item: { libraryId: 1, key: "ITEM0001" },
             fileId: "uploaded-file",
           },
         },

@@ -13,6 +13,8 @@ import {
   HostBridgeCapabilityContractError,
   HostBridgeWorkflowProductError,
   listHostBridgeCapabilities,
+  normalizeHostBridgeCollectionRef,
+  normalizeHostBridgeItemRef,
 } from "./hostBridgeCapabilityRegistry";
 import {
   SynthesisClientError,
@@ -1996,11 +1998,24 @@ function asRequestObject(value: unknown): Record<string, unknown> {
 
 function navigationErrorResponse(error: unknown) {
   if (error instanceof ZoteroHostCapabilityError) {
-    const notFound =
-      error.code === "item_not_found" ||
-      error.code === "note_not_found" ||
-      error.code === "collection_not_found";
-    const unavailable = error.code === "navigation_unavailable";
+    const details = error.details as Record<string, unknown>;
+    const notFound = error.code === "not_found";
+    const unavailable =
+      error.code === "unavailable" && details.reason === "navigation";
+    const transportCode =
+      error.code === "invalid_ref"
+        ? "invalid_object_ref"
+        : error.code === "invalid_request"
+          ? "invalid_object_ref"
+          : error.code === "not_found"
+            ? details.kind === "note"
+              ? "note_not_found"
+              : details.kind === "collection"
+                ? "collection_not_found"
+                : "item_not_found"
+            : unavailable
+              ? "navigation_unavailable"
+              : "context_navigation_failed";
     return response(
       unavailable ? 503 : notFound ? 404 : 400,
       unavailable
@@ -2009,12 +2024,12 @@ function navigationErrorResponse(error: unknown) {
           ? "Not Found"
           : "Bad Request",
       hostBridgeError(
-        error.code,
+        transportCode,
         error.message,
         unavailable ? "internal" : notFound ? "not_found" : "validation",
         error.details,
       ),
-      error.code,
+      transportCode,
     );
   }
   return response(
@@ -2034,8 +2049,9 @@ function parseNavigationBody(request: HttpRequest) {
     return parseJsonBody(request.body || "");
   } catch {
     throw new ZoteroHostCapabilityError(
-      "invalid_object_ref",
+      "invalid_request",
       "navigation request body must be JSON",
+      { reason: "invalid_format" },
     );
   }
 }
@@ -3493,7 +3509,7 @@ async function openContextItem(request: HttpRequest) {
       "OK",
       hostBridgeOk(
         await resolveZoteroHostCapabilityBroker().navigation.openItem(
-          ref as never,
+          normalizeHostBridgeItemRef(ref),
         ),
       ),
     );
@@ -3525,7 +3541,7 @@ async function openContextNote(request: HttpRequest) {
       "OK",
       hostBridgeOk(
         await resolveZoteroHostCapabilityBroker().navigation.openNote(
-          ref as never,
+          normalizeHostBridgeItemRef(ref, "note"),
         ),
       ),
     );
@@ -3563,12 +3579,14 @@ async function openContextCollection(request: HttpRequest) {
       200,
       "OK",
       hostBridgeOk(
-        await resolveZoteroHostCapabilityBroker().navigation.openCollection({
-          key: String(
-            object.key || object.collectionKey || collection.key || "",
-          ),
-          libraryId,
-        }),
+        await resolveZoteroHostCapabilityBroker().navigation.openCollection(
+          normalizeHostBridgeCollectionRef({
+            key: String(
+              object.key || object.collectionKey || collection.key || "",
+            ),
+            libraryId,
+          }),
+        ),
       ),
     );
   } catch (error) {
@@ -3593,7 +3611,7 @@ async function openContextSelection(request: HttpRequest) {
         : [];
     const result =
       await resolveZoteroHostCapabilityBroker().navigation.openSelection({
-        items: items as never[],
+        items: items.map((item) => normalizeHostBridgeItemRef(item)),
       });
     const target = asRequestObject(result.target);
     const targetItems = Array.isArray(target.items) ? target.items : [];

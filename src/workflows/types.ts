@@ -1,3 +1,58 @@
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export type JsonObject = { [key: string]: JsonValue };
+
+export type PortableItemRef = Readonly<{
+  libraryId: number;
+  key: string;
+}>;
+
+export type PortableCollectionRef = Readonly<{
+  libraryId: number;
+  key: string;
+}>;
+
+export type WorkflowCallControl = Readonly<{
+  signal?: AbortSignal;
+}>;
+
+export type WorkflowHostCreatorDto = {
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  creatorType?: string;
+};
+
+export type WorkflowHostMutationReceiptOperation =
+  | "item.create"
+  | "item.updateMetadata"
+  | "item.changeType"
+  | "item.remove"
+  | "item.updateTags"
+  | "item.addRelated"
+  | "item.removeRelated"
+  | "collection.create"
+  | "collection.update"
+  | "collection.updateMembership"
+  | "collection.remove"
+  | "notes.create"
+  | "notes.updateContent"
+  | "notes.remove"
+  | "notes.upsertPayload"
+  | "attachments.create"
+  | "attachments.updateMetadata"
+  | "attachments.replaceFile"
+  | "attachments.move"
+  | "attachments.remove"
+  | "statusTags.transition"
+  | "researchBundles.importPapers";
+
+export type {
+  WorkflowHostErrorCode,
+  WorkflowHostErrorData,
+  WorkflowHostErrorDetailsByCode,
+} from "./workflowHostErrorContract";
+
 import type {
   ZoteroHostAttachmentDto,
   ZoteroHostCapabilityBroker,
@@ -23,10 +78,16 @@ import type {
   ZoteroHostNotePayloadSummaryDto,
 } from "../modules/zoteroHostCapabilityBroker";
 
-export type WorkflowHostItemRefInput = ZoteroHostItemRefInput | Zotero.Item;
+export type WorkflowHostItemRefInput =
+  | ZoteroHostItemRefInput
+  | Zotero.Item
+  | number
+  | string;
 export type WorkflowHostCollectionRefInput =
   | ZoteroHostCollectionRefInput
-  | Zotero.Collection;
+  | Zotero.Collection
+  | number
+  | string;
 
 export type WorkflowHostMutationRequest = Omit<
   ZoteroHostMutationRequest,

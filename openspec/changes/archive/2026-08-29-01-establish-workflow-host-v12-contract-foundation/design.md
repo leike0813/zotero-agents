@@ -2,7 +2,7 @@
 
 See `proposal.md` for motivation. The current v11 types and Broker errors are valid production contracts, but v12 introduces shared portable DTOs, separate call control, recursive exactness, and a public error taxonomy used by several owners. The active facade must remain v11 until every vertical slice is ready.
 
-The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. The architecture record is authoritative for exact DTO fields, the eleven error codes, code-specific details, trusted in-process exceptions, and the eventual 23/21/85 manifest.
+The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§3.1–3.9, 4.1–4.4, 17, and 18. Its exact DTO fields, eleven error codes, code-specific details, trusted in-process exceptions, budgets, and eventual 23/21/85 manifest take precedence over any abbreviated wording in this design.
 
 ## Goals / Non-Goals
 

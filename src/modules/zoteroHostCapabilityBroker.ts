@@ -29,33 +29,28 @@ import {
 } from "./libraryArtifactReadiness";
 import type { AcpHostContext } from "./acpTypes";
 import { queryZoteroLibraryPage } from "./zoteroLibraryPageQuery";
+import type {
+  JsonObject,
+  JsonValue,
+  PortableCollectionRef as ZoteroHostCollectionRefInput,
+  PortableItemRef as ZoteroHostItemRefInput,
+  WorkflowHostCreatorDto as ZoteroHostMetadataCreatorDto,
+} from "../workflows/types";
+import {
+  assertWorkflowHostStrictJsonValue,
+  createWorkflowHostErrorData,
+  type WorkflowHostErrorCode,
+  type WorkflowHostErrorDetailsByCode,
+} from "../workflows/workflowHostErrorContract";
 
-export type JsonPrimitive = null | boolean | string | number;
-export type JsonValue =
-  | JsonPrimitive
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-export type JsonObject = { [key: string]: JsonValue };
-
-export type ZoteroHostItemRefInput =
-  | number
-  | string
-  | {
-      id?: number | string | null;
-      key?: string | null;
-      libraryId?: number | string | null;
-      libraryID?: number | string | null;
-    };
-
-export type ZoteroHostCollectionRefInput =
-  | number
-  | string
-  | {
-      id?: number | string | null;
-      key?: string | null;
-      libraryId?: number | string | null;
-      libraryID?: number | string | null;
-    };
+export type {
+  JsonObject,
+  JsonPrimitive,
+  JsonValue,
+  PortableCollectionRef as ZoteroHostCollectionRefInput,
+  PortableItemRef as ZoteroHostItemRefInput,
+  WorkflowHostCreatorDto as ZoteroHostMetadataCreatorDto,
+} from "../workflows/types";
 
 export type ZoteroHostItemSummaryDto = {
   id: number;
@@ -439,22 +434,27 @@ export type ZoteroHostMutationError = {
   details?: JsonValue;
 };
 
-export type ZoteroHostCapabilityErrorCode =
-  | "invalid_object_ref"
-  | "item_not_found"
-  | "note_not_found"
-  | "collection_not_found"
-  | "navigation_unavailable";
+export type ZoteroHostCapabilityErrorCode = WorkflowHostErrorCode;
 
 export class ZoteroHostCapabilityError extends Error {
+  readonly schema: "zotero-agents.workflow-host-error.v1";
+  readonly retryable: boolean;
+  readonly details: WorkflowHostErrorDetailsByCode[WorkflowHostErrorCode];
+
   constructor(
     readonly code: ZoteroHostCapabilityErrorCode,
     message: string,
-    readonly details?: JsonObject,
-    readonly retryable = false,
+    details: WorkflowHostErrorDetailsByCode[WorkflowHostErrorCode],
+    retryable = false,
   ) {
     super(message);
+    const data = createWorkflowHostErrorData(code, details as never, {
+      retryable,
+    });
     this.name = "ZoteroHostCapabilityError";
+    this.schema = data.schema;
+    this.retryable = data.retryable;
+    this.details = data.details;
   }
 }
 
@@ -519,13 +519,6 @@ export type ZoteroHostMetadataTranslatorDto = {
   label: string;
   priority?: number;
   translatorType?: number | string;
-};
-
-export type ZoteroHostMetadataCreatorDto = {
-  firstName?: string;
-  lastName?: string;
-  name?: string;
-  creatorType?: string;
 };
 
 export type ZoteroHostMetadataItemDto = {
@@ -727,89 +720,40 @@ function parsePositiveInteger(value: unknown) {
 
 function assertJsonValue(
   value: unknown,
-  path = "$",
-  seen = new WeakSet<object>(),
+  _path = "$",
 ): asserts value is JsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
-    return;
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error(`${path} must contain only finite numbers`);
-    }
-    return;
-  }
-  if (typeof value !== "object") {
-    throw new Error(`${path} must be strict JSON data`);
-  }
-  if (seen.has(value)) {
-    throw new Error(`${path} must not contain cycles`);
-  }
-  seen.add(value);
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) =>
-      assertJsonValue(entry, `${path}[${index}]`, seen),
-    );
-    seen.delete(value);
-    return;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new Error(`${path} must contain only plain objects`);
-  }
-  for (const [key, entry] of Object.entries(value)) {
-    assertJsonValue(entry, `${path}.${key}`, seen);
-  }
-  seen.delete(value);
+  assertWorkflowHostStrictJsonValue(value);
 }
 
-function safeObjectRefDetails(ref: unknown): JsonObject | undefined {
-  if (typeof ref === "number" && Number.isFinite(ref)) {
-    return { ref };
-  }
-  if (typeof ref === "string") {
-    const value = ref.trim();
-    return value ? { ref: value } : undefined;
-  }
-  if (!ref || typeof ref !== "object") {
-    return undefined;
-  }
-  try {
-    const candidate = ref as {
-      id?: unknown;
-      key?: unknown;
-      libraryId?: unknown;
-      libraryID?: unknown;
-    };
-    const details: JsonObject = {};
-    const id = parsePositiveInteger(candidate.id);
-    const key = typeof candidate.key === "string" ? candidate.key.trim() : "";
-    const libraryId = parsePositiveInteger(
-      candidate.libraryId ?? candidate.libraryID,
-    );
-    if (id) details.id = id;
-    if (key) details.key = key;
-    if (libraryId) details.libraryId = libraryId;
-    return Object.keys(details).length ? details : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function capabilityError(
-  code: ZoteroHostCapabilityErrorCode,
+function capabilityError<Code extends ZoteroHostCapabilityErrorCode>(
+  code: Code,
   message: string,
-  ref?: unknown,
+  details: WorkflowHostErrorDetailsByCode[Code],
+  retryable = false,
 ) {
-  return new ZoteroHostCapabilityError(
-    code,
-    message,
-    safeObjectRefDetails(ref),
-  );
+  return new ZoteroHostCapabilityError(code, message, details, retryable);
+}
+
+function invalidRefError(
+  kind: "item" | "note" | "collection",
+  reason: WorkflowHostErrorDetailsByCode["invalid_ref"]["reason"],
+  message: string,
+) {
+  return capabilityError("invalid_ref", message, { kind, reason });
+}
+
+function notFoundError(
+  kind: "item" | "note" | "collection",
+  ref?: ZoteroHostItemRefInput | ZoteroHostCollectionRefInput | null,
+) {
+  return capabilityError("not_found", `${kind} not found`, {
+    kind,
+    ...(ref?.key ? { opaqueKey: ref.key } : {}),
+  });
+}
+
+function navigationUnavailableError(message: string) {
+  return capabilityError("unavailable", message, { reason: "navigation" });
 }
 
 function parseBooleanInput(value: unknown) {
@@ -1797,100 +1741,61 @@ function isRegularVisibleItem(item: Zotero.Item) {
   return regular && !deleted;
 }
 
-function rejectUnsafeObjectRefString(value: string) {
-  const ref = value.trim();
-  if (!ref) {
-    throw capabilityError(
-      "invalid_object_ref",
-      "object ref must be non-empty",
-      value,
-    );
-  }
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(ref)) {
-    throw capabilityError(
-      "invalid_object_ref",
-      "object ref must be a Zotero handle, not a URI",
-      value,
-    );
-  }
-  if (/^[A-Za-z]:[\\/]/.test(ref) || ref.startsWith("\\\\")) {
-    throw capabilityError(
-      "invalid_object_ref",
-      "object ref must be a Zotero handle, not a local path",
-      value,
-    );
-  }
-  if (ref.includes(":") && !/^\d+:[A-Za-z0-9]+$/.test(ref)) {
-    throw capabilityError(
-      "invalid_object_ref",
-      "object ref must be an item key, numeric id, or libraryId:key",
-      value,
-    );
-  }
-  return ref;
-}
+const ZOTERO_OBJECT_KEY_PATTERN = /^[A-Z0-9]{8}$/;
 
-function resolveScopedKey(value: string) {
-  const scopedKey = value.match(/^(\d+):([A-Za-z0-9]+)$/);
-  if (!scopedKey) {
-    return null;
+function assertPortableRef(
+  ref: unknown,
+  kind: "item" | "note" | "collection",
+): asserts ref is ZoteroHostItemRefInput | ZoteroHostCollectionRefInput {
+  if (
+    !ref ||
+    typeof ref !== "object" ||
+    Array.isArray(ref) ||
+    (Object.getPrototypeOf(ref) !== Object.prototype &&
+      Object.getPrototypeOf(ref) !== null)
+  ) {
+    throw invalidRefError(
+      kind,
+      "invalid_shape",
+      `${kind} ref must be portable`,
+    );
   }
-  return {
-    libraryId: parsePositiveInteger(scopedKey[1]),
-    key: scopedKey[2],
-  };
+  const candidate = ref as Record<string, unknown>;
+  const keys = Object.keys(candidate).sort();
+  if (keys.length !== 2 || keys[0] !== "key" || keys[1] !== "libraryId") {
+    throw invalidRefError(
+      kind,
+      "invalid_shape",
+      `${kind} ref has an invalid shape`,
+    );
+  }
+  if (
+    typeof candidate.libraryId !== "number" ||
+    !Number.isSafeInteger(candidate.libraryId) ||
+    candidate.libraryId <= 0
+  ) {
+    throw invalidRefError(
+      kind,
+      "invalid_library_id",
+      `${kind} ref has an invalid library id`,
+    );
+  }
+  if (
+    typeof candidate.key !== "string" ||
+    !ZOTERO_OBJECT_KEY_PATTERN.test(candidate.key)
+  ) {
+    throw invalidRefError(
+      kind,
+      "invalid_key",
+      `${kind} ref has an invalid key`,
+    );
+  }
 }
 
 function resolveItem(ref: ZoteroHostItemRefInput | undefined | null) {
+  assertPortableRef(ref, "item");
   const zotero = resolveZotero();
-  if (!ref) {
-    return null;
-  }
-  if (isRawZoteroItem(ref)) {
-    throw capabilityError(
-      "invalid_object_ref",
-      "broker item refs must be portable",
-      ref,
-    );
-  }
-  if (typeof ref === "number") {
-    return zotero.Items.get(ref) || null;
-  }
-  if (typeof ref === "string") {
-    const key = rejectUnsafeObjectRefString(ref);
-    if (!key) {
-      return null;
-    }
-    const scopedKey = resolveScopedKey(key);
-    if (scopedKey) {
-      return (
-        zotero.Items.getByLibraryAndKey(scopedKey.libraryId, scopedKey.key) ||
-        null
-      );
-    }
-    const numericId = parsePositiveInteger(key);
-    if (numericId) {
-      return zotero.Items.get(numericId) || null;
-    }
-    return (
-      zotero.Items.getByLibraryAndKey(zotero.Libraries.userLibraryID, key) ||
-      null
-    );
-  }
-  const id = parsePositiveInteger(ref.id);
-  if (id) {
-    return zotero.Items.get(id) || null;
-  }
-  const key = trimText(ref.key);
-  if (!key) {
-    return null;
-  }
-  return (
-    zotero.Items.getByLibraryAndKey(
-      normalizeLibraryId(ref.libraryId ?? ref.libraryID),
-      key,
-    ) || null
-  );
+  return zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key) || null;
 }
 
 function requireItem(
@@ -1899,15 +1804,20 @@ function requireItem(
 ) {
   const item = resolveItem(ref);
   if (!item) {
-    throw capabilityError("item_not_found", "item not found", ref || label);
+    throw notFoundError("item", ref);
   }
   return item;
 }
 
 function requireNote(ref: ZoteroHostItemRefInput | undefined | null) {
-  const item = resolveItem(ref);
-  if (!item || !item.isNote?.()) {
-    throw capabilityError("note_not_found", "note not found", ref || "note");
+  assertPortableRef(ref, "note");
+  const zotero = resolveZotero();
+  const item = zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key) || null;
+  if (!item) {
+    throw notFoundError("note", ref);
+  }
+  if (!item.isNote?.()) {
+    throw invalidRefError("note", "wrong_kind", "ref does not identify a note");
   }
   return item;
 }
@@ -1915,55 +1825,10 @@ function requireNote(ref: ZoteroHostItemRefInput | undefined | null) {
 function resolveCollection(
   ref: ZoteroHostCollectionRefInput | undefined | null,
 ) {
+  assertPortableRef(ref, "collection");
   const zotero = resolveZotero();
-  if (!ref) {
-    return null;
-  }
-  if (typeof ref === "object" && ("name" in ref || "saveTx" in ref)) {
-    throw capabilityError(
-      "invalid_object_ref",
-      "broker collection refs must be portable",
-      ref,
-    );
-  }
-  if (typeof ref === "number") {
-    return zotero.Collections?.get?.(ref) || null;
-  }
-  if (typeof ref === "string") {
-    const value = rejectUnsafeObjectRefString(ref);
-    const scopedKey = resolveScopedKey(value);
-    if (scopedKey) {
-      return (
-        zotero.Collections?.getByLibraryAndKey?.(
-          scopedKey.libraryId,
-          scopedKey.key,
-        ) || null
-      );
-    }
-    const numericId = parsePositiveInteger(value);
-    if (numericId) {
-      return zotero.Collections?.get?.(numericId) || null;
-    }
-    return (
-      zotero.Collections?.getByLibraryAndKey?.(
-        zotero.Libraries.userLibraryID,
-        value,
-      ) || null
-    );
-  }
-  const id = parsePositiveInteger(ref.id);
-  if (id) {
-    return zotero.Collections?.get?.(id) || null;
-  }
-  const key = trimText(ref.key);
-  if (!key) {
-    return null;
-  }
   return (
-    zotero.Collections?.getByLibraryAndKey?.(
-      normalizeLibraryId(ref.libraryId ?? ref.libraryID),
-      key,
-    ) || null
+    zotero.Collections?.getByLibraryAndKey?.(ref.libraryId, ref.key) || null
   );
 }
 
@@ -1971,22 +1836,18 @@ function resolveCollectionFromListArgs(args: ZoteroHostLibraryListArgs) {
   if (args.collection !== undefined) {
     return resolveCollection(args.collection);
   }
-  const ref: {
-    id?: number | string;
-    key?: string;
-    libraryId?: number | string;
-  } = {};
   if (args.collectionId !== undefined) {
-    ref.id = args.collectionId;
+    return (
+      resolveZotero().Collections?.get?.(
+        parsePositiveInteger(args.collectionId),
+      ) || null
+    );
   }
   if (args.collectionKey !== undefined) {
-    ref.key = args.collectionKey;
-  }
-  if (args.collectionLibraryId !== undefined) {
-    ref.libraryId = args.collectionLibraryId;
-  }
-  if (ref.id !== undefined || ref.key !== undefined) {
-    return resolveCollection(ref);
+    return resolveCollection({
+      libraryId: normalizeLibraryId(args.collectionLibraryId),
+      key: args.collectionKey,
+    });
   }
   return null;
 }
@@ -2001,34 +1862,18 @@ function requireCollectionForList(args: ZoteroHostLibraryListArgs) {
   }
   const collection = resolveCollectionFromListArgs(args);
   if (!collection) {
-    throw capabilityError(
-      "collection_not_found",
-      "collection not found",
-      args.collection ?? {
-        id: args.collectionId,
-        key: args.collectionKey,
-        libraryId: args.collectionLibraryId,
-      },
-    );
+    throw notFoundError("collection", args.collection);
   }
   return collection;
 }
 
 function resolveCollectionHandlerRef(ref: ZoteroHostCollectionRefInput) {
-  if (typeof ref === "string" && /^\d+:[A-Za-z0-9]+$/.test(ref.trim())) {
-    const collection = resolveCollection(ref);
-    return (
-      parsePositiveInteger(
-        (collection as unknown as { id?: unknown } | null)?.id,
-      ) ||
-      trimText((collection as unknown as { key?: unknown } | null)?.key) ||
-      ref
-    );
-  }
-  if (typeof ref === "object" && !("name" in ref || "saveTx" in ref)) {
-    return parsePositiveInteger(ref.id) || trimText(ref.key);
-  }
-  return ref as number | string | Zotero.Collection;
+  const collection = resolveCollection(ref);
+  return (
+    parsePositiveInteger(
+      (collection as unknown as { id?: unknown } | null)?.id,
+    ) || ref.key
+  );
 }
 
 function validateFieldPatch(item: Zotero.Item, fields: unknown) {
@@ -3528,11 +3373,13 @@ function getCurrentView() {
   ];
   const uniqueLibraryId = libraryIds.length === 1 ? libraryIds[0] : undefined;
   const currentItem = context.currentItem
-    ? resolveItem({
-        id: context.currentItem.id,
-        key: context.currentItem.key,
-        libraryId: uniqueLibraryId,
-      })
+    ? resolveZotero().Items.get(parsePositiveInteger(context.currentItem.id)) ||
+      (context.currentItem.key && uniqueLibraryId
+        ? resolveZotero().Items.getByLibraryAndKey(
+            parsePositiveInteger(uniqueLibraryId),
+            context.currentItem.key,
+          )
+        : null)
     : null;
   const selectedCollection =
     selectedSources.length === 1 && selectedSources[0]?.kind === "collection"
@@ -3582,10 +3429,7 @@ function resolveZoteroPane() {
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
   const pane = win?.ZoteroPane;
   if (!pane) {
-    throw capabilityError(
-      "navigation_unavailable",
-      "Zotero pane navigation is unavailable",
-    );
+    throw navigationUnavailableError("Zotero pane navigation is unavailable");
   }
   return { win, pane };
 }
@@ -3595,7 +3439,10 @@ async function selectZoteroItems(items: Zotero.Item[]) {
     .map((item) => parsePositiveInteger(item.id))
     .filter((id) => id > 0);
   if (itemIds.length === 0) {
-    throw capabilityError("invalid_object_ref", "item has no numeric id");
+    throw capabilityError("execution_failed", "item has no numeric id", {
+      phase: "adapter",
+      recovery: "none",
+    });
   }
   const { win, pane } = resolveZoteroPane();
   if (itemIds.length === 1 && typeof pane.selectItem === "function") {
@@ -3605,10 +3452,7 @@ async function selectZoteroItems(items: Zotero.Item[]) {
   } else if (typeof pane.selectItem === "function") {
     await pane.selectItem(itemIds[0]);
   } else {
-    throw capabilityError(
-      "navigation_unavailable",
-      "Zotero pane cannot select items",
-    );
+    throw navigationUnavailableError("Zotero pane cannot select items");
   }
   win?.focus?.();
 }
@@ -3629,10 +3473,7 @@ async function selectZoteroCollection(collection: Zotero.Collection) {
   } else if (typeof collectionsView?.selectByID === "function") {
     await collectionsView.selectByID(collectionId || collectionKey);
   } else {
-    throw capabilityError(
-      "navigation_unavailable",
-      "Zotero pane cannot select collections",
-    );
+    throw navigationUnavailableError("Zotero pane cannot select collections");
   }
   win?.focus?.();
 }
@@ -3640,17 +3481,18 @@ async function selectZoteroCollection(collection: Zotero.Collection) {
 function collectionRefFromOpenArgs(args: ZoteroHostCollectionOpenArgs) {
   const key = trimText(args.key || args.collectionKey);
   if (!key) {
-    throw capabilityError(
-      "invalid_object_ref",
+    throw invalidRefError(
+      "collection",
+      "invalid_key",
       "collection key is required",
-      args,
     );
   }
-  rejectUnsafeObjectRefString(key);
-  return {
+  const ref = {
     key,
-    libraryId: args.libraryId ?? args.libraryID,
+    libraryId: parsePositiveInteger(args.libraryId ?? args.libraryID),
   };
+  assertPortableRef(ref, "collection");
+  return ref;
 }
 
 async function openZoteroItem(
@@ -3691,7 +3533,7 @@ async function openZoteroCollection(
   const ref = collectionRefFromOpenArgs(args);
   const collection = resolveCollection(ref);
   if (!collection) {
-    throw capabilityError("collection_not_found", "collection not found", ref);
+    throw notFoundError("collection", ref);
   }
   await selectZoteroCollection(collection);
   return {
@@ -3710,11 +3552,10 @@ async function openZoteroSelection(
 ): Promise<ZoteroHostNavigationResultDto> {
   const refs = Array.isArray(args.items) ? args.items : [];
   if (refs.length === 0) {
-    throw capabilityError(
-      "invalid_object_ref",
-      "selection open requires items",
-      args,
-    );
+    throw capabilityError("invalid_request", "selection open requires items", {
+      reason: "missing_field",
+      field: "items",
+    });
   }
   const items = refs.map((ref) => requireItem(ref));
   await selectZoteroItems(items);

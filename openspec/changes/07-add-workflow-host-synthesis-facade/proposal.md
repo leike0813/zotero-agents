@@ -4,6 +4,8 @@ Workflow callers still depend on a flat compatibility facade that exposes names 
 
 The fixed implementation baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`; this change depends on `01-establish-workflow-host-v12-contract-foundation`.
 
+Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§8.5–8.6, 9, 10, 15.2, 17, 18, and 19. The architecture record is authoritative for the fourteen-member grouped projection, audit-run lifecycle, promotion and acknowledgement evidence, sidecar ownership, cancellation, cleanup, and parity requirements summarized here.
+
 ## What Changes
 
 - Define the grouped `workflowApply`, `topics`, `artifacts`, and `tags` Workflow projection with exactly fourteen callable members.

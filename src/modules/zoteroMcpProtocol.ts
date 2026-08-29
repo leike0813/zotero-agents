@@ -1406,16 +1406,19 @@ export async function handleZoteroMcpJsonRpc(
           error instanceof ZoteroHostCapabilityError ? error : null;
         const isInvalidLibraryCursor =
           error instanceof ZoteroLibraryCursorError;
+        const brokerDetails = brokerError?.details as
+          | Record<string, unknown>
+          | undefined;
         const structuredCode =
-          brokerError?.code === "item_not_found"
-            ? "zotero_item_not_found"
-            : brokerError?.code === "note_not_found"
+          brokerError?.code === "not_found"
+            ? brokerDetails?.kind === "note"
               ? "zotero_note_not_found"
-              : brokerError?.code === "collection_not_found"
+              : brokerDetails?.kind === "collection"
                 ? "zotero_collection_not_found"
-                : isInvalidLibraryCursor
-                  ? error.code
-                  : undefined;
+                : "zotero_item_not_found"
+            : isInvalidLibraryCursor
+              ? error.code
+              : undefined;
         await options.onToolCall?.({
           toolName,
           arguments: toolArguments,

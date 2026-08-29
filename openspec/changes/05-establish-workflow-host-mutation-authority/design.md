@@ -4,6 +4,8 @@ See `proposal.md` for motivation. Current handlers provide useful internal Zoter
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. Contract foundation change `01-establish-workflow-host-v12-contract-foundation` supplies portable refs, strict JSON, shared errors, and canonical public type rules. Runtime adaptation supplies managed file operations but does not own mutation semantics.
 
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§8, 11.3–11.17, 12.5–12.9, 15.2, 17, 18, and 19. Its operation union, revision and preview-token rules, idempotency, receipt and attempt envelopes, cleanup, compensation, and recovery semantics take precedence over abbreviated wording in this design.
+
 ## Goals / Non-Goals
 
 **Goals:**

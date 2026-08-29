@@ -4,6 +4,8 @@ See `proposal.md` for motivation. `src/platform/subprocess.ts` currently re-expo
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. This companion is independent of public Workflow Host activation, though the runtime-adaptation completion report includes it.
 
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§4.5, 14.9, 18, and 19. Its one-shot/long-lived lifecycle split, adapter closure, timeout and termination requirements, and validation evidence take precedence over abbreviated wording in this design.
+
 ## Goals / Non-Goals
 
 **Goals:**
