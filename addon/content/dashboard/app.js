@@ -4097,6 +4097,7 @@
   if (SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE) {
     renderSynthesisSidecar = function (main, snapshot) {
     const view = snapshot.synthesisSidecarView || {};
+    const labels = snapshot.labels || {};
     const traceSnapshot = view.traceSnapshot;
     if (!traceSnapshot || !Array.isArray(traceSnapshot.traces)) {
       main.appendChild(el("h2", "page-title", "Synthesis Sidecar"));
@@ -4230,15 +4231,21 @@
         copy.addEventListener("click", function () {
           copyTextToClipboard(JSON.stringify(selected, null, 2)).then(
             function () {
-              copy.textContent = labelText(labels, "productsViewerCopied");
+              copy.textContent = labelText(
+                labels,
+                "productsViewerCopied",
+                "Copied",
+              );
               showToast("Trace copied");
             },
             function () {
-              copy.textContent = labelText(
+              const copyFailedLabel = labelText(
                 labels,
                 "productsViewerCopyFailed",
+                "Copy failed",
               );
-              showToast(labelText(labels, "productsViewerCopyFailed"));
+              copy.textContent = copyFailedLabel;
+              showToast(copyFailedLabel);
             },
           );
         });

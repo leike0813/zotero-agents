@@ -2936,12 +2936,6 @@ describe("skillrunner.sequence.v1 runtime", function () {
       },
     };
 
-    const manifest = JSON.parse(
-      await fs.readFile(
-        "workflows_builtin/literature-workbench-package/literature-analysis/workflow.json",
-        "utf8",
-      ),
-    );
     const digestOnly = (await buildLiteratureDigestRequest({
       selectionContext,
       executionOptions: {

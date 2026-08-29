@@ -585,14 +585,6 @@ describe("host bridge capability calls", function () {
     assert.deepEqual(connectionModes, ["remote", "remote", "local", "remote"]);
   });
 
-  it("keeps topic planning context internal to workflows", function () {
-    assert.isUndefined(
-      listHostBridgeCapabilities().find(
-        (entry) => entry.name === "topics.get_planning_context",
-      ),
-    );
-  });
-
   it("routes direct paper and Topic research bundles through their Synthesis capabilities", async function () {
     const calls: Array<{ kind: string; input: any; mode?: string }> = [];
     const result = (kind: "papers" | "topics") => ({

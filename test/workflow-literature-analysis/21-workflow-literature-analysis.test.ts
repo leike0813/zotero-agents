@@ -741,33 +741,60 @@ describe("workflow: literature-analysis", function () {
     await assertStoredPayloadExists(scoreNote, "literature-score-json");
   });
 
-  const legacySkipCases = [
-    {
-      label: "payload markers",
-      title: "Workflow Payload Skip Parent",
-      noteContents: {
+  itFullOnly(
+    "builds score-only for payload-marker note formats",
+    async function () {
+      const workflow = await getLiteratureDigestWorkflow();
+      const { parent, attachment } = await createDigestAttachmentParent({
+        title: "Workflow Payload Skip Parent",
+      });
+      await addGeneratedDigestNotes(parent, {
         digest:
           '<div><h1>Literature Digest</h1><span data-zs-block="payload" data-zs-payload="digest-markdown" data-zs-value="e30="></span></div>',
         references:
           '<div><h1>References</h1><span data-zs-block="payload" data-zs-payload="references-json" data-zs-value="e30="></span></div>',
         citationAnalysis:
           '<div><h1>Citation Analysis</h1><span data-zs-block="payload" data-zs-payload="citation-analysis-json" data-zs-value="e30="></span></div>',
-      },
+      });
+      const context = await buildSelectionContext([attachment]);
+
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: context,
+      })) as LiteratureAnalysisSequenceRequest[];
+
+      assert.lengthOf(requests, 1);
+      assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
     },
+  );
+
+  const headingOnlyFormats = [
     {
-      label: "legacy heading-only",
-      title: "Workflow Legacy Skip Parent",
+      label: "legacy h1",
+      title: "Workflow Legacy Heading Rebuild Parent",
       noteContents: {
         digest: "<div><h1>Literature Digest</h1><p>legacy content</p></div>",
         references: "<div><h1>References JSON</h1><pre>[]</pre></div>",
         citationAnalysis: "<div><h1>Citation Analysis</h1><pre>{}</pre></div>",
       },
     },
+    {
+      label: "paragraph strong",
+      title: "Workflow Legacy Paragraph Rebuild Parent",
+      noteContents: {
+        digest:
+          "<div><p><strong>Literature Digest</strong></p><p>legacy paragraph</p></div>",
+        references:
+          "<div><p><strong>References JSON</strong></p><pre>[]</pre></div>",
+        citationAnalysis:
+          "<div><p><strong>Citation Analysis</strong></p><pre>{}</pre></div>",
+      },
+    },
   ] as const;
 
-  for (const entry of legacySkipCases) {
+  for (const entry of headingOnlyFormats) {
     itFullOnly(
-      `builds score-only for legacy and payload-marker note formats (${entry.label})`,
+      `builds full analysis when note headings have no artifact evidence (${entry.label})`,
       async function () {
         const workflow = await getLiteratureDigestWorkflow();
         const { parent, attachment } = await createDigestAttachmentParent({
@@ -779,53 +806,27 @@ describe("workflow: literature-analysis", function () {
         const requests = (await executeBuildRequests({
           workflow,
           selectionContext: context,
+          executionOptions: {
+            workflowParams: {
+              auto_tag_regulator: false,
+            },
+          },
         })) as LiteratureAnalysisSequenceRequest[];
 
         assert.lengthOf(requests, 1, entry.label);
         assert.equal(
           requests[0]?.steps?.[0]?.parameter?.score_only,
-          true,
+          false,
           entry.label,
         );
+        assertLiteratureAnalysisDigestStep(requests[0], {
+          sourcePath: fixturePath("literature-analysis", "example.md"),
+          targetParentID: parent.id,
+          autoTagRegulator: false,
+        });
       },
     );
   }
-
-  itFullOnly(
-    "builds request for legacy paragraph-strong note formats that no longer imply idempotent completion",
-    async function () {
-      const workflow = await getLiteratureDigestWorkflow();
-      const { parent, attachment } = await createDigestAttachmentParent({
-        title: "Workflow Legacy Paragraph Rebuild Parent",
-      });
-      await addGeneratedDigestNotes(parent, {
-        digest:
-          "<div><p><strong>Literature Digest</strong></p><p>legacy paragraph</p></div>",
-        references:
-          "<div><p><strong>References JSON</strong></p><pre>[]</pre></div>",
-        citationAnalysis:
-          "<div><p><strong>Citation Analysis</strong></p><pre>{}</pre></div>",
-      });
-      const context = await buildSelectionContext([attachment]);
-
-      const requests = (await executeBuildRequests({
-        workflow,
-        selectionContext: context,
-        executionOptions: {
-          workflowParams: {
-            auto_tag_regulator: false,
-          },
-        },
-      })) as LiteratureAnalysisSequenceRequest[];
-
-      assert.lengthOf(requests, 1);
-      assertLiteratureAnalysisDigestStep(requests[0], {
-        sourcePath: fixturePath("literature-analysis", "example.md"),
-        targetParentID: parent.id,
-        autoTagRegulator: false,
-      });
-    },
-  );
 
   it("rejects legacy bundles that do not contain a literature score", async function () {
     this.timeout(5000);
