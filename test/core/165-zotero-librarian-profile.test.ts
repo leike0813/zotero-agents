@@ -143,7 +143,7 @@ describe("zotero-librarian hosted source profile", function () {
       service,
       'RECEIPT_SCHEMA = "zotero-librarian.operation-receipt.v1"',
     );
-    assert.include(service, 'STATE_SCHEMA = "zotero-librarian.state.v3"');
+    assert.include(service, 'STATE_SCHEMA = "zotero-librarian.state.v4"');
     assert.include(service, "state.sqlite");
     assert.include(service, '"--profile"');
     assert.include(workspace, "workspace_path_outside_profile");

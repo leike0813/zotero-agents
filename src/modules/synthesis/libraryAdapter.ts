@@ -19,6 +19,7 @@ import {
   type SynthesisHostLibraryItemSummary,
   type SynthesisHostReadPort,
 } from "../../../packages/synthesis-contracts/src/index";
+import { createZoteroHostCapabilityBroker } from "../zoteroHostCapabilityBroker";
 import type {
   CitationGraphPaperInput,
   CitationGraphReferenceInput,
@@ -1075,6 +1076,25 @@ export function createZoteroSynthesisHostReadPort(
   const configuredLibraryId =
     normalizeLibraryId(args.libraryId, 0) ||
     normalizeLibraryId(zoteroRuntime().Libraries?.userLibraryID, 1);
+  const snapshotBroker = createZoteroHostCapabilityBroker();
+  const snapshotOwner = {
+    ownerId: `synthesis-host-read:${configuredLibraryId}`,
+  };
+
+  async function syncSnapshot(request: {
+    libraryId: number;
+    batchSize?: number;
+    snapshotId?: string;
+    cursor?: string;
+  }) {
+    const libraryId = validateHostLibraryId(request.libraryId);
+    if (libraryId !== configuredLibraryId) {
+      invalidHostRead("Host libraryId is outside the configured scope", {
+        libraryId,
+      });
+    }
+    return snapshotBroker.library.syncSnapshot(request, snapshotOwner);
+  }
 
   async function listItemsPage(request: {
     libraryId: number;
@@ -1160,7 +1180,7 @@ export function createZoteroSynthesisHostReadPort(
   }
 
   return {
-    library: { listItemsPage, getItemsByRef },
+    library: { syncSnapshot, listItemsPage, getItemsByRef },
     artifacts: {
       async scanPage(request) {
         const libraryId = validateHostLibraryId(request.libraryId);

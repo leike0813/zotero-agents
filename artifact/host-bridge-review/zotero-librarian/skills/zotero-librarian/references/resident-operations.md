@@ -17,10 +17,10 @@ service 在有边界 pass 开始前解析一个 profile workspace。Agent 和 cr
 
 | 命令 | 读取 | 本地 effect | Receipt 数据及含义 |
 | --- | --- | --- | --- |
-| `index refresh [--limit N]` | 分页实时文献库 snapshot | 原子 upsert 当前条目、删除缺失行、保存刷新时间 | 计数 `added`、`updated`、`deleted`、`total`；仅 projection 有差异时为 changed |
+| `index refresh [--limit N] [--library-id ID]` | 由 Zotero capability Broker 捕获的一次固定全库 snapshot | 逐页 staging 一个 generation，只有 terminal evidence 校验通过后才原子 promote 并移除先前行 | 计数 `added`、`updated`、`deleted`、`total`，以及 `generationId` 和 `snapshotId`；仅 promoted projection 有差异时为 changed |
 | `index search <query> [--limit N]` |本地标题和序列化项目字段 |除了schema 初始化之外没有任何其他 | `ok` 与匹配的缓存`items`；绝不意味着 Zotero 已更改 |
 | `index item <key-or-id>` |一项本地缓存项目 |无 | `ok`，带有缓存的`item`；缺少缓存条目是 `item_not_found` |
-| `index stats` |本地项目计数和刷新元数据 |无 | `ok` 与 `itemCount` 和 `lastRefresh` |
+| `index stats` | current generation 计数、刷新元数据与 staging 计数 | 无 | `ok`，带 `itemCount`、`lastRefresh`、`currentGenerationId` 和 `stagingGenerationCount` |
 | `workflow catalog-refresh` | 实时工作流列表和已变更描述 | 原子 upsert 已变更 catalog 条目 | `updated` 定义数量 |
 | `workflow show <workflow-id>` |一个缓存的 workflow 定义 |无 | `ok`，带有缓存的`workflow`；执行前仍需要实时描述 |
 | `run register --run-id ID --workflow-id ID [--state S]` | 提供的标识符 | upsert 一个 watched run | 已注册 `runId` |
@@ -37,7 +37,9 @@ service 在有边界 pass 开始前解析一个 profile workspace。Agent 和 cr
 
 ## Index 与文献库问答
 
-`index refresh` 分页读取完整实时 snapshot，并在一个数据库事务内提交。若分页、解析或事务失败，它会保留此前可用 projection。使用 projection 进行重复发现前，先记录 refresh receipt。
+`index refresh` 打开由 Zotero capability Broker 捕获的一次固定 snapshot，并把已接受页面写入 staging generation。snapshot identity、library、scope、稳定顺序、batch 序列、已交付计数与 terminal completion evidence 必须始终一致。只有该 snapshot 的 terminal evidence 才允许在一个 promotion transaction 中把 staging generation 设为 current，并删除完整集合中缺失的行。分页、解析、过期、重启、evidence、staging write 或 promotion 失败时，先前 generation 仍可读取；后续 pass 应启动新 snapshot，不得 resume 未完成的 snapshot。
+
+完整的空 snapshot 是空 current generation 的有效 evidence。active terminal shape、本地行数、旧 receipt 或缓存的 `snapshotId` 均不是等价 evidence。中断后可保留 staging state 用于诊断，但 `index search`、`index item`、`index stats` 与 library hygiene 只读取 current generation。
 
 使用 `index search` 跨缓存标题、作者、标识符、标签、分类、出版字段和序列化条目数据搜索。已知 key 或数字 ID 时使用 `index item`，判断 projection 大小和刷新时间时使用 `index stats`。这些操作可加速发现和排序，但不能确定当前 selection、附件访问、permission、工作流模式、Product 是否存在或回写状态。
 
@@ -84,24 +86,26 @@ CLI 或解析失败时，服务发出稳定错误并保留已提交状态。不�
 之前：
 
 - 确认预期的库连接以及当前缓存是否可用。
-- 选择限制每个请求的页面限制，而不会截断完整快照。
+- 选择 1 至 1,000 的 batch size；默认值为 500。改变它不会放宽一百万条 snapshot 上限或 30 分钟 Host session 生命周期。
 
 命令：
 
 ```sh
-scripts/zotero_librarian_service.py index refresh --limit 200
+scripts/zotero_librarian_service.py index refresh --library-id 1 --limit 500
 ```
 
 receipt：
 
 - 添加、更新或删除行时的`changed`。
 - 当完成的快照与投影匹配时，`unchanged`。
-- 数据报告 `added`、`updated`、`deleted` 和 `total`。
+- 只有 promotion 后，数据才报告 `added`、`updated`、`deleted`、`total`、`generationId` 和 `snapshotId`。
+- 完整的空 snapshot 可以为所有先前行报告 `deleted`，并报告 `total: 0`。
 
 下一篇：
 
 - 使用实时查询读取外部可见的当前事实。
-- 失败时，保留先前提交的投影。
+- 失败时保留先前 current generation 与原始 failure；不得 promote 或手动合并 staging row。
+- Host session 过期、重启或拒绝 continuation 时，启动新的完整 refresh。
 
 ### `index search`
 
@@ -160,7 +164,7 @@ scripts/zotero_librarian_service.py index stats
 
 receipt：
 
-- `ok` 与 `itemCount` 和 `lastRefresh`。
+- `ok`，带 `itemCount`、`lastRefresh`、`currentGenerationId` 和 `stagingGenerationCount`。
 
 下一篇：
 
@@ -522,8 +526,9 @@ receipt：
 
 - 之前的预测仍然可用；
 - 不要提前刷新时间；
-- 重试有限刷新；
-- 不要手动合并三个页面。
+- 把未完成 staging generation 保留为非 authoritative 诊断状态；
+- 启动新的有界完整 snapshot，不要 resume 进程内 session；
+- 不要手动合并三个页面，也不要从其本地计数推断缺失行删除。
 
 Workflow validation 变得过时：
 

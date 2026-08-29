@@ -12,9 +12,11 @@ import {
 import { recordTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
 import {
   createZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
   type ZoteroHostCollectionRefInput,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
+  type ZoteroHostLibrarySyncSnapshotRequest,
   type ZoteroHostMutationRequest,
 } from "../modules/zoteroHostCapabilityBroker";
 import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
@@ -60,8 +62,79 @@ import {
 import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
 import { createResearchBundleMaterializer } from "../modules/researchBundleService";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
+import type {
+  ZoteroLibrarySnapshotBatchDto,
+  ZoteroLibrarySnapshotWorkflowResultDto,
+} from "../../packages/synthesis-contracts/src/index";
 
 export { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
+
+function workflowSnapshotOwnerId() {
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  return `workflow-snapshot-${
+    crypto?.randomUUID?.() ||
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  }`;
+}
+
+export async function withWorkflowLibraryItemSnapshot(
+  request: ZoteroHostLibrarySyncSnapshotRequest,
+  control: Readonly<{ signal?: AbortSignal }>,
+  onBatch: (batch: ZoteroLibrarySnapshotBatchDto) => void | Promise<void>,
+): Promise<ZoteroLibrarySnapshotWorkflowResultDto> {
+  if (control.signal?.aborted) {
+    throw new ZoteroHostCapabilityError(
+      "canceled",
+      "snapshot was canceled before capture",
+      { reason: "caller_signal" },
+    );
+  }
+  const broker = createZoteroHostCapabilityBroker();
+  const scope = { ownerId: workflowSnapshotOwnerId() };
+  let page = await broker.library.syncSnapshot(request, scope);
+  for (;;) {
+    try {
+      await onBatch({
+        schema: page.schema,
+        snapshotId: page.snapshotId,
+        batchIndex: page.batchIndex,
+        items: page.items,
+      });
+    } catch (error) {
+      if (page.outcome === "active") {
+        broker.library.cancelSnapshot(page.snapshotId, scope);
+      }
+      throw error;
+    }
+    if (control.signal?.aborted) {
+      if (page.outcome === "active") {
+        return broker.library.cancelSnapshot(page.snapshotId, scope);
+      }
+      return {
+        outcome: "canceled",
+        snapshotId: page.snapshotId,
+        deliveredItems: page.deliveredItems,
+        deliveredBatches: page.deliveredBatches,
+      };
+    }
+    if (page.outcome === "completed") {
+      return {
+        outcome: "completed",
+        completionEvidence: page.completionEvidence,
+      };
+    }
+    page = await broker.library.syncSnapshot(
+      {
+        libraryId: page.libraryId,
+        batchSize: page.batchSize,
+        snapshotId: page.snapshotId,
+        cursor: page.nextCursor,
+      },
+      scope,
+    );
+  }
+}
 
 function resolveHostAddonConfig() {
   const addonConfig = resolveRuntimeAddon()?.data?.config || null;
@@ -432,8 +505,10 @@ export function createWorkflowHostApi(): WorkflowHostApi {
   const library = {
     listItems: (args: ZoteroHostLibraryListArgs) =>
       zoteroBroker.library.listItems(toBrokerLibraryListArgs(args)),
-    syncSnapshot: (args: ZoteroHostLibraryListArgs) =>
-      zoteroBroker.library.syncSnapshot(toBrokerLibraryListArgs(args)),
+    syncSnapshot: (args: ZoteroHostLibrarySyncSnapshotRequest) =>
+      zoteroBroker.library.syncSnapshot(args, {
+        ownerId: "workflow-host-v11",
+      }),
     searchItems: zoteroBroker.library.searchItems,
     getItemDetail: (ref: WorkflowHostItemRefInput) =>
       zoteroBroker.library.getItemDetail(toBrokerItemRef(ref)),

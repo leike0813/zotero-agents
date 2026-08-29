@@ -27,6 +27,7 @@ import {
   type SynthesisJsonObject,
   type SynthesisReverseHostPayload,
   type SynthesisSidecarOutputTransferReference,
+  type ZoteroLibrarySnapshotRequestDto,
 } from "../../packages/synthesis-contracts/src";
 import {
   createSynthesisHostExportDeliveryPort,
@@ -70,10 +71,15 @@ type Ports = {
 type ReverseHostHandlerContext = Parameters<SynthesisReverseHostHandler>[1];
 type UnscopedSynthesisReverseHostHandlers = Omit<
   SynthesisReverseHostHandlers,
+  | "library.items.sync_snapshot"
   | "library.items.list_page"
   | "library.items.get_by_ref"
   | "library.artifacts.scan_page"
 > & {
+  "library.items.sync_snapshot": (
+    payload: ZoteroLibrarySnapshotRequestDto,
+    context: ReverseHostHandlerContext,
+  ) => ReturnType<SynthesisHostReadPort["library"]["syncSnapshot"]>;
   "library.items.list_page": (
     payload: SynthesisHostPageRequest,
     context: ReverseHostHandlerContext,
@@ -140,6 +146,14 @@ export function createSynthesisReverseHostHandlers(
     return content.entries;
   };
   return {
+    "library.items.sync_snapshot": async (payload) =>
+      ports.hostReadPort.library.syncSnapshot(
+        exactPayload(
+          payload,
+          ["libraryId"],
+          ["batchSize", "snapshotId", "cursor"],
+        ) as ZoteroLibrarySnapshotRequestDto,
+      ),
     "library.items.list_page": async (payload) =>
       ports.hostReadPort.library.listItemsPage(
         exactPayload(
@@ -347,6 +361,14 @@ export function createScopedSynthesisReverseHostHandlers(
   };
   return {
     ...handlers,
+    "library.items.sync_snapshot": (
+      payload: SynthesisReverseHostPayload<"library.items.sync_snapshot">,
+      context: ReverseHostHandlerContext,
+    ) =>
+      handlers["library.items.sync_snapshot"](
+        injectLibraryScope(payload),
+        context,
+      ),
     "library.items.list_page": (
       payload: SynthesisReverseHostPayload<"library.items.list_page">,
       context: ReverseHostHandlerContext,

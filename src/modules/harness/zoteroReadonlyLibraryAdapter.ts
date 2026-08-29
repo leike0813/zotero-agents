@@ -328,6 +328,12 @@ export async function createZoteroReadonlyHostReadPort(
   }
   return {
     library: {
+      async syncSnapshot() {
+        throw new SynthesisClientError(
+          "unavailable",
+          "Readonly Harness snapshots require the live Zotero Host",
+        );
+      },
       async listItemsPage(request) {
         if (Number(request.libraryId) !== libraryId) {
           throw new SynthesisClientError(

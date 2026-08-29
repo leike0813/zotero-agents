@@ -51,7 +51,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `library.list_note_payloads` | library | `none` | `object` | `library note payloads` | response:selector-bounded, mcp-mirror |
 | `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | response:paged, mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `library item search` | response:limit-bounded, mcp-mirror |
-| `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | response:paged, mcp-mirror |
+| `library.sync_snapshot` | library | `none` | `object required` | `library snapshot` | response:paged, mcp-mirror |
 | `topics.export_research_bundle` | topics | `none` | `object` | `synthesis topic export-research-bundle` | response:file-output, mcp-mirror |
 | `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | response:selector-bounded, mcp-mirror |
 | `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | response:file-output, mcp-mirror |
@@ -225,7 +225,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 - Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
 - `library item search` accepts `query`, `limit`, `libraryId` in `--query`.
 - `library items list` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor` in `--query`.
-- `library snapshot` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor` in `--query`.
+- `library snapshot` accepts `libraryId`, `batchSize`, `snapshotId`, `cursor` in `--query`.
 - `library readiness audit` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor`, `checks`, `missingOnly`, `missing_only` in `--query`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
 - Omit `cursor` on the first library, snapshot, or readiness page. When `hasMore` is true, pass the exact returned opaque `nextCursor`; never construct or increment a cursor.
 

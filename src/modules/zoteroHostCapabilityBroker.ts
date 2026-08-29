@@ -42,6 +42,21 @@ import {
   type WorkflowHostErrorCode,
   type WorkflowHostErrorDetailsByCode,
 } from "../workflows/workflowHostErrorContract";
+import {
+  hashSynthesisContractCanonicalJson,
+  ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_DEFAULT,
+  ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_MAX,
+  ZOTERO_LIBRARY_SNAPSHOT_ITEM_LIMIT,
+  ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+  ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+  ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+  ZOTERO_LIBRARY_SNAPSHOT_TTL_MS,
+  type ZoteroLibrarySnapshotCallerScope,
+  type ZoteroLibrarySnapshotIncompleteResultDto,
+  type ZoteroLibrarySnapshotItemDto,
+  type ZoteroLibrarySnapshotPageDto,
+  type ZoteroLibrarySnapshotRequestDto,
+} from "../../packages/synthesis-contracts/src/index";
 
 export type {
   JsonObject,
@@ -233,24 +248,13 @@ export type ZoteroHostLibraryListResponse = {
 };
 
 export type ZoteroHostLibrarySyncSnapshotItemDto =
-  ZoteroHostLibraryItemSummaryDto & {
-    DOI: string;
-    ISBN: string;
-    ISSN: string;
-    url: string;
-  };
-
-export type ZoteroHostLibrarySyncSnapshotResponse = {
-  schema: "zotero.library.snapshot.v1";
-  generatedAt: string;
-  snapshotId: string;
-  items: ZoteroHostLibrarySyncSnapshotItemDto[];
-  nextCursor: string;
-  hasMore: boolean;
-  returned: number;
-  totalScanned: number;
-  filters: ZoteroHostLibraryListResponse["filters"];
-};
+  ZoteroLibrarySnapshotItemDto;
+export type ZoteroHostLibrarySyncSnapshotResponse =
+  ZoteroLibrarySnapshotPageDto;
+export type ZoteroHostLibrarySyncSnapshotRequest =
+  ZoteroLibrarySnapshotRequestDto;
+export type ZoteroHostLibrarySnapshotCallerScope =
+  ZoteroLibrarySnapshotCallerScope;
 
 export type ZoteroHostLibraryReadinessItemDto =
   ZoteroHostLibraryItemSummaryDto & {
@@ -582,8 +586,13 @@ export interface ZoteroHostCapabilityBroker {
       args: ZoteroHostLibraryListArgs,
     ): Promise<ZoteroHostLibraryListResponse>;
     syncSnapshot(
-      args: ZoteroHostLibraryListArgs,
+      args: ZoteroHostLibrarySyncSnapshotRequest,
+      scope?: ZoteroHostLibrarySnapshotCallerScope,
     ): Promise<ZoteroHostLibrarySyncSnapshotResponse>;
+    cancelSnapshot(
+      snapshotId: string,
+      scope?: ZoteroHostLibrarySnapshotCallerScope,
+    ): ZoteroLibrarySnapshotIncompleteResultDto;
     readinessAudit(
       args: ZoteroHostLibraryReadinessAuditArgs,
     ): Promise<ZoteroHostLibraryReadinessAuditResponse>;
@@ -666,6 +675,81 @@ const NOTE_EXCERPT_MAX = 2000;
 const NOTE_DETAIL_CHUNK_DEFAULT = 8000;
 const NOTE_DETAIL_CHUNK_MAX = 16000;
 const LITERATURE_INGEST_OPERATION = "literature.ingest";
+const SNAPSHOT_CAPTURE_PAGE_SIZE = 100;
+const SNAPSHOT_ACTIVE_SESSION_LIMIT = 16;
+
+type ZoteroHostSnapshotRuntimeConfiguration = {
+  now: () => number;
+  randomId: () => string;
+  maxItems: number;
+};
+
+type ZoteroHostSnapshotCapturedItem = {
+  ref: ZoteroHostItemRefInput;
+  revision: string;
+};
+
+type ZoteroHostSnapshotSession = {
+  processId: string;
+  snapshotId: string;
+  ownerId: string;
+  libraryId: number;
+  batchSize: number;
+  createdAt: number;
+  expiresAt: number;
+  items: ZoteroHostSnapshotCapturedItem[];
+  deliveredItems: number;
+  deliveredBatches: number;
+  expectedCursor: string | null;
+  expectedOffset: number;
+};
+
+function defaultSnapshotRandomId() {
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  if (typeof crypto?.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return [
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2),
+    Math.random().toString(36).slice(2),
+  ].join("-");
+}
+
+function defaultSnapshotRuntime(): ZoteroHostSnapshotRuntimeConfiguration {
+  return {
+    now: () => Date.now(),
+    randomId: defaultSnapshotRandomId,
+    maxItems: ZOTERO_LIBRARY_SNAPSHOT_ITEM_LIMIT,
+  };
+}
+
+let snapshotRuntime = defaultSnapshotRuntime();
+let snapshotProcessId = snapshotRuntime.randomId();
+const snapshotSessions = new Map<string, ZoteroHostSnapshotSession>();
+
+export function configureZoteroHostSnapshotRuntimeForTests(
+  configuration: Partial<ZoteroHostSnapshotRuntimeConfiguration>,
+) {
+  const defaults = defaultSnapshotRuntime();
+  snapshotRuntime = {
+    now: configuration.now || defaults.now,
+    randomId: configuration.randomId || defaults.randomId,
+    maxItems: Math.min(
+      ZOTERO_LIBRARY_SNAPSHOT_ITEM_LIMIT,
+      Math.max(1, Math.floor(configuration.maxItems || defaults.maxItems)),
+    ),
+  };
+  snapshotSessions.clear();
+  snapshotProcessId = snapshotRuntime.randomId();
+}
+
+export function resetZoteroHostSnapshotRuntimeForTests() {
+  snapshotRuntime = defaultSnapshotRuntime();
+  snapshotSessions.clear();
+  snapshotProcessId = snapshotRuntime.randomId();
+}
 
 const DETAIL_FIELDS = [
   "title",
@@ -1207,13 +1291,85 @@ function serializeLibraryItemSummary(
 function serializeLibrarySyncSnapshotItem(
   item: Zotero.Item,
 ): ZoteroHostLibrarySyncSnapshotItemDto {
-  return {
-    ...serializeLibraryItemSummary(item),
-    DOI: readField(item, "DOI"),
-    ISBN: readField(item, "ISBN"),
-    ISSN: readField(item, "ISSN"),
-    url: readField(item, "url"),
+  const summary = serializeZoteroItemSummary(item);
+  const libraryId = summary.libraryId;
+  const noteIds = getChildItemIds(item, "getNotes");
+  const attachmentIds = getChildItemIds(item, "getAttachments");
+  const collections = summary.collections.flatMap((entry) => {
+    if (typeof entry === "string" && entry.trim()) {
+      return [{ libraryId, key: entry.trim() }];
+    }
+    const collection = resolveZotero().Collections?.get?.(Number(entry));
+    const key = trimText(collection?.key);
+    return key ? [{ libraryId, key }] : [];
+  });
+  let annotationCount = 0;
+  for (const attachmentId of attachmentIds) {
+    const attachment = resolveZotero().Items.get(attachmentId);
+    if (!attachment) continue;
+    try {
+      annotationCount += ((attachment as Zotero.Item & {
+        getAnnotations?: () => unknown[];
+      }).getAnnotations?.() || []).length;
+    } catch {
+      // A failed child read changes the basis into a failed snapshot later.
+      throw capabilityError(
+        "execution_failed",
+        "snapshot annotation count could not be read",
+        { phase: "read", recovery: "refresh_and_retry_new_operation" },
+      );
+    }
+  }
+  const modifiedAt = trimText(
+    (item as Zotero.Item & { dateModified?: unknown; dateAdded?: unknown })
+      .dateModified ||
+      (item as Zotero.Item & { dateAdded?: unknown }).dateAdded,
+    FIELD_TEXT_LIMIT,
+  );
+  const base = {
+    ref: { libraryId, key: summary.key },
+    itemType: summary.itemType,
+    title: summary.title,
+    creators: summary.creators,
+    year: summary.year,
+    date: summary.date,
+    publicationTitle: summary.publicationTitle,
+    tags: summary.tags,
+    collections,
+    state: "active" as const,
+    identifiers: {
+      doi: readField(item, "DOI") || null,
+      isbn: readField(item, "ISBN") || null,
+      issn: readField(item, "ISSN") || null,
+      arxiv: readField(item, "arXiv") || null,
+      pmid: readField(item, "PMID") || null,
+    },
+    url: readField(item, "url") || null,
+    noteCount: noteIds.length,
+    attachmentCount: attachmentIds.length,
+    annotationCount,
+    modifiedAt,
   };
+  return {
+    ...base,
+    revision: hashSynthesisContractCanonicalJson(base),
+  };
+}
+
+function getChildItemIds(
+  item: Zotero.Item,
+  getter: "getNotes" | "getAttachments",
+) {
+  const values = item[getter]?.() || [];
+  if (!Array.isArray(values)) {
+    throw capabilityError("execution_failed", "snapshot child list is invalid", {
+      phase: "read",
+      recovery: "refresh_and_retry_new_operation",
+    });
+  }
+  return values
+    .map((value) => parsePositiveInteger(value))
+    .filter((value) => value > 0);
 }
 
 function htmlToText(html: string) {
@@ -3175,29 +3331,416 @@ async function listLibraryItems(
   };
 }
 
-async function syncLibrarySnapshot(
-  args: ZoteroHostLibraryListArgs = {},
-): Promise<ZoteroHostLibrarySyncSnapshotResponse> {
-  const selection = await selectLibraryItemPage(args);
-  const generatedAt = new Date().toISOString();
-  return {
-    schema: "zotero.library.snapshot.v1",
-    generatedAt,
-    snapshotId: [
-      "zotero-library",
-      generatedAt.replace(/[^0-9]/g, ""),
-      selection.criteriaHash.slice(0, 16),
-      selection.afterItemId,
-      selection.returned,
-      selection.totalScanned,
-    ].join("-"),
-    items: selection.page.map(serializeLibrarySyncSnapshotItem),
-    nextCursor: selection.nextCursor,
-    hasMore: selection.hasMore,
-    returned: selection.returned,
-    totalScanned: selection.totalScanned,
-    filters: selection.filters,
+function snapshotOwnerId(scope?: ZoteroHostLibrarySnapshotCallerScope) {
+  const ownerId = trimText(scope?.ownerId, 128);
+  return ownerId || "broker-process";
+}
+
+function snapshotLibraryId(value: unknown) {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    throw capabilityError(
+      "invalid_request",
+      "snapshot libraryId must be a positive integer",
+      { reason: "invalid_value", field: "libraryId" },
+    );
+  }
+  return value;
+}
+
+function snapshotBatchSize(value: unknown, fallback?: number) {
+  if (value === undefined) {
+    return fallback || ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_DEFAULT;
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    throw capabilityError(
+      "invalid_request",
+      "snapshot batchSize must be a positive integer",
+      { reason: "invalid_value", field: "batchSize" },
+    );
+  }
+  if (value > ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_MAX) {
+    throw capabilityError(
+      "resource_limited",
+      "snapshot batchSize exceeds the fixed maximum",
+      {
+        resource: "items",
+        limit: ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_MAX,
+        observed: value,
+      },
+    );
+  }
+  return value;
+}
+
+function purgeExpiredSnapshotSessions(now: number) {
+  for (const [snapshotId, session] of snapshotSessions) {
+    if (session.processId !== snapshotProcessId || now > session.expiresAt) {
+      snapshotSessions.delete(snapshotId);
+    }
+  }
+}
+
+function uniqueSnapshotToken(prefix: "snapshot" | "cursor") {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const token = `${prefix}-${snapshotRuntime.randomId()}`;
+    if (prefix === "cursor") return token;
+    if (!snapshotSessions.has(token)) return token;
+  }
+  throw capabilityError(
+    "unavailable",
+    "snapshot identity generation is unavailable",
+    { reason: "runtime", kind: "library" },
+  );
+}
+
+async function captureSnapshotItems(libraryId: number) {
+  let cursor: string | undefined;
+  const captured: ZoteroHostSnapshotCapturedItem[] = [];
+  let expectedTotal: number | null = null;
+  for (;;) {
+    const page = await queryZoteroLibraryPage(
+      {
+        libraryId,
+        limit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+        ...(cursor ? { cursor } : {}),
+      },
+      {
+        defaultLibraryId: libraryId,
+        defaultLimit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+        maxLimit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+      },
+    );
+    if (expectedTotal === null) {
+      expectedTotal = page.totalScanned;
+      if (expectedTotal > snapshotRuntime.maxItems) {
+        throw capabilityError(
+          "resource_limited",
+          "snapshot item count exceeds the fixed maximum",
+          {
+            resource: "items",
+            limit: snapshotRuntime.maxItems,
+            observed: expectedTotal,
+          },
+        );
+      }
+    } else if (page.totalScanned !== expectedTotal) {
+      throw capabilityError(
+        "conflict",
+        "snapshot item set changed during capture",
+        { reason: "concurrent_modification", kind: "library" },
+      );
+    }
+    if (page.items.length !== page.returned) {
+      throw capabilityError(
+        "execution_failed",
+        "snapshot item hydration was incomplete",
+        { phase: "read", recovery: "refresh_and_retry_new_operation" },
+      );
+    }
+    for (const item of page.items) {
+      const snapshot = serializeLibrarySyncSnapshotItem(item);
+      captured.push({ ref: snapshot.ref, revision: snapshot.revision });
+      if (captured.length > snapshotRuntime.maxItems) {
+        throw capabilityError(
+          "resource_limited",
+          "snapshot item count exceeds the fixed maximum",
+          {
+            resource: "items",
+            limit: snapshotRuntime.maxItems,
+            observed: captured.length,
+          },
+        );
+      }
+    }
+    if (!page.hasMore) break;
+    if (!page.nextCursor) {
+      throw capabilityError(
+        "execution_failed",
+        "snapshot capture continuation is missing",
+        { phase: "read", recovery: "refresh_and_retry_new_operation" },
+      );
+    }
+    cursor = page.nextCursor;
+  }
+  if (captured.length !== (expectedTotal || 0)) {
+    throw capabilityError(
+      "conflict",
+      "snapshot captured item count changed",
+      { reason: "concurrent_modification", kind: "library" },
+    );
+  }
+  captured.sort((left, right) =>
+    `${left.ref.libraryId}\n${left.ref.key}`.localeCompare(
+      `${right.ref.libraryId}\n${right.ref.key}`,
+    ),
+  );
+  const seen = new Set<string>();
+  for (const item of captured) {
+    const identity = `${item.ref.libraryId}\n${item.ref.key}`;
+    if (seen.has(identity)) {
+      throw capabilityError(
+        "conflict",
+        "snapshot captured duplicate item identity",
+        { reason: "ambiguous_state", kind: "library" },
+      );
+    }
+    seen.add(identity);
+  }
+  return captured;
+}
+
+async function openSnapshotSession(args: {
+  libraryId: number;
+  batchSize: number;
+  ownerId: string;
+}) {
+  const now = snapshotRuntime.now();
+  purgeExpiredSnapshotSessions(now);
+  if (snapshotSessions.size >= SNAPSHOT_ACTIVE_SESSION_LIMIT) {
+    throw capabilityError(
+      "resource_limited",
+      "too many snapshot sessions are active",
+      {
+        resource: "entries",
+        limit: SNAPSHOT_ACTIVE_SESSION_LIMIT,
+        observed: snapshotSessions.size,
+      },
+    );
+  }
+  const items = await captureSnapshotItems(args.libraryId);
+  const snapshotId = uniqueSnapshotToken("snapshot");
+  const session: ZoteroHostSnapshotSession = {
+    processId: snapshotProcessId,
+    snapshotId,
+    ownerId: args.ownerId,
+    libraryId: args.libraryId,
+    batchSize: args.batchSize,
+    createdAt: now,
+    expiresAt: now + ZOTERO_LIBRARY_SNAPSHOT_TTL_MS,
+    items,
+    deliveredItems: 0,
+    deliveredBatches: 0,
+    expectedCursor: null,
+    expectedOffset: 0,
   };
+  snapshotSessions.set(snapshotId, session);
+  return session;
+}
+
+function snapshotSessionOrThrow(args: {
+  snapshotId: string;
+  ownerId: string;
+  libraryId: number;
+  batchSize?: number;
+  cursor: string;
+}) {
+  const session = snapshotSessions.get(args.snapshotId);
+  if (!session || session.processId !== snapshotProcessId) {
+    throw capabilityError(
+      "invalid_ref",
+      "snapshot identity is invalid for this Host process",
+      { kind: "library", reason: "expired" },
+    );
+  }
+  const now = snapshotRuntime.now();
+  if (now > session.expiresAt) {
+    snapshotSessions.delete(session.snapshotId);
+    throw capabilityError("invalid_ref", "snapshot session has expired", {
+      kind: "library",
+      reason: "expired",
+    });
+  }
+  if (session.ownerId !== args.ownerId) {
+    throw capabilityError(
+      "invalid_ref",
+      "snapshot identity belongs to another caller",
+      { kind: "library", reason: "foreign_scope" },
+    );
+  }
+  if (session.libraryId !== args.libraryId) {
+    snapshotSessions.delete(session.snapshotId);
+    throw capabilityError("invalid_ref", "snapshot library basis changed", {
+      kind: "library",
+      reason: "foreign_scope",
+    });
+  }
+  const batchSize = snapshotBatchSize(args.batchSize, session.batchSize);
+  if (batchSize !== session.batchSize) {
+    snapshotSessions.delete(session.snapshotId);
+    throw capabilityError("conflict", "snapshot batch basis changed", {
+      reason: "revision_mismatch",
+      kind: "library",
+    });
+  }
+  if (!session.expectedCursor || args.cursor !== session.expectedCursor) {
+    snapshotSessions.delete(session.snapshotId);
+    throw capabilityError("invalid_ref", "snapshot cursor is invalid", {
+      kind: "library",
+      reason: "forged",
+    });
+  }
+  session.expectedCursor = null;
+  return session;
+}
+
+function cancelLibrarySnapshot(
+  snapshotId: string,
+  scope?: ZoteroHostLibrarySnapshotCallerScope,
+): ZoteroLibrarySnapshotIncompleteResultDto {
+  const normalizedId = trimText(snapshotId, 256);
+  const session = snapshotSessions.get(normalizedId);
+  if (!session || session.processId !== snapshotProcessId) {
+    throw capabilityError("invalid_ref", "snapshot identity is invalid", {
+      kind: "library",
+      reason: "expired",
+    });
+  }
+  if (session.ownerId !== snapshotOwnerId(scope)) {
+    throw capabilityError(
+      "invalid_ref",
+      "snapshot identity belongs to another caller",
+      { kind: "library", reason: "foreign_scope" },
+    );
+  }
+  snapshotSessions.delete(session.snapshotId);
+  return {
+    outcome: "canceled",
+    snapshotId: session.snapshotId,
+    deliveredItems: session.deliveredItems,
+    deliveredBatches: session.deliveredBatches,
+  };
+}
+
+async function readSnapshotSession(
+  session: ZoteroHostSnapshotSession,
+): Promise<ZoteroHostLibrarySyncSnapshotResponse> {
+  const offset = session.expectedOffset;
+  const captured = session.items.slice(offset, offset + session.batchSize);
+  const items: ZoteroHostLibrarySyncSnapshotItemDto[] = [];
+  try {
+    for (const expected of captured) {
+      const item = resolveItem(expected.ref);
+      if (!item) {
+        throw capabilityError(
+          "conflict",
+          "snapshot item disappeared after capture",
+          { reason: "concurrent_modification", kind: "library" },
+        );
+      }
+      const serialized = serializeLibrarySyncSnapshotItem(item);
+      if (serialized.revision !== expected.revision) {
+        throw capabilityError(
+          "conflict",
+          "snapshot item revision changed after capture",
+          { reason: "revision_mismatch", kind: "library" },
+        );
+      }
+      items.push(serialized);
+    }
+  } catch (error) {
+    snapshotSessions.delete(session.snapshotId);
+    throw error;
+  }
+  session.deliveredItems += items.length;
+  session.deliveredBatches += 1;
+  const batchIndex = session.deliveredBatches - 1;
+  const nextOffset = offset + items.length;
+  const hasMore = nextOffset < session.items.length;
+  const base = {
+    schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+    snapshotId: session.snapshotId,
+    libraryId: session.libraryId,
+    scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+    order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+    batchSize: session.batchSize,
+    batchIndex,
+    items,
+    returned: items.length,
+    deliveredItems: session.deliveredItems,
+    deliveredBatches: session.deliveredBatches,
+  };
+  if (hasMore) {
+    const nextCursor = uniqueSnapshotToken("cursor");
+    session.expectedCursor = nextCursor;
+    session.expectedOffset = nextOffset;
+    return {
+      ...base,
+      outcome: "active",
+      nextCursor,
+      hasMore: true,
+    };
+  }
+  const completedAt = new Date(snapshotRuntime.now()).toISOString();
+  const completionEvidence = {
+    snapshotId: session.snapshotId,
+    schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+    libraryId: session.libraryId,
+    scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+    totalItems: session.items.length,
+    totalBatches: session.deliveredBatches,
+    order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+    contentDigest: hashSynthesisContractCanonicalJson({
+      schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+      snapshotId: session.snapshotId,
+      libraryId: session.libraryId,
+      scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+      order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+      items: session.items,
+    }),
+    completedAt,
+  };
+  snapshotSessions.delete(session.snapshotId);
+  return {
+    ...base,
+    outcome: "completed",
+    nextCursor: null,
+    hasMore: false,
+    completionEvidence,
+  };
+}
+
+async function syncLibrarySnapshot(
+  args: ZoteroHostLibrarySyncSnapshotRequest,
+  scope?: ZoteroHostLibrarySnapshotCallerScope,
+): Promise<ZoteroHostLibrarySyncSnapshotResponse> {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw capabilityError("invalid_request", "snapshot request is invalid", {
+      reason: "invalid_type",
+    });
+  }
+  const libraryId = snapshotLibraryId(args.libraryId);
+  const ownerId = snapshotOwnerId(scope);
+  const snapshotId = trimText(args.snapshotId, 256);
+  const cursor = trimText(args.cursor, 256);
+  if ((snapshotId && !cursor) || (!snapshotId && cursor)) {
+    throw capabilityError(
+      "invalid_request",
+      "snapshotId and cursor must be supplied together",
+      { reason: "invalid_combination" },
+    );
+  }
+  const session = snapshotId
+    ? snapshotSessionOrThrow({
+        snapshotId,
+        ownerId,
+        libraryId,
+        batchSize: args.batchSize,
+        cursor,
+      })
+    : await openSnapshotSession({
+        libraryId,
+        batchSize: snapshotBatchSize(args.batchSize),
+        ownerId,
+      });
+  return readSnapshotSession(session);
 }
 
 async function readinessAudit(
@@ -3587,6 +4130,7 @@ export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
     library: {
       listItems: listLibraryItems,
       syncSnapshot: syncLibrarySnapshot,
+      cancelSnapshot: cancelLibrarySnapshot,
       readinessAudit,
       async searchItems(args: ZoteroHostItemSearchArgs) {
         const query = trimText(args?.query, FIELD_TEXT_LIMIT);

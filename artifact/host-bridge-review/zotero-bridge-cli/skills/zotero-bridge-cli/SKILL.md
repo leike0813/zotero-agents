@@ -83,6 +83,10 @@ When `hasMore` is true, a missing `nextCursor` is an incomplete response and blo
 
 `invalid_host_bridge_cursor` means the cursor is malformed, expired, scoped to another command, bound to different criteria, or anchored to a row that is no longer available. Preserve the structured `reason`. If the intended read is still required, intentionally restart from the first page with the original filters, rebuild the result, and report that the snapshot changed; do not append a restarted first page to rows collected under the failed cursor.
 
+`library snapshot` 是一种 continuation 合同更严格的固定 basis cursor 操作。首次调用时传入已解析的 `libraryId`，以及可选的 1 至 1,000 `batchSize`；默认值为 500。继续时只能使用返回的不透明 `snapshotId` 和 `cursor`，并保持相同的 library identity 与 batch size。每接受一页，都保留 `schema`、`scope`、`order`、`batchIndex`、`deliveredItems` 和 `deliveredBatches`。不得添加搜索过滤器、解码任一 handle、替换为普通 library-list cursor，或合并来自不同 snapshot identity 的页面。
+
+只有 `outcome: completed` terminal page 带有匹配的 Host 签发 `completionEvidence` 时，才能证明捕获集合中的所有条目均已交付。`active` 页面、缺少 evidence、session 过期、cursor 不匹配、资源上限失败、中断或 Host 重启都属于不完整状态，不能授权替换索引或删除缺失行。session 只在当前进程内有效，30 分钟后过期；失效后应丢弃未完成集合并重新开始完整 snapshot。snapshot identity 不是 change cursor、tombstone feed、replay log 或跨进程 resume handle。
+
 For an `offset` result, preserve the selector and request `offset=nextOffset` until `hasMore` is false. Keep chunks in offset order, require each chunk's `offset` to equal the previous `nextOffset`, and concatenate exactly once. The default text window is 8,000 characters and the maximum is 16,000 unless the descriptor declares a stricter value. An offset beyond the end is a valid empty terminal chunk, not permission to retry from zero. Completion requires the reconstructed character count to match `totalChars` when present.
 
 For a `limit` result, use the declared default and hard maximum, inspect `truncated`, and narrow the selector when the desired evidence cannot fit. A limit-bounded result has no implicit continuation: do not invent a cursor. For `fixed`, verify that the result is a registry, singleton, aggregate, or otherwise hard-bounded contract before treating one response as complete.

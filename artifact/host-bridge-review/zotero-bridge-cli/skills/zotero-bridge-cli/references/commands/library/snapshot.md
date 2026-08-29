@@ -1,6 +1,6 @@
 # `zotero-bridge library snapshot`
 
-Sync a Zotero library metadata snapshot page
+读取固定的 Zotero 全库 snapshot 页面
 
 ## 用法
 
@@ -50,49 +50,38 @@ zotero-bridge library snapshot [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ```json
 {
   "additionalProperties": false,
+  "dependentRequired": {
+    "cursor": [
+      "snapshotId"
+    ],
+    "snapshotId": [
+      "cursor"
+    ]
+  },
   "properties": {
-    "collection": {},
-    "collectionId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "collectionKey": {
-      "type": "string"
-    },
-    "collectionLibraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
+    "batchSize": {
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
     },
     "cursor": {
-      "type": "string"
-    },
-    "itemType": {
+      "maxLength": 256,
+      "minLength": 1,
       "type": "string"
     },
     "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "limit": {
       "minimum": 1,
-      "type": [
-        "number",
-        "string"
-      ]
+      "type": "integer"
     },
-    "query": {
-      "type": "string"
-    },
-    "tag": {
+    "snapshotId": {
+      "maxLength": 256,
+      "minLength": 1,
       "type": "string"
     }
   },
+  "required": [
+    "libraryId"
+  ],
   "type": "object"
 }
 ```
@@ -102,49 +91,38 @@ zotero-bridge library snapshot [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ```json
 {
   "additionalProperties": false,
+  "dependentRequired": {
+    "cursor": [
+      "snapshotId"
+    ],
+    "snapshotId": [
+      "cursor"
+    ]
+  },
   "properties": {
-    "collection": {},
-    "collectionId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "collectionKey": {
-      "type": "string"
-    },
-    "collectionLibraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
+    "batchSize": {
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
     },
     "cursor": {
-      "type": "string"
-    },
-    "itemType": {
+      "maxLength": 256,
+      "minLength": 1,
       "type": "string"
     },
     "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "limit": {
       "minimum": 1,
-      "type": [
-        "number",
-        "string"
-      ]
+      "type": "integer"
     },
-    "query": {
-      "type": "string"
-    },
-    "tag": {
+    "snapshotId": {
+      "maxLength": 256,
+      "minLength": 1,
       "type": "string"
     }
   },
+  "required": [
+    "libraryId"
+  ],
   "type": "object"
 }
 ```
@@ -169,17 +147,286 @@ zotero-bridge library snapshot [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
       "const": "library.sync_snapshot"
     },
     "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by library.sync_snapshot.",
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "completionEvidence"
+            ]
+          },
+          "properties": {
+            "hasMore": {
+              "const": true
+            },
+            "nextCursor": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "outcome": {
+              "const": "active"
+            }
+          }
+        },
+        {
+          "properties": {
+            "hasMore": {
+              "const": false
+            },
+            "nextCursor": {
+              "type": "null"
+            },
+            "outcome": {
+              "const": "completed"
+            }
+          },
+          "required": [
+            "completionEvidence"
+          ]
+        }
+      ],
       "properties": {
+        "batchIndex": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "batchSize": {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "completionEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "completedAt": {
+              "type": "string"
+            },
+            "contentDigest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "order": {
+              "const": "stable_identity"
+            },
+            "schema": {
+              "const": "zotero-agents.library-full-index.v1"
+            },
+            "scope": {
+              "const": "top-level-regular"
+            },
+            "snapshotId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "totalBatches": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "totalItems": {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "snapshotId",
+            "schema",
+            "libraryId",
+            "scope",
+            "totalItems",
+            "totalBatches",
+            "order",
+            "contentDigest",
+            "completedAt"
+          ],
+          "type": "object"
+        },
+        "deliveredBatches": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deliveredItems": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "hasMore": {
           "type": "boolean"
         },
         "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "annotationCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "attachmentCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "collections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "libraryId": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "libraryId",
+                    "key"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "creators": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "date": {
+                "type": "string"
+              },
+              "identifiers": {
+                "additionalProperties": false,
+                "properties": {
+                  "arxiv": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "doi": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "isbn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "issn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pmid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "doi",
+                  "isbn",
+                  "issn",
+                  "arxiv",
+                  "pmid"
+                ],
+                "type": "object"
+              },
+              "itemType": {
+                "type": "string"
+              },
+              "modifiedAt": {
+                "type": "string"
+              },
+              "noteCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "publicationTitle": {
+                "type": "string"
+              },
+              "ref": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
+                "type": "object"
+              },
+              "revision": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "state": {
+                "const": "active"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "year": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ref",
+              "itemType",
+              "title",
+              "creators",
+              "year",
+              "date",
+              "publicationTitle",
+              "tags",
+              "collections",
+              "revision",
+              "state",
+              "identifiers",
+              "url",
+              "noteCount",
+              "attachmentCount",
+              "annotationCount",
+              "modifiedAt"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
           "type": "array"
         },
-        "limit": {
-          "minimum": 0,
+        "libraryId": {
+          "minimum": 1,
           "type": "integer"
         },
         "nextCursor": {
@@ -188,17 +435,48 @@ zotero-bridge library snapshot [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
             "null"
           ]
         },
+        "order": {
+          "const": "stable_identity"
+        },
+        "outcome": {
+          "enum": [
+            "active",
+            "completed"
+          ]
+        },
         "returned": {
           "minimum": 0,
           "type": "integer"
         },
-        "total": {
-          "minimum": 0,
-          "type": "integer"
+        "schema": {
+          "const": "zotero-agents.library-full-index.v1"
+        },
+        "scope": {
+          "const": "top-level-regular"
+        },
+        "snapshotId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
         }
       },
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "required": [
+        "schema",
+        "snapshotId",
+        "libraryId",
+        "scope",
+        "order",
+        "batchSize",
+        "batchIndex",
+        "items",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "deliveredItems",
+        "deliveredBatches",
+        "outcome"
+      ],
+      "type": "object"
     }
   },
   "required": [
@@ -303,49 +581,38 @@ zotero-bridge library snapshot --query '{}'
       "requiredWhen": [],
       "schema": {
         "additionalProperties": false,
+        "dependentRequired": {
+          "cursor": [
+            "snapshotId"
+          ],
+          "snapshotId": [
+            "cursor"
+          ]
+        },
         "properties": {
-          "collection": {},
-          "collectionId": {
-            "type": [
-              "number",
-              "string"
-            ]
-          },
-          "collectionKey": {
-            "type": "string"
-          },
-          "collectionLibraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+          "batchSize": {
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
           },
           "cursor": {
-            "type": "string"
-          },
-          "itemType": {
+            "maxLength": 256,
+            "minLength": 1,
             "type": "string"
           },
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
-          },
-          "limit": {
             "minimum": 1,
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": "integer"
           },
-          "query": {
-            "type": "string"
-          },
-          "tag": {
+          "snapshotId": {
+            "maxLength": 256,
+            "minLength": 1,
             "type": "string"
           }
         },
+        "required": [
+          "libraryId"
+        ],
         "type": "object"
       },
       "schemaSource": "target-capability",
@@ -387,49 +654,38 @@ zotero-bridge library snapshot --query '{}'
   "pagination": "cursor",
   "payloadSchema": {
     "additionalProperties": false,
+    "dependentRequired": {
+      "cursor": [
+        "snapshotId"
+      ],
+      "snapshotId": [
+        "cursor"
+      ]
+    },
     "properties": {
-      "collection": {},
-      "collectionId": {
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "collectionKey": {
-        "type": "string"
-      },
-      "collectionLibraryId": {
-        "type": [
-          "number",
-          "string"
-        ]
+      "batchSize": {
+        "maximum": 1000,
+        "minimum": 1,
+        "type": "integer"
       },
       "cursor": {
-        "type": "string"
-      },
-      "itemType": {
+        "maxLength": 256,
+        "minLength": 1,
         "type": "string"
       },
       "libraryId": {
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "limit": {
         "minimum": 1,
-        "type": [
-          "number",
-          "string"
-        ]
+        "type": "integer"
       },
-      "query": {
-        "type": "string"
-      },
-      "tag": {
+      "snapshotId": {
+        "maxLength": 256,
+        "minLength": 1,
         "type": "string"
       }
     },
+    "required": [
+      "libraryId"
+    ],
     "type": "object"
   },
   "recovery": [
@@ -452,17 +708,286 @@ zotero-bridge library snapshot --query '{}'
         "const": "library.sync_snapshot"
       },
       "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by library.sync_snapshot.",
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "not": {
+              "required": [
+                "completionEvidence"
+              ]
+            },
+            "properties": {
+              "hasMore": {
+                "const": true
+              },
+              "nextCursor": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "outcome": {
+                "const": "active"
+              }
+            }
+          },
+          {
+            "properties": {
+              "hasMore": {
+                "const": false
+              },
+              "nextCursor": {
+                "type": "null"
+              },
+              "outcome": {
+                "const": "completed"
+              }
+            },
+            "required": [
+              "completionEvidence"
+            ]
+          }
+        ],
         "properties": {
+          "batchIndex": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "batchSize": {
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "completionEvidence": {
+            "additionalProperties": false,
+            "properties": {
+              "completedAt": {
+                "type": "string"
+              },
+              "contentDigest": {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "order": {
+                "const": "stable_identity"
+              },
+              "schema": {
+                "const": "zotero-agents.library-full-index.v1"
+              },
+              "scope": {
+                "const": "top-level-regular"
+              },
+              "snapshotId": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "totalBatches": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "totalItems": {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "snapshotId",
+              "schema",
+              "libraryId",
+              "scope",
+              "totalItems",
+              "totalBatches",
+              "order",
+              "contentDigest",
+              "completedAt"
+            ],
+            "type": "object"
+          },
+          "deliveredBatches": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deliveredItems": {
+            "minimum": 0,
+            "type": "integer"
+          },
           "hasMore": {
             "type": "boolean"
           },
           "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "annotationCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "attachmentCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "collections": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "key": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "libraryId": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "libraryId",
+                      "key"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "creators": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "identifiers": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "arxiv": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "doi": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "isbn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "issn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "pmid": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "doi",
+                    "isbn",
+                    "issn",
+                    "arxiv",
+                    "pmid"
+                  ],
+                  "type": "object"
+                },
+                "itemType": {
+                  "type": "string"
+                },
+                "modifiedAt": {
+                  "type": "string"
+                },
+                "noteCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "publicationTitle": {
+                  "type": "string"
+                },
+                "ref": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "libraryId": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "libraryId",
+                    "key"
+                  ],
+                  "type": "object"
+                },
+                "revision": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "state": {
+                  "const": "active"
+                },
+                "tags": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "year": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ref",
+                "itemType",
+                "title",
+                "creators",
+                "year",
+                "date",
+                "publicationTitle",
+                "tags",
+                "collections",
+                "revision",
+                "state",
+                "identifiers",
+                "url",
+                "noteCount",
+                "attachmentCount",
+                "annotationCount",
+                "modifiedAt"
+              ],
+              "type": "object"
+            },
+            "maxItems": 1000,
             "type": "array"
           },
-          "limit": {
-            "minimum": 0,
+          "libraryId": {
+            "minimum": 1,
             "type": "integer"
           },
           "nextCursor": {
@@ -471,17 +996,48 @@ zotero-bridge library snapshot --query '{}'
               "null"
             ]
           },
+          "order": {
+            "const": "stable_identity"
+          },
+          "outcome": {
+            "enum": [
+              "active",
+              "completed"
+            ]
+          },
           "returned": {
             "minimum": 0,
             "type": "integer"
           },
-          "total": {
-            "minimum": 0,
-            "type": "integer"
+          "schema": {
+            "const": "zotero-agents.library-full-index.v1"
+          },
+          "scope": {
+            "const": "top-level-regular"
+          },
+          "snapshotId": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
           }
         },
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "required": [
+          "schema",
+          "snapshotId",
+          "libraryId",
+          "scope",
+          "order",
+          "batchSize",
+          "batchIndex",
+          "items",
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "deliveredItems",
+          "deliveredBatches",
+          "outcome"
+        ],
+        "type": "object"
       }
     },
     "required": [
@@ -491,7 +1047,7 @@ zotero-bridge library snapshot --query '{}'
     ],
     "type": "object"
   },
-  "summary": "Sync a Zotero library metadata snapshot page",
+  "summary": "Read a fixed Zotero full-library snapshot page",
   "targets": [
     {
       "kind": "capability",

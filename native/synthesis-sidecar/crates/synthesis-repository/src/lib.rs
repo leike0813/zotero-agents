@@ -15,6 +15,8 @@ pub use citation_reference::*;
 mod checkpoint_bundle_webdav_debug;
 pub use checkpoint_bundle_webdav_debug::*;
 mod legacy_ts_migration;
+mod library_snapshot_index;
+pub use library_snapshot_index::*;
 mod reference_redirect_graph;
 pub use reference_redirect_graph::*;
 mod tag_concept_topic_graph;
@@ -159,6 +161,10 @@ pub(crate) const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
     (
         "durable_import_repository_schema_version",
         "synthesis-durable-import-repository.v1",
+    ),
+    (
+        "library_snapshot_index_schema_version",
+        LIBRARY_SNAPSHOT_INDEX_SCHEMA,
     ),
     (
         REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY,

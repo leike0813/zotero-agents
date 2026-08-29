@@ -173,6 +173,8 @@ Choose the freshness basis needed by the conclusion:
 
 Cached indexes and prior task results may narrow discovery but cannot replace a live read where current state controls the answer or write.
 
+A Host-issued full-library snapshot can establish a bounded complete captured set only when its terminal result carries completion evidence for the same snapshot identity, library, scope, delivered item count, delivered batch count, stable order, and content digest. Active pages and incomplete sessions remain discovery material; they cannot support an absence conclusion or replacement of a cached generation. Snapshot evidence also has a time boundary: use it for the captured-set question it completed, then re-read the relevant live objects before a later current-state conclusion or state-changing stage.
+
 ### Evidence-depth ladder
 
 State the strongest available basis per source:

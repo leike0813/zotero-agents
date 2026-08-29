@@ -31,9 +31,12 @@ import {
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 import {
+  configureZoteroHostSnapshotRuntimeForTests,
   createZoteroHostCapabilityBroker,
+  resetZoteroHostSnapshotRuntimeForTests,
   ZoteroHostCapabilityError,
 } from "../../src/modules/zoteroHostCapabilityBroker";
+import { withWorkflowLibraryItemSnapshot } from "../../src/workflows/hostApi";
 import {
   assertStrictJsonValue,
   createFailClosedZoteroHostCapabilityBroker,
@@ -197,11 +200,281 @@ describe("zotero host broker capability api", function () {
   });
 
   afterEach(async function () {
+    resetZoteroHostSnapshotRuntimeForTests();
     resetZoteroLibraryPageQueryAdapterForTests();
     resetWorkflowHostApiForTests();
     resetZoteroMcpServerForTests();
     setDefaultSynthesisClientCompositionFactoryForTests(null);
     await resetDefaultSynthesisClientForTests();
+  });
+
+  it("binds full-snapshot pages to one process, owner, basis, and cursor", async function () {
+    let now = Date.parse("2026-08-30T00:00:00.000Z");
+    let sequence = 0;
+    configureZoteroHostSnapshotRuntimeForTests({
+      now: () => now,
+      randomId: () => `snapshot-test-${++sequence}`,
+    });
+    const firstItem = await createParentItem("Snapshot Basis A");
+    const secondItem = await createParentItem("Snapshot Basis B");
+    const libraryId = firstItem.libraryID;
+    const broker = createZoteroHostCapabilityBroker();
+
+    const first = await broker.library.syncSnapshot(
+      { libraryId, batchSize: 1 },
+      { ownerId: "owner-a" },
+    );
+    assert.strictEqual(first.schema, "zotero-agents.library-full-index.v1");
+    assert.strictEqual(first.outcome, "active");
+    assert.strictEqual(first.returned, 1);
+    assert.isString(first.snapshotId);
+    assert.isString(first.nextCursor);
+    assert.notProperty(first, "completionEvidence");
+    assertStrictJsonValue(first);
+
+    for (const attempt of [
+      { ownerId: "owner-b", snapshotId: first.snapshotId, cursor: first.nextCursor },
+      { ownerId: "owner-a", snapshotId: first.snapshotId, cursor: "foreign-cursor" },
+    ]) {
+      try {
+        await broker.library.syncSnapshot(
+          {
+            libraryId,
+            batchSize: 1,
+            snapshotId: attempt.snapshotId,
+            cursor: attempt.cursor,
+          },
+          { ownerId: attempt.ownerId },
+        );
+        assert.fail("expected the foreign snapshot continuation to fail");
+      } catch (error) {
+        assert.instanceOf(error, ZoteroHostCapabilityError);
+        assert.include(
+          ["invalid_ref", "conflict"],
+          (error as ZoteroHostCapabilityError).code,
+        );
+      }
+    }
+
+    now += 30 * 60 * 1000 + 1;
+    try {
+      await broker.library.syncSnapshot(
+        {
+          libraryId,
+          batchSize: 1,
+          snapshotId: first.snapshotId,
+          cursor: first.nextCursor,
+        },
+        { ownerId: "owner-a" },
+      );
+      assert.fail("expected an expired snapshot to fail");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual((error as ZoteroHostCapabilityError).code, "invalid_ref");
+      assert.strictEqual(
+        (error as ZoteroHostCapabilityError).details.reason,
+        "expired",
+      );
+    }
+
+    resetZoteroHostSnapshotRuntimeForTests();
+    try {
+      await createZoteroHostCapabilityBroker().library.syncSnapshot(
+        {
+          libraryId,
+          batchSize: 1,
+          snapshotId: first.snapshotId,
+          cursor: first.nextCursor,
+        },
+        { ownerId: "owner-a" },
+      );
+      assert.fail("expected a prior-process snapshot to fail");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual((error as ZoteroHostCapabilityError).code, "invalid_ref");
+    }
+
+    assert.notStrictEqual(firstItem.key, secondItem.key);
+  });
+
+  it("issues completion evidence only after the fixed snapshot basis is fully delivered", async function () {
+    configureZoteroHostSnapshotRuntimeForTests({
+      randomId: (() => {
+        let sequence = 0;
+        return () => `snapshot-complete-${++sequence}`;
+      })(),
+    });
+    const firstItem = await createParentItem("Snapshot Complete A");
+    const secondItem = await createParentItem("Snapshot Complete B");
+    const broker = createZoteroHostCapabilityBroker();
+    const first = await broker.library.syncSnapshot(
+      { libraryId: firstItem.libraryID, batchSize: 1 },
+      { ownerId: "completion-owner" },
+    );
+    assert.strictEqual(first.outcome, "active");
+
+    const completed = await broker.library.syncSnapshot(
+      {
+        libraryId: firstItem.libraryID,
+        batchSize: 1,
+        snapshotId: first.snapshotId,
+        cursor: first.nextCursor,
+      },
+      { ownerId: "completion-owner" },
+    );
+    assert.strictEqual(completed.outcome, "completed");
+    assert.isFalse(completed.hasMore);
+    assert.isNull(completed.nextCursor);
+    assert.deepInclude(completed.completionEvidence, {
+      snapshotId: first.snapshotId,
+      libraryId: firstItem.libraryID,
+      scope: "top-level-regular",
+      totalItems: 2,
+      totalBatches: 2,
+      order: "stable_identity",
+    });
+    assert.match(completed.completionEvidence?.contentDigest || "", /^sha256:/);
+    assertStrictJsonValue(completed);
+
+    await handlers.parent.updateFields(secondItem, {
+      title: "Snapshot Complete B changed after capture",
+    });
+    try {
+      await broker.library.syncSnapshot(
+        {
+          libraryId: firstItem.libraryID,
+          batchSize: 1,
+          snapshotId: first.snapshotId,
+          cursor: first.nextCursor,
+        },
+        { ownerId: "completion-owner" },
+      );
+      assert.fail("expected a consumed terminal snapshot to fail");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.notProperty(error as object, "completionEvidence");
+    }
+  });
+
+  it("fails a changed basis and the one-million-item hard cap without completion evidence", async function () {
+    configureZoteroHostSnapshotRuntimeForTests({ maxItems: 2 });
+    const firstItem = await createParentItem("Snapshot Bound A");
+    await createParentItem("Snapshot Bound B");
+    await createParentItem("Snapshot Bound C");
+    const broker = createZoteroHostCapabilityBroker();
+    try {
+      await broker.library.syncSnapshot(
+        { libraryId: firstItem.libraryID },
+        { ownerId: "bounded-owner" },
+      );
+      assert.fail("expected the snapshot item cap to fail");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      const brokerError = error as ZoteroHostCapabilityError;
+      assert.strictEqual(brokerError.code, "resource_limited");
+      assert.deepInclude(brokerError.details, {
+        resource: "items",
+        limit: 2,
+      });
+      assert.notProperty(brokerError as object, "completionEvidence");
+    }
+
+    resetZoteroHostSnapshotRuntimeForTests();
+    const stableFirst = await createZoteroHostCapabilityBroker().library.syncSnapshot(
+      { libraryId: firstItem.libraryID, batchSize: 1 },
+      { ownerId: "basis-owner" },
+    );
+    const remainingKey = stableFirst.items[0]?.ref.key === firstItem.key
+      ? (await createZoteroHostCapabilityBroker().library.listItems({
+          libraryId: firstItem.libraryID,
+          limit: 10,
+        })).items.find((item) => item.key !== firstItem.key)?.key
+      : firstItem.key;
+    const remaining = remainingKey
+      ? Zotero.Items.getByLibraryAndKey(firstItem.libraryID, remainingKey)
+      : null;
+    assert.isOk(remaining);
+    await handlers.parent.updateFields(remaining!, { title: "Changed basis" });
+    try {
+      await createZoteroHostCapabilityBroker().library.syncSnapshot(
+        {
+          libraryId: firstItem.libraryID,
+          batchSize: 1,
+          snapshotId: stableFirst.snapshotId,
+          cursor: stableFirst.nextCursor,
+        },
+        { ownerId: "basis-owner" },
+      );
+      assert.fail("expected a changed captured revision to fail");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual((error as ZoteroHostCapabilityError).code, "conflict");
+      assert.notProperty(error as object, "completionEvidence");
+    }
+  });
+
+  it("keeps Workflow snapshot callbacks serial and returns no evidence after cancellation", async function () {
+    const firstItem = await createParentItem("Workflow Snapshot A");
+    await createParentItem("Workflow Snapshot B");
+    let activeCallbacks = 0;
+    let maximumCallbacks = 0;
+    const completed = await withWorkflowLibraryItemSnapshot(
+      { libraryId: firstItem.libraryID, batchSize: 1 },
+      {},
+      async () => {
+        activeCallbacks += 1;
+        maximumCallbacks = Math.max(maximumCallbacks, activeCallbacks);
+        await Promise.resolve();
+        activeCallbacks -= 1;
+      },
+    );
+    assert.strictEqual(maximumCallbacks, 1);
+    assert.strictEqual(completed.outcome, "completed");
+    assert.isOk(completed.completionEvidence);
+
+    const controller = new AbortController();
+    let callbacks = 0;
+    const canceled = await withWorkflowLibraryItemSnapshot(
+      { libraryId: firstItem.libraryID, batchSize: 1 },
+      { signal: controller.signal },
+      async () => {
+        callbacks += 1;
+        controller.abort();
+      },
+    );
+    assert.strictEqual(callbacks, 1);
+    assert.strictEqual(canceled.outcome, "canceled");
+    assert.notProperty(canceled, "completionEvidence");
+    assertStrictJsonValue(canceled);
+  });
+
+  it("uses snapshot batch defaults and rejects batches above the fixed maximum", async function () {
+    const item = await createParentItem("Snapshot Batch Bounds");
+    const broker = createZoteroHostCapabilityBroker();
+    const defaultPage = await broker.library.syncSnapshot(
+      { libraryId: item.libraryID },
+      { ownerId: "default-batch" },
+    );
+    assert.strictEqual(defaultPage.batchSize, 500);
+
+    try {
+      await broker.library.syncSnapshot(
+        { libraryId: item.libraryID, batchSize: 1001 },
+        { ownerId: "oversized-batch" },
+      );
+      assert.fail("expected an oversized snapshot batch to fail");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual(
+        (error as ZoteroHostCapabilityError).code,
+        "resource_limited",
+      );
+      assert.deepInclude((error as ZoteroHostCapabilityError).details, {
+        resource: "items",
+        limit: 1000,
+        observed: 1001,
+      });
+    }
   });
 
   it("keeps the canonical broker portable and strict JSON-safe", async function () {
@@ -999,7 +1272,7 @@ describe("zotero host broker capability api", function () {
     assert.notStrictEqual(firstPage.items[0].key, note.key);
   });
 
-  it("syncs a metadata snapshot page for local librarian indexes", async function () {
+  it("serializes full-library snapshot metadata for local librarian indexes", async function () {
     const hostApi = createWorkflowHostApi();
     const collection = await createCollection("Broker Snapshot Collection");
     const included = await createParentItem("Broker Snapshot Included");
@@ -1013,24 +1286,33 @@ describe("zotero host broker capability api", function () {
 
     assert.isFunction(hostApi.library.syncSnapshot);
     const snapshot = await hostApi.library.syncSnapshot({
-      collectionKey: collection.key,
-      tag: "snapshot:index",
-      limit: 10,
+      libraryId: included.libraryID,
     });
 
-    assert.strictEqual(snapshot.schema, "zotero.library.snapshot.v1");
-    assert.isString(snapshot.generatedAt);
+    assert.strictEqual(
+      snapshot.schema,
+      "zotero-agents.library-full-index.v1",
+    );
     assert.isString(snapshot.snapshotId);
-    assert.lengthOf(snapshot.items, 1);
-    assert.strictEqual(snapshot.returned, 1);
+    assert.lengthOf(snapshot.items, 2);
+    assert.strictEqual(snapshot.returned, 2);
     assert.isFalse(snapshot.hasMore);
-    assert.strictEqual(snapshot.items[0].key, included.key);
-    assert.strictEqual(snapshot.items[0].DOI, "10.5555/snapshot");
-    assert.strictEqual(snapshot.items[0].ISBN, "978-1-4028-9462-6");
-    assert.strictEqual(snapshot.items[0].ISSN, "1234-5678");
-    assert.strictEqual(snapshot.items[0].url, "https://example.test/snapshot");
-    assert.deepEqual(snapshot.items[0].tags, ["snapshot:index"]);
-    assert.include(snapshot.items[0].collections, collection.id);
+    assert.strictEqual(snapshot.outcome, "completed");
+    if (snapshot.outcome !== "completed") throw new Error("expected terminal page");
+    assert.strictEqual(snapshot.completionEvidence.totalItems, 2);
+    const indexed = snapshot.items.find(
+      (item) => item.ref.key === included.key,
+    );
+    assert.isOk(indexed);
+    assert.strictEqual(indexed?.identifiers.doi, "10.5555/snapshot");
+    assert.strictEqual(indexed?.identifiers.isbn, "978-1-4028-9462-6");
+    assert.strictEqual(indexed?.identifiers.issn, "1234-5678");
+    assert.strictEqual(indexed?.url, "https://example.test/snapshot");
+    assert.deepEqual(indexed?.tags, ["snapshot:index"]);
+    assert.deepInclude(indexed?.collections, {
+      libraryId: included.libraryID,
+      key: collection.key,
+    });
     assert.doesNotThrow(() => JSON.stringify(snapshot));
   });
 

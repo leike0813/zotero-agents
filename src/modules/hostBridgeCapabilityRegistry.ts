@@ -48,6 +48,7 @@ import {
   type ZoteroHostCollectionRefInput,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
+  type ZoteroHostLibrarySyncSnapshotRequest,
   type ZoteroHostMutationRequest,
   type ZoteroHostNoteDetailArgs,
   type ZoteroHostNotePayloadDetailArgs,
@@ -162,6 +163,22 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function asObject(input: unknown): Record<string, unknown> {
   return isPlainObject(input) ? input : {};
+}
+
+function librarySnapshotArgsFromInput(
+  input: unknown,
+): ZoteroHostLibrarySyncSnapshotRequest {
+  const object = asObject(input);
+  return {
+    libraryId: Number(object.libraryId),
+    ...(object.batchSize === undefined
+      ? {}
+      : { batchSize: Number(object.batchSize) }),
+    ...(typeof object.snapshotId === "string"
+      ? { snapshotId: object.snapshotId }
+      : {}),
+    ...(typeof object.cursor === "string" ? { cursor: object.cursor } : {}),
+  };
 }
 
 function capabilityPageCriteria(
@@ -1869,7 +1886,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   ),
   capability("library.sync_snapshot", (input, context) =>
     resolveCapabilityBroker(context).library.syncSnapshot(
-      libraryListArgsFromInput(input),
+      librarySnapshotArgsFromInput(input),
+      { ownerId: `host-bridge:${context.connectionMode}` },
     ),
   ),
   capability("library.readiness_audit", (input, context) =>

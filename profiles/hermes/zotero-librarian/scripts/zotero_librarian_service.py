@@ -16,7 +16,10 @@ from typing import Any
 from zotero_librarian_workspace import WorkspaceError, prepare_workspace, resolve_workspace
 
 RECEIPT_SCHEMA = "zotero-librarian.operation-receipt.v1"
-STATE_SCHEMA = "zotero-librarian.state.v3"
+STATE_SCHEMA = "zotero-librarian.state.v4"
+SNAPSHOT_SCHEMA = "zotero-agents.library-full-index.v1"
+SNAPSHOT_SCOPE = "top-level-regular"
+SNAPSHOT_ORDER = "stable_identity"
 TERMINAL_STATES = {"succeeded", "failed", "canceled", "cancelled", "completed"}
 
 
@@ -52,6 +55,21 @@ def connect(path: Path) -> sqlite3.Connection:
           item_type TEXT NOT NULL, title TEXT NOT NULL, payload_json TEXT NOT NULL,
           digest TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(library_id, item_key)
         );
+        CREATE TABLE IF NOT EXISTS library_index_generations (
+          generation_id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, library_id INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('staging','current')), content_digest TEXT NOT NULL DEFAULT '',
+          total_items INTEGER NOT NULL DEFAULT 0, total_batches INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL, promoted_at TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS library_generation_items (
+          generation_id TEXT NOT NULL REFERENCES library_index_generations(generation_id) ON DELETE CASCADE,
+          library_id INTEGER NOT NULL, item_key TEXT NOT NULL, item_id INTEGER NOT NULL,
+          item_type TEXT NOT NULL, title TEXT NOT NULL, payload_json TEXT NOT NULL,
+          digest TEXT NOT NULL, updated_at TEXT NOT NULL,
+          PRIMARY KEY(generation_id, library_id, item_key)
+        );
+        CREATE INDEX IF NOT EXISTS library_generation_items_title
+          ON library_generation_items(generation_id, title);
         CREATE TABLE IF NOT EXISTS workflow_catalog (
           workflow_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, digest TEXT NOT NULL, updated_at TEXT NOT NULL
         );
@@ -81,6 +99,28 @@ def connect(path: Path) -> sqlite3.Connection:
             ("submission_blocked", "nonempty_automation_journal"),
         )
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", ("schema", STATE_SCHEMA))
+    current_generation = conn.execute(
+        "SELECT value FROM meta WHERE key = 'current_library_generation'"
+    ).fetchone()
+    legacy_count = conn.execute("SELECT COUNT(*) AS count FROM library_items").fetchone()["count"]
+    if current_generation is None and legacy_count:
+        generation_id = "legacy-v3"
+        created_at = now()
+        conn.execute(
+            "INSERT OR IGNORE INTO library_index_generations(generation_id,snapshot_id,library_id,status,total_items,created_at,promoted_at) VALUES(?,?,?,?,?,?,?)",
+            (generation_id, generation_id, 0, "current", legacy_count, created_at, created_at),
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO library_generation_items(
+                 generation_id,library_id,item_key,item_id,item_type,title,payload_json,digest,updated_at)
+               SELECT ?,library_id,item_key,item_id,item_type,title,payload_json,digest,updated_at
+               FROM library_items""",
+            (generation_id,),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key,value) VALUES('current_library_generation',?)",
+            (generation_id,),
+        )
     conn.commit()
     return conn
 
@@ -131,65 +171,158 @@ def emit(value: dict[str, Any], quiet: bool = False) -> int:
 
 
 def item_identity(item: dict[str, Any]) -> tuple[int, str]:
-    key = str(item.get("key") or "").strip()
+    ref = item.get("ref") if isinstance(item.get("ref"), dict) else {}
+    key = str(ref.get("key") or item.get("key") or "").strip()
     if not key:
         raise ServiceError("invalid_snapshot", "library item is missing key", {"item": item})
-    return int(item.get("libraryId") or item.get("libraryID") or 0), key
+    library_id = int(ref.get("libraryId") or item.get("libraryId") or item.get("libraryID") or 0)
+    if library_id <= 0:
+        raise ServiceError("invalid_snapshot", "library item has an invalid library identity")
+    return library_id, key
+
+
+def snapshot_page(value: Any, *, library_id: int, snapshot_id: str, batch_index: int) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ServiceError("invalid_snapshot", "library snapshot must be an object")
+    if value.get("schema") != SNAPSHOT_SCHEMA or value.get("scope") != SNAPSHOT_SCOPE or value.get("order") != SNAPSHOT_ORDER:
+        raise ServiceError("invalid_snapshot", "library snapshot basis is invalid")
+    if int(value.get("libraryId") or 0) != library_id:
+        raise ServiceError("invalid_snapshot", "library snapshot changed library identity")
+    current_snapshot_id = str(value.get("snapshotId") or "")
+    if not current_snapshot_id or (snapshot_id and current_snapshot_id != snapshot_id):
+        raise ServiceError("invalid_snapshot", "library snapshot identity changed")
+    if int(value.get("batchIndex") if value.get("batchIndex") is not None else -1) != batch_index:
+        raise ServiceError("invalid_snapshot", "library snapshot batch order is invalid")
+    entries = value.get("items")
+    if not isinstance(entries, list) or int(value.get("returned") if value.get("returned") is not None else -1) != len(entries):
+        raise ServiceError("invalid_snapshot", "library snapshot item coverage is invalid")
+    outcome = value.get("outcome")
+    cursor = value.get("nextCursor")
+    if outcome == "active":
+        if value.get("hasMore") is not True or not isinstance(cursor, str) or not cursor:
+            raise ServiceError("incomplete_snapshot", "active library snapshot has no continuation")
+    elif outcome == "completed":
+        if value.get("hasMore") is not False or cursor is not None or not isinstance(value.get("completionEvidence"), dict):
+            raise ServiceError("invalid_snapshot", "completed library snapshot has invalid terminal state")
+    else:
+        raise ServiceError("incomplete_snapshot", "library snapshot did not complete")
+    return value
+
+
+def current_generation_id(conn: sqlite3.Connection) -> str:
+    row = conn.execute("SELECT value FROM meta WHERE key = 'current_library_generation'").fetchone()
+    return str(row["value"]) if row else ""
 
 
 def index_refresh(args: argparse.Namespace) -> dict[str, Any]:
     conn = connect(state_path(args))
-    changed = added = updated = 0
-    seen: set[tuple[int, str]] = set()
-    with conn:
-        cursor = ""
-        while True:
-            query: dict[str, Any] = {"limit": args.limit}
-            if cursor:
-                query["cursor"] = cursor
-            page = unwrap(call_bridge(args.bridge, ["library", "snapshot", "--input", stable_json(query)], args.profile_prefix))
-            if not isinstance(page, dict):
-                raise ServiceError("invalid_snapshot", "library snapshot must be an object")
-            entries = page.get("items", [])
-            if not isinstance(entries, list):
-                raise ServiceError("invalid_snapshot", "library snapshot items must be an array")
+    library_id = args.library_id
+    snapshot_id = ""
+    generation_id = ""
+    cursor = ""
+    batch_index = 0
+    delivered_items = 0
+    while True:
+        query: dict[str, Any] = {"libraryId": library_id, "batchSize": args.limit}
+        if cursor:
+            query.update({"snapshotId": snapshot_id, "cursor": cursor})
+        page = snapshot_page(
+            unwrap(call_bridge(args.bridge, ["library", "snapshot", "--input", stable_json(query)], args.profile_prefix)),
+            library_id=library_id,
+            snapshot_id=snapshot_id,
+            batch_index=batch_index,
+        )
+        if not snapshot_id:
+            snapshot_id = str(page["snapshotId"])
+            generation_id = f"generation-{digest({'snapshotId': snapshot_id, 'startedAt': now()})[:24]}"
+            with conn:
+                conn.execute(
+                    "INSERT INTO library_index_generations(generation_id,snapshot_id,library_id,status,created_at) VALUES(?,?,?,?,?)",
+                    (generation_id, snapshot_id, library_id, "staging", now()),
+                )
+        entries = page["items"]
+        with conn:
             for item in entries:
                 if not isinstance(item, dict):
-                    continue
-                library_id, key = item_identity(item)
-                seen.add((library_id, key))
-                item_digest = digest(item)
-                previous = conn.execute("SELECT digest FROM library_items WHERE library_id = ? AND item_key = ?", (library_id, key)).fetchone()
-                if previous is None:
-                    added += 1
-                elif previous["digest"] != item_digest:
-                    updated += 1
-                else:
-                    continue
-                changed += 1
-                conn.execute("""INSERT INTO library_items(library_id,item_key,item_id,item_type,title,payload_json,digest,updated_at)
-                    VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(library_id,item_key) DO UPDATE SET item_id=excluded.item_id,item_type=excluded.item_type,title=excluded.title,payload_json=excluded.payload_json,digest=excluded.digest,updated_at=excluded.updated_at""",
-                    (library_id, key, int(item.get("id") or 0), str(item.get("itemType") or ""), str(item.get("title") or ""), stable_json(item), item_digest, now()))
-            cursor = str(page.get("nextCursor") or "")
-            if not (page.get("hasMore") and cursor):
-                break
-        deleted = 0
-        for row in conn.execute("SELECT library_id, item_key FROM library_items").fetchall():
-            if (row["library_id"], row["item_key"]) not in seen:
-                conn.execute("DELETE FROM library_items WHERE library_id = ? AND item_key = ?", (row["library_id"], row["item_key"]))
-                deleted += 1
-        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", ("last_index_refresh", now()))
-    return receipt("index.refresh", "changed" if changed or deleted else "unchanged", {"added": added, "updated": updated, "deleted": deleted, "total": len(seen)})
+                    raise ServiceError("invalid_snapshot", "library snapshot item must be an object")
+                item_library_id, key = item_identity(item)
+                if item_library_id != library_id:
+                    raise ServiceError("invalid_snapshot", "library snapshot item changed library identity")
+                conn.execute(
+                    """INSERT INTO library_generation_items(
+                         generation_id,library_id,item_key,item_id,item_type,title,payload_json,digest,updated_at)
+                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (generation_id, library_id, key, int(item.get("id") or 0), str(item.get("itemType") or ""), str(item.get("title") or ""), stable_json(item), digest(item), now()),
+                )
+        delivered_items += len(entries)
+        if int(page.get("deliveredItems") or 0) != delivered_items or int(page.get("deliveredBatches") or 0) != batch_index + 1:
+            raise ServiceError("invalid_snapshot", "library snapshot delivery counters are invalid")
+        if page["outcome"] == "completed":
+            evidence = page["completionEvidence"]
+            content_digest = str(evidence.get("contentDigest") or "")
+            if (
+                evidence.get("snapshotId") != snapshot_id
+                or evidence.get("schema") != SNAPSHOT_SCHEMA
+                or int(evidence.get("libraryId") or 0) != library_id
+                or evidence.get("scope") != SNAPSHOT_SCOPE
+                or evidence.get("order") != SNAPSHOT_ORDER
+                or int(evidence.get("totalItems") if evidence.get("totalItems") is not None else -1) != delivered_items
+                or int(evidence.get("totalBatches") if evidence.get("totalBatches") is not None else -1) != batch_index + 1
+                or not content_digest.startswith("sha256:")
+                or len(content_digest) != 71
+                or any(char not in "0123456789abcdef" for char in content_digest[7:])
+            ):
+                raise ServiceError("invalid_snapshot", "library snapshot completion evidence is invalid")
+            break
+        cursor = str(page["nextCursor"])
+        batch_index += 1
+
+    previous_generation = current_generation_id(conn)
+    previous = {
+        (row["library_id"], row["item_key"]): row["digest"]
+        for row in conn.execute(
+            "SELECT library_id,item_key,digest FROM library_generation_items WHERE generation_id=?",
+            (previous_generation,),
+        ).fetchall()
+    }
+    staged = {
+        (row["library_id"], row["item_key"]): row["digest"]
+        for row in conn.execute(
+            "SELECT library_id,item_key,digest FROM library_generation_items WHERE generation_id=?",
+            (generation_id,),
+        ).fetchall()
+    }
+    added = sum(key not in previous for key in staged)
+    updated = sum(key in previous and previous[key] != value for key, value in staged.items())
+    deleted = sum(key not in staged for key in previous)
+    promoted_at = now()
+    with conn:
+        promotion = conn.execute(
+            "UPDATE library_index_generations SET status='current',content_digest=?,total_items=?,total_batches=?,promoted_at=? WHERE generation_id=? AND status='staging'",
+            (content_digest, delivered_items, batch_index + 1, promoted_at, generation_id),
+        )
+        if promotion.rowcount != 1:
+            raise ServiceError("index_promotion_failed", "staging generation could not be promoted")
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key,value) VALUES('current_library_generation',?)",
+            (generation_id,),
+        )
+        conn.execute("DELETE FROM library_index_generations WHERE generation_id<>?", (generation_id,))
+        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", ("last_index_refresh", promoted_at))
+    changed = added + updated + deleted
+    return receipt("index.refresh", "changed" if changed else "unchanged", {"added": added, "updated": updated, "deleted": deleted, "total": delivered_items, "generationId": generation_id, "snapshotId": snapshot_id})
 
 
 def index_search(args: argparse.Namespace) -> dict[str, Any]:
-    rows = connect(state_path(args)).execute("SELECT payload_json FROM library_items WHERE lower(title) LIKE ? OR lower(payload_json) LIKE ? ORDER BY title LIMIT ?", (f"%{args.query.lower()}%", f"%{args.query.lower()}%", args.limit)).fetchall()
+    conn = connect(state_path(args))
+    rows = conn.execute("SELECT payload_json FROM library_generation_items WHERE generation_id=? AND (lower(title) LIKE ? OR lower(payload_json) LIKE ?) ORDER BY title LIMIT ?", (current_generation_id(conn), f"%{args.query.lower()}%", f"%{args.query.lower()}%", args.limit)).fetchall()
     items = [json.loads(row["payload_json"]) for row in rows]
     return receipt("index.search", "ok", {"items": items})
 
 
 def index_item(args: argparse.Namespace) -> dict[str, Any]:
-    row = connect(state_path(args)).execute("SELECT payload_json FROM library_items WHERE item_key = ? OR item_id = ? LIMIT 1", (args.ref, args.ref)).fetchone()
+    conn = connect(state_path(args))
+    row = conn.execute("SELECT payload_json FROM library_generation_items WHERE generation_id=? AND (item_key = ? OR item_id = ?) LIMIT 1", (current_generation_id(conn), args.ref, args.ref)).fetchone()
     if not row:
         raise ServiceError("item_not_found", "cached item was not found", {"ref": args.ref})
     return receipt("index.item", "ok", {"item": json.loads(row["payload_json"])})
@@ -197,9 +330,11 @@ def index_item(args: argparse.Namespace) -> dict[str, Any]:
 
 def index_stats(args: argparse.Namespace) -> dict[str, Any]:
     conn = connect(state_path(args))
-    count = conn.execute("SELECT COUNT(*) AS count FROM library_items").fetchone()["count"]
+    generation_id = current_generation_id(conn)
+    count = conn.execute("SELECT COUNT(*) AS count FROM library_generation_items WHERE generation_id=?", (generation_id,)).fetchone()["count"]
+    staging_count = conn.execute("SELECT COUNT(*) AS count FROM library_index_generations WHERE status='staging'").fetchone()["count"]
     refreshed = conn.execute("SELECT value FROM meta WHERE key = 'last_index_refresh'").fetchone()
-    return receipt("index.stats", "ok", {"itemCount": count, "lastRefresh": refreshed["value"] if refreshed else None})
+    return receipt("index.stats", "ok", {"itemCount": count, "lastRefresh": refreshed["value"] if refreshed else None, "currentGenerationId": generation_id or None, "stagingGenerationCount": staging_count})
 
 
 def workflow_catalog_refresh(args: argparse.Namespace) -> dict[str, Any]:
@@ -302,7 +437,8 @@ def maintenance_workflow_status(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def maintenance_library_hygiene(args: argparse.Namespace) -> dict[str, Any]:
-    rows = connect(state_path(args)).execute("SELECT title, GROUP_CONCAT(item_key) AS keys, COUNT(*) AS count FROM library_items WHERE title <> '' GROUP BY lower(title) HAVING COUNT(*) > 1").fetchall()
+    conn = connect(state_path(args))
+    rows = conn.execute("SELECT title, GROUP_CONCAT(item_key) AS keys, COUNT(*) AS count FROM library_generation_items WHERE generation_id=? AND title <> '' GROUP BY lower(title) HAVING COUNT(*) > 1", (current_generation_id(conn),)).fetchall()
     candidates = [{"title": row["title"], "itemKeys": row["keys"].split(","), "reason": "duplicate_title"} for row in rows]
     return receipt("maintenance.library-hygiene", "attention" if candidates else "unchanged", {"candidates": candidates})
 
@@ -322,7 +458,7 @@ def parser() -> argparse.ArgumentParser:
     domains = result.add_subparsers(dest="domain", required=True)
 
     index = domains.add_parser("index").add_subparsers(dest="action", required=True)
-    p = index.add_parser("refresh"); p.add_argument("--limit", type=int, default=200); p.set_defaults(func=index_refresh, operation="index.refresh")
+    p = index.add_parser("refresh"); p.add_argument("--limit", type=int, default=500, choices=range(1, 1001), metavar="1..1000"); p.add_argument("--library-id", type=int, default=1); p.set_defaults(func=index_refresh, operation="index.refresh")
     p = index.add_parser("search"); p.add_argument("query"); p.add_argument("--limit", type=int, default=25); p.set_defaults(func=index_search, operation="index.search")
     p = index.add_parser("item"); p.add_argument("ref"); p.set_defaults(func=index_item, operation="index.item")
     index.add_parser("stats").set_defaults(func=index_stats, operation="index.stats")
