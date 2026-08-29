@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
-import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import {
   SYNTHESIS_REFERENCE_MATCHER_BINDING_INPUT_MAX,
   SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION,
@@ -522,57 +521,6 @@ describe("Synthesis Reference Matcher engine", function () {
       rejected = String(error).includes("cancelled");
     }
     assert.isTrue(rejected);
-  });
-
-  it("preserves direct and Rust worker canonical parity", async function () {
-    const binding = bindingRequest();
-    const dedupe = dedupeRequest();
-    const complexDedupe = complexDedupeRequest();
-    const boundaryDedupe = boundaryDedupeRequest();
-    const titleCandidateDedupe = titleCandidateDedupeRequest();
-    const semanticActionDedupe = semanticActionDedupeRequest();
-    const direct = createInProcessSynthesisReferenceMatcherEngine();
-    const expected = {
-      binding: await direct.matchBindings(binding),
-      dedupe: await direct.dedupeCanonicals(dedupe),
-      complexDedupe: await direct.dedupeCanonicals(complexDedupe),
-      boundaryDedupe: await direct.dedupeCanonicals(boundaryDedupe),
-      titleCandidateDedupe: await direct.dedupeCanonicals(titleCandidateDedupe),
-      semanticActionDedupe: await direct.dedupeCanonicals(semanticActionDedupe),
-    };
-    const pool = createSynthesisSidecarComputeWorkerPool();
-    try {
-      const actual = {
-        binding: await pool.runReferenceBinding(binding),
-        dedupe: await pool.runReferenceCanonicalDedupe(dedupe),
-        complexDedupe: await pool.runReferenceCanonicalDedupe(complexDedupe),
-        boundaryDedupe: await pool.runReferenceCanonicalDedupe(boundaryDedupe),
-        titleCandidateDedupe:
-          await pool.runReferenceCanonicalDedupe(titleCandidateDedupe),
-        semanticActionDedupe:
-          await pool.runReferenceCanonicalDedupe(semanticActionDedupe),
-      };
-      for (const key of Object.keys(expected) as (keyof typeof expected)[]) {
-        assert.deepEqual(actual[key], expected[key], `${key} parity`);
-      }
-      const sharedPairActions = actual.semanticActionDedupe.actions.filter(
-        (action) =>
-          action.sourceCanonicalReferenceId === "semantic:1" &&
-          action.targetCanonicalReferenceId === "semantic:0",
-      );
-      assert.deepEqual(
-        sharedPairActions.map((action) => action.edgeType),
-        ["contained_extension_risk", "weak_fuzzy_title"],
-      );
-      assert.equal(
-        actual.semanticActionDedupe.counters.review_action_count,
-        actual.semanticActionDedupe.actions.filter(
-          (action) => action.action === "review",
-        ).length,
-      );
-    } finally {
-      await pool.shutdown();
-    }
   });
 
   it("keeps the matcher engine source environment-neutral", async function () {

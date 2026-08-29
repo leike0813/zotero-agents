@@ -1,25 +1,20 @@
 import { assert } from "chai";
 import fs from "fs/promises";
-import os from "os";
 import path from "path";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
-import { createSynthesisService } from "../../src/modules/synthesis/service";
-import { createSynthesisHostExportDeliveryPort } from "../../src/modules/synthesis/exportDeliveryAdapter";
 import {
-  createInProcessSynthesisClient,
-  type LegacySynthesisPort,
-} from "../../src/modules/synthesisClient/inProcessClient";
+  createSynthesisClientFromPort,
+  type SynthesisClientPort,
+} from "../../src/modules/synthesisClient/clientPortAdapter";
 
 type SynthesisClientPorts = Record<string, (...args: any[]) => any>;
 
 function resolveClientFromPorts(ports: SynthesisClientPorts) {
-  const client = createInProcessSynthesisClient(
-    ports as unknown as LegacySynthesisPort,
+  const client = createSynthesisClientFromPort(
+    ports as unknown as SynthesisClientPort,
   );
   return () => client;
 }
-import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
-import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
@@ -37,9 +32,6 @@ function request(id: number, name: string, args: Record<string, unknown> = {}) {
   };
 }
 
-async function makeRoot() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "zs-synthesis-mcp-"));
-}
 
 async function loadProtocolCorpusCase(file: string, id: string) {
   const corpus = JSON.parse(
@@ -53,92 +45,6 @@ async function loadProtocolCorpusCase(file: string, id: string) {
     ),
   ) as { cases: Array<{ id: string; value: unknown }> };
   return structuredClone(corpus.cases.find((entry) => entry.id === id)!.value);
-}
-
-async function makeAcpRunRoot() {
-  const runsDir = getRuntimePersistencePaths().acpSkillRunsDir;
-  const runRoot = path.join(
-    runsDir,
-    `acp-skill-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  await fs.mkdir(runRoot, { recursive: true });
-  return runRoot;
-}
-
-function directBundleArtifactNotes() {
-  return [
-    {
-      key: "N-DIGEST",
-      title: "Digest",
-      html: renderPayloadBlock({
-        payloadType: "digest-markdown",
-        payload: "## Direct Digest\n\nDigest body.",
-        payloadFormat: "text",
-      }),
-    },
-    {
-      key: "N-REFERENCES",
-      title: "References",
-      html: renderPayloadBlock({
-        payloadType: "references-json",
-        payload: {
-          references: [
-            {
-              id: "ref-1",
-              year: "2024",
-              authors: ["Alpha Author"],
-              title: "Referenced Work",
-            },
-          ],
-        },
-      }),
-    },
-    {
-      key: "N-CITATIONS",
-      title: "Citation analysis",
-      html: renderPayloadBlock({
-        payloadType: "citation-analysis-json",
-        payload: {
-          citation_analysis: {
-            report_md:
-              "## Citation Analysis\n\n### Mapped Citations\nMapped body.",
-          },
-        },
-      }),
-    },
-    {
-      key: "N-SCORE",
-      title: "Literature score",
-      html: renderPayloadBlock({
-        payloadType: "literature-score-json",
-        payload: {
-          literature_score: {
-            schema: "literature_score.v1",
-            rubric_id: "literature-analysis-rubric.v1",
-            paper_type: "empirical",
-            paper_type_reason: "The paper reports an empirical study.",
-            overall_score: 82,
-            confidence: 0.75,
-            confidence_adjusted_score: 75,
-            dimensions: [
-              "methodological_rigor",
-              "evidence_completeness",
-              "reproducibility",
-              "innovation_signals",
-              "research_impact_potential",
-              "writing_quality",
-            ].map((dimensionKey) => ({
-              dimension_key: dimensionKey,
-              name: dimensionKey,
-              score: 82,
-              confidence: 0.75,
-              summary: `${dimensionKey} assessment`,
-            })),
-          },
-        },
-      }),
-    },
-  ];
 }
 
 describe("Synthesis MCP tools", function () {
@@ -584,314 +490,6 @@ describe("Synthesis MCP tools", function () {
     assert.notInclude(JSON.stringify(result), "decoded_text");
   });
 
-  it("default export writes only filtered manifest and content files", async function () {
-    const root = await makeRoot();
-    const runRoot = await makeAcpRunRoot();
-    const digest = [
-      "## Digest One",
-      "Intro",
-      "### Detail",
-      "Detail text",
-      "## Digest Two",
-      "Two",
-      "## Digest Three",
-      "Three",
-      "## Digest Four",
-      "Four",
-      "## Digest Five",
-      "Should be removed",
-    ].join("\n");
-    const scorePayload = {
-      literature_score: {
-        schema: "literature_score.v1",
-        rubric_id: "literature-analysis-rubric.v1",
-        paper_type: "empirical",
-        paper_type_reason: "The paper reports an empirical study.",
-        overall_score: 80,
-        confidence: 0.75,
-        confidence_adjusted_score: 72,
-        dimensions: [
-          "methodological_rigor",
-          "evidence_completeness",
-          "reproducibility",
-          "innovation_signals",
-          "research_impact_potential",
-          "writing_quality",
-        ].map((dimensionKey) => ({
-          dimension_key: dimensionKey,
-          name: dimensionKey,
-          score: 80,
-          confidence: 0.75,
-          summary: `${dimensionKey} assessment`,
-        })),
-      },
-    };
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      hostExportDeliveryPort: createSynthesisHostExportDeliveryPort(),
-      registryInputs: [
-        {
-          libraryId: 1,
-          itemKey: "ABCD1234",
-          title: "Alpha Paper",
-          notes: [
-            {
-              key: "N1",
-              title: "Digest",
-              html: renderPayloadBlock({
-                payloadType: "digest-markdown",
-                payload: digest,
-                payloadFormat: "text",
-              }),
-            },
-            {
-              key: "N2",
-              title: "References",
-              html: renderPayloadBlock({
-                payloadType: "references-json",
-                payload: {
-                  references: [
-                    {
-                      id: "r1",
-                      year: "2024",
-                      authors: ["Alice", "Bob"],
-                      title: "Reference One",
-                      confidence: 0.9,
-                    },
-                  ],
-                  parser_metadata: { raw: true },
-                },
-              }),
-            },
-            {
-              key: "N3",
-              title: "Citation Analysis",
-              html: renderPayloadBlock({
-                payloadType: "citation-analysis-json",
-                payload: {
-                  citation_analysis: {
-                    report_md: [
-                      "## Citation Wrapper",
-                      "",
-                      "### Mapped Citations",
-                      "Mapped body",
-                      "",
-                      "### Trailing Section",
-                      "Trailing body",
-                    ].join("\n"),
-                  },
-                },
-              }),
-            },
-            {
-              key: "N4",
-              title: "Literature Score",
-              html: renderPayloadBlock({
-                payloadType: "literature-score-json",
-                payload: scorePayload,
-              }),
-            },
-          ],
-        },
-        {
-          libraryId: 1,
-          itemKey: "EMPTY000",
-          title: "Empty Artifact Paper",
-          notes: [],
-        },
-      ],
-    });
-
-    try {
-      const response: any = await handleZoteroMcpRequestForTests(
-        request(30, "paper_artifacts.export_filtered", {
-          run_root: runRoot,
-          paper_refs: ["1:ABCD1234", "1:EMPTY000"],
-        }),
-        { resolveSynthesisClient: resolveClientFromPorts(service) },
-      );
-      const result = response.result.structuredContent.result;
-      assert.equal(
-        result.manifest_file,
-        "runtime/payloads/paper-artifacts-manifest.json",
-      );
-      assert.notProperty(result, "payload_file");
-      assert.notProperty(result, "payload_files");
-
-      const manifestPath = path.join(runRoot, result.manifest_file);
-      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-      const manifestText = JSON.stringify(manifest);
-      assert.equal(
-        manifest.schema_id,
-        "synthesis.filtered_paper_artifacts_manifest",
-      );
-      assert.equal(manifest.exported_by, "paper_artifacts.export_filtered");
-      assert.equal(manifest.schema_version, "1.1.0");
-      assert.notInclude(manifestText, "decoded_text");
-      assert.notInclude(manifestText, 'content":"');
-      assert.notInclude(manifestText, '"markdown":');
-      assert.notInclude(manifestText, "parser_metadata");
-
-      const paper = manifest.papers[0];
-      const digestEntry = paper.artifacts.find(
-        (entry: any) => entry.artifact_type === "digest",
-      );
-      const refsEntry = paper.artifacts.find(
-        (entry: any) => entry.artifact_type === "references",
-      );
-      const citationEntry = paper.artifacts.find(
-        (entry: any) => entry.artifact_type === "citation_analysis",
-      );
-      const scoreEntry = paper.artifacts.find(
-        (entry: any) => entry.artifact_type === "literature_score",
-      );
-      const emptyPaper = manifest.papers.find(
-        (entry: any) => entry.paper_ref === "1:EMPTY000",
-      );
-      const emptyDigestEntry = emptyPaper.artifacts.find(
-        (entry: any) => entry.artifact_type === "digest",
-      );
-      const digestMd = await fs.readFile(
-        path.join(runRoot, digestEntry.content_file),
-        "utf8",
-      );
-      const refs = JSON.parse(
-        await fs.readFile(path.join(runRoot, refsEntry.content_file), "utf8"),
-      );
-      const citationMd = await fs.readFile(
-        path.join(runRoot, citationEntry.content_file),
-        "utf8",
-      );
-      const score = JSON.parse(
-        await fs.readFile(path.join(runRoot, scoreEntry.content_file), "utf8"),
-      );
-
-      assert.includeMembers(digestEntry.payload_types_seen, [
-        "digest-markdown",
-        "references-json",
-        "citation-analysis-json",
-        "literature-score-json",
-      ]);
-      assert.deepEqual(emptyDigestEntry.payload_types_seen, []);
-      assert.include(digestMd, "#### Digest One");
-      assert.include(digestMd, "##### Detail");
-      assert.notInclude(digestMd, "Digest Five");
-      assert.deepEqual(refs.references, [
-        {
-          id: "r1",
-          year: "2024",
-          authors: "Alice; Bob",
-          title: "Reference One",
-        },
-      ]);
-      assert.notInclude(JSON.stringify(refs), "confidence");
-      assert.include(citationMd, "#### Mapped Citations");
-      assert.notInclude(citationMd, "Citation Wrapper");
-      assert.notInclude(citationMd, "Trailing Section");
-      assert.equal(
-        citationEntry.removed_trailing_section_heading,
-        "Trailing Section",
-      );
-      assert.deepEqual(score, scorePayload);
-      assert.equal(paper.literature_quality.status, "available");
-      assert.equal(paper.literature_quality.overall_score, 80);
-      assert.equal(paper.literature_quality.quality_prior, 0.725);
-
-      const remoteResult: any = await service.exportFilteredPaperArtifacts(
-        {
-          paper_refs: ["1:ABCD1234"],
-          artifact_types: ["digest", "references"],
-        },
-        { mode: "remote" },
-      );
-      assert.equal(
-        remoteResult.manifest_file,
-        "runtime/payloads/paper-artifacts-manifest.json",
-      );
-      assert.equal(remoteResult.delivery.mode, "bridge-download");
-      assert.include(
-        remoteResult.delivery.downloadCommand,
-        "zotero-bridge file download",
-      );
-      assert.include(remoteResult.delivery.unpackHint, "unzip ");
-      const fileId = remoteResult.delivery.bundle.fileId;
-      assert.isString(fileId);
-      assert.notInclude(JSON.stringify(remoteResult), runRoot);
-      const downloaded = await resolveHostBridgeFileDownload(fileId);
-      const zipText = Buffer.from(
-        await fs.readFile(downloaded.source.path),
-      ).toString("utf8");
-      assert.include(zipText, "runtime/payloads/paper-artifacts-manifest.json");
-      assert.include(
-        zipText,
-        "runtime/payloads/artifacts/1_ABCD1234/digest.md",
-      );
-      assert.include(zipText, "#### Digest One");
-    } finally {
-      resetHostBridgeFileRegistryForTests();
-      await fs.rm(runRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("fails remote artifact delivery atomically when the Host port is unavailable", async function () {
-    const root = await makeRoot();
-    const inputs = [
-      {
-        libraryId: 1,
-        itemKey: "ABCD1234",
-        title: "Alpha Paper",
-        notes: [],
-      },
-    ];
-    const ports = [
-      undefined,
-      {
-        async publishArchive() {
-          throw new Error("/private/secret/raw export failure");
-        },
-      },
-      {
-        async publishArchive() {
-          return {
-            status: "unavailable" as const,
-            capability: "paper_artifacts.export_filtered" as const,
-            diagnostics: ["host_export_delivery_failed"],
-          };
-        },
-      },
-      {
-        async publishArchive() {
-          return {
-            status: "available" as const,
-            capability: "topics.get_context" as const,
-            delivery: {},
-            diagnostics: [],
-          } as any;
-        },
-      },
-    ];
-    for (const hostExportDeliveryPort of ports) {
-      const service = createSynthesisService({
-        root,
-        libraryId: 1,
-        registryInputs: inputs,
-        ...(hostExportDeliveryPort ? { hostExportDeliveryPort } : {}),
-      });
-      let error: unknown;
-      try {
-        await service.exportFilteredPaperArtifacts(
-          { paper_refs: ["1:ABCD1234"] },
-          { mode: "remote" },
-        );
-      } catch (caught) {
-        error = caught;
-      }
-      assert.equal((error as { code?: unknown })?.code, "unavailable");
-      assert.notInclude(JSON.stringify(error), "/private/secret");
-    }
-  });
-
   it("rejects unknown synthesis tool arguments", async function () {
     const response: any = await handleZoteroMcpRequestForTests(
       request(1, "schemas.get", { kind: "resolver", extra: true }),
@@ -1133,31 +731,6 @@ describe("Synthesis MCP tools", function () {
     assert.deepEqual(result.diagnostics.recommended_commands, []);
   });
 
-  it("returns bounded maintenance diagnostics from read-only citation graph MCP reads", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-    });
-
-    const response: any = await handleZoteroMcpRequestForTests(
-      request(24, "citation_graph.get_metrics", { limit: 5 }),
-      { resolveSynthesisClient: resolveClientFromPorts(service) },
-    );
-    const result = response.result.structuredContent.result;
-
-    assert.isFalse(result.ok);
-    assert.include(
-      result.diagnostics.recommended_commands,
-      "refreshCitationGraphMetricsNow",
-    );
-    assert.notInclude(
-      result.diagnostics.recommended_commands,
-      "rebuildCitationGraphCacheNow",
-    );
-    assert.equal(result.diagnostics.maintenance.queue_state, "removed");
-  });
-
   it("returns paged resolver matches from the injected client", async function () {
     const service: SynthesisClientPorts = {
       resolveResolver(args) {
@@ -1301,61 +874,6 @@ describe("Synthesis MCP tools", function () {
     assert.strictEqual(expandedResult.pagination.papers.limit, 1);
     assert.strictEqual(expandedResult.tags.limit, 1);
     assert.strictEqual(expandedResult.registry.limit, 1);
-  });
-
-  it("returns paged citation graph overview sections", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      citationGraphPapers: [
-        {
-          libraryId: 1,
-          itemKey: "A",
-          title: "Alpha",
-          references: [
-            { title: "Shared External", year: "2020" },
-            { title: "Alpha Only", year: "2021" },
-          ],
-        },
-        {
-          libraryId: 1,
-          itemKey: "B",
-          title: "Beta",
-          references: [{ title: "Shared External", year: "2020" }],
-        },
-        { libraryId: 1, itemKey: "C", title: "Gamma" },
-      ],
-    });
-    await service.refreshReferenceSidecarNow();
-    await service.rebuildCitationGraphCacheNow();
-
-    const first: any = await handleZoteroMcpRequestForTests(
-      request(25, "citation_graph.get_overview", { limit: 2 }),
-      { resolveSynthesisClient: resolveClientFromPorts(service) },
-    );
-    const firstResult = first.result.structuredContent.result;
-
-    assert.lengthOf(firstResult.nodes, 2);
-    assert.isTrue(firstResult.pagination.nodes.hasMore);
-    assert.strictEqual(firstResult.pagination.nodes.nextCursor, "2");
-    assert.isTrue(firstResult.diagnostics.bounded);
-    assert.isObject(firstResult.summary);
-
-    const second: any = await handleZoteroMcpRequestForTests(
-      request(26, "citation_graph.get_overview", {
-        nodeCursor: firstResult.pagination.nodes.nextCursor,
-        limit: 2,
-      }),
-      { resolveSynthesisClient: resolveClientFromPorts(service) },
-    );
-    const secondResult = second.result.structuredContent.result;
-
-    assert.isAtLeast(secondResult.nodes.length, 1);
-    assert.notDeepEqual(
-      firstResult.nodes.map((node: any) => node.node_id),
-      secondResult.nodes.map((node: any) => node.node_id),
-    );
   });
 
   it("routes bounded review input arguments through the synthesis MCP service", async function () {

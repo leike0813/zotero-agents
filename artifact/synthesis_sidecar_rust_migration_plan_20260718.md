@@ -1,12 +1,36 @@
 # Synthesis Sidecar Rust 迁移总计划
 
 > 日期：2026-07-18  
-> 状态：Rust 已是 manifest v3/XPI-only 生产 owner；R9b 验收与物理 retirement 未完成
+> 状态：Rust 已是 manifest v3/XPI-only 生产 owner；R9b 本地物理 retirement 已进入验证，外部 release acceptance 未完成
 > 上游计划：`artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md`  
 > 转向依据：`artifact/synthesis_sidecar_stage1_ws5_self_review_20260718.md` 及五平台 Node prebuild 实测  
 > 治理 change：`openspec/changes/pivot-synthesis-sidecar-runtime-to-rust/`
 
-## 当前实现状态（2026-08-08）
+## 当前实现状态（2026-08-29）
+
+插件内 application/repository owner、旧 client composition、完整
+`apps/synthesis-service` workspace、JavaScript compute worker 与 Node-only
+build/parity/benchmark 路径已从开发树删除。TypeScript 只保留 grouped client
+port adapter、UI/Host 编排、reverse-Host authority 和只读 Harness 边界；Rust
+sidecar 是唯一生产 application、repository、canonical store 与 compute
+owner。原文中“Node oracle 暂时保留”“两个 R9b 删除 change 阻塞”等陈述是
+对应日期的阶段记录。
+
+物理删除不等于 release acceptance。source-fresh 七平台 bundle、严格 XPI
+inventory/size/fingerprint，以及 Zotero 7/9 真实机器 cold-start、restart、
+shutdown 与代表性 Workbench/workflow 验收仍由
+`complete-synthesis-r9-stage1-acceptance` 跟踪；未取得这些证据前，不应归档
+整个 R9 lineage 或宣称发布就绪。
+
+本地 retirement 验证得到的新 build fingerprint 为
+`ec5f0aaa64b387169df94493240c7042a6c093859a5d1f04383cdd75df343cbc`；当前七个
+已打包 bundle 仍是
+`259a1c55569c382976c7b4ee74039102f01ad7214fb23139fd0bf859ac8dc8bd`。
+XPI 的七目标结构与 Node/D3 negative inventory 已通过，但 freshness 门禁按
+设计失败。这是下一次经单独授权的 source-bound prebuild 输入，不得通过修改
+receipt、跳过 fingerprint 校验或复用旧 bundle 消除。
+
+### 2026-08-08 阶段记录
 
 manifest v3 从安装的 XPI materialize 唯一 Rust native runtime；固定
 `current` 目录、launch session 和 `state/synthesis.lock` 构成当前生命

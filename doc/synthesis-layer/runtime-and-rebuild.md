@@ -76,7 +76,7 @@ read-only operation API and use the control extension for cancel, continue, or
 retry. Reverse-Host calls keep their capability-specific bounds, including the
 larger hash-guarded artifact-read path.
 
-All normal Synthesis capabilities enter through the 98-operation native
+All normal Synthesis capabilities enter through the native
 production manifest, including native planned-topic context and plan-apply
 routes. TypeScript
 composition owns grouped-client validation, UI orchestration, large-content
@@ -84,16 +84,16 @@ staging/resolution, and reverse-Host adapters. Rust owns typed domain dispatch,
 application behavior, repository transactions, canonical Topic files, and
 workers. Zotero item objects, preferences, credentials, local delivery paths,
 and raw Host errors never cross the public client contract. The retained
-113-method service in TypeScript and the Node packages are differential-only
-and cannot receive a production request.
+TypeScript client port adapter contains mapping and validation only; there is
+no plugin application/repository owner or executable Node Synthesis service.
 
 The Stage 1 seam/oracle history is documented in
 `artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md`; the Rust
 continuation is documented in
 `artifact/synthesis_sidecar_rust_migration_plan_20260718.md` and the active
-OpenSpec changes. `apps/synthesis-service` remains independently compilable for
-differential tests, but production supervision accepts only verified
-`rust-native` manifest identity and an absolute native executable.
+OpenSpec changes. Those historical Node oracle descriptions are fixed migration
+evidence, not current source inventory. Production supervision accepts only a
+verified `rust-native` manifest identity and an absolute native executable.
 
 The durable and application parity corpora fix repository foundation v3 at 53
 tables and 46 indexes, together with SQLite PRAGMAs, canonical bytes/hashes,

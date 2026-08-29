@@ -23,7 +23,7 @@ import {
   removeRuntimePath,
   replacePrivateRuntimeTextFileAtomically,
 } from "./runtimePersistence";
-import { SYNTHESIS_SCHEMA_VERSION } from "./synthesis/foundation";
+import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../packages/synthesis-contracts/src/schemaVersion";
 import {
   createSynthesisProductionSidecarControlClient,
   type SynthesisProductionSidecarControlConnection,
@@ -620,7 +620,7 @@ export function createSynthesisProductionRuntimeSupervisor(
         platformSignature: install.platformSignature,
         serviceVersion: install.serviceVersion,
         protocolVersion: install.protocolVersion,
-        schemaVersion: SYNTHESIS_SCHEMA_VERSION,
+        schemaVersion: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
         supervisorInstanceId,
         diagnosticsEnabled,
         ...(options.startupTrace ? { startupTrace: options.startupTrace } : {}),
@@ -674,7 +674,8 @@ export function createSynthesisProductionRuntimeSupervisor(
         discovery.supervisorInstanceId !== supervisorInstanceId ||
         discovery.bundleId !== install.bundleId ||
         discovery.buildFingerprint !== install.buildFingerprint ||
-        discovery.schemaVersion !== SYNTHESIS_SCHEMA_VERSION ||
+        discovery.schemaVersion !==
+          SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION ||
         discovery.runtimeRootId !== config.runtimeRootId ||
         discovery.dataRootId !== config.dataRootId
       ) {

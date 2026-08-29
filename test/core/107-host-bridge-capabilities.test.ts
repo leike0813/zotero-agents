@@ -37,7 +37,7 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
 import { setPref } from "../../src/utils/prefs";
-import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 import {
   resetZoteroLibraryPageQueryAdapterForTests,
   setZoteroLibraryPageQueryAdapterForTests,
@@ -537,7 +537,7 @@ describe("host bridge capability calls", function () {
     const token = configureHostBridgeServerForTests({
       token: "mode-token",
       resolveSynthesisClient: () =>
-        createInProcessSynthesisClient({
+        createSynthesisClientFromPort({
           getTopicContext(args, context) {
             connectionModes.push(context?.mode);
             return {
@@ -712,7 +712,7 @@ describe("host bridge capability calls", function () {
     const token = configureHostBridgeServerForTests({
       token: "maintenance-operation-token",
       resolveSynthesisClient: () =>
-        createInProcessSynthesisClient({
+        createSynthesisClientFromPort({
           async startReferenceSidecarRefresh(input) {
             calls.push("sidecar");
             assert.deepEqual(input, {});
@@ -823,7 +823,7 @@ describe("host bridge capability calls", function () {
     const token = configureHostBridgeServerForTests({
       token: "synthesis-token",
       resolveSynthesisClient: () =>
-        createInProcessSynthesisClient({
+        createSynthesisClientFromPort({
           getReferenceSidecarIndex() {
             return emptyReferenceIndex();
           },
@@ -923,7 +923,7 @@ describe("host bridge capability calls", function () {
     const token = configureHostBridgeServerForTests({
       token: "synthesis-boundary-token",
       resolveSynthesisClient: () =>
-        createInProcessSynthesisClient({
+        createSynthesisClientFromPort({
           async getPaperArtifactManifest() {
             return {
               artifacts: [
@@ -1106,7 +1106,7 @@ describe("host bridge capability calls", function () {
     const token = configureHostBridgeServerForTests({
       token: "debug-on-token",
       resolveSynthesisClient: () =>
-        createInProcessSynthesisClient({
+        createSynthesisClientFromPort({
           debugSynthesisSnapshot() {
             return {
               schemaId: "synthesis.debug-maintenance.v1",
@@ -1363,7 +1363,7 @@ describe("host bridge capability calls", function () {
     const token = configureHostBridgeServerForTests({
       token: "debug-danger-token",
       resolveSynthesisClient: () =>
-        createInProcessSynthesisClient({
+        createSynthesisClientFromPort({
           debugSynthesisCleanInstallReset() {
             return { ok: true, status: "preview", diagnostics: [] };
           },

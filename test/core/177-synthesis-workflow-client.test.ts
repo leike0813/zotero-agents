@@ -10,7 +10,7 @@ import {
   materializeTopicApplyRequest,
   snapshotWorkflowSynthesisItem,
 } from "../../src/modules/synthesisClient/workflowHostClient";
-import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const WORKFLOW_METHODS = [
@@ -390,9 +390,9 @@ describe("Synthesis workflow client migration", function () {
     );
   });
 
-  it("reconstructs read-only legacy asset access inside the in-process adapter", async function () {
+  it("reconstructs read-only asset access inside the client port adapter", async function () {
     let capturedBundle: unknown;
-    const client = createInProcessSynthesisClient({
+    const client = createSynthesisClientFromPort({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },

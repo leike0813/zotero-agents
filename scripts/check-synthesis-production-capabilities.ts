@@ -79,7 +79,7 @@ const OPERATIONS_PATH = path.join(
 );
 const PORT_PATH = path.join(
   ROOT,
-  "src/modules/synthesisClient/inProcessClient.ts",
+  "src/modules/synthesisClient/clientPortAdapter.ts",
 );
 const RUST_LEGACY_COMPAT_DISPATCH_PATH = path.join(
   ROOT,

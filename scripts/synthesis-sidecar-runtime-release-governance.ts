@@ -122,7 +122,6 @@ const BUILD_STATIC_INPUTS = [
   "scripts/package-synthesis-sidecar-runtime.ts",
 ] as const;
 const VERIFICATION_STATIC_INPUTS = [
-  "scripts/synthesis-application-parity-policy.ts",
 ] as const;
 const PREBUILD_PIPELINE_STATIC_INPUTS = [
   ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
@@ -213,7 +212,6 @@ export async function synthesisSidecarRuntimeIdentityInputs(
   const verificationOracleFiles = (
     await Promise.all(
       [
-        "apps/synthesis-service/src",
         "packages/synthesis-application/src",
         "packages/synthesis-contracts/contract-set",
         "packages/synthesis-engine/src",

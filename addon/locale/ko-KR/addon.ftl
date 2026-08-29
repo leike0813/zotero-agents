@@ -1359,7 +1359,6 @@ synthesis-concepts-cache-stale = 개념 캐시 오래됨
 synthesis-concepts-cache-ready = 개념 캐시 준비됨
 synthesis-concepts-overlay-on = 오버레이 켜기
 synthesis-concepts-overlay-off = 오버레이 끄기
-synthesis-concepts-audit-aliases = 별칭 감사
 synthesis-action-keep-alias = 별칭 유지
 synthesis-action-remove-alias = 별칭 제거
 synthesis-concepts-selected = %count%개 개념 선택됨

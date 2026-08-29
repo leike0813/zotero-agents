@@ -42,22 +42,22 @@ assertions MUST be deleted rather than recreated.
 - **THEN** its stable observable invariant has one named surviving owner or is explicitly classified as implementation-only
 - **AND** the Node import is removed before the workspace is deleted
 
-### Requirement: R9 and Stage 1 completion SHALL require final acceptance
+### Requirement: R9 and Stage 1 completion SHALL require separately governed final acceptance
 
-R9 and Stage 1 SHALL remain incomplete until one source identity passes the
-seven-platform native build, fingerprint, SBOM/provenance/license, 15/75 MiB
-runtime budgets, final XPI native-only inventory and 100 MiB budget,
-clean/existing-data/corrupt/crash/offline cases, registered schema-migration
-backup/failure and runbook rehearsal,
-and representative Zotero 7 and Zotero 9 real-machine smoke. Passing these
-gates MUST NOT by itself publish a release or authorize Gitee synchronization.
+This change MAY finish source retirement after its local native-only gates and
+an authorized post-deletion seven-target candidate pass. R9 and Stage 1 SHALL
+remain incomplete until `complete-synthesis-r9-stage1-acceptance` binds the
+final XPI, installation, failure, migration, runbook, and Zotero 7/9
+real-machine results to one source identity. Passing either change MUST NOT by
+itself publish a release or authorize Gitee synchronization.
 
-#### Scenario: Local deletion gates pass without final matrix
-- **WHEN** Node source is absent and all local tests/builds pass but remote, XPI, or real-machine evidence is incomplete
-- **THEN** the change may report local implementation complete
-- **AND** it MUST NOT report complete R9 or Stage 1 acceptance
+#### Scenario: Retirement and candidate gates pass without final matrix
+- **WHEN** Node source is absent and all local plus authorized seven-target
+  candidate checks pass but XPI, installation, or real-machine evidence is incomplete
+- **THEN** this retirement change may complete
+- **AND** R9 and Stage 1 MUST remain explicitly incomplete
 
-#### Scenario: Final matrix passes
-- **WHEN** every required result is bound to the same approved source identity
+#### Scenario: Separate final matrix passes
+- **WHEN** the acceptance change binds every required result to the same approved source identity
 - **THEN** R9 and Stage 1 may be declared complete
 - **AND** release publication remains a separate explicitly authorized action

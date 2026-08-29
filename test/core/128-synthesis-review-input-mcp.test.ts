@@ -6,15 +6,15 @@ import {
 } from "../../src/modules/hostBridgeFileRegistry";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
 import {
-  createInProcessSynthesisClient,
-  type LegacySynthesisPort,
-} from "../../src/modules/synthesisClient/inProcessClient";
+  createSynthesisClientFromPort,
+  type SynthesisClientPort,
+} from "../../src/modules/synthesisClient/clientPortAdapter";
 
 type SynthesisClientPorts = Record<string, (...args: any[]) => any>;
 
 function resolveClientFromPorts(ports: SynthesisClientPorts) {
-  const client = createInProcessSynthesisClient(
-    ports as unknown as LegacySynthesisPort,
+  const client = createSynthesisClientFromPort(
+    ports as unknown as SynthesisClientPort,
   );
   return () => client;
 }

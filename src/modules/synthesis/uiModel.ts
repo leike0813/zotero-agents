@@ -1037,7 +1037,6 @@ export type SynthesisUiHostCommandName =
   | "clearStagedTagSuggestions"
   | "rebuildTagVocabularyIndex"
   | "rebuildConceptKbIndex"
-  | "auditConceptAliases"
   | "deleteConceptEntry"
   | "applyConceptReviewAction"
   | "updateConceptDisplayText"
@@ -1131,7 +1130,6 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "clearStagedTagSuggestions",
   "rebuildTagVocabularyIndex",
   "rebuildConceptKbIndex",
-  "auditConceptAliases",
   "deleteConceptEntry",
   "applyConceptReviewAction",
   "updateConceptDisplayText",
@@ -1190,7 +1188,6 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   clearStagedTagSuggestions: "Clear staged tags",
   rebuildTagVocabularyIndex: "Rebuild tag index",
   rebuildConceptKbIndex: "Rebuild concept index",
-  auditConceptAliases: "Audit concept aliases",
   deleteConceptEntry: "Delete concept",
   applyConceptReviewAction: "Apply concept review",
   updateConceptDisplayText: "Update concept text",

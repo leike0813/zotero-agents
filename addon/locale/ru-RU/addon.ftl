@@ -1359,7 +1359,6 @@ synthesis-concepts-cache-stale = Кэш концепций устарел
 synthesis-concepts-cache-ready = Кэш концепций готов
 synthesis-concepts-overlay-on = Наложение включено
 synthesis-concepts-overlay-off = Наложение выключено
-synthesis-concepts-audit-aliases = Проверить псевдонимы
 synthesis-action-keep-alias = Сохранить псевдоним
 synthesis-action-remove-alias = Удалить псевдоним
 synthesis-concepts-selected = Выбрано концепций: %count%

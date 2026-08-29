@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
-import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import {
   SYNTHESIS_CITATION_GRAPH_BUILD_REFERENCE_MAX,
   SYNTHESIS_CITATION_GRAPH_BUILD_SOURCE_MAX,
@@ -13,7 +12,6 @@ import {
   type SynthesisCitationGraphBuildRequest,
 } from "../../packages/synthesis-engine/src/citationGraphBuild";
 import { buildUnifiedCitationGraph } from "../../src/modules/synthesis/citationGraph";
-import { buildProductionCitationGraphWithEngine } from "../../src/modules/synthesis/citationGraphBuildEngineAdapter";
 
 function sampleRequest(): SynthesisCitationGraphBuildRequest {
   return {
@@ -282,104 +280,7 @@ describe("Synthesis Unified Citation Graph build engine", function () {
     assert.equal(graph.diagnostics.reference_stats.unresolved, 1);
   });
 
-  it("projects production graph records without changing persistence semantics", async function () {
-    const built = await buildProductionCitationGraphWithEngine({
-      engine: createInProcessSynthesisCitationGraphBuildEngine(),
-      timestamp: "2026-07-16T00:00:00.000Z",
-      input: {
-        scope: "source_slice",
-        sourceLiteratureItemIds: ["1:A"],
-        libraryNodes: [
-          {
-            literatureItemId: "1:A",
-            title: "Source",
-            year: "2024",
-            authors: ["Source Author"],
-          },
-          {
-            literatureItemId: "1:B",
-            title: "Bound Target",
-            year: "2020",
-            authors: ["Target Author"],
-          },
-        ],
-        references: [
-          {
-            edgeId: "edge:raw-1",
-            referenceInstanceId: "raw-1",
-            sourceLiteratureItemId: "1:A",
-            targetLiteratureItemId: "1:B",
-            targetKind: "library_paper",
-            targetAuthors: [],
-            resolutionId: "canonical:1",
-            roles: ["background"],
-            rolesJson: '[{"role":"background","count":1}]',
-            weight: 1,
-            createdAt: "2026-07-15T00:00:00.000Z",
-          },
-          {
-            edgeId: "edge:raw-2",
-            referenceInstanceId: "raw-2",
-            sourceLiteratureItemId: "1:A",
-            targetLiteratureItemId: "canonical:2",
-            targetKind: "external_reference",
-            targetTitle: "External Target",
-            targetYear: "2019",
-            targetAuthors: ["External Author"],
-            resolutionId: "canonical:2",
-            roles: [],
-            rolesJson: "[]",
-            weight: 1,
-            createdAt: "2026-07-15T00:00:01.000Z",
-          },
-        ],
-      },
-    });
-
-    assert.deepInclude(built.records.nodes.get("1:A"), {
-      literatureItemId: "1:A",
-      hasZoteroBinding: true,
-      title: "Source",
-      authorsJson: '["Source Author"]',
-    });
-    assert.deepInclude(built.records.nodes.get("canonical:2"), {
-      literatureItemId: "canonical:2",
-      hasZoteroBinding: false,
-      title: "External Target",
-      authorsJson: '["External Author"]',
-    });
-    assert.deepEqual(
-      built.records.edges.map((edge) => ({
-        edgeId: edge.edgeId,
-        status: edge.edgeStatus,
-        rolesJson: edge.rolesJson,
-      })),
-      [
-        {
-          edgeId: "edge:raw-1",
-          status: "accepted",
-          rolesJson: '[{"role":"background","count":1}]',
-        },
-        {
-          edgeId: "edge:raw-2",
-          status: "unbound",
-          rolesJson: "[]",
-        },
-      ],
-    );
-    assert.deepInclude(
-      built.records.lightweightMetrics.find(
-        (metric) => metric.literatureItemId === "1:A",
-      ),
-      {
-        outgoingCount: 2,
-        matchedOutgoingCount: 1,
-        unresolvedOutgoingCount: 1,
-      },
-    );
-  });
-
-  it("supports checkpoint abort and direct/Rust worker canonical parity", async function () {
+  it("supports checkpoint abort and the public engine facade", async function () {
     const request = sampleRequest();
     assert.throws(() =>
       computeSynthesisCitationGraphBuild(request, {
@@ -392,14 +293,10 @@ describe("Synthesis Unified Citation Graph build engine", function () {
       }),
     );
 
-    const direct =
-      await createInProcessSynthesisCitationGraphBuildEngine().compute(request);
-    const pool = createSynthesisSidecarComputeWorkerPool();
-    try {
-      assert.deepEqual(await pool.runCitationGraphBuild(request), direct);
-    } finally {
-      await pool.shutdown();
-    }
+    assert.deepEqual(
+      await createInProcessSynthesisCitationGraphBuildEngine().compute(request),
+      computeSynthesisCitationGraphBuild(request),
+    );
   });
 
   it("keeps the engine source environment-neutral", async function () {

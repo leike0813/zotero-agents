@@ -12,7 +12,7 @@ import { dirname, extname, join, resolve } from "path";
 import ts from "typescript";
 import packageJson from "../../../package.json";
 import { getCiGateStages } from "../../../scripts/ci-gate-plan";
-import { resolveSynthesisSidecarStage1Suite } from "../../../scripts/synthesis-sidecar-stage1-node-suite";
+import { resolveSynthesisNativeStage1Suite } from "../../../scripts/synthesis-native-stage1-suite";
 
 type ScriptsMap = Record<string, string>;
 
@@ -296,38 +296,39 @@ describe("suite governance constraints", function () {
     })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
       .map((entry) => `test/core/${entry.name}`);
-    const suite = resolveSynthesisSidecarStage1Suite(files);
+    const suite = resolveSynthesisNativeStage1Suite(files);
 
-    assert.equal(suite.files.length, 56);
+    assert.equal(suite.files.length, 36);
     assert.equal(
       suite.files[0],
       "test/core/175-synthesis-client-foundation.test.ts",
     );
     assert.equal(
       suite.files.at(-1),
-      "test/core/235-synthesis-native-webdav-maintenance-surface.test.ts",
+      "test/core/239-synthesis-sidecar-build-promotion.test.ts",
     );
     assert.deepEqual(
       suite.segments.map((segment) => segment.files.length),
-      [26, 1, 16, 13],
+      [17, 2, 17],
     );
     assert.deepEqual(suite.segments[1].files, [
-      "test/core/202-synthesis-citation-graph-build-streaming-worker.test.ts",
+      "test/core/193-synthesis-sidecar-runtime-packaging.test.ts",
+      "test/core/218-synthesis-cross-language-sidecar-contract.test.ts",
     ]);
 
     assert.throws(() =>
-      resolveSynthesisSidecarStage1Suite(
+      resolveSynthesisNativeStage1Suite(
         files.filter((filePath) => !filePath.includes("/175-")),
       ),
     );
     assert.throws(() =>
-      resolveSynthesisSidecarStage1Suite([
+      resolveSynthesisNativeStage1Suite([
         ...files,
         "test/core/175-synthesis-client-foundation.test.ts",
       ]),
     );
     assert.throws(() =>
-      resolveSynthesisSidecarStage1Suite(
+      resolveSynthesisNativeStage1Suite(
         files.map((filePath) =>
           filePath.includes("/175-")
             ? "test/core/175-unrelated-foundation.test.ts"
@@ -337,12 +338,12 @@ describe("suite governance constraints", function () {
     );
   });
 
-  it("Risk: PR and release gates share one blocking Synthesis Stage 1 Node milestone", function () {
+  it("Risk: PR and release gates share one blocking native Synthesis Stage 1 milestone", function () {
     const scripts = getScripts();
 
     assert.match(
-      scripts["test:node:synthesis-sidecar:stage1"] || "",
-      /run-node-test-shards\.ts\s+--suite\s+synthesis-sidecar-stage1/i,
+      scripts["test:synthesis-native:stage1"] || "",
+      /run-node-test-shards\.ts\s+--suite\s+synthesis-native-stage1/i,
     );
     assert.deepEqual(
       getCiGateStages("pr").map((stage) => stage.script),
@@ -350,7 +351,7 @@ describe("suite governance constraints", function () {
         "check:localization-governance",
         "check:ssot-invariants",
         "check:host-bridge-content",
-        "test:node:synthesis-sidecar:stage1",
+        "test:synthesis-native:stage1",
         "test:lite",
       ],
     );
@@ -360,7 +361,7 @@ describe("suite governance constraints", function () {
         "check:localization-governance",
         "check:ssot-invariants",
         "check:host-bridge-content",
-        "test:node:synthesis-sidecar:stage1",
+        "test:synthesis-native:stage1",
         "test:full",
       ],
     );

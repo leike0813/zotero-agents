@@ -199,7 +199,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
       inputs.verification,
       "packages/synthesis-application/src/index.ts",
     );
-    assert.include(
+    assert.notInclude(
       inputs.verification,
       "apps/synthesis-service/src/isolatedRepository.ts",
     );

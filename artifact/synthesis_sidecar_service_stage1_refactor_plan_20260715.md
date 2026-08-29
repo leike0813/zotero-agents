@@ -1,6 +1,8 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；`Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete` 已完成；2026-07-18 起暂停原 Node WS6/WS7 路线，下一阶段改为 Rust parity 与 native cutover；这不表示 Rust 实现、生产切换、生产就绪或真实机器验收已经完成
+> 2026-08-29 状态标注：本文是 WS0-WS5 与 Node oracle 路线的历史计划，已由 Rust 迁移计划和 R9 retirement changes 取代。当前开发树已删除插件 application/repository owner、`apps/synthesis-service` 和 JavaScript worker；本文中的 Node WS6/WS7、可执行 oracle、保留 service/repository 等描述只用于解释迁移历史。最终七平台 bundle/XPI inventory 与 Zotero 7/9 真实机器验收由 `complete-synthesis-r9-stage1-acceptance` 继续跟踪。
+
+> 状态：历史计划；WS0-WS5 证据保留，后续路线已被 Rust native production owner 与 R9 retirement changes 取代
 >
 > 日期：2026-07-15
 >

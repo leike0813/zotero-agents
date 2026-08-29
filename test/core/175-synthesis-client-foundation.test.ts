@@ -8,7 +8,10 @@ import {
   rebuildSynthesisWorkbenchSurfaceResult,
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../packages/synthesis-contracts/src/index";
-import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
+import {
+  createSynthesisClientFromPort,
+  type SynthesisClientPort,
+} from "../../src/modules/synthesisClient/clientPortAdapter";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import {
   toSynthesisUiSnapshotInput,
@@ -17,6 +20,9 @@ import {
 } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+const createTestSynthesisClient = (
+  port: Partial<SynthesisClientPort>,
+) => createSynthesisClientFromPort(port as SynthesisClientPort);
 const WORKFLOW_REVIEW_RESULT = (
   JSON.parse(
     fs.readFileSync(
@@ -148,7 +154,7 @@ describe("Synthesis client foundation", function () {
       ],
       diagnostics: [],
     };
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions(args) {
         requestedFilter = args?.filter || "";
         return expected;
@@ -164,7 +170,7 @@ describe("Synthesis client foundation", function () {
   });
 
   it("normalizes ordinary failures to a stable client error", async function () {
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         throw new Error("legacy exploded");
       },
@@ -184,7 +190,7 @@ describe("Synthesis client foundation", function () {
     const expected = new SynthesisClientError("timeout", "timed out", {
       operation: "topics.listWorkflowOptions",
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         throw expected;
       },
@@ -200,7 +206,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict Topic commands through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; request?: unknown }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -269,14 +275,14 @@ describe("Synthesis client foundation", function () {
     ]);
   });
 
-  it("rejects invalid Topic commands before resolving legacy ports", async function () {
+  it("rejects invalid Topic commands before resolving client ports", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -321,7 +327,7 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed Topic command ports", async function () {
     const preserved = new SynthesisClientError("conflict", "restore conflict");
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -377,7 +383,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict Topic Graph commands through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; request?: unknown }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -436,14 +442,14 @@ describe("Synthesis client foundation", function () {
     ]);
   });
 
-  it("rejects invalid Topic Graph commands before resolving legacy ports", async function () {
+  it("rejects invalid Topic Graph commands before resolving client ports", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -501,12 +507,12 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed Topic Graph command ports", async function () {
     const preserved = new SynthesisClientError("conflict", "review conflict");
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -578,7 +584,7 @@ describe("Synthesis client foundation", function () {
       operation,
       completed_at: "2026-07-16T00:00:00.000Z",
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -644,12 +650,12 @@ describe("Synthesis client foundation", function () {
 
   it("rejects invalid Sync conflict requests before resolving ports", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -685,12 +691,12 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing, failed, busy, preserved, and invalid Sync results", async function () {
     const preserved = new SynthesisClientError("conflict", "sync conflict");
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -739,7 +745,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes Tag vocabulary maintenance and export through normalized ports", async function () {
     const calls: string[] = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -783,12 +789,12 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed Tag vocabulary maintenance ports", async function () {
     const preserved = new SynthesisClientError("conflict", "tag conflict");
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -804,7 +810,7 @@ describe("Synthesis client foundation", function () {
         return ["valid", 7];
       },
     });
-    const invalidResultClient = createInProcessSynthesisClient({
+    const invalidResultClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -815,7 +821,7 @@ describe("Synthesis client foundation", function () {
         return [];
       },
     });
-    const ordinaryFailureClient = createInProcessSynthesisClient({
+    const ordinaryFailureClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -881,7 +887,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict Tag import commands through normalized ports", async function () {
     const calls: Array<{ operation: string; request: unknown }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -957,14 +963,14 @@ describe("Synthesis client foundation", function () {
     ]);
   });
 
-  it("rejects invalid Tag import requests before resolving legacy ports", async function () {
+  it("rejects invalid Tag import requests before resolving client ports", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1013,12 +1019,12 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed Tag import ports", async function () {
     const preserved = new SynthesisClientError("conflict", "import conflict");
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1031,7 +1037,7 @@ describe("Synthesis client foundation", function () {
         });
       },
     });
-    const ordinaryFailureClient = createInProcessSynthesisClient({
+    const ordinaryFailureClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1039,7 +1045,7 @@ describe("Synthesis client foundation", function () {
         throw new Error("invalid Tag import JSON");
       },
     });
-    const invalidResultClient = createInProcessSynthesisClient({
+    const invalidResultClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1119,7 +1125,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict staged Tag bulk commands through normalized ports", async function () {
     const calls: Array<{ operation: string; request?: unknown }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1171,7 +1177,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict staged Tag updates through a canonical normalized port", async function () {
     let captured: unknown;
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1227,14 +1233,14 @@ describe("Synthesis client foundation", function () {
     });
   });
 
-  it("rejects invalid staged Tag updates before resolving the legacy port", async function () {
+  it("rejects invalid staged Tag updates before resolving the client port", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1289,12 +1295,12 @@ describe("Synthesis client foundation", function () {
     };
     const preserved = new SynthesisClientError("conflict", "tag conflict");
     const clients = {
-      missing: createInProcessSynthesisClient({
+      missing: createTestSynthesisClient({
         async listWorkflowTopicOptions() {
           return { options: [], diagnostics: [] };
         },
       }),
-      preserved: createInProcessSynthesisClient({
+      preserved: createTestSynthesisClient({
         async listWorkflowTopicOptions() {
           return { options: [], diagnostics: [] };
         },
@@ -1302,7 +1308,7 @@ describe("Synthesis client foundation", function () {
           throw preserved;
         },
       }),
-      busy: createInProcessSynthesisClient({
+      busy: createTestSynthesisClient({
         async listWorkflowTopicOptions() {
           return { options: [], diagnostics: [] };
         },
@@ -1312,7 +1318,7 @@ describe("Synthesis client foundation", function () {
           });
         },
       }),
-      ordinary: createInProcessSynthesisClient({
+      ordinary: createTestSynthesisClient({
         async listWorkflowTopicOptions() {
           return { options: [], diagnostics: [] };
         },
@@ -1320,7 +1326,7 @@ describe("Synthesis client foundation", function () {
           throw new Error("update exploded");
         },
       }),
-      invalidResult: createInProcessSynthesisClient({
+      invalidResult: createTestSynthesisClient({
         async listWorkflowTopicOptions() {
           return { options: [], diagnostics: [] };
         },
@@ -1351,7 +1357,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict Tag Vocabulary entry mutations through canonical normalized ports", async function () {
     const captured: unknown[] = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1407,7 +1413,7 @@ describe("Synthesis client foundation", function () {
 
   it("validates Tag Vocabulary entry mutations before ports and preserves stable failures", async function () {
     let invocations = 0;
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1420,7 +1426,7 @@ describe("Synthesis client foundation", function () {
         return {};
       },
     });
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1528,7 +1534,7 @@ describe("Synthesis client foundation", function () {
       { code: "internal", port: async () => [] },
     ];
     for (const testCase of cases) {
-      const target = createInProcessSynthesisClient({
+      const target = createTestSynthesisClient({
         async listWorkflowTopicOptions() {
           return { options: [], diagnostics: [] };
         },
@@ -1545,14 +1551,14 @@ describe("Synthesis client foundation", function () {
     }
   });
 
-  it("rejects invalid staged Tag selections before resolving legacy ports", async function () {
+  it("rejects invalid staged Tag selections before resolving client ports", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1597,12 +1603,12 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed staged Tag bulk ports", async function () {
     const preserved = new SynthesisClientError("conflict", "tag conflict");
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1618,7 +1624,7 @@ describe("Synthesis client foundation", function () {
         throw new Error("clear exploded");
       },
     });
-    const invalidResultClient = createInProcessSynthesisClient({
+    const invalidResultClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1694,7 +1700,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes the four Citation Graph commands through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1752,9 +1758,9 @@ describe("Synthesis client foundation", function () {
     ]);
   });
 
-  it("validates Citation Graph layout requests before invoking legacy code", async function () {
+  it("validates Citation Graph layout requests before invoking client code", async function () {
     let invocations = 0;
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1784,7 +1790,7 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed Citation Graph command ports", async function () {
     const preserved = new SynthesisClientError("conflict", "retry conflict");
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1830,7 +1836,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes the four Reference maintenance commands through narrow normalized ports", async function () {
     const calls: string[] = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1878,7 +1884,7 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed Reference maintenance ports", async function () {
     const preserved = new SynthesisClientError("conflict", "retry conflict");
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -1932,7 +1938,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict Reference review and proposal requests through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; request: unknown }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2090,14 +2096,14 @@ describe("Synthesis client foundation", function () {
     ]);
   });
 
-  it("rejects invalid Reference review and proposal requests before invoking legacy ports", async function () {
+  it("rejects invalid Reference review and proposal requests before invoking client ports", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2228,7 +2234,7 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed Reference review ports", async function () {
     const preserved = new SynthesisClientError("conflict", "review conflict");
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2241,7 +2247,7 @@ describe("Synthesis client foundation", function () {
         });
       },
     });
-    const preservingClient = createInProcessSynthesisClient({
+    const preservingClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2302,7 +2308,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict canonical Reference mutations through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; request: unknown }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2468,14 +2474,14 @@ describe("Synthesis client foundation", function () {
     ]);
   });
 
-  it("rejects invalid canonical Reference mutations before resolving legacy ports", async function () {
+  it("rejects invalid canonical Reference mutations before resolving client ports", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2584,7 +2590,7 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed canonical Reference mutation ports", async function () {
     const preserved = new SynthesisClientError("conflict", "merge conflict");
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2657,7 +2663,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes strict Concept commands through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; request?: unknown }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2774,14 +2780,14 @@ describe("Synthesis client foundation", function () {
     ]);
   });
 
-  it("rejects invalid Concept commands before resolving legacy ports", async function () {
+  it("rejects invalid Concept commands before resolving client ports", async function () {
     let invocations = 0;
-    const missingPortClient = createInProcessSynthesisClient({
+    const missingPortClient = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
     });
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2868,7 +2874,7 @@ describe("Synthesis client foundation", function () {
 
   it("normalizes missing and failed Concept command ports", async function () {
     const preserved = new SynthesisClientError("conflict", "delete conflict");
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -2931,7 +2937,7 @@ describe("Synthesis client foundation", function () {
 
   it("routes the five region-scoped Workbench reads through narrow ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -3108,9 +3114,9 @@ describe("Synthesis client foundation", function () {
     assert.notProperty(client.workbench, "getSynthesisSnapshot");
   });
 
-  it("rejects non-JSON Workbench state before invoking the legacy port", async function () {
+  it("rejects non-JSON Workbench state before invoking the client port", async function () {
     let invoked = false;
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -3132,9 +3138,9 @@ describe("Synthesis client foundation", function () {
     }
   });
 
-  it("rejects unprojected Workbench UI state before invoking the legacy port", async function () {
+  it("rejects unprojected Workbench UI state before invoking the client port", async function () {
     let invoked = false;
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -3157,7 +3163,7 @@ describe("Synthesis client foundation", function () {
   });
 
   it("rejects a Workbench result that belongs to another surface", async function () {
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -3202,9 +3208,9 @@ describe("Synthesis client foundation", function () {
     }
   });
 
-  it("normalizes Workbench legacy failures without retrying", async function () {
+  it("normalizes Workbench client failures without retrying", async function () {
     let attempts = 0;
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -3520,7 +3526,7 @@ describe("Synthesis client foundation", function () {
   });
 
   it("preserves SQLite busy as a stable Workbench client error", async function () {
-    const client = createInProcessSynthesisClient({
+    const client = createTestSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -3543,9 +3549,9 @@ describe("Synthesis client foundation", function () {
     }
   });
 
-  it("isolates legacy default-service resolution in client composition", function () {
-    const composition = fs.readFileSync(
-      path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
+  it("isolates neutral grouped-client adaptation in client composition", function () {
+    const adapter = fs.readFileSync(
+      path.join(ROOT, "src/modules/synthesisClient/clientPortAdapter.ts"),
       "utf8",
     );
     const defaultClient = fs.readFileSync(
@@ -3557,9 +3563,13 @@ describe("Synthesis client foundation", function () {
       "utf8",
     );
 
-    assert.include(composition, "createDefaultLegacyService");
-    assert.include(composition, "createZoteroSynthesisHostReadPort");
-    assert.notMatch(composition, /\btype\s+SynthesisService\b/);
+    assert.include(adapter, "createSynthesisClientFromPort");
+    assert.notInclude(adapter, "../synthesis/service");
+    assert.notInclude(adapter, "../synthesis/repository");
+    assert.notInclude(adapter, "legacyComposition");
+    assert.notInclude(adapter, "getReadySynthesisProductionControlConnection");
+    assert.notInclude(adapter, "createZoteroSynthesisHostReadPort");
+    assert.notMatch(adapter, /\btype\s+SynthesisService\b/);
     assert.notInclude(defaultClient, "getDefaultSynthesisService");
     assert.notInclude(defaultClient, "../synthesis/service");
     assert.notInclude(consumer, "getDefaultSynthesisService");
@@ -3665,7 +3675,7 @@ describe("Synthesis client foundation", function () {
         },
       ]),
     );
-    const client: any = createInProcessSynthesisClient(ports as any);
+    const client: any = createTestSynthesisClient(ports as any);
     const topicRequests = {
       listTopics: { cursor: "", limit: 50 },
       findTopicsByPaperRef: { paper_refs: ["1:ABCD1234"] },
@@ -3738,7 +3748,7 @@ describe("Synthesis client foundation", function () {
   });
 
   it("classifies Host Bridge client boundary failures", async function () {
-    const missing: any = createInProcessSynthesisClient({} as any);
+    const missing: any = createTestSynthesisClient({} as any);
     try {
       await missing.concepts.query({});
       assert.fail("expected unavailable Concept query");
@@ -3755,7 +3765,7 @@ describe("Synthesis client foundation", function () {
     }
 
     let invoked = false;
-    const invalidRequest: any = createInProcessSynthesisClient({
+    const invalidRequest: any = createTestSynthesisClient({
       async debugSynthesisSnapshot() {
         invoked = true;
         return {};
@@ -3772,7 +3782,7 @@ describe("Synthesis client foundation", function () {
       assert.isFalse(invoked);
     }
 
-    const invalidResult: any = createInProcessSynthesisClient({
+    const invalidResult: any = createTestSynthesisClient({
       async debugSynthesisSnapshot() {
         return [];
       },

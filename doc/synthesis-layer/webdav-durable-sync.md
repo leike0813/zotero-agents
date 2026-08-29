@@ -14,9 +14,10 @@ New manifests advertise `webdav-sync.v1`. Readers validate schema, paths, hashes
 
 The production codec delegates its v2 canonical envelope, bundle, chunk, manifest, strict v1/v2 verification, live identity, sync-index validation, and three-way classification rules to the shared durable-bundle foundation. Existing remote paths, canonical text length fields, hashes, progress, preview/apply results, preferences, credentials, and Host port wire shape remain unchanged. Production WebDAV now delegates environment-neutral HEAD/ETag, publication ordering, retry, conflict, and lifecycle policy to the shared application through adapters over its existing roots.
 
-The retained Node/TypeScript WebDAV implementation is a differential oracle
-only. Tests give it isolated roots and a disabled Host port; no production
-startup, RPC route, credential access, fallback, or mutation can select it.
+The development tree retains no executable Node/TypeScript WebDAV application.
+Behavioral regression evidence comes from language-neutral contract fixtures
+and Rust-native application/process tests over isolated roots; production has
+no alternate startup, credential, fallback, or mutation route.
 
 Durable bundles include user-owned and non-rebuildable Synthesis facts. They exclude:
 

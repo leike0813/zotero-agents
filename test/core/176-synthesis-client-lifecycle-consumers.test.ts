@@ -2,7 +2,7 @@ import { assert } from "chai";
 import fs from "fs";
 import path from "path";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
-import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 import {
   drainDefaultSynthesisClientGeneration,
   getFreshDefaultSynthesisClient,
@@ -57,7 +57,7 @@ describe("Synthesis lifecycle client consumers", function () {
   });
 
   it("adapts lifecycle and protected maintenance commands", async function () {
-    const client = createInProcessSynthesisClient({
+    const client = createSynthesisClientFromPort({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -85,7 +85,7 @@ describe("Synthesis lifecycle client consumers", function () {
 
   it("reduces legacy notifier rows to bounded consumed receipts", async function () {
     let consumed = false;
-    const client = createInProcessSynthesisClient({
+    const client = createSynthesisClientFromPort({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
@@ -386,73 +386,5 @@ describe("Synthesis lifecycle client consumers", function () {
     }
   });
 
-  it("composes remote export delivery only in the production legacy root", function () {
-    const legacyComposition = fs.readFileSync(
-      path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
-      "utf8",
-    );
-    const readonlyComposition = fs.readFileSync(
-      path.join(ROOT, "src/modules/harness/synthesisReadonlyClient.ts"),
-      "utf8",
-    );
-    assert.include(legacyComposition, "createSynthesisHostExportDeliveryPort");
-    assert.include(legacyComposition, "hostExportDeliveryPort");
-    assert.notInclude(readonlyComposition, "hostExportDeliveryPort");
-  });
 
-  it("injects sidecar layout/metrics and in-process build engines in production composition", function () {
-    const legacyComposition = fs.readFileSync(
-      path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
-      "utf8",
-    );
-
-    assert.include(
-      legacyComposition,
-      "createSynthesisSidecarCitationGraphLayoutEngine",
-    );
-    assert.include(legacyComposition, "citationGraphLayoutEngine");
-    assert.include(
-      legacyComposition,
-      "createSynthesisSidecarCitationGraphMetricsEngine",
-    );
-    assert.include(legacyComposition, "citationGraphMetricsEngine");
-    assert.include(
-      legacyComposition,
-      "createInProcessSynthesisCitationGraphBuildEngine",
-    );
-    assert.include(legacyComposition, "citationGraphBuildEngine");
-    const readonlyComposition = fs.readFileSync(
-      path.join(ROOT, "src/modules/harness/synthesisReadonlyClient.ts"),
-      "utf8",
-    );
-    assert.include(
-      readonlyComposition,
-      "createInProcessSynthesisCitationGraphBuildEngine",
-    );
-    assert.include(readonlyComposition, "citationGraphBuildEngine");
-  });
-
-  it("composes Sync Host runtimes explicitly for production and readonly", function () {
-    const legacyComposition = fs.readFileSync(
-      path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
-      "utf8",
-    );
-    const readonlyComposition = fs.readFileSync(
-      path.join(ROOT, "src/modules/harness/synthesisReadonlyClient.ts"),
-      "utf8",
-    );
-    assert.include(
-      legacyComposition,
-      "createPrefsConfiguredSynthesisWebDavSyncPort",
-    );
-    assert.include(legacyComposition, "hostWebDavSyncPort");
-    assert.include(legacyComposition, "new AbortController()");
-    assert.include(legacyComposition, "owner.abortController?.abort()");
-    assert.include(legacyComposition, "runtimeAbortSignal");
-    assert.notInclude(legacyComposition, "onConfigurationChanged");
-    assert.include(
-      readonlyComposition,
-      "createDisabledSynthesisHostWebDavSyncPort",
-    );
-  });
 });

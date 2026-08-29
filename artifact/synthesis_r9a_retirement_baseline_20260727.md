@@ -1,5 +1,7 @@
 # Synthesis R9a retirement baseline
 
+> 2026-08-29 状态标注：这是固定在下述 source identity 上的删除前基线，不是当前文件清单。其记录的四个 plugin owner 文件和 `apps/synthesis-service` 已在后续 R9b 开发树中删除；哈希、操作数量、prebuild 与验收结论仍只说明原候选。新的 source-fresh 七平台/XPI/真实机器证据必须写入 `complete-synthesis-r9-stage1-acceptance`，不得回填或改写本基线。
+
 ## Source identity
 
 - Source commit: `f4e3650530c7cdcb2ad6c355aa83b33f3df77b7c`

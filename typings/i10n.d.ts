@@ -953,7 +953,6 @@ export type FluentMessageId =
   | 'synthesis-concept-preview-label'
   | 'synthesis-concept-proposal'
   | 'synthesis-concept-review-title'
-  | 'synthesis-concepts-audit-aliases'
   | 'synthesis-concepts-cache-ready'
   | 'synthesis-concepts-cache-stale'
   | 'synthesis-concepts-count'

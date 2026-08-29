@@ -34,17 +34,17 @@ invariants:
 
   - id: inv.runtime.single_production_owner
     severity: fatal
-    statement: During the sidecar migration, synthesis.db and Topic canonical current files have exactly one production owner; before cutover that owner is the Zotero plugin process, shadow service storage is isolated, and after cutover automatic in-process fallback is forbidden.
-    evidence: Migration ownership fixture and boundary guard.
+    statement: synthesis.db and the Topic canonical store have exactly one production owner, the current-session Rust sidecar; the plugin passes opaque paths through the supervisor and has no application owner, writer, implementation selector, or fallback.
+    evidence: Native production owner, supervisor, and zero-legacy boundary guards.
     test_refs:
-      - file: test/core/168-synthesis-sidecar-boundary.test.ts
+      - file: test/core/152-synthesis-invariant-guards.test.ts
         marker: "[inv.runtime.single_production_owner]"
         kind: static_guard
 
   - id: inv.runtime.sidecar_foundation_isolated
     severity: fatal
-    statement: The independent Node sidecar runtime is a loopback-only production-mutation-disabled control plane whose production worker routes are bounded Citation Graph layout and metrics; graph build remains an explicit canary. Its main process may own only the identity-bound isolated shadow repository and its private Topic, Reference Refresh, and Citation Graph application projections, while workers remain persistence-free and no service path can access the plugin production repository, canonical writers, Zotero, Host effects, sync runtime, or child processes. Private Reference Refresh uses bounded prepare/apply materialization without a Host or RPC route. Production worker routes have no in-process fallback.
-    evidence: Service application/repository/worker import-boundary, compute wire-capacity, and production-composition guards.
+    statement: The Rust sidecar library owns the complete production runtime graph and is reachable only through loopback-authenticated, bounded protocol surfaces. main.rs is a worker/serve CLI adapter; runtime_service owns storage, discovery, lifecycle, and cleanup, while runtime_server_loop owns only listener and connection draining.
+    evidence: Rust runtime ownership, worker protocol, server-loop boundary, and native production-composition guards.
     test_refs:
       - file: test/core/152-synthesis-invariant-guards.test.ts
         marker: "[inv.runtime.sidecar_foundation_isolated]"
@@ -52,10 +52,10 @@ invariants:
 
   - id: inv.runtime.sidecar_supervision_isolated
     severity: fatal
-    statement: Plugin startup may install, launch, and supervise the mutation-disabled product-owned Synthesis runtime and production Citation Graph layout may use its current ready compute connection, but supervision never resolves system Node or PATH, never grants production DB/canonical/Host ownership, and does not change the 113-method service or its single direct production consumer.
-    evidence: Runtime launcher/supervisor tests and production-composition guard.
+    statement: Plugin startup installs, launches, and supervises only the packaged Rust runtime. Readiness requires the current session health and handshake identity; supervision never resolves system Node or PATH, constructs an application owner, opens production storage, or selects another implementation.
+    evidence: Native installer, supervisor, current-session client, and zero-selector boundary guards.
     test_refs:
-      - file: test/core/168-synthesis-sidecar-boundary.test.ts
+      - file: test/core/152-synthesis-invariant-guards.test.ts
         marker: "[inv.runtime.sidecar_supervision_isolated]"
         kind: static_guard
 

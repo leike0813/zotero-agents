@@ -1,167 +1,35 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { parse as parseYaml } from "yaml";
 
-type MethodCategory = "query" | "command" | "host_effect" | "debug";
-type MethodDisposition = "client_capability" | "host_capability" | "internal";
-type MigrationDisposition =
-  | "direct"
-  | "merged"
-  | "host_owned"
-  | "internal"
-  | "pending"
-  | "retired";
+const ROOT = process.cwd();
+const CONTRACTS_ROOT = path.join(ROOT, "packages/synthesis-contracts/src");
 
-interface InventoryBaseline {
-  commit: string;
-  service_source: string;
-  service_factory: string;
-  public_method_count: number;
-  canonicalization: "sorted-newline-terminated";
-  fingerprint_sha256: string;
+const LEGACY_OWNER_PATHS = [
+  "src/modules/synthesisClient/legacyComposition.ts",
+  "src/modules/synthesisClient/inProcessClient.ts",
+  "src/modules/synthesis/service.ts",
+  "src/modules/synthesis/repository.ts",
+] as const;
+
+const NODE_SIDECAR_PATHS = [
+  "apps/synthesis-service",
+  "scripts/synthesis-sidecar-stage1-node-suite.ts",
+] as const;
+
+function repoPath(relativePath: string) {
+  return path.join(ROOT, relativePath);
 }
 
-interface InventoryAudit {
-  source_head: string;
-  worktree_state: string;
-  source_public_method_count: number;
-  wire_operation_count: number;
-  wire_only_extensions: string[];
-  deletion_authorization: string[];
-}
-
-interface InventoryConsumer {
-  path: string;
-  role: string;
-}
-
-interface InventoryMethodGroup {
-  id: string;
-  category: MethodCategory;
-  target_capability: string;
-  disposition: MethodDisposition;
-  consumer_groups: string[];
-  methods: Array<
-    | string
-    | {
-        name: string;
-        migration?: MigrationDisposition;
-        capability?: string;
-        host_capability?: string;
-        owner?: string;
-        introduced_after_baseline?: boolean;
-      }
-  >;
-}
-
-interface RawBoundaryInventory {
-  schema: string;
-  baseline: InventoryBaseline;
-  audit: InventoryAudit;
-  service_source: string;
-  service_factory: string;
-  direct_consumers: InventoryConsumer[];
-  production_native_route: {
-    operation_count: number;
-  };
-  method_groups: InventoryMethodGroup[];
-}
-
-export interface BoundaryInventoryMethod {
-  name: string;
-  category: MethodCategory;
-  target_capability: string;
-  disposition: MethodDisposition;
-  consumer_groups: string[];
-  migration: MigrationDisposition;
-  capability?: string;
-  host_capability?: string;
-  owner?: string;
-  introduced_after_baseline: boolean;
-}
-
-export interface BoundaryInventory {
-  schema: string;
-  baseline: InventoryBaseline;
-  audit: InventoryAudit;
-  service_source: string;
-  service_factory: string;
-  direct_consumers: InventoryConsumer[];
-  production_native_route: {
-    operation_count: number;
-  };
-  methods: BoundaryInventoryMethod[];
-}
-
-const ROOT_DIR = process.cwd();
-const INVENTORY_PATH = path.join(
-  ROOT_DIR,
-  "doc/synthesis-layer/contracts/service-api-migration.yaml",
-);
-const OPERATIONS_PATH = path.join(
-  ROOT_DIR,
-  "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
-);
-const CONTRACTS_ROOT = path.join(ROOT_DIR, "packages/synthesis-contracts/src");
-const SIDECAR_APP_ROOT = path.join(ROOT_DIR, "apps/synthesis-service/src");
-const REPOSITORY_ROOT = path.join(
-  ROOT_DIR,
-  "packages/synthesis-repository/src",
-);
-const APPLICATION_ROOT = path.join(
-  ROOT_DIR,
-  "packages/synthesis-application/src",
-);
-const CHILD_PROCESS_ALLOWLIST = new Set([
-  "apps/synthesis-service/src/rustComputeWorkerTransport.ts",
-]);
-const NODE_SQLITE_ALLOWLIST = new Set([
-  "apps/synthesis-service/src/repositoryNodeSqlite.ts",
-]);
-const TOPIC_CANONICAL_NODE_ALLOWLIST = new Set([
-  "apps/synthesis-service/src/topicCanonicalStoreNode.ts",
-]);
-const VALID_CATEGORIES = new Set<MethodCategory>([
-  "query",
-  "command",
-  "host_effect",
-  "debug",
-]);
-const VALID_DISPOSITIONS = new Set<MethodDisposition>([
-  "client_capability",
-  "host_capability",
-  "internal",
-]);
-const VALID_MIGRATIONS = new Set<MigrationDisposition>([
-  "direct",
-  "merged",
-  "host_owned",
-  "internal",
-  "pending",
-  "retired",
-]);
-
-function normalizedRepoPath(filePath: string): string {
-  return path.relative(ROOT_DIR, filePath).replace(/\\/g, "/");
-}
-
-function walkTypeScriptFiles(root: string): string[] {
-  const files: string[] = [];
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    const fullPath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...walkTypeScriptFiles(fullPath));
-    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
-      files.push(fullPath);
-    }
-  }
-  return files;
+function normalizedRepoPath(filePath: string) {
+  return path.relative(ROOT, filePath).replace(/\\/g, "/");
 }
 
 function walkFiles(root: string, extension: string): string[] {
+  if (!fs.existsSync(root)) {
+    return [];
+  }
   const files: string[] = [];
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     const fullPath = path.join(root, entry.name);
@@ -174,122 +42,39 @@ function walkFiles(root: string, extension: string): string[] {
   return files;
 }
 
-function readRawInventory(): RawBoundaryInventory {
-  return parseYaml(
-    fs.readFileSync(INVENTORY_PATH, "utf8"),
-  ) as RawBoundaryInventory;
-}
-
-export function readSynthesisBoundaryInventory(): BoundaryInventory {
-  const raw = readRawInventory();
-  const methods = (raw.method_groups || []).flatMap((group) =>
-    (group.methods || []).map((entry) => {
-      const method = typeof entry === "string" ? { name: entry } : entry;
-      const defaultMigration: MigrationDisposition =
-        group.disposition === "client_capability"
-          ? "direct"
-          : group.disposition === "host_capability"
-            ? "host_owned"
-            : "internal";
-      return {
-        name: method.name,
-        category: group.category,
-        target_capability: group.target_capability,
-        disposition: group.disposition,
-        consumer_groups: [...(group.consumer_groups || [])],
-        migration: method.migration ?? defaultMigration,
-        capability: method.capability,
-        host_capability: method.host_capability,
-        owner: method.owner,
-        introduced_after_baseline: method.introduced_after_baseline === true,
-      };
-    }),
-  );
-  return {
-    schema: raw.schema,
-    baseline: raw.baseline,
-    audit: raw.audit,
-    service_source: raw.service_source,
-    service_factory: raw.service_factory,
-    direct_consumers: raw.direct_consumers || [],
-    production_native_route: raw.production_native_route,
-    methods,
-  };
-}
-
-export function extractSynthesisPublicMethods(
-  inventory = readSynthesisBoundaryInventory(),
-): string[] {
-  const sourcePath = path.join(ROOT_DIR, inventory.service_source);
-  const source = fs.readFileSync(sourcePath, "utf8");
-  const sourceFile = ts.createSourceFile(
-    sourcePath,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const factory = sourceFile.statements.find(
-    (statement): statement is ts.FunctionDeclaration =>
-      ts.isFunctionDeclaration(statement) &&
-      statement.name?.text === inventory.service_factory,
-  );
-  if (!factory?.body) {
-    throw new Error(
-      `Synthesis service factory not found: ${inventory.service_factory}`,
-    );
-  }
-  const publicReturn = factory.body.statements.find(
-    (statement): statement is ts.ReturnStatement =>
-      ts.isReturnStatement(statement) &&
-      Boolean(statement.expression) &&
-      ts.isObjectLiteralExpression(statement.expression!),
-  );
-  if (
-    !publicReturn?.expression ||
-    !ts.isObjectLiteralExpression(publicReturn.expression)
-  ) {
-    throw new Error("Synthesis service public object return was not found");
-  }
-  return publicReturn.expression.properties
-    .map((property) => property.name?.getText(sourceFile) || "")
-    .map((name) => name.replace(/^["']|["']$/g, ""))
-    .filter(Boolean)
-    .sort();
-}
-
-function isDirectServiceConsumer(
+export function findForbiddenSynthesisSourcePatterns(
   relativePath: string,
   source: string,
-): boolean {
-  if (relativePath === "src/modules/synthesis/service.ts") {
-    return false;
-  }
-  if (/synthesis\/service["']/.test(source)) {
-    return true;
-  }
-  if (
-    relativePath.startsWith("src/modules/synthesis/") &&
-    /from\s+["']\.\/service["']/.test(source)
-  ) {
-    return true;
-  }
-  return /\b(getDefaultSynthesisService|createSynthesisService|SynthesisService)\b/.test(
-    source,
-  );
-}
-
-export function findSynthesisDirectConsumers(): string[] {
-  return walkTypeScriptFiles(path.join(ROOT_DIR, "src"))
-    .filter((filePath) => {
-      const relativePath = normalizedRepoPath(filePath);
-      return isDirectServiceConsumer(
-        relativePath,
-        fs.readFileSync(filePath, "utf8"),
-      );
-    })
-    .map(normalizedRepoPath)
-    .sort();
+): string[] {
+  const checks: Array<[string, RegExp]> = [
+    [
+      "legacy owner import",
+      /(?:from\s*|import\s*(?:\(\s*)?)["'][^"']*(?:synthesis\/(?:service|repository)|legacyComposition|inProcessClient)["']/,
+    ],
+    [
+      "legacy owner factory",
+      /\b(?:createSynthesisService|createSynthesisRepository|createDefaultLegacy\w*|getDefaultLegacy\w*|invalidateDefaultLegacy\w*|setDefaultLegacy\w*)\b/,
+    ],
+    [
+      "runtime implementation preference",
+      /(?:prefs?\.(?:get|set)\s*\(\s*["'][^"']*synthesis[^"']*(?:implementation|backend)|synthesis\.runtimeImplementation)/i,
+    ],
+    [
+      "runtime implementation environment selector",
+      /process\.env\s*(?:\.\s*SYNTHESIS_[A-Z0-9_]*(?:IMPLEMENTATION|BACKEND)|\[\s*["']SYNTHESIS_[^"']*(?:IMPLEMENTATION|BACKEND)["']\s*\])/,
+    ],
+    [
+      "runtime manifest selector",
+      /\bmanifest\s*\.\s*(?:implementation|backend)\s*={2,3}\s*["']node["']/i,
+    ],
+    [
+      "Node sidecar backend registration",
+      /\bregister\w*\s*\(\s*["'][^"']*synthesis[^"']*node[^"']*["']/i,
+    ],
+  ];
+  return checks
+    .filter(([, pattern]) => pattern.test(source))
+    .map(([label]) => `${relativePath}: ${label}`);
 }
 
 export function findSynthesisContractBoundaryViolations(): string[] {
@@ -297,7 +82,7 @@ export function findSynthesisContractBoundaryViolations(): string[] {
     return ["packages/synthesis-contracts/src: missing contracts source"];
   }
   const violations: string[] = [];
-  for (const filePath of walkTypeScriptFiles(CONTRACTS_ROOT)) {
+  for (const filePath of walkFiles(CONTRACTS_ROOT, ".ts")) {
     const relativePath = normalizedRepoPath(filePath);
     const source = fs.readFileSync(filePath, "utf8");
     const sourceFile = ts.createSourceFile(
@@ -332,159 +117,20 @@ export function findSynthesisContractBoundaryViolations(): string[] {
   return violations.sort();
 }
 
-export function findSynthesisSidecarAppBoundaryViolations(): string[] {
-  const violations: string[] = [];
-  for (const filePath of walkTypeScriptFiles(SIDECAR_APP_ROOT)) {
-    const relativePath = normalizedRepoPath(filePath);
-    const source = fs.readFileSync(filePath, "utf8");
-    if (/from\s+["']node:worker_threads["']/.test(source)) {
-      violations.push(`${relativePath}: worker_threads import is not allowed`);
-    }
-    if (
-      /from\s+["']node:sqlite["']/.test(source) &&
-      !NODE_SQLITE_ALLOWLIST.has(relativePath)
-    ) {
-      violations.push(`${relativePath}: node:sqlite import is not allowed`);
-    }
-    if (
-      !TOPIC_CANONICAL_NODE_ALLOWLIST.has(relativePath) &&
-      ((/from\s+["']node:fs["']/.test(source) &&
-        /topicCanonicalStore/i.test(source)) ||
-        /shadow-canonical/.test(source))
-    ) {
-      violations.push(
-        `${relativePath}: Topic canonical filesystem authority is not allowed`,
-      );
-    }
-    if (/\bnew\s+Worker\s*\(/.test(source)) {
-      violations.push(`${relativePath}: Worker construction is not allowed`);
-    }
-    const webDavApplicationOwner =
-      relativePath === "apps/synthesis-service/src/server.ts" ||
-      relativePath ===
-        "apps/synthesis-service/src/webDavSyncApplicationNode.ts";
-    for (const forbidden of [
-      ...(CHILD_PROCESS_ALLOWLIST.has(relativePath)
-        ? []
-        : [/node:child_process/]),
-      /src\/modules\/synthesis/,
-      /src\/modules\/synthesis\/repository/,
-      /synthesis\/service/,
-      /hostEffect|hostRead/,
-      /globalThis\.Zotero|zotero-plugin/,
-      ...(webDavApplicationOwner ? [] : [/webDavSync/]),
-    ]) {
-      if (forbidden.test(source)) {
-        violations.push(
-          `${relativePath}: forbidden service authority ${forbidden.source}`,
-        );
-      }
-    }
-  }
-  for (const filePath of walkTypeScriptFiles(REPOSITORY_ROOT)) {
-    const relativePath = normalizedRepoPath(filePath);
-    const source = fs.readFileSync(filePath, "utf8");
-    if (
-      /\bnode:|globalThis\.Zotero|zotero-plugin|src\/modules\/synthesis|child_process|worker_threads/.test(
-        source,
-      )
-    ) {
-      violations.push(
-        `${relativePath}: repository foundation is not environment neutral`,
-      );
-    }
-  }
-  for (const filePath of walkTypeScriptFiles(APPLICATION_ROOT)) {
-    const relativePath = normalizedRepoPath(filePath);
-    const source = fs.readFileSync(filePath, "utf8");
-    if (
-      /node:|child_process|worker_threads|repositoryNodeSqlite|isolatedRepository|src\/modules|globalThis\.Zotero|zotero-plugin|HostEffect|HostRead|topicArtifactPersistence|Window|Document|HTMLElement/.test(
-        source,
-      )
-    ) {
-      violations.push(
-        `${relativePath}: application package is not environment neutral`,
-      );
-    }
-    const sourceFile = ts.createSourceFile(
-      filePath,
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    );
-    for (const statement of sourceFile.statements) {
-      if (
-        ts.isImportDeclaration(statement) &&
-        ts.isStringLiteral(statement.moduleSpecifier)
-      ) {
-        const specifier = statement.moduleSpecifier.text;
-        if (
-          !specifier.includes("synthesis-contracts/src/") &&
-          !specifier.includes("synthesis-repository/src/") &&
-          !specifier.includes("synthesis-engine/src/") &&
-          !specifier.startsWith("./")
-        ) {
-          violations.push(
-            `${relativePath}: forbidden application import ${specifier}`,
-          );
-        }
-      }
-    }
-  }
-  for (const filePath of walkTypeScriptFiles(
-    path.join(ROOT_DIR, "packages/synthesis-engine/src"),
-  )) {
-    const relativePath = normalizedRepoPath(filePath);
-    const source = fs.readFileSync(filePath, "utf8");
-    if (/node:worker_threads|node:child_process/.test(source)) {
-      violations.push(`${relativePath}: forbidden Node process authority`);
-    }
-  }
-  return violations.sort();
-}
-
 export function findSynthesisProductionBoundaryViolations(): string[] {
   const violations: string[] = [];
-  const legacySourceAllowlist = new Set([
-    "src/modules/synthesisClient/legacyComposition.ts",
-    "src/modules/harness/synthesisReadonlyClient.ts",
-    "src/modules/synthesis/service.ts",
-  ]);
-  const productionStorageAllowlist = new Set([
-    "src/modules/runtimePersistence.ts",
-    "src/modules/persistenceIntegrity.ts",
-    "src/modules/synthesisSidecarRuntimeSupervisor.ts",
-  ]);
-  for (const filePath of walkTypeScriptFiles(path.join(ROOT_DIR, "src"))) {
+  for (const filePath of walkFiles(path.join(ROOT, "src"), ".ts")) {
     const relativePath = normalizedRepoPath(filePath);
     const source = fs.readFileSync(filePath, "utf8");
-    if (
-      !legacySourceAllowlist.has(relativePath) &&
-      (/from\s+["'][^"']*legacyComposition["']/.test(source) ||
-        /\b(?:createDefaultLegacySynthesisClientComposition|createLegacyPort|createSynthesisService)\s*\(/.test(
-          source,
-        ))
-    ) {
-      violations.push(
-        `${relativePath}: production source reaches the legacy composition`,
-      );
-    }
-    if (
-      !relativePath.startsWith("src/modules/synthesis/") &&
-      !legacySourceAllowlist.has(relativePath) &&
-      !productionStorageAllowlist.has(relativePath) &&
-      /\b(?:synthesisDbPath|synthesisDataRoot)\b/.test(source) &&
-      /\b(?:open|copyRuntime|readRuntime|writeRuntime|moveRuntime|removeRuntime)/.test(
-        source,
-      )
-    ) {
-      violations.push(`${relativePath}: production root access is not allowed`);
-    }
+    violations.push(
+      ...findForbiddenSynthesisSourcePatterns(relativePath, source),
+    );
   }
 
-  const rustRoot = path.join(ROOT_DIR, "native/synthesis-sidecar/crates");
-  for (const filePath of walkFiles(rustRoot, ".rs")) {
+  for (const filePath of walkFiles(
+    path.join(ROOT, "native/synthesis-sidecar/crates"),
+    ".rs",
+  )) {
     const relativePath = normalizedRepoPath(filePath);
     if (
       relativePath.includes("/tests/") ||
@@ -492,12 +138,9 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     ) {
       continue;
     }
-    const source = fs.readFileSync(filePath, "utf8");
-    const productionSource = source.split("#[cfg(test)]", 1)[0]!;
+    const source = fs.readFileSync(filePath, "utf8").split("#[cfg(test)]", 1)[0]!;
     if (
-      /\b(?:Repository|CanonicalStore)::open_production\s*\(/.test(
-        productionSource,
-      ) &&
+      /\b(?:Repository|CanonicalStore)::open_production\s*\(/.test(source) &&
       relativePath !==
         "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_service.rs"
     ) {
@@ -505,344 +148,38 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
         `${relativePath}: runtime_service.rs is the only production-root opener`,
       );
     }
-    if (
-      /\bTcpStream::connect(?:_timeout)?\s*\(/.test(productionSource) &&
-      relativePath !==
-        "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reverse_host.rs"
-    ) {
-      violations.push(
-        `${relativePath}: runtime_reverse_host.rs is the only reverse-Host socket transport`,
-      );
-    }
-  }
-  const defaultClientSource = fs.readFileSync(
-    path.join(ROOT_DIR, "src/modules/synthesisClient/defaultClient.ts"),
-    "utf8",
-  );
-  const hooksSource = fs.readFileSync(
-    path.join(ROOT_DIR, "src/hooks.ts"),
-    "utf8",
-  );
-  const productionOwnerSource = fs.readFileSync(
-    path.join(ROOT_DIR, "src/modules/synthesisProductionOwner.ts"),
-    "utf8",
-  );
-  const supervisorSource = fs.readFileSync(
-    path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeSupervisor.ts"),
-    "utf8",
-  );
-  if (
-    !defaultClientSource.includes(
-      "createReadyNativeSynthesisClientComposition",
-    ) ||
-    /legacyComposition|createDefaultLegacy|getDefaultLegacy|invalidateDefaultLegacy|createLegacyInProcess|synthesis\/service/.test(
-      defaultClientSource,
-    ) ||
-    !supervisorSource.includes("await controlClient.health(connection)") ||
-    !supervisorSource.includes("await controlClient.handshake(connection)")
-  ) {
-    violations.push(
-      "native default readiness must require current-session health and handshake",
-    );
-  }
-  if (
-    !hooksSource.includes("startDefaultSynthesisProductionOwner()") ||
-    !hooksSource.includes("stopDefaultSynthesisProductionOwner") ||
-    hooksSource.includes("startSynthesisSidecarRuntimeSupervisor(")
-  ) {
-    violations.push(
-      "hooks must delegate production startup and shutdown to the production owner",
-    );
-  }
-  const invalidation = productionOwnerSource.indexOf(
-    "deps.invalidateClient || invalidateDefaultSynthesisClient",
-  );
-  const endpointStop = productionOwnerSource.indexOf("await endpoint?.stop()");
-  const supervisorStop = productionOwnerSource.indexOf(
-    "await deps.stopProductionSupervisor()",
-  );
-  if (
-    invalidation < 0 ||
-    supervisorStop <= invalidation ||
-    endpointStop <= supervisorStop
-  ) {
-    violations.push(
-      "production owner shutdown must invalidate the client, stop the sidecar, then stop reverse Host",
-    );
   }
   return violations.sort();
 }
 
-function duplicates(values: string[]): string[] {
-  const seen = new Set<string>();
-  const duplicateValues = new Set<string>();
-  for (const value of values) {
-    if (seen.has(value)) {
-      duplicateValues.add(value);
-    }
-    seen.add(value);
-  }
-  return [...duplicateValues].sort();
-}
-
-function readProductionOperationCapabilities(): string[] {
-  const manifest = JSON.parse(fs.readFileSync(OPERATIONS_PATH, "utf8")) as {
-    access?: Record<string, string>;
-  };
-  return Object.keys(manifest.access || {}).sort();
-}
-
-function findRetiredProductionConsumers(methods: readonly string[]): string[] {
-  const methodSet = new Set(methods);
-  const allowedPrefixes = ["src/modules/synthesis/"];
-  const allowedFiles = new Set([
-    "src/modules/synthesisClient/legacyComposition.ts",
-  ]);
-  return walkTypeScriptFiles(path.join(ROOT_DIR, "src"))
-    .flatMap((filePath) => {
-      const relativePath = normalizedRepoPath(filePath);
-      if (
-        allowedFiles.has(relativePath) ||
-        allowedPrefixes.some((prefix) => relativePath.startsWith(prefix)) ||
-        relativePath.startsWith("src/modules/harness/")
-      ) {
-        return [];
-      }
-      const source = fs.readFileSync(filePath, "utf8");
-      return [...methodSet]
-        .filter((method) => new RegExp(`\\b${method}\\b`).test(source))
-        .map((method) => `${method}:${relativePath}`);
-    })
-    .sort();
-}
-
-function canonicalMethodFingerprint(methods: readonly string[]): string {
-  return createHash("sha256")
-    .update(`${[...methods].sort().join("\n")}\n`)
-    .digest("hex");
-}
-
 export function inspectSynthesisServiceBoundary() {
-  const inventory = readSynthesisBoundaryInventory();
-  const publicMethods = extractSynthesisPublicMethods(inventory);
-  const inventoryMethodNames = inventory.methods.map((method) => method.name);
-  const baselineMethods = inventory.methods
-    .filter((method) => !method.introduced_after_baseline)
-    .map((method) => method.name)
-    .sort();
-  const introducedAfterBaseline = inventory.methods
-    .filter((method) => method.introduced_after_baseline)
-    .map((method) => method.name)
-    .sort();
-  const operationCapabilities = readProductionOperationCapabilities();
-  const operationCapabilitySet = new Set(operationCapabilities);
-  const expectedProductionOperations = inventory.methods
-    .flatMap((method) => {
-      if (method.migration === "direct") {
-        return [`client.${method.name}`];
-      }
-      if (method.migration === "merged" && method.capability) {
-        return [method.capability];
-      }
-      return [];
-    })
-    .concat(inventory.audit.wire_only_extensions)
-    .filter((capability, index, all) => all.indexOf(capability) === index)
-    .sort();
-  const expectedProductionOperationSet = new Set(expectedProductionOperations);
-  const authorizedRetirements = [
-    ...inventory.audit.deletion_authorization,
-  ].sort();
-  const authorizedRetirementSet = new Set(authorizedRetirements);
-  const retiredMigrations = inventory.methods
-    .filter((method) => method.migration === "retired")
-    .map((method) => method.name)
-    .sort();
-  const retiredMigrationSet = new Set(retiredMigrations);
-  const directConsumers = findSynthesisDirectConsumers();
-  const contractViolations = findSynthesisContractBoundaryViolations();
-  const sidecarAppViolations = findSynthesisSidecarAppBoundaryViolations();
-  const productionBoundaryViolations =
-    findSynthesisProductionBoundaryViolations();
-  const inventoryConsumers = inventory.direct_consumers
-    .map((consumer) => consumer.path)
-    .sort();
-  const publicMethodSet = new Set(publicMethods);
-  const inventoryMethodSet = new Set(inventoryMethodNames);
-  const directConsumerSet = new Set(directConsumers);
-  const inventoryConsumerSet = new Set(inventoryConsumers);
-  const invalidMethods = inventory.methods
-    .filter(
-      (method) =>
-        !method.name ||
-        !VALID_CATEGORIES.has(method.category) ||
-        !VALID_DISPOSITIONS.has(method.disposition) ||
-        !VALID_MIGRATIONS.has(method.migration) ||
-        !method.target_capability ||
-        method.consumer_groups.length === 0 ||
-        (method.migration === "merged" && !method.capability) ||
-        (method.migration === "host_owned" && !method.host_capability) ||
-        (method.migration === "internal" && !method.owner) ||
-        (method.migration === "pending" && !method.owner) ||
-        (method.migration === "retired" && !method.owner),
-    )
-    .map((method) => method.name || "<unnamed>")
-    .concat(duplicates(inventoryMethodNames))
-    .sort();
-  const invalidWireOnlyExtensions = inventory.audit.wire_only_extensions
-    .filter(
-      (capability) =>
-        !/^client\.[A-Za-z][A-Za-z0-9_]*$/.test(capability) ||
-        expectedProductionOperations.filter((entry) => entry === capability)
-          .length !== 1 ||
-        inventory.methods.some(
-          (method) => `client.${method.name}` === capability,
-        ),
-    )
-    .concat(duplicates(inventory.audit.wire_only_extensions))
-    .sort();
-
-  const currentMethodsMissingFromInventory = publicMethods.filter(
-    (method) => !inventoryMethodSet.has(method),
-  );
-  const unknownInventoryMethods = introducedAfterBaseline.filter(
-    (method) => !publicMethodSet.has(method),
-  );
-  const actualBaselineFingerprint = canonicalMethodFingerprint(baselineMethods);
-  const baselineCountMismatch =
-    baselineMethods.length === inventory.baseline.public_method_count
-      ? []
-      : [
-          `expected ${inventory.baseline.public_method_count}, got ${baselineMethods.length}`,
-        ];
-  const baselineFingerprintMismatch =
-    actualBaselineFingerprint === inventory.baseline.fingerprint_sha256
-      ? []
-      : [
-          `expected ${inventory.baseline.fingerprint_sha256}, got ${actualBaselineFingerprint}`,
-        ];
-
   return {
-    inventory,
-    publicMethods,
-    baselineMethods,
-    introducedAfterBaseline,
-    operationCapabilities,
-    expectedProductionOperations,
-    directConsumers,
-    missingMethods: currentMethodsMissingFromInventory,
-    unknownMethods: unknownInventoryMethods,
-    baselineCountMismatch,
-    baselineFingerprintMismatch,
-    baselineMethodsMissingFromInventory: [],
-    currentMethodsMissingFromInventory,
-    unknownInventoryMethods,
-    pendingMigrations: inventory.methods
-      .filter((method) => method.migration === "pending")
-      .map((method) => method.name)
-      .sort(),
-    retiredMigrations,
-    unauthorizedRetirements: retiredMigrations.filter(
-      (method) => !authorizedRetirementSet.has(method),
+    legacyOwnerPathsPresent: LEGACY_OWNER_PATHS.filter((entry) =>
+      fs.existsSync(repoPath(entry)),
     ),
-    authorizedRetirementsNotMapped: authorizedRetirements.filter(
-      (method) => !retiredMigrationSet.has(method),
+    nodeSidecarPathsPresent: NODE_SIDECAR_PATHS.filter((entry) =>
+      fs.existsSync(repoPath(entry)),
     ),
-    retiredMethodsWithProductionConsumers:
-      findRetiredProductionConsumers(retiredMigrations),
-    missingProductionOperations: expectedProductionOperations.filter(
-      (capability) => !operationCapabilitySet.has(capability),
-    ),
-    unknownProductionOperations: operationCapabilities.filter(
-      (capability) => !expectedProductionOperationSet.has(capability),
-    ),
-    invalidWireOnlyExtensions,
-    wireOperationCountMismatch:
-      operationCapabilities.length === inventory.audit.wire_operation_count
-        ? []
-        : [
-            `expected ${inventory.audit.wire_operation_count}, got ${operationCapabilities.length}`,
-          ],
-    productionRouteOperationCountMismatch:
-      operationCapabilities.length ===
-      inventory.production_native_route.operation_count
-        ? []
-        : [
-            `expected ${inventory.production_native_route.operation_count}, got ${operationCapabilities.length}`,
-          ],
-    invalidMergedTargets: inventory.methods
-      .filter(
-        (method) =>
-          method.migration === "merged" &&
-          (!method.capability ||
-            !operationCapabilitySet.has(method.capability)),
-      )
-      .map((method) => method.name)
-      .sort(),
-    invalidHostOwnedTargets: inventory.methods
-      .filter(
-        (method) =>
-          method.migration === "host_owned" && !method.host_capability,
-      )
-      .map((method) => method.name)
-      .sort(),
-    invalidMethods,
-    missingConsumers: directConsumers.filter(
-      (consumer) => !inventoryConsumerSet.has(consumer),
-    ),
-    unknownConsumers: inventoryConsumers.filter(
-      (consumer) => !directConsumerSet.has(consumer),
-    ),
-    contractViolations,
-    sidecarAppViolations,
-    productionBoundaryViolations,
+    productionBoundaryViolations:
+      findSynthesisProductionBoundaryViolations(),
+    contractViolations: findSynthesisContractBoundaryViolations(),
+    productionClientAdapter: "clientPortAdapter.ts",
+    productionRuntimeOwner: "runtime_service.rs",
   };
 }
 
 function runCli() {
   const report = inspectSynthesisServiceBoundary();
-  const errors = {
-    missingMethods: report.missingMethods,
-    unknownMethods: report.unknownMethods,
-    invalidMethods: report.invalidMethods,
-    missingConsumers: report.missingConsumers,
-    unknownConsumers: report.unknownConsumers,
-    contractViolations: report.contractViolations,
-    sidecarAppViolations: report.sidecarAppViolations,
-    productionBoundaryViolations: report.productionBoundaryViolations,
-    baselineCountMismatch: report.baselineCountMismatch,
-    baselineFingerprintMismatch: report.baselineFingerprintMismatch,
-    currentMethodsMissingFromInventory:
-      report.currentMethodsMissingFromInventory,
-    unknownInventoryMethods: report.unknownInventoryMethods,
-    pendingMigrations: report.pendingMigrations,
-    unauthorizedRetirements: report.unauthorizedRetirements,
-    authorizedRetirementsNotMapped: report.authorizedRetirementsNotMapped,
-    retiredMethodsWithProductionConsumers:
-      report.retiredMethodsWithProductionConsumers,
-    missingProductionOperations: report.missingProductionOperations,
-    unknownProductionOperations: report.unknownProductionOperations,
-    invalidMergedTargets: report.invalidMergedTargets,
-    invalidHostOwnedTargets: report.invalidHostOwnedTargets,
-    invalidWireOnlyExtensions: report.invalidWireOnlyExtensions,
-    wireOperationCountMismatch: report.wireOperationCountMismatch,
-    productionRouteOperationCountMismatch:
-      report.productionRouteOperationCountMismatch,
-  };
-  const hasErrors = Object.values(errors).some((values) => values.length > 0);
+  const errors = [
+    ...report.legacyOwnerPathsPresent,
+    ...report.nodeSidecarPathsPresent,
+    ...report.productionBoundaryViolations,
+    ...report.contractViolations,
+  ];
   process.stdout.write(
-    `${JSON.stringify(
-      {
-        ok: !hasErrors,
-        publicMethodCount: report.publicMethods.length,
-        directConsumerCount: report.directConsumers.length,
-        errors,
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify({ ok: errors.length === 0, errors, report }, null, 2)}\n`,
   );
-  if (hasErrors) {
+  if (errors.length > 0) {
     process.exitCode = 1;
   }
 }

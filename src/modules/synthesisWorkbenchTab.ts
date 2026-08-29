@@ -21,10 +21,6 @@ import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
 import {
-  copyRuntimeFile,
-  getRuntimePersistencePaths,
-  readRuntimeTextFile,
-  runtimePathExists,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
 import { readPackagedBinaryAsset } from "./packagedAssetResolver";
@@ -44,11 +40,6 @@ import {
   toSynthesisWorkbenchReadState,
   type SynthesisWorkbenchGraphLayoutFailure,
 } from "./synthesisClient/workbenchUiAdapter";
-import {
-  buildSynthesisStoragePaths,
-  hashCanonicalJson,
-  topicPathId,
-} from "./synthesis/foundation";
 import {
   registerSynthesisWorkbenchSidecarChangeListener,
   type SynthesisWorkbenchSidecarChangeEvent,
@@ -2420,106 +2411,6 @@ async function buildTopicDetailHtmlExport(
   ].join("\n");
 }
 
-const TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID =
-  "synthesis.topic_detail_html_export_metadata";
-const TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 7;
-
-type TopicDetailHtmlExportMetadata = {
-  schema_id?: string;
-  schema_version?: number;
-  renderer_version?: number;
-  topic_id?: string;
-  topic_signature?: string;
-  html_hash?: string;
-  generated_at?: string;
-};
-
-function topicDetailHtmlExportStoragePaths(topicId: string) {
-  const root = getRuntimePersistencePaths().root;
-  return buildSynthesisStoragePaths(root, topicPathId(topicId));
-}
-
-async function topicDetailHtmlExportSignature(
-  paths: ReturnType<typeof buildSynthesisStoragePaths>,
-) {
-  const [manifest, metadata, artifact] = await Promise.all([
-    readRuntimeTextFile(paths.currentManifest),
-    readRuntimeTextFile(paths.currentMetadata),
-    readRuntimeTextFile(paths.currentArtifact),
-  ]);
-  return hashCanonicalJson({
-    current_manifest: manifest,
-    current_metadata: metadata,
-    current_artifact: artifact,
-  });
-}
-
-async function readTopicDetailHtmlExportMetadata(path: string) {
-  const text = await readRuntimeTextFile(path);
-  if (!text.trim()) {
-    return null;
-  }
-  try {
-    return JSON.parse(text) as TopicDetailHtmlExportMetadata;
-  } catch {
-    return null;
-  }
-}
-
-async function isTopicDetailHtmlExportCurrent(args: {
-  paths: ReturnType<typeof buildSynthesisStoragePaths>;
-  topicId: string;
-  topicSignature: string;
-}) {
-  if (!(await runtimePathExists(args.paths.currentTopicDetailHtml))) {
-    return false;
-  }
-  const metadata = await readTopicDetailHtmlExportMetadata(
-    args.paths.currentTopicDetailHtmlMetadata,
-  );
-  const html = await readRuntimeTextFile(args.paths.currentTopicDetailHtml);
-  return (
-    metadata?.schema_id === TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID &&
-    metadata.renderer_version === TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION &&
-    metadata.topic_id === args.topicId &&
-    metadata.topic_signature === args.topicSignature &&
-    metadata.html_hash === hashCanonicalJson(html)
-  );
-}
-
-async function ensureCachedTopicDetailHtmlExport(
-  runtime: SynthesisWorkbenchRuntime,
-  topicId: string,
-) {
-  const paths = topicDetailHtmlExportStoragePaths(topicId);
-  const topicSignature = await topicDetailHtmlExportSignature(paths);
-  if (
-    await isTopicDetailHtmlExportCurrent({
-      paths,
-      topicId,
-      topicSignature,
-    })
-  ) {
-    return paths.currentTopicDetailHtml;
-  }
-  const html = await buildTopicDetailHtmlExport(runtime, topicId);
-  await writeRuntimeTextFile(paths.currentTopicDetailHtml, html);
-  const metadata: TopicDetailHtmlExportMetadata = {
-    schema_id: TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID,
-    schema_version: 1,
-    renderer_version: TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION,
-    topic_id: topicId,
-    topic_signature: topicSignature,
-    html_hash: hashCanonicalJson(html),
-    generated_at: new Date().toISOString(),
-  };
-  await writeRuntimeTextFile(
-    paths.currentTopicDetailHtmlMetadata,
-    `${JSON.stringify(metadata, null, 2)}\n`,
-  );
-  return paths.currentTopicDetailHtml;
-}
-
 async function exportTopicDetailHtml(
   runtime: SynthesisWorkbenchRuntime,
   topicId: string,
@@ -2531,8 +2422,10 @@ async function exportTopicDetailHtml(
   if (!outputPath) {
     return;
   }
-  const sourcePath = await ensureCachedTopicDetailHtmlExport(runtime, topicId);
-  await copyRuntimeFile({ sourcePath, targetPath: outputPath });
+  await writeRuntimeTextFile(
+    outputPath,
+    await buildTopicDetailHtmlExport(runtime, topicId),
+  );
 }
 
 async function exportTopicSynthesisReport(
@@ -3099,12 +2992,6 @@ function handleAction(
         );
       },
       { deferStart: true },
-    );
-    return;
-  }
-  if (result.hostCommand?.command === "auditConceptAliases") {
-    runWorkbenchCommandOnce(runtime, "auditConceptAliases", {}, async () =>
-      (await getDefaultSynthesisClient()).concepts.auditConceptAliases(),
     );
     return;
   }
@@ -4060,7 +3947,6 @@ function surfacesInvalidatedByCommand(
   }
   if (
     command === "rebuildConceptKbIndex" ||
-    command === "auditConceptAliases" ||
     command === "deleteConceptEntry" ||
     command === "updateConceptDisplayText" ||
     command === "applyConceptReviewAction"

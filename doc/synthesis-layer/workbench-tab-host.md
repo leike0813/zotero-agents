@@ -235,7 +235,7 @@ Topic Graph projection rebuild、edge accept/reject 与 review action 使用独�
 
 Tag Vocabulary validation、projection rebuild、regulator export、canonical/staged mutations 与 import preview/apply 在各自命令闭包内解析默认 `SynthesisClient`，并调用 `client.tags`。它们保留既有 single-flight、确认、启动时机、失效范围、clipboard ownership 与严格 DTO；重建进度继续只来自 `workbench.readProgress()`。
 
-五个 WebDAV Sync host commands 都在原 single-flight 执行闭包内调用 `getFreshDefaultSynthesisClient()`，并路由到 `client.sync.webDav` 的 `runNow`、`pause`、`resume`、`retry`、`resolveConflict`。Fresh acquisition 会同时刷新 client cache 与 legacy default service，使命令读取最新 preferences、credentials 和 adapter composition。Conflict command 保留 action trim 与 `keep_local` 默认值；run/retry 保留 `failOnSyncFailureState`，pause/resume/conflict 保留原结果处理。`syncWebDavNow` 使用 deferred start，其余命令立即启动。Sync state、diagnostics、configuration、credentials、connection tests、Host Bridge 和 MCP 不在此次 command boundary 内。Production Workbench 不再导入完整 Synthesis service。
+五个 WebDAV Sync host commands 都在原 single-flight 执行闭包内调用 `getFreshDefaultSynthesisClient()`，并路由到 `client.sync.webDav` 的 `runNow`、`pause`、`resume`、`retry`、`resolveConflict`。Fresh acquisition 只失效并重建当前 native client composition，使后续 reverse-Host 调用读取最新 preferences、credentials 和 adapter 状态。Conflict command 保留 action trim 与 `keep_local` 默认值；run/retry 保留 `failOnSyncFailureState`，pause/resume/conflict 保留原结果处理。`syncWebDavNow` 使用 deferred start，其余命令立即启动。Sync state、diagnostics、configuration、credentials、connection tests、Host Bridge 和 MCP 不在此次 command boundary 内。Production Workbench 不导入或构造 Synthesis application service。
 
 ### 受保护命令
 

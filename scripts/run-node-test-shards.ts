@@ -4,9 +4,9 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
 import {
-  resolveSynthesisSidecarStage1Suite,
-  SYNTHESIS_SIDECAR_STAGE1_SUITE_ID,
-} from "./synthesis-sidecar-stage1-node-suite";
+  resolveSynthesisNativeStage1Suite,
+  SYNTHESIS_NATIVE_STAGE1_SUITE_ID,
+} from "./synthesis-native-stage1-suite";
 
 type ShardId =
   | "core-acp-session-manager"
@@ -452,7 +452,7 @@ async function main(cliArgs = process.argv.slice(2)) {
       );
       return 1;
     }
-    if (parsed.suiteId !== SYNTHESIS_SIDECAR_STAGE1_SUITE_ID) {
+    if (parsed.suiteId !== SYNTHESIS_NATIVE_STAGE1_SUITE_ID) {
       console.error(
         `[node-test-shards:error] unknown suite: ${parsed.suiteId}`,
       );
@@ -460,7 +460,7 @@ async function main(cliArgs = process.argv.slice(2)) {
     }
     let suite;
     try {
-      suite = resolveSynthesisSidecarStage1Suite(allTestFiles);
+      suite = resolveSynthesisNativeStage1Suite(allTestFiles);
     } catch (error) {
       console.error(
         `[node-test-shards:error] ${error instanceof Error ? error.message : "suite_inventory_invalid"}`,
@@ -478,7 +478,7 @@ async function main(cliArgs = process.argv.slice(2)) {
         files: segment.files,
       })),
       mochaArgs: parsed.mochaArgs,
-      rerunCommand: () => `npm run test:node:synthesis-sidecar:stage1`,
+      rerunCommand: () => `npm run test:synthesis-native:stage1`,
     });
   }
   const { byShard, unassigned } = buildShardFileMap(allTestFiles);

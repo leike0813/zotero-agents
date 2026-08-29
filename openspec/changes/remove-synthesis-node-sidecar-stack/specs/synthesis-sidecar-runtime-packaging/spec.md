@@ -21,6 +21,11 @@ universal XPI size at or below 100 MiB.
 - **THEN** all Synthesis runtime delivery paths resolve to manifest-v3 Rust bundles and the one fixed `current` installation
 - **AND** no Node delivery, runtime pointer, candidate resolver, or rollback path remains
 
+#### Scenario: Prebuilds are synchronized into an existing add-on tree
+- **WHEN** a complete seven-target set replaces the materialized sidecar bundles
+- **THEN** all seven bundles advance transactionally
+- **AND** sibling Host Bridge binaries and unrelated native assets retain their existing bytes
+
 ## ADDED Requirements
 
 ### Requirement: Native-only inventory gates SHALL survive implementation deletion

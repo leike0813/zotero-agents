@@ -1303,7 +1303,6 @@ synthesis-concepts-cache-stale = 概念キャッシュが期限切れ
 synthesis-concepts-cache-ready = 概念キャッシュ準備完了
 synthesis-concepts-overlay-on = オーバーレイオン
 synthesis-concepts-overlay-off = オーバーレイオフ
-synthesis-concepts-audit-aliases = エイリアスを監査
 synthesis-action-keep-alias = エイリアスを保持
 synthesis-action-remove-alias = エイリアスを削除
 synthesis-concepts-selected = %count% 個の概念が選択されました

@@ -126,6 +126,7 @@ export type SynthesisCitationGraphPageMetadata = {
   layoutStatus: "ready" | "missing" | "stale" | "refreshing" | "failed";
   windowStatus: SynthesisCitationGraphWindowStatus;
   roleOptions: string[];
+  responseBudgetBytes: number;
 };
 
 export type SynthesisGraphQueryRequest = {

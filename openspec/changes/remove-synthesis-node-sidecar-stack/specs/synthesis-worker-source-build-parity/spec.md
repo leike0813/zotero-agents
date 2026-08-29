@@ -44,15 +44,16 @@ TypeScript/Node worker executable or source/build comparison may be required.
 
 ### Requirement: Candidate smoke SHALL cover compute and durable reads
 
-Candidate smoke SHALL execute all production compute operations, authenticated
-durable reads, production service identity/handshake, the exact complete
-96-operation ready roster, and at least one bounded non-mutating RPC from each
-of the seven production operation surfaces. Full operation behavior SHALL
-remain covered by language-neutral corpora and Rust/public route tests; package
-smoke MUST NOT depend on a Node executable.
+Candidate smoke SHALL execute every public native compute operation,
+authenticated durable reads, production service identity/handshake, and the
+exact forward capability roster. The source-bound native production-route gate
+SHALL verify the exact production-operation catalog and at least one bounded
+non-mutating RPC from each of the seven production operation surfaces. Full
+operation behavior SHALL remain covered by language-neutral corpora and
+Rust/public route tests; package smoke MUST NOT depend on a Node executable.
 
 #### Scenario: Smoke inventory is incomplete
-- **WHEN** the built candidate omits a compute operation, required durable read, production identity field, ready-roster entry, or representative surface RPC
+- **WHEN** candidate smoke omits a public compute operation, required durable read, production identity field, or forward-roster entry, or the source-bound route gate omits a production catalog entry or representative surface RPC
 - **THEN** source/build smoke fails before packaging acceptance
 
 #### Scenario: Smoke attempts Node comparison

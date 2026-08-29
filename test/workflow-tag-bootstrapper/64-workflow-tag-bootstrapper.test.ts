@@ -3,7 +3,6 @@ import { spawn } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
 import { getBuiltinStatusPolicy } from "../../src/modules/synthesis/builtinTagPolicy";
 import { WORKFLOW_HOST_API_VERSION } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
@@ -11,14 +10,89 @@ import { workflowsPath } from "../zotero/workflow-test-utils";
 import { buildRequest } from "../../workflows_builtin/literature-workbench-package/tag-bootstrapper/hooks/buildRequest.mjs";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/tag-bootstrapper/hooks/applyResult.mjs";
 
-async function makeRuntimeRoot() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "zs-tag-bootstrapper-"));
-}
-
 async function makeRuntime() {
-  const service = createSynthesisTagVocabularyService({
-    root: await makeRuntimeRoot(),
-  });
+  const facets = [
+    "field",
+    "topic",
+    "method",
+    "model",
+    "ai_task",
+    "data",
+    "tool",
+    "status",
+  ];
+  const builtinEntries = Object.values(getBuiltinStatusPolicy()).map((tag) => ({
+    tag,
+    facet: "status",
+    source: "builtin",
+  }));
+  let entries: Array<Record<string, any>> = builtinEntries;
+  let staged: Array<Record<string, any>> = [];
+  const service = {
+    async loadTagVocabulary() {
+      return {
+        entries: entries.map((entry) => ({ ...entry })),
+        aliases: {},
+        abbrev: {},
+        protocol: {
+          facets,
+          tag_pattern: "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+          max_tag_length: 120,
+        },
+      };
+    },
+    async saveTagVocabulary(input: { entries?: Array<Record<string, any>> }) {
+      const next = Array.isArray(input.entries) ? input.entries : [];
+      const invalid = next.find((entry) => {
+        const tag = String(entry?.tag || "").trim();
+        const facet = String(entry?.facet || tag.split(":")[0] || "").trim();
+        return (
+          !facets.includes(facet) ||
+          !/^[a-z_]+:[a-zA-Z0-9/_.-]+$/.test(tag) ||
+          tag.length > 120
+        );
+      });
+      if (invalid) {
+        throw new Error("tag vocabulary validation failed");
+      }
+      const builtinByTag = new Map(
+        builtinEntries.map((entry) => [entry.tag.toLowerCase(), entry]),
+      );
+      const byTag = new Map<string, Record<string, any>>(
+        builtinEntries.map((entry) => [entry.tag.toLowerCase(), entry]),
+      );
+      for (const entry of next) {
+        const key = String(entry.tag).toLowerCase();
+        if (!byTag.has(key) && !builtinByTag.has(key)) {
+          byTag.set(key, { ...entry });
+        }
+      }
+      entries = Array.from(byTag.values()).sort((left, right) =>
+        String(left.tag).localeCompare(String(right.tag), "en", {
+          sensitivity: "base",
+        }),
+      );
+    },
+    async listStagedTagSuggestions() {
+      return staged.map((entry) => ({
+        ...entry,
+        parent_bindings: Array.isArray(entry.parent_bindings)
+          ? entry.parent_bindings.map((binding: Record<string, any>) => ({
+              ...binding,
+            }))
+          : undefined,
+      }));
+    },
+    async stageTagSuggestions(input: { entries?: Array<Record<string, any>> }) {
+      const byTag = new Map(
+        staged.map((entry) => [String(entry.tag).toLowerCase(), entry]),
+      );
+      for (const entry of input.entries || []) {
+        byTag.set(String(entry.tag).toLowerCase(), { ...entry });
+      }
+      staged = Array.from(byTag.values());
+    },
+  };
   return {
     service,
     runtime: {

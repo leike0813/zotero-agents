@@ -1359,7 +1359,6 @@ synthesis-concepts-cache-stale = Cache concetti obsoleta
 synthesis-concepts-cache-ready = Cache concetti pronta
 synthesis-concepts-overlay-on = Overlay attivo
 synthesis-concepts-overlay-off = Overlay disattivo
-synthesis-concepts-audit-aliases = Verifica alias
 synthesis-action-keep-alias = Mantieni alias
 synthesis-action-remove-alias = Rimuovi alias
 synthesis-concepts-selected = %count% concetto/i selezionato/i

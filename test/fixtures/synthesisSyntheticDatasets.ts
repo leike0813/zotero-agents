@@ -5,7 +5,7 @@ import type {
   SynthesisCitationGraphStateReplacement,
   SynthesisCitationLightMetricsRecord,
   SynthesisCitationNodeRecord,
-} from "../../src/modules/synthesis/repository";
+} from "../../packages/synthesis-repository/src/index";
 import type { SynthesisTagSuggestionStageRequest } from "../../packages/synthesis-contracts/src/tags";
 import type { SynthesisTopicApplyRequest } from "../../packages/synthesis-contracts/src/workflow";
 

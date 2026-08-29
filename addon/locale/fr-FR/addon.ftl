@@ -1303,7 +1303,6 @@ synthesis-concepts-cache-stale = Cache de concepts obsolète
 synthesis-concepts-cache-ready = Cache de concepts prêt
 synthesis-concepts-overlay-on = Superposition activée
 synthesis-concepts-overlay-off = Superposition désactivée
-synthesis-concepts-audit-aliases = Auditer les alias
 synthesis-action-keep-alias = Conserver l’alias
 synthesis-action-remove-alias = Supprimer l’alias
 synthesis-concepts-selected = %count% concept(s) sélectionné(s)

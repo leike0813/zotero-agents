@@ -860,22 +860,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".graph-zoom-slider");
   });
 
-  it("does not classify stale citation graph cache basis as missing only because rows are unavailable", async function () {
-    const source = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
-    const block = extractFunctionBlock(source, "buildMaintenanceSummary");
-
-    assert.include(block, 'citationCacheStatus === "stale"');
-    assert.include(block, "citation_graph_cache_rows_missing");
-    assert.notInclude(block, "||\n      !args.citationGraphFound");
-    assert.notInclude(
-      block,
-      'citationCacheStatus === "missing" ||\n      !args.citationGraphFound',
-    );
-  });
-
   it("normalizes Synthesis background jobs without inventing progress", function () {
     const snapshot = buildSynthesisUiSnapshot({
       libraryId: 1,
@@ -3703,11 +3687,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(reportExportBlock, "Synthesis report body is unavailable.");
     assert.include(reportExportBlock, 'markdown.endsWith("\\n")');
     assert.include(source, "buildTopicDetailHtmlExport");
-    assert.include(source, "ensureCachedTopicDetailHtmlExport");
-    assert.include(source, "topicDetailHtmlExportSignature");
-    assert.include(source, "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION");
-    assert.include(source, "currentTopicDetailHtml");
-    assert.include(source, "currentTopicDetailHtmlMetadata");
     assert.include(source, "resolveTopicExportDigests");
     assert.include(source, "readSynthesisExportAssets");
     assert.include(source, "pruneGraphToTopicSubgraph");
@@ -3722,7 +3701,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "content/synthesis/styles.css");
     assert.include(source, "resolveRuntimeToolkit");
     assert.include(source, "FilePicker");
-    assert.include(source, "copyRuntimeFile");
     assert.include(source, "writeRuntimeTextFile");
     assert.include(source, "sendTopicDetail");
     assert.include(source, '"synthesis:topic-detail"');
@@ -3886,12 +3864,9 @@ describe("Synthesis tab UI model", function () {
       source,
       "exportTopicDetailHtml",
     );
-    assert.include(exportTopicHtmlBlock, "ensureCachedTopicDetailHtmlExport");
-    assert.include(exportTopicHtmlBlock, "copyRuntimeFile");
-    assert.notInclude(
-      exportTopicHtmlBlock,
-      "const html = await buildTopicDetailHtmlExport",
-    );
+    assert.include(exportTopicHtmlBlock, "writeRuntimeTextFile");
+    assert.include(exportTopicHtmlBlock, "buildTopicDetailHtmlExport");
+    assert.notInclude(exportTopicHtmlBlock, "copyRuntimeFile");
 
     const exportPickerIndex = source.indexOf(
       "const outputPath = await pickTopicDetailHtmlExportPath",
@@ -4970,10 +4945,6 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesis/uiModel.ts",
       "utf8",
     );
-    const service = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
     const workbenchTab = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
@@ -5059,12 +5030,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-graph-legend-node-size");
     assert.include(source, "synthesis-graph-legend-halo");
     assert.include(uiModel, "metrics?: {");
-    assert.include(service, "CITATION_GRAPH_CACHE_POLICY_VERSION");
-    assert.include(service, "citation_graph_cache_policy_changed");
-    assert.include(
-      workbenchTab,
-      "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 7",
-    );
+    assert.include(workbenchTab, "buildTopicDetailHtmlExport(runtime, topicId)");
+    assert.include(workbenchTab, "writeRuntimeTextFile(");
+    assert.notInclude(workbenchTab, "currentTopicDetailHtmlMetadata");
     assert.include(uiModel, "function normalizeGraphNodeMetrics");
     assert.include(uiModel, "internal_in_degree");
     assert.include(uiModel, "internal_out_degree");
@@ -5710,7 +5678,6 @@ describe("Synthesis tab UI model", function () {
       "concept:cv:detr",
     );
     assert.include(snapshot.hostCommands, "rebuildConceptKbIndex");
-    assert.include(snapshot.hostCommands, "auditConceptAliases");
     assert.include(snapshot.hostCommands, "applyConceptReviewAction");
     assert.include(snapshot.hostCommands, "deleteConceptEntry");
     assert.deepEqual(command.hostCommand, {
@@ -5737,10 +5704,6 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
     );
-    const service = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
     assert.include(source, "renderConcepts");
@@ -5754,17 +5717,13 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-action-delete-selected");
     assert.include(source, 'command: "deleteConceptEntry"');
     assert.include(host, "deleteConceptEntries");
-    assert.include(service, "async function deleteConceptEntries");
     assert.include(source, "renderConceptReviewPanel");
     assert.include(source, "synthesis-concept-review-title");
     assert.include(source, "applyConceptReviewAction");
-    assert.include(source, "synthesis-concepts-audit-aliases");
     assert.include(source, "synthesis-action-keep-alias");
     assert.include(source, "synthesis-action-remove-alias");
-    assert.include(host, "auditConceptAliases");
     assert.include(host, 'action === "keep_alias"');
     assert.include(host, 'action === "remove_alias"');
-    assert.include(service, "async function auditConceptAliases");
     assert.include(source, "reviewMergeTargets");
     assert.include(source, "renderReviewMetadata");
     assert.include(source, "conceptReviewPanel");
@@ -6590,85 +6549,7 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
-  it("guards Workbench service hot paths against heavy surface reads", async function () {
-    const service = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
-    const chromeBlock = extractFunctionBlock(
-      service,
-      "getSynthesisWorkbenchChromeInput",
-    );
-    [
-      "readDbCitationGraphOverview",
-      "registryRowsFromCurrentLibraryAndSidecar",
-      "loadTagVocabulary",
-      "loadConceptKb",
-      "loadTopicGraph",
-    ].forEach((forbidden) => {
-      assert.notInclude(chromeBlock, forbidden);
-    });
-    const surfaceBlock = extractFunctionBlock(
-      service,
-      "getSynthesisWorkbenchSurfaceInput",
-    );
-    assert.include(surfaceBlock, "activeReviewTab");
-    assert.include(surfaceBlock, 'activeReviewTab === "concepts"');
-    assert.include(surfaceBlock, "conceptKb.loadConceptKb()");
-    assert.include(surfaceBlock, "concepts: reviewConcepts");
-    assert.include(surfaceBlock, 'activeReviewTab === "topic_graph"');
-    assert.include(surfaceBlock, "topicGraphSnapshotForUi");
-    assert.include(surfaceBlock, "topicGraph: topicGraphSnapshot");
-    const graphSurfaceBranch = surfaceBlock.slice(
-      surfaceBlock.indexOf('if (surface === "graph")'),
-      surfaceBlock.indexOf('if (surface === "tags")'),
-    );
-    assert.include(
-      graphSurfaceBranch,
-      "const topicGraphContext = await topicGraphSnapshotForUi",
-    );
-    assert.include(graphSurfaceBranch, "topicGraph: topicGraphSnapshot");
-    assert.include(
-      graphSurfaceBranch,
-      "reviewItems: topicGraphSnapshot.review_items",
-    );
-    assert.include(graphSurfaceBranch, "topicGraphScopesFromGraphNodes");
-    assert.include(graphSurfaceBranch, "topicScopes");
-    assert.include(graphSurfaceBranch, "readArtifactStateRows(root)");
-    assert.include(surfaceBlock, "proposalQueryForReviewState");
-    assert.notInclude(
-      surfaceBlock,
-      "listReferenceMatchProposals({ limit: 100 })",
-    );
-    assert.notInclude(surfaceBlock, "synthesisRepository.listReviewItems()");
-    const reviewContextBlock = extractFunctionBlock(
-      service,
-      "registryRowsForReferenceMatchProposalContext",
-    );
-    assert.include(reviewContextBlock, "registryInputsForSourceRefs");
-    assert.notInclude(
-      reviewContextBlock,
-      "registryRowsFromCurrentLibraryAndSidecar",
-      "Review context must not load Index sidecar rows",
-    );
-    const registryRowsToUiBlock = extractFunctionBlock(
-      service,
-      "registryRowsWithReferenceFactsToUi",
-    );
-    assert.include(registryRowsToUiBlock, "includeReferences");
-    assert.include(registryRowsToUiBlock, "referenceSourceRefs");
-    assert.include(registryRowsToUiBlock, "loadedReferenceSourceRefs");
-    assert.include(registryRowsToUiBlock, "listReferenceFactSummariesBySource");
-    assert.include(registryRowsToUiBlock, "rawReferenceIds");
-    const liveMetadataBlock = extractFunctionBlock(
-      service,
-      "enrichRegistryRowsWithLiveMetadata",
-    );
-    assert.include(liveMetadataBlock, "hostInputsForSourceRefs");
-    assert.notInclude(liveMetadataBlock, "collectHostLibraryInputs");
-    assert.notInclude(liveMetadataBlock, "childNotes");
-    const indexSurfaceBlock = extractIfBlock(service, 'surface === "index"');
-    assert.include(indexSurfaceBlock, "state.registry.expandedSourceRefs");
+  it("guards Workbench client and Host hot paths against heavy reads", async function () {
     const host = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
@@ -6758,34 +6639,14 @@ describe("Synthesis tab UI model", function () {
     assert.include(pageBlock, "SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX");
     assert.notInclude(pageBlock, "getAllRegularZoteroItems");
     assert.include(libraryAdapter, "getItemsByRef");
-    const repository = await fs.readFile(
-      "src/modules/synthesis/repository.ts",
+    const nativeComposition = await fs.readFile(
+      "src/modules/synthesisClient/nativeComposition.ts",
       "utf8",
     );
-    const factsStart = repository.indexOf("listReferenceFacts(");
-    const factsEnd = repository.indexOf(
-      "listReferenceFactSummariesBySource",
-      factsStart,
-    );
-    assert.isAtLeast(factsStart, 0, "listReferenceFacts should exist");
-    assert.isAbove(
-      factsEnd,
-      factsStart,
-      "listReferenceFacts should be bounded",
-    );
-    const factsBlock = repository.slice(factsStart, factsEnd);
-    assert.include(factsBlock, "sourceRefs: Array.from(sourceIds)");
-    assert.include(factsBlock, "rawReferenceIds: args.rawReferenceIds");
-    assert.include(factsBlock, "resolveEffectiveCanonicalReferenceIds");
-    assert.notInclude(factsBlock, "this.listCanonicalReferences().map");
-    assert.notInclude(
-      factsBlock,
-      "for (const binding of this.listReferenceBindings())",
-    );
-    assert.notInclude(
-      factsBlock,
-      'this.listRawReferences({ statuses: ["active"] })',
-    );
+    assert.include(nativeComposition, "createSynthesisSidecarRpcClient");
+    assert.include(nativeComposition, "createSynthesisClientFromPort");
+    assert.notInclude(nativeComposition, "synthesis/service");
+    assert.notInclude(nativeComposition, "synthesis/repository");
   });
 
   it("wires asynchronous Workbench action feedback and host single-flight", async function () {
@@ -6879,10 +6740,6 @@ describe("Synthesis tab UI model", function () {
       "src/utils/runtimeCompatibility.ts",
       "utf8",
     );
-    const service = await fs.readFile(
-      "src/modules/synthesis/service.ts",
-      "utf8",
-    );
     const i18n = await fs.readFile("src/synthesisWorkbenchI18n.ts", "utf8");
     const protectedCommands = [
       "refreshReferenceSidecarNow",
@@ -6932,10 +6789,5 @@ describe("Synthesis tab UI model", function () {
     }
     assert.include(runtime, "export async function yieldToEventLoop");
     assert.include(runtime, "globalThis.setTimeout");
-    assert.include(service, "yieldToEventLoop");
-    assert.include(service, "yieldControl: yieldToEventLoop");
-    assert.include(service, "runProjectionIndexRebuildWithProgress");
-    assert.include(service, "reportProgress");
-    assert.include(service, "onProgress");
   });
 });

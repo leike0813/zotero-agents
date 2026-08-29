@@ -34,12 +34,6 @@ export type SynthesisConceptDeleteRequest = {
   conceptIds: string[];
 };
 
-export type SynthesisConceptAliasAuditResult = {
-  audited_alias_count: number;
-  created_review_count: number;
-  review_items: unknown[];
-};
-
 export type SynthesisConceptDiagnostic = {
   code: string;
   severity: "warning" | "error";
@@ -116,7 +110,6 @@ export interface SynthesisConceptsClient {
     request?: SynthesisConceptQueryRequest,
   ): Promise<SynthesisConceptQueryResult>;
   rebuildConceptKbIndex(): Promise<SynthesisPublicMaintenanceOperation>;
-  auditConceptAliases(): Promise<SynthesisConceptAliasAuditResult>;
   updateConceptDisplayText(
     request: SynthesisConceptDisplayTextUpdateRequest,
   ): Promise<SynthesisConceptCommandResult>;

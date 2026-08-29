@@ -209,7 +209,7 @@ Citation graph structure is derived from:
 3. accepted reference bindings;
 4. direct Zotero checks for currently bound source/target item existence when graph correctness requires it.
 
-Graph cache has two maintenance modes. Source-slice incremental refresh rewrites only affected source outgoing edges, source ownership rows, incoming groups, related nodes, and affected light metrics. Full rebuild remains exposed as `rebuildCitationGraphCacheNow` in the service/host layer and replaces the whole graph cache.
+Graph cache has two maintenance modes. Source-slice incremental refresh rewrites only affected source outgoing edges, source ownership rows, incoming groups, related nodes, and affected light metrics. Full rebuild remains exposed as `rebuildCitationGraphCacheNow` through the grouped client and Workbench Host layer and replaces the whole graph cache.
 
 When another explicit operation marks `citation-graph:library` stale, it may record bounded incremental scope in cache-basis diagnostics: changed `source_refs`, canonical ids, binding canonical ids, and redirect canonical ids. Manual `refreshCitationGraphCacheIncrementalNow` consumes that current delta and falls back to Full when no usable delta or active graph exists. No-argument retry reads only the latest failed private attempt mode, creates a fresh attempt, and replans all concrete scope and Host material. Without a failed mode, missing/failed/stale cache may select current work; ready cache has no retry work. Canceled attempts are excluded.
 

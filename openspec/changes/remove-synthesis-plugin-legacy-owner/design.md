@@ -42,7 +42,7 @@ two deletion changes.
 - Remove every plugin-side factory and implementation capable of owning the
   Synthesis production database, canonical root, application state, or engine
   orchestration.
-- Preserve the 97-method grouped public client over the 96-operation native
+- Preserve the grouped public client over the closed native operation
   port without duplicating method mapping.
 - Keep all production consumers native-only and fail closed.
 - Preserve Zotero UI, reverse-Host, export/WebDAV delivery, item/tag effects,
@@ -71,9 +71,9 @@ two deletion changes.
 The reusable content of `inProcessClient.ts` will move to a neutrally named
 module such as `clientPortAdapter.ts`. It owns:
 
-- the closed `SynthesisClientPort` interface aligned with the 96-operation
+- the closed `SynthesisClientPort` interface aligned with the production
   contract;
-- reconstruction of the 97-method grouped `SynthesisClient`;
+- reconstruction of the grouped `SynthesisClient`;
 - stable error/result mapping and JSON-safe DTO rebuilding;
 - no database, canonical, Host, service, engine, lifecycle, or transport
   construction.
@@ -87,7 +87,7 @@ the name and exported factory preserve the conceptual route that R9b is
 retiring, and future callers could mistake it for an approved owner.
 
 Alternative: duplicate the mapping inside `nativeComposition.ts`. Rejected
-because it creates a second 96-operation mapping and weakens the exact inventory
+because it creates a second operation mapping and weakens the exact inventory
 gate.
 
 ### 2. Classify plugin modules by ownership, not directory

@@ -1,9 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
-import { execFileSync } from "node:child_process";
-import { Worker } from "node:worker_threads";
-import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import {
   SYNTHESIS_CITATION_GRAPH_COMPUTE_EDGE_MAX,
   SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX,
@@ -15,10 +12,6 @@ import {
   type SynthesisCitationGraphMetricsRequest,
 } from "../../packages/synthesis-engine/src/index";
 import { buildUnifiedCitationGraph } from "../../src/modules/synthesis/citationGraph";
-import {
-  buildCitationGraphMetricsEngineRequest,
-  projectCitationGraphMetricsEngineResult,
-} from "../../src/modules/synthesis/citationGraphMetricsEngineAdapter";
 
 function sampleGraph() {
   return buildUnifiedCitationGraph({
@@ -68,29 +61,31 @@ function sampleGraph() {
 function sampleRequest(
   overrides: Partial<SynthesisCitationGraphMetricsRequest> = {},
 ) {
+  const graph = sampleGraph();
   return {
-    ...buildCitationGraphMetricsEngineRequest(sampleGraph()),
+    ...rebuildSynthesisCitationGraphMetricsRequest({
+      graphHash: graph.graph_hash,
+      nodes: graph.nodes.map((node) => ({
+        nodeId: node.node_id,
+        kind: node.kind,
+        ...(node.library_id ? { libraryId: node.library_id } : {}),
+        ...(node.item_key ? { itemKey: node.item_key } : {}),
+        ...(node.title ? { title: node.title } : {}),
+        ...(node.year ? { year: node.year } : {}),
+      })),
+      edges: graph.edges.map((edge) => ({
+        edgeId: edge.edge_id,
+        source: edge.source,
+        target: edge.target,
+        mentionCount: edge.mention_count,
+      })),
+    }),
     ...overrides,
   };
 }
 
 describe("Synthesis Citation Graph metrics engine", function () {
   this.timeout(20_000);
-
-  before(function () {
-    execFileSync(
-      "cargo",
-      [
-        "+nightly-2026-07-25",
-        "build",
-        "--workspace",
-        "--locked",
-        "--manifest-path",
-        path.resolve("native/synthesis-sidecar/Cargo.toml"),
-      ],
-      { stdio: "pipe" },
-    );
-  });
 
   it("canonically rebuilds requests with metrics-specific graph limits", function () {
     assert.equal(SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX, 10_000);
@@ -203,53 +198,47 @@ describe("Synthesis Citation Graph metrics engine", function () {
     }
   });
 
-  it("preserves metrics v2 values, roles, diagnostics, and application hash", async function () {
-    const graph = sampleGraph();
-    const request = buildCitationGraphMetricsEngineRequest(graph);
+  it("preserves metrics v2 values, roles, and diagnostics", async function () {
+    const request = sampleRequest();
     const result =
       await createInProcessSynthesisCitationGraphMetricsEngine().compute(
         request,
       );
-    const projected = projectCitationGraphMetricsEngineResult(request, result);
     const byId = new Map(
-      projected.library_node_metrics.map((metric) => [metric.node_id, metric]),
+      result.libraryNodeMetrics.map((metric) => [metric.nodeId, metric]),
     );
 
-    assert.equal(
-      projected.metrics_hash,
-      "sha256:fac6371fc5ec31845060bd7bdeab90a7afd38e86f937cb4765587f0b8307076d",
-    );
-    assert.equal(projected.metrics_version, 2);
-    assert.equal(projected.graph_year, 2024);
-    assert.deepEqual(projected.diagnostics, {
-      library_node_count: 5,
-      external_reference_count: 1,
-      unresolved_reference_count: 1,
-      component_count: 3,
-      isolated_library_node_count: 2,
-      missing_year_count: 0,
+    assert.equal(result.metricsVersion, 2);
+    assert.equal(result.graphYear, 2024);
+    assert.deepEqual(result.diagnostics, {
+      libraryNodeCount: 5,
+      externalReferenceCount: 1,
+      unresolvedReferenceCount: 1,
+      componentCount: 3,
+      isolatedLibraryNodeCount: 2,
+      missingYearCount: 0,
     });
     assert.deepInclude(byId.get("zotero:item:B"), {
-      paper_ref: "1:B",
-      internal_in_degree: 2,
-      internal_pagerank: 0.402985,
-      foundation_score: 0.9,
-      frontier_score: 0.566667,
-      synthesis_role_hints: ["core", "foundation", "frontier"],
+      paperRef: "1:B",
+      internalInDegree: 2,
+      internalPagerank: 0.402985,
+      foundationScore: 0.9,
+      frontierScore: 0.566667,
+      synthesisRoleHints: ["core", "foundation", "frontier"],
     });
     assert.deepInclude(byId.get("zotero:item:D"), {
-      component_id: "component:002",
-      component_size: 1,
-      is_isolated: true,
-      foundation_score: 0.1,
-      frontier_score: 0.183333,
-      synthesis_role_hints: ["isolated"],
+      componentId: "component:002",
+      componentSize: 1,
+      isIsolated: true,
+      foundationScore: 0.1,
+      frontierScore: 0.183333,
+      synthesisRoleHints: ["isolated"],
     });
     assert.deepInclude(byId.get("zotero:item:E"), {
-      component_id: "component:003",
-      is_isolated: true,
-      frontier_score: 0.55,
-      synthesis_role_hints: ["frontier", "isolated"],
+      componentId: "component:003",
+      isIsolated: true,
+      frontierScore: 0.55,
+      synthesisRoleHints: ["frontier", "isolated"],
     });
   });
 
@@ -339,52 +328,4 @@ describe("Synthesis Citation Graph metrics engine", function () {
     assert.notInclude(checkpoints, "complete:");
   });
 
-  it("returns the same canonical result through the Node worker canary", async function () {
-    const request = rebuildSynthesisCitationGraphMetricsRequest(
-      JSON.parse(JSON.stringify(sampleRequest())),
-    );
-    const direct =
-      await createInProcessSynthesisCitationGraphMetricsEngine().compute(
-        request,
-      );
-    const worker = new Worker(
-      new URL(
-        "../fixtures/synthesis-citation-metrics-engine-worker.ts",
-        import.meta.url,
-      ),
-      { execArgv: ["--import", "tsx"] },
-    );
-    try {
-      const response = await new Promise<{ ok: boolean; result?: unknown }>(
-        (resolve, reject) => {
-          worker.once("message", resolve);
-          worker.once("error", reject);
-          worker.postMessage(request);
-        },
-      );
-      assert.equal(response.ok, true);
-      assert.deepEqual(
-        rebuildSynthesisCitationGraphMetricsResult(response.result, request),
-        direct,
-      );
-    } finally {
-      await worker.terminate();
-    }
-  });
-
-  it("returns the same canonical result through the Rust worker backend", async function () {
-    const request = rebuildSynthesisCitationGraphMetricsRequest(
-      JSON.parse(JSON.stringify(sampleRequest())),
-    );
-    const direct =
-      await createInProcessSynthesisCitationGraphMetricsEngine().compute(
-        request,
-      );
-    const pool = createSynthesisSidecarComputeWorkerPool();
-    try {
-      assert.deepEqual(await pool.runCitationGraphMetrics(request), direct);
-    } finally {
-      await pool.shutdown();
-    }
-  });
 });

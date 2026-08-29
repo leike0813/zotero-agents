@@ -7,6 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath, URL } from "node:url";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../packages/synthesis-contracts/src/schemaVersion";
 import { rebuildSynthesisSidecarLaunchConfig } from "../packages/synthesis-contracts/src/sidecarLifecycle";
+import { SYNTHESIS_SIDECAR_CAPABILITIES } from "../packages/synthesis-contracts/src/sidecarSystem";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
   buildSynthesisCitationGraphBuildTransferPage,
@@ -651,6 +652,10 @@ async function main() {
       supervisorInstanceId: "r8-smoke-supervisor",
     });
     const handshakeData = handshake.body.data as Record<string, any>;
+    const actualCapabilities = Array.isArray(handshakeData.capabilities)
+      ? [...handshakeData.capabilities].sort()
+      : [];
+    const expectedCapabilities = [...SYNTHESIS_SIDECAR_CAPABILITIES].sort();
     if (
       handshake.response.status !== 200 ||
       handshakeData.implementation !== "rust-native" ||
@@ -661,8 +666,10 @@ async function main() {
         handshakeData.platformSignature,
         targetIdentity.platformSignature,
       ) ||
-      !handshakeData.capabilities?.includes("workbench.chrome.read") ||
-      !handshakeData.capabilities?.includes("topics.canonical.inspect")
+      actualCapabilities.length !== expectedCapabilities.length ||
+      actualCapabilities.some(
+        (capability, index) => capability !== expectedCapabilities[index],
+      )
     ) {
       throw new Error(`Invalid handshake: ${JSON.stringify(handshake.body)}`);
     }

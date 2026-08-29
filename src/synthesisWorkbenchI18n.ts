@@ -414,7 +414,6 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-concepts-cache-ready": "Concept cache ready",
   "synthesis-concepts-overlay-on": "Overlay On",
   "synthesis-concepts-overlay-off": "Overlay Off",
-  "synthesis-concepts-audit-aliases": "Audit Aliases",
   "synthesis-action-keep-alias": "Keep Alias",
   "synthesis-action-remove-alias": "Remove Alias",
   "synthesis-concepts-selected": "%count% concept(s) selected",

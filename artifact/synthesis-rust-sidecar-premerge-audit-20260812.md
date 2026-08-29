@@ -1,5 +1,7 @@
 # Rust Synthesis sidecar 合入前审计
 
+> 2026-08-29 状态标注：本文结论只针对 `45a1c6c` 候选。文中列出的生产能力、生命周期、幂等、门禁和 fixture 缺口已由后续 changes 逐项处理并形成 Rust-native 测试；插件 legacy owner 与 Node sidecar/worker 也已从开发树删除。本文保留为缺口发现记录，不再代表当前 source verdict。当前放行条件见 `complete-synthesis-r9-stage1-acceptance`；七平台 bundle/XPI 与 Zotero 7/9 真实机器证据仍未由这次本地 retirement 实现替代。
+
 日期：2026-08-12  
 候选：`45a1c6cb3781830c9bcc605b58a2b8332c3869ce`（`refactor: restore synthesis rust sidecar main parity (stage 22)`）  
 主线行为基线：`main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`

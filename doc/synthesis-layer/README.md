@@ -31,7 +31,7 @@ Machine-readable contracts are intentionally small:
 
 - [states-and-events.yaml](./contracts/states-and-events.yaml) contains stable state machine, sequence, and event IDs.
 - [invariants.yaml](./contracts/invariants.yaml) contains invariant IDs that tests/debug output may reference.
-- [service-api-migration.yaml](./contracts/service-api-migration.yaml) is the current public-service disposition and direct-consumer inventory for the staged sidecar migration.
+- [service-api-migration.yaml](./contracts/service-api-migration.yaml) records the fixed pre-retirement service baseline and the current ownerless TypeScript boundary.
 
 ## Context Map
 
@@ -138,19 +138,16 @@ The only production owner is the Rust native runtime bundled in the installed
 XPI and selected by manifest v3. Rust owns the application services, SQLite
 repository, canonical Topic store, and bounded workers. TypeScript owns the
 grouped client and UI orchestration plus reverse-Host adapters for Zotero,
-credentials, file delivery, and network authority; the retained Node and
-TypeScript implementations are differential oracles and cannot serve a normal
-production request.
+credentials, file delivery, and network authority. The plugin application and
+repository owner, external Node service, and JavaScript worker stack are absent.
 
 The fixed functional baseline is
 `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`: 131 public service methods are
 reconciled to 95 baseline wire operations, the approved
 `client.controlPublicMaintenanceOperation` extension, explicit Host ownership,
-or the closed 23-method retirement authorization in
-`contracts/service-api-migration.yaml`. The resulting production manifest has
-96 operations. The historical `isolated_*` blocks in that audit remain as
-fixed migration evidence; `production_native_route` is the current ownership
-record.
+or the closed 23-method retirement authorization. The baseline identity remains
+in `contracts/service-api-migration.yaml` so the source-fixed observable corpus
+can still be verified without retaining executable legacy code.
 
 Repository foundation v2 has 53 tables and 46 indexes. Production serializes
 writes through one owner and uses at most four read-only connections. Ordinary
@@ -165,9 +162,10 @@ Local domain parity, production-route performance, and representative Zotero
 identity and closed operation inventory. Repository-wide strict OpenSpec,
 format, lint, TypeScript, Rust, production-route, performance, and production
 build gates are also complete. Acceptance remains blocked on the governed
-seven-platform build, final packaging, signing, and release gates. R9b deletion
-changes remain blocked; no XPI publication, release, or synchronization is
-authorized by the current evidence.
+seven-platform build, final packaging, signing, and release gates. R9b source
+retirement is locally implemented, but its refreshed native bundle set and
+external acceptance remain pending; no XPI publication, release, or
+synchronization is authorized by the current evidence.
 
 | Area | Status | Notes |
 | --- | --- | --- |
@@ -179,5 +177,5 @@ authorized by the current evidence.
 | Durable bundle and WebDAV | split Rust/Host ownership | Rust owns bundle/import/sync application state. The plugin adapter owns preferences, credentials, remote URL construction, HTTP, and abort authority. |
 | Client and transfer boundary | current | TypeScript composes the grouped client, stages large content through authenticated transfer/locator contracts, resolves export delivery, and never exposes paths, credentials, or runtime internals. |
 | Remote export delivery | Host-owned authority | Rust builds bounded canonical entries; the Host adapter alone materializes temporary ZIP bytes, registers opaque exports, and cleans them up. |
-| Differential oracle | retained, non-production | Node/TypeScript packages and frozen corpora remain only for differential evidence. They use isolated roots in tests and have no fallback, live owner, or release role. |
-| Migration acceptance | local gates complete | Strict repository gates, local parity, governed 2k/10k/25k performance, and representative Zotero 7.0.32/9.0.4 Linux checks passed on 2026-08-08. Seven-platform, final packaging, signing, release, and R9b acceptance remain incomplete. |
+| Migration evidence | current | Language-neutral corpora, fixed pre-retirement observables, and Rust-native tests preserve stable evidence without an executable Node/TypeScript application oracle. |
+| Migration acceptance | source retirement local gates complete | Native Stage-1, TypeScript/Rust builds, strict boundaries, and local XPI inventory pass. The packaged seven-target bundles are stale against the current build fingerprint; a source-fresh prebuild, final package evidence, and Zotero 7/9 real-machine acceptance remain incomplete. |

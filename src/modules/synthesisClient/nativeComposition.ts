@@ -43,7 +43,7 @@ import { getReadySynthesisProductionControlConnection } from "../synthesisSideca
 import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,
-} from "./inProcessClient";
+} from "./clientPortAdapter";
 
 type NativeControlConnection = {
   discovery: {

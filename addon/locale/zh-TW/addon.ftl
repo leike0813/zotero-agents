@@ -1359,7 +1359,6 @@ synthesis-concepts-cache-stale = 概念快取已過期
 synthesis-concepts-cache-ready = 概念快取已就緒
 synthesis-concepts-overlay-on = 疊加層開啟
 synthesis-concepts-overlay-off = 疊加層關閉
-synthesis-concepts-audit-aliases = 稽核別名
 synthesis-action-keep-alias = 保留別名
 synthesis-action-remove-alias = 移除別名
 synthesis-concepts-selected = 已選取 %count% 個概念

@@ -33,10 +33,11 @@ the repository or build graph.
 - Make source, build, package, freshness, SBOM/provenance, and XPI inventories
   native-only. Node, npm, JavaScript service, D3 runtime, and re-enable switches
   must be absent.
-- Run the final seven-platform candidate, size, clean/upgrade/corrupt/crash/offline
-  install, backup/restore, and real-machine acceptance gates before declaring
-  R9 or Stage 1 complete. This change defines those gates but does not authorize
-  release publication or Gitee synchronization.
+- Run the post-deletion seven-platform candidate and local native-only gates,
+  then hand its pinned identity to
+  `complete-synthesis-r9-stage1-acceptance`. Final XPI,
+  clean/upgrade/corrupt/crash/offline, backup/restore, and Zotero 7/9
+  real-machine acceptance remain owned by that separately authorized change.
 
 ## Capabilities
 
@@ -46,8 +47,9 @@ None.
 
 ### Modified Capabilities
 
-- `synthesis-rust-sidecar-migration-governance`: Complete R9b by retiring the
-  executable Node oracle and requiring final cross-platform acceptance.
+- `synthesis-rust-sidecar-migration-governance`: Complete source retirement and
+  require a separately governed final cross-platform acceptance change before
+  declaring R9 or Stage 1 complete.
 - `synthesis-sidecar-stage1-node-milestone-gate`: Replace the transitional
   development-only Node allowance with a zero-Node source/build/runtime rule.
 - `synthesis-sidecar-runtime-packaging`: Remove Node-era build and inventory

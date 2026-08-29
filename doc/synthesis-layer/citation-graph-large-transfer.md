@@ -4,7 +4,7 @@ Citation Graph Build uses an authenticated transfer capability when canonical
 input or output cannot fit one control envelope. The Rust production service
 owns the transfer session, bounded worker attempt, durable-basis recapture, and
 repository promotion. TypeScript only stages/resolves the client transport;
-Node is a differential oracle and is absent from the production carrier.
+language-neutral corpora and Rust tests own the former differential evidence.
 
 The single capability `compute.citation_graph_build_transfer` supports strict
 `begin`, `put_input_page`, `seal_input`, `execute`, `status`, `get_output_manifest`,

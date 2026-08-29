@@ -1,7 +1,4 @@
 import { assert } from "chai";
-import fs from "fs/promises";
-import os from "os";
-import path from "path";
 import {
   rebuildSynthesisHostWebDavSyncDescription,
   rebuildSynthesisHostWebDavSyncEnsureCollectionRequest,
@@ -16,7 +13,6 @@ import type {
   SynthesisWebDavHttpClient,
   SynthesisWebDavHttpRequest,
 } from "../../src/modules/synthesis/webDavSyncClient";
-import { createSynthesisService } from "../../src/modules/synthesis/service";
 
 function configuredDescription(overrides: Record<string, unknown> = {}) {
   return {
@@ -372,26 +368,4 @@ describe("Synthesis WebDAV runtime composition", function () {
     assert.notInclude(JSON.stringify(result), "secret");
   });
 
-  it("keeps an omitted WebDAV runtime disabled without network fallback", async function () {
-    const root = await fs.mkdtemp(
-      path.join(os.tmpdir(), "synthesis-sync-runtime-disabled-"),
-    );
-    const runtime = globalThis as { fetch?: typeof fetch };
-    const previousFetch = runtime.fetch;
-    let fetchCalls = 0;
-    runtime.fetch = (async () => {
-      fetchCalls += 1;
-      throw new Error("fetch must not run");
-    }) as typeof fetch;
-    try {
-      const service = createSynthesisService({ root, libraryId: 1 });
-      const webDav = await service.loadWebDavSyncState();
-      assert.equal(webDav.queue_state, "disabled");
-      assert.isFalse(webDav.adapter_configured);
-      assert.equal(fetchCalls, 0);
-    } finally {
-      runtime.fetch = previousFetch;
-      await fs.rm(root, { recursive: true, force: true });
-    }
-  });
 });

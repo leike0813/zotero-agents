@@ -296,6 +296,7 @@ export type SynthesisWorkbenchTopicGraphProjection = {
     last_synthesis_at: string;
     created_at: string;
     updated_at: string;
+    planning: SynthesisJsonObject;
   }>;
   edges: Array<{
     edge_id: string;

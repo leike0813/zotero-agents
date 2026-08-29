@@ -17,10 +17,10 @@ Core production modules are:
 | Worker engines | Rust engine crates and bounded worker mode | Deterministic graph, matcher, Tag, Concept, Topic Graph, and structured-artifact compute without commit authority |
 | Client/Host composition | TypeScript `SynthesisClient` and Host ports | UI orchestration, DTO transport, Zotero reads/effects, WebDAV credentials/HTTP, and export delivery |
 
-The TypeScript `packages/synthesis-*` implementations and legacy
-`src/modules/synthesis/**` services are retained only as differential oracles
-or client/Host adapters; they are not production repository or application
-owners.
+TypeScript retains language-neutral contracts and pure helpers that still have
+live client, Host, corpus, or test callers. The plugin application/repository
+services and executable Node oracle are absent; no TypeScript module can own
+production Synthesis storage or application state.
 
 Core concepts:
 

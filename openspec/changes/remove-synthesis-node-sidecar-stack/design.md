@@ -189,28 +189,28 @@ worker gate binds:
 - source/build fingerprints, operation inventory, smoke, license, provenance,
   and size.
 
-Candidate smoke also verifies production service identity, the complete
-96-operation ready roster, critical durable reads, and a representative
-non-mutating RPC from each of the seven operation surfaces. Complete public
-behavior remains covered by language-neutral corpora and Rust tests rather than
-executing all large operations during package smoke.
+Candidate smoke verifies production service identity, the exact forward
+capability roster, every public compute route, and critical durable reads. The
+source-bound native production-route gate separately verifies the exact
+production-operation catalog and a bounded non-mutating RPC from each of the
+seven operation surfaces. Complete public behavior remains covered by
+language-neutral corpora and Rust tests rather than executing all large
+operations during package smoke.
 
-### 8. Treat final acceptance as a decision gate, not publication
+### 8. Hand the post-deletion candidate to a separate acceptance change
 
-Final completion requires one coherent source identity across:
+This change completes after local retirement gates and an authorized
+post-deletion seven-target candidate. It records one coherent identity across:
 
 - seven native targets;
 - manifest/fingerprint/SBOM/provenance/license and package sizes;
-- final universal XPI inventory and size;
-- clean profile;
-- upgrade profile and existing production receipt;
-- corrupt, stale, wrong-platform, and offline bundle cases;
-- crash/restart/orphan/fuse and post-admission Rust-only repair;
-- backup, restore, preflight, owner conflict, and operator runbook rehearsal;
-- Zotero 7 and Zotero 9 representative real-machine smoke.
+- the seven target fingerprints and size results;
+- the workflow and bundle identities needed to assemble the final XPI.
 
-The acceptance receipt records facts. It does not dispatch a formal release,
-create tags/assets, advance feeds, or run Gitee synchronization.
+`complete-synthesis-r9-stage1-acceptance` owns final XPI inventory and size,
+clean/upgrade/corrupt/offline cases, crash/restart/orphan/fuse, migration and
+runbook rehearsal, and Zotero 7/9 real-machine smoke. Its receipt records facts
+and does not publish, tag, advance feeds, or synchronize Gitee.
 
 ## Risks / Trade-offs
 
@@ -252,11 +252,12 @@ create tags/assets, advance feeds, or run Gitee synchronization.
 7. Run local strict specs, public/corpus tests, TypeScript builds, Rust
    fmt/clippy/workspace tests, package/freshness/license/size checks, and final
    production build.
-8. Under separate execution authorization, run the seven-platform, final XPI,
-   clean/upgrade/corrupt/crash/offline, restore/runbook, and Zotero 7/9
-   real-machine matrix.
-9. Update active docs and the migration plan with actual results; declare R9
-   and Stage 1 complete only if every required result is present.
+8. Under separate execution authorization, run the post-deletion seven-platform
+   candidate and record its source-bound identity.
+9. Hand the candidate to `complete-synthesis-r9-stage1-acceptance`; that change
+   owns final XPI, installation, recovery, runbook, and Zotero 7/9 evidence.
+10. Update active docs and the migration plan with actual retirement results;
+    keep R9 and Stage 1 incomplete until the acceptance change passes.
 
 Source rollback remains possible before the final acceptance receipt, but no
 runtime rollback to Node is supported. After mutation admission, operational

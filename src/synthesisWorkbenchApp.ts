@@ -13084,12 +13084,6 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
       snapshot.concepts.filters.overlayEnabled,
     ),
   );
-  filters.appendChild(
-    makeButton(t("synthesis-concepts-audit-aliases"), "hostCommand", {
-      command: "auditConceptAliases",
-      args: {},
-    }),
-  );
   panel.appendChild(renderPanelToolbar(filters));
   const status = el("div", "details");
   status.appendChild(
