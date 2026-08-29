@@ -15,13 +15,18 @@ import {
   replacePrivateRuntimeTextFileAtomically,
   readRuntimeTextFile,
   readRuntimeTextFileStrict,
+  listRuntimeChildrenStrict,
+  moveRuntimePath,
+  removeRuntimePathStrict,
   registerRuntimeLogClearer,
   replaceRuntimeTextFileAtomically,
+  resolveRuntimeTemporaryDirectory,
   scanRuntimePersistenceUsage,
   validateManagedAbsolutePath,
   validateManagedRelativePath,
   validateManagedRelativePathSet,
   writeRuntimeTextFileStrict,
+  statRuntimePathStrict,
 } from "../../src/modules/runtimePersistence";
 import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
 import { RuntimeFileIoError } from "../../src/modules/runtimeFileRangeReader";
@@ -179,6 +184,67 @@ describe("runtime persistence governance", function () {
           delete runtime[name];
         }
       }
+    }
+  });
+
+  it("resolves the current temporary directory on every invocation", function () {
+    const runtime = globalThis as Record<string, unknown>;
+    const previousPathUtils = Object.getOwnPropertyDescriptor(
+      runtime,
+      "PathUtils",
+    );
+    try {
+      Object.defineProperty(runtime, "PathUtils", {
+        configurable: true,
+        writable: true,
+        value: { tempDir: "/runtime/first-temp" },
+      });
+      assert.equal(resolveRuntimeTemporaryDirectory(), "/runtime/first-temp");
+
+      Object.defineProperty(runtime, "PathUtils", {
+        configurable: true,
+        writable: true,
+        value: { tempDir: "/runtime/second-temp" },
+      });
+      assert.equal(resolveRuntimeTemporaryDirectory(), "/runtime/second-temp");
+    } finally {
+      if (previousPathUtils) {
+        Object.defineProperty(runtime, "PathUtils", previousPathUtils);
+      } else {
+        delete runtime.PathUtils;
+      }
+    }
+  });
+
+  it("provides strict stat, list, move, and remove semantics", async function () {
+    const sourceDir = path.join(tempRoot, "strict-owner");
+    const sourcePath = path.join(sourceDir, "source.txt");
+    const targetPath = path.join(sourceDir, "target.txt");
+    await writeRuntimeTextFileStrict(sourcePath, "严格语义");
+
+    assert.deepInclude(await statRuntimePathStrict(sourcePath), {
+      exists: true,
+      isDir: false,
+    });
+    assert.deepEqual(await listRuntimeChildrenStrict(sourceDir), [sourcePath]);
+    await moveRuntimePath({ sourcePath, targetPath });
+    assert.isFalse(await pathExists(sourcePath));
+    assert.isTrue(await pathExists(targetPath));
+    await removeRuntimePathStrict(targetPath);
+    assert.isFalse(await pathExists(targetPath));
+
+    for (const operation of [
+      () => statRuntimePathStrict(targetPath),
+      () => listRuntimeChildrenStrict(targetPath),
+      () => removeRuntimePathStrict(targetPath),
+    ]) {
+      let failure: unknown;
+      try {
+        await operation();
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, Error);
     }
   });
 

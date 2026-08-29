@@ -1,5 +1,8 @@
 import { readRuntimeBytes } from "../modules/runtimePersistence";
-import { resolveRuntimeZotero } from "../utils/runtimeBridge";
+import {
+  resolveRuntimeWindowCandidates,
+  resolveRuntimeZotero,
+} from "../utils/runtimeBridge";
 import type {
   WorkflowImagePreparationOptions,
   WorkflowPreparedNoteImage,
@@ -148,9 +151,16 @@ function computeBoundedSize(width: number, height: number, maxLongEdge: number) 
 
 function resolveCanvasDocument() {
   const runtime = globalThis as typeof globalThis & { document?: Document };
-  return (
-    runtime.document || resolveRuntimeZotero()?.getMainWindow?.()?.document || null
-  );
+  if (runtime.document) {
+    return runtime.document;
+  }
+  for (const candidate of resolveRuntimeWindowCandidates()) {
+    const document = (candidate as { document?: Document })?.document;
+    if (document) {
+      return document;
+    }
+  }
+  return null;
 }
 
 const defaultRuntimeAdapter: WorkflowNoteImageRuntimeAdapter = {

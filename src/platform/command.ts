@@ -6,11 +6,11 @@ import {
   resolveWindowsCommandFromPowerShell,
   resolveWindowsCommandFromUserLocalBin,
 } from "../modules/windowsCommandResolution";
+import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
-  getMozillaSubprocessModule,
-  runtimeFileExists,
-  runtimeReadTextFile,
-} from "../utils/runtimeCompatibility";
+  readRuntimeTextFile,
+  runtimePathExists,
+} from "../modules/runtimePersistence";
 import { readRuntimeEnv, readRuntimePathEnv, splitPathEntries } from "./env";
 import { joinNativePath, isAbsolutePathLike } from "./path";
 import { detectRuntimePlatform } from "./runtimePlatform";
@@ -150,7 +150,7 @@ function summarizeMissingCommand(command: string, checkedCandidates: string[]) {
 }
 
 async function defaultPathExists(path: string) {
-  return runtimeFileExists(path);
+  return runtimePathExists(path);
 }
 
 async function defaultReadTextFile(pathRaw: string) {
@@ -158,7 +158,7 @@ async function defaultReadTextFile(pathRaw: string) {
   if (!path) {
     return "";
   }
-  return runtimeReadTextFile(path);
+  return readRuntimeTextFile(path);
 }
 
 function getWindowsCommandExtension(pathRaw: string) {

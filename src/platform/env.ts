@@ -1,12 +1,10 @@
 import {
   readRuntimeTextFile,
+  removeRuntimePath,
   runtimePathExists,
 } from "../modules/runtimePersistence";
 import { getWindowsPowerShellAbsoluteCandidates } from "../modules/windowsCommandResolution";
-import {
-  getMozillaSubprocessModule,
-  runtimeRemoveFile,
-} from "../utils/runtimeCompatibility";
+import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import { getPathDelimiter } from "./path";
 import { detectRuntimePlatform } from "./runtimePlatform";
 
@@ -591,7 +589,7 @@ async function removeRuntimeFileIfExists(path: string) {
     return;
   }
   try {
-    await runtimeRemoveFile(path);
+    await removeRuntimePath(path);
   } catch {
     // Best-effort cleanup only. The file path is unique per preflight attempt.
   }

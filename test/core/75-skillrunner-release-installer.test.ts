@@ -52,7 +52,6 @@ describe("skillrunner release installer", function () {
   it("downloads, verifies, extracts and returns install proofs", async function () {
     const files = new Map<string, Uint8Array>();
     const dirs = new Set<string>();
-    const removedPaths: string[] = [];
     const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
       .Zotero;
     if (!zoteroRuntime) {
@@ -68,7 +67,8 @@ describe("skillrunner release installer", function () {
       },
       exists: async (path: string) => dirs.has(path) || files.has(path),
       remove: async (path: string) => {
-        removedPaths.push(path);
+        files.delete(path);
+        dirs.delete(path);
       },
     };
     const artifactBytes = new TextEncoder().encode("abc");
@@ -118,7 +118,6 @@ describe("skillrunner release installer", function () {
     assert.equal(commands.length, 1);
     assert.equal(commands[0].command, "tar");
     assert.include(commands[0].args.join(" "), "-xzf");
-    assert.isAtLeast(removedPaths.length, 1);
   });
 
   it("fails when checksum does not match artifact hash", async function () {

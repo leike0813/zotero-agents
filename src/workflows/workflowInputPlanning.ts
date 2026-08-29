@@ -16,6 +16,7 @@ import type {
   WorkflowValidateSelectionSpec,
 } from "./types";
 import type { WorkflowRunOptions } from "./zoteroHostAccessOptions";
+import { runtimePathExists } from "../modules/runtimePersistence";
 
 type AttachmentLike = {
   item?: {
@@ -756,7 +757,7 @@ async function fileExists(path: string, runtime: RuntimeLike) {
     if (typeof hostFile?.exists === "function") {
       return Boolean(await hostFile.exists(targetPath));
     }
-    return Boolean(runtime.zotero.File.pathToFile(targetPath)?.exists?.());
+    return runtimePathExists(targetPath);
   } catch {
     return false;
   }

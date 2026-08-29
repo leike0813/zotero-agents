@@ -1,5 +1,12 @@
 import { getPathSeparator, joinPath } from "../utils/path";
 import type { SkillRunnerCtlCommandResult } from "./skillRunnerCtlBridge";
+import {
+  ensureRuntimeDirectoryStrict,
+  removeRuntimePath,
+  resolveRuntimeTemporaryDirectory,
+  runtimePathExists,
+  writeRuntimeBytes,
+} from "./runtimePersistence";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -49,41 +56,8 @@ function detectWindows() {
   return getPathSeparator() === "\\";
 }
 
-function readDirectoryServicePath(key: string) {
-  const runtime = globalThis as {
-    Services?: {
-      dirsvc?: {
-        get?: (name: string, iface: unknown) => { path?: string };
-      };
-    };
-    Ci?: { nsIFile?: unknown };
-  };
-  if (!runtime.Services?.dirsvc?.get || !runtime.Ci?.nsIFile) {
-    return "";
-  }
-  try {
-    const file = runtime.Services.dirsvc.get(key, runtime.Ci.nsIFile);
-    return normalizeString(file?.path);
-  } catch {
-    return "";
-  }
-}
-
 function resolveTempRoot() {
-  const runtime = globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  };
-  const env = runtime.process?.env || {};
-  const value =
-    normalizeString(env.TEMP) ||
-    normalizeString(env.TMP) ||
-    normalizeString(env.TMPDIR);
-  if (value) {
-    return value;
-  }
-  return (
-    readDirectoryServicePath("TmpD") || readDirectoryServicePath("ProfD") || "."
-  );
+  return resolveRuntimeTemporaryDirectory();
 }
 
 function getGlobalFetch() {
@@ -98,23 +72,7 @@ async function ensureDirectory(pathValue: string) {
   if (!normalized) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: {
-      makeDirectory?: (
-        path: string,
-        options?: { createAncestors?: boolean; ignoreExisting?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.makeDirectory === "function") {
-    await runtime.IOUtils.makeDirectory(normalized, {
-      createAncestors: true,
-      ignoreExisting: true,
-    });
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(normalized, { recursive: true });
+  await ensureRuntimeDirectoryStrict(normalized);
 }
 
 async function pathExists(pathValue: string) {
@@ -122,37 +80,11 @@ async function pathExists(pathValue: string) {
   if (!normalized) {
     return false;
   }
-  const runtime = globalThis as {
-    IOUtils?: { exists?: (path: string) => Promise<boolean> };
-  };
-  if (typeof runtime.IOUtils?.exists === "function") {
-    try {
-      return !!(await runtime.IOUtils.exists(normalized));
-    } catch {
-      // continue to node fallback
-    }
-  }
-  try {
-    const fs = await dynamicImport("fs/promises");
-    await fs.access(normalized);
-    return true;
-  } catch {
-    return false;
-  }
+  return runtimePathExists(normalized);
 }
 
 async function writeBytes(pathValue: string, bytes: Uint8Array) {
-  const runtime = globalThis as {
-    IOUtils?: {
-      write?: (path: string, data: Uint8Array) => Promise<number | void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.write === "function") {
-    await runtime.IOUtils.write(pathValue, bytes);
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(pathValue, Buffer.from(bytes));
+  await writeRuntimeBytes(pathValue, bytes, { overwrite: true });
 }
 
 async function removePathIfExists(pathValue: string) {
@@ -160,31 +92,8 @@ async function removePathIfExists(pathValue: string) {
   if (!normalized) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: {
-      remove?: (
-        path: string,
-        options?: { ignoreAbsent?: boolean; recursive?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.remove === "function") {
-    try {
-      await runtime.IOUtils.remove(normalized, {
-        ignoreAbsent: true,
-        recursive: true,
-      });
-      return;
-    } catch {
-      // continue to node fallback
-    }
-  }
   try {
-    const fs = await dynamicImport("fs/promises");
-    await fs.rm(normalized, {
-      recursive: true,
-      force: true,
-    });
+    await removeRuntimePath(normalized);
   } catch {
     // ignore cleanup failures
   }

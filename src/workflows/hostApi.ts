@@ -25,6 +25,7 @@ import {
   readRuntimeBytes,
   readRuntimeTextFileStrict,
   removeRuntimePath,
+  resolveRuntimeTemporaryDirectory,
   runtimePathExists,
   writeRuntimeBytes,
   writeRuntimeTextFileStrict,
@@ -623,8 +624,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       makeDirectory,
       materializeWorkflowInputFile,
       getTempDirectoryPath() {
-        const tempDir = resolveHostZotero().getTempDirectory?.();
-        return String(tempDir?.path || "").trim();
+        return resolveRuntimeTemporaryDirectory();
       },
       async pickDirectory(args) {
         return openRuntimeFilePicker({

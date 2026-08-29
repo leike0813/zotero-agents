@@ -1,4 +1,4 @@
-import { runtimeFileExists } from "../utils/runtimeCompatibility";
+import { runtimePathExists } from "./runtimePersistence";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -101,7 +101,7 @@ async function pathExists(targetPath: string) {
   if (!normalized) {
     return false;
   }
-  const runtimeExists = await runtimeFileExists(normalized);
+  const runtimeExists = await runtimePathExists(normalized);
   return runtimeExists;
 }
 

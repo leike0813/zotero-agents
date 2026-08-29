@@ -333,6 +333,50 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     assert.equal(selected, null);
   });
 
+  it("distinguishes a successful empty multi-selection from cancel", async function () {
+    (globalThis as RuntimeWithToolkit).ztoolkit = {
+      FilePicker: class {
+        constructor() {}
+        async open() {
+          return [];
+        }
+      },
+    };
+
+    assert.deepEqual(await openRuntimeFilePicker({ mode: "multiple" }), []);
+  });
+
+  it("resolves the parent Window and picker constructor on every call", async function () {
+    const runtime = globalThis as RuntimeWithToolkit;
+    const parents: Array<Window | undefined> = [];
+    const firstWindow = { browsingContext: {} } as Window;
+    const secondWindow = { browsingContext: {} } as Window;
+    const picker = (label: string) =>
+      class {
+        constructor(
+          _title: string,
+          _mode: string,
+          _filters: [string, string][],
+          _suggestion: string,
+          window: Window | undefined,
+        ) {
+          parents.push(window);
+        }
+        open() {
+          return label;
+        }
+      };
+
+    runtime.addon = { data: { dialog: { window: firstWindow } } };
+    runtime.ztoolkit = { FilePicker: picker("first") };
+    assert.equal(await openRuntimeFilePicker({ mode: "open" }), "first");
+
+    runtime.addon = { data: { dialog: { window: secondWindow } } };
+    runtime.ztoolkit = { FilePicker: picker("second") };
+    assert.equal(await openRuntimeFilePicker({ mode: "open" }), "second");
+    assert.deepEqual(parents, [firstWindow, secondWindow]);
+  });
+
   it("picks a save target with suggestion, filter, and initial directory", async function () {
     const calls: Array<Record<string, unknown>> = [];
     (globalThis as RuntimeWithToolkit).ztoolkit = {

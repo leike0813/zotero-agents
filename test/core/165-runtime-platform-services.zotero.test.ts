@@ -14,6 +14,7 @@ import {
   resetRuntimeCommandRegistryForTests,
 } from "../../src/platform/command";
 import {
+  resolveRuntimeTemporaryDirectory,
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
@@ -138,6 +139,13 @@ describe("runtime platform services in Zotero", function () {
     );
     await writeRuntimeTextFile(target, "ok");
     assert.isTrue(await runtimePathExists(target));
+  });
+
+  it("resolves the current Zotero temporary directory through runtime persistence", function () {
+    assert.equal(
+      normalizeNativeLocalPath(resolveRuntimeTemporaryDirectory()),
+      normalizeNativeLocalPath(getZoteroTempDirectoryPath()),
+    );
   });
 
   it("initializes the startup command registry without requiring every command", async function () {

@@ -739,6 +739,32 @@ export function resolveRuntimePersistenceRoot() {
   return resolvePlatformDataRoot();
 }
 
+export function resolveRuntimeTemporaryDirectory() {
+  const runtime = globalThis as {
+    PathUtils?: { tempDir?: unknown };
+    Zotero?: { getTempDirectory?: () => { path?: unknown } | null };
+  };
+  const pathUtilsTempDir = normalizeString(runtime.PathUtils?.tempDir);
+  if (pathUtilsTempDir) {
+    return normalizeRuntimeFsPath(pathUtilsTempDir);
+  }
+  try {
+    const zoteroTempDir = normalizeString(
+      runtime.Zotero?.getTempDirectory?.()?.path,
+    );
+    if (zoteroTempDir) {
+      return normalizeRuntimeFsPath(zoteroTempDir);
+    }
+  } catch {
+    // Fall through to environment and managed runtime candidates.
+  }
+  const environmentTempDir =
+    readEnv("TMPDIR") || readEnv("TEMP") || readEnv("TMP") || readEnv("Temp");
+  return normalizeRuntimeFsPath(
+    environmentTempDir || getRuntimePersistencePaths().tmpDir,
+  );
+}
+
 export function getSynthesisSidecarRuntimePaths(
   runtimeRootRaw: string,
 ): SynthesisSidecarRuntimePaths {
@@ -1883,6 +1909,12 @@ export function statRuntimePath(pathRaw: string): Promise<RuntimePathStat> {
   return statRuntimePathInternal(pathRaw, false);
 }
 
+export function statRuntimePathStrict(
+  pathRaw: string,
+): Promise<RuntimePathStat> {
+  return statRuntimePathInternal(pathRaw, true);
+}
+
 async function listRuntimeChildrenInternal(
   pathRaw: string,
   surfaceErrors: boolean,
@@ -1917,6 +1949,10 @@ async function listRuntimeChildrenInternal(
 
 export function listRuntimeChildren(pathRaw: string) {
   return listRuntimeChildrenInternal(pathRaw, false);
+}
+
+export function listRuntimeChildrenStrict(pathRaw: string) {
+  return listRuntimeChildrenInternal(pathRaw, true);
 }
 
 export async function listRuntimeChildDirectories(pathRaw: string) {
@@ -2075,29 +2111,68 @@ export async function getRuntimePathSize(pathRaw: string): Promise<{
 
 export async function removeRuntimePath(pathRaw: string) {
   const path = normalizeString(pathRaw);
-  if (!path || !(await runtimePathExists(path))) {
+  if (!path) {
     return false;
   }
   const runtime = globalThis as {
-    IOUtils?: { remove?: (path: string, options?: unknown) => Promise<void> };
+    IOUtils?: {
+      exists?: (path: string) => Promise<boolean>;
+      remove?: (path: string, options?: unknown) => Promise<void>;
+    };
     OS?: {
       File?: { removeDir?: (path: string, options?: unknown) => Promise<void> };
     };
   };
+  if (
+    typeof runtime.IOUtils?.remove === "function" &&
+    typeof runtime.IOUtils.exists === "function" &&
+    (await runtime.IOUtils.exists(path).catch(() => false))
+  ) {
+    await runtime.IOUtils.remove(path, {
+      recursive: true,
+      ignoreAbsent: true,
+    });
+    return true;
+  }
+  const fs = await tryNodeFs();
+  if (fs) {
+    try {
+      await fs.access(path);
+    } catch {
+      return false;
+    }
+    await fs.rm(path, { force: true, recursive: true });
+    return true;
+  }
   if (typeof runtime.IOUtils?.remove === "function") {
-    await runtime.IOUtils.remove(path, { recursive: true });
+    if (
+      typeof runtime.IOUtils.exists === "function" &&
+      !(await runtime.IOUtils.exists(path).catch(() => false))
+    ) {
+      return false;
+    }
+    await runtime.IOUtils.remove(path, {
+      recursive: true,
+      ignoreAbsent: true,
+    });
     return true;
   }
   if (typeof runtime.OS?.File?.removeDir === "function") {
     await runtime.OS.File.removeDir(path, { ignoreAbsent: true });
     return true;
   }
-  const fs = await tryNodeFs();
-  if (fs) {
-    await fs.rm(path, { force: true, recursive: true });
-    return true;
-  }
   return false;
+}
+
+export async function removeRuntimePathStrict(pathRaw: string) {
+  const path = normalizeString(pathRaw);
+  if (!path || !(await runtimePathExists(path))) {
+    throw new Error("runtime path does not exist");
+  }
+  const removed = await removeRuntimePath(path);
+  if (!removed) {
+    throw new Error("runtime path removal is unavailable");
+  }
 }
 
 let runtimeTreeCopyTail: Promise<void> = Promise.resolve();

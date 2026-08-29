@@ -22,7 +22,7 @@ import {
   subscribeContentPackageInstallProgress,
   type ContentPackageInstallProgress,
 } from "./contentPackageSubscription";
-import { runtimeFileExists } from "../utils/runtimeCompatibility";
+import { runtimePathExists } from "./runtimePersistence";
 
 let unbindManagedLocalRuntimeStateChange: (() => void) | null = null;
 let unbindContentPackageInstallProgress: (() => void) | null = null;
@@ -2163,7 +2163,7 @@ function bindPrefEvents() {
       return false;
     }
 
-    const exists = await runtimeFileExists(candidate);
+    const exists = await runtimePathExists(candidate);
     return exists;
   };
 

@@ -41,6 +41,7 @@ import {
 import { projectDashboardActiveTasks } from "./dashboardActiveTasks";
 import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
 import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
+import { readRuntimeTextFileStrict } from "./runtimePersistence";
 import {
   isAcpRuntimeReplayProfilerAvailable,
   isAcpRuntimeSemanticTraceRecorderAvailable,
@@ -766,14 +767,7 @@ async function renderMarkdownToSafeHtml(markdown: string) {
 }
 
 async function readUtf8TextFile(filePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(filePath, "utf8") as Promise<string>;
+  return readRuntimeTextFileStrict(filePath);
 }
 
 function toBackendTabKey(backendId: string) {

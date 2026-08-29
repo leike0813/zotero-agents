@@ -4,6 +4,7 @@ import {
   moveRuntimePath,
   readRuntimeBytes,
   removeRuntimePath,
+  resolveRuntimeTemporaryDirectory,
   writeRuntimeBytes,
 } from "../modules/runtimePersistence";
 import { joinPath, normalizeNativeLocalPath } from "../utils/path";
@@ -13,28 +14,6 @@ import {
   digestRuntimeFileSource,
   inspectRuntimeFileSource,
 } from "../modules/runtimeFileTransfer";
-
-type DynamicImport = (specifier: string) => Promise<any>;
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
-
-function isNodeRuntime() {
-  const runtime = globalThis as {
-    process?: { versions?: { node?: unknown } };
-  };
-  return typeof runtime.process?.versions?.node === "string";
-}
-
-async function importNodeModule(specifier: string) {
-  if (!isNodeRuntime()) {
-    throw new Error(
-      `Node module ${specifier} is unavailable in the current runtime`,
-    );
-  }
-  return dynamicImport(specifier);
-}
 
 export type WorkflowArchiveEntry = {
   name: string;
@@ -211,27 +190,12 @@ function validateEntries(entries: WorkflowArchiveEntry[]) {
 }
 
 async function makeTempDir(prefix: string) {
-  const runtime = globalThis as {
-    PathUtils?: { tempDir?: unknown };
-  };
-  const zotero = resolveRuntimeZotero() as
-    | { getTempDirectory?: () => { path?: unknown } }
-    | undefined;
-  const tempRoot =
-    String(runtime.PathUtils?.tempDir || "").trim() ||
-    String(zotero?.getTempDirectory?.()?.path || "").trim();
-  if (tempRoot) {
-    const target = joinPath(
-      tempRoot,
-      `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    await ensureRuntimeDirectory(target);
-    return target;
-  }
-  const fs = await importNodeModule("fs/promises");
-  const os = await importNodeModule("os");
-  const path = await importNodeModule("path");
-  return fs.mkdtemp(path.join(os.tmpdir(), `${prefix}-`));
+  const target = joinPath(
+    resolveRuntimeTemporaryDirectory(),
+    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  await ensureRuntimeDirectory(target);
+  return target;
 }
 
 async function removePath(targetPath: string) {

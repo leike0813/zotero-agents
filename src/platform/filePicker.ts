@@ -1,7 +1,6 @@
 import {
-  resolveRuntimeAddon,
   resolveRuntimeToolkit,
-  resolveRuntimeZotero,
+  resolveRuntimeWindowCandidates,
 } from "../utils/runtimeBridge";
 
 type RuntimeFilePickerCtor = new (
@@ -31,29 +30,9 @@ function isUsableRuntimeFilePickerParentWindow(
 }
 
 function resolveRuntimeFilePickerParentWindow() {
-  const runtimeAddon = resolveRuntimeAddon() as
-    | {
-        data?: {
-          dialog?: { window?: Window };
-          prefs?: { window?: Window };
-        };
-      }
-    | undefined;
-  const runtimeZotero = resolveRuntimeZotero() as
-    | { getMainWindow?: () => Window | null | undefined }
-    | undefined;
-  let mainWindow: Window | null | undefined;
-  try {
-    mainWindow = runtimeZotero?.getMainWindow?.();
-  } catch {
-    mainWindow = undefined;
-  }
-  const candidates = [
-    runtimeAddon?.data?.dialog?.window || undefined,
-    runtimeAddon?.data?.prefs?.window || undefined,
-    mainWindow || undefined,
-  ];
-  return candidates.find(isUsableRuntimeFilePickerParentWindow);
+  return resolveRuntimeWindowCandidates().find(
+    isUsableRuntimeFilePickerParentWindow,
+  );
 }
 
 async function openNativeMultiFilePicker(args: {
@@ -116,7 +95,7 @@ async function openNativeMultiFilePicker(args: {
           .map((entry: unknown) => String(entry || "").trim())
           .filter(Boolean)
       : [];
-    return { supported: true, selected: files.length ? files : null };
+    return { supported: true, selected: files };
   } catch {
     return { supported: false, selected: null as string[] | null };
   }
@@ -148,11 +127,14 @@ export async function openRuntimeFilePicker(args: {
     String(args.directory || "").trim() || undefined,
   ).open();
   if (args.mode === "multiple") {
+    if (selected == null || selected === false) {
+      return null;
+    }
     const values = Array.isArray(selected) ? selected : [selected];
     const normalized = values
       .map((entry) => String(entry || "").trim())
       .filter(Boolean);
-    return normalized.length > 0 ? normalized : null;
+    return normalized;
   }
   return typeof selected === "string" && selected.trim()
     ? selected.trim()

@@ -1,4 +1,5 @@
 import { joinPath } from "../utils/path";
+import { readRuntimeTextFileStrict } from "../modules/runtimePersistence";
 
 type BundledModule = {
   id: string;
@@ -29,29 +30,8 @@ const reexportFromPattern =
   /(^|[\n;])\s*export\s+\{([\s\S]*?)\}\s+from\s+["']([^"']+)["']\s*;?/gm;
 const exportListPattern = /(^|[\n;])\s*export\s+\{([\s\S]*?)\}\s*;?/gm;
 
-type DynamicImport = (specifier: string) => Promise<any>;
-
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
-
-function isZoteroRuntime() {
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: unknown };
-  };
-  return typeof runtime.IOUtils?.readUTF8 === "function";
-}
-
 async function readTextFile(filePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(filePath, "utf8");
+  return readRuntimeTextFileStrict(filePath);
 }
 
 function normalizeFsPath(input: string) {

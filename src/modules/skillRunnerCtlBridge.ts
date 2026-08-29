@@ -12,6 +12,13 @@ import {
   isAbsolutePathLike,
   joinNativePath,
 } from "../platform/path";
+import {
+  ensureRuntimeDirectoryStrict,
+  readRuntimeTextFile,
+  removeRuntimePath,
+  runtimePathExists,
+  writeRuntimeTextFileStrict,
+} from "./runtimePersistence";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -201,23 +208,7 @@ async function ensureDirectory(pathValue: string) {
   if (!normalized) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: {
-      makeDirectory?: (
-        path: string,
-        options?: { createAncestors?: boolean; ignoreExisting?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.makeDirectory === "function") {
-    await runtime.IOUtils.makeDirectory(normalized, {
-      createAncestors: true,
-      ignoreExisting: true,
-    });
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(normalized, { recursive: true });
+  await ensureRuntimeDirectoryStrict(normalized);
 }
 
 async function readUtf8File(pathValue: string) {
@@ -225,14 +216,7 @@ async function readUtf8File(pathValue: string) {
   if (!normalized) {
     return "";
   }
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(normalized);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(normalized, "utf8") as Promise<string>;
+  return readRuntimeTextFile(normalized);
 }
 
 async function removePath(pathValue: string) {
@@ -240,28 +224,8 @@ async function removePath(pathValue: string) {
   if (!normalized) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: {
-      remove?: (
-        path: string,
-        options?: { ignoreAbsent?: boolean; recursive?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.remove === "function") {
-    try {
-      await runtime.IOUtils.remove(normalized, {
-        ignoreAbsent: true,
-        recursive: true,
-      });
-      return;
-    } catch {
-      // fall through
-    }
-  }
   try {
-    const fs = await dynamicImport("fs/promises");
-    await fs.rm(normalized, { recursive: true, force: true });
+    await removeRuntimePath(normalized);
   } catch {
     // ignore cleanup failures
   }
@@ -272,15 +236,7 @@ async function writeUtf8File(pathValue: string, content: string) {
   if (!normalized) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: { writeUTF8?: (path: string, data: string) => Promise<unknown> };
-  };
-  if (typeof runtime.IOUtils?.writeUTF8 === "function") {
-    await runtime.IOUtils.writeUTF8(normalized, String(content || ""));
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(normalized, String(content || ""), "utf8");
+  await writeRuntimeTextFileStrict(normalized, String(content || ""));
 }
 
 async function readJsonObject(pathValue: string) {
@@ -954,54 +910,7 @@ async function pathExists(pathValue: string) {
   if (!targetPath) {
     return false;
   }
-  const runtime = globalThis as {
-    IOUtils?: { exists?: (path: string) => Promise<boolean> };
-    Components?: {
-      classes?: Record<
-        string,
-        { createInstance?: (iface: unknown) => unknown }
-      >;
-      interfaces?: Record<string, unknown>;
-    };
-    Cc?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
-    Ci?: Record<string, unknown>;
-  };
-  if (typeof runtime.IOUtils?.exists === "function") {
-    try {
-      return !!(await runtime.IOUtils.exists(targetPath));
-    } catch {
-      // continue fallback checks
-    }
-  }
-  try {
-    const classes = runtime.Components?.classes || runtime.Cc;
-    const interfaces = runtime.Components?.interfaces || runtime.Ci;
-    const localFileFactory = classes?.["@mozilla.org/file/local;1"];
-    const nsIFile = interfaces?.nsIFile;
-    if (localFileFactory?.createInstance && nsIFile) {
-      const file = localFileFactory.createInstance(nsIFile) as {
-        initWithPath?: (path: string) => void;
-        exists?: () => boolean;
-      };
-      if (typeof file.initWithPath === "function") {
-        file.initWithPath(targetPath);
-      }
-      if (typeof file.exists === "function") {
-        return !!file.exists();
-      }
-    }
-  } catch {
-    // continue fallback checks
-  }
-  try {
-    const fs = await dynamicImport("fs");
-    if (typeof fs?.existsSync === "function") {
-      return !!fs.existsSync(targetPath);
-    }
-  } catch {
-    // ignore node fs fallback failure
-  }
-  return false;
+  return runtimePathExists(targetPath);
 }
 
 function parseJsonObjectCandidate(text: string) {

@@ -175,12 +175,9 @@ export function buildAcpHostContext(args: {
 }
 
 export function buildCurrentAcpHostContext(): AcpHostContext {
-  const runtime = globalThis as {
-    Zotero?: {
-      getMainWindow?: () => _ZoteroTypes.MainWindow | null;
-    };
-  };
-  const win = runtime.Zotero?.getMainWindow?.() || (globalThis as any).window;
+  const win = resolveRuntimeWindowCandidates()[0] as
+    | _ZoteroTypes.MainWindow
+    | undefined;
   if (!win) {
     return {
       target: "library",
@@ -200,3 +197,4 @@ export function buildCurrentAcpHostContext(): AcpHostContext {
     target,
   });
 }
+import { resolveRuntimeWindowCandidates } from "../utils/runtimeBridge";

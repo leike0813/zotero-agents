@@ -39,6 +39,14 @@ import {
   summarizeWorkflowHostApiCapabilities,
 } from "./workflowHostContract";
 import type { WorkflowHookExecutionMode } from "./types";
+import {
+  listRuntimeChildrenStrict,
+  readRuntimeTextFileStrict,
+  removeRuntimePath,
+  resolveRuntimeTemporaryDirectory,
+  statRuntimePathStrict,
+  writeRuntimeTextFileStrict,
+} from "../modules/runtimePersistence";
 
 type WorkflowModuleResourceKind = "official" | "dev-local" | "user";
 
@@ -51,87 +59,33 @@ const dynamicImport: DynamicImport = new Function(
 
 function isZoteroRuntime() {
   const runtime = globalThis as {
-    IOUtils?: unknown;
-    PathUtils?: { tempDir?: unknown };
     Services?: {
       io?: { newFileURI?: unknown };
       scriptloader?: { loadSubScript?: unknown };
     };
   };
   return (
-    typeof runtime.IOUtils !== "undefined" &&
-    typeof runtime.PathUtils?.tempDir === "string" &&
     typeof runtime.Services?.io?.newFileURI === "function" &&
     typeof runtime.Services?.scriptloader?.loadSubScript === "function"
   );
 }
 
 async function readTextFile(filePath: string) {
-  const io = (
-    globalThis as {
-      IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-    }
-  ).IOUtils;
-  if (typeof io?.readUTF8 === "function") {
-    return io.readUTF8(filePath);
-  }
-  if (isZoteroRuntime()) {
-    const runtimeIo = (
-      globalThis as {
-        IOUtils: { readUTF8: (path: string) => Promise<string> };
-      }
-    ).IOUtils;
-    return runtimeIo.readUTF8(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(filePath, "utf8") as Promise<string>;
+  return readRuntimeTextFileStrict(filePath);
 }
 
 async function listDirectoryEntries(dirPath: string): Promise<string[]> {
-  const io = (
-    globalThis as {
-      IOUtils?: { getChildren?: (path: string) => Promise<string[]> };
-    }
-  ).IOUtils;
-  if (typeof io?.getChildren === "function") {
-    const children = await io.getChildren(dirPath);
-    return children.map((entryPath) => getBaseName(entryPath));
-  }
-  if (isZoteroRuntime()) {
-    const runtimeIo = (
-      globalThis as {
-        IOUtils: { getChildren: (path: string) => Promise<string[]> };
-      }
-    ).IOUtils;
-    const children = await runtimeIo.getChildren(dirPath);
-    return children.map((entryPath) => getBaseName(entryPath));
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readdir(dirPath) as Promise<string[]>;
+  return (await listRuntimeChildrenStrict(dirPath)).map((entryPath: string) =>
+    getBaseName(entryPath),
+  );
 }
 
 async function statPath(targetPath: string): Promise<{ isDirectory: boolean }> {
-  const io = (
-    globalThis as {
-      IOUtils?: { stat?: (path: string) => Promise<{ type: string }> };
-    }
-  ).IOUtils;
-  if (typeof io?.stat === "function") {
-    const stat = await io.stat(targetPath);
-    return { isDirectory: stat.type === "directory" };
+  const stat = await statRuntimePathStrict(targetPath);
+  if (!stat.exists) {
+    throw new Error("workflow path does not exist");
   }
-  if (isZoteroRuntime()) {
-    const runtimeIo = (
-      globalThis as {
-        IOUtils: { stat: (path: string) => Promise<{ type: string }> };
-      }
-    ).IOUtils;
-    const stat = await runtimeIo.stat(targetPath);
-    return { isDirectory: stat.type === "directory" };
-  }
-  const fs = await dynamicImport("fs/promises");
-  const stat = await fs.stat(targetPath);
-  return { isDirectory: stat.isDirectory() };
+  return { isDirectory: stat.isDir };
 }
 
 function transformModuleExports(source: string) {
@@ -169,14 +123,6 @@ async function importHooksModuleFromText(filePath: string) {
 
   if (isZoteroRuntime()) {
     const runtime = globalThis as unknown as {
-      IOUtils: {
-        writeUTF8: (path: string, data: string) => Promise<void>;
-        remove?: (
-          path: string,
-          options?: { ignoreAbsent?: boolean },
-        ) => Promise<void>;
-      };
-      PathUtils: { tempDir: string };
       Services: {
         io: { newFileURI: (file: unknown) => { spec: string } };
         scriptloader: {
@@ -187,10 +133,10 @@ async function importHooksModuleFromText(filePath: string) {
     };
 
     const tempScriptPath = joinPath(
-      runtime.PathUtils.tempDir,
+      resolveRuntimeTemporaryDirectory(),
       `zotero-skills-hook-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.js`,
     );
-    await runtime.IOUtils.writeUTF8(tempScriptPath, scriptText);
+    await writeRuntimeTextFileStrict(tempScriptPath, scriptText);
     const scope = createHostHookScope();
     try {
       const file = runtime.Zotero.File.pathToFile(tempScriptPath);
@@ -202,11 +148,7 @@ async function importHooksModuleFromText(filePath: string) {
       }
       return loaded as Record<string, unknown>;
     } finally {
-      if (runtime.IOUtils.remove) {
-        await runtime.IOUtils.remove(tempScriptPath, {
-          ignoreAbsent: true,
-        });
-      }
+      await removeRuntimePath(tempScriptPath);
     }
   }
 
@@ -263,7 +205,6 @@ function createHostHookScope() {
     FileReader: hostCapabilities.FileReader,
     navigator: hostCapabilities.navigator,
     console: resolveRuntimeConsole(),
-    IOUtils: (globalThis as Record<string, unknown>).IOUtils,
   } as Record<string, unknown>;
 }
 
@@ -334,14 +275,6 @@ async function importPrecompiledPackageHooksModule(
   });
 
   const runtime = globalThis as unknown as {
-    IOUtils: {
-      writeUTF8: (path: string, data: string) => Promise<void>;
-      remove?: (
-        path: string,
-        options?: { ignoreAbsent?: boolean },
-      ) => Promise<void>;
-    };
-    PathUtils: { tempDir: string };
     Services: {
       io: { newFileURI: (file: unknown) => { spec: string } };
       scriptloader: {
@@ -352,12 +285,12 @@ async function importPrecompiledPackageHooksModule(
   };
 
   const tempScriptPath = joinPath(
-    runtime.PathUtils.tempDir,
+    resolveRuntimeTemporaryDirectory(),
     `zotero-skills-package-hook-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 10)}.js`,
   );
-  await runtime.IOUtils.writeUTF8(tempScriptPath, bundled.scriptText);
+  await writeRuntimeTextFileStrict(tempScriptPath, bundled.scriptText);
   const scope = createHostHookScope();
   try {
     const file = runtime.Zotero.File.pathToFile(tempScriptPath);
@@ -411,11 +344,7 @@ async function importPrecompiledPackageHooksModule(
     });
     throw error;
   } finally {
-    if (runtime.IOUtils.remove) {
-      await runtime.IOUtils.remove(tempScriptPath, {
-        ignoreAbsent: true,
-      });
-    }
+    await removeRuntimePath(tempScriptPath);
   }
 }
 

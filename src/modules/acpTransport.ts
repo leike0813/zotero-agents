@@ -1,10 +1,10 @@
 import type { BackendInstance } from "../backends/types";
+import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
-  getMozillaSubprocessModule as getCompatMozillaSubprocessModule,
-  runtimeRemoveFile,
-  runtimeFileExists,
-  runtimeReadTextFile,
-} from "../utils/runtimeCompatibility";
+  readRuntimeTextFile,
+  removeRuntimePath,
+  runtimePathExists,
+} from "./runtimePersistence";
 import {
   buildRuntimeCommandLaunchPlan,
   getCachedRuntimeCommand,
@@ -526,7 +526,7 @@ async function resolveNodeDirectNpxLaunch(args: {
     joinWindowsPath(nodeDir, "node_modules\\npm\\bin\\npx-cli.js"),
   );
   try {
-    const shimText = await runtimeReadTextFile(npxPath);
+    const shimText = await readRuntimeTextFile(npxPath);
     pushUniquePath(
       candidates,
       parseNpxCliPathFromShim({ shimPath: npxPath, shimText }),
@@ -535,7 +535,7 @@ async function resolveNodeDirectNpxLaunch(args: {
     // Missing or unreadable shim text only disables this optimization.
   }
   for (const candidate of candidates) {
-    if (await runtimeFileExists(candidate)) {
+    if (await runtimePathExists(candidate)) {
       return {
         nodePath,
         npxCliPath: candidate,
@@ -1042,7 +1042,7 @@ async function readSupervisorIdentity(pidFilePath: string) {
     return null;
   }
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const text = normalizeString(await runtimeReadTextFile(path));
+    const text = normalizeString(await readRuntimeTextFile(path));
     const [pidText, token = ""] = text.split(/\r?\n/, 2);
     const pid = toPositiveProcessId(Number.parseInt(pidText, 10));
     if (pid !== null && normalizeString(token)) {
@@ -1059,7 +1059,7 @@ async function removeSupervisorPidFile(pidFilePath: string) {
     return;
   }
   try {
-    await runtimeRemoveFile(path);
+    await removeRuntimePath(path);
   } catch {
     // Pidfile cleanup is best-effort diagnostic hygiene.
   }

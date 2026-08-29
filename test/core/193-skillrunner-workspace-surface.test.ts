@@ -1926,9 +1926,13 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
           owner: selectedOwner()!,
           context: undefined,
         });
-        return (region.page?.items || []).some(
-          (item) =>
-            item.itemKind === "message" && item.text === "hydrated digest",
+        const items = region.page?.items || [];
+        return (
+          items.some(
+            (item) =>
+              item.itemKind === "message" && item.text === "hydrated digest",
+          ) &&
+          !items.some((item) => item.itemId === "skillrunner-history-loading")
         );
       }, "hydrated history replacing the loading message");
       const settled = await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({

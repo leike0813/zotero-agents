@@ -28,17 +28,12 @@ import {
   normalizeStatusWithGuard,
 } from "../../modules/skillRunnerProviderStateMachine";
 import { delay } from "../../utils/runtimeCompatibility";
+import { readRuntimeBytes } from "../../modules/runtimePersistence";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
-type DynamicImport = (specifier: string) => Promise<any>;
 
 const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 120000;
 const DEFAULT_RECONCILE_REQUEST_TIMEOUT_MS = 10000;
-
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
 
 function ensureLeadingSlash(input: string) {
   return input.startsWith("/") ? input : `/${input}`;
@@ -359,15 +354,7 @@ function resolveUploadEntriesFromRequest(request: SkillRunnerJobRequestV1) {
 }
 
 async function readFileBytes(filePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { read: (targetPath: string) => Promise<Uint8Array> };
-  };
-  if (runtime.IOUtils && typeof runtime.IOUtils.read === "function") {
-    return runtime.IOUtils.read(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  const bytes = await fs.readFile(filePath);
-  return new Uint8Array(bytes);
+  return readRuntimeBytes(filePath);
 }
 
 async function sleep(ms: number) {

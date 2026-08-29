@@ -11,8 +11,14 @@ import { getPref } from "../utils/prefs";
 import {
   resolveRuntimeAlert,
   resolveRuntimeToolkit,
+  resolveRuntimeWindowCandidates,
 } from "../utils/runtimeBridge";
 import { isDebugModeEnabled } from "./debugMode";
+import { joinPath } from "../utils/path";
+import {
+  ensureRuntimeDirectoryStrict,
+  writeRuntimeTextFileStrict,
+} from "./runtimePersistence";
 
 const ajvLogger = {
   log: () => {},
@@ -111,15 +117,16 @@ export async function sampleSelectionContext() {
       return;
     }
 
-    const zoteroPane = Zotero.getMainWindow?.()?.ZoteroPane || null;
+    const zoteroPane =
+      (resolveRuntimeWindowCandidates()[0] as any)?.ZoteroPane || null;
     const items = zoteroPane?.getSelectedItems?.() || [];
     const context = await buildSelectionContext(items);
-    await Zotero.File.createDirectoryIfMissingAsync(outputDir);
+    await ensureRuntimeDirectoryStrict(outputDir);
     const filename = `selection-context-${new Date()
       .toISOString()
       .replace(/[:.]/g, "-")}.json`;
     const filePath = joinPath(outputDir, filename);
-    await Zotero.File.putContentsAsync(
+    await writeRuntimeTextFileStrict(
       filePath,
       JSON.stringify(context, null, 2),
     );
@@ -133,27 +140,17 @@ export async function sampleSelectionContext() {
 }
 
 function showAlert(message: string) {
-  const win = Zotero.getMainWindow?.();
+  const win = resolveRuntimeWindowCandidates()[0];
   const alertFn = resolveRuntimeAlert(win);
   if (alertFn) {
     alertFn(message);
   }
 }
 
-function joinPath(dir: string, filename: string) {
-  if (typeof PathUtils !== "undefined") {
-    return PathUtils.join(dir, filename);
-  }
-  if (typeof OS !== "undefined" && OS.Path?.join) {
-    return OS.Path.join(dir, filename);
-  }
-  const sep = Zotero.isWin ? "\\" : "/";
-  return dir.endsWith(sep) ? `${dir}${filename}` : `${dir}${sep}${filename}`;
-}
-
 async function validateSelectionContext() {
   try {
-    const zoteroPane = Zotero.getMainWindow?.()?.ZoteroPane || null;
+    const zoteroPane =
+      (resolveRuntimeWindowCandidates()[0] as any)?.ZoteroPane || null;
     const items = zoteroPane?.getSelectedItems?.() || [];
     const context = await buildSelectionContext(items);
     const validate = getSelectionValidator();

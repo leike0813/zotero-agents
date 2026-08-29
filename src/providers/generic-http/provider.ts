@@ -8,15 +8,9 @@ import type { Provider, ProviderSupportsArgs } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { GENERIC_HTTP_BACKEND_TYPE } from "../../config/defaults";
 import { delay } from "../../utils/runtimeCompatibility";
+import { readRuntimeBytes } from "../../modules/runtimePersistence";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
-type DynamicImport = (specifier: string) => Promise<any>;
-
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
-
 type JsonPathSegment = string | number;
 
 function ensureLeadingSlash(input: string) {
@@ -132,15 +126,7 @@ async function sleep(ms: number) {
 }
 
 async function readFileBytes(filePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { read?: (targetPath: string) => Promise<Uint8Array> };
-  };
-  if (typeof runtime.IOUtils?.read === "function") {
-    return runtime.IOUtils.read(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  const bytes = await fs.readFile(filePath);
-  return new Uint8Array(bytes);
+  return readRuntimeBytes(filePath);
 }
 
 function resolveTemplateValue(

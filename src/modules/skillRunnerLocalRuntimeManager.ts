@@ -36,6 +36,11 @@ import {
   BUILTIN_SKILLRUNNER_RUNTIME_VERSION,
   resolveSkillRunnerRuntimeVersion,
 } from "./skillRunnerRuntimeFeed";
+import {
+  readRuntimeTextFileStrict,
+  removeRuntimePath,
+  runtimePathExists,
+} from "./runtimePersistence";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -847,14 +852,7 @@ async function sleepMs(ms: number) {
 }
 
 async function readTextFile(filePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(filePath, "utf8") as Promise<string>;
+  return readRuntimeTextFileStrict(filePath);
 }
 
 async function pathExists(pathValue: string) {
@@ -862,26 +860,7 @@ async function pathExists(pathValue: string) {
   if (!normalized) {
     return false;
   }
-  const runtime = globalThis as {
-    IOUtils?: { exists?: (path: string) => Promise<boolean> };
-  };
-  if (typeof runtime.IOUtils?.exists === "function") {
-    try {
-      const exists = !!(await runtime.IOUtils.exists(normalized));
-      if (exists) {
-        return true;
-      }
-    } catch {
-      // continue to node fallback
-    }
-  }
-  try {
-    const fs = await dynamicImport("fs/promises");
-    await fs.access(normalized);
-    return true;
-  } catch {
-    return false;
-  }
+  return runtimePathExists(normalized);
 }
 
 type RemovePathRecursiveDiagnostics = {
@@ -960,14 +939,6 @@ function isWindowsAbsoluteFsPath(pathValue: string) {
 function toPowerShellSingleQuotedLiteral(raw: string) {
   const normalized = String(raw || "");
   return `'${normalized.replace(/'/g, "''")}'`;
-}
-
-async function removePathRecursiveWithNodeFs(pathValue: string) {
-  const fs = await dynamicImport("fs/promises");
-  await fs.rm(pathValue, {
-    recursive: true,
-    force: true,
-  });
 }
 
 type SubprocessInvocationResult = {
@@ -1163,14 +1134,6 @@ async function removePathRecursive(
   if (!normalized) {
     return diagnostics;
   }
-  const runtime = globalThis as {
-    IOUtils?: {
-      remove?: (
-        path: string,
-        options?: { ignoreAbsent?: boolean; recursive?: boolean },
-      ) => Promise<void>;
-    };
-  };
   const usesWindowsPathSemantics =
     detectWindows() || isWindowsAbsoluteFsPath(normalized);
   const maxRetries = usesWindowsPathSemantics ? 3 : 0;
@@ -1198,17 +1161,20 @@ async function removePathRecursive(
     }
   };
 
-  if (typeof runtime.IOUtils?.remove === "function") {
-    try {
-      await runWithRetry(async () => {
-        await runtime.IOUtils?.remove?.(normalized, {
-          ignoreAbsent: true,
-          recursive: true,
-        });
-      });
-      return diagnostics;
-    } catch {
-      // continue with node fs fallback
+  try {
+    await runWithRetry(async () => {
+      await removeRuntimePath(normalized);
+    });
+    return diagnostics;
+  } catch (error) {
+    diagnostics.lastErrorCode = getDeleteErrorCode(error);
+    diagnostics.lastErrorMessage = getDeleteErrorMessage(error);
+    if (!detectWindows()) {
+      const wrapped = new Error(
+        diagnostics.lastErrorMessage || "failed to remove path recursively",
+      ) as RemovePathRecursiveError;
+      wrapped.deleteDiagnostics = diagnostics;
+      throw wrapped;
     }
   }
   const extendedPath = toWindowsExtendedPath(normalized);
@@ -1225,32 +1191,6 @@ async function removePathRecursive(
     } catch (error) {
       diagnostics.lastErrorCode =
         getDeleteErrorCode(error) || "SHELL_DELETE_FAILED";
-      diagnostics.lastErrorMessage =
-        getDeleteErrorMessage(error) || diagnostics.lastErrorMessage;
-      const wrapped = new Error(
-        diagnostics.lastErrorMessage || "failed to remove path recursively",
-      ) as RemovePathRecursiveError;
-      wrapped.deleteDiagnostics = diagnostics;
-      throw wrapped;
-    }
-  }
-  try {
-    await runWithRetry(async () => {
-      await removePathRecursiveWithNodeFs(normalized);
-    });
-    return diagnostics;
-  } catch {
-    // continue with Windows extended path fallback
-  }
-  if (extendedPath) {
-    diagnostics.longPathFallbackAttempted = true;
-    try {
-      await runWithRetry(async () => {
-        await removePathRecursiveWithNodeFs(extendedPath);
-      });
-      return diagnostics;
-    } catch (error) {
-      diagnostics.lastErrorCode = getDeleteErrorCode(error);
       diagnostics.lastErrorMessage =
         getDeleteErrorMessage(error) || diagnostics.lastErrorMessage;
       const wrapped = new Error(
