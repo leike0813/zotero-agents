@@ -288,6 +288,12 @@ full 模式下：
 
 本次仅提供一级域分组，不提供 per-workflow 命令面。
 
+`npm run test:node:full` 由 Node shard runner 顺序执行各测试分组。各分组的
+子进程输出会先被收集，全部分组完成后再输出 shard summary。存在失败时，
+summary 后只展示失败分组的 Mocha failure epilogue，包含全部失败用例的标题、
+错误和堆栈，不重复展示通过用例。为保留失败输出中的状态色，shard 子进程默认
+启用 ANSI 颜色；`test:synthesis-native:stage1` 复用同一输出约定。
+
 ## 相关文档
 
 - `doc/components/test-taxonomy-domain-map.md`

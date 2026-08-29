@@ -246,9 +246,29 @@ function resolveShardDataRoot() {
   );
 }
 
-function buildShardEnv(shardId: string, shardDataRoot: string) {
+const ANSI_ESCAPE = String.fromCharCode(27);
+const ANSI_ESCAPE_RE = new RegExp(`${ANSI_ESCAPE}\\[[0-?]*[ -/]*[@-~]`, "g");
+const MOCHA_FAILURE_SUMMARY_RE = /^\d+\s+failing$/;
+
+export function extractMochaFailureOutput(output: string) {
+  const lines = output.split(/\r?\n/);
+  const failureStart = lines.findIndex((line) =>
+    MOCHA_FAILURE_SUMMARY_RE.test(line.replace(ANSI_ESCAPE_RE, "").trim()),
+  );
+  if (failureStart < 0) {
+    return output.trimEnd();
+  }
+  return lines.slice(failureStart).join("\n").trimEnd();
+}
+
+export function buildShardEnv(
+  shardId: string,
+  shardDataRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+) {
   return {
-    ...process.env,
+    ...env,
+    FORCE_COLOR: env.FORCE_COLOR ?? "1",
     ZOTERO_TEST_DATA_DIR: path.join(shardDataRoot, shardId, "Zotero_data"),
     ZOTERO_TEST_DATA_DIR_MANAGED: "1",
   };
@@ -394,7 +414,7 @@ function printSummary(
     console.log("");
     console.log(`[node-test-shard-output:start] ${result.id}`);
     console.log(`[node-test-shard-output:command] ${result.command}`);
-    const output = result.output.trimEnd();
+    const output = extractMochaFailureOutput(result.output);
     if (output) {
       console.log(output);
     } else {
