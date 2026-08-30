@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prototype: Assistant Workspace source switching (issue #36, functional)</title>
+    <script src="../shared/theme.js"></script>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../shared/icons.css?ui=20260614-icons-v1" />
+    <link rel="stylesheet" href="../sidebar/assistant-workspace.css" />
+    <link rel="stylesheet" href="../shared/assistant/assistant-panel-shared.css" />
+    <link rel="stylesheet" href="../shared/assistant/assistant-workspace-acp-child.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--zs-bg);
+        color: var(--zs-text);
+        font: 13px/1.45 var(--zs-font-sans);
+        height: auto;
+        overflow: auto;
+      }
+      /* ---- review controls (NOT part of the design) ---- */
+      .proto-reviewbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 14px;
+        border-bottom: 1px dashed var(--zs-border-strong);
+        background: var(--zs-warning-soft);
+        color: var(--zs-text-soft);
+        font-size: 12px;
+      }
+      .proto-reviewbar strong {
+        color: var(--zs-warning);
+      }
+      .proto-reviewbar a {
+        color: var(--zs-accent-strong);
+      }
+      .proto-stage {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        align-items: center;
+        padding: 20px;
+      }
+      .proto-notes {
+        width: min(920px, calc(100vw - 40px));
+        font-size: 12px;
+        color: var(--zs-muted);
+        border: 1px dashed var(--zs-border);
+        border-radius: var(--zs-radius-md);
+        padding: 10px 12px;
+      }
+      .proto-notes h2 {
+        font-size: 12px;
+        margin: 0 0 6px;
+        color: var(--zs-text-soft);
+      }
+      .proto-notes ul {
+        margin: 6px 0 0;
+        padding-left: 16px;
+      }
+      .proto-notes li {
+        margin-bottom: 4px;
+      }
+      .proto-hostlog {
+        margin-top: 10px;
+        max-height: 220px;
+        overflow-y: auto;
+        font-size: 11px;
+      }
+      .proto-hostlog div {
+        padding: 3px 0;
+        border-top: 1px solid var(--zs-border);
+        word-break: break-all;
+      }
+      /* ---- device frame ---- */
+      .proto-device {
+        width: 460px;
+        height: calc(100vh - 140px);
+        min-height: 800px;
+        border: 1px solid var(--zs-border-strong);
+        border-radius: var(--zs-radius-lg);
+        overflow: hidden;
+        background: var(--assistant-bg, var(--zs-bg));
+        box-shadow: var(--zs-shadow-soft);
+      }
+      /* ---- prototype shell layout ---- */
+      .proto-shell {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+      }
+      .proto-shell-header {
+        display: flex;
+        align-items: center;
+        padding: 4px 6px 0;
+        border-bottom: 1px solid var(--assistant-line);
+        background: var(--assistant-surface-soft);
+      }
+      .proto-lanes {
+        display: flex;
+        flex: 1;
+        gap: 4px;
+        align-self: end;
+      }
+      .proto-lane {
+        flex: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 4px 8px;
+        border: 1px solid transparent;
+        border-bottom-color: var(--assistant-line);
+        border-radius: 8px 8px 0 0;
+        margin-bottom: -1px;
+        background: transparent;
+        color: var(--assistant-muted);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .proto-lane.is-active {
+        border-color: var(--assistant-line);
+        border-bottom-color: var(--assistant-surface);
+        background: var(--assistant-surface);
+        color: var(--assistant-accent-strong);
+      }
+      .proto-lane:hover {
+        background: var(--zs-surface-hover);
+      }
+      .proto-btn {
+        font: inherit;
+        font-size: 12px;
+        padding: 4px 10px;
+        border: 1px solid var(--zs-border);
+        border-radius: var(--zs-radius-sm);
+        background: var(--zs-panel-raised);
+        color: var(--zs-text);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .proto-btn:hover {
+        background: var(--zs-surface-hover);
+      }
+      .proto-btn.is-primary {
+        background: var(--zs-accent);
+        border-color: var(--zs-accent);
+        color: #fff;
+      }
+      .proto-btn[aria-expanded="true"] {
+        background: var(--zs-accent-soft);
+        border-color: var(--zs-accent-soft-border);
+      }
+      /* ---- source sub-tabs (decided design: variant C, chips -> sub-tabs) ---- */
+      .proto-subtabs {
+        display: flex;
+        gap: 4px;
+        align-items: flex-end;
+        padding: 4px 8px 0;
+        /* bottom rule via inset shadow: it paints behind the tabs without
+           adding layout height, so the active tab can cover it in place */
+        box-shadow: inset 0 -1px 0 var(--assistant-line);
+        background: var(--assistant-surface-soft);
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
+      .proto-subtab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 26px;
+        padding: 3px 10px;
+        border: 1px solid transparent;
+        border-radius: 8px 8px 0 0;
+        background: transparent;
+        color: var(--assistant-muted);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .proto-subtab.is-active {
+        border-color: var(--assistant-line);
+        /* opaque bottom border covers the container's inset rule, merging
+           the active tab with the body surface below */
+        border-bottom-color: var(--assistant-surface);
+        background: var(--assistant-surface);
+        color: var(--assistant-accent-strong);
+      }
+      .proto-subtab:hover {
+        background: var(--zs-surface-hover);
+      }
+      .proto-subtab-count {
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--assistant-muted);
+      }
+      /* Skill Runs mock has two reply selectors (no Mode menu); override the
+         production three-column grid so both fill the row */
+      .assistant-panel-reply-controls.proto-reply-controls-2col {
+        grid-template-columns: 1fr 1fr;
+      }
+      /* menus */
+      .proto-menuwrap {
+        position: relative;
+      }
+      .proto-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        z-index: 30;
+        min-width: 190px;
+        max-width: 260px;
+        max-height: 320px;
+        overflow-y: auto;
+        background: var(--zs-panel-raised);
+        border: 1px solid var(--zs-border-strong);
+        border-radius: var(--zs-radius-md);
+        box-shadow: var(--zs-shadow-soft);
+        padding: 4px;
+      }
+      .proto-menu.align-right {
+        left: auto;
+        right: 0;
+      }
+      .proto-menu-label {
+        padding: 4px 10px 2px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--zs-muted-soft);
+      }
+      .proto-menu-item {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border: 0;
+        background: none;
+        font: inherit;
+        font-size: 12px;
+        color: var(--zs-text);
+        cursor: pointer;
+        border-radius: var(--zs-radius-sm);
+        text-align: left;
+      }
+      .proto-menu-item:hover,
+      .proto-menu-item:focus-visible {
+        background: var(--zs-surface-hover);
+      }
+      .proto-menu-item .meta {
+        margin-left: auto;
+        color: var(--zs-muted);
+        font-size: 11px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .proto-menu-item.is-checked {
+        font-weight: 600;
+      }
+      /* body + panes */
+      .proto-body {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        background: var(--assistant-surface);
+      }
+      .proto-mock-pane {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        background: var(--assistant-surface);
+        /* production drawer overlays are position:fixed (viewport-anchored
+           inside the child iframe); a transformed ancestor re-anchors them
+           to the mock pane inside the device frame */
+        transform: translateZ(0);
+        /* production sizes the details drawer with 94vw of the child iframe;
+           here vw is the whole browser window, so clamp to the pane instead */
+        --asst-details-drawer-width: min(520px, 94%);
+      }
+      /* child panel stylesheet pins the shell to 100vh; inside the device it
+         must fill the mock pane instead */
+      .proto-mock-pane .assistant-workspace-acp-shell {
+        height: 100%;
+      }
+      .proto-preview-tag {
+        padding: 1px 7px;
+        border-radius: var(--zs-radius-pill);
+        border: 1px solid var(--zs-border-strong);
+        background: var(--zs-warning-soft);
+        color: var(--zs-warning);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      /* status + attention dots */
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex: none;
+        display: inline-block;
+      }
+      .dot.is-running {
+        background: var(--zs-accent);
+      }
+      .dot.is-attention {
+        background: var(--zs-warning);
+        box-shadow: 0 0 0 2px var(--zs-warning-soft);
+      }
+      .dot.is-error {
+        background: var(--zs-danger);
+      }
+      .dot.is-done {
+        background: var(--zs-border-strong);
+      }
+      .proto-toast {
+        position: absolute;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--zs-text);
+        color: var(--zs-bg);
+        padding: 5px 12px;
+        border-radius: var(--zs-radius-pill);
+        font-size: 12px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        z-index: 40;
+        max-width: 90%;
+      }
+      .proto-toast.is-on {
+        opacity: 0.92;
+      }
+      :focus-visible {
+        outline: 2px solid var(--zs-accent);
+        outline-offset: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="proto-reviewbar">
+      <strong>Prototype review controls — not part of the design</strong>
+      <span
+        >Decided design: per-lane source <em>sub-tabs</em> (attention dots + counts), below the lane
+        switcher. Variants A/B dropped.</span
+      >
+      <a href="/content/harness/">← Harness index</a>
+      <a href="./prototype-source-switching.html">Static mockup</a>
+      <span>Issue #36 · functional prototype · real harness publication data</span>
+    </header>
+
+    <main class="proto-stage">
+      <div class="proto-device" aria-label="Assistant sidebar prototype">
+        <div class="proto-shell" id="proto-shell">
+          <header class="proto-shell-header">
+            <nav class="proto-lanes" id="proto-lanes" aria-label="Assistant workspace lanes"></nav>
+            <button
+              id="assistant-workspace-close"
+              class="assistant-workspace-close"
+              type="button"
+              aria-label="Close assistant sidebar"
+              title="Close"
+            >
+              ×
+            </button>
+          </header>
+          <nav class="proto-subtabs" id="proto-subtabs" role="tablist" aria-label="Source"></nav>
+          <section class="proto-body">
+            <div
+              id="assistant-workspace-loading"
+              class="assistant-workspace-loading"
+              role="status"
+              aria-live="polite"
+              aria-label="Loading assistant panel"
+            >
+              <span class="assistant-workspace-loading-spinner" aria-hidden="true"></span>
+            </div>
+            <div id="proto-mock-pi-conversations" class="proto-mock-pane hidden"></div>
+            <div id="proto-mock-pi-skill-runs" class="proto-mock-pane hidden"></div>
+            <iframe
+              id="assistant-frame-acp-chat"
+              class="assistant-frame hidden"
+              title="External Agent conversations"
+              src="../sidebar/acp-chat.html"
+            ></iframe>
+            <iframe
+              id="assistant-frame-acp-skills"
+              class="assistant-frame hidden"
+              title="External Agent skill runs"
+              src="../sidebar/acp-skill-run.html"
+            ></iframe>
+            <iframe
+              id="assistant-frame-skillrunner"
+              class="assistant-frame hidden"
+              title="SkillRunner runs"
+              src="../sidebar/skillrunner.html"
+            ></iframe>
+          </section>
+        </div>
+      </div>
+      <aside class="proto-notes">
+        <h2>Functional prototype — issue #36</h2>
+        <ul>
+          <li>Two lanes; the lane switcher is the only top-level navigation.</li>
+          <li>Source sub-tabs sit under the lane switcher: attention dots + counts, styled like the shell tabs.</li>
+          <li>External Agent / SkillRunner sub-tabs render the real child panels on real harness data.</li>
+          <li>Zotero Agent sub-tabs render DOM-level replicas of the real panels (same classes, same production stylesheets), marked with a small "preview" tag; their buttons only toast.</li>
+          <li>Keyboard: Tab / ←→ / ↑↓ / Enter / Esc.</li>
+        </ul>
+        <h2 style="margin-top: 10px">Host action log</h2>
+        <div class="proto-hostlog" id="proto-hostlog" aria-live="polite"></div>
+      </aside>
+    </main>
+
+    <script>
+      // Inline host relay: adapts the assistant portions of harness-host.js to
+      // this same-window page. Installs the shell bridge BEFORE the shell
+      // bundle loads, then drives the exact production wire protocol.
+      (function () {
+        "use strict";
+
+        const assistantState = {
+          activeTab: "acp-chat",
+          scopeKey: "",
+          publications: Object.create(null),
+        };
+        let bootstrapQueue = Promise.resolve();
+
+        async function api(path, body) {
+          const response = await fetch(path, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body || {}),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.error || response.statusText);
+          }
+          return payload;
+        }
+
+        function appendLog(entry) {
+          if (!entry) return;
+          const log = document.getElementById("proto-hostlog");
+          if (!log) return;
+          const row = document.createElement("div");
+          row.textContent =
+            String(entry.ts || "").slice(11, 19) +
+            "  " +
+            String(entry.source || "") +
+            ":" +
+            String(entry.action || "") +
+            "  " +
+            JSON.stringify(entry.payload || {}).slice(0, 120);
+          log.prepend(row);
+          while (log.children.length > 40) log.lastChild.remove();
+        }
+
+        function deliverToShell(type, payload) {
+          window.postMessage({ type, payload: payload || {} }, "*");
+        }
+
+        function deliverAssistantPublications(publications) {
+          (publications || []).forEach((publication) => {
+            const source =
+              publication && publication.owner && publication.owner.source
+                ? String(publication.owner.source)
+                : "unknown";
+            assistantState.publications[source] =
+              (assistantState.publications[source] || 0) + 1;
+            deliverToShell("assistant-workspace:child-publication", {
+              publication,
+            });
+          });
+        }
+
+        async function bootstrapAssistant() {
+          const result = await api("/api/harness/assistant/bootstrap", {});
+          assistantState.scopeKey = String(result.scopeKey || "");
+          deliverToShell("assistant-workspace:init", {
+            activeTab: assistantState.activeTab,
+            scopeKey: result.scopeKey,
+            surfaceConfiguration: result.configuration,
+            surfaceLabels: result.surfaceLabels,
+          });
+          deliverAssistantPublications(result.publications);
+        }
+
+        function queueAssistantBootstrap() {
+          const queued = bootstrapQueue.then(() => bootstrapAssistant());
+          bootstrapQueue = queued.catch(() => undefined);
+          return queued;
+        }
+
+        async function handleAssistantMessage(type, payload) {
+          if (
+            type === "assistant-workspace:action" &&
+            payload.action === "set-tab"
+          ) {
+            assistantState.activeTab =
+              payload.tab === "acp-skills" || payload.tab === "skillrunner"
+                ? payload.tab
+                : "acp-chat";
+            deliverToShell("assistant-workspace:set-tab", {
+              activeTab: assistantState.activeTab,
+            });
+            const result = await api("/api/harness/assistant/message", {
+              type,
+              payload,
+            });
+            if (result.logEntry) appendLog(result.logEntry);
+            return { ok: true };
+          }
+          if (
+            type === "assistant-workspace:action" &&
+            payload.action === "ready"
+          ) {
+            await queueAssistantBootstrap();
+            return { ok: true };
+          }
+          const result = await api("/api/harness/assistant/message", {
+            type,
+            payload,
+          });
+          if (result.logEntry) appendLog(result.logEntry);
+          deliverAssistantPublications(result.publications);
+          return { ok: true, readonly: true };
+        }
+
+        window.__zsAssistantWorkspaceBridge = {
+          postMessage(type, payload) {
+            return handleAssistantMessage(type, payload || {});
+          },
+        };
+
+        // Live reload (same convention as harness-host.js).
+        if (window.EventSource) {
+          const source = new EventSource("/api/harness/live");
+          source.addEventListener("reload", () => window.location.reload());
+          source.addEventListener("build-error", (event) => {
+            try {
+              const payload = JSON.parse(event.data || "{}");
+              console.warn(
+                "Readonly harness live reload build failed:",
+                payload.error || payload,
+              );
+            } catch {
+              console.warn("Readonly harness live reload build failed.");
+            }
+          });
+          window.addEventListener("beforeunload", () => source.close(), {
+            once: true,
+          });
+        }
+      })();
+    </script>
+    <script src="./prototype-workspace.bundle.js"></script>
+  </body>
+</html>

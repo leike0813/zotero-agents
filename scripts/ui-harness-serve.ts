@@ -73,6 +73,7 @@ let workspaceBundle: string | null = null;
 let synthesisBundle: string | null = null;
 let assistantWorkspaceBundle: string | null = null;
 let acpChildBundle: string | null = null;
+let prototypeWorkspaceBundle: string | null = null;
 let bundleBuildError = "";
 let liveReloadSeq = 0;
 let liveReloadTimer: ReturnType<typeof setTimeout> | undefined;
@@ -248,16 +249,19 @@ async function rebuildHarnessBundles(reason: string) {
       nextSynthesisBundle,
       nextAssistantWorkspaceBundle,
       nextAcpChildBundle,
+      nextPrototypeWorkspaceBundle,
     ] = await Promise.all([
       buildBrowserBundle("src/workspaceApp.ts"),
       buildBrowserBundle("src/synthesisWorkbenchApp.ts"),
       buildBrowserBundle("src/sidebar/assistantWorkspaceApp.js", sidebarOptions),
       buildBrowserBundle("src/sidebar/acpChildApp.js", sidebarOptions),
+      buildBrowserBundle("src/sidebar/prototypeWorkspaceApp.js", sidebarOptions),
     ]);
     workspaceBundle = nextWorkspaceBundle;
     synthesisBundle = nextSynthesisBundle;
     assistantWorkspaceBundle = nextAssistantWorkspaceBundle;
     acpChildBundle = nextAcpChildBundle;
+    prototypeWorkspaceBundle = nextPrototypeWorkspaceBundle;
     bundleBuildError = "";
     console.log(`[harness] rebuilt browser bundles (${reason})`);
     return true;
@@ -569,6 +573,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     }
     if (url.pathname === "/content/sidebar/acp-child.bundle.js") {
       text(res, 200, acpChildBundle || "", "text/javascript; charset=utf-8");
+      return;
+    }
+    if (url.pathname === "/content/harness/prototype-workspace.bundle.js") {
+      text(
+        res,
+        200,
+        prototypeWorkspaceBundle || "",
+        "text/javascript; charset=utf-8",
+      );
       return;
     }
     if (url.pathname === "/api/harness/live") {
