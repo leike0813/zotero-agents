@@ -35,6 +35,8 @@ import {
   validatePosixProcessGroupOwnership,
 } from "../../src/platform/processControl";
 import {
+  ensureRuntimeDirectoryStrict,
+  removeRuntimePath,
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
@@ -474,18 +476,74 @@ describe("runtime platform services", function () {
     assert.isFalse(isNonNativeAbsolutePath("/tmp/run.json", "linux"));
   });
 
-  it("refuses to write non-native absolute runtime paths", async function () {
-    if (process.platform === "win32") {
+  it("refuses Node fallback for non-native absolute runtime paths", async function () {
+    if (typeof process === "undefined" || process.platform === "win32") {
       this.skip();
     }
-    const target = "C:\\zs-non-native-runtime\\file.txt";
+    const root = `C:\\zs-non-native-runtime-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const target = `${root}\\file.txt`;
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: true,
+      isMac: false,
+      isLinux: false,
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", undefined);
     try {
-      await writeRuntimeTextFile(target, "content");
-      assert.fail("expected non-native runtime path write to fail");
-    } catch (error) {
-      assert.include(String((error as Error).message || error), "non-native");
+      try {
+        await writeRuntimeTextFile(target, "content");
+        assert.fail("expected non-native runtime path write to fail");
+      } catch (error) {
+        assert.include(String((error as Error).message || error), "non-native");
+      }
+      assert.isFalse(await runtimePathExists(target));
+    } finally {
+      await removeRuntimePath(root).catch(() => false);
+      restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
     }
-    assert.isFalse(await runtimePathExists(target));
+  });
+
+  it("prefers the IOUtils runtime directory adapter in Node", async function () {
+    if (typeof process === "undefined" || process.platform === "win32") {
+      this.skip();
+    }
+    const target = `/tmp/zs-runtime-directory-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const dirs = new Set<string>();
+    const calls: string[] = [];
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: false,
+      isMac: false,
+      isLinux: true,
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", {
+      makeDirectory: async (path: string) => {
+        calls.push(path);
+        dirs.add(path);
+      },
+      stat: async (path: string) => {
+        if (!dirs.has(path)) {
+          throw new Error("directory not found");
+        }
+        return { type: "directory" };
+      },
+      exists: async (path: string) => dirs.has(path),
+      remove: async (path: string) => {
+        dirs.delete(path);
+      },
+    });
+    try {
+      await ensureRuntimeDirectoryStrict(target);
+      assert.include(calls, target);
+      assert.isTrue(dirs.has(target));
+    } finally {
+      await removeRuntimePath(target).catch(() => false);
+      restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
   });
 
   it("splits and merges PATH entries using the path style of the value", function () {

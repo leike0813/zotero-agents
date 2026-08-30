@@ -206,10 +206,11 @@ export async function installSkillRunnerRelease(
   let expectedSha256 = "";
   let actualSha256 = "";
   let failure: ReleaseInstallResult | null = null;
+  let installDirCreated = false;
+  let installSucceeded = false;
 
   try {
     await ensureDirectory(tempDir);
-    await ensureDirectory(installDir);
 
     const artifactResponse = await fetchImpl(artifactUrl, {
       method: "GET",
@@ -283,6 +284,11 @@ export async function installSkillRunnerRelease(
         actualSha256,
       },
     });
+    const installDirExistsBeforeExtract = await pathExists(installDir);
+    if (!installDirExistsBeforeExtract) {
+      installDirCreated = true;
+      await ensureDirectory(installDir);
+    }
 
     const extractResult = await args.runCommand({
       command: "tar",
@@ -347,6 +353,7 @@ export async function installSkillRunnerRelease(
       });
     }
 
+    installSucceeded = true;
     return {
       ok: true,
       stage: "deploy-release-install",
@@ -402,6 +409,9 @@ export async function installSkillRunnerRelease(
     });
     return failure;
   } finally {
+    if (installDirCreated && !installSucceeded) {
+      await removePathIfExists(installDir);
+    }
     const shouldKeepTemp = keepTempOnSuccess
       ? true
       : !!failure && keepTempOnFailure;

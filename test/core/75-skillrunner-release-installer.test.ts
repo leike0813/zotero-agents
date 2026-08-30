@@ -122,6 +122,7 @@ describe("skillrunner release installer", function () {
 
   it("fails when checksum does not match artifact hash", async function () {
     const dirs = new Set<string>();
+    const installDir = `C:\\Users\\tester\\AppData\\Local\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`;
     const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
       .Zotero;
     if (!zoteroRuntime) {
@@ -169,10 +170,14 @@ describe("skillrunner release installer", function () {
 
     assert.isFalse(result.ok);
     assert.equal(result.stage, "deploy-release-checksum");
+    assert.isFalse(dirs.has(installDir));
     assert.isFalse(tarCalled);
   });
 
   it("fails when tar extraction exits non-zero", async function () {
+    const dirs = new Set<string>();
+    const removeCalls: string[] = [];
+    const installDir = `C:\\Users\\tester\\AppData\\Local\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`;
     const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
       .Zotero;
     if (!zoteroRuntime) {
@@ -180,10 +185,15 @@ describe("skillrunner release installer", function () {
     }
     zoteroRuntime.isWin = true;
     (globalThis as { IOUtils?: unknown }).IOUtils = {
-      makeDirectory: async () => {},
+      makeDirectory: async (path: string) => {
+        dirs.add(path);
+      },
       write: async () => {},
-      exists: async () => true,
-      remove: async () => {},
+      exists: async (path: string) => dirs.has(path),
+      remove: async (path: string) => {
+        removeCalls.push(path);
+        dirs.delete(path);
+      },
     };
     const artifactBytes = new TextEncoder().encode("abc");
     const checksumBytes = new TextEncoder().encode(
@@ -218,5 +228,7 @@ describe("skillrunner release installer", function () {
     assert.include(String(result.message || ""), "extract failed");
     assert.isString(result.tempDir);
     assert.isNotEmpty(result.tempDir || "");
+    assert.include(removeCalls, installDir);
+    assert.include(removeCalls, result.tempDir || "");
   });
 });

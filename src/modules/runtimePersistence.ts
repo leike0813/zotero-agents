@@ -403,13 +403,32 @@ function isAbsolutePathLike(path: string) {
   );
 }
 
-function assertNativeRuntimeFsPath(path: string, operation: string) {
-  if (!isNonNativeAbsolutePath(path)) {
+function assertNativeRuntimeFsPath(
+  path: string,
+  operation: string,
+  platform?: string,
+) {
+  if (!isNonNativeAbsolutePath(path, platform)) {
     return;
   }
   throw new Error(
     `Refusing to ${operation} non-native absolute path on this platform: ${path}`,
   );
+}
+
+function assertNodeRuntimeFsPath(path: string, operation: string) {
+  const nodePlatform = normalizeString(
+    (globalThis as { process?: { platform?: unknown } }).process?.platform,
+  ).toLowerCase();
+  if (
+    nodePlatform === "win32" ||
+    nodePlatform === "darwin" ||
+    nodePlatform === "linux"
+  ) {
+    assertNativeRuntimeFsPath(path, operation, nodePlatform);
+    return;
+  }
+  assertNativeRuntimeFsPath(path, operation);
 }
 
 function createManagedPathDiagnostic(args: ManagedPathDiagnostic) {
@@ -956,11 +975,6 @@ async function ensureRuntimeDirectoryInternal(
     return;
   }
   assertNativeRuntimeFsPath(path, "create runtime directory");
-  const nodeFs = await tryNodeFs();
-  if (nodeFs) {
-    await nodeFs.mkdir(path, { recursive: true });
-    return;
-  }
   const runtime = globalThis as {
     IOUtils?: {
       makeDirectory?: (path: string, options?: unknown) => Promise<void>;
@@ -1007,6 +1021,12 @@ async function ensureRuntimeDirectoryInternal(
       }
     };
     ensureOne(file);
+    return;
+  }
+  const nodeFs = await tryNodeFs();
+  if (nodeFs) {
+    assertNodeRuntimeFsPath(path, "create runtime directory");
+    await nodeFs.mkdir(path, { recursive: true });
     return;
   }
   if (surfaceErrors) {
