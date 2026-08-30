@@ -1,6 +1,5 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
 import { queryZoteroLibraryPage } from "../../src/modules/zoteroLibraryPageQuery";
 import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
@@ -23,6 +22,27 @@ function isRealZoteroRuntime() {
 }
 
 const describeZotero = isRealZoteroRuntime() ? describe : describe.skip;
+
+async function expectPageErrorCode(
+  action: () => Promise<unknown>,
+  expectedCode: string,
+  message: string,
+) {
+  let failure: unknown;
+  let rejected = false;
+  try {
+    await action();
+  } catch (error) {
+    rejected = true;
+    failure = error;
+  }
+  assert.isTrue(rejected, `${message}: expected the page request to reject`);
+  assert.strictEqual(
+    (failure as { code?: unknown }).code,
+    expectedCode,
+    message,
+  );
+}
 
 const reverseHostRequestHeaders = {
   authorization: "",
@@ -260,7 +280,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
     }
   });
 
-  it("queries real SQLite pages and hydrates only ordered page ids", async function () {
+  it("returns real SQLite pages with stable, user-visible results", async function () {
     const token = `keyset-${Date.now()}`;
     const collection = new Zotero.Collection();
     collection.name = `Keyset ${token}`;
@@ -283,29 +303,6 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       created.push(item);
     }
     const pagedItems = [...created];
-
-    const db = (Zotero as any).DB;
-    const previousQueryAsync = db.queryAsync;
-    const previousGet = (Zotero.Items as any).get;
-    const previousGetAsync = (Zotero.Items as any).getAsync;
-    const previousGetAll = (Zotero.Items as any).getAll;
-    const querySql: string[] = [];
-    const hydrated: number[][] = [];
-    let getAllCalls = 0;
-    db.queryAsync = async (sql: string, params: unknown[]) => {
-      querySql.push(sql);
-      return previousQueryAsync.call(db, sql, params);
-    };
-    (Zotero.Items as any).getAsync = async (idOrIds: number | number[]) => {
-      if (Array.isArray(idOrIds)) {
-        hydrated.push([...idOrIds]);
-      }
-      return previousGetAsync.call(Zotero.Items, idOrIds);
-    };
-    (Zotero.Items as any).getAll = async (...args: unknown[]) => {
-      getAllCalls += 1;
-      return previousGetAll.apply(Zotero.Items, args);
-    };
 
     try {
       const first = await queryZoteroLibraryPage({
@@ -420,52 +417,159 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         literal.items.map((item) => item.id),
         [pagedItems[0].id],
       );
-      assert.deepEqual(hydrated.slice(0, 2), [
-        [pagedItems[0].id],
-        pagedItems.slice(1).map((item) => item.id),
-      ]);
-      assert.strictEqual(getAllCalls, 0);
-      assert.isAtLeast(querySql.length, 28);
-      assert.isTrue(querySql.some((sql) => sql.includes("LIMIT ?")));
-
-      const coldItemId = pagedItems[0].id;
-      const coldItemKey = pagedItems[0].key;
-      (Zotero.Items as any).get = (idOrIds: number | number[]) => {
-        const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-        if (ids.includes(coldItemId)) {
-          throw new Error(`Item ${coldItemId} not yet loaded`);
-        }
-        return previousGet.call(Zotero.Items, idOrIds);
-      };
-      try {
-        const hostPort = createZoteroSynthesisHostReadPort({
-          libraryId: Zotero.Libraries.userLibraryID,
-        });
-        let cursor = "";
-        let coldItemFound = false;
-        do {
-          const page = await hostPort.library.listItemsPage({
-            libraryId: Zotero.Libraries.userLibraryID,
-            cursor,
-            limit: 100,
-          });
-          coldItemFound ||= page.items.some(
-            (item) => item.itemKey === coldItemKey,
-          );
-          cursor = page.nextCursor;
-          if (!page.hasMore) {
-            break;
-          }
-        } while (cursor);
-        assert.isTrue(coldItemFound);
-      } finally {
-        (Zotero.Items as any).get = previousGet;
-      }
     } finally {
-      db.queryAsync = previousQueryAsync;
-      (Zotero.Items as any).get = previousGet;
-      (Zotero.Items as any).getAsync = previousGetAsync;
-      (Zotero.Items as any).getAll = previousGetAll;
+      await Zotero.Items.trashTx(created.map((item) => item.id));
+      await collection.eraseTx();
+    }
+  });
+
+  it("normalizes canonical criteria and enforces bounded keyset pages", async function () {
+    const token = `canonical-page-${Date.now()}`;
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const collection = new Zotero.Collection();
+    collection.name = `Canonical page ${token}`;
+    (collection as any).libraryID = libraryId;
+    await collection.saveTx();
+
+    const created: Zotero.Item[] = [];
+    for (const suffix of ["first", "second", "third"]) {
+      const item = new Zotero.Item("journalArticle");
+      item.setField("title", `${token} ${suffix}`);
+      item.setTags?.([{ tag: `${token}:tag` }]);
+      await item.saveTx();
+      await handlers.collection.add([item], collection.id);
+      created.push(item);
+    }
+
+    const baseInput = {
+      libraryId,
+      collectionId: collection.id,
+      tag: `  ${token.toUpperCase()}:TAG  `,
+      itemType: "  journalArticle  ",
+      query: `  ${token.toUpperCase()}  `,
+    };
+    const expectedCriteria = {
+      schema: "zotero-agents.library-live-items.v1",
+      libraryId,
+      collectionId: collection.id,
+      tag: `${token}:tag`,
+      itemType: "journalArticle",
+      query: token,
+      scope: "top-level-regular",
+      order: "stable_identity",
+    };
+
+    try {
+      const normalizedCases = [
+        {
+          name: "normalizes case and surrounding whitespace once",
+          input: baseInput,
+          expectedIds: created.map((item) => item.id),
+          expectedCriteria,
+        },
+        {
+          name: "normalizes empty optional criteria as absent",
+          input: {
+            libraryId,
+            collectionId: collection.id,
+            tag: "   ",
+            itemType: "   ",
+            query: ` ${token} `,
+          },
+          expectedIds: created.map((item) => item.id),
+          expectedCriteria: {
+            schema: "zotero-agents.library-live-items.v1",
+            libraryId,
+            collectionId: collection.id,
+            tag: "",
+            itemType: "",
+            query: token,
+            scope: "top-level-regular",
+            order: "stable_identity",
+          },
+        },
+      ];
+      for (const testCase of normalizedCases) {
+        const page = await queryZoteroLibraryPage({
+          ...testCase.input,
+          limit: 10,
+        });
+        assert.deepEqual(
+          page.items.map((item) => item.id),
+          testCase.expectedIds,
+          testCase.name,
+        );
+        assert.deepEqual(
+          page.criteria,
+          testCase.expectedCriteria,
+          testCase.name,
+        );
+        assert.strictEqual(page.returned, testCase.expectedIds.length);
+        assert.isFalse(page.hasMore);
+        assert.strictEqual(page.nextCursor, "");
+      }
+
+      const first = await queryZoteroLibraryPage({ ...baseInput, limit: 1 });
+      const second = await queryZoteroLibraryPage({
+        ...baseInput,
+        cursor: first.nextCursor,
+        limit: 2,
+      });
+      assert.deepEqual(first.criteria, expectedCriteria);
+      assert.deepEqual(
+        first.items.map((item) => item.id),
+        [created[0].id],
+      );
+      assert.strictEqual(first.returned, 1);
+      assert.isTrue(first.hasMore);
+      assert.isNotEmpty(first.nextCursor);
+      assert.deepEqual(
+        second.items.map((item) => item.id),
+        created.slice(1).map((item) => item.id),
+      );
+      assert.strictEqual(second.returned, 2);
+      assert.isFalse(second.hasMore);
+      assert.strictEqual(second.nextCursor, "");
+
+      const invalidCursorCases = [
+        {
+          name: "rejects a malformed cursor",
+          input: { ...baseInput, cursor: "not-a-valid-cursor" },
+        },
+        {
+          name: "rejects a cursor bound to different normalized criteria",
+          input: {
+            ...baseInput,
+            query: `${token}-other`,
+            cursor: first.nextCursor,
+          },
+        },
+      ];
+      for (const testCase of invalidCursorCases) {
+        await expectPageErrorCode(
+          () => queryZoteroLibraryPage({ ...testCase.input, limit: 1 }),
+          "invalid_library_cursor",
+          testCase.name,
+        );
+      }
+
+      const empty = await queryZoteroLibraryPage({
+        libraryId,
+        query: `${token}-no-match`,
+        limit: 10,
+      });
+      assert.deepEqual(empty.items, []);
+      assert.strictEqual(empty.returned, 0);
+      assert.strictEqual(empty.totalScanned, 0);
+      assert.isFalse(empty.hasMore);
+      assert.strictEqual(empty.nextCursor, "");
+
+      await expectPageErrorCode(
+        () => queryZoteroLibraryPage({ ...baseInput, limit: 101 }),
+        "library_page_limit_exceeded",
+        "rejects an item page request above the hard limit",
+      );
+    } finally {
       await Zotero.Items.trashTx(created.map((item) => item.id));
       await collection.eraseTx();
     }

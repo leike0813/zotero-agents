@@ -16,7 +16,10 @@ import {
   emitWorkflowPackageDiagnostic,
   summarizeWorkflowRuntimeCapabilities,
 } from "../modules/workflowPackageDiagnostics";
-import { createWorkflowHostApi } from "./hostApi";
+import {
+  createWorkflowHostApi,
+  createWorkflowHostLiveReadAdapters,
+} from "./hostApi";
 import {
   resolveWorkflowHostContractVersion,
   summarizeWorkflowHostApiCapabilities,
@@ -484,20 +487,29 @@ function createRuntimeContext(
   if (!zotero) {
     throw new Error("Zotero runtime is unavailable");
   }
+  const invocationMode =
+    override?.invocationMode === "non-interactive"
+      ? "non-interactive"
+      : "interactive";
   return {
     handlers: override?.handlers || handlers,
     zotero,
     helpers: override?.helpers || createHookHelpers(zotero),
     hostApi,
+    workflowHostLiveReads:
+      override?.workflowHostLiveReads ||
+      createWorkflowHostLiveReadAdapters({
+        interactionMode:
+          invocationMode === "non-interactive"
+            ? "non_interactive"
+            : "interactive",
+      }),
     hostApiVersion: resolveWorkflowHostContractVersion({
       explicitVersion: override?.hostApiVersion,
       hostApi,
       currentProjection,
     }),
-    invocationMode:
-      override?.invocationMode === "non-interactive"
-        ? "non-interactive"
-        : "interactive",
+    invocationMode,
     addon:
       typeof override?.addon !== "undefined"
         ? (override.addon ?? null)

@@ -43,6 +43,15 @@ import type {
 } from "./hostBridgeProtocol";
 import {
   resolveZoteroHostCapabilityBroker,
+  getLegacyZoteroItemAttachments,
+  getLegacyZoteroItemDetail,
+  getLegacyZoteroItemNotes,
+  getLegacyZoteroNoteDetail,
+  getLegacyZoteroNotePayload,
+  getLegacyZoteroCurrentView,
+  getLegacyZoteroSelectedItems,
+  listLegacyZoteroLibraryItems,
+  listLegacyZoteroNotePayloads,
   ZoteroHostCapabilityError,
   type ZoteroHostCapabilityBroker,
   type ZoteroHostCollectionRefInput,
@@ -454,6 +463,54 @@ function resolveCapabilityBroker(context: HostBridgeCapabilityContext) {
   );
 }
 
+type LegacyHostBridgeReadProjection = {
+  context: {
+    getCurrentView: typeof getLegacyZoteroCurrentView;
+    getSelectedItems: typeof getLegacyZoteroSelectedItems;
+  };
+  library: {
+    listItems: typeof listLegacyZoteroLibraryItems;
+    getItemDetail: typeof getLegacyZoteroItemDetail;
+    getItemNotes: typeof getLegacyZoteroItemNotes;
+    getNoteDetail: typeof getLegacyZoteroNoteDetail;
+    listNotePayloads: typeof listLegacyZoteroNotePayloads;
+    getNotePayload: typeof getLegacyZoteroNotePayload;
+    getItemAttachments: typeof getLegacyZoteroItemAttachments;
+  };
+};
+
+function injectedLegacyReadProjection(
+  context: HostBridgeCapabilityContext,
+): LegacyHostBridgeReadProjection | null {
+  return context.resolveZoteroHostCapabilityBroker
+    ? (context.resolveZoteroHostCapabilityBroker() as unknown as LegacyHostBridgeReadProjection)
+    : null;
+}
+
+function bridgeCurrentView(context: HostBridgeCapabilityContext) {
+  return (
+    injectedLegacyReadProjection(context)?.context.getCurrentView() ||
+    getLegacyZoteroCurrentView()
+  );
+}
+
+function bridgeSelectedItems(context: HostBridgeCapabilityContext) {
+  return (
+    injectedLegacyReadProjection(context)?.context.getSelectedItems() ||
+    getLegacyZoteroSelectedItems()
+  );
+}
+
+function bridgeLibraryItems(
+  context: HostBridgeCapabilityContext,
+  args: ZoteroHostLibraryListArgs,
+) {
+  return (
+    injectedLegacyReadProjection(context)?.library.listItems(args) ||
+    listLegacyZoteroLibraryItems(args)
+  );
+}
+
 async function toBridgeAttachmentDescriptors(
   attachments: ZoteroHostAttachmentDto[],
   capability: "library.get_item_attachments" | "mutation.execute",
@@ -490,9 +547,10 @@ async function toBridgeAttachmentDescriptorsWithContext(
   input: unknown,
   context: HostBridgeCapabilityContext,
 ) {
-  const attachments = await resolveCapabilityBroker(
+  const ref = itemRefFromInput(input);
+  const attachments = await (injectedLegacyReadProjection(
     context,
-  ).library.getItemAttachments(itemRefFromInput(input));
+  )?.library.getItemAttachments(ref) || getLegacyZoteroItemAttachments(ref));
   return toBridgeAttachmentDescriptors(
     attachments,
     "library.get_item_attachments",
@@ -1694,11 +1752,11 @@ async function resolveDirectResearchBundleApplication(
       async resolveItems(selectors) {
         const papers = [];
         for (const selector of selectors) {
-          const detail = await broker.library.getItemDetail(
+          const detail = await getLegacyZoteroItemDetail(
             normalizeHostBridgeItemRef(selector),
           );
           if (!detail) continue;
-          const attachments = await broker.library.getItemAttachments({
+          const attachments = await getLegacyZoteroItemAttachments({
             key: detail.key,
             libraryId: detail.libraryId,
           });
@@ -1836,10 +1894,10 @@ async function callSynthesisDebugClient(
 
 const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("context.get_current_view", (_input, context) =>
-    resolveCapabilityBroker(context).context.getCurrentView(),
+    bridgeCurrentView(context),
   ),
   capability("context.get_selected_items", (_input, context) => {
-    const items = resolveCapabilityBroker(context).context.getSelectedItems();
+    const items = bridgeSelectedItems(context);
     return {
       items,
       nextCursor: null,
@@ -1850,7 +1908,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     };
   }),
   capability("library.search_items", async (input, context) => {
-    const page = await resolveCapabilityBroker(context).library.listItems(
+    const page = await bridgeLibraryItems(
+      context,
       asObject(input) as {
         query: string;
         limit?: number | string;
@@ -1863,9 +1922,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     };
   }),
   capability("library.list_items", (input, context) =>
-    resolveCapabilityBroker(context).library.listItems(
-      libraryListArgsFromInput(input),
-    ),
+    bridgeLibraryItems(context, libraryListArgsFromInput(input)),
   ),
   capability("library.sync_snapshot", (input, context) =>
     resolveCapabilityBroker(context).library.syncSnapshot(
@@ -1877,24 +1934,30 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       libraryListArgsFromInput(input),
     ),
   ),
-  capability("library.get_item_detail", (input, context) =>
-    resolveCapabilityBroker(context).library.getItemDetail(
-      itemRefFromInput(input),
-    ),
+  capability(
+    "library.get_item_detail",
+    (input, context) =>
+      injectedLegacyReadProjection(context)?.library.getItemDetail(
+        itemRefFromInput(input),
+      ) || getLegacyZoteroItemDetail(itemRefFromInput(input)),
   ),
   capability("library.get_item_notes", async (input, context) => {
     const object = asObject(input);
     const notes = [];
     const sourceLimit = 100;
     for (let cursor = 0; ; cursor += sourceLimit) {
-      const batch = await resolveCapabilityBroker(context).library.getItemNotes(
-        itemRefFromInput(input),
-        {
+      const batch = await (injectedLegacyReadProjection(
+        context,
+      )?.library.getItemNotes(itemRefFromInput(input), {
+        ...object,
+        cursor,
+        limit: sourceLimit,
+      }) ||
+        getLegacyZoteroItemNotes(itemRefFromInput(input), {
           ...object,
           cursor,
           limit: sourceLimit,
-        },
-      );
+        }));
       notes.push(...batch);
       if (batch.length < sourceLimit) break;
     }
@@ -1905,27 +1968,40 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       rows: notes,
     });
   }),
-  capability("library.get_note_detail", (input, context) =>
-    resolveCapabilityBroker(context).library.getNoteDetail(
-      itemRefFromInput(input),
-      asObject(input) as ZoteroHostNoteDetailArgs,
-    ),
+  capability(
+    "library.get_note_detail",
+    (input, context) =>
+      injectedLegacyReadProjection(context)?.library.getNoteDetail(
+        itemRefFromInput(input),
+        asObject(input) as ZoteroHostNoteDetailArgs,
+      ) ||
+      getLegacyZoteroNoteDetail(
+        itemRefFromInput(input),
+        asObject(input) as ZoteroHostNoteDetailArgs,
+      ),
   ),
   capability("library.list_note_payloads", async (input, context) =>
     paginateCapabilityRows({
       scope: "library note payloads",
       section: "payloads",
       input: asObject(input),
-      rows: await resolveCapabilityBroker(context).library.listNotePayloads(
-        itemRefFromInput(input),
-      ),
+      rows: await (injectedLegacyReadProjection(
+        context,
+      )?.library.listNotePayloads(itemRefFromInput(input)) ||
+        listLegacyZoteroNotePayloads(itemRefFromInput(input))),
     }),
   ),
-  capability("library.get_note_payload", (input, context) =>
-    resolveCapabilityBroker(context).library.getNotePayload(
-      itemRefFromInput(input),
-      asObject(input) as ZoteroHostNotePayloadDetailArgs,
-    ),
+  capability(
+    "library.get_note_payload",
+    (input, context) =>
+      injectedLegacyReadProjection(context)?.library.getNotePayload(
+        itemRefFromInput(input),
+        asObject(input) as ZoteroHostNotePayloadDetailArgs,
+      ) ||
+      getLegacyZoteroNotePayload(
+        itemRefFromInput(input),
+        asObject(input) as ZoteroHostNotePayloadDetailArgs,
+      ),
   ),
   capability("library.get_item_attachments", async (input, context) =>
     paginateCapabilityRows({

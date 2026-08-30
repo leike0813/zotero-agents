@@ -12,6 +12,16 @@ import {
 import { recordTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
 import {
   createZoteroHostCapabilityBroker,
+  getLegacyZoteroItemAttachments,
+  getLegacyZoteroItemDetail,
+  getLegacyZoteroItemNotes,
+  getLegacyZoteroNoteDetail,
+  getLegacyZoteroNotePayload,
+  getLegacyZoteroCurrentView,
+  getLegacyZoteroSelectedItems,
+  listLegacyZoteroLibraryItems,
+  listLegacyZoteroNotePayloads,
+  ZoteroHostCapabilityError,
   type ZoteroHostCollectionRefInput,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
@@ -43,6 +53,7 @@ import type {
   WorkflowHostCollectionRefInput,
   WorkflowHostItemRefInput,
   WorkflowHostMutationRequest,
+  WorkflowHostLiveReadAdapters,
   WorkflowPreparedNoteImage,
 } from "./types";
 import { createWorkflowArchiveApi } from "./archive";
@@ -60,8 +71,74 @@ import {
 import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
 import { createResearchBundleMaterializer } from "../modules/researchBundleService";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
+import type { WorkflowInteractionMember } from "./workflowHostErrorContract";
 
 export { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
+
+export function createWorkflowHostLiveReadAdapters(args: {
+  interactionMode: "interactive" | "non_interactive";
+  broker?: ReturnType<typeof createZoteroHostCapabilityBroker>;
+}): WorkflowHostLiveReadAdapters {
+  const broker = args.broker || createZoteroHostCapabilityBroker();
+  const interactionRequiredError = (member: WorkflowInteractionMember) =>
+    new ZoteroHostCapabilityError(
+      "interaction_required",
+      `${member} requires an interactive Workflow Host`,
+      { member },
+    );
+  const interactive = args.interactionMode === "interactive";
+  return {
+    context: {
+      getCurrentView: () =>
+        interactive
+          ? broker.context.getCurrentView()
+          : (() => {
+              throw interactionRequiredError("context.getCurrentView");
+            })(),
+      getSelectedItems: (control?: Parameters<typeof broker.context.getSelectedItems>[0]) =>
+        interactive
+          ? broker.context.getSelectedItems(control)
+          : Promise.reject(interactionRequiredError("context.getSelectedItems")),
+    },
+    navigation: {
+      openItem: (...parameters: Parameters<typeof broker.navigation.openItem>) =>
+        interactive
+          ? broker.navigation.openItem(...parameters)
+          : Promise.reject(interactionRequiredError("navigation.openItem")),
+      openNote: (...parameters: Parameters<typeof broker.navigation.openNote>) =>
+        interactive
+          ? broker.navigation.openNote(...parameters)
+          : Promise.reject(interactionRequiredError("navigation.openNote")),
+      openCollection: (
+        ...parameters: Parameters<typeof broker.navigation.openCollection>
+      ) =>
+        interactive
+          ? broker.navigation.openCollection(...parameters)
+          : Promise.reject(
+              interactionRequiredError("navigation.openCollection"),
+            ),
+      openSelection: (
+        ...parameters: Parameters<typeof broker.navigation.openSelection>
+      ) =>
+        interactive
+          ? broker.navigation.openSelection(...parameters)
+          : Promise.reject(interactionRequiredError("navigation.openSelection")),
+    },
+    library: {
+      listItems: broker.library.listItems,
+      traverseItems: broker.library.traverseItems,
+      listCollections: broker.library.listCollections,
+      getItemDetail: broker.library.getItemDetail,
+      getItemNotes: broker.library.getItemNotes,
+      getNoteDetail: broker.library.getNoteDetail,
+      listNotePayloads: broker.library.listNotePayloads,
+      getNotePayload: broker.library.getNotePayload,
+      getItemAttachments: broker.library.getItemAttachments,
+      listAnnotations: broker.library.listAnnotations,
+      exportPortableItems: broker.library.exportPortableItems,
+    },
+  };
+}
 
 function resolveHostAddonConfig() {
   const addonConfig = resolveRuntimeAddon()?.data?.config || null;
@@ -398,7 +475,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
           itemKey,
         );
         if (!item) return null;
-        const attachments = await zoteroBroker.library.getItemAttachments({
+        const attachments = await getLegacyZoteroItemAttachments({
           key: itemKey,
           libraryId,
         });
@@ -426,33 +503,33 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       },
     });
   const context = {
-    getCurrentView: zoteroBroker.context.getCurrentView,
-    getSelectedItems: zoteroBroker.context.getSelectedItems,
+    getCurrentView: getLegacyZoteroCurrentView,
+    getSelectedItems: getLegacyZoteroSelectedItems,
   } satisfies WorkflowHostApi["context"];
   const library = {
     listItems: (args: ZoteroHostLibraryListArgs) =>
-      zoteroBroker.library.listItems(toBrokerLibraryListArgs(args)),
+      listLegacyZoteroLibraryItems(toBrokerLibraryListArgs(args)),
     syncSnapshot: (args: ZoteroHostLibraryListArgs) =>
       zoteroBroker.library.syncSnapshot(toBrokerLibraryListArgs(args)),
     searchItems: zoteroBroker.library.searchItems,
     getItemDetail: (ref: WorkflowHostItemRefInput) =>
-      zoteroBroker.library.getItemDetail(toBrokerItemRef(ref)),
+      getLegacyZoteroItemDetail(toBrokerItemRef(ref)),
     getItemNotes: (
       ref: WorkflowHostItemRefInput,
       args?: Parameters<WorkflowHostApi["library"]["getItemNotes"]>[1],
-    ) => zoteroBroker.library.getItemNotes(toBrokerItemRef(ref), args),
+    ) => getLegacyZoteroItemNotes(toBrokerItemRef(ref), args),
     getNoteDetail: (
       ref: WorkflowHostItemRefInput,
       args?: Parameters<WorkflowHostApi["library"]["getNoteDetail"]>[1],
-    ) => zoteroBroker.library.getNoteDetail(toBrokerItemRef(ref), args),
+    ) => getLegacyZoteroNoteDetail(toBrokerItemRef(ref), args),
     listNotePayloads: (ref: WorkflowHostItemRefInput) =>
-      zoteroBroker.library.listNotePayloads(toBrokerItemRef(ref)),
+      listLegacyZoteroNotePayloads(toBrokerItemRef(ref)),
     getNotePayload: (
       ref: WorkflowHostItemRefInput,
       args?: Parameters<WorkflowHostApi["library"]["getNotePayload"]>[1],
-    ) => zoteroBroker.library.getNotePayload(toBrokerItemRef(ref), args),
+    ) => getLegacyZoteroNotePayload(toBrokerItemRef(ref), args),
     getItemAttachments: (ref: WorkflowHostItemRefInput) =>
-      zoteroBroker.library.getItemAttachments(toBrokerItemRef(ref)),
+      getLegacyZoteroItemAttachments(toBrokerItemRef(ref)),
   } satisfies WorkflowHostApi["library"];
   const mutations = {
     preview: (request: WorkflowHostMutationRequest) =>

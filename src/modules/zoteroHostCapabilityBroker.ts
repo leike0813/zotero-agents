@@ -14,6 +14,7 @@ import {
 import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
+  decodeBase64Utf8,
   encodeBase64Utf8,
   getNotePayloadDetail,
   type ZoteroNotePayloadBlock,
@@ -28,12 +29,49 @@ import {
   type LibraryArtifactItem,
 } from "./libraryArtifactReadiness";
 import type { AcpHostContext } from "./acpTypes";
-import { queryZoteroLibraryPage } from "./zoteroLibraryPageQuery";
+import {
+  queryZoteroLibraryPage,
+  ZoteroLibraryCriteriaError,
+  ZoteroLibraryCursorError,
+  ZoteroLibraryPageLimitError,
+} from "./zoteroLibraryPageQuery";
+import { createSha256Accumulator, sha256Hex } from "../utils/sha256";
 import type {
+  AnnotationDetailDto,
+  AnnotationItemSummaryDto,
+  AttachmentDetailDto,
+  AttachmentItemSummaryDto,
+  CollectionDto,
+  CreatorDto,
+  CurrentViewDto,
+  ItemDetailDto,
+  ItemSummaryDto,
   JsonObject,
   JsonValue,
+  LibraryListCollectionsPageDto,
+  LibraryListCollectionsRequestDto,
+  LibraryListItemsPageDto,
+  LibraryListItemsRequestDto,
+  LibraryTraversalBatchDto,
+  LibraryTraversalCompletionEvidenceDto,
+  LibraryTraversalRequestDto,
+  LibraryTraversalResultDto,
+  NavigationSelectionInputDto,
+  NavigationResultDto,
+  NoteDetailDto,
+  NoteDetailOptionsDto,
+  NoteItemSummaryDto,
+  NotePayloadOptionsDto,
+  NotePayloadSummaryDto,
+  NotePayloadValueDto,
+  NoteSummaryDto,
   PortableCollectionRef as ZoteroHostCollectionRefInput,
   PortableItemRef as ZoteroHostItemRefInput,
+  RegularItemDetailDto,
+  RegularItemSummaryDto,
+  SelectedItemsSnapshotDto,
+  PortableRegularItemDto,
+  WorkflowCallControl,
   WorkflowHostCreatorDto as ZoteroHostMetadataCreatorDto,
 } from "../workflows/types";
 import {
@@ -560,27 +598,43 @@ export type ZoteroHostAnnotationExportDto = {
 
 export interface ZoteroHostCapabilityBroker {
   readonly context: {
-    getCurrentView(): ZoteroHostCurrentViewDto;
-    getSelectedItems(): ZoteroHostItemSummaryDto[];
+    getCurrentView(): CurrentViewDto;
+    getSelectedItems(
+      control?: WorkflowCallControl,
+    ): Promise<SelectedItemsSnapshotDto>;
   };
   readonly navigation: {
     openItem(
       ref: ZoteroHostItemRefInput,
-    ): Promise<ZoteroHostNavigationResultDto>;
+      control?: WorkflowCallControl,
+    ): Promise<NavigationResultDto>;
     openNote(
       ref: ZoteroHostItemRefInput,
-    ): Promise<ZoteroHostNavigationResultDto>;
+      control?: WorkflowCallControl,
+    ): Promise<NavigationResultDto>;
     openCollection(
-      args: ZoteroHostCollectionOpenArgs,
-    ): Promise<ZoteroHostNavigationResultDto>;
+      ref: ZoteroHostCollectionRefInput,
+      control?: WorkflowCallControl,
+    ): Promise<NavigationResultDto>;
     openSelection(
-      args: ZoteroHostSelectionOpenArgs,
-    ): Promise<ZoteroHostNavigationResultDto>;
+      input: NavigationSelectionInputDto,
+      control?: WorkflowCallControl,
+    ): Promise<NavigationResultDto>;
   };
   readonly library: {
     listItems(
-      args: ZoteroHostLibraryListArgs,
-    ): Promise<ZoteroHostLibraryListResponse>;
+      input: LibraryListItemsRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListItemsPageDto>;
+    traverseItems(
+      input: LibraryTraversalRequestDto,
+      control: WorkflowCallControl,
+      onBatch: (batch: LibraryTraversalBatchDto) => Promise<void> | void,
+    ): Promise<LibraryTraversalResultDto>;
+    listCollections(
+      input: LibraryListCollectionsRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListCollectionsPageDto>;
     syncSnapshot(
       args: ZoteroHostLibraryListArgs,
     ): Promise<ZoteroHostLibrarySyncSnapshotResponse>;
@@ -592,36 +646,42 @@ export interface ZoteroHostCapabilityBroker {
     ): Promise<ZoteroHostItemSummaryDto[]>;
     getItemDetail(
       ref: ZoteroHostItemRefInput,
-    ): Promise<ZoteroHostItemDetailDto | null>;
+      control?: WorkflowCallControl,
+    ): Promise<ItemDetailDto>;
     getItemNotes(
       ref: ZoteroHostItemRefInput,
-      args?: {
-        limit?: number | string;
-        cursor?: number | string;
-        maxExcerptChars?: number | string;
-      },
-    ): Promise<ZoteroHostNoteDto[]>;
+      control?: WorkflowCallControl,
+    ): Promise<NoteSummaryDto[]>;
     getNoteDetail(
       ref: ZoteroHostItemRefInput,
-      args?: ZoteroHostNoteDetailArgs,
-    ): Promise<ZoteroHostNoteDetailChunkDto>;
+      options: NoteDetailOptionsDto,
+      control?: WorkflowCallControl,
+    ): Promise<NoteDetailDto>;
     listNotePayloads(
       ref: ZoteroHostItemRefInput,
-    ): Promise<ZoteroHostNotePayloadSummaryDto[]>;
+      control?: WorkflowCallControl,
+    ): Promise<NotePayloadSummaryDto[]>;
     getNotePayload(
       ref: ZoteroHostItemRefInput,
-      args?: ZoteroHostNotePayloadDetailArgs,
-    ): Promise<ZoteroHostNotePayloadDetailDto>;
+      options: NotePayloadOptionsDto,
+      control?: WorkflowCallControl,
+    ): Promise<NotePayloadValueDto>;
     listAnnotations(
       ref: ZoteroHostItemRefInput,
-    ): Promise<ZoteroHostAnnotationDto[]>;
+      control?: WorkflowCallControl,
+    ): Promise<AnnotationDetailDto[]>;
+    exportPortableItems(
+      refs: ZoteroHostItemRefInput[],
+      control?: WorkflowCallControl,
+    ): Promise<PortableRegularItemDto[]>;
     exportAnnotations(
       ref: ZoteroHostItemRefInput,
       args?: { format?: string },
     ): Promise<ZoteroHostAnnotationExportDto>;
     getItemAttachments(
       ref: ZoteroHostItemRefInput,
-    ): Promise<ZoteroHostAttachmentDto[]>;
+      control?: WorkflowCallControl,
+    ): Promise<AttachmentDetailDto[]>;
   };
   readonly metadata: {
     translateIdentifier(
@@ -971,6 +1031,693 @@ function serializeItemDetail(item: Zotero.Item): ZoteroHostItemDetailDto {
           .filter(Boolean)
       : [],
   };
+}
+
+function canonicalReadFailure(
+  kind: "item" | "note" | "attachment" | "annotation" | "collection",
+) {
+  return capabilityError(
+    "execution_failed",
+    `${kind} read is incomplete`,
+    {
+      phase: "read",
+      recovery: "retry_same_operation",
+    },
+    true,
+  );
+}
+
+function canonicalItemRef(item: Zotero.Item): ZoteroHostItemRefInput {
+  const ref = {
+    libraryId: parsePositiveInteger((item as any).libraryID),
+    key: String((item as any).key || "").trim(),
+  };
+  assertPortableRef(ref, "item");
+  return ref;
+}
+
+function canonicalCollectionRef(
+  collection: Zotero.Collection,
+): ZoteroHostCollectionRefInput {
+  const ref = {
+    libraryId: parsePositiveInteger((collection as any).libraryID),
+    key: String((collection as any).key || "").trim(),
+  };
+  assertPortableRef(ref, "collection");
+  return ref;
+}
+
+function canonicalRevision(item: Zotero.Item) {
+  let jsonVersion: unknown;
+  try {
+    jsonVersion = (item as any).toJSON?.()?.version;
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  const value =
+    (item as any).version ?? (item as any).dateModified ?? jsonVersion;
+  if (value === undefined || value === null || String(value).trim() === "") {
+    throw canonicalReadFailure("item");
+  }
+  return String(value);
+}
+
+function canonicalField(
+  item: Zotero.Item,
+  field: string,
+  limit = FIELD_TEXT_LIMIT,
+) {
+  let raw: unknown;
+  try {
+    if (typeof item.getField !== "function")
+      throw new Error("missing getField");
+    raw = item.getField(field);
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  const value = String(raw ?? "").trim();
+  if (value.length > limit) {
+    throw capabilityError("resource_limited", "item field exceeds the limit", {
+      resource: "characters",
+      limit,
+      observed: value.length,
+    });
+  }
+  return value;
+}
+
+function canonicalTitle(item: Zotero.Item) {
+  const title = canonicalField(item, "title");
+  if (title) return title;
+  try {
+    const displayTitle = String((item as any).getDisplayTitle?.() ?? "").trim();
+    if (displayTitle.length > FIELD_TEXT_LIMIT) {
+      throw capabilityError(
+        "resource_limited",
+        "item title exceeds the limit",
+        {
+          resource: "characters",
+          limit: FIELD_TEXT_LIMIT,
+          observed: displayTitle.length,
+        },
+      );
+    }
+    return displayTitle;
+  } catch (error) {
+    if (error instanceof ZoteroHostCapabilityError) throw error;
+    throw canonicalReadFailure("item");
+  }
+}
+
+function canonicalItemState(item: Zotero.Item): "active" | "trashed" {
+  const trashed =
+    typeof (item as any).isDeleted === "function"
+      ? (item as any).isDeleted() === true
+      : (item as any).deleted === true;
+  return trashed ? "trashed" : "active";
+}
+
+function canonicalParentRef(item: Zotero.Item): ZoteroHostItemRefInput | null {
+  const parentId = parsePositiveInteger(
+    (item as any).parentItemID ?? (item as any).parentID,
+  );
+  if (!parentId) return null;
+  const parent = resolveZotero().Items.get(parentId);
+  if (!parent) throw canonicalReadFailure("item");
+  return canonicalItemRef(parent);
+}
+
+function canonicalTags(item: Zotero.Item) {
+  let raw: unknown;
+  try {
+    raw = item.getTags?.();
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  if (!Array.isArray(raw)) throw canonicalReadFailure("item");
+  if (raw.length > TAG_LIMIT_MAX) {
+    throw capabilityError("resource_limited", "item tags exceed the limit", {
+      resource: "entries",
+      limit: TAG_LIMIT_MAX,
+      observed: raw.length,
+    });
+  }
+  return raw.map((entry) => {
+    const value = String((entry as any)?.tag ?? "").trim();
+    if (!value || value.length > TAG_TEXT_LIMIT) {
+      throw capabilityError("resource_limited", "item tag exceeds the limit", {
+        resource: "characters",
+        limit: TAG_TEXT_LIMIT,
+        observed: value.length,
+      });
+    }
+    return value;
+  });
+}
+
+function canonicalCreators(item: Zotero.Item): CreatorDto[] {
+  let raw: unknown;
+  try {
+    raw = (item as any).getCreators?.();
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  if (!Array.isArray(raw)) throw canonicalReadFailure("item");
+  if (raw.length > 100) {
+    throw capabilityError(
+      "resource_limited",
+      "item creators exceed the limit",
+      {
+        resource: "entries",
+        limit: 100,
+        observed: raw.length,
+      },
+    );
+  }
+  return raw.map((creator: any) => {
+    const creatorType = String(creator?.creatorType || "").trim();
+    if (!creatorType) throw canonicalReadFailure("item");
+    const name = String(creator?.name || "").trim();
+    if (name) {
+      return { representation: "single_field", creatorType, name };
+    }
+    const firstName = String(creator?.firstName || "").trim();
+    const lastName = String(creator?.lastName || "").trim();
+    if (!firstName && !lastName) throw canonicalReadFailure("item");
+    return {
+      representation: "two_field",
+      creatorType,
+      firstName,
+      lastName,
+    };
+  });
+}
+
+function canonicalCollectionRefs(item: Zotero.Item) {
+  let raw: unknown;
+  try {
+    raw = item.getCollections?.();
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  if (!Array.isArray(raw)) throw canonicalReadFailure("item");
+  if (raw.length > 10_000) {
+    throw capabilityError(
+      "resource_limited",
+      "item collections exceed the limit",
+      {
+        resource: "entries",
+        limit: 10_000,
+        observed: raw.length,
+      },
+    );
+  }
+  return raw.map((value) => {
+    const collection =
+      typeof value === "number" || /^\d+$/u.test(String(value))
+        ? resolveZotero().Collections?.get?.(Number(value))
+        : resolveZotero().Collections?.getByLibraryAndKey?.(
+            canonicalItemRef(item).libraryId,
+            String(value),
+          );
+    if (!collection) throw canonicalReadFailure("collection");
+    return canonicalCollectionRef(collection);
+  });
+}
+
+function canonicalItemKind(item: Zotero.Item): ItemSummaryDto["kind"] {
+  if (item.isNote?.()) return "note";
+  if (item.isAttachment?.()) return "attachment";
+  if (
+    (item as any).isAnnotation?.() ||
+    String(item.itemType) === "annotation"
+  ) {
+    return "annotation";
+  }
+  if (item.isRegularItem?.() !== false) return "regular";
+  throw capabilityError(
+    "unsupported_operation",
+    "unsupported Zotero item kind",
+    {
+      memberOrOperation: "library.getItemDetail",
+    },
+  );
+}
+
+function canonicalBase(item: Zotero.Item) {
+  const itemType = String(item.itemType || "").trim();
+  if (!itemType) throw canonicalReadFailure("item");
+  return {
+    ref: canonicalItemRef(item),
+    itemType,
+    title: canonicalTitle(item),
+    parentRef: canonicalParentRef(item),
+    state: canonicalItemState(item),
+    revision: canonicalRevision(item),
+    tags: canonicalTags(item),
+    collectionRefs: canonicalCollectionRefs(item),
+  };
+}
+
+function canonicalNoteText(item: Zotero.Item) {
+  let html: unknown;
+  try {
+    html = (item as any).getNote?.();
+  } catch {
+    throw canonicalReadFailure("note");
+  }
+  if (typeof html !== "string" || html.length > NOTE_HTML_INPUT_LIMIT) {
+    throw capabilityError(
+      "resource_limited",
+      "note content exceeds the limit",
+      {
+        resource: "characters",
+        limit: NOTE_HTML_INPUT_LIMIT,
+        observed: typeof html === "string" ? html.length : 0,
+      },
+    );
+  }
+  const text = html
+    .replace(/<style[\s\S]*?<\/style>/giu, " ")
+    .replace(/<script[\s\S]*?<\/script>/giu, " ")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return { html, text };
+}
+
+function canonicalRegularSummary(item: Zotero.Item): RegularItemSummaryDto {
+  const base = canonicalBase(item);
+  const date = canonicalField(item, "date");
+  return {
+    ...base,
+    kind: "regular",
+    creators: canonicalCreators(item),
+    date,
+    year: getYear(date) || null,
+    publicationTitle: canonicalField(item, "publicationTitle"),
+  };
+}
+
+function canonicalNoteSummary(item: Zotero.Item): NoteItemSummaryDto {
+  const base = canonicalBase(item);
+  const { html, text } = canonicalNoteText(item);
+  return {
+    ...base,
+    kind: "note",
+    textExcerpt: text.slice(0, NOTE_EXCERPT_DEFAULT),
+    textLength: text.length,
+    htmlLength: html.length,
+  };
+}
+
+function canonicalAttachmentLinkMode(
+  item: Zotero.Item,
+): AttachmentItemSummaryDto["linkMode"] {
+  let value: number;
+  try {
+    value = Number(
+      (item as any).attachmentLinkMode ??
+        (item as any).getAttachmentLinkMode?.(),
+    );
+  } catch {
+    throw canonicalReadFailure("attachment");
+  }
+  if (value === 0) return "stored_file";
+  if (value === 1) return "stored_url";
+  if (value === 2) return "linked_file";
+  if (value === 3) return "linked_url";
+  if (value === 4) return "embedded_image";
+  throw canonicalReadFailure("attachment");
+}
+
+async function canonicalAttachmentSummary(
+  item: Zotero.Item,
+): Promise<AttachmentItemSummaryDto> {
+  const base = canonicalBase(item);
+  const linkMode = canonicalAttachmentLinkMode(item);
+  let path = "";
+  if (linkMode !== "linked_url" && linkMode !== "stored_url") {
+    try {
+      path = String((await (item as any).getFilePathAsync?.()) || "").trim();
+    } catch {
+      throw canonicalReadFailure("attachment");
+    }
+  }
+  return {
+    ...base,
+    kind: "attachment",
+    filename:
+      String((item as any).attachmentFilename || "").trim() ||
+      path.split(/[\\/]/u).filter(Boolean).at(-1) ||
+      null,
+    contentType:
+      String((item as any).attachmentContentType || "").trim() ||
+      canonicalField(item, "contentType") ||
+      null,
+    linkMode,
+    fileState:
+      linkMode === "linked_url" || linkMode === "stored_url"
+        ? "not_applicable"
+        : path
+          ? "available"
+          : "missing",
+  };
+}
+
+function canonicalAnnotationSummary(
+  item: Zotero.Item,
+): AnnotationItemSummaryDto {
+  const base = canonicalBase(item);
+  return {
+    ...base,
+    kind: "annotation",
+    annotationType:
+      canonicalAnnotationTextField(item, "annotationType", FIELD_TEXT_LIMIT) ||
+      "annotation",
+    pageLabel:
+      canonicalAnnotationTextField(
+        item,
+        "annotationPageLabel",
+        FIELD_TEXT_LIMIT,
+      ) || null,
+    textExcerpt: canonicalAnnotationTextField(
+      item,
+      "annotationText",
+      NOTE_HTML_INPUT_LIMIT,
+    ).slice(0, NOTE_EXCERPT_DEFAULT),
+  };
+}
+
+async function serializeCanonicalItemSummary(
+  item: Zotero.Item,
+): Promise<ItemSummaryDto> {
+  switch (canonicalItemKind(item)) {
+    case "regular":
+      return canonicalRegularSummary(item);
+    case "note":
+      return canonicalNoteSummary(item);
+    case "attachment":
+      return canonicalAttachmentSummary(item);
+    case "annotation":
+      return canonicalAnnotationSummary(item);
+  }
+}
+
+function canonicalTimestamp(
+  item: Zotero.Item,
+  field: "dateAdded" | "dateModified",
+) {
+  const value = String(
+    (item as any)[field] ?? item.getField?.(field) ?? "",
+  ).trim();
+  if (!value) throw canonicalReadFailure("item");
+  return value;
+}
+
+function canonicalRegularFields(item: Zotero.Item) {
+  let json: unknown;
+  try {
+    json = (item as any).toJSON?.();
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    throw canonicalReadFailure("item");
+  }
+  const zotero = resolveZotero();
+  const itemTypeId =
+    parsePositiveInteger((item as any).itemTypeID) ||
+    parsePositiveInteger(zotero.ItemTypes?.getID?.(item.itemType));
+  if (!itemTypeId || typeof zotero.ItemFields?.getID !== "function") {
+    throw canonicalReadFailure("item");
+  }
+  const fieldNames = Object.keys(json).filter((field) => {
+    const fieldId = parsePositiveInteger(zotero.ItemFields.getID(field));
+    return fieldId && isValidFieldForItemType(fieldId, itemTypeId);
+  });
+  const fields: Record<string, string> = {};
+  for (const field of fieldNames) {
+    const value = canonicalField(item, field);
+    if (value) fields[field] = value;
+  }
+  return fields;
+}
+
+function canonicalRegularDetail(item: Zotero.Item): RegularItemDetailDto {
+  const summary = canonicalRegularSummary(item);
+  const fields = canonicalRegularFields(item);
+  let related: unknown;
+  let noteIds: unknown;
+  let attachmentIds: unknown;
+  try {
+    related = (item as any).relatedItems || [];
+    noteIds = item.getNotes?.();
+    attachmentIds = item.getAttachments?.();
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  if (
+    !Array.isArray(related) ||
+    !Array.isArray(noteIds) ||
+    !Array.isArray(attachmentIds)
+  ) {
+    throw canonicalReadFailure("item");
+  }
+  const relatedRefs = related.map((key) => {
+    const target = resolveZotero().Items.getByLibraryAndKey(
+      summary.ref.libraryId,
+      String(key),
+    );
+    if (!target) throw canonicalReadFailure("item");
+    return canonicalItemRef(target);
+  });
+  let annotations = 0;
+  for (const id of attachmentIds) {
+    const attachment = resolveZotero().Items.get(id as number);
+    if (!attachment) throw canonicalReadFailure("attachment");
+    let values: unknown;
+    try {
+      if (typeof (attachment as any).getAnnotations !== "function") {
+        throw new Error("missing getAnnotations");
+      }
+      values = (attachment as any).getAnnotations();
+    } catch {
+      throw canonicalReadFailure("annotation");
+    }
+    if (!Array.isArray(values)) throw canonicalReadFailure("annotation");
+    annotations += values.length;
+  }
+  return {
+    ...summary,
+    fields,
+    relatedRefs,
+    childCounts: {
+      notes: noteIds.length,
+      attachments: attachmentIds.length,
+      annotations,
+    },
+    createdAt: canonicalTimestamp(item, "dateAdded"),
+    modifiedAt: canonicalTimestamp(item, "dateModified"),
+  };
+}
+
+function canonicalNoteSummaryDto(item: Zotero.Item): NoteSummaryDto {
+  const summary = canonicalNoteSummary(item);
+  return {
+    ref: summary.ref,
+    parentRef: summary.parentRef,
+    title: summary.title,
+    textExcerpt: summary.textExcerpt,
+    textLength: summary.textLength,
+    htmlLength: summary.htmlLength,
+    revision: summary.revision,
+  };
+}
+
+async function canonicalAttachmentDetail(
+  item: Zotero.Item,
+): Promise<AttachmentDetailDto> {
+  const summary = await canonicalAttachmentSummary(item);
+  let path = "";
+  if (summary.fileState !== "not_applicable") {
+    try {
+      path = String((await (item as any).getFilePathAsync?.()) || "").trim();
+    } catch {
+      throw canonicalReadFailure("attachment");
+    }
+  }
+  let role: AttachmentDetailDto["role"] =
+    summary.linkMode === "embedded_image" ? "note_image" : "ordinary";
+  if (summary.parentRef) {
+    const parent = requireItem(summary.parentRef);
+    if (parent.isNote?.()) {
+      const blocks = await listNotePayloadBlocksForItem(parent);
+      if (blocks.some((block) => block.attachmentKey === summary.ref.key)) {
+        role = "note_payload";
+      }
+    }
+  }
+  return {
+    ref: summary.ref,
+    parentRef: summary.parentRef,
+    revision: summary.revision,
+    title: summary.title,
+    filename: summary.filename,
+    contentType: summary.contentType,
+    charset: canonicalField(item, "charset") || null,
+    url: canonicalField(item, "url") || null,
+    linkMode: summary.linkMode,
+    role,
+    file:
+      summary.fileState === "available"
+        ? {
+            state: "available",
+            path,
+            sizeBytes: Math.max(0, Number((item as any).fileSize) || 0),
+            modifiedAt: null,
+          }
+        : summary.fileState === "missing"
+          ? { state: "missing" }
+          : { state: "not_applicable" },
+  };
+}
+
+function annotationField(item: Zotero.Item, name: string) {
+  try {
+    return (item as any)[name] ?? item.getField?.(name) ?? "";
+  } catch {
+    throw canonicalReadFailure("annotation");
+  }
+}
+
+function canonicalAnnotationTextField(
+  item: Zotero.Item,
+  name: string,
+  limit: number,
+) {
+  const value = String(annotationField(item, name) ?? "").trim();
+  if (value.length > limit) {
+    throw capabilityError(
+      "resource_limited",
+      "annotation field exceeds the limit",
+      {
+        resource: "characters",
+        limit,
+        observed: value.length,
+      },
+    );
+  }
+  return value;
+}
+
+function canonicalAnnotationDetail(item: Zotero.Item): AnnotationDetailDto {
+  const ref = canonicalItemRef(item);
+  const attachmentRef = canonicalParentRef(item);
+  if (!attachmentRef) throw canonicalReadFailure("annotation");
+  const attachment = requireItem(attachmentRef, "attachment");
+  if (!attachment.isAttachment?.()) throw canonicalReadFailure("attachment");
+  const itemRef = canonicalParentRef(attachment) || attachmentRef;
+  const rawPosition = annotationField(item, "annotationPosition");
+  let position: JsonObject | null = null;
+  if (rawPosition) {
+    try {
+      if (
+        typeof rawPosition === "string" &&
+        rawPosition.length > NOTE_HTML_INPUT_LIMIT
+      ) {
+        throw capabilityError(
+          "resource_limited",
+          "annotation position exceeds the limit",
+          {
+            resource: "characters",
+            limit: NOTE_HTML_INPUT_LIMIT,
+            observed: rawPosition.length,
+          },
+        );
+      }
+      const parsed =
+        typeof rawPosition === "string" ? JSON.parse(rawPosition) : rawPosition;
+      assertJsonValue(parsed, "annotation position");
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+        throw new Error("invalid annotation position");
+      }
+      position = parsed as JsonObject;
+    } catch (error) {
+      if (error instanceof ZoteroHostCapabilityError) throw error;
+      throw canonicalReadFailure("annotation");
+    }
+  }
+  const rawPageIndex = canonicalAnnotationTextField(
+    item,
+    "annotationPageIndex",
+    32,
+  );
+  const pageIndexValue = rawPageIndex ? Number(rawPageIndex) : null;
+  if (
+    pageIndexValue !== null &&
+    (!Number.isSafeInteger(pageIndexValue) || pageIndexValue < 0)
+  ) {
+    throw canonicalReadFailure("annotation");
+  }
+  return {
+    ref,
+    itemRef,
+    attachmentRef,
+    revision: canonicalRevision(item),
+    annotationType:
+      canonicalAnnotationTextField(item, "annotationType", FIELD_TEXT_LIMIT) ||
+      "annotation",
+    text: canonicalAnnotationTextField(
+      item,
+      "annotationText",
+      NOTE_HTML_INPUT_LIMIT,
+    ),
+    comment: canonicalAnnotationTextField(
+      item,
+      "annotationComment",
+      NOTE_HTML_INPUT_LIMIT,
+    ),
+    color:
+      canonicalAnnotationTextField(item, "annotationColor", FIELD_TEXT_LIMIT) ||
+      null,
+    location: {
+      pageIndex: pageIndexValue,
+      pageLabel:
+        canonicalAnnotationTextField(
+          item,
+          "annotationPageLabel",
+          FIELD_TEXT_LIMIT,
+        ) || null,
+      sortIndex: canonicalAnnotationTextField(
+        item,
+        "annotationSortIndex",
+        FIELD_TEXT_LIMIT,
+      ),
+      position,
+    },
+    tags: canonicalTags(item),
+    createdAt: canonicalTimestamp(item, "dateAdded"),
+    modifiedAt: canonicalTimestamp(item, "dateModified"),
+  };
+}
+
+async function serializeCanonicalItemDetail(
+  item: Zotero.Item,
+): Promise<ItemDetailDto> {
+  switch (canonicalItemKind(item)) {
+    case "regular":
+      return { kind: "regular", item: canonicalRegularDetail(item) };
+    case "note":
+      return { kind: "note", item: canonicalNoteSummaryDto(item) };
+    case "attachment":
+      return {
+        kind: "attachment",
+        item: await canonicalAttachmentDetail(item),
+      };
+    case "annotation":
+      return { kind: "annotation", item: canonicalAnnotationDetail(item) };
+  }
 }
 
 function normalizeMetadataIdentifierType(
@@ -3164,7 +3911,7 @@ async function selectLibraryItemPage(args: ZoteroHostLibraryListArgs = {}) {
   };
 }
 
-async function listLibraryItems(
+export async function listLegacyZoteroLibraryItems(
   args: ZoteroHostLibraryListArgs = {},
 ): Promise<ZoteroHostLibraryListResponse> {
   const selection = await selectLibraryItemPage(args);
@@ -3173,6 +3920,504 @@ async function listLibraryItems(
     ...response,
     items: page.map(serializeLibraryItemSummary),
   };
+}
+
+async function listLibraryItems(
+  input: LibraryListItemsRequestDto = {},
+  control: WorkflowCallControl = {},
+): Promise<LibraryListItemsPageDto> {
+  throwIfWorkflowCallCanceled(control);
+  const collection = input.collectionRef
+    ? resolveCollection(input.collectionRef)
+    : null;
+  if (input.collectionRef && !collection) {
+    throw notFoundError("collection", input.collectionRef);
+  }
+  const libraryId = normalizeLibraryId(
+    input.libraryId ?? input.collectionRef?.libraryId,
+  );
+  if (input.collectionRef && input.collectionRef.libraryId !== libraryId) {
+    throw invalidRefError(
+      "collection",
+      "foreign_scope",
+      "collection is outside the requested library",
+    );
+  }
+  try {
+    const page = await queryZoteroLibraryPage(
+      {
+        libraryId,
+        collectionId: collection
+          ? parsePositiveInteger((collection as any).id)
+          : undefined,
+        tag: input.tag,
+        itemType: input.itemType,
+        query: input.query,
+        limit: input.limit,
+        cursor: input.cursor,
+      },
+      {
+        defaultLibraryId: libraryId,
+        defaultLimit: LIBRARY_LIST_LIMIT_DEFAULT,
+        maxLimit: LIBRARY_LIST_LIMIT_MAX,
+      },
+    );
+    const items = await Promise.all(
+      page.items.map(serializeCanonicalItemSummary),
+    );
+    throwIfWorkflowCallCanceled(control);
+    return {
+      items,
+      nextCursor: page.nextCursor || null,
+      hasMore: page.hasMore,
+      returned: items.length,
+      totalScanned: page.totalScanned,
+      criteria: {
+        libraryId: page.criteria.libraryId,
+        collectionRef: input.collectionRef || null,
+        tag: page.criteria.tag || null,
+        itemType: page.criteria.itemType || null,
+        query: page.criteria.query || null,
+        order: "stable_identity",
+      },
+    };
+  } catch (error) {
+    if (error instanceof ZoteroLibraryPageLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "items",
+        limit: error.limit,
+        observed: Number.isFinite(error.observed) ? error.observed : undefined,
+      });
+    }
+    if (error instanceof ZoteroLibraryCriteriaError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason:
+          error.reason === "invalid_type" ? "invalid_type" : "invalid_value",
+        field: error.field,
+      });
+    }
+    if (error instanceof ZoteroLibraryCursorError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason: "invalid_value",
+        field: "cursor",
+      });
+    }
+    throw error;
+  }
+}
+
+function canonicalCollectionDto(
+  collection: Zotero.Collection,
+  path: string[],
+): CollectionDto {
+  const ref = canonicalCollectionRef(collection);
+  const parentId = parsePositiveInteger(
+    (collection as any).parentID ?? (collection as any).parentCollectionID,
+  );
+  const parent = parentId ? resolveZotero().Collections?.get?.(parentId) : null;
+  if (parentId && !parent) throw canonicalReadFailure("collection");
+  const revision =
+    (collection as any).version ??
+    (collection as any).dateModified ??
+    `local:${JSON.stringify([
+      String((collection as any).name || ""),
+      parent ? canonicalCollectionRef(parent) : null,
+    ])}`;
+  return {
+    ref,
+    name: String((collection as any).name || "").trim(),
+    parentRef: parent ? canonicalCollectionRef(parent) : null,
+    revision: String(revision),
+    state: "active",
+    path,
+  };
+}
+
+type CollectionCursor = {
+  version: 1;
+  criteriaDigest: string;
+  afterKey: string;
+};
+
+function decodeCollectionCursor(value: string): CollectionCursor {
+  try {
+    const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+    const parsed = JSON.parse(
+      decodeBase64Utf8(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")),
+    );
+    if (
+      parsed?.version !== 1 ||
+      typeof parsed.criteriaDigest !== "string" ||
+      typeof parsed.afterKey !== "string"
+    ) {
+      throw new Error("invalid collection cursor");
+    }
+    return parsed;
+  } catch {
+    throw capabilityError("invalid_request", "collection cursor is invalid", {
+      reason: "invalid_value",
+      field: "cursor",
+    });
+  }
+}
+
+function encodeCollectionCursor(cursor: CollectionCursor) {
+  return encodeBase64Utf8(JSON.stringify(cursor))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
+async function listLibraryCollections(
+  input: LibraryListCollectionsRequestDto = {},
+  control: WorkflowCallControl = {},
+): Promise<LibraryListCollectionsPageDto> {
+  throwIfWorkflowCallCanceled(control);
+  if (
+    input.libraryId !== undefined &&
+    (!Number.isSafeInteger(input.libraryId) || input.libraryId <= 0)
+  ) {
+    throw capabilityError("invalid_request", "library id is invalid", {
+      reason: "invalid_value",
+      field: "libraryId",
+    });
+  }
+  const libraryId = normalizeLibraryId(input.libraryId);
+  const limit = input.limit ?? 100;
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw capabilityError(
+      "invalid_request",
+      "collection page limit is invalid",
+      {
+        reason: "invalid_value",
+        field: "limit",
+      },
+    );
+  }
+  if (limit > 500) {
+    throw capabilityError(
+      "resource_limited",
+      "collection page limit is invalid",
+      {
+        resource: "items",
+        limit: 500,
+        observed: Number.isFinite(limit) ? Number(limit) : undefined,
+      },
+    );
+  }
+  const criteriaDigest = await sha256Hex(
+    new TextEncoder().encode(
+      JSON.stringify({
+        schema: "zotero-agents.library-live-collections.v1",
+        libraryId,
+        order: "stable_identity",
+      }),
+    ),
+  );
+  if (!criteriaDigest) {
+    throw capabilityError(
+      "unavailable",
+      "collection cursor hashing is unavailable",
+      {
+        reason: "runtime",
+        kind: "collection",
+      },
+    );
+  }
+  let afterKey = "";
+  if (input.cursor) {
+    const cursor = decodeCollectionCursor(input.cursor);
+    if (cursor.criteriaDigest !== criteriaDigest) {
+      throw capabilityError(
+        "invalid_request",
+        "collection cursor criteria changed",
+        {
+          reason: "invalid_value",
+          field: "cursor",
+        },
+      );
+    }
+    afterKey = cursor.afterKey;
+  }
+  const legacy = await listZoteroCollections({ libraryId });
+  const collections = legacy
+    .map((entry) => {
+      const raw = resolveCollection({
+        libraryId: entry.libraryId,
+        key: entry.key,
+      });
+      if (!raw) throw canonicalReadFailure("collection");
+      return canonicalCollectionDto(raw, entry.path || [entry.name]);
+    })
+    .sort((left, right) => left.ref.key.localeCompare(right.ref.key));
+  const remaining = collections.filter((entry) => entry.ref.key > afterKey);
+  const page = remaining.slice(0, limit);
+  const hasMore = remaining.length > limit;
+  throwIfWorkflowCallCanceled(control);
+  return {
+    collections: page,
+    libraryId,
+    nextCursor:
+      hasMore && page.length
+        ? encodeCollectionCursor({
+            version: 1,
+            criteriaDigest,
+            afterKey: page.at(-1)!.ref.key,
+          })
+        : null,
+    hasMore,
+    returned: page.length,
+    order: "stable_identity",
+  };
+}
+
+const traversalEvidenceRegistry = new Map<
+  string,
+  LibraryTraversalCompletionEvidenceDto
+>();
+let traversalEvidenceSequence = 0;
+
+export function verifyLibraryTraversalCompletionEvidence(
+  evidence: LibraryTraversalCompletionEvidenceDto,
+) {
+  const registered = traversalEvidenceRegistry.get(evidence.evidenceId);
+  return Boolean(
+    registered &&
+    registered.criteriaDigest === evidence.criteriaDigest &&
+    registered.coverageDigest === evidence.coverageDigest &&
+    registered.completedAt === evidence.completedAt,
+  );
+}
+
+function traversalLimit(
+  value: number | undefined,
+  fallback: number,
+  hardMax: number,
+  resource: "items" | "pages" | "duration_ms",
+  field: "pageSize" | "maxItems" | "maxPages" | "maxDurationMs",
+) {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved <= 0) {
+    throw capabilityError("invalid_request", "traversal budget is invalid", {
+      reason: "invalid_value",
+      field,
+    });
+  }
+  if (resolved > hardMax) {
+    throw capabilityError("resource_limited", "traversal budget is invalid", {
+      resource,
+      limit: hardMax,
+      observed: Number.isFinite(resolved) ? Number(resolved) : undefined,
+    });
+  }
+  return resolved;
+}
+
+async function issueTraversalEvidence(
+  criteriaDigest: string,
+  coverageDigest: string,
+) {
+  const completedAt = new Date().toISOString();
+  traversalEvidenceSequence += 1;
+  const evidenceId = await sha256Hex(
+    new TextEncoder().encode(
+      JSON.stringify({
+        criteriaDigest,
+        coverageDigest,
+        completedAt,
+        sequence: traversalEvidenceSequence,
+      }),
+    ),
+  );
+  if (!evidenceId) {
+    throw capabilityError(
+      "unavailable",
+      "traversal evidence hashing is unavailable",
+      {
+        reason: "runtime",
+        kind: "library",
+      },
+    );
+  }
+  const evidence = {
+    evidenceId,
+    criteriaDigest,
+    coverageDigest,
+    completedAt,
+  } satisfies LibraryTraversalCompletionEvidenceDto;
+  traversalEvidenceRegistry.set(evidenceId, evidence);
+  while (traversalEvidenceRegistry.size > 256) {
+    const oldest = traversalEvidenceRegistry.keys().next().value;
+    if (!oldest) break;
+    traversalEvidenceRegistry.delete(oldest);
+  }
+  return evidence;
+}
+
+async function traverseLibraryItems(
+  input: LibraryTraversalRequestDto,
+  control: WorkflowCallControl,
+  onBatch: (batch: LibraryTraversalBatchDto) => Promise<void> | void,
+): Promise<LibraryTraversalResultDto> {
+  if (input?.scope !== "top-level-regular") {
+    throw capabilityError("invalid_request", "traversal scope is unsupported", {
+      reason: "unsupported_value",
+      field: "scope",
+    });
+  }
+  if (typeof onBatch !== "function") {
+    throw capabilityError("invalid_request", "traversal callback is required", {
+      reason: "invalid_type",
+      field: "onBatch",
+    });
+  }
+  const pageSize = traversalLimit(
+    input.pageSize,
+    100,
+    500,
+    "items",
+    "pageSize",
+  );
+  const maxItems = traversalLimit(
+    input.maxItems,
+    100_000,
+    1_000_000,
+    "items",
+    "maxItems",
+  );
+  const maxPages = traversalLimit(
+    input.maxPages,
+    1_000,
+    10_000,
+    "pages",
+    "maxPages",
+  );
+  const maxDurationMs = traversalLimit(
+    input.maxDurationMs,
+    300_000,
+    1_800_000,
+    "duration_ms",
+    "maxDurationMs",
+  );
+  const libraryId = normalizeLibraryId(input.libraryId);
+  const startedAt = Date.now();
+  const coverage = await createSha256Accumulator();
+  if (!coverage) {
+    throw capabilityError("unavailable", "traversal hashing is unavailable", {
+      reason: "runtime",
+      kind: "library",
+    });
+  }
+  let cursor = input.resumeCursor;
+  let visitedItems = 0;
+  let visitedBatches = 0;
+  let criteriaDigest = "";
+  for (;;) {
+    if (control?.signal?.aborted) {
+      return { outcome: "canceled", libraryId, visitedItems, visitedBatches };
+    }
+    const remainingItems = maxItems - visitedItems;
+    const page = await listLibraryItems({
+      libraryId,
+      collectionRef: input.collectionRef,
+      tag: input.tag,
+      itemType: input.itemType,
+      query: input.query,
+      limit: Math.min(pageSize, remainingItems),
+      cursor,
+    });
+    if (!criteriaDigest) {
+      criteriaDigest =
+        (await sha256Hex(
+          new TextEncoder().encode(
+            JSON.stringify({ ...page.criteria, scope: input.scope }),
+          ),
+        )) || "";
+      if (!criteriaDigest) {
+        throw capabilityError(
+          "unavailable",
+          "traversal hashing is unavailable",
+          {
+            reason: "runtime",
+            kind: "library",
+          },
+        );
+      }
+    }
+    const items = page.items.map((item) => {
+      if (item.kind !== "regular") {
+        throw canonicalReadFailure("item");
+      }
+      return item;
+    });
+    if (items.length) {
+      const batch = { batchIndex: visitedBatches, items };
+      await onBatch(batch);
+      for (const item of items) {
+        const tagDigest = await sha256Hex(
+          new TextEncoder().encode(JSON.stringify(item.tags)),
+        );
+        if (!tagDigest) throw canonicalReadFailure("item");
+        coverage.update(
+          new TextEncoder().encode(
+            `${JSON.stringify([item.ref, item.revision, tagDigest])}\n`,
+          ),
+        );
+      }
+      visitedItems += items.length;
+      visitedBatches += 1;
+    }
+    if (control?.signal?.aborted) {
+      return { outcome: "canceled", libraryId, visitedItems, visitedBatches };
+    }
+    if (!page.hasMore) {
+      const completionEvidence = await issueTraversalEvidence(
+        criteriaDigest,
+        coverage.digestHex(),
+      );
+      return {
+        outcome: "completed",
+        libraryId,
+        scope: "top-level-regular",
+        visitedItems,
+        visitedBatches,
+        completionEvidence,
+      };
+    }
+    if (!page.nextCursor) throw canonicalReadFailure("item");
+    const resumeCursor = page.nextCursor;
+    if (visitedItems >= maxItems) {
+      return {
+        outcome: "resource_limited",
+        libraryId,
+        visitedItems,
+        visitedBatches,
+        reason: "max_items",
+        resumeCursor,
+      };
+    }
+    if (visitedBatches >= maxPages) {
+      return {
+        outcome: "resource_limited",
+        libraryId,
+        visitedItems,
+        visitedBatches,
+        reason: "max_pages",
+        resumeCursor,
+      };
+    }
+    if (Date.now() - startedAt >= maxDurationMs) {
+      return {
+        outcome: "resource_limited",
+        libraryId,
+        visitedItems,
+        visitedBatches,
+        reason: "max_duration",
+        resumeCursor,
+      };
+    }
+    cursor = resumeCursor;
+  }
 }
 
 async function syncLibrarySnapshot(
@@ -3281,7 +4526,7 @@ async function serializeLibraryReadinessItem(
   };
 }
 
-function getSelectedItems() {
+export function getLegacyZoteroSelectedItems() {
   const win =
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
   const items = win?.ZoteroPane?.getSelectedItems?.() || [];
@@ -3352,8 +4597,21 @@ function getSelectedSources() {
   return resolveSelectedLibraryTreeRows(win).map(serializeSelectedSource);
 }
 
-function getCurrentView() {
-  const context = buildCurrentAcpHostContext();
+export function getLegacyZoteroCurrentView() {
+  let context: AcpHostContext;
+  try {
+    context = buildCurrentAcpHostContext();
+  } catch {
+    throw capabilityError(
+      "execution_failed",
+      "Zotero view read failed",
+      {
+        phase: "read",
+        recovery: "retry_same_operation",
+      },
+      true,
+    );
+  }
   const win =
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
   const selectedSources = getSelectedSources();
@@ -3400,7 +4658,7 @@ function getCurrentView() {
           ...serializeZoteroItemSummary(currentItem),
         }
       : context.currentItem,
-    selectedItems: getSelectedItems(),
+    selectedItems: getLegacyZoteroSelectedItems(),
     selectedSources,
     ...(selectedCollection
       ? {
@@ -3418,6 +4676,125 @@ function getCurrentView() {
             ...(selectedCollection.path
               ? { path: selectedCollection.path }
               : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+async function getSelectedItems(
+  control: WorkflowCallControl = {},
+): Promise<SelectedItemsSnapshotDto> {
+  const win =
+    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
+  const pane = win?.ZoteroPane;
+  if (!pane || typeof pane.getSelectedItems !== "function") {
+    throw capabilityError("unavailable", "Zotero selection is unavailable", {
+      reason: "navigation",
+      kind: "item",
+    });
+  }
+  let raw: unknown;
+  try {
+    raw = pane.getSelectedItems();
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  if (!Array.isArray(raw)) throw canonicalReadFailure("item");
+  if (raw.length > 10_000) {
+    throw capabilityError("resource_limited", "selection exceeds the limit", {
+      resource: "selection",
+      limit: 10_000,
+      observed: raw.length,
+    });
+  }
+  const items: SelectedItemsSnapshotDto["items"] = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    if (control.signal?.aborted) {
+      throw capabilityError("canceled", "selection capture was canceled", {
+        reason: "caller_signal",
+      });
+    }
+    let item = raw[index];
+    if (!isRawZoteroItem(item)) throw canonicalReadFailure("item");
+    if (item.isAttachment?.()) {
+      const parent = canonicalParentRef(item);
+      if (parent) item = requireItem(parent);
+    }
+    const parentRef = canonicalParentRef(item);
+    items.push({
+      ref: canonicalItemRef(item),
+      itemType: String(item.itemType || ""),
+      ...(getItemTitle(item) ? { title: getItemTitle(item) } : {}),
+      ...(parentRef ? { parentRef } : {}),
+    });
+    if (index > 0 && index % 128 === 0) await Promise.resolve();
+  }
+  return { capturedAt: new Date().toISOString(), items };
+}
+
+function getCurrentView(): CurrentViewDto {
+  const win =
+    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
+  if (!win?.ZoteroPane) {
+    throw capabilityError("unavailable", "Zotero view context is unavailable", {
+      reason: "navigation",
+      kind: "library",
+    });
+  }
+  const context = buildCurrentAcpHostContext();
+  const selectedSources = getSelectedSources();
+  const libraryIds = [
+    ...new Set([
+      ...resolveSelectedLibraryIds(win),
+      ...(context.libraryIds || []),
+      ...selectedSources
+        .map((source) => source.libraryId)
+        .filter((libraryId): libraryId is number => Boolean(libraryId))
+        .map(String),
+    ]),
+  ];
+  const libraryId =
+    libraryIds.length === 1 ? parsePositiveInteger(libraryIds[0]) : 0;
+  const currentItem = context.currentItem
+    ? (parsePositiveInteger(context.currentItem.id)
+        ? resolveZotero().Items.get(
+            parsePositiveInteger(context.currentItem.id),
+          )
+        : null) ||
+      (context.currentItem.key && libraryId
+        ? resolveZotero().Items.getByLibraryAndKey(
+            libraryId,
+            context.currentItem.key,
+          )
+        : null)
+    : null;
+  const selectedCollection =
+    selectedSources.length === 1 && selectedSources[0]?.kind === "collection"
+      ? selectedSources[0]
+      : null;
+  return {
+    target: context.target === "reader" ? "reader" : "library",
+    ...(libraryId ? { libraryId } : {}),
+    selectionEmpty: context.selectionEmpty,
+    ...(currentItem
+      ? {
+          currentItem: {
+            ref: canonicalItemRef(currentItem),
+            ...(getItemTitle(currentItem)
+              ? { title: getItemTitle(currentItem) }
+              : {}),
+          },
+        }
+      : {}),
+    ...(selectedCollection
+      ? {
+          currentCollection: {
+            ref: {
+              libraryId: selectedCollection.libraryId,
+              key: selectedCollection.key,
+            },
+            name: selectedCollection.name,
           },
         }
       : {}),
@@ -3449,8 +4826,6 @@ async function selectZoteroItems(items: Zotero.Item[]) {
     await pane.selectItem(itemIds[0]);
   } else if (typeof pane.selectItems === "function") {
     await pane.selectItems(itemIds);
-  } else if (typeof pane.selectItem === "function") {
-    await pane.selectItem(itemIds[0]);
   } else {
     throw navigationUnavailableError("Zotero pane cannot select items");
   }
@@ -3495,7 +4870,7 @@ function collectionRefFromOpenArgs(args: ZoteroHostCollectionOpenArgs) {
   return ref;
 }
 
-async function openZoteroItem(
+export async function openLegacyZoteroItem(
   ref: ZoteroHostItemRefInput,
 ): Promise<ZoteroHostNavigationResultDto> {
   const item = requireItem(ref);
@@ -3507,11 +4882,11 @@ async function openZoteroItem(
       kind: "item",
       item: serializeZoteroItemSummary(item),
     },
-    currentView: getCurrentView(),
+    currentView: getLegacyZoteroCurrentView(),
   };
 }
 
-async function openZoteroNote(
+export async function openLegacyZoteroNote(
   ref: ZoteroHostItemRefInput,
 ): Promise<ZoteroHostNavigationResultDto> {
   const note = requireNote(ref);
@@ -3523,11 +4898,11 @@ async function openZoteroNote(
       kind: "note",
       item: serializeZoteroItemSummary(note),
     },
-    currentView: getCurrentView(),
+    currentView: getLegacyZoteroCurrentView(),
   };
 }
 
-async function openZoteroCollection(
+export async function openLegacyZoteroCollection(
   args: ZoteroHostCollectionOpenArgs,
 ): Promise<ZoteroHostNavigationResultDto> {
   const ref = collectionRefFromOpenArgs(args);
@@ -3543,11 +4918,11 @@ async function openZoteroCollection(
       kind: "collection",
       collection: serializeCollection(collection),
     },
-    currentView: getCurrentView(),
+    currentView: getLegacyZoteroCurrentView(),
   };
 }
 
-async function openZoteroSelection(
+export async function openLegacyZoteroSelection(
   args: ZoteroHostSelectionOpenArgs,
 ): Promise<ZoteroHostNavigationResultDto> {
   const refs = Array.isArray(args.items) ? args.items : [];
@@ -3566,14 +4941,560 @@ async function openZoteroSelection(
       kind: "selection",
       items: items.map(serializeZoteroItemSummary),
     },
-    currentView: getCurrentView(),
+    currentView: getLegacyZoteroCurrentView(),
   };
+}
+
+function throwIfWorkflowCallCanceled(control: WorkflowCallControl = {}) {
+  if (control.signal?.aborted) {
+    throw capabilityError("canceled", "workflow call was canceled", {
+      reason: "caller_signal",
+    });
+  }
+}
+
+async function openZoteroItem(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResultDto> {
+  throwIfWorkflowCallCanceled(control);
+  const item = requireItem(ref);
+  if (canonicalItemKind(item) !== "regular") {
+    throw invalidRefError(
+      "item",
+      "wrong_kind",
+      "ref does not identify a regular item",
+    );
+  }
+  await selectZoteroItems([item]);
+  throwIfWorkflowCallCanceled(control);
+  return {
+    openedAt: new Date().toISOString(),
+    target: { kind: "item", ref: canonicalItemRef(item) },
+  };
+}
+
+async function openZoteroNote(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResultDto> {
+  throwIfWorkflowCallCanceled(control);
+  const note = requireNote(ref);
+  await selectZoteroItems([note]);
+  throwIfWorkflowCallCanceled(control);
+  return {
+    openedAt: new Date().toISOString(),
+    target: { kind: "note", ref: canonicalItemRef(note) },
+  };
+}
+
+async function openZoteroCollection(
+  ref: ZoteroHostCollectionRefInput,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResultDto> {
+  throwIfWorkflowCallCanceled(control);
+  const collection = resolveCollection(ref);
+  if (!collection) throw notFoundError("collection", ref);
+  await selectZoteroCollection(collection);
+  throwIfWorkflowCallCanceled(control);
+  return {
+    openedAt: new Date().toISOString(),
+    target: { kind: "collection", ref: canonicalCollectionRef(collection) },
+  };
+}
+
+async function openZoteroSelection(
+  input: NavigationSelectionInputDto,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResultDto> {
+  if (!input || !Array.isArray(input.itemRefs) || input.itemRefs.length === 0) {
+    throw capabilityError(
+      "invalid_request",
+      "selection open requires item refs",
+      {
+        reason: "missing_field",
+        field: "itemRefs",
+      },
+    );
+  }
+  if (input.itemRefs.length > 10_000) {
+    throw capabilityError("resource_limited", "selection exceeds the limit", {
+      resource: "selection",
+      limit: 10_000,
+      observed: input.itemRefs.length,
+    });
+  }
+  const seen = new Set<string>();
+  const items: Zotero.Item[] = [];
+  for (const ref of input.itemRefs) {
+    throwIfWorkflowCallCanceled(control);
+    const item = requireItem(ref);
+    const normalized = canonicalItemRef(item);
+    const identity = `${normalized.libraryId}:${normalized.key}`;
+    if (seen.has(identity)) {
+      throw capabilityError(
+        "invalid_request",
+        "selection contains a duplicate ref",
+        {
+          reason: "duplicate_value",
+          field: "itemRefs",
+        },
+      );
+    }
+    seen.add(identity);
+    items.push(item);
+  }
+  await selectZoteroItems(items);
+  throwIfWorkflowCallCanceled(control);
+  return {
+    openedAt: new Date().toISOString(),
+    target: { kind: "selection", refs: items.map(canonicalItemRef) },
+  };
+}
+
+export async function getLegacyZoteroItemDetail(ref: ZoteroHostItemRefInput) {
+  const item = resolveItem(ref);
+  return item ? serializeItemDetail(item) : null;
+}
+
+export async function getLegacyZoteroItemNotes(
+  ref: ZoteroHostItemRefInput,
+  args: {
+    limit?: number | string;
+    cursor?: number | string;
+    maxExcerptChars?: number | string;
+  } = {},
+) {
+  const item = requireItem(ref, "item");
+  let noteIds: unknown[] = [];
+  try {
+    noteIds = item.getNotes?.() || [];
+  } catch {
+    return [];
+  }
+  const limit = Math.min(
+    TARGET_LIMIT_MAX,
+    Math.max(1, parsePositiveInteger(args.limit) || TARGET_LIMIT_MAX),
+  );
+  const cursor = parseNonNegativeInteger(args.cursor);
+  const maxExcerptChars = Math.min(
+    NOTE_EXCERPT_MAX,
+    Math.max(
+      1,
+      parsePositiveInteger(args.maxExcerptChars) || NOTE_EXCERPT_DEFAULT,
+    ),
+  );
+  return noteIds.slice(cursor, cursor + limit).map((id) => {
+    try {
+      const note = resolveZotero().Items.get(id as number);
+      return note
+        ? serializeNoteSummary(note, maxExcerptChars)
+        : failedNoteDto(id, new Error("child note not found"));
+    } catch (error) {
+      return failedNoteDto(id, error);
+    }
+  });
+}
+
+export async function getLegacyZoteroNoteDetail(
+  ref: ZoteroHostItemRefInput,
+  args: ZoteroHostNoteDetailArgs = {},
+) {
+  return serializeNoteDetailChunk(requireNote(ref), args);
+}
+
+export async function listLegacyZoteroNotePayloads(
+  ref: ZoteroHostItemRefInput,
+) {
+  return serializeNotePayloadSummary(requireNote(ref));
+}
+
+export async function getLegacyZoteroNotePayload(
+  ref: ZoteroHostItemRefInput,
+  args: ZoteroHostNotePayloadDetailArgs = {},
+) {
+  return serializeNotePayloadDetail(requireNote(ref), args);
+}
+
+export async function getLegacyZoteroItemAttachments(
+  ref: ZoteroHostItemRefInput,
+) {
+  const item = requireItem(ref, "item");
+  let attachmentIds: unknown[] = [];
+  try {
+    attachmentIds = item.getAttachments?.() || [];
+  } catch {
+    return [];
+  }
+  const attachments: ZoteroHostAttachmentDto[] = [];
+  for (const id of attachmentIds) {
+    try {
+      const attachment = resolveZotero().Items.get(id as number);
+      attachments.push(
+        attachment
+          ? await serializeAttachment(attachment)
+          : failedAttachmentDto(id, new Error("child attachment not found")),
+      );
+    } catch (error) {
+      attachments.push(failedAttachmentDto(id, error));
+    }
+  }
+  return attachments;
+}
+
+async function getCanonicalItemNotes(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+) {
+  throwIfWorkflowCallCanceled(control);
+  const item = requireItem(ref, "item");
+  let ids: unknown;
+  try {
+    ids = item.getNotes?.();
+  } catch {
+    throw canonicalReadFailure("note");
+  }
+  if (!Array.isArray(ids)) throw canonicalReadFailure("note");
+  if (ids.length > 500) {
+    throw capabilityError("resource_limited", "child notes exceed the limit", {
+      resource: "items",
+      limit: 500,
+      observed: ids.length,
+    });
+  }
+  const notes = ids.map((id) => {
+    const note = resolveZotero().Items.get(id as number);
+    if (!note || !note.isNote?.()) throw canonicalReadFailure("note");
+    return canonicalNoteSummaryDto(note);
+  });
+  throwIfWorkflowCallCanceled(control);
+  return notes;
+}
+
+async function getCanonicalNoteDetail(
+  ref: ZoteroHostItemRefInput,
+  options: NoteDetailOptionsDto,
+  control: WorkflowCallControl = {},
+): Promise<NoteDetailDto> {
+  throwIfWorkflowCallCanceled(control);
+  if (options?.format !== "html" && options?.format !== "text") {
+    throw capabilityError("invalid_request", "note format is required", {
+      reason: "invalid_value",
+      field: "format",
+    });
+  }
+  const note = requireNote(ref);
+  const content = canonicalNoteText(note);
+  const detail = {
+    ref: canonicalItemRef(note),
+    parentRef: canonicalParentRef(note),
+    title: canonicalTitle(note) || content.text.slice(0, 80),
+    format: options.format,
+    content: options.format === "html" ? content.html : content.text,
+    revision: canonicalRevision(note),
+  };
+  throwIfWorkflowCallCanceled(control);
+  return detail;
+}
+
+function canonicalPayloadSummary(
+  block: ZoteroNotePayloadBlock,
+  note: Zotero.Item,
+): NotePayloadSummaryDto {
+  const issues: NotePayloadSummaryDto["issues"] = [];
+  if (block.errors?.length) {
+    issues.push({ code: "content_invalid", retryable: false });
+  }
+  const attachment = block.attachmentKey
+    ? resolveZotero().Items.getByLibraryAndKey(
+        canonicalItemRef(note).libraryId,
+        block.attachmentKey,
+      )
+    : null;
+  if (block.attachmentKey && !attachment) {
+    issues.push({ code: "attachment_missing", retryable: false });
+  }
+  if (
+    attachment &&
+    (block.anchorStatus === "stale" || block.anchorStatus === "missing")
+  ) {
+    issues.push({ code: "anchor_stale", retryable: true });
+  }
+  const state: NotePayloadSummaryDto["state"] = issues.some(
+    (issue) => issue.code === "attachment_missing",
+  )
+    ? "missing"
+    : issues.some((issue) => issue.code === "anchor_stale")
+      ? "stale"
+      : issues.length
+        ? "invalid"
+        : "available";
+  const attachmentRef = block.attachmentKey
+    ? {
+        libraryId: canonicalItemRef(note).libraryId,
+        key: block.attachmentKey,
+      }
+    : null;
+  if (attachmentRef) assertPortableRef(attachmentRef, "item");
+  return {
+    payloadType: block.payloadType,
+    noteKind: block.noteKind,
+    version: block.version,
+    format: block.format,
+    encoding: block.encoding,
+    estimatedBytes: Math.max(0, Number(block.estimatedSize) || 0),
+    source: attachmentRef
+      ? { kind: "embedded_attachment", attachmentRef }
+      : { kind: "inline" },
+    state,
+    issues,
+  };
+}
+
+async function listCanonicalNotePayloads(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+) {
+  throwIfWorkflowCallCanceled(control);
+  const note = requireNote(ref);
+  const blocks = await listNotePayloadBlocksForItem(note);
+  const payloads = blocks.map((block) => canonicalPayloadSummary(block, note));
+  throwIfWorkflowCallCanceled(control);
+  return payloads;
+}
+
+async function getCanonicalNotePayload(
+  ref: ZoteroHostItemRefInput,
+  options: NotePayloadOptionsDto,
+  control: WorkflowCallControl = {},
+): Promise<NotePayloadValueDto> {
+  throwIfWorkflowCallCanceled(control);
+  const payloadType = String(options?.payloadType || "").trim();
+  if (!payloadType) {
+    throw capabilityError("invalid_request", "payload type is required", {
+      reason: "missing_field",
+      field: "payloadType",
+    });
+  }
+  const note = requireNote(ref);
+  const blocks = (await listNotePayloadBlocksForItem(note)).filter(
+    (block) => block.payloadType === payloadType,
+  );
+  if (blocks.length === 0) throw notFoundError("note", ref);
+  if (blocks.length > 1) {
+    throw capabilityError("conflict", "note payload is ambiguous", {
+      reason: "ambiguous_state",
+      kind: "note",
+    });
+  }
+  const block = blocks[0];
+  const summary = canonicalPayloadSummary(block, note);
+  if (summary.state !== "available") {
+    throw capabilityError(
+      "execution_failed",
+      "note payload is unavailable",
+      {
+        phase: "read",
+        recovery:
+          summary.state === "stale" ? "retry_same_operation" : "manual_repair",
+      },
+      summary.state === "stale",
+    );
+  }
+  let content: string;
+  try {
+    content = getPayloadContent(block);
+  } catch {
+    throw canonicalReadFailure("note");
+  }
+  if (new TextEncoder().encode(content).byteLength > NOTE_PAYLOAD_MAX_BYTES) {
+    throw capabilityError(
+      "resource_limited",
+      "note payload exceeds the limit",
+      {
+        resource: "bytes",
+        limit: NOTE_PAYLOAD_MAX_BYTES,
+      },
+    );
+  }
+  let value: JsonValue;
+  try {
+    value =
+      block.format === "json"
+        ? ((block.payload ?? JSON.parse(content)) as JsonValue)
+        : block.format === "markdown"
+          ? block.markdown || content
+          : content;
+    assertJsonValue(value, "note payload");
+  } catch {
+    throw canonicalReadFailure("note");
+  }
+  throwIfWorkflowCallCanceled(control);
+  return { summary, value };
+}
+
+async function getCanonicalItemAttachments(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+) {
+  throwIfWorkflowCallCanceled(control);
+  const item = requireItem(ref, "item");
+  let ids: unknown;
+  try {
+    ids = item.getAttachments?.();
+  } catch {
+    throw canonicalReadFailure("attachment");
+  }
+  if (!Array.isArray(ids)) throw canonicalReadFailure("attachment");
+  if (ids.length > 500) {
+    throw capabilityError("resource_limited", "attachments exceed the limit", {
+      resource: "items",
+      limit: 500,
+      observed: ids.length,
+    });
+  }
+  const result: AttachmentDetailDto[] = [];
+  for (const id of ids) {
+    throwIfWorkflowCallCanceled(control);
+    const attachment = resolveZotero().Items.get(id as number);
+    if (!attachment || !attachment.isAttachment?.()) {
+      throw canonicalReadFailure("attachment");
+    }
+    result.push(await canonicalAttachmentDetail(attachment));
+  }
+  throwIfWorkflowCallCanceled(control);
+  return result;
+}
+
+function canonicalAnnotationItems(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+) {
+  throwIfWorkflowCallCanceled(control);
+  const item = requireItem(ref, "item");
+  const itemKind = canonicalItemKind(item);
+  if (itemKind !== "regular" && itemKind !== "attachment") {
+    throw invalidRefError(
+      "item",
+      "wrong_kind",
+      "annotation listing requires a regular item or attachment",
+    );
+  }
+  const carriers =
+    itemKind === "attachment"
+      ? [item]
+      : (() => {
+          let ids: unknown;
+          try {
+            ids = item.getAttachments?.();
+          } catch {
+            throw canonicalReadFailure("annotation");
+          }
+          if (!Array.isArray(ids)) throw canonicalReadFailure("annotation");
+          return ids.map((id) => {
+            const attachment = resolveZotero().Items.get(id as number);
+            if (!attachment || !attachment.isAttachment?.()) {
+              throw canonicalReadFailure("attachment");
+            }
+            return attachment;
+          });
+        })();
+  const annotations: Zotero.Item[] = [];
+  for (const carrier of carriers) {
+    throwIfWorkflowCallCanceled(control);
+    let values: unknown;
+    try {
+      values = (carrier as any).getAnnotations?.();
+    } catch {
+      throw canonicalReadFailure("annotation");
+    }
+    if (!Array.isArray(values)) throw canonicalReadFailure("annotation");
+    for (const value of values) {
+      throwIfWorkflowCallCanceled(control);
+      const annotation =
+        typeof value === "number" ? resolveZotero().Items.get(value) : value;
+      if (
+        !isRawZoteroItem(annotation) ||
+        canonicalItemKind(annotation) !== "annotation"
+      ) {
+        throw canonicalReadFailure("annotation");
+      }
+      annotations.push(annotation);
+    }
+  }
+  if (annotations.length > 5_000) {
+    throw capabilityError("resource_limited", "annotations exceed the limit", {
+      resource: "items",
+      limit: 5_000,
+      observed: annotations.length,
+    });
+  }
+  const result = annotations
+    .map(canonicalAnnotationDetail)
+    .sort(
+      (left, right) =>
+        left.location.sortIndex.localeCompare(right.location.sortIndex) ||
+        left.ref.key.localeCompare(right.ref.key),
+    );
+  throwIfWorkflowCallCanceled(control);
+  return result;
+}
+
+async function exportCanonicalPortableItems(
+  refs: ZoteroHostItemRefInput[],
+  control: WorkflowCallControl = {},
+): Promise<PortableRegularItemDto[]> {
+  throwIfWorkflowCallCanceled(control);
+  if (!Array.isArray(refs) || refs.length > 10_000) {
+    throw capabilityError(
+      "resource_limited",
+      "portable export exceeds the limit",
+      {
+        resource: "items",
+        limit: 10_000,
+        observed: Array.isArray(refs) ? refs.length : undefined,
+      },
+    );
+  }
+  const result = refs.map((ref) => {
+    throwIfWorkflowCallCanceled(control);
+    const item = requireItem(ref);
+    if (canonicalItemKind(item) !== "regular") {
+      throw invalidRefError(
+        "item",
+        "wrong_kind",
+        "portable export requires regular items",
+      );
+    }
+    const summary = canonicalRegularSummary(item);
+    return {
+      schema: "zotero-agents.portable-regular-item.v1" as const,
+      itemType: summary.itemType,
+      fields: canonicalRegularFields(item),
+      creators: summary.creators,
+      tags: summary.tags,
+    };
+  });
+  const bytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+  if (bytes > 64 * 1024 * 1024) {
+    throw capabilityError(
+      "resource_limited",
+      "portable export exceeds the limit",
+      {
+        resource: "bytes",
+        limit: 64 * 1024 * 1024,
+        observed: bytes,
+      },
+    );
+  }
+  throwIfWorkflowCallCanceled(control);
+  return result;
 }
 
 export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
   return {
     context: {
-      getCurrentView(): ZoteroHostCurrentViewDto {
+      getCurrentView(): CurrentViewDto {
         return getCurrentView();
       },
       getSelectedItems,
@@ -3586,6 +5507,8 @@ export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
     },
     library: {
       listItems: listLibraryItems,
+      traverseItems: traverseLibraryItems,
+      listCollections: listLibraryCollections,
       syncSnapshot: syncLibrarySnapshot,
       readinessAudit,
       async searchItems(args: ZoteroHostItemSearchArgs) {
@@ -3593,92 +5516,63 @@ export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
         if (!query) {
           throw new Error("query must be non-empty");
         }
-        const limit = Math.min(
-          SEARCH_LIMIT_MAX,
-          Math.max(
-            1,
-            parsePositiveInteger(args?.limit) || SEARCH_LIMIT_DEFAULT,
+        const page = await listLibraryItems({
+          libraryId: normalizeLibraryId(args?.libraryId),
+          query,
+          limit: Math.min(
+            SEARCH_LIMIT_MAX,
+            Math.max(
+              1,
+              parsePositiveInteger(args?.limit) || SEARCH_LIMIT_DEFAULT,
+            ),
           ),
+        });
+        return page.items.map((summary) =>
+          serializeZoteroItemSummary(requireItem(summary.ref)),
         );
-        const scanLibraryId = normalizeLibraryId(args?.libraryId);
-        const selection = await queryZoteroLibraryPage(
-          {
-            libraryId: scanLibraryId,
-            query,
-            limit,
-          },
-          {
-            defaultLibraryId: scanLibraryId,
-            defaultLimit: SEARCH_LIMIT_DEFAULT,
-            maxLimit: SEARCH_LIMIT_MAX,
-          },
-        );
-        return selection.items.map(serializeZoteroItemSummary);
       },
-      async getItemDetail(ref: ZoteroHostItemRefInput) {
-        const item = resolveItem(ref);
-        return item ? serializeItemDetail(item) : null;
+      async getItemDetail(
+        ref: ZoteroHostItemRefInput,
+        control: WorkflowCallControl = {},
+      ) {
+        throwIfWorkflowCallCanceled(control);
+        const detail = await serializeCanonicalItemDetail(requireItem(ref));
+        throwIfWorkflowCallCanceled(control);
+        return detail;
       },
       async getItemNotes(
         ref: ZoteroHostItemRefInput,
-        args: {
-          limit?: number | string;
-          cursor?: number | string;
-          maxExcerptChars?: number | string;
-        } = {},
+        control: WorkflowCallControl = {},
       ) {
-        const item = requireItem(ref, "item");
-        let noteIds: unknown[] = [];
-        try {
-          noteIds = item.getNotes?.() || [];
-        } catch {
-          return [];
-        }
-        const limit = Math.min(
-          TARGET_LIMIT_MAX,
-          Math.max(1, parsePositiveInteger(args.limit) || TARGET_LIMIT_MAX),
-        );
-        const cursor = parseNonNegativeInteger(args.cursor);
-        const maxExcerptChars = Math.min(
-          NOTE_EXCERPT_MAX,
-          Math.max(
-            1,
-            parsePositiveInteger(args.maxExcerptChars) || NOTE_EXCERPT_DEFAULT,
-          ),
-        );
-        const notes: ZoteroHostNoteDto[] = [];
-        for (const id of noteIds.slice(cursor, cursor + limit)) {
-          try {
-            const note = resolveZotero().Items.get(id as number);
-            if (note) {
-              notes.push(serializeNoteSummary(note, maxExcerptChars));
-            } else {
-              notes.push(failedNoteDto(id, new Error("child note not found")));
-            }
-          } catch (error) {
-            notes.push(failedNoteDto(id, error));
-          }
-        }
-        return notes;
+        return getCanonicalItemNotes(ref, control);
       },
       async getNoteDetail(
         ref: ZoteroHostItemRefInput,
-        args: ZoteroHostNoteDetailArgs = {},
+        options: NoteDetailOptionsDto,
+        control: WorkflowCallControl = {},
       ) {
-        return serializeNoteDetailChunk(requireNote(ref), args);
+        return getCanonicalNoteDetail(ref, options, control);
       },
-      async listNotePayloads(ref: ZoteroHostItemRefInput) {
-        return serializeNotePayloadSummary(requireNote(ref));
+      async listNotePayloads(
+        ref: ZoteroHostItemRefInput,
+        control: WorkflowCallControl = {},
+      ) {
+        return listCanonicalNotePayloads(ref, control);
       },
       async getNotePayload(
         ref: ZoteroHostItemRefInput,
-        args: ZoteroHostNotePayloadDetailArgs = {},
+        options: NotePayloadOptionsDto,
+        control: WorkflowCallControl = {},
       ) {
-        return serializeNotePayloadDetail(requireNote(ref), args);
+        return getCanonicalNotePayload(ref, options, control);
       },
-      async listAnnotations(ref: ZoteroHostItemRefInput) {
-        return annotationsFromItem(requireItem(ref, "item"));
+      async listAnnotations(
+        ref: ZoteroHostItemRefInput,
+        control: WorkflowCallControl = {},
+      ) {
+        return canonicalAnnotationItems(ref, control);
       },
+      exportPortableItems: exportCanonicalPortableItems,
       async exportAnnotations(
         ref: ZoteroHostItemRefInput,
         args: { format?: string } = {},
@@ -3697,33 +5591,11 @@ export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
           annotations,
         };
       },
-      async getItemAttachments(ref: ZoteroHostItemRefInput) {
-        const item = requireItem(ref, "item");
-        let attachmentIds: unknown[] = [];
-        try {
-          attachmentIds = item.getAttachments?.() || [];
-        } catch {
-          return [];
-        }
-        const attachments: ZoteroHostAttachmentDto[] = [];
-        for (const id of attachmentIds) {
-          try {
-            const attachment = resolveZotero().Items.get(id as number);
-            if (attachment) {
-              attachments.push(await serializeAttachment(attachment));
-            } else {
-              attachments.push(
-                failedAttachmentDto(
-                  id,
-                  new Error("child attachment not found"),
-                ),
-              );
-            }
-          } catch (error) {
-            attachments.push(failedAttachmentDto(id, error));
-          }
-        }
-        return attachments;
+      async getItemAttachments(
+        ref: ZoteroHostItemRefInput,
+        control: WorkflowCallControl = {},
+      ) {
+        return getCanonicalItemAttachments(ref, control);
       },
     },
     metadata: {

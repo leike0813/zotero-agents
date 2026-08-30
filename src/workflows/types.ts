@@ -12,6 +12,337 @@ export type PortableCollectionRef = Readonly<{
   key: string;
 }>;
 
+/** Canonical portable representation of a Zotero creator. */
+export type CreatorDto =
+  | {
+      representation: "two_field";
+      creatorType: string;
+      firstName: string;
+      lastName: string;
+    }
+  | {
+      representation: "single_field";
+      creatorType: string;
+      name: string;
+    };
+
+export type ItemSummaryBaseDto = {
+  ref: PortableItemRef;
+  kind: "regular" | "note" | "attachment" | "annotation";
+  itemType: string;
+  title: string;
+  parentRef: PortableItemRef | null;
+  state: "active" | "trashed";
+  revision: string;
+  tags: string[];
+  collectionRefs: PortableCollectionRef[];
+};
+
+export type RegularItemSummaryDto = ItemSummaryBaseDto & {
+  kind: "regular";
+  creators: CreatorDto[];
+  date: string;
+  year: string | null;
+  publicationTitle: string;
+};
+
+export type NoteItemSummaryDto = ItemSummaryBaseDto & {
+  kind: "note";
+  textExcerpt: string;
+  textLength: number;
+  htmlLength: number;
+};
+
+export type AttachmentLinkMode =
+  | "stored_file"
+  | "stored_url"
+  | "linked_file"
+  | "linked_url"
+  | "embedded_image";
+
+export type AttachmentItemSummaryDto = ItemSummaryBaseDto & {
+  kind: "attachment";
+  filename: string | null;
+  contentType: string | null;
+  linkMode: AttachmentLinkMode;
+  fileState: "available" | "missing" | "not_applicable";
+};
+
+export type AnnotationItemSummaryDto = ItemSummaryBaseDto & {
+  kind: "annotation";
+  annotationType: string;
+  pageLabel: string | null;
+  textExcerpt: string;
+};
+
+export type ItemSummaryDto =
+  | RegularItemSummaryDto
+  | NoteItemSummaryDto
+  | AttachmentItemSummaryDto
+  | AnnotationItemSummaryDto;
+
+export type RegularItemDetailDto = RegularItemSummaryDto & {
+  fields: Record<string, string>;
+  relatedRefs: PortableItemRef[];
+  childCounts: {
+    notes: number;
+    attachments: number;
+    annotations: number;
+  };
+  createdAt: string;
+  modifiedAt: string;
+};
+
+export type NoteSummaryDto = {
+  ref: PortableItemRef;
+  parentRef: PortableItemRef | null;
+  title: string;
+  textExcerpt: string;
+  textLength: number;
+  htmlLength: number;
+  revision: string;
+};
+
+export type NoteDetailDto = {
+  ref: PortableItemRef;
+  parentRef: PortableItemRef | null;
+  title: string;
+  format: "html" | "text";
+  content: string;
+  revision: string;
+};
+
+export type NoteDetailOptionsDto = {
+  format: "html" | "text";
+};
+
+export type NotePayloadOptionsDto = {
+  payloadType: string;
+};
+
+export type NotePayloadIssueDto =
+  | { code: "anchor_stale"; retryable: true }
+  | { code: "attachment_missing"; retryable: false }
+  | { code: "attachment_unreadable"; retryable: true }
+  | { code: "content_invalid"; retryable: false };
+
+export type NotePayloadSummaryDto = {
+  payloadType: string;
+  noteKind: string;
+  version: string;
+  format: "json" | "markdown" | "text";
+  encoding: string;
+  estimatedBytes: number;
+  source:
+    | { kind: "inline" }
+    | {
+        kind: "embedded_attachment";
+        attachmentRef: PortableItemRef;
+      };
+  state: "available" | "stale" | "missing" | "invalid";
+  issues: NotePayloadIssueDto[];
+};
+
+export type NotePayloadValueDto = {
+  summary: NotePayloadSummaryDto;
+  value: JsonValue;
+};
+
+export type AttachmentDetailDto = {
+  ref: PortableItemRef;
+  parentRef: PortableItemRef | null;
+  revision: string;
+  title: string;
+  filename: string | null;
+  contentType: string | null;
+  charset: string | null;
+  url: string | null;
+  linkMode: AttachmentLinkMode;
+  role: "ordinary" | "note_image" | "note_payload";
+  file:
+    | {
+        state: "available";
+        path: string;
+        sizeBytes: number;
+        modifiedAt: string | null;
+      }
+    | { state: "missing" }
+    | { state: "not_applicable" };
+};
+
+export type AnnotationDetailDto = {
+  ref: PortableItemRef;
+  itemRef: PortableItemRef;
+  attachmentRef: PortableItemRef;
+  revision: string;
+  annotationType: string;
+  text: string;
+  comment: string;
+  color: string | null;
+  location: {
+    pageIndex: number | null;
+    pageLabel: string | null;
+    sortIndex: string;
+    position: JsonObject | null;
+  };
+  tags: string[];
+  createdAt: string;
+  modifiedAt: string;
+};
+
+export type ItemDetailDto =
+  | { kind: "regular"; item: RegularItemDetailDto }
+  | { kind: "note"; item: NoteSummaryDto }
+  | { kind: "attachment"; item: AttachmentDetailDto }
+  | { kind: "annotation"; item: AnnotationDetailDto };
+
+export type PortableRegularItemDto = {
+  schema: "zotero-agents.portable-regular-item.v1";
+  itemType: string;
+  fields: Record<string, string>;
+  creators: CreatorDto[];
+  tags: string[];
+};
+
+export type CollectionDto = {
+  ref: PortableCollectionRef;
+  name: string;
+  parentRef: PortableCollectionRef | null;
+  revision: string;
+  state: "active";
+  path: string[];
+};
+
+export type LibraryListItemsRequestDto = {
+  libraryId?: number;
+  collectionRef?: PortableCollectionRef;
+  tag?: string;
+  itemType?: string;
+  query?: string;
+  limit?: number;
+  cursor?: string;
+};
+
+export type LibraryListItemsPageDto = {
+  items: ItemSummaryDto[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  totalScanned: number;
+  criteria: {
+    libraryId: number;
+    collectionRef: PortableCollectionRef | null;
+    tag: string | null;
+    itemType: string | null;
+    query: string | null;
+    order: "stable_identity";
+  };
+};
+
+export type LibraryListCollectionsRequestDto = {
+  libraryId?: number;
+  limit?: number;
+  cursor?: string;
+};
+
+export type LibraryListCollectionsPageDto = {
+  collections: CollectionDto[];
+  libraryId: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  order: "stable_identity";
+};
+
+export type LibraryTraversalRequestDto = {
+  libraryId?: number;
+  scope: "top-level-regular";
+  collectionRef?: PortableCollectionRef;
+  tag?: string;
+  itemType?: string;
+  query?: string;
+  resumeCursor?: string;
+  pageSize?: number;
+  maxItems?: number;
+  maxPages?: number;
+  maxDurationMs?: number;
+};
+
+export type LibraryTraversalBatchDto = {
+  batchIndex: number;
+  items: RegularItemSummaryDto[];
+};
+
+export type LibraryTraversalCompletionEvidenceDto = {
+  evidenceId: string;
+  criteriaDigest: string;
+  coverageDigest: string;
+  completedAt: string;
+};
+
+export type LibraryTraversalCompleted = {
+  outcome: "completed";
+  libraryId: number;
+  scope: "top-level-regular";
+  visitedItems: number;
+  visitedBatches: number;
+  completionEvidence: LibraryTraversalCompletionEvidenceDto;
+};
+
+export type LibraryTraversalResultDto =
+  | LibraryTraversalCompleted
+  | {
+      outcome: "canceled";
+      libraryId: number;
+      visitedItems: number;
+      visitedBatches: number;
+    }
+  | {
+      outcome: "resource_limited";
+      libraryId: number;
+      visitedItems: number;
+      visitedBatches: number;
+      reason: "max_items" | "max_pages" | "max_duration";
+      resumeCursor: string;
+    };
+
+export type SelectedItemsSnapshotDto = {
+  capturedAt: string;
+  items: Array<{
+    ref: PortableItemRef;
+    itemType: string;
+    title?: string;
+    parentRef?: PortableItemRef;
+  }>;
+};
+
+export type CurrentViewDto = {
+  target: "library" | "reader";
+  libraryId?: number;
+  selectionEmpty: boolean;
+  currentItem?: {
+    ref: PortableItemRef;
+    title?: string;
+  };
+  currentCollection?: {
+    ref: PortableCollectionRef;
+    name: string;
+  };
+};
+
+export type NavigationSelectionInputDto = {
+  itemRefs: PortableItemRef[];
+};
+
+export type NavigationResultDto = {
+  openedAt: string;
+  target:
+    | { kind: "item"; ref: PortableItemRef }
+    | { kind: "note"; ref: PortableItemRef }
+    | { kind: "collection"; ref: PortableCollectionRef }
+    | { kind: "selection"; refs: PortableItemRef[] };
+};
+
 export type WorkflowCallControl = Readonly<{
   signal?: AbortSignal;
 }>;
@@ -102,39 +433,63 @@ export type WorkflowHostMutationRequest = Omit<
   collection?: WorkflowHostCollectionRefInput;
 };
 
-type WorkflowHostContextApi = Pick<
-  ZoteroHostCapabilityBroker["context"],
-  "getCurrentView" | "getSelectedItems"
->;
+type WorkflowHostContextApi = {
+  getCurrentView(): ZoteroHostCurrentViewDto;
+  getSelectedItems(): ZoteroHostItemSummaryDto[];
+};
 
 type WorkflowHostLibraryApi = Pick<
   ZoteroHostCapabilityBroker["library"],
-  "listItems" | "syncSnapshot" | "searchItems"
+  "syncSnapshot" | "searchItems"
 > & {
+  listItems(
+    args: ZoteroHostLibraryListArgs,
+  ): Promise<ZoteroHostLibraryListResponse>;
   getItemDetail(
     ref: WorkflowHostItemRefInput,
-  ): ReturnType<ZoteroHostCapabilityBroker["library"]["getItemDetail"]>;
+  ): Promise<ZoteroHostItemDetailDto | null>;
   getItemNotes(
     ref: WorkflowHostItemRefInput,
-    args?: Parameters<
-      ZoteroHostCapabilityBroker["library"]["getItemNotes"]
-    >[1],
-  ): ReturnType<ZoteroHostCapabilityBroker["library"]["getItemNotes"]>;
+    args?: ZoteroHostLibraryListArgs,
+  ): Promise<ZoteroHostNoteDto[]>;
   getNoteDetail(
     ref: WorkflowHostItemRefInput,
     args?: ZoteroHostNoteDetailArgs,
-  ): ReturnType<ZoteroHostCapabilityBroker["library"]["getNoteDetail"]>;
+  ): Promise<ZoteroHostNoteDetailChunkDto>;
   listNotePayloads(
     ref: WorkflowHostItemRefInput,
-  ): ReturnType<ZoteroHostCapabilityBroker["library"]["listNotePayloads"]>;
+  ): Promise<ZoteroHostNotePayloadSummaryDto[]>;
   getNotePayload(
     ref: WorkflowHostItemRefInput,
     args?: ZoteroHostNotePayloadDetailArgs,
-  ): ReturnType<ZoteroHostCapabilityBroker["library"]["getNotePayload"]>;
+  ): Promise<ZoteroHostNotePayloadDetailDto>;
   getItemAttachments(
     ref: WorkflowHostItemRefInput,
-  ): ReturnType<
-    ZoteroHostCapabilityBroker["library"]["getItemAttachments"]
+  ): Promise<ZoteroHostAttachmentDto[]>;
+};
+
+export type WorkflowHostLiveReadAdapters = {
+  context: Pick<
+    ZoteroHostCapabilityBroker["context"],
+    "getCurrentView" | "getSelectedItems"
+  >;
+  navigation: Pick<
+    ZoteroHostCapabilityBroker["navigation"],
+    "openItem" | "openNote" | "openCollection" | "openSelection"
+  >;
+  library: Pick<
+    ZoteroHostCapabilityBroker["library"],
+    | "listItems"
+    | "traverseItems"
+    | "listCollections"
+    | "getItemDetail"
+    | "getItemNotes"
+    | "getNoteDetail"
+    | "listNotePayloads"
+    | "getNotePayload"
+    | "getItemAttachments"
+    | "listAnnotations"
+    | "exportPortableItems"
   >;
 };
 
@@ -904,6 +1259,7 @@ export type WorkflowRuntimeContext = {
   addon?: typeof addon | null;
   hostApi: WorkflowHostApi;
   hostApiVersion: number;
+  workflowHostLiveReads?: WorkflowHostLiveReadAdapters;
   invocationMode?: WorkflowInvocationMode;
   debugMode?: boolean;
   workflowId?: string;

@@ -115,6 +115,12 @@ import {
   readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 import {
+  getLegacyZoteroCurrentView,
+  getLegacyZoteroSelectedItems,
+  openLegacyZoteroCollection,
+  openLegacyZoteroItem,
+  openLegacyZoteroNote,
+  openLegacyZoteroSelection,
   resolveZoteroHostCapabilityBroker,
   ZoteroHostCapabilityError,
 } from "./zoteroHostCapabilityBroker";
@@ -3428,8 +3434,7 @@ async function getCurrentContext(request: HttpRequest) {
     );
   }
   try {
-    const currentView =
-      resolveZoteroHostCapabilityBroker().context.getCurrentView();
+    const currentView = getLegacyZoteroCurrentView();
     const page = paginateRequestRows(
       request,
       "context current",
@@ -3467,7 +3472,7 @@ async function getCurrentSelection(request: HttpRequest) {
     const page = paginateRequestRows(
       request,
       "context selection get",
-      resolveZoteroHostCapabilityBroker().context.getSelectedItems(),
+      getLegacyZoteroSelectedItems(),
     );
     return response(
       200,
@@ -3507,11 +3512,7 @@ async function openContextItem(request: HttpRequest) {
     return response(
       200,
       "OK",
-      hostBridgeOk(
-        await resolveZoteroHostCapabilityBroker().navigation.openItem(
-          normalizeHostBridgeItemRef(ref),
-        ),
-      ),
+      hostBridgeOk(await openLegacyZoteroItem(normalizeHostBridgeItemRef(ref))),
     );
   } catch (error) {
     if (error instanceof HostBridgeCursorError) {
@@ -3540,9 +3541,7 @@ async function openContextNote(request: HttpRequest) {
       200,
       "OK",
       hostBridgeOk(
-        await resolveZoteroHostCapabilityBroker().navigation.openNote(
-          normalizeHostBridgeItemRef(ref, "note"),
-        ),
+        await openLegacyZoteroNote(normalizeHostBridgeItemRef(ref, "note")),
       ),
     );
   } catch (error) {
@@ -3579,7 +3578,7 @@ async function openContextCollection(request: HttpRequest) {
       200,
       "OK",
       hostBridgeOk(
-        await resolveZoteroHostCapabilityBroker().navigation.openCollection(
+        await openLegacyZoteroCollection(
           normalizeHostBridgeCollectionRef({
             key: String(
               object.key || object.collectionKey || collection.key || "",
@@ -3609,10 +3608,9 @@ async function openContextSelection(request: HttpRequest) {
       : Array.isArray(payload)
         ? payload
         : [];
-    const result =
-      await resolveZoteroHostCapabilityBroker().navigation.openSelection({
-        items: items.map((item) => normalizeHostBridgeItemRef(item)),
-      });
+    const result = await openLegacyZoteroSelection({
+      items: items.map((item) => normalizeHostBridgeItemRef(item)),
+    });
     const target = asRequestObject(result.target);
     const targetItems = Array.isArray(target.items) ? target.items : [];
     const page = paginateRequestRows(

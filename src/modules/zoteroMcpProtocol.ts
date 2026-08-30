@@ -8,7 +8,6 @@ import type { DirectResearchBundleApplication } from "./researchBundleService";
 import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
 import { HostBridgeCursorError } from "./hostBridgePagination";
 import {
-  resolveZoteroHostCapabilityBroker,
   ZoteroHostCapabilityError,
   type ZoteroHostCapabilityBroker,
 } from "./zoteroHostCapabilityBroker";
@@ -274,13 +273,6 @@ function validateJsonRpcId(id: unknown) {
 
 const MCP_LIBRARY_LIST_LIMIT_DEFAULT = 25;
 const MCP_LIBRARY_LIST_LIMIT_MAX = 50;
-
-function resolveCapabilityBroker(options: ZoteroMcpHandlerOptions) {
-  return (
-    options.resolveZoteroHostCapabilityBroker?.() ||
-    resolveZoteroHostCapabilityBroker()
-  );
-}
 
 function summarizeCurrentView(context: ZoteroHostCurrentViewDto) {
   const parts = [
@@ -1139,8 +1131,8 @@ async function requestCapabilityApprovalForMcp(args: {
                 (args.context.options.resolveMcpStatus?.() ||
                   {}) as HostBridgeStatusSnapshot),
             connectionMode: "local",
-            resolveZoteroHostCapabilityBroker: () =>
-              resolveCapabilityBroker(args.context.options),
+            resolveZoteroHostCapabilityBroker:
+              args.context.options.resolveZoteroHostCapabilityBroker,
             resolveSynthesisClient: args.context.options.resolveSynthesisClient,
             resolveDirectResearchBundleApplication:
               args.context.options.resolveDirectResearchBundleApplication,
@@ -1242,8 +1234,8 @@ async function callHostBridgeCapabilityAsMcpTool(
           (context.options.resolveMcpStatus?.() ||
             {}) as HostBridgeStatusSnapshot),
       connectionMode: "local",
-      resolveZoteroHostCapabilityBroker: () =>
-        resolveCapabilityBroker(context.options),
+      resolveZoteroHostCapabilityBroker:
+        context.options.resolveZoteroHostCapabilityBroker,
       resolveSynthesisClient: context.options.resolveSynthesisClient,
       resolveDirectResearchBundleApplication:
         context.options.resolveDirectResearchBundleApplication,
