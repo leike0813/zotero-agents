@@ -6,7 +6,6 @@ import {
   resolveWindowsCommandFromPowerShell,
   resolveWindowsCommandFromUserLocalBin,
 } from "../modules/windowsCommandResolution";
-import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
   readRuntimeTextFile,
   runtimePathExists,
@@ -14,6 +13,7 @@ import {
 import { readRuntimeEnv, readRuntimePathEnv, splitPathEntries } from "./env";
 import { joinNativePath, isAbsolutePathLike } from "./path";
 import { detectRuntimePlatform } from "./runtimePlatform";
+import { getMozillaSubprocessModule } from "./subprocess";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();

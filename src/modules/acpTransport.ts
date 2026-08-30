@@ -1,10 +1,13 @@
 import type { BackendInstance } from "../backends/types";
-import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
   readRuntimeTextFile,
   removeRuntimePath,
   runtimePathExists,
 } from "./runtimePersistence";
+import {
+  getMozillaSubprocessModule,
+  type MozillaSubprocessModule,
+} from "../platform/subprocess";
 import {
   buildRuntimeCommandLaunchPlan,
   getCachedRuntimeCommand,
@@ -46,33 +49,6 @@ const dynamicImport: DynamicImport = new Function(
   "specifier",
   "return import(specifier)",
 ) as DynamicImport;
-
-type MozillaSubprocessModule = {
-  pathSearch?: (command: string) => Promise<string | null>;
-  call?: (args: {
-    command: string;
-    arguments?: string[];
-    environment?: Record<string, string>;
-    environmentAppend?: boolean;
-    workdir?: string;
-  }) => Promise<{
-    stdin?: {
-      write?: (data: string) => Promise<void>;
-      close?: () => Promise<void>;
-    };
-    stdout?: {
-      readString?: () => Promise<string>;
-    };
-    stderr?: {
-      readString?: () => Promise<string>;
-    };
-    wait?: () => Promise<unknown>;
-    exitCode?: unknown;
-    exitValue?: unknown;
-    kill?: (timeout?: number) => void;
-    pid?: unknown;
-  }>;
-};
 
 export type AcpTransportLaunchArgs = {
   backend: BackendInstance;
@@ -781,10 +757,6 @@ function randomTransportId() {
   return Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function getMozillaSubprocessModule() {
-  return getCompatMozillaSubprocessModule() as MozillaSubprocessModule | null;
 }
 
 function createReadableStreamFromMozillaPipe(

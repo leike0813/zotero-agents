@@ -11,10 +11,8 @@ import {
 } from "../../packages/synthesis-contracts/src";
 import { sha256Hex } from "../platform/hash";
 import { joinPath } from "../utils/path";
-import {
-  getMozillaSubprocessModule,
-  yieldToEventLoop,
-} from "../utils/runtimeCompatibility";
+import { yieldToEventLoop } from "../utils/runtimeCompatibility";
+import { getMozillaSubprocessModule } from "../platform/subprocess";
 import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,

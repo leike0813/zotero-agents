@@ -9,8 +9,8 @@ import { resolveHostBridgeCliPlatform } from "./hostBridgeCliResolver";
 import { readPackagedBinaryAsset } from "./packagedAssetResolver";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { readRuntimeEnv } from "../platform/env";
+import { executeOneShotSubprocess } from "../platform/subprocess";
 import { readRuntimeBytes, runtimePathExists } from "./runtimePersistence";
-import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import { getPref, setPref } from "../utils/prefs";
 
 type DynamicImport = (specifier: string) => Promise<any>;
@@ -212,102 +212,23 @@ function parseHostBridgeCliVersionOutput(output: string) {
   return match ? match[1] : "";
 }
 
-async function readPipeText(pipe: unknown) {
-  const reader = pipe as
-    | {
-        readString?: () => Promise<string>;
-      }
-    | null
-    | undefined;
-  if (typeof reader?.readString !== "function") {
-    return "";
-  }
-  return String((await reader.readString()) || "");
-}
-
-async function readVersionWithZoteroSubprocess(command: string) {
-  const runtime = globalThis as {
-    Zotero?: {
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-  };
-  const subprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
-  if (typeof subprocess !== "function") {
-    return "";
-  }
-  return subprocess(command, ["--version"]);
-}
-
-async function readVersionWithMozillaSubprocess(command: string) {
-  const subprocess = getMozillaSubprocessModule();
-  if (typeof subprocess?.call !== "function") {
-    return "";
-  }
-  const proc = await subprocess.call({
+async function readVersionWithOneShotSubprocess(command: string) {
+  const result = await executeOneShotSubprocess({
     command,
-    arguments: ["--version"],
+    args: ["--version"],
+    timeoutMs: 5000,
+    hidden: true,
   });
-  const [stdout, stderr] = await Promise.all([
-    readPipeText(proc.stdout),
-    readPipeText(proc.stderr),
-  ]);
-  const waited = await proc.wait?.();
-  const exitCodeRaw =
-    typeof waited === "number"
-      ? waited
-      : typeof proc.exitCode === "number"
-        ? proc.exitCode
-        : typeof proc.exitValue === "number"
-          ? proc.exitValue
-          : 0;
-  const exitCode = Number.isFinite(Number(exitCodeRaw))
-    ? Math.floor(Number(exitCodeRaw))
-    : 0;
-  return exitCode === 0 ? stdout || stderr : "";
-}
-
-async function readVersionWithNodeChildProcess(command: string) {
-  const runtime = globalThis as {
-    ChromeUtils?: unknown;
-    Zotero?: unknown;
-    process?: unknown;
-  };
-  if (!runtime.process || runtime.Zotero || runtime.ChromeUtils) {
-    return "";
-  }
-  const childProcess = await dynamicImport("child_process").catch(() => null);
-  if (!childProcess?.execFile) {
-    return "";
-  }
-  return new Promise<string>((resolve) => {
-    childProcess.execFile(
-      command,
-      ["--version"],
-      { windowsHide: true, timeout: 5000 },
-      (error: unknown, stdout: unknown, stderr: unknown) => {
-        resolve(error ? "" : String(stdout || stderr || ""));
-      },
-    );
-  });
+  return result.outcome === "exited" && result.exitCode === 0
+    ? result.stdout || result.stderr
+    : "";
 }
 
 async function defaultReadInstalledVersion(targetPath: string) {
-  for (const readVersion of [
-    readVersionWithZoteroSubprocess,
-    readVersionWithMozillaSubprocess,
-    readVersionWithNodeChildProcess,
-  ]) {
-    const output = await readVersion(targetPath).catch(() => "");
-    const version = parseHostBridgeCliVersionOutput(output);
-    if (version) {
-      return version;
-    }
-  }
-  return "";
+  const output = await readVersionWithOneShotSubprocess(targetPath).catch(
+    () => "",
+  );
+  return parseHostBridgeCliVersionOutput(output);
 }
 
 function isInstalledVersionNewer(args: {

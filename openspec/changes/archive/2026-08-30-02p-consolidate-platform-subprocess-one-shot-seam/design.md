@@ -18,7 +18,7 @@ The authoritative architecture source is [`artifact/workflow-host-v12-architectu
 **Non-Goals:**
 
 - Building a generic process manager or command registry.
-- Moving ACP framing, pipe draining, process groups, bridge health, Git policy, installer recovery, or SkillRunner state into the platform module.
+- Moving ACP framing, pipe draining, process groups, bridge health, installer recovery, or SkillRunner state into the platform module.
 - Adding a Workflow Host command member or changing public v12 types.
 
 ## Decisions
@@ -31,7 +31,7 @@ Exposing a native module or process handle was rejected because every caller wou
 
 ### Policy remains above the seam
 
-`src/platform/command.ts` resolves what to run. `src/platform/env.ts` builds environment facts. Installers, Git, dependency probes, and SkillRunner set their own timeouts, recovery, and diagnostics. This module executes the resolved one-shot request and reports evidence.
+`src/platform/command.ts` resolves what to run. `src/platform/env.ts` builds environment facts. Installers, dependency probes, and SkillRunner set their own timeouts, recovery, and diagnostics. This module executes the resolved one-shot request and reports evidence.
 
 ### Feature detection chooses production adapters
 
@@ -39,7 +39,7 @@ Resolution inspects current capability shape per call and supports both Node and
 
 ### Tests observe results, not fallback order
 
-The module interface tests cover output, exit, unavailable, timeout, termination, and hidden execution with injected adapters. Caller tests retain observable ACP, bridge, installer, Git, and SkillRunner behavior. Shallow re-export and internal fallback-order tests are deleted.
+The module interface tests cover output, exit, unavailable, timeout, termination, and hidden execution with injected adapters. Caller tests retain observable ACP, bridge, installer, and SkillRunner behavior. Shallow re-export and internal fallback-order tests are deleted.
 
 ## Risks / Trade-offs
 
@@ -52,7 +52,7 @@ The module interface tests cover output, exit, unavailable, timeout, termination
 
 1. Add failing platform-interface tests for Node, Mozilla, unavailable, output, exit, timeout, termination, and Windows hidden execution.
 2. Implement the one-shot owner in `src/platform/subprocess.ts`.
-3. Migrate dependency probe, SkillRunner, Git, and Host Bridge installer callers while preserving domain outcomes.
+3. Migrate dependency probe, SkillRunner, and Host Bridge installer callers while preserving domain outcomes. Synthesis Git Sync is already retired and the Rust sidecar WebDAV runtime does not execute subprocesses.
 4. Adapt ACP/bridge only where their existing interface consumes the new internal seam.
 5. Remove `getMozillaSubprocessModule`, shallow re-export code, caller selectors, and shallow tests; run focused and final gates.
 

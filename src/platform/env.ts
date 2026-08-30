@@ -4,9 +4,9 @@ import {
   runtimePathExists,
 } from "../modules/runtimePersistence";
 import { getWindowsPowerShellAbsoluteCandidates } from "../modules/windowsCommandResolution";
-import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import { getPathDelimiter } from "./path";
 import { detectRuntimePlatform } from "./runtimePlatform";
+import { executeOneShotSubprocess } from "./subprocess";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -563,27 +563,6 @@ function summarizeEnvValues(record: Record<string, string | undefined>) {
   return output;
 }
 
-async function drainSubprocessPipe(pipe: unknown) {
-  const reader = pipe as
-    | {
-        readString?: () => Promise<string>;
-      }
-    | null
-    | undefined;
-  if (typeof reader?.readString !== "function") {
-    return "";
-  }
-  let combined = "";
-  for (;;) {
-    const chunk = await reader.readString();
-    if (!chunk) {
-      break;
-    }
-    combined += String(chunk);
-  }
-  return combined;
-}
-
 async function removeRuntimeFileIfExists(path: string) {
   if (!path || !(await runtimePathExists(path))) {
     return;
@@ -593,38 +572,6 @@ async function removeRuntimeFileIfExists(path: string) {
   } catch {
     // Best-effort cleanup only. The file path is unique per preflight attempt.
   }
-}
-
-function extractSubprocessExitCode(proc: {
-  exitCode?: unknown;
-  exitValue?: unknown;
-}) {
-  const direct =
-    typeof proc.exitCode === "number"
-      ? proc.exitCode
-      : typeof proc.exitValue === "number"
-        ? proc.exitValue
-        : null;
-  return typeof direct === "number" && Number.isFinite(direct)
-    ? Number(direct)
-    : 0;
-}
-
-function extractWaitExitCode(waited: unknown) {
-  if (typeof waited === "number" && Number.isFinite(waited)) {
-    return Number(waited);
-  }
-  if (!waited || typeof waited !== "object") {
-    return null;
-  }
-  const record = waited as Record<string, unknown>;
-  for (const key of ["exitCode", "exitValue", "code", "status"]) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return Number(value);
-    }
-  }
-  return null;
 }
 
 async function runPowerShellForOutput(
@@ -641,62 +588,38 @@ async function runPowerShellForOutput(
       outputText: "",
     };
   }
-  const subprocess = getMozillaSubprocessModule();
-  if (typeof subprocess?.call === "function") {
-    const proc = await subprocess.call({
-      command,
-      arguments: args,
-      environmentAppend: true,
-    });
-    let waited: unknown = 0;
-    let waitError: unknown = null;
-    try {
-      waited = await proc.wait?.();
-    } catch (error) {
-      waitError = error;
-    }
-    const stdout = await drainSubprocessPipe(proc.stdout);
-    const stderr = await drainSubprocessPipe(proc.stderr);
-    const exitCode =
-      extractWaitExitCode(waited) ?? extractSubprocessExitCode(proc);
-    const outputText = await readRuntimeTextFile(outputPath);
-    if (waitError) {
-      throw new Error(
-        [
-          `PowerShell environment preflight wait failed: ${waitError instanceof Error ? waitError.message : String(waitError)}`,
-          normalizeString(stderr) ? `stderr: ${diagnosticTail(stderr)}` : "",
-          normalizeString(stdout) ? `stdout: ${diagnosticTail(stdout)}` : "",
-        ]
-          .filter(Boolean)
-          .join(" | "),
-      );
-    }
-    return {
-      stdout,
-      stderr,
-      exitCode: Number(exitCode),
-      outputText,
-    };
+  const result = await executeOneShotSubprocess({
+    command,
+    args,
+    timeoutMs: 60_000,
+    hidden: true,
+  });
+  if (result.outcome === "unavailable") {
+    throw new Error("No subprocess API is available for environment preflight");
   }
-  const runtime = globalThis as {
-    Zotero?: {
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
+  if (result.outcome === "timed_out" || result.outcome === "failed") {
+    throw new Error(
+      [
+        result.timedOut
+          ? "PowerShell environment preflight timed out"
+          : "PowerShell environment preflight failed",
+        normalizeString(result.stderr)
+          ? `stderr: ${diagnosticTail(result.stderr)}`
+          : "",
+        normalizeString(result.stdout)
+          ? `stdout: ${diagnosticTail(result.stdout)}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" | "),
+    );
+  }
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: Number(result.exitCode ?? 0),
+    outputText: await readRuntimeTextFile(outputPath),
   };
-  const internalSubprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
-  if (typeof internalSubprocess === "function") {
-    return {
-      stdout: await internalSubprocess(command, args),
-      stderr: "",
-      exitCode: 0,
-      outputText: "",
-    };
-  }
-  throw new Error("No subprocess API is available for environment preflight");
 }
 
 async function readWindowsLoginEnvironment(
