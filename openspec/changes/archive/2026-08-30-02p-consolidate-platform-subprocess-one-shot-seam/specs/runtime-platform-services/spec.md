@@ -23,7 +23,7 @@ One-shot execution on Windows SHALL avoid opening a visible console window when 
 - **THEN** the platform seam requests hidden execution and returns the same normalized result contract
 
 ### Requirement: Domain process lifecycle SHALL remain outside the one-shot seam
-Command discovery, login environment parsing, ACP streaming and process-group lifecycle, WebSocket bridge supervision, installer/Git/SkillRunner outcomes, and raw diagnostic enumeration SHALL remain owned by their existing modules. The one-shot seam SHALL accept resolved execution input and return process evidence only.
+Command discovery, login environment parsing, ACP streaming and process-group lifecycle, WebSocket bridge supervision, installer/SkillRunner outcomes, and raw diagnostic enumeration SHALL remain owned by their existing modules. The one-shot seam SHALL accept resolved execution input and return process evidence only. Retired Synthesis Git Sync SHALL NOT be restored as a subprocess caller; WebDAV sync remains outside this seam.
 
 #### Scenario: ACP transport starts a streaming process
 - **WHEN** ACP requires pipe pumping, framing, process identity, or graceful close

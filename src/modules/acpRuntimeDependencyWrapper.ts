@@ -1,6 +1,5 @@
 import type { BackendInstance } from "../backends/types";
 import { resolveAcpAgentFamily } from "./acpAgentFamilyResolver";
-import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
   buildRuntimeCommandNestedArgs,
   buildRuntimeCommandLaunchPlan,
@@ -11,35 +10,7 @@ import {
   type RuntimeCommandResolution,
 } from "../platform/command";
 import { buildSubprocessEnvironment } from "../platform/env";
-
-type DynamicImport = (specifier: string) => Promise<any>;
-
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
-
-type MozillaSubprocessModule = {
-  pathSearch?: (command: string) => Promise<string | null>;
-  call?: (args: {
-    command: string;
-    arguments?: string[];
-    environment?: Record<string, string>;
-    environmentAppend?: boolean;
-    workdir?: string;
-  }) => Promise<{
-    stdout?: {
-      readString?: () => Promise<string>;
-    };
-    stderr?: {
-      readString?: () => Promise<string>;
-    };
-    wait?: () => Promise<unknown>;
-    exitCode?: unknown;
-    exitValue?: unknown;
-    kill?: (timeout?: number) => void;
-  }>;
-};
+import { executeOneShotSubprocess } from "../platform/subprocess";
 
 export type AcpRuntimeDependencyPlan = {
   dependencies: string[];
@@ -76,24 +47,6 @@ export type AcpRuntimeDependencyProbe = (args: {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
-}
-
-function getMozillaSubprocessModule() {
-  return getCompatMozillaSubprocessModule() as MozillaSubprocessModule | null;
-}
-
-function getZoteroInternalSubprocess() {
-  const runtime = globalThis as {
-    Zotero?: {
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-  };
-  const subprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
-  return typeof subprocess === "function" ? subprocess : null;
 }
 
 export function resolveSkillRuntimeDependencies(runnerJson: unknown) {
@@ -147,258 +100,53 @@ function summarizeProbeText(value: unknown) {
   return compact.length > 300 ? `${compact.slice(0, 297)}...` : compact;
 }
 
-async function drainMozillaPipe(
-  pipe:
-    | {
-        readString?: () => Promise<string>;
-      }
-    | null
-    | undefined,
-) {
-  if (!pipe || typeof pipe.readString !== "function") {
-    return "";
-  }
-  let combined = "";
-  while (true) {
-    const chunk = await pipe.readString();
-    if (!chunk) {
-      break;
-    }
-    combined += chunk;
-  }
-  return combined;
-}
-
-function toFiniteExitCode(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.floor(value);
-  }
-  return null;
-}
-
-function extractExitCode(value: unknown) {
-  const direct = toFiniteExitCode(value);
-  if (direct !== null) {
-    return direct;
-  }
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    toFiniteExitCode(record.exitCode) ??
-    toFiniteExitCode(record.exitValue) ??
-    toFiniteExitCode(record.code) ??
-    toFiniteExitCode(record.status)
-  );
-}
-
-async function waitMozillaProcessExit(proc: {
-  wait?: () => Promise<unknown>;
-  exitCode?: unknown;
-  exitValue?: unknown;
-}) {
-  if (typeof proc.wait === "function") {
-    try {
-      const waited = await proc.wait();
-      const code = extractExitCode(waited);
-      if (code !== null) {
-        return code;
-      }
-    } catch {
-      return 1;
-    }
-  }
-  return extractExitCode(proc) ?? 0;
-}
-
-async function runUvProbeWithMozillaSubprocess(args: {
-  uvCommand: RuntimeCommandResolution;
-  uvArgs: string[];
-  cwd: string;
-  env: Record<string, string>;
-  timeoutMs: number;
-  subprocess: MozillaSubprocessModule;
-}): Promise<{ ok: boolean; summary?: string }> {
-  if (typeof args.subprocess.call !== "function") {
-    return {
-      ok: false,
-      summary: "Zotero Subprocess.call is unavailable for uv dependency probe",
-    };
-  }
-  let proc: Awaited<ReturnType<NonNullable<MozillaSubprocessModule["call"]>>>;
-  let commandLine =
-    normalizeString(args.uvCommand.resolvedPath) + " " + args.uvArgs.join(" ");
-  try {
-    const launchPlan = buildRuntimeCommandLaunchPlan({
-      command: "uv",
-      resolvedCommand: args.uvCommand.resolvedPath,
-      commandArgs: args.uvArgs,
-      resolution: args.uvCommand,
-    });
-    commandLine = launchPlan.commandLine;
-    proc = await args.subprocess.call({
-      command: launchPlan.command,
-      arguments: launchPlan.args,
-      environment: buildSubprocessEnvironment({
-        ...(launchPlan.environment || {}),
-        ...args.env,
-      }),
-      environmentAppend: true,
-      workdir: args.cwd,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      summary: summarizeProbeText(
-        error instanceof Error ? error.message : error,
-      ),
-    };
-  }
-  let settled = false;
-  return await new Promise((resolve) => {
-    const finish = (result: { ok: boolean; summary?: string }) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
-    };
-    const timer = setTimeout(
-      () => {
-        try {
-          proc.kill?.(0);
-        } catch {
-          // ignore
-        }
-        finish({
-          ok: false,
-          summary: `uv dependency probe timed out after ${args.timeoutMs}ms`,
-        });
-      },
-      Math.max(1000, args.timeoutMs),
-    );
-    void (async () => {
-      const code = await waitMozillaProcessExit(proc);
-      const output = await Promise.all([
-        drainMozillaPipe(proc.stdout),
-        drainMozillaPipe(proc.stderr),
-      ]);
-      if (code === 0) {
-        finish({ ok: true });
-        return;
-      }
-      finish({
-        ok: false,
-        summary: summarizeProbeText(
-          `uv dependency probe exited ${code}: command=${commandLine}; stdout=${output[0]}; stderr=${output[1]}`,
-        ),
-      });
-    })().catch((error) => {
-      finish({
-        ok: false,
-        summary: summarizeProbeText(
-          error instanceof Error ? error.message : error,
-        ),
-      });
-    });
-  });
-}
-
-async function runUvProbeWithNodeChildProcess(args: {
-  uvCommand: RuntimeCommandResolution;
-  uvArgs: string[];
+async function runDependencyProbeCommand(args: {
+  label: "uv" | "Python";
+  commandName: "uv" | "python";
+  resolution: RuntimeCommandResolution;
+  commandArgs: string[];
   cwd: string;
   env: Record<string, string>;
   timeoutMs: number;
 }): Promise<{ ok: boolean; summary?: string }> {
-  const childProcess = await dynamicImport("node:child_process");
   const launchPlan = buildRuntimeCommandLaunchPlan({
-    command: "uv",
-    resolvedCommand: args.uvCommand.resolvedPath,
-    commandArgs: args.uvArgs,
-    resolution: args.uvCommand,
+    command: args.commandName,
+    resolvedCommand: args.resolution.resolvedPath,
+    commandArgs: args.commandArgs,
+    resolution: args.resolution,
   });
-  return await new Promise((resolve) => {
-    let settled = false;
-    const child = childProcess.spawn(launchPlan.command, launchPlan.args, {
-      cwd: args.cwd,
-      env: {
-        ...(process.env as Record<string, string>),
-        ...(launchPlan.environment || {}),
-        ...args.env,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const chunks: string[] = [];
-    const finish = (result: { ok: boolean; summary?: string }) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
-    };
-    const timer = setTimeout(
-      () => {
-        try {
-          child.kill();
-        } catch {
-          // ignore
-        }
-        finish({
-          ok: false,
-          summary: `uv dependency probe timed out after ${args.timeoutMs}ms`,
-        });
-      },
-      Math.max(1000, args.timeoutMs),
-    );
-    child.stdout?.on("data", (chunk: unknown) =>
-      chunks.push(String(chunk || "")),
-    );
-    child.stderr?.on("data", (chunk: unknown) =>
-      chunks.push(String(chunk || "")),
-    );
-    child.once("error", (error: unknown) => {
-      finish({
-        ok: false,
-        summary: summarizeProbeText(
-          error instanceof Error ? error.message : error,
-        ),
-      });
-    });
-    child.once("close", (code: number) => {
-      if (code === 0) {
-        finish({ ok: true });
-        return;
-      }
-      finish({
-        ok: false,
-        summary: summarizeProbeText(
-          `uv dependency probe exited ${code}: ${chunks.join(" ")}`,
-        ),
-      });
-    });
+  const result = await executeOneShotSubprocess({
+    command: launchPlan.command,
+    args: launchPlan.args,
+    cwd: args.cwd,
+    environment: buildSubprocessEnvironment({
+      ...(launchPlan.environment || {}),
+      ...args.env,
+    }),
+    timeoutMs: Math.max(1000, args.timeoutMs),
+    hidden: true,
   });
-}
-
-async function runUvProbeWithZoteroInternalSubprocess(args: {
-  uvCommand: string;
-  uvArgs: string[];
-  subprocess: (command: string, args?: string[]) => Promise<string>;
-}): Promise<{ ok: boolean; summary?: string }> {
-  try {
-    await args.subprocess(args.uvCommand, args.uvArgs);
+  if (result.outcome === "exited" && result.exitCode === 0) {
     return { ok: true };
-  } catch (error) {
+  }
+  if (result.outcome === "timed_out") {
     return {
       ok: false,
-      summary: summarizeProbeText(
-        error instanceof Error ? error.message : error,
-      ),
+      summary: `${args.label} dependency probe timed out after ${args.timeoutMs}ms`,
     };
   }
+  if (result.outcome === "unavailable") {
+    return {
+      ok: false,
+      summary: `No supported subprocess adapter is available for ${args.label} dependency probe`,
+    };
+  }
+  return {
+    ok: false,
+    summary: summarizeProbeText(
+      `${args.label} dependency probe exited ${result.exitCode ?? "unknown"}: command=${launchPlan.commandLine}; stdout=${result.stdout}; stderr=${result.stderr}`,
+    ),
+  };
 }
 
 export async function defaultAcpRuntimeDependencyProbe(args: {
@@ -473,28 +221,11 @@ async function probeDependenciesWithUv(args: {
       summary: "uv command is unavailable for ACP runtime dependency probe",
     };
   }
-  const zoteroSubprocess = getZoteroInternalSubprocess();
-  if (zoteroSubprocess) {
-    return runUvProbeWithZoteroInternalSubprocess({
-      uvCommand,
-      uvArgs,
-      subprocess: zoteroSubprocess,
-    });
-  }
-  const subprocess = getMozillaSubprocessModule();
-  if (subprocess) {
-    return runUvProbeWithMozillaSubprocess({
-      uvCommand: args.uvCommand,
-      uvArgs,
-      cwd: args.cwd,
-      env: args.env,
-      timeoutMs: args.timeoutMs,
-      subprocess,
-    });
-  }
-  return runUvProbeWithNodeChildProcess({
-    uvCommand: args.uvCommand,
-    uvArgs,
+  return runDependencyProbeCommand({
+    label: "uv",
+    commandName: "uv",
+    resolution: args.uvCommand,
+    commandArgs: uvArgs,
     cwd: args.cwd,
     env: args.env,
     timeoutMs: args.timeoutMs,
@@ -544,180 +275,6 @@ function buildPythonDependencyProbeScript(dependencies: string[]) {
   ].join("\n");
 }
 
-async function runPythonProbeWithMozillaSubprocess(args: {
-  pythonCommand: RuntimeCommandResolution;
-  pythonArgs: string[];
-  cwd: string;
-  env: Record<string, string>;
-  timeoutMs: number;
-  subprocess: MozillaSubprocessModule;
-}): Promise<{ ok: boolean; summary?: string }> {
-  if (typeof args.subprocess.call !== "function") {
-    return {
-      ok: false,
-      summary:
-        "Zotero Subprocess.call is unavailable for Python dependency probe",
-    };
-  }
-  let proc: Awaited<ReturnType<NonNullable<MozillaSubprocessModule["call"]>>>;
-  let commandLine =
-    normalizeString(args.pythonCommand.resolvedPath) +
-    " " +
-    args.pythonArgs.join(" ");
-  try {
-    const launchPlan = buildRuntimeCommandLaunchPlan({
-      command: "python",
-      resolvedCommand: args.pythonCommand.resolvedPath,
-      commandArgs: args.pythonArgs,
-      resolution: args.pythonCommand,
-    });
-    commandLine = launchPlan.commandLine;
-    proc = await args.subprocess.call({
-      command: launchPlan.command,
-      arguments: launchPlan.args,
-      environment: buildSubprocessEnvironment({
-        ...(launchPlan.environment || {}),
-        ...args.env,
-      }),
-      environmentAppend: true,
-      workdir: args.cwd,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      summary: summarizeProbeText(
-        error instanceof Error ? error.message : error,
-      ),
-    };
-  }
-  let settled = false;
-  return await new Promise((resolve) => {
-    const finish = (result: { ok: boolean; summary?: string }) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
-    };
-    const timer = setTimeout(
-      () => {
-        try {
-          proc.kill?.(0);
-        } catch {
-          // ignore
-        }
-        finish({
-          ok: false,
-          summary: `Python dependency probe timed out after ${args.timeoutMs}ms`,
-        });
-      },
-      Math.max(1000, args.timeoutMs),
-    );
-    void (async () => {
-      const code = await waitMozillaProcessExit(proc);
-      const output = await Promise.all([
-        drainMozillaPipe(proc.stdout),
-        drainMozillaPipe(proc.stderr),
-      ]);
-      if (code === 0) {
-        finish({ ok: true });
-        return;
-      }
-      finish({
-        ok: false,
-        summary: summarizeProbeText(
-          `Python dependency probe exited ${code}: command=${commandLine}; stdout=${output[0]}; stderr=${output[1]}`,
-        ),
-      });
-    })().catch((error) => {
-      finish({
-        ok: false,
-        summary: summarizeProbeText(
-          error instanceof Error ? error.message : error,
-        ),
-      });
-    });
-  });
-}
-
-async function runPythonProbeWithNodeChildProcess(args: {
-  pythonCommand: RuntimeCommandResolution;
-  pythonArgs: string[];
-  cwd: string;
-  env: Record<string, string>;
-  timeoutMs: number;
-}): Promise<{ ok: boolean; summary?: string }> {
-  const childProcess = await dynamicImport("node:child_process");
-  const launchPlan = buildRuntimeCommandLaunchPlan({
-    command: "python",
-    resolvedCommand: args.pythonCommand.resolvedPath,
-    commandArgs: args.pythonArgs,
-    resolution: args.pythonCommand,
-  });
-  return await new Promise((resolve) => {
-    let settled = false;
-    const child = childProcess.spawn(launchPlan.command, launchPlan.args, {
-      cwd: args.cwd,
-      env: {
-        ...(process.env as Record<string, string>),
-        ...(launchPlan.environment || {}),
-        ...args.env,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const chunks: string[] = [];
-    const finish = (result: { ok: boolean; summary?: string }) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
-    };
-    const timer = setTimeout(
-      () => {
-        try {
-          child.kill();
-        } catch {
-          // ignore
-        }
-        finish({
-          ok: false,
-          summary: `Python dependency probe timed out after ${args.timeoutMs}ms`,
-        });
-      },
-      Math.max(1000, args.timeoutMs),
-    );
-    child.stdout?.on("data", (chunk: unknown) =>
-      chunks.push(String(chunk || "")),
-    );
-    child.stderr?.on("data", (chunk: unknown) =>
-      chunks.push(String(chunk || "")),
-    );
-    child.once("error", (error: unknown) => {
-      finish({
-        ok: false,
-        summary: summarizeProbeText(
-          error instanceof Error ? error.message : error,
-        ),
-      });
-    });
-    child.once("close", (code: number) => {
-      if (code === 0) {
-        finish({ ok: true });
-        return;
-      }
-      finish({
-        ok: false,
-        summary: summarizeProbeText(
-          `Python dependency probe exited ${code}: ${chunks.join(" ")}`,
-        ),
-      });
-    });
-  });
-}
-
 async function probeDependenciesWithSystemPython(args: {
   dependencies: string[];
   cwd: string;
@@ -736,34 +293,11 @@ async function probeDependenciesWithSystemPython(args: {
     "-c",
     buildPythonDependencyProbeScript(args.dependencies),
   ];
-  const zoteroSubprocess = getZoteroInternalSubprocess();
-  if (zoteroSubprocess) {
-    try {
-      await zoteroSubprocess(pythonCommand, pythonArgs);
-      return { ok: true };
-    } catch (error) {
-      return {
-        ok: false,
-        summary: summarizeProbeText(
-          error instanceof Error ? error.message : error,
-        ),
-      };
-    }
-  }
-  const subprocess = getMozillaSubprocessModule();
-  if (subprocess) {
-    return runPythonProbeWithMozillaSubprocess({
-      pythonCommand: args.pythonCommand,
-      pythonArgs,
-      cwd: args.cwd,
-      env: args.env,
-      timeoutMs: args.timeoutMs,
-      subprocess,
-    });
-  }
-  return runPythonProbeWithNodeChildProcess({
-    pythonCommand: args.pythonCommand,
-    pythonArgs,
+  return runDependencyProbeCommand({
+    label: "Python",
+    commandName: "python",
+    resolution: args.pythonCommand,
+    commandArgs: pythonArgs,
     cwd: args.cwd,
     env: args.env,
     timeoutMs: args.timeoutMs,

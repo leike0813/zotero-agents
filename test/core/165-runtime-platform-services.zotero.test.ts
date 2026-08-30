@@ -9,10 +9,12 @@ import { detectRuntimePlatform } from "../../src/platform/runtimePlatform";
 import { mergePathEntries, splitPathEntries } from "../../src/platform/env";
 import {
   buildNonInteractiveCommandCandidates,
+  getCachedRuntimeCommand,
   getRuntimeCommandRegistrySnapshot,
   preflightRuntimeCommandsOnStartup,
   resetRuntimeCommandRegistryForTests,
 } from "../../src/platform/command";
+import { executeOneShotSubprocess } from "../../src/platform/subprocess";
 import {
   runtimePathExists,
   writeRuntimeTextFile,
@@ -159,6 +161,35 @@ describe("runtime platform services in Zotero", function () {
     assert.deepEqual(
       getRuntimeCommandRegistrySnapshot().commands.uv?.checkedCandidates,
       snapshot.commands.uv?.checkedCandidates,
+    );
+  });
+
+  it("executes a resolved one-shot command through the live Zotero adapter", async function () {
+    this.timeout(120000);
+    await preflightRuntimeCommandsOnStartup();
+    const windows = detectRuntimePlatform() === "win32";
+    const resolved = windows
+      ? getCachedRuntimeCommand("powershell") || getCachedRuntimeCommand("pwsh")
+      : getCachedRuntimeCommand("sh");
+    if (!resolved?.available || !resolved.resolvedPath) {
+      this.skip();
+    }
+    const marker = "zotero-one-shot-ok";
+    const result = await executeOneShotSubprocess({
+      command: resolved.resolvedPath,
+      args: windows
+        ? ["-NoLogo", "-NoProfile", "-Command", `Write-Output '${marker}'`]
+        : ["-c", `printf '${marker}'`],
+      timeoutMs: 30000,
+      hidden: windows,
+    });
+
+    assert.equal(result.outcome, "exited");
+    assert.equal(result.exitCode, 0);
+    assert.include(result.stdout || result.stderr, marker);
+    assert.include(
+      ["mozilla", "zotero-internal", "windows-xpcom", "node"],
+      result.adapter,
     );
   });
 });

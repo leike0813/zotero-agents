@@ -19,6 +19,11 @@ import {
   resetSkillRunnerLocalDeployDebugSession,
 } from "./skillRunnerLocalDeployDebugStore";
 import { isAbsolutePathLike } from "../platform/path";
+import {
+  buildRuntimeCommandLaunchPlan,
+  resolveRuntimeCommand,
+} from "../platform/command";
+import { executeOneShotSubprocess } from "../platform/subprocess";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
   markSkillRunnerBackendHealthSuccess,
@@ -976,104 +981,39 @@ type SubprocessInvocationResult = {
   stderr: string;
 };
 
-function isExecutableNotFoundMessage(message: string) {
-  const normalized = normalizeString(message).toLowerCase();
-  return (
-    normalized.includes("executable not found") ||
-    normalized.includes("could not be found") ||
-    normalized.includes("is not recognized")
-  );
-}
-
-function normalizeWindowsPathCandidate(pathValue: string) {
-  const normalized = normalizeString(pathValue).replace(/^"+|"+$/g, "");
-  return normalized;
-}
-
-function getWindowsShellCommandCandidates(command: string) {
-  const normalizedCommand = normalizeString(command);
-  if (!detectWindows() || !normalizedCommand) {
-    return [normalizedCommand].filter(Boolean);
-  }
-  if (
-    normalizedCommand.startsWith("\\\\") ||
-    /^[A-Za-z]:[\\/]/.test(normalizedCommand) ||
-    /[\\/]/.test(normalizedCommand)
-  ) {
-    return [normalizedCommand];
-  }
-  const lower = normalizedCommand.toLowerCase();
-  const systemRoot =
-    readProcessEnv("SystemRoot") || readProcessEnv("WINDIR") || "C:\\Windows";
-  const comspec = normalizeWindowsPathCandidate(
-    readProcessEnv("ComSpec") || readProcessEnv("COMSPEC"),
-  );
-  const candidates: string[] = [normalizedCommand];
-  if (lower === "cmd" || lower === "cmd.exe") {
-    candidates.push(
-      comspec,
-      `${systemRoot}\\System32\\cmd.exe`,
-      `${systemRoot}\\Sysnative\\cmd.exe`,
-    );
-  } else if (lower === "powershell" || lower === "powershell.exe") {
-    candidates.push(
-      `${systemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
-      `${systemRoot}\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe`,
-    );
-  }
-  return Array.from(
-    new Set(candidates.map((entry) => normalizeString(entry)).filter(Boolean)),
-  );
-}
-
 async function runSubprocessCommand(args: {
   command: string;
   argv: string[];
 }): Promise<SubprocessInvocationResult> {
-  const runtime = globalThis as {
-    Zotero?: {
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-  };
-  const subprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
-  if (typeof subprocess !== "function") {
+  const resolution = await resolveRuntimeCommand(args.command);
+  if (!resolution.available || !resolution.resolvedPath) {
     return {
       ok: false,
       stdout: "",
-      stderr: "subprocess is unavailable in current context",
+      stderr: resolution.diagnostic || "subprocess command is unavailable",
     };
   }
-  const candidates = getWindowsShellCommandCandidates(args.command);
-  let lastError = "";
-  for (let i = 0; i < candidates.length; i++) {
-    const candidate = candidates[i];
-    try {
-      const stdout = await subprocess(candidate, args.argv);
-      return {
-        ok: true,
-        stdout: normalizeString(stdout),
-        stderr: "",
-      };
-    } catch (error) {
-      const message =
-        getDeleteErrorMessage(error) || "subprocess invocation failed";
-      lastError = message;
-      const canRetryWithNextCandidate =
-        i < candidates.length - 1 && isExecutableNotFoundMessage(message);
-      if (canRetryWithNextCandidate) {
-        continue;
-      }
-      break;
-    }
-  }
+  const launchPlan = buildRuntimeCommandLaunchPlan({
+    command: args.command,
+    resolvedCommand: resolution.resolvedPath,
+    commandArgs: args.argv,
+    resolution,
+  });
+  const result = await executeOneShotSubprocess({
+    command: launchPlan.command,
+    args: launchPlan.args,
+    environment: launchPlan.environment,
+    timeoutMs: 60_000,
+    hidden: true,
+  });
   return {
-    ok: false,
-    stdout: "",
-    stderr: lastError || "subprocess invocation failed",
+    ok: result.outcome === "exited" && result.exitCode === 0,
+    stdout: normalizeString(result.stdout),
+    stderr:
+      normalizeString(result.stderr) ||
+      (result.timedOut
+        ? "subprocess timed out"
+        : "subprocess invocation failed"),
   };
 }
 

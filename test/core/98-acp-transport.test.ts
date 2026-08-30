@@ -40,6 +40,35 @@ type SubprocessCallInvocation = {
   environment?: Record<string, string>;
 };
 
+function getAcpProcessInvocations(invocations: SubprocessCallInvocation[]) {
+  return invocations.filter(
+    (entry) =>
+      !entry.arguments.some((argument) => argument.includes("Get-Command")),
+  );
+}
+
+function createCompletedMozillaProcess(stdoutText = "") {
+  let unreadStdout = stdoutText;
+  return {
+    stdin: {
+      write: async () => undefined,
+      close: async () => undefined,
+    },
+    stdout: {
+      readString: async () => {
+        const chunk = unreadStdout;
+        unreadStdout = "";
+        return chunk;
+      },
+    },
+    stderr: {
+      readString: async () => "",
+    },
+    wait: async () => 0,
+    kill: () => undefined,
+  };
+}
+
 type FakeWebSocketInstance = {
   url: string;
   sent: Array<string | Uint8Array | ArrayBuffer>;
@@ -2430,9 +2459,14 @@ describe("acp transport", function () {
         cwd: "/tmp/acp",
       });
 
-      assert.lengthOf(callInvocations, 1);
-      assert.equal(callInvocations[0].command, "C:\\Tools\\agent.exe");
-      assert.deepEqual(callInvocations[0].arguments, ["acp"]);
+      assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
+      assert.equal(
+        getAcpProcessInvocations(callInvocations)[0].command,
+        "C:\\Tools\\agent.exe",
+      );
+      assert.deepEqual(getAcpProcessInvocations(callInvocations)[0].arguments, [
+        "acp",
+      ]);
       assert.equal(
         transport.getLifecycle().transportKind,
         "mozilla-subprocess",
@@ -2522,18 +2556,22 @@ describe("acp transport", function () {
         cwd: "D:\\ZoteroData",
       });
 
-      assert.lengthOf(callInvocations, 1);
-      assertHydratedWindowsEnvironment(callInvocations[0].environment);
-      assert.match(callInvocations[0].command, /(^|\\)node\.exe$/i);
+      assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
+      assertHydratedWindowsEnvironment(
+        getAcpProcessInvocations(callInvocations)[0].environment,
+      );
       assert.match(
-        callInvocations[0].arguments[0] || "",
+        getAcpProcessInvocations(callInvocations)[0].command,
+        /(^|\\)node\.exe$/i,
+      );
+      assert.match(
+        getAcpProcessInvocations(callInvocations)[0].arguments[0] || "",
         /(^|\\)npx-cli\.js$/i,
       );
-      assert.deepEqual(callInvocations[0].arguments.slice(1), [
-        "-y",
-        "opencode-ai@latest",
-        "acp",
-      ]);
+      assert.deepEqual(
+        getAcpProcessInvocations(callInvocations)[0].arguments.slice(1),
+        ["-y", "opencode-ai@latest", "acp"],
+      );
       assert.equal(
         transport.getCommandLabel(),
         "npx -y opencode-ai@latest acp",
@@ -2548,24 +2586,12 @@ describe("acp transport", function () {
     }
   });
 
-  it("resolves npx via PowerShell when Zotero pathSearch misses the npm shim", async function () {
+  it("resolves npx via PowerShell when pathSearch misses the npm shim", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
-    const powerShellCalls: Array<{ command: string; args: string[] }> = [];
     seedWindowsLoginEnvironmentForTransportTests();
     const previousPathEnv = clearPathEnvForCommandResolution();
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: true,
-      Utilities: {
-        Internal: {
-          subprocess: async (command: string, args?: string[]) => {
-            powerShellCalls.push({ command, args: [...(args || [])] });
-            if (command.toLowerCase().includes("powershell")) {
-              return "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.ps1\n";
-            }
-            throw new Error(`Unexpected subprocess command: ${command}`);
-          },
-        },
-      },
     });
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
@@ -2580,20 +2606,14 @@ describe("acp transport", function () {
               arguments: [...(args.arguments || [])],
               environment: args.environment,
             });
-            return {
-              stdin: {
-                write: async () => undefined,
-                close: async () => undefined,
-              },
-              stdout: {
-                readString: async () => "",
-              },
-              stderr: {
-                readString: async () => "",
-              },
-              wait: async () => 0,
-              kill: () => undefined,
-            };
+            const isCommandDiscovery = (args.arguments || []).some((argument) =>
+              argument.includes("Get-Command"),
+            );
+            return createCompletedMozillaProcess(
+              isCommandDiscovery
+                ? "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.ps1\n"
+                : "",
+            );
           },
         },
       }),
@@ -2612,14 +2632,16 @@ describe("acp transport", function () {
         cwd: "D:\\ZoteroData",
       });
 
-      assert.lengthOf(callInvocations, 1);
+      assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
       assertPowerShellBareCommandLaunch({
-        command: callInvocations[0].command,
-        argv: callInvocations[0].arguments,
+        command: getAcpProcessInvocations(callInvocations)[0].command,
+        argv: getAcpProcessInvocations(callInvocations)[0].arguments,
         expectedCommand: "npx",
         expectedArgs: ["-y", "opencode-ai@latest", "acp"],
       });
-      assertHydratedWindowsEnvironment(callInvocations[0].environment);
+      assertHydratedWindowsEnvironment(
+        getAcpProcessInvocations(callInvocations)[0].environment,
+      );
       assert.equal(
         transport.getCommandLabel(),
         "npx -y opencode-ai@latest acp",
@@ -2628,8 +2650,8 @@ describe("acp transport", function () {
       assert.notInclude(transport.getCommandLine(), "npx.cmd");
       assert.include(transport.getCommandLine(), "opencode-ai@latest");
       assert.isTrue(
-        powerShellCalls.some((entry) =>
-          entry.command.toLowerCase().includes("powershell"),
+        callInvocations.some((entry) =>
+          entry.arguments.some((argument) => argument.includes("Get-Command")),
         ),
       );
       await transport.close();
@@ -2669,22 +2691,10 @@ describe("acp transport", function () {
 
   it("ignores bare pathSearch results and still resolves npx through Windows fallbacks", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
-    const powerShellCalls: Array<{ command: string; args: string[] }> = [];
     seedWindowsLoginEnvironmentForTransportTests();
     const previousPathEnv = clearPathEnvForCommandResolution();
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: true,
-      Utilities: {
-        Internal: {
-          subprocess: async (command: string, args?: string[]) => {
-            powerShellCalls.push({ command, args: [...(args || [])] });
-            if (command.toLowerCase().includes("powershell")) {
-              return "C:\\Program Files\\nodejs\\npx.ps1\n";
-            }
-            throw new Error(`Unexpected subprocess command: ${command}`);
-          },
-        },
-      },
     });
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
@@ -2700,20 +2710,12 @@ describe("acp transport", function () {
               arguments: [...(args.arguments || [])],
               environment: args.environment,
             });
-            return {
-              stdin: {
-                write: async () => undefined,
-                close: async () => undefined,
-              },
-              stdout: {
-                readString: async () => "",
-              },
-              stderr: {
-                readString: async () => "",
-              },
-              wait: async () => 0,
-              kill: () => undefined,
-            };
+            const isCommandDiscovery = (args.arguments || []).some((argument) =>
+              argument.includes("Get-Command"),
+            );
+            return createCompletedMozillaProcess(
+              isCommandDiscovery ? "C:\\Program Files\\nodejs\\npx.ps1\n" : "",
+            );
           },
         },
       }),
@@ -2732,14 +2734,16 @@ describe("acp transport", function () {
         cwd: "D:\\ZoteroData",
       });
 
-      assert.lengthOf(callInvocations, 1);
+      assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
       assertPowerShellBareCommandLaunch({
-        command: callInvocations[0].command,
-        argv: callInvocations[0].arguments,
+        command: getAcpProcessInvocations(callInvocations)[0].command,
+        argv: getAcpProcessInvocations(callInvocations)[0].arguments,
         expectedCommand: "npx",
         expectedArgs: ["-y", "opencode-ai@latest", "acp"],
       });
-      assertHydratedWindowsEnvironment(callInvocations[0].environment);
+      assertHydratedWindowsEnvironment(
+        getAcpProcessInvocations(callInvocations)[0].environment,
+      );
       assert.equal(
         transport.getCommandLabel(),
         "npx -y opencode-ai@latest acp",
@@ -2748,8 +2752,8 @@ describe("acp transport", function () {
       assert.notInclude(transport.getCommandLine(), "npx.cmd");
       assert.include(transport.getCommandLine(), "opencode-ai@latest");
       assert.isTrue(
-        powerShellCalls.some((entry) =>
-          entry.command.toLowerCase().includes("powershell"),
+        callInvocations.some((entry) =>
+          entry.arguments.some((argument) => argument.includes("Get-Command")),
         ),
       );
       await transport.close();
@@ -2762,22 +2766,10 @@ describe("acp transport", function () {
 
   it("continues Windows fallback resolution when mozilla pathSearch throws executable-not-found", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
-    const powerShellCalls: Array<{ command: string; args: string[] }> = [];
     seedWindowsLoginEnvironmentForTransportTests();
     const previousPathEnv = clearPathEnvForCommandResolution();
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: true,
-      Utilities: {
-        Internal: {
-          subprocess: async (command: string, args?: string[]) => {
-            powerShellCalls.push({ command, args: [...(args || [])] });
-            if (command.toLowerCase().includes("powershell")) {
-              return "C:\\Program Files\\nodejs\\npx.ps1\n";
-            }
-            throw new Error(`Unexpected subprocess command: ${command}`);
-          },
-        },
-      },
     });
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
@@ -2795,20 +2787,12 @@ describe("acp transport", function () {
               arguments: [...(args.arguments || [])],
               environment: args.environment,
             });
-            return {
-              stdin: {
-                write: async () => undefined,
-                close: async () => undefined,
-              },
-              stdout: {
-                readString: async () => "",
-              },
-              stderr: {
-                readString: async () => "",
-              },
-              wait: async () => 0,
-              kill: () => undefined,
-            };
+            const isCommandDiscovery = (args.arguments || []).some((argument) =>
+              argument.includes("Get-Command"),
+            );
+            return createCompletedMozillaProcess(
+              isCommandDiscovery ? "C:\\Program Files\\nodejs\\npx.ps1\n" : "",
+            );
           },
         },
       }),
@@ -2827,14 +2811,16 @@ describe("acp transport", function () {
         cwd: "D:\\ZoteroData",
       });
 
-      assert.lengthOf(callInvocations, 1);
+      assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
       assertPowerShellBareCommandLaunch({
-        command: callInvocations[0].command,
-        argv: callInvocations[0].arguments,
+        command: getAcpProcessInvocations(callInvocations)[0].command,
+        argv: getAcpProcessInvocations(callInvocations)[0].arguments,
         expectedCommand: "npx",
         expectedArgs: ["-y", "opencode-ai@latest", "acp"],
       });
-      assertHydratedWindowsEnvironment(callInvocations[0].environment);
+      assertHydratedWindowsEnvironment(
+        getAcpProcessInvocations(callInvocations)[0].environment,
+      );
       assert.equal(
         transport.getCommandLabel(),
         "npx -y opencode-ai@latest acp",
@@ -2843,8 +2829,8 @@ describe("acp transport", function () {
       assert.notInclude(transport.getCommandLine(), "npx.cmd");
       assert.include(transport.getCommandLine(), "opencode-ai@latest");
       assert.isTrue(
-        powerShellCalls.some((entry) =>
-          entry.command.toLowerCase().includes("powershell"),
+        callInvocations.some((entry) =>
+          entry.arguments.some((argument) => argument.includes("Get-Command")),
         ),
       );
       await transport.close();
@@ -2927,14 +2913,16 @@ describe("acp transport", function () {
         cwd: "D:\\ZoteroData",
       });
 
-      assert.lengthOf(callInvocations, 1);
+      assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
       assertPowerShellBareCommandLaunch({
-        command: callInvocations[0].command,
-        argv: callInvocations[0].arguments,
+        command: getAcpProcessInvocations(callInvocations)[0].command,
+        argv: getAcpProcessInvocations(callInvocations)[0].arguments,
         expectedCommand: "npx",
         expectedArgs: ["-y", "opencode-ai@latest", "acp"],
       });
-      assertHydratedWindowsEnvironment(callInvocations[0].environment);
+      assertHydratedWindowsEnvironment(
+        getAcpProcessInvocations(callInvocations)[0].environment,
+      );
       assert.equal(
         transport.getCommandLabel(),
         "npx -y opencode-ai@latest acp",
@@ -3047,14 +3035,16 @@ describe("acp transport", function () {
         cwd: "D:\\ZoteroData",
       });
 
-      assert.lengthOf(callInvocations, 1);
+      assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
       assertPowerShellBareCommandLaunch({
-        command: callInvocations[0].command,
-        argv: callInvocations[0].arguments,
+        command: getAcpProcessInvocations(callInvocations)[0].command,
+        argv: getAcpProcessInvocations(callInvocations)[0].arguments,
         expectedCommand: "npx",
         expectedArgs: ["-y", "opencode-ai@latest", "acp"],
       });
-      assertHydratedWindowsEnvironment(callInvocations[0].environment);
+      assertHydratedWindowsEnvironment(
+        getAcpProcessInvocations(callInvocations)[0].environment,
+      );
       assert.equal(
         transport.getCommandLabel(),
         "npx -y opencode-ai@latest acp",
@@ -3168,14 +3158,16 @@ describe("acp transport", function () {
         cwd: "D:\\ZoteroData",
       });
 
-      assert.lengthOf(callInvocations, 1);
+      assert.lengthOf(getAcpProcessInvocations(callInvocations), 1);
       assertPowerShellBareCommandLaunch({
-        command: callInvocations[0].command,
-        argv: callInvocations[0].arguments,
+        command: getAcpProcessInvocations(callInvocations)[0].command,
+        argv: getAcpProcessInvocations(callInvocations)[0].arguments,
         expectedCommand: "npx",
         expectedArgs: ["-y", "opencode-ai@latest", "acp"],
       });
-      assertHydratedWindowsEnvironment(callInvocations[0].environment);
+      assertHydratedWindowsEnvironment(
+        getAcpProcessInvocations(callInvocations)[0].environment,
+      );
       await transport.close();
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
@@ -3250,7 +3242,7 @@ describe("acp transport", function () {
       const message = String((thrown as Error).message || "");
       assert.match(message, /Command "npx" was not found/);
       assert.match(message, /checked candidates/);
-      assert.deepEqual(callInvocations, []);
+      assert.deepEqual(getAcpProcessInvocations(callInvocations), []);
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);
@@ -3316,7 +3308,7 @@ describe("acp transport", function () {
       const message = String((thrown as Error).message || "");
       assert.match(message, /Command "npx" was not found/);
       assert.match(message, /checked candidates/);
-      assert.deepEqual(callInvocations, []);
+      assert.deepEqual(getAcpProcessInvocations(callInvocations), []);
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);

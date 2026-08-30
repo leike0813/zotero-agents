@@ -34,10 +34,8 @@ import {
   summarizeSubprocessEnvironment,
 } from "../platform/env";
 import { listRuntimeLogs } from "./runtimeLogManager";
-import {
-  getMozillaSubprocessModule,
-  probeMozillaRuntimeModules,
-} from "../utils/runtimeCompatibility";
+import { probeMozillaRuntimeModules } from "../utils/runtimeCompatibility";
+import { getMozillaSubprocessModule } from "../platform/subprocess";
 import {
   appendAcpSkillRunTransportAuditEvent,
   releaseAcpSkillRunAuditTrailWrites,

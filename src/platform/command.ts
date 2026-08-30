@@ -7,13 +7,13 @@ import {
   resolveWindowsCommandFromUserLocalBin,
 } from "../modules/windowsCommandResolution";
 import {
-  getMozillaSubprocessModule,
   runtimeFileExists,
   runtimeReadTextFile,
 } from "../utils/runtimeCompatibility";
 import { readRuntimeEnv, readRuntimePathEnv, splitPathEntries } from "./env";
 import { joinNativePath, isAbsolutePathLike } from "./path";
 import { detectRuntimePlatform } from "./runtimePlatform";
+import { getMozillaSubprocessModule } from "./subprocess";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();

@@ -1,6 +1,6 @@
 import { buildSubprocessEnvironment } from "../platform/env";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
-import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+import { getMozillaSubprocessModule } from "../platform/subprocess";
 import { joinPath } from "../utils/path";
 import {
   readPackagedBinaryAsset,

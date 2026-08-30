@@ -10,7 +10,7 @@ Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](..
 
 - Deepen `platform/subprocess` into the owner of host subprocess module resolution, one-shot spawn/capture, normalized stdout/stderr/exit, unavailable, timeout, and bounded termination.
 - Support Node and Mozilla/XPCOM production adapters, including Windows hidden one-shot execution, through feature detection.
-- Migrate SkillRunner, Host Bridge installer, Git sync, and dependency-probe one-shot callers.
+- Migrate SkillRunner, Host Bridge installer, and dependency-probe one-shot callers.
 - Keep command search policy in `platform/command`, login-environment parsing in `platform/env`, and domain timeout/result policy in each caller.
 - Keep ACP streaming, pipe draining, process-group ownership, graceful/forced close, WebSocket bridge lifecycle, and raw diagnostics outside the one-shot seam.
 - Remove `runtimeCompatibility.getMozillaSubprocessModule`, the shallow re-export implementation, and caller-local equivalent selectors.
@@ -23,12 +23,13 @@ None.
 
 ### Modified Capabilities
 
-- `runtime-platform-services`: Add one normalized one-shot subprocess interface while preserving command, environment, ACP, bridge, installer, Git, and SkillRunner ownership boundaries.
+- `runtime-platform-services`: Add one normalized one-shot subprocess interface while preserving command, environment, ACP, bridge, installer, and SkillRunner ownership boundaries.
 
 ## Impact
 
 - Owner: `src/platform/subprocess.ts`.
-- Callers: ACP dependency wrapper, SkillRunner runtime/controller bridge, Synthesis Git adapter, Host Bridge CLI installer and install prompt, command and environment adapters.
+- Callers: ACP dependency wrapper, SkillRunner runtime/controller bridge, Host Bridge CLI installer and install prompt, command and environment adapters.
+- Synthesis Git Sync and its command adapter were retired by `2026-07-19-retire-synthesis-hidden-git-sync`; the Rust sidecar's WebDAV sync uses Host reverse capabilities and is not a subprocess caller.
 - Compatibility adapters: `src/utils/runtimeCompatibility.ts`; lifecycle owners may require narrow internal-seam adaptations only.
 - Tests: runtime platform services, ACP observable close behavior, SkillRunner controller bridge, Node/Mozilla availability, timeout, termination, and Windows hidden execution.
 - No Workflow Host member, persisted-data migration, release action, or dependency change.

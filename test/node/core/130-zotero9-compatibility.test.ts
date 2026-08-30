@@ -435,9 +435,11 @@ describe("Zotero 7/9/10 compatibility baseline", function () {
       .filter((file) => /\.(ts|js|mjs)$/.test(file))
       .map((file) => path.relative(process.cwd(), file).replace(/\\/g, "/"));
     const allowDirectDelay = new Set(["src/utils/runtimeCompatibility.ts"]);
-    const allowSubprocessImport = new Set([
+    const allowChromeImport = new Set([
+      "src/platform/subprocess.ts",
       "src/utils/runtimeCompatibility.ts",
     ]);
+    const allowSubprocessImport = new Set(["src/platform/subprocess.ts"]);
     const allowOsFile = new Set([
       "src/utils/runtimeCompatibility.ts",
       "src/modules/runtimePersistence.ts",
@@ -453,6 +455,8 @@ describe("Zotero 7/9/10 compatibility baseline", function () {
       }
       if (!allowSubprocessImport.has(relativePath)) {
         assert.notInclude(text, "Subprocess.jsm", relativePath);
+      }
+      if (!allowChromeImport.has(relativePath)) {
         assert.notMatch(text, /ChromeUtils\.import\s*\(/, relativePath);
       }
       if (!allowOsFile.has(relativePath)) {

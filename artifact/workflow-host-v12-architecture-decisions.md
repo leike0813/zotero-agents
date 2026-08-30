@@ -649,7 +649,7 @@ production TypeScript 的普通异步文件操作包括 exists、read/write text
 
 runtime/window/picker 的 dependency direction 固定为：`filePicker` 每次调用从 `runtimeBridge` 解析当前 candidates，再应用 picker-compatible parent policy；`runtimeBridge` 不依赖 `filePicker`。缓存的 Workflow Host projection、Broker、caller 或 picker module 不得缓存 runtime global、Window、picker constructor、Chrome module 或 toolkit。owner 自己已经持有的 dialog/preferences Window 不是通用 resolver duplicate，可以直接使用；raw diagnostics 也可以枚举候选及来源。
 
-subprocess seam 只吸收宿主 module/capability resolution、one-shot spawn/capture 与 stdout/stderr/exit/unavailable normalization。command search policy 留在 `platform/command.ts`；login environment parsing 留在 `platform/env.ts`；ACP transport framing、pipe pump、process-group identity、graceful/forced close 与 audit 留在 `acpTransport`；WebSocket bridge singleton、ready/health/shutdown 留在 bridge owner；installer、Git、dependency probe 与 SkillRunner 继续持有各自 timeout、领域 outcome 和 diagnostics。不得把这些 lifecycle 聚合成一个 interface 几乎等于全部 implementation 的 generic process module。
+subprocess seam 只吸收宿主 module/capability resolution、one-shot spawn/capture 与 stdout/stderr/exit/unavailable normalization。command search policy 留在 `platform/command.ts`；login environment parsing 留在 `platform/env.ts`；ACP transport framing、pipe pump、process-group identity、graceful/forced close 与 audit 留在 `acpTransport`；WebSocket bridge singleton、ready/health/shutdown 留在 bridge owner；installer、dependency probe 与 SkillRunner 继续持有各自 timeout、领域 outcome 和 diagnostics。不得把这些 lifecycle 聚合成一个 interface 几乎等于全部 implementation 的 generic process module。Synthesis Git Sync 已退役，Rust sidecar 的 WebDAV sync 通过 Host reverse capabilities 运行，不进入 subprocess seam。
 
 ## 5. Library read 与 traversal
 
@@ -5080,7 +5080,7 @@ file hard limits 固定为：单次 `readText` 64 MiB、`readBytes` 256 MiB、si
 
 - workflow/runtime：`loader.ts`、`packageHookBundler.ts`、`zipBundleReader.ts`、`archive.ts`、`workflowInputPlanning.ts`、`workflowRuntime.ts` 与 `workflowExecution/bundleIO.ts`；
 - provider/installer/runtime：generic HTTP 与 SkillRunner providers、`builtinWorkflowSync.ts`、SkillRunner runtime/installer modules、`runtimeFileTransfer.ts` 与 `hostBridgeProfileStore.ts`；
-- platform/runtime compatibility callers：command/environment resolution、Windows command resolution、ACP transport、Git executable resolution 与 preferences/runtime persistence callers。
+- platform/runtime compatibility callers：command/environment resolution、Windows command resolution、ACP transport 与 preferences/runtime persistence callers。
 
 该迁移只收回 adapter selection 与普通 I/O implementation，不把 loader sandbox、provider policy、installer lifecycle、archive safety 或 transfer protocol 并入 `runtimePersistence`。调用方的领域 interface 与结果语义保持由各自 module 持有。
 
@@ -5585,7 +5585,7 @@ type SelectedItemsSnapshotDto = {
 - normalized one-shot stdout、stderr、exit、unavailable、timeout 与 bounded termination semantics；
 - 供 production 与 test adapters 共用的 execution result seam。
 
-该 module 不持有 command path/search policy、login environment merge、ACP framing/streaming、process-group ownership、bridge singleton/ready lifecycle、installer/Git/dependency-probe domain outcome 或 raw capability diagnostics。这些行为继续留在 §4.5 指定的 owner，调用方只把底层 one-shot execution 委托给 platform subprocess seam。
+该 module 不持有 command path/search policy、login environment merge、ACP framing/streaming、process-group ownership、bridge singleton/ready lifecycle、installer/dependency-probe domain outcome 或 raw capability diagnostics。这些行为继续留在 §4.5 指定的 owner，调用方只把底层 one-shot execution 委托给 platform subprocess seam。
 
 批准的 symbol deletion list 为：
 
@@ -5982,7 +5982,7 @@ public Workflow Host 删除 `requiresConfirmation`；authorization、permission 
 24. manifest AST 指标固定为 23/21/85，所有可达 noncanonical public types 有唯一 declaration，禁止 duplicate declaration 与 unresolved alias。
 25. production TypeScript 的普通异步文件操作不在批准例外之外直接选择 `IOUtils`、`OS.File` 或 Node adapter；AST/import governance 只允许 `runtimePersistence` owner 与 §4.5 的闭合 native workload allowlist。
 26. `runtimePersistence` interface 测试覆盖 strict/tolerant failure、adapter unavailable、Unicode-safe append、atomic operation 与 per-call late binding；同一 cached caller 在两次调用间更换 runtime globals 时，第二次必须使用新 adapter。
-27. `platform/subprocess` interface 测试覆盖 normalized stdout/stderr/exit、unavailable、timeout、bounded termination 与 Windows hidden one-shot execution；ACP transport、bridge、Git、installer 和 dependency probe 继续从各自可观察 outcome 测试 lifecycle，不锁定底层 fallback 调用顺序。
+27. `platform/subprocess` interface 测试覆盖 normalized stdout/stderr/exit、unavailable、timeout、bounded termination 与 Windows hidden one-shot execution；ACP transport、bridge、installer 和 dependency probe 继续从各自可观察 outcome 测试 lifecycle，不锁定底层 fallback 调用顺序。
 28. `runtimeBridge` 与 `filePicker` interface 测试覆盖 override、candidate completeness、hidden-window failure isolation、live/closed parent、native/toolkit adapters、filters、cancel、empty/multi selection 与 per-call late binding；不得精确断言 native import URL、toolkit constructor 参数数组或内部 candidate traversal 顺序。
 
 迁移完成后，删除只覆盖 `runtimeCompatibility` filesystem helpers、`platform/subprocess.ts` re-export 或 caller-local adapter selector 的测试；相同行为由 deep module interface 测试替代。architecture governance 可以使用 AST/import ownership 检查，不得退化为对完整源码文案、错误文案或大段 snapshot 的静态断言。
@@ -6113,7 +6113,6 @@ Platform subprocess companion 的 one-shot migration 当前至少涉及：
 src/modules/acpRuntimeDependencyWrapper.ts
 src/modules/skillRunnerLocalRuntimeManager.ts
 src/modules/skillRunnerCtlBridge.ts
-src/modules/synthesis/gitSyncCommandAdapter.ts
 src/modules/hostBridgeCliInstaller.ts
 src/modules/hostBridgeCliInstallPrompt.ts
 src/platform/command.ts
@@ -6218,7 +6217,7 @@ Platform subprocess companion 的完成证据必须包括：
 
 - normalized one-shot stdout/stderr/exit/unavailable/timeout/termination tests 通过；
 - Windows hidden/XPCOM 与 Node/Mozilla production adapters 有对应 interface evidence；
-- ACP transport、bridge、SkillRunner、Git、installer 与 dependency probe 的既有可观察 lifecycle/outcome tests 通过；
+- ACP transport、bridge、SkillRunner、installer 与 dependency probe 的既有可观察 lifecycle/outcome tests 通过；
 - `runtimeCompatibility.getMozillaSubprocessModule`、shallow re-export 与 caller-local 等价 selector 已删除，raw diagnostic probe 未成为 dispatch SSOT。
 
 除 §5.9 明确批准的 full-library snapshot vertical slice 会深化既有 Host Bridge `library.sync_snapshot` projection 外，Host Bridge/MCP 对其他新增 v12 members 的 exposure 仍然延期，不自动随 Workflow Host projection 发布。若实施触及三个 agent-facing semantic surfaces，必须另行固定其 baseline、materialized metrics 与批准删除清单，并执行 semantic parity、厚度与 review-mirror 门禁。
@@ -6262,7 +6261,7 @@ Platform subprocess companion 的完成证据必须包括：
 | `file/archive/resources` | runtime adapter、atomic write、ZIP safety、run-scoped allocation/publish 与 cleanup 各有 owner | workflow 可组合本地可信 paths，同时不承担跨平台与 lifecycle 细节 | 三个相关但不重叠的 deep modules |
 | `runtimePersistence` + approved native internal seams | 集中普通跨运行时异步 I/O adapter selection；worker、ZIP、SQLite、streaming 等 native workloads 只在闭合 owner-private seams 中存在 | production caller 复用语义操作，不理解 `IOUtils`、`OS.File` 或 Node selection | deep；SSOT 扩展到 production-wide ordinary I/O，native exception 不污染 interface |
 | `runtimeBridge` + `filePicker` | runtime/global/Window candidate knowledge 与 picker semantics 分属两个有向依赖的 owners，并保持按调用晚绑定 | caller 不缓存或重复解析 Zotero/runtime/Window/picker shape | 两个 deep modules；不合并成 generic runtime facade |
-| `platform/subprocess` | 集中宿主 module resolution、one-shot adapters 与 execution-result normalization；streaming/protocol/process ownership 留在领域 owner | command、installer、Git、probe 与 SkillRunner 复用执行 seam，不学习 Zotero 7/9 subprocess shape | deep；interface 小于 implementation，不吸收 ACP/bridge lifecycle |
+| `platform/subprocess` | 集中宿主 module resolution、one-shot adapters 与 execution-result normalization；streaming/protocol/process ownership 留在领域 owner | command、installer、probe 与 SkillRunner 复用执行 seam，不学习 Zotero 7/9 subprocess shape | deep；interface 小于 implementation，不吸收 ACP/bridge lifecycle |
 | addon/environment/context/navigation/clipboard/editor/notifications/logging | 每项语义较小，主要隔离 runtime/UI 与 variant behavior | 提供一致、可测试、fail-closed 的基础 capability | leaf adapters 较薄是正常结果，不应人为合并成 generic utility bag |
 
 总体结论：方案形成的是“closed composition root + 多个领域 deep modules”，不是一个巨型 deep module。locality 的关键事实源已经唯一化：Zotero semantics 在 Broker，普通跨运行时异步 filesystem selection 在 `runtimePersistence`，runtime/global/Window resolution 在 `runtimeBridge`，picker semantics 在 `filePicker`，one-shot process execution 在 `platform/subprocess`，Synthesis durable semantics 在 Rust sidecar，remote locality/authorization 在 Host Bridge，public member identity 在 code-native manifest。leverage 足够高，尤其是完整读取、mutation authority、Research Bundle、tag audit 与 runtime adaptation 都把多步正确性从 caller 收回 owner。
