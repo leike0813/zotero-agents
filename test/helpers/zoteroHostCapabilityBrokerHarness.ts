@@ -37,6 +37,8 @@ export function createFailClosedZoteroHostCapabilityBroker(
     },
     library: {
       listItems: unexpected("library.listItems"),
+      traverseItems: unexpected("library.traverseItems"),
+      listCollections: unexpected("library.listCollections"),
       syncSnapshot: unexpected("library.syncSnapshot"),
       readinessAudit: unexpected("library.readinessAudit"),
       searchItems: unexpected("library.searchItems"),
@@ -46,6 +48,7 @@ export function createFailClosedZoteroHostCapabilityBroker(
       listNotePayloads: unexpected("library.listNotePayloads"),
       getNotePayload: unexpected("library.getNotePayload"),
       listAnnotations: unexpected("library.listAnnotations"),
+      exportPortableItems: unexpected("library.exportPortableItems"),
       exportAnnotations: unexpected("library.exportAnnotations"),
       getItemAttachments: unexpected("library.getItemAttachments"),
     },

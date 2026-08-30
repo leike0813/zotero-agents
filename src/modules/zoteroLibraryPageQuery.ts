@@ -10,11 +10,14 @@ const CURSOR_VERSION = 1;
 type QueryParam = string | number;
 
 export type ZoteroLibraryPageQueryCriteria = {
+  schema: "zotero-agents.library-live-items.v1";
   libraryId: number;
   collectionId?: number;
   tag: string;
   itemType: string;
   query: string;
+  scope: "top-level-regular";
+  order: "stable_identity";
 };
 
 export type ZoteroLibraryPageQueryContext =
@@ -75,6 +78,30 @@ export class ZoteroLibraryCursorError extends Error {
   }
 }
 
+export class ZoteroLibraryPageLimitError extends Error {
+  readonly code = "library_page_limit_exceeded" as const;
+
+  constructor(
+    readonly limit: number,
+    readonly observed: number,
+  ) {
+    super(`library page limit cannot exceed ${limit}`);
+    this.name = "ZoteroLibraryPageLimitError";
+  }
+}
+
+export class ZoteroLibraryCriteriaError extends Error {
+  readonly code = "invalid_library_criteria" as const;
+
+  constructor(
+    readonly field: string,
+    readonly reason: "invalid_type" | "invalid_value" | "too_long",
+  ) {
+    super(`library criterion is invalid: ${field}`);
+    this.name = "ZoteroLibraryCriteriaError";
+  }
+}
+
 let adapterOverrideForTests: ZoteroLibraryPageQueryAdapter | undefined;
 
 export function setZoteroLibraryPageQueryAdapterForTests(
@@ -92,9 +119,29 @@ function positiveInteger(value: unknown) {
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
-function boundedText(value: unknown, limit = QUERY_TEXT_LIMIT) {
+function boundedText(
+  value: unknown,
+  field: "tag" | "itemType" | "query",
+  limit = QUERY_TEXT_LIMIT,
+) {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") {
+    throw new ZoteroLibraryCriteriaError(field, "invalid_type");
+  }
   const normalized = String(value ?? "").trim();
-  return normalized.length > limit ? normalized.slice(0, limit) : normalized;
+  if (normalized.length > limit) {
+    throw new ZoteroLibraryCriteriaError(field, "too_long");
+  }
+  return normalized;
+}
+
+function optionalPositiveInteger(value: unknown, field: string) {
+  if (value === undefined || value === null) return undefined;
+  if (field === "collectionId" && value === 0) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new ZoteroLibraryCriteriaError(field, "invalid_value");
+  }
+  return value;
 }
 
 function resolveZotero() {
@@ -142,15 +189,21 @@ function normalizeCriteria(
   options: ZoteroLibraryPageQueryOptions,
 ): ZoteroLibraryPageQueryCriteria {
   const libraryId =
-    positiveInteger(input.libraryId) ||
+    optionalPositiveInteger(input.libraryId, "libraryId") ||
     resolveDefaultLibraryId(options.defaultLibraryId);
-  const collectionId = positiveInteger(input.collectionId) || undefined;
+  const collectionId = optionalPositiveInteger(
+    input.collectionId,
+    "collectionId",
+  );
   return {
+    schema: "zotero-agents.library-live-items.v1",
     libraryId,
     ...(collectionId ? { collectionId } : {}),
-    tag: boundedText(input.tag).toLowerCase(),
-    itemType: boundedText(input.itemType),
-    query: boundedText(input.query).toLowerCase(),
+    tag: boundedText(input.tag, "tag").toLowerCase(),
+    itemType: boundedText(input.itemType, "itemType"),
+    query: boundedText(input.query, "query").toLowerCase(),
+    scope: "top-level-regular",
+    order: "stable_identity",
   };
 }
 
@@ -161,6 +214,9 @@ function canonicalCriteria(criteria: ZoteroLibraryPageQueryCriteria) {
     tag: criteria.tag,
     itemType: criteria.itemType,
     query: criteria.query,
+    schema: criteria.schema,
+    scope: criteria.scope,
+    order: criteria.order,
   });
 }
 
@@ -206,9 +262,6 @@ function parseCursor(value: unknown, expectedCriteriaHash: string) {
     throw new ZoteroLibraryCursorError("library cursor must be a string", {
       reason: "invalid_type",
     });
-  }
-  if (value === "0") {
-    return 0;
   }
   const decoded = decodeCursor(value);
   if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
@@ -360,7 +413,17 @@ function normalizeLimit(
   const maxLimit = positiveInteger(options.maxLimit) || MAX_LIMIT;
   const defaultLimit =
     positiveInteger(options.defaultLimit) || Math.min(DEFAULT_LIMIT, maxLimit);
-  return Math.min(maxLimit, positiveInteger(value) || defaultLimit);
+  if (value === undefined || value === null || value === "") {
+    return defaultLimit;
+  }
+  const observed = Number(value);
+  if (!Number.isSafeInteger(observed) || observed <= 0) {
+    throw new ZoteroLibraryPageLimitError(maxLimit, observed);
+  }
+  if (observed > maxLimit) {
+    throw new ZoteroLibraryPageLimitError(maxLimit, observed);
+  }
+  return observed;
 }
 
 export async function queryZoteroLibraryPage(
@@ -410,6 +473,9 @@ export async function queryZoteroLibraryPage(
   const items = pageIds
     .map((id) => byId.get(id))
     .filter((item): item is Zotero.Item => Boolean(item));
+  if (items.length !== pageIds.length) {
+    throw new Error("Zotero library page hydration was incomplete");
+  }
   const nextAfterItemId = pageIds.at(-1) || afterItemId;
   return {
     items,

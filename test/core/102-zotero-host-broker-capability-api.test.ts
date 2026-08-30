@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import {
+  createWorkflowHostLiveReadAdapters,
   createWorkflowHostApi,
   resetWorkflowHostApiForTests,
 } from "../../src/workflows/hostApi";
@@ -32,6 +33,7 @@ import { createNativeSynthesisClientComposition } from "../../src/modules/synthe
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 import {
   createZoteroHostCapabilityBroker,
+  verifyLibraryTraversalCompletionEvidence,
   ZoteroHostCapabilityError,
 } from "../../src/modules/zoteroHostCapabilityBroker";
 import {
@@ -49,6 +51,9 @@ const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
 async function createParentItem(title: string) {
   const item = new Zotero.Item("journalArticle");
+  (item as any).version = 1;
+  (item as any).dateAdded = "2026-04-27T00:00:00.000Z";
+  (item as any).dateModified = "2026-04-27T00:00:00.000Z";
   item.setField("title", title);
   item.setField("abstractNote", `${title} abstract`);
   item.setField("date", "2026-04-27");
@@ -68,10 +73,26 @@ async function createParentItem(title: string) {
 
 async function createCollection(name: string) {
   const collection = new Zotero.Collection();
+  (collection as any).version = 1;
   collection.name = name;
   (collection as any).libraryID = Zotero.Libraries.userLibraryID;
   await collection.saveTx();
   return collection;
+}
+
+async function expectBrokerError(
+  operation: Promise<unknown>,
+  code?: ZoteroHostCapabilityError["code"],
+) {
+  try {
+    await operation;
+    assert.fail("expected Broker operation to fail");
+  } catch (error) {
+    assert.instanceOf(error, ZoteroHostCapabilityError);
+    if (code)
+      assert.strictEqual((error as ZoteroHostCapabilityError).code, code);
+    return error as ZoteroHostCapabilityError;
+  }
 }
 
 async function withMockTranslate<T>(
@@ -206,7 +227,8 @@ describe("zotero host broker capability api", function () {
 
   it("keeps the canonical broker portable and strict JSON-safe", async function () {
     const item = await createParentItem("Strict Broker DTO");
-    (item as any).getCollections = () => [1, "COLLECTION", new Date(), 1n];
+    const collection = await createCollection("Strict Broker Collection");
+    await handlers.collection.add([item], collection.id);
     const broker = createZoteroHostCapabilityBroker();
     const itemRef = { libraryId: item.libraryID, key: item.key };
 
@@ -222,11 +244,15 @@ describe("zotero host broker capability api", function () {
     ]);
 
     const detail = await broker.library.getItemDetail(itemRef);
-    assert.deepEqual(detail?.collections, [1, "COLLECTION"]);
+    assert.strictEqual(detail.kind, "regular");
+    if (detail.kind !== "regular") assert.fail("expected regular detail");
+    assert.deepEqual(detail.item.collectionRefs, [
+      { libraryId: collection.libraryID, key: collection.key },
+    ]);
     assertStrictJsonValue(detail);
 
     try {
-      await broker.library.getNoteDetail(item as never);
+      await broker.library.getNoteDetail(item as never, { format: "text" });
       assert.fail("expected a portable-ref error");
     } catch (error) {
       assert.instanceOf(error, ZoteroHostCapabilityError);
@@ -250,7 +276,7 @@ describe("zotero host broker capability api", function () {
           libraryId: item.libraryID,
           key: item.key,
         })
-      )?.key,
+      ).item.ref.key,
       item.key,
     );
 
@@ -288,6 +314,370 @@ describe("zotero host broker capability api", function () {
         );
         assertWorkflowHostStrictJsonValue(brokerError.details);
       }
+    }
+  });
+
+  it("returns complete canonical category reads and portable exports", async function () {
+    const parent = await createParentItem("Canonical Read Parent");
+    await handlers.tag.add(parent, ["canonical:read"]);
+    const note = await handlers.parent.addNote(parent, {
+      content: "<div><p>Canonical note body</p></div>",
+    });
+    (note as any).version = 2;
+
+    const attachment = new Zotero.Item("attachment");
+    (attachment as any).parentItemID = parent.id;
+    (attachment as any).version = 3;
+    (attachment as any).attachmentLinkMode = 0;
+    (attachment as any).fileSize = 1234;
+    attachment.setField("title", "Canonical PDF");
+    attachment.setField("contentType", "application/pdf");
+    (attachment as any).setFilePath("/tmp/canonical-read.pdf");
+    await attachment.saveTx();
+
+    const annotation = new Zotero.Item("annotation");
+    (annotation as any).parentItemID = attachment.id;
+    (annotation as any).version = 4;
+    (annotation as any).dateAdded = "2026-04-27T01:00:00.000Z";
+    (annotation as any).dateModified = "2026-04-27T02:00:00.000Z";
+    (annotation as any).annotationType = "highlight";
+    (annotation as any).annotationText = "Canonical annotation";
+    (annotation as any).annotationComment = "A comment";
+    (annotation as any).annotationSortIndex = "00001";
+    (annotation as any).annotationPosition = JSON.stringify({ pageIndex: 0 });
+    await annotation.saveTx();
+    (attachment as any).getAnnotations = () => [annotation.id];
+
+    const hostApi = createWorkflowHostApi();
+    const payloadWrite = await hostApi.mutations.execute({
+      operation: "note.upsertPayload",
+      note: note.id,
+      payloadType: "canonical-json",
+      noteKind: "test",
+      payload: { schema: "canonical.v1", value: 7 },
+    });
+    assert.isTrue(payloadWrite.ok);
+
+    const broker = createZoteroHostCapabilityBroker();
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const noteRef = { libraryId: note.libraryID, key: note.key };
+    const attachmentRef = {
+      libraryId: attachment.libraryID,
+      key: attachment.key,
+    };
+    const annotationRef = {
+      libraryId: annotation.libraryID,
+      key: annotation.key,
+    };
+
+    const regularDetail = await broker.library.getItemDetail(parentRef);
+    const noteDetail = await broker.library.getItemDetail(noteRef);
+    const attachmentDetail = await broker.library.getItemDetail(attachmentRef);
+    const annotationDetail = await broker.library.getItemDetail(annotationRef);
+    assert.strictEqual(regularDetail.kind, "regular");
+    assert.strictEqual(noteDetail.kind, "note");
+    assert.strictEqual(attachmentDetail.kind, "attachment");
+    assert.strictEqual(annotationDetail.kind, "annotation");
+
+    const notes = await broker.library.getItemNotes(parentRef);
+    assert.deepEqual(
+      notes.map((entry) => entry.ref),
+      [noteRef],
+    );
+    assert.include(
+      (await broker.library.getNoteDetail(noteRef, { format: "text" })).content,
+      "Canonical note body",
+    );
+    const payloads = await broker.library.listNotePayloads(noteRef);
+    assert.include(
+      payloads.map((entry) => entry.payloadType),
+      "canonical-json",
+    );
+    const payload = await broker.library.getNotePayload(noteRef, {
+      payloadType: "canonical-json",
+    });
+    assert.deepEqual(payload.value, { schema: "canonical.v1", value: 7 });
+
+    const attachments = await broker.library.getItemAttachments(parentRef);
+    assert.deepEqual(
+      attachments.map((entry) => entry.ref),
+      [attachmentRef],
+    );
+    assert.strictEqual(attachments[0].file.state, "available");
+    const annotations = await broker.library.listAnnotations(parentRef);
+    assert.deepEqual(
+      annotations.map((entry) => entry.ref),
+      [annotationRef],
+    );
+    assert.deepEqual(annotations[0].attachmentRef, attachmentRef);
+    assert.deepEqual(annotations[0].itemRef, parentRef);
+
+    const portable = await broker.library.exportPortableItems([parentRef]);
+    assert.strictEqual(
+      portable[0].schema,
+      "zotero-agents.portable-regular-item.v1",
+    );
+    assert.deepEqual(portable[0].tags, ["canonical:read"]);
+    assertStrictJsonValue({
+      regularDetail,
+      noteDetail,
+      attachmentDetail,
+      annotationDetail,
+      notes,
+      payloads,
+      payload,
+      attachments,
+      annotations,
+      portable,
+    });
+  });
+
+  it("binds canonical item and collection cursors to normalized criteria", async function () {
+    await createParentItem("Canonical Cursor One");
+    await createParentItem("Canonical Cursor Two");
+    const firstCollection = await createCollection("Canonical Collection One");
+    const secondCollection = await createCollection("Canonical Collection Two");
+    const broker = createZoteroHostCapabilityBroker();
+
+    const itemPage = await broker.library.listItems({
+      query: "canonical cursor",
+      limit: 1,
+    });
+    assert.isTrue(itemPage.hasMore);
+    assert.isString(itemPage.nextCursor);
+    assert.deepInclude(itemPage.criteria, {
+      libraryId: Zotero.Libraries.userLibraryID,
+      query: "canonical cursor",
+      order: "stable_identity",
+    });
+    await expectBrokerError(
+      broker.library.listItems({
+        query: "changed criteria",
+        limit: 1,
+        cursor: itemPage.nextCursor || undefined,
+      }),
+      "invalid_request",
+    );
+
+    const collectionPage = await broker.library.listCollections({ limit: 1 });
+    assert.isTrue(collectionPage.hasMore);
+    assert.deepEqual(
+      collectionPage.collections.map((entry) => entry.ref.key),
+      [firstCollection.key, secondCollection.key].sort().slice(0, 1),
+    );
+    const collectionRest = await broker.library.listCollections({
+      limit: 1,
+      cursor: collectionPage.nextCursor || undefined,
+    });
+    assert.lengthOf(collectionRest.collections, 1);
+    await expectBrokerError(
+      broker.library.listCollections({
+        libraryId: Zotero.Libraries.userLibraryID + 1,
+        cursor: collectionPage.nextCursor || undefined,
+      }),
+      "invalid_request",
+    );
+
+    for (const startOperation of [
+      () => broker.library.listItems({ limit: 101 }),
+      () => broker.library.listCollections({ limit: 501 }),
+    ]) {
+      try {
+        await startOperation();
+        assert.fail("expected a hard-limit failure");
+      } catch (error) {
+        assert.instanceOf(error, ZoteroHostCapabilityError);
+        assert.strictEqual(
+          (error as ZoteroHostCapabilityError).code,
+          "resource_limited",
+        );
+      }
+    }
+  });
+
+  it("fails closed when canonical tags cannot be proved complete", async function () {
+    const item = await createParentItem("Canonical Tag Failure");
+    const broker = createZoteroHostCapabilityBroker();
+    const ref = { libraryId: item.libraryID, key: item.key };
+    const originalGetTags = item.getTags;
+
+    for (const replacement of [
+      () => {
+        throw new Error("tag read failed");
+      },
+      () =>
+        Array.from({ length: 101 }, (_, index) => ({ tag: `tag-${index}` })),
+    ]) {
+      (item as any).getTags = replacement;
+      try {
+        await broker.library.getItemDetail(ref);
+        assert.fail("expected canonical tag serialization to fail closed");
+      } catch (error) {
+        assert.instanceOf(error, ZoteroHostCapabilityError);
+        assert.include(
+          ["execution_failed", "resource_limited"],
+          (error as ZoteroHostCapabilityError).code,
+        );
+      }
+    }
+    (item as any).getTags = originalGetTags;
+  });
+
+  it("traverses serial batches and issues evidence only after exhaustion", async function () {
+    await createParentItem("Traversal Canonical One");
+    await createParentItem("Traversal Canonical Two");
+    const broker = createZoteroHostCapabilityBroker();
+    const batches: string[][] = [];
+    let callbackActive = false;
+
+    const completed = await broker.library.traverseItems(
+      {
+        scope: "top-level-regular",
+        query: "Traversal Canonical",
+        pageSize: 1,
+      },
+      {},
+      async (batch) => {
+        assert.isFalse(callbackActive);
+        callbackActive = true;
+        await Promise.resolve();
+        batches.push(batch.items.map((item) => item.ref.key));
+        callbackActive = false;
+      },
+    );
+    assert.strictEqual(completed.outcome, "completed");
+    assert.deepEqual(
+      batches.map((batch) => batch.length),
+      [1, 1],
+    );
+    if (completed.outcome !== "completed") assert.fail("expected completion");
+    assert.isTrue(
+      verifyLibraryTraversalCompletionEvidence(completed.completionEvidence),
+    );
+
+    const limited = await broker.library.traverseItems(
+      {
+        scope: "top-level-regular",
+        query: "Traversal Canonical",
+        pageSize: 1,
+        maxItems: 1,
+      },
+      {},
+      () => undefined,
+    );
+    assert.strictEqual(limited.outcome, "resource_limited");
+    assert.notProperty(limited, "completionEvidence");
+
+    const controller = new AbortController();
+    const canceled = await broker.library.traverseItems(
+      {
+        scope: "top-level-regular",
+        query: "Traversal Canonical",
+        pageSize: 1,
+      },
+      { signal: controller.signal },
+      () => controller.abort(),
+    );
+    assert.strictEqual(canceled.outcome, "canceled");
+    assert.notProperty(canceled, "completionEvidence");
+  });
+
+  it("normalizes selection and navigation while rejecting unsafe interaction", async function () {
+    const parent = await createParentItem("Navigation Parent");
+    const note = await handlers.parent.addNote(parent, {
+      content: "<p>Navigation note</p>",
+    });
+    const attachment = new Zotero.Item("attachment");
+    (attachment as any).parentItemID = parent.id;
+    await attachment.saveTx();
+    const collection = await createCollection("Navigation Collection");
+    const selectedIds: number[][] = [];
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    (Zotero as any).getMainWindow = () => ({
+      focus() {},
+      ZoteroPane: {
+        getSelectedItems: () => [note, attachment],
+        async selectItem(id: number) {
+          selectedIds.push([id]);
+        },
+        async selectItems(ids: number[]) {
+          selectedIds.push([...ids]);
+        },
+        async selectCollection() {},
+      },
+    });
+
+    try {
+      const broker = createZoteroHostCapabilityBroker();
+      const parentRef = { libraryId: parent.libraryID, key: parent.key };
+      const noteRef = { libraryId: note.libraryID, key: note.key };
+      const snapshot = await broker.context.getSelectedItems();
+      assert.deepEqual(
+        snapshot.items.map((item) => item.ref),
+        [noteRef, parentRef],
+      );
+
+      const opened = await broker.navigation.openSelection({
+        itemRefs: [parentRef, noteRef],
+      });
+      assert.deepEqual(opened.target, {
+        kind: "selection",
+        refs: [parentRef, noteRef],
+      });
+      assert.deepEqual(selectedIds.at(-1), [parent.id, note.id]);
+
+      const collectionResult = await broker.navigation.openCollection({
+        libraryId: collection.libraryID,
+        key: collection.key,
+      });
+      assert.strictEqual(collectionResult.target.kind, "collection");
+
+      for (const startOperation of [
+        () =>
+          broker.navigation.openSelection({ itemRefs: [parentRef, parentRef] }),
+        () => broker.navigation.openItem(noteRef),
+        () => broker.navigation.openNote(parentRef),
+      ]) {
+        try {
+          await startOperation();
+          assert.fail("expected navigation validation failure");
+        } catch (error) {
+          assert.instanceOf(error, ZoteroHostCapabilityError);
+          assert.include(
+            ["invalid_request", "invalid_ref"],
+            (error as ZoteroHostCapabilityError).code,
+          );
+        }
+      }
+
+      const controller = new AbortController();
+      controller.abort();
+      await expectBrokerError(
+        broker.navigation.openItem(parentRef, { signal: controller.signal }),
+        "canceled",
+      );
+
+      const nonInteractive = createWorkflowHostLiveReadAdapters({
+        interactionMode: "non_interactive",
+        broker,
+      });
+      await expectBrokerError(
+        nonInteractive.navigation.openItem(parentRef),
+        "interaction_required",
+      );
+      assert.sameMembers(Object.keys(createWorkflowHostApi().library), [
+        "listItems",
+        "syncSnapshot",
+        "searchItems",
+        "getItemDetail",
+        "getItemNotes",
+        "getNoteDetail",
+        "listNotePayloads",
+        "getNotePayload",
+        "getItemAttachments",
+      ]);
+    } finally {
+      (Zotero as any).getMainWindow = previousGetMainWindow;
     }
   });
 
@@ -1041,7 +1431,9 @@ describe("zotero host broker capability api", function () {
     highIdItem.key = "HIGH1892";
     highIdItem.libraryID = Zotero.Libraries.userLibraryID;
     highIdItem.setField("title", "Broker Sparse High ID Paper");
-    highIdItem.setCreators?.([{ lastName: "Sparse" }]);
+    highIdItem.setCreators?.([
+      { creatorType: "author", firstName: "", lastName: "Sparse" },
+    ]);
     await highIdItem.saveTx();
 
     const secondHighIdItem = new Zotero.Item("journalArticle");

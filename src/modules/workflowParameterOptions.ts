@@ -4,7 +4,10 @@ import type {
 } from "../workflows/types";
 import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
-import { listZoteroCollections } from "./zoteroHostCapabilityBroker";
+import {
+  createZoteroHostCapabilityBroker,
+  type ZoteroHostCapabilityBroker,
+} from "./zoteroHostCapabilityBroker";
 
 export type WorkflowParameterOptionsResult = {
   options: WorkflowParameterOption[];
@@ -49,6 +52,7 @@ export async function resolveWorkflowParameterOptionsSource(
   source: WorkflowParameterOptionsSource | undefined,
   deps?: {
     synthesisClient?: Pick<SynthesisClient, "topics">;
+    library?: Pick<ZoteroHostCapabilityBroker["library"], "listCollections">;
   },
 ): Promise<WorkflowParameterOptionsResult> {
   if (!source || typeof source !== "object") {
@@ -92,9 +96,19 @@ export async function resolveWorkflowParameterOptionsSource(
       source.library == null
         ? undefined
         : normalizeLibraryId(source.library);
-    const collections = await listZoteroCollections({
-      libraryId: requestedLibrary || undefined,
-    });
+    const library = deps?.library || createZoteroHostCapabilityBroker().library;
+    const collections = [];
+    let cursor: string | undefined;
+    do {
+      const page = await library.listCollections({
+        libraryId: requestedLibrary || undefined,
+        limit: 500,
+        cursor,
+      });
+      collections.push(...page.collections);
+      cursor = page.nextCursor || undefined;
+      if (!page.hasMore) break;
+    } while (cursor);
     const options: WorkflowParameterOption[] = [];
     if (source.includeEmpty === true) {
       options.push({
@@ -107,8 +121,8 @@ export async function resolveWorkflowParameterOptionsSource(
       });
     }
     for (const collection of collections) {
-      const key = normalizeString(collection.key);
-      const libraryId = normalizeLibraryId(collection.libraryId);
+      const key = normalizeString(collection.ref.key);
+      const libraryId = normalizeLibraryId(collection.ref.libraryId);
       if (!key || !libraryId) {
         continue;
       }
@@ -125,7 +139,6 @@ export async function resolveWorkflowParameterOptionsSource(
           kind: "zotero.collection",
           libraryId,
           collectionKey: key,
-          collectionId: collection.id,
           name: normalizeString(collection.name),
           path,
         },

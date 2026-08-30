@@ -19,6 +19,7 @@ import {
   ensureRuntimeDirectoryStrict,
   writeRuntimeTextFileStrict,
 } from "./runtimePersistence";
+import { createZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 
 const ajvLogger = {
   log: () => {},
@@ -26,6 +27,20 @@ const ajvLogger = {
   error: () => {},
 };
 let validateSelectionSchema: ValidateFunction<SelectionContext> | null = null;
+
+async function selectedItemsFromBroker() {
+  const snapshot =
+    await createZoteroHostCapabilityBroker().context.getSelectedItems();
+  return snapshot.items.map(({ ref }) => {
+    const item = Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key);
+    if (!item) {
+      throw new Error(
+        `Selected Zotero item is no longer available: ${ref.key}`,
+      );
+    }
+    return item;
+  });
+}
 
 type RuntimeToolkit = {
   Menu?: {
@@ -117,9 +132,7 @@ export async function sampleSelectionContext() {
       return;
     }
 
-    const zoteroPane =
-      (resolveRuntimeWindowCandidates()[0] as any)?.ZoteroPane || null;
-    const items = zoteroPane?.getSelectedItems?.() || [];
+    const items = await selectedItemsFromBroker();
     const context = await buildSelectionContext(items);
     await ensureRuntimeDirectoryStrict(outputDir);
     const filename = `selection-context-${new Date()
@@ -149,9 +162,7 @@ function showAlert(message: string) {
 
 async function validateSelectionContext() {
   try {
-    const zoteroPane =
-      (resolveRuntimeWindowCandidates()[0] as any)?.ZoteroPane || null;
-    const items = zoteroPane?.getSelectedItems?.() || [];
+    const items = await selectedItemsFromBroker();
     const context = await buildSelectionContext(items);
     const validate = getSelectionValidator();
     const valid = validate(context);
