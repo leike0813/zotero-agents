@@ -27,6 +27,12 @@ export type WorkflowArchiveFileIntegrity = {
   sha256: string;
 };
 
+export type WorkflowArchiveMeasurement = {
+  files: Record<string, WorkflowArchiveFileIntegrity>;
+  totalEntries: number;
+  totalBytes: number;
+};
+
 export type WorkflowExtractedArchive = {
   rootPath: string;
   entries: string[];
@@ -84,6 +90,14 @@ type RuntimeXpcFactory<T> = {
 type RuntimeZoteroFileApi = {
   pathToFile: (path: string) => unknown;
 };
+
+const WORKFLOW_ARCHIVE_LIMITS = Object.freeze({
+  entries: 20_000,
+  entryBytes: 2 * 1024 * 1024 * 1024,
+  totalBytes: 16 * 1024 * 1024 * 1024,
+  entryNameLength: 1024,
+  depth: 64,
+});
 
 function resolveXpcFactory<T>(contractId: string) {
   const runtime = globalThis as {
@@ -162,21 +176,35 @@ export function normalizeWorkflowArchiveEntryName(rawName: unknown) {
   ) {
     throw new Error(`Unsafe zip entry path: ${String(rawName || "")}`);
   }
+  if (source.length > WORKFLOW_ARCHIVE_LIMITS.entryNameLength) {
+    throw new Error("Zip entry path exceeds the fixed length limit");
+  }
   const parts = source.split("/");
   if (
     parts.some((part) => !part || part === "." || part === "..")
   ) {
     throw new Error(`Unsafe zip entry path: ${String(rawName || "")}`);
   }
+  if (parts.length > WORKFLOW_ARCHIVE_LIMITS.depth) {
+    throw new Error("Zip entry path exceeds the fixed depth limit");
+  }
   return parts.join("/");
 }
 
 function validateEntries(entries: WorkflowArchiveEntry[]) {
+  if (entries.length > WORKFLOW_ARCHIVE_LIMITS.entries) {
+    throw new Error("Archive exceeds the fixed entry count limit");
+  }
   const seen = new Set<string>();
+  const portableSeen = new Set<string>();
   return (entries || []).map((entry) => {
     const name = normalizeWorkflowArchiveEntryName(entry?.name);
-    if (seen.has(name)) throw new Error(`Duplicate zip entry path: ${name}`);
+    const portableName = name.toLocaleLowerCase("en-US");
+    if (seen.has(name) || portableSeen.has(portableName)) {
+      throw new Error(`Duplicate zip entry path: ${name}`);
+    }
     seen.add(name);
+    portableSeen.add(portableName);
     const sourceCount = [
       typeof entry?.sourcePath === "string",
       typeof entry?.text === "string",
@@ -219,6 +247,49 @@ async function measureLocalFile(path: string) {
     size: source.size,
     sha256: digest.sha256.replace(/^sha256:/, ""),
   };
+}
+
+function addMeasuredFile(
+  measurement: WorkflowArchiveMeasurement,
+  name: string,
+  integrity: WorkflowArchiveFileIntegrity,
+) {
+  if (integrity.size > WORKFLOW_ARCHIVE_LIMITS.entryBytes) {
+    throw new Error(`Archive entry exceeds the fixed byte limit: ${name}`);
+  }
+  const totalBytes = measurement.totalBytes + integrity.size;
+  if (totalBytes > WORKFLOW_ARCHIVE_LIMITS.totalBytes) {
+    throw new Error("Archive exceeds the fixed total byte limit");
+  }
+  measurement.files[name] = integrity;
+  measurement.totalEntries += 1;
+  measurement.totalBytes = totalBytes;
+}
+
+async function measureValidatedEntries(
+  entries: ReturnType<typeof validateEntries>,
+): Promise<WorkflowArchiveMeasurement> {
+  const measurement: WorkflowArchiveMeasurement = {
+    files: {},
+    totalEntries: 0,
+    totalBytes: 0,
+  };
+  for (const entry of entries) {
+    if (entry.sourcePath) {
+      addMeasuredFile(
+        measurement,
+        entry.name,
+        await measureLocalFile(entry.sourcePath),
+      );
+    } else {
+      const bytes = asBytes(entry.text ?? entry.bytes!);
+      addMeasuredFile(measurement, entry.name, {
+        size: bytes.length,
+        sha256: await hashBytes(bytes),
+      });
+    }
+  }
+  return measurement;
 }
 
 async function readLocalBytes(path: string) {
@@ -416,24 +487,14 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
   return {
     async measureEntries(entriesInput) {
       const entries = validateEntries(entriesInput || []);
-      const files: Record<string, WorkflowArchiveFileIntegrity> = {};
-      for (const entry of entries) {
-        if (entry.sourcePath) {
-          files[entry.name] = await measureLocalFile(entry.sourcePath);
-        } else {
-          const bytes = asBytes(entry.text ?? entry.bytes!);
-          files[entry.name] = {
-            size: bytes.length,
-            sha256: await hashBytes(bytes),
-          };
-        }
-      }
-      return { files };
+      const measurement = await measureValidatedEntries(entries);
+      return { files: measurement.files };
     },
     async writeZipAtomic(args) {
       const targetPath = String(args?.targetPath || "").trim();
       if (!targetPath) throw new Error("Archive target path is required");
       const entries = validateEntries(args?.entries || []);
+      await measureValidatedEntries(entries);
       const geckoRuntime = resolveGeckoArchiveWriterRuntime();
       return geckoRuntime
         ? writeZipInGecko(targetPath, entries, geckoRuntime)
@@ -442,43 +503,85 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
     async withExtractedZip(sourcePath, callback) {
       if (typeof callback !== "function") throw new Error("Archive callback is required");
       const rootPath = await makeTempDir("zs-workflow-archive");
+      let active = true;
+      let callbackError: unknown;
       try {
         const geckoRuntime = resolveGeckoArchiveReaderRuntime();
         const entries = geckoRuntime
           ? await extractInGecko(sourcePath, rootPath, geckoRuntime)
           : await extractStoredZip(sourcePath, rootPath);
-        const resolvePath = (entryName: string) =>
-          joinPath(rootPath, ...normalizeWorkflowArchiveEntryName(entryName).split("/"));
+        if (entries.length > WORKFLOW_ARCHIVE_LIMITS.entries) {
+          throw new Error("Archive exceeds the fixed entry count limit");
+        }
+        const requireActive = () => {
+          if (!active) {
+            throw new Error("Extracted archive scope has ended");
+          }
+        };
+        const resolvePath = (entryName: string) => {
+          requireActive();
+          return joinPath(
+            rootPath,
+            ...normalizeWorkflowArchiveEntryName(entryName).split("/"),
+          );
+        };
         const entrySet = new Set(entries);
         const measureEntries = async (entryNamesInput: string[]) => {
+          requireActive();
           const entryNames = (entryNamesInput || []).map(
             normalizeWorkflowArchiveEntryName,
           );
           if (new Set(entryNames).size !== entryNames.length) {
             throw new Error("Duplicate extracted archive measurement entry");
           }
-          const files: Record<string, WorkflowArchiveFileIntegrity> = {};
+          const measurement: WorkflowArchiveMeasurement = {
+            files: {},
+            totalEntries: 0,
+            totalBytes: 0,
+          };
           for (const entryName of entryNames) {
             if (!entrySet.has(entryName)) {
               throw new Error(
                 `Extracted archive measurement entry is unavailable: ${entryName}`,
               );
             }
-            files[entryName] = await measureLocalFile(resolvePath(entryName));
+            addMeasuredFile(
+              measurement,
+              entryName,
+              await measureLocalFile(resolvePath(entryName)),
+            );
           }
-          return { files };
+          return { files: measurement.files };
         };
-        return await callback({
+        const scopedArchive: WorkflowExtractedArchive = {
           rootPath,
-          entries,
+          entries: [...entries],
           resolvePath,
-          readText: async (entryName) =>
-            new TextDecoder("utf-8").decode(await readLocalBytes(resolvePath(entryName))),
-          readBytes: async (entryName) => readLocalBytes(resolvePath(entryName)),
+          readText: async (entryName) => {
+            requireActive();
+            return new TextDecoder("utf-8").decode(
+              await readLocalBytes(resolvePath(entryName)),
+            );
+          },
+          readBytes: async (entryName) => {
+            requireActive();
+            return readLocalBytes(resolvePath(entryName));
+          },
           measureEntries,
-        });
+        };
+        try {
+          return await callback(scopedArchive);
+        } catch (error) {
+          callbackError = error;
+          throw error;
+        }
       } finally {
-        await removePath(rootPath);
+        active = false;
+        try {
+          await removePath(rootPath);
+        } catch (cleanupError) {
+          if (!callbackError) throw cleanupError;
+        }
       }
     },
   };

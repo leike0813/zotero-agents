@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { rejects as assertRejects } from "node:assert";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
@@ -7,6 +8,7 @@ import {
   createWorkflowHostApi,
   resetWorkflowHostApiForTests,
 } from "../../src/workflows/hostApi";
+import type { WorkflowExtractedArchive } from "../../src/workflows/archive";
 
 function installRuntimeGlobals(values: Record<string, unknown>) {
   const runtime = globalThis as Record<string, unknown>;
@@ -312,5 +314,40 @@ describe("workflow host api archive facade", function () {
 
     assert.instanceOf(error, Error);
     assert.equal(await fs.readFile(targetPath, "utf8"), "original");
+  });
+
+  it("invalidates an extracted archive handle after its callback settles", async function () {
+    const targetPath = path.join(root, "scoped.zip");
+    const archive = createWorkflowHostApi().archive;
+    await archive.writeZipAtomic({
+      targetPath,
+      entries: [{ name: "payload.txt", text: "scoped" }],
+    });
+
+    let extracted: WorkflowExtractedArchive | undefined;
+    await archive.withExtractedZip(targetPath, async (current) => {
+      extracted = current;
+      assert.equal(await current.readText("payload.txt"), "scoped");
+    });
+
+    assert.throws(() => extracted?.resolvePath("payload.txt"));
+    await assertRejects(extracted?.readBytes("payload.txt"));
+    await assertRejects(extracted?.measureEntries(["payload.txt"]));
+  });
+
+  it("rejects archives that exceed fixed entry name and count bounds", async function () {
+    const archive = createWorkflowHostApi().archive;
+
+    await assertRejects(
+      archive.measureEntries([{ name: `${"a".repeat(1021)}.txt`, text: "x" }]),
+    );
+    await assertRejects(
+      archive.measureEntries(
+        Array.from({ length: 20_001 }, (_, index) => ({
+          name: `entries/${index}.txt`,
+          text: "",
+        })),
+      ),
+    );
   });
 });
