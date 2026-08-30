@@ -135,7 +135,6 @@ export const ASSISTANT_WORKSPACE_MESSAGE_TYPES = {
   // Host -> shell.
   INIT: "assistant-workspace:init",
   SURFACE_CONFIG: "assistant-workspace:surface-config",
-  CHILD_SNAPSHOT: "assistant-workspace:child-snapshot",
   CHILD_PUBLICATION: "assistant-workspace:child-publication",
   // Host -> shell, harness only: sent by addon/content/harness/harness-host.js
   // (the read-only test harness); production host code never sends it.

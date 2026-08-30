@@ -10,7 +10,14 @@ import {
 } from "../../src/modules/harness/prefsReadonly";
 import { filterHarnessVisibleWorkflows } from "../../src/modules/harness/dashboardReadonlyModel";
 import { createDashboardReadonlyModel } from "../../src/modules/harness/dashboardReadonlyModel";
-import { createAssistantReadonlyModel } from "../../src/modules/harness/assistantReadonlyModel";
+import { createAssistantReadonlyPublicationSession } from "../../src/modules/harness/assistantReadonlyPublication";
+import {
+  ASSISTANT_WORKSPACE_ACTION_REGISTRY,
+  ASSISTANT_WORKSPACE_PUBLICATION_ENVELOPE_KEYS,
+  ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+  type AssistantWorkspaceOwner,
+  type AssistantWorkspacePublication,
+} from "../../src/modules/assistantWorkspacePublication";
 import { createReadonlySqliteAdapter } from "../../src/modules/harness/sqliteReadonly";
 import { createReadonlySqliteDatabase } from "../../src/modules/harness/sqliteReadonly";
 import { createSynthesisReadonlyPort } from "../../src/modules/harness/synthesisReadonlyPort";
@@ -137,6 +144,19 @@ async function createPluginStateFixture() {
         items: [{ id: "msg-1", role: "assistant", text: "Ready" }],
       })}'
     );
+    INSERT INTO plugin_task_requests VALUES (
+      'acp',
+      'conv-2',
+      'acp-backend',
+      'connected',
+      '2026-01-01T00:01:30.000Z',
+      '${sqlJson({
+        conversationId: "conv-2",
+        conversationTitle: "Second ACP Session",
+        status: "connected",
+        items: [{ id: "msg-2", role: "assistant", text: "Second conversation" }],
+      })}'
+    );
     INSERT INTO plugin_task_rows VALUES (
       'acp',
       'skill-runs',
@@ -195,6 +215,22 @@ async function createPluginStateFixture() {
             available_methods: ["api_key"],
             input_kind: "api_key",
           },
+          messages: [
+            {
+              seq: 1,
+              ts: "2026-01-01T00:03:10.000Z",
+              role: "user",
+              kind: "message",
+              text: "Run the auth skill",
+            },
+            {
+              seq: 2,
+              ts: "2026-01-01T00:03:20.000Z",
+              role: "assistant",
+              kind: "message",
+              text: "Authentication is required to continue",
+            },
+          ],
         },
         apply: {
           state: "running",
@@ -504,7 +540,7 @@ describe("UI readonly harness", function () {
     }
   });
 
-  it("builds aligned readonly Dashboard and Assistant snapshots from plugin state DB", async function () {
+  it("builds aligned readonly Dashboard snapshots from plugin state DB", async function () {
     const fixture = await createPluginStateFixture();
     const originalPrefs = (globalThis as any).Zotero?.Prefs;
     const values = parseZoteroPrefs(`
@@ -518,7 +554,6 @@ describe("UI readonly harness", function () {
       },
     });
     const dashboard = await createDashboardReadonlyModel(fixture.dbPath);
-    const assistant = await createAssistantReadonlyModel(fixture.dbPath);
     try {
       const before = (await stat(fixture.dbPath)).mtimeMs;
       const dashboardHome = await dashboard.handleAction("ready", {});
@@ -587,68 +622,355 @@ describe("UI readonly harness", function () {
       assert.equal(terminalDashboardRow.canOpenStream, false);
       assert.equal(terminalDashboardRow.canCancelBackendRun, false);
 
-      const snapshots = assistant.snapshot();
-      assert.ok((snapshots.acpChat as any).activeSnapshot);
-      assert.equal(
-        (snapshots.acpChat as any).activeSnapshot.pendingPermissionRequest
-          .requestId,
-        "perm-1",
-      );
-      assert.equal(
-        (snapshots.acpSkills as any).selectedRun.pendingPermission.requestId,
-        "skill-perm-1",
-      );
-      assert.equal(
-        (snapshots.acpSkills as any).selectedRun.skillName,
-        "Demo Skill",
-      );
-      assert.equal(
-        (snapshots.acpSkills as any).selectedRun.skillId,
-        "skill.demo",
-      );
-      assert.ok((snapshots.acpSkills as any).selectedRuntimeOptions);
-      assert.equal(
-        (snapshots.skillrunner as any).session.authSessionId,
-        "auth-1",
-      );
-      assert.equal(
-        (snapshots.skillrunner as any).session.applyState,
-        "running",
-      );
-      assert.equal((snapshots.skillrunner as any).session.applyAttempt, 1);
-      assert.equal(
-        (snapshots.skillrunner as any).session.runKey,
-        "local:sr-workflow-run:sr-job-1",
-      );
-      assert.equal(
-        "skillLabel" in (snapshots.skillrunner as any).session,
-        false,
-      );
-      assert.ok(Array.isArray((snapshots.skillrunner as any).drawer.sections));
-      const activeTasks = (snapshots.skillrunner as any).drawer.sections[0]
-        .groups[0].activeTasks;
-      assert.equal(activeTasks[0].skillName, "Auth Skill");
-      assert.equal(activeTasks[0].key, "local:sr-workflow-run:sr-job-1");
-      assert.equal(activeTasks[0].applyState, "running");
-      assert.equal(activeTasks[0].skillId, "skill.auth");
-      assert.equal("skillLabel" in activeTasks[0], false);
-      const preRequestTask = activeTasks.find(
-        (task: any) => task.key === "local:sr-workflow-run:sr-job-pre",
-      );
-      assert.equal(preRequestTask.selectable, true);
-      assert.equal(preRequestTask.requestId, undefined);
-      const sequenceTask = activeTasks.find(
-        (task: any) => task.key === "local:sr-seq-run:seq-job:step-1",
-      );
-      assert.equal(sequenceTask.skillName, "Sequence Skill");
       const after = (await stat(fixture.dbPath)).mtimeMs;
       assert.equal(after, before);
     } finally {
       dashboard.close();
-      assistant.close();
       (globalThis as any).Zotero.Prefs = originalPrefs;
       await rm(fixture.dir, { recursive: true, force: true });
     }
+  });
+
+  function installAssistantHarnessPrefs() {
+    const originalPrefs = (globalThis as any).Zotero?.Prefs;
+    const values = parseZoteroPrefs(`
+      user_pref("extensions.zotero.zotero-skills.backendsConfigJson", "{\\"backends\\":[{\\"id\\":\\"skillrunner-backend\\",\\"type\\":\\"skillrunner\\",\\"displayName\\":\\"SkillRunner Backend\\",\\"baseUrl\\":\\"http://127.0.0.1:4317\\"},{\\"id\\":\\"acp-backend\\",\\"type\\":\\"acp\\",\\"displayName\\":\\"ACP Backend\\"}]}");
+      user_pref("extensions.zotero.zotero-skills.skillRunnerSkillDisplayRegistryJson", "{\\"skill.auth\\":{\\"skillId\\":\\"skill.auth\\",\\"skillName\\":\\"Auth Skill\\"},\\"skill.pre\\":{\\"skillId\\":\\"skill.pre\\",\\"skillName\\":\\"Pre Skill\\"},\\"skill.done\\":{\\"skillId\\":\\"skill.done\\",\\"skillName\\":\\"Done Skill\\"}}");
+    `);
+    installReadonlyZoteroPrefs({
+      values,
+      get(key: string) {
+        return values[key];
+      },
+    });
+    return () => {
+      (globalThis as any).Zotero.Prefs = originalPrefs;
+    };
+  }
+
+  function assertValidPublication(publication: AssistantWorkspacePublication) {
+    assert.deepEqual(
+      Object.keys(publication).sort(),
+      [...ASSISTANT_WORKSPACE_PUBLICATION_ENVELOPE_KEYS].sort(),
+    );
+    assert.equal(publication.schema, ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA);
+    const owner = publication.owner;
+    if (owner.ownerKey === null) {
+      assert.deepEqual(Object.keys(owner).sort(), ["ownerKey", "source"]);
+      return;
+    }
+    if (owner.source === "acp-chat") {
+      assert.equal(
+        owner.ownerKey,
+        `${owner.backendId}\n${owner.conversationId}`,
+      );
+    } else if (owner.source === "acp-skills") {
+      assert.equal(owner.ownerKey, owner.requestId);
+    } else {
+      assert.equal(owner.ownerKey, owner.requestId || owner.runKey);
+    }
+  }
+
+  function publicationsFor(
+    publications: AssistantWorkspacePublication[],
+    source: AssistantWorkspaceOwner["source"],
+  ) {
+    return publications.filter(
+      (publication) => publication.owner.source === source,
+    );
+  }
+
+  function selectedOwnerFor(
+    publications: AssistantWorkspacePublication[],
+    source: AssistantWorkspaceOwner["source"],
+  ) {
+    const navigation = publications.find(
+      (publication) =>
+        publication.owner.source === source &&
+        publication.publicationKind === "owner-navigation",
+    );
+    return (navigation?.payload as any)?.selectedOwner || null;
+  }
+
+  async function withAssistantSession(
+    run: (session: Awaited<
+      ReturnType<typeof createAssistantReadonlyPublicationSession>
+    >) => Promise<void>,
+  ) {
+    const fixture = await createPluginStateFixture();
+    const restorePrefs = installAssistantHarnessPrefs();
+    setDebugModeOverrideForTests(true);
+    const session = await createAssistantReadonlyPublicationSession({
+      pluginDbPath: fixture.dbPath,
+    });
+    try {
+      await run(session);
+    } finally {
+      session.close();
+      setDebugModeOverrideForTests();
+      restorePrefs();
+      await rm(fixture.dir, { recursive: true, force: true });
+    }
+  }
+
+  it("publishes a valid Assistant Workspace initialization sequence from the readonly publication session", async function () {
+    await withAssistantSession(async (session) => {
+      const result = await session.bootstrap();
+      assert.ok(result.scopeKey);
+      assert.equal(
+        result.configuration.actionRegistry,
+        ASSISTANT_WORKSPACE_ACTION_REGISTRY,
+      );
+      assert.equal(
+        result.configuration.transcriptPaginationVirtualizationEnabled,
+        true,
+      );
+      assert.deepEqual(Object.keys(result.surfaceLabels).sort(), [
+        "acp-chat",
+        "acp-skills",
+        "skillrunner",
+      ]);
+      assert.ok(result.publications.length > 0);
+      for (const publication of result.publications) {
+        assertValidPublication(publication);
+      }
+      for (const source of ["acp-chat", "acp-skills", "skillrunner"] as const) {
+        const owned = publicationsFor(result.publications, source);
+        assert.ok(owned.length > 0, `expected publications for ${source}`);
+        assert.equal(owned[0].publicationKind, "owner-navigation");
+      }
+      const rebootstrap = await session.bootstrap();
+      assert.notEqual(rebootstrap.scopeKey, result.scopeKey);
+    });
+  });
+
+  it("surfaces fixture permission and transcript data through publication payloads", async function () {
+    await withAssistantSession(async (session) => {
+      const result = await session.bootstrap();
+      const chatPermission = result.publications.find(
+        (publication) =>
+          publication.owner.source === "acp-chat" &&
+          publication.publicationKind === "permission",
+      );
+      assert.equal(
+        (chatPermission?.payload as any)?.request?.requestId,
+        "perm-1",
+      );
+      const skillPermission = result.publications.find(
+        (publication) =>
+          publication.owner.source === "acp-skills" &&
+          publication.publicationKind === "permission",
+      );
+      assert.equal(
+        (skillPermission?.payload as any)?.request?.requestId,
+        "skill-perm-1",
+      );
+      const runnerTranscript = result.publications.find(
+        (publication) =>
+          publication.owner.source === "skillrunner" &&
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          (publication.payload as any).status === "ready",
+      );
+      assert.ok(runnerTranscript);
+      const page = (runnerTranscript.payload as any).page;
+      assert.ok(Array.isArray(page.items));
+      assert.ok(page.items.length > 0);
+      assert.ok(
+        page.items.some(
+          (item: any) => item.text === "Authentication is required to continue",
+        ),
+      );
+      const runnerControl = result.publications.find(
+        (publication) =>
+          publication.owner.source === "skillrunner" &&
+          publication.publicationKind === "owner-control",
+      );
+      assert.equal(
+        (runnerControl?.payload as any)?.interaction?.auth?.phase,
+        "challenge_active",
+      );
+      assert.equal(
+        (runnerControl?.payload as any)?.authentication?.required,
+        true,
+      );
+    });
+  });
+
+  it("records write-capable registry actions without executing them", async function () {
+    await withAssistantSession(async (session) => {
+      const initial = await session.bootstrap();
+      const chatOwner = selectedOwnerFor(initial.publications, "acp-chat");
+      assert.ok(chatOwner);
+      const resolved = await session.handleMessage({
+        type: "assistant-workspace:child-action",
+        payload: {
+          source: "acp-chat",
+          action: "resolve-permission",
+          actionId: "harness-resolve-permission",
+          owner: chatOwner,
+          payload: {
+            permissionRequestId: "perm-1",
+            outcome: "selected",
+            optionId: "allow",
+          },
+        },
+      });
+      assert.equal(resolved.mockAction?.action, "resolve-permission");
+      assert.equal(
+        (resolved.mockAction?.payload as any)?.permissionRequestId,
+        "perm-1",
+      );
+      assert.deepEqual(resolved.publications, []);
+      const prompted = await session.handleMessage({
+        type: "assistant-workspace:child-action",
+        payload: {
+          source: "acp-chat",
+          action: "send-prompt",
+          actionId: "harness-send-prompt",
+          owner: chatOwner,
+          payload: { message: "hello from the harness" },
+        },
+      });
+      assert.equal(prompted.mockAction?.action, "send-prompt");
+      assert.deepEqual(prompted.publications, []);
+      // Nothing executed: a fresh bootstrap still publishes the pending
+      // permission from the untouched fixture DB.
+      const reboot = await session.bootstrap();
+      const stillPending = reboot.publications.find(
+        (publication) =>
+          publication.owner.source === "acp-chat" &&
+          publication.publicationKind === "permission",
+      );
+      assert.equal(
+        (stillPending?.payload as any)?.request?.requestId,
+        "perm-1",
+      );
+    });
+  });
+
+  it("routes owner-selection actions through owner-switch initialization", async function () {
+    await withAssistantSession(async (session) => {
+      await session.bootstrap();
+      const conversationSelected = await session.handleMessage({
+        type: "assistant-workspace:child-action",
+        payload: {
+          source: "acp-chat",
+          action: "set-active-conversation",
+          actionId: "harness-set-active-conversation",
+          owner: {
+            source: "acp-chat",
+            ownerKey: "acp-backend\nconv-2",
+            backendId: "acp-backend",
+            conversationId: "conv-2",
+          },
+          payload: {},
+        },
+      });
+      assert.equal(conversationSelected.mockAction ?? null, null);
+      assert.ok(
+        conversationSelected.publications.some(
+          (publication) =>
+            publication.owner.source === "acp-chat" &&
+            publication.owner.ownerKey === "acp-backend\nconv-2" &&
+            publication.publicationCause === "owner-switch",
+        ),
+      );
+      const taskSelected = await session.handleMessage({
+        type: "assistant-workspace:child-action",
+        payload: {
+          source: "skillrunner",
+          action: "select-task",
+          actionId: "harness-select-task",
+          owner: {
+            source: "skillrunner",
+            ownerKey: "sr-req-done",
+            requestId: "sr-req-done",
+            runKey: "local:sr-workflow-run:sr-job-done",
+          },
+          payload: {},
+        },
+      });
+      assert.equal(taskSelected.mockAction ?? null, null);
+      assert.ok(
+        taskSelected.publications.some(
+          (publication) =>
+            publication.owner.source === "skillrunner" &&
+            publication.owner.ownerKey === "sr-req-done" &&
+            publication.publicationCause === "owner-switch",
+        ),
+      );
+    });
+  });
+
+  it("serves transcript page requests and publication acks through the runtime", async function () {
+    await withAssistantSession(async (session) => {
+      const initial = await session.bootstrap();
+      const chatOwner = selectedOwnerFor(initial.publications, "acp-chat");
+      assert.ok(chatOwner);
+      const paged = await session.handleMessage({
+        type: "assistant-workspace:child-action",
+        payload: {
+          source: "acp-chat",
+          action: "load-transcript-page",
+          actionId: "harness-load-transcript-page",
+          owner: chatOwner,
+          payload: { owner: chatOwner, request: { cursor: null, limit: 10 } },
+        },
+      });
+      const pagePublication = paged.publications.find(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationCause === "page-request",
+      );
+      assert.ok(pagePublication);
+      assert.equal((pagePublication.payload as any).status, "ready");
+      assert.equal(
+        (pagePublication.payload as any).owner?.ownerKey,
+        chatOwner.ownerKey,
+      );
+      const target = initial.publications[initial.publications.length - 1];
+      const acked = await session.handleMessage({
+        type: "assistant-workspace:publication-ack",
+        payload: {
+          publicationId: target.publicationId,
+          stage: "render-complete",
+          outcome: "accepted",
+          reason: null,
+          failure: null,
+        },
+      });
+      assert.deepEqual(acked.publications, []);
+      const childAcked = await session.handleMessage({
+        type: "assistant-workspace:child-action",
+        payload: {
+          source: "acp-chat",
+          action: "publication-ack",
+          actionId: "harness-child-ack",
+          owner: chatOwner,
+          payload: {
+            publicationId: target.publicationId,
+            stage: "child-apply",
+            outcome: "accepted",
+            reason: null,
+            failure: null,
+          },
+        },
+      });
+      assert.deepEqual(childAcked.publications, []);
+    });
+  });
+
+  it("keeps the Assistant harness on the publication plane", async function () {
+    const host = await readFile(
+      "addon/content/harness/harness-host.js",
+      "utf8",
+    );
+    const server = await readFile("scripts/ui-harness-serve.ts", "utf8");
+    assert.equal(host.includes("child-snapshot"), false);
+    assert.ok(host.includes("assistant-workspace:child-publication"));
+    assert.ok(server.includes("assistantReadonlyPublication"));
+    assert.equal(server.includes("assistantReadonlyModel"), false);
   });
 
   it("keeps SkillRunner connection audit renderer read-only in the Dashboard app", async function () {

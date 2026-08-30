@@ -62,15 +62,17 @@ let dashboardModel: Awaited<
     typeof import("../src/modules/harness/dashboardReadonlyModel").createDashboardReadonlyModel
   >
 > | null = null;
-let assistantModel: Awaited<
+let assistantSession: Awaited<
   ReturnType<
-    typeof import("../src/modules/harness/assistantReadonlyModel").createAssistantReadonlyModel
+    typeof import("../src/modules/harness/assistantReadonlyPublication").createAssistantReadonlyPublicationSession
   >
 > | null = null;
 let synthesisRuntime: SynthesisRuntime | null = null;
 let closeSynthesis: (() => void) | undefined;
 let workspaceBundle: string | null = null;
 let synthesisBundle: string | null = null;
+let assistantWorkspaceBundle: string | null = null;
+let acpChildBundle: string | null = null;
 let bundleBuildError = "";
 let liveReloadSeq = 0;
 let liveReloadTimer: ReturnType<typeof setTimeout> | undefined;
@@ -200,7 +202,10 @@ async function exists(filePath: string) {
   }
 }
 
-async function buildBrowserBundle(entryPoint: string) {
+async function buildBrowserBundle(
+  entryPoint: string,
+  options?: { jsx?: "automatic"; jsxImportSource?: string; target?: string[] },
+) {
   const esbuild = await import("esbuild");
   const result = await esbuild.build({
     entryPoints: [path.join(root, entryPoint)],
@@ -208,7 +213,9 @@ async function buildBrowserBundle(entryPoint: string) {
     write: false,
     format: "iife",
     platform: "browser",
-    target: ["es2022"],
+    target: options?.target || ["es2022"],
+    jsx: options?.jsx,
+    jsxImportSource: options?.jsxImportSource,
     logLevel: "silent",
   });
   return result.outputFiles[0].text;
@@ -231,12 +238,26 @@ function broadcastLiveReload(event: string, payload: Record<string, unknown>) {
 
 async function rebuildHarnessBundles(reason: string) {
   try {
-    const [nextWorkspaceBundle, nextSynthesisBundle] = await Promise.all([
+    const sidebarOptions = {
+      jsx: "automatic" as const,
+      jsxImportSource: "preact",
+      target: ["firefox115"],
+    };
+    const [
+      nextWorkspaceBundle,
+      nextSynthesisBundle,
+      nextAssistantWorkspaceBundle,
+      nextAcpChildBundle,
+    ] = await Promise.all([
       buildBrowserBundle("src/workspaceApp.ts"),
       buildBrowserBundle("src/synthesisWorkbenchApp.ts"),
+      buildBrowserBundle("src/sidebar/assistantWorkspaceApp.js", sidebarOptions),
+      buildBrowserBundle("src/sidebar/acpChildApp.js", sidebarOptions),
     ]);
     workspaceBundle = nextWorkspaceBundle;
     synthesisBundle = nextSynthesisBundle;
+    assistantWorkspaceBundle = nextAssistantWorkspaceBundle;
+    acpChildBundle = nextAcpChildBundle;
     bundleBuildError = "";
     console.log(`[harness] rebuilt browser bundles (${reason})`);
     return true;
@@ -537,6 +558,19 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       text(res, 200, synthesisBundle || "", "text/javascript; charset=utf-8");
       return;
     }
+    if (url.pathname === "/content/sidebar/assistant-workspace.bundle.js") {
+      text(
+        res,
+        200,
+        assistantWorkspaceBundle || "",
+        "text/javascript; charset=utf-8",
+      );
+      return;
+    }
+    if (url.pathname === "/content/sidebar/acp-child.bundle.js") {
+      text(res, 200, acpChildBundle || "", "text/javascript; charset=utf-8");
+      return;
+    }
     if (url.pathname === "/api/harness/live") {
       res.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
@@ -564,8 +598,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
               ? dashboardModel.diagnostics()
               : null,
           assistant:
-            assistantModel && "diagnostics" in assistantModel
-              ? assistantModel.diagnostics()
+            assistantSession && "diagnostics" in assistantSession
+              ? assistantSession.diagnostics()
               : null,
           synthesis: {
             canonicalRevisionProposals:
@@ -585,14 +619,40 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       });
       return;
     }
-    if (url.pathname === "/api/harness/assistant/snapshot") {
-      if (!assistantModel) {
+    if (url.pathname === "/api/harness/assistant/bootstrap") {
+      if (!assistantSession) {
         json(res, 503, {
-          error: diagnostics.join("\n") || "Assistant model unavailable.",
+          error: diagnostics.join("\n") || "Assistant session unavailable.",
         });
         return;
       }
-      json(res, 200, assistantModel.snapshot());
+      json(res, 200, await assistantSession.bootstrap());
+      return;
+    }
+    if (
+      req.method === "POST" &&
+      url.pathname === "/api/harness/assistant/message"
+    ) {
+      if (!assistantSession) {
+        json(res, 503, {
+          error: diagnostics.join("\n") || "Assistant session unavailable.",
+        });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const result = await assistantSession.handleMessage({
+        type: String(body.type || ""),
+        payload: body.payload ?? {},
+      });
+      const logEntry = result.mockAction
+        ? logAction(
+            "assistant",
+            result.mockAction.action,
+            result.mockAction.payload,
+            readonlyReasonForAction(result.mockAction.action),
+          )
+        : undefined;
+      json(res, 200, { publications: result.publications, logEntry });
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/harness/mock-action") {
@@ -713,8 +773,8 @@ async function main() {
   if (pluginDbPath && (await exists(pluginDbPath))) {
     const { createDashboardReadonlyModel } =
       await import("../src/modules/harness/dashboardReadonlyModel");
-    const { createAssistantReadonlyModel } =
-      await import("../src/modules/harness/assistantReadonlyModel");
+    const { createAssistantReadonlyPublicationSession } =
+      await import("../src/modules/harness/assistantReadonlyPublication");
     const workflowsDir = String(
       (globalThis as any).Zotero?.Prefs?.get?.(
         "extensions.zotero.zotero-skills.workflowDir",
@@ -735,7 +795,8 @@ async function main() {
       );
       return null;
     });
-    assistantModel = await createAssistantReadonlyModel(pluginDbPath, {
+    assistantSession = await createAssistantReadonlyPublicationSession({
+      pluginDbPath,
       workflowsDir,
       builtinWorkflowsDir: path.join(
         pluginRuntimeRoot,
@@ -744,7 +805,7 @@ async function main() {
       ),
     }).catch((error) => {
       diagnostics.push(
-        `Assistant readonly model failed: ${
+        `Assistant readonly session failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -793,17 +854,19 @@ async function main() {
           bundles: {
             workspace: Boolean(workspaceBundle),
             synthesis: Boolean(synthesisBundle),
+            assistantWorkspace: Boolean(assistantWorkspaceBundle),
+            acpChild: Boolean(acpChildBundle),
           },
           dashboard: Boolean(dashboardModel),
-          assistant: Boolean(assistantModel),
-          synthesis: Boolean(synthesisRuntime?.service),
+          assistant: Boolean(assistantSession),
+          synthesis: Boolean(synthesisRuntime?.client),
         },
         null,
         2,
       ),
     );
     dashboardModel?.close();
-    assistantModel?.close();
+    assistantSession?.close();
     closeSynthesis?.();
     return;
   }
@@ -819,7 +882,7 @@ async function main() {
     liveReloadClients.forEach((client) => client.end());
     liveReloadClients.clear();
     dashboardModel?.close();
-    assistantModel?.close();
+    assistantSession?.close();
     closeSynthesis?.();
     server.close();
   };

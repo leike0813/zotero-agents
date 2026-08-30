@@ -21,8 +21,9 @@
     frameState: Object.create(null),
     locale: resolveInitialLocale(),
     assistantActiveTab: "acp-chat",
-    assistantSkillRunnerDrawerOpen: false,
-    assistantSkillRunnerSelectedTaskKey: "",
+    assistantScopeKey: "",
+    assistantPublications: Object.create(null),
+    assistantBootstrapQueue: Promise.resolve(),
     selectedWorkspaceView:
       new URLSearchParams(window.location.search).get("view") === "synthesis"
         ? "synthesis"
@@ -304,105 +305,55 @@
     }
   }
 
-  function postAssistantSnapshots(frame, snapshots, phase) {
-    [
-      ["acp-chat", snapshots.acpChat],
-      ["acp-skills", snapshots.acpSkills],
-      ["skillrunner", snapshots.skillrunner],
-    ].forEach(([tab, snapshot]) => {
-      sendFrame(frame, "assistant-workspace:child-snapshot", {
-        tab,
-        phase,
-        snapshot,
+  function deliverAssistantPublications(frame, publications) {
+    (publications || []).forEach((publication) => {
+      const tab =
+        publication && publication.owner && publication.owner.source
+          ? String(publication.owner.source)
+          : "unknown";
+      state.assistantPublications[tab] =
+        (state.assistantPublications[tab] || 0) + 1;
+      sendFrame(frame, "assistant-workspace:child-publication", {
+        publication,
       });
     });
+    markAssistantState();
   }
 
-  async function fetchAssistantSnapshots() {
-    return fetch("/api/harness/assistant/snapshot").then((response) =>
-      response.json(),
-    );
-  }
-
-  function applyAssistantHostState(snapshots) {
-    const source = snapshots && typeof snapshots === "object" ? snapshots : {};
-    const skillrunner =
-      source.skillrunner && typeof source.skillrunner === "object"
-        ? { ...source.skillrunner }
-        : {};
-    const drawer =
-      skillrunner.drawer && typeof skillrunner.drawer === "object"
-        ? { ...skillrunner.drawer }
-        : {};
-    drawer.open = state.assistantSkillRunnerDrawerOpen;
-    if (state.assistantSkillRunnerSelectedTaskKey) {
-      drawer.selectedTaskKey = state.assistantSkillRunnerSelectedTaskKey;
-    }
-    skillrunner.drawer = drawer;
-    return {
-      ...source,
-      skillrunner,
-    };
-  }
-
-  function markAssistantState(snapshots) {
+  function markAssistantState(patch) {
     markFrameState("assistant", {
       initialized: true,
       activeTab: state.assistantActiveTab,
-      acpBackends: snapshots.acpChat?.backendOptions?.length || 0,
-      acpSessions: snapshots.acpChat?.chatSessions?.length || 0,
-      acpSkillRuns: snapshots.acpSkills?.runs?.length || 0,
-      skillRunnerDrawerOpen: state.assistantSkillRunnerDrawerOpen,
-      skillRunnerSections: snapshots.skillrunner?.drawer?.sections?.length || 0,
+      scopeKey: state.assistantScopeKey,
+      publications: { ...state.assistantPublications },
+      ...(patch || {}),
     });
   }
 
-  async function refreshAssistant(frame) {
-    const snapshots = applyAssistantHostState(await fetchAssistantSnapshots());
-    markAssistantState(snapshots);
-    postAssistantSnapshots(frame, snapshots, "snapshot");
+  async function bootstrapAssistant(frame) {
+    const result = await api("/api/harness/assistant/bootstrap", {});
+    state.assistantScopeKey = String(result.scopeKey || "");
+    state.assistantPublications = Object.create(null);
+    sendFrame(frame, "assistant-workspace:init", {
+      activeTab: state.assistantActiveTab,
+      scopeKey: result.scopeKey,
+      surfaceConfiguration: result.configuration,
+      surfaceLabels: result.surfaceLabels,
+    });
+    deliverAssistantPublications(frame, result.publications);
+  }
+
+  function queueAssistantBootstrap(frame) {
+    const queued = state.assistantBootstrapQueue.then(() =>
+      bootstrapAssistant(frame),
+    );
+    state.assistantBootstrapQueue = queued.catch(() => undefined);
+    return queued;
   }
 
   async function initAssistant(frame) {
     installAssistantBridge(frame);
-    const snapshots = applyAssistantHostState(await fetchAssistantSnapshots());
-    markAssistantState(snapshots);
-    sendFrame(frame, "assistant-workspace:init", {
-      activeTab: state.assistantActiveTab,
-    });
-    postAssistantSnapshots(frame, snapshots, "init");
-    postAssistantSnapshots(frame, snapshots, "snapshot");
-  }
-
-  function applyAssistantChildAction(type, payload) {
-    if (type !== "assistant-workspace:child-action") return false;
-    if (!payload || payload.tab !== "skillrunner") return false;
-    const action = String(payload.action || "");
-    const data =
-      payload.payload && typeof payload.payload === "object"
-        ? payload.payload
-        : {};
-    if (action === "toggle-drawer") {
-      state.assistantSkillRunnerDrawerOpen =
-        !state.assistantSkillRunnerDrawerOpen;
-      return true;
-    }
-    if (action === "open-context-drawer") {
-      state.assistantSkillRunnerDrawerOpen = true;
-      return true;
-    }
-    if (action === "close-drawer" || action === "close-context-drawer") {
-      state.assistantSkillRunnerDrawerOpen = false;
-      return true;
-    }
-    if (action === "select-task") {
-      state.assistantSkillRunnerDrawerOpen = false;
-      state.assistantSkillRunnerSelectedTaskKey = String(
-        data.taskKey || data.key || "",
-      ).trim();
-      return true;
-    }
-    return false;
+    await queueAssistantBootstrap(frame);
   }
 
   async function handleAssistantMessage(frame, type, payload) {
@@ -411,26 +362,27 @@
         payload.tab === "acp-skills" || payload.tab === "skillrunner"
           ? payload.tab
           : "acp-chat";
-      if (state.assistantActiveTab !== "skillrunner") {
-        state.assistantSkillRunnerDrawerOpen = false;
-      }
       sendFrame(frame, "assistant-workspace:set-tab", {
         activeTab: state.assistantActiveTab,
       });
+      markAssistantState();
+      const result = await api("/api/harness/assistant/message", {
+        type,
+        payload,
+      });
+      if (result.logEntry) appendLog(result.logEntry);
       return { ok: true };
     }
     if (type === "assistant-workspace:action" && payload.action === "ready") {
-      void initAssistant(frame);
+      await queueAssistantBootstrap(frame);
       return { ok: true };
     }
-    applyAssistantChildAction(type, payload);
-    const result = await api("/api/harness/mock-action", {
-      source: "assistant",
-      action: type,
+    const result = await api("/api/harness/assistant/message", {
+      type,
       payload,
     });
-    appendLog(result.logEntry);
-    void refreshAssistant(frame);
+    if (result.logEntry) appendLog(result.logEntry);
+    deliverAssistantPublications(frame, result.publications);
     return { ok: true, readonly: true };
   }
 
@@ -526,7 +478,7 @@
   });
 
   document.addEventListener("DOMContentLoaded", () => {
-    // installLiveReload();
+    installLiveReload();
     initLocaleControl();
     state.frames.workspace = document.getElementById("harness-workspace-frame");
     state.frames.assistant = document.getElementById("harness-assistant-frame");
