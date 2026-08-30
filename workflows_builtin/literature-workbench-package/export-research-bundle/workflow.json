@@ -4,6 +4,17 @@
   "label": "Export Research Bundle",
   "description": "Export manuscript-oriented research materials, analyzed literature artifacts, and synthesis evidence into a portable bundle.",
   "executionModes": ["auto"],
+  "supportedInvocationModes": ["interactive", "non-interactive"],
+  "resourceRequirements": [
+    {
+      "id": "research-materialized-files",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "many",
+      "required": false,
+      "accept": { "maxCount": 1000, "maxBytes": 17179869184 }
+    }
+  ],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": { "core": true, "emoji": "🧰" },

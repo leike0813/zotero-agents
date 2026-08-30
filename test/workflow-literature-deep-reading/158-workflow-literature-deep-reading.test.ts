@@ -10,8 +10,8 @@ import {
   executeBuildRequests,
 } from "../../src/workflows/runtime";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
+import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 import { renderPayloadBlock } from "../../workflows_builtin/literature-workbench-package/lib/noteCodecs.mjs";
-import { createStoreZipBytes } from "../../workflows_builtin/literature-workbench-package/lib/zipStore.mjs";
 import {
   ensureDir,
   joinPath,
@@ -106,13 +106,13 @@ describe("workflow: literature-deep-reading", function () {
     const tempDir = await mkTempDir("zs-deep-reading-zip");
     const zipPath = joinPath(tempDir, "bundle.zip");
     const source = new Uint8Array([1, 2, 3, 4, 5]);
-    await writeBytes(
-      zipPath,
-      createStoreZipBytes([
+    await createWorkflowArchiveApi().writeZipAtomic({
+      targetPath: zipPath,
+      entries: [
         { name: "array-buffer.bin", bytes: source.buffer },
         { name: "data-view.bin", bytes: new DataView(source.buffer, 1, 3) },
-      ]),
-    );
+      ],
+    });
 
     const bundle = new ZipBundleReader(zipPath);
     const extracted = await bundle.getExtractedDir();
@@ -176,7 +176,10 @@ describe("workflow: literature-deep-reading", function () {
   it("validates translator handoff fields without requiring uploaded files", async function () {
     const tempDir = await mkTempDir("zs-deep-reading-schema");
     const sourceBundlePath = joinPath(tempDir, "source_bundle.zip");
-    await writeBytes(sourceBundlePath, createStoreZipBytes([]));
+    await createWorkflowArchiveApi().writeZipAtomic({
+      targetPath: sourceBundlePath,
+      entries: [],
+    });
     const skillDir = joinPath(
       process.cwd(),
       "skills_builtin",

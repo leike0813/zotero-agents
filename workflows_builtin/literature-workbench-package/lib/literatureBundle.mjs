@@ -79,6 +79,14 @@ export function restorePortableNoteHtml(html, attachmentKeys) {
   });
 }
 
+function bindPortableNoteImageSlots(html) {
+  return String(html || "").replace(
+    /\sdata-zb-attachment-ref\s*=\s*(?:"([^"]+)"|'([^']+)')/gi,
+    (_match, doubleQuoted, singleQuoted) =>
+      ` data-zotero-agents-image-slot="${normalizeText(doubleQuoted || singleQuoted)}"`,
+  );
+}
+
 function ensureUniqueIds(manifest) {
   if (!manifest.items.length) {
     throw new Error("literature bundle must contain at least one item");
@@ -1063,113 +1071,142 @@ export async function importLiteratureBundleArchive(args) {
   const { host, archive, manifest } = args;
   const target = args.target || resolveLiteratureBundleImportTarget(host);
   const { view, libraryID } = target;
-  const importedItems = [];
-  const failedItems = [];
   const warnings = [...(manifest.warnings || [])];
-  const importedByBundleId = new Map();
-
+  if (typeof host.resources?.materializeFile !== "function") {
+    throw new Error("Literature Product import requires resources.materializeFile");
+  }
+  if (typeof host.researchBundles?.importPapers !== "function") {
+    throw new Error("Literature Product import requires researchBundles.importPapers");
+  }
+  const collectionRef = view.currentCollection?.ref;
+  const collectionRefs =
+    Number(collectionRef?.libraryId) === libraryID && normalizeText(collectionRef?.key)
+      ? [{ libraryId: libraryID, key: normalizeText(collectionRef.key) }]
+      : [];
+  const papers = [];
   for (const itemRecord of manifest.items) {
-    let parent = null;
-    const createdChildren = [];
-    try {
-      parent = await host.items.createFromJson({ itemJson: itemRecord.itemJson, libraryID });
-      if (view.currentCollection?.id && Number(view.currentCollection.libraryId) === libraryID) {
-        await host.collections.add(parent, view.currentCollection.id);
-      }
-      for (const attachmentRecord of itemRecord.attachments || []) {
-        if (attachmentRecord.kind === "skipped") continue;
-        if (attachmentRecord.kind === "url") {
-          createdChildren.push(
-            await host.attachments.createFromUrl({
-              parent,
-              url: attachmentRecord.metadata.url,
-              title: attachmentRecord.metadata.title,
-              mimeType: attachmentRecord.metadata.contentType,
-              deduplicate: false,
-            }),
-          );
-          continue;
-        }
-        const attachment = await host.attachments.importStoredFile({
-          parent,
-          path: archive.resolvePath(attachmentRecord.path),
-          title: attachmentRecord.metadata?.title,
-          mimeType: attachmentRecord.metadata?.contentType,
-          charset: attachmentRecord.metadata?.charset,
-          url: attachmentRecord.metadata?.url,
-          companionFiles:
-            attachmentRecord.kind === "markdown"
-              ? (attachmentRecord.assets || []).map((asset) => ({
-                  sourcePath: archive.resolvePath(asset.path),
-                  relativePath: asset.relativePath,
-                }))
-              : [],
+    const attachments = [];
+    for (const attachmentRecord of itemRecord.attachments || []) {
+      if (attachmentRecord.kind === "skipped") continue;
+      if (attachmentRecord.kind === "url") {
+        attachments.push({
+          attachmentId: attachmentRecord.id,
+          source: { kind: "linked_url", url: attachmentRecord.metadata.url },
+          metadata: {
+            title: attachmentRecord.metadata?.title,
+            contentType: attachmentRecord.metadata?.contentType,
+          },
         });
-        createdChildren.push(attachment);
+        continue;
       }
-      for (const noteRecord of itemRecord.notes || []) {
-        const portableHtml = await archive.readText(noteRecord.htmlPath);
-        const note = await host.parents.addNote(parent, { content: portableHtml });
-        createdChildren.push(note);
-        const newKeys = new Map();
-        for (const imageRecord of noteRecord.images || []) {
-          const bytes = await archive.readBytes(imageRecord.path);
-          const imported = await host.notes.importEmbeddedImage(note, {
-            bytes,
-            mimeType: imageRecord.metadata?.contentType || "image/png",
-            width: 1,
-            height: 1,
-            originalBytes: bytes.length,
-            compressedBytes: bytes.length,
-          });
-          createdChildren.push(imported.attachmentItem);
-          newKeys.set(imageRecord.id, imported.attachmentKey);
-        }
-        await host.notes.update(note, {
-          content: restorePortableNoteHtml(portableHtml, newKeys),
-        });
-      }
-      importedByBundleId.set(itemRecord.id, parent);
-      importedItems.push({ bundleItemId: itemRecord.id, itemId: parent.id, itemKey: parent.key });
-    } catch (error) {
-      appendLiteratureBundleImportLog(host, {
-        stage: "literature-bundle-parent-import-failed",
-        operation: "materialize-parent",
-        details: { bundleItemId: itemRecord.id },
-        error,
+      const main = await host.resources.materializeFile({
+        slotId: "research-import-files",
+        sourcePath: archive.resolvePath(attachmentRecord.path),
+        displayName: attachmentRecord.path.split("/").pop(),
+        contentType: attachmentRecord.metadata?.contentType,
       });
-      for (const child of createdChildren.reverse()) {
-        try {
-          await host.items.remove(child);
-        } catch {
-          warnings.push({ code: "import_cleanup_failed", itemId: itemRecord.id });
-        }
+      const companions = [];
+      for (const asset of attachmentRecord.kind === "markdown"
+        ? attachmentRecord.assets || []
+        : []) {
+        const resource = await host.resources.materializeFile({
+          slotId: "research-import-files",
+          sourcePath: archive.resolvePath(asset.path),
+          displayName: asset.path.split("/").pop(),
+          contentType: asset.contentType || "application/octet-stream",
+        });
+        companions.push({
+          resourceRef: resource.ref,
+          targetRelativePath: asset.relativePath,
+        });
       }
-      if (parent) {
-        try {
-          await host.items.remove(parent);
-        } catch {
-          warnings.push({ code: "import_cleanup_failed", itemId: itemRecord.id });
-        }
-      }
-      failedItems.push({ bundleItemId: itemRecord.id, code: "parent_import_failed" });
+      attachments.push({
+        attachmentId: attachmentRecord.id,
+        source: {
+          kind: "stored_file",
+          main: {
+            resourceRef: main.ref,
+            targetFilename: attachmentRecord.path.split("/").pop(),
+          },
+          companions,
+        },
+        metadata: {
+          title: attachmentRecord.metadata?.title,
+          contentType: attachmentRecord.metadata?.contentType,
+          charset: attachmentRecord.metadata?.charset,
+          originalUrl: attachmentRecord.metadata?.url,
+        },
+      });
     }
+    const notes = [];
+    for (const noteRecord of itemRecord.notes || []) {
+      const portableHtml = await archive.readText(noteRecord.htmlPath);
+      const embeddedImages = [];
+      for (const imageRecord of noteRecord.images || []) {
+        const resource = await host.resources.materializeFile({
+          slotId: "research-import-files",
+          sourcePath: archive.resolvePath(imageRecord.path),
+          displayName: imageRecord.path.split("/").pop(),
+          contentType: imageRecord.metadata?.contentType || "image/png",
+        });
+        embeddedImages.push({
+          slot: imageRecord.id,
+          resourceRef: resource.ref,
+          altText: imageRecord.metadata?.title || imageRecord.id,
+        });
+      }
+      notes.push({
+        noteId: noteRecord.id,
+        content: {
+          format: "html",
+          value: bindPortableNoteImageSlots(portableHtml),
+          embeddedImages,
+        },
+        tags: [],
+        payloads: [],
+      });
+    }
+    papers.push({
+      graphId: itemRecord.id,
+      target: { kind: "create" },
+      item: portableResearchItem(itemRecord.itemJson),
+      collectionRefs,
+      notes,
+      attachments,
+      relatedGraphIds: itemRecord.relatedItemIds || [],
+      relatedExistingRefs: [],
+    });
   }
 
-  for (const itemRecord of manifest.items) {
-    const parent = importedByBundleId.get(itemRecord.id);
-    if (!parent) continue;
-    for (const relatedId of itemRecord.relatedItemIds || []) {
-      const related = importedByBundleId.get(relatedId);
-      if (!related || String(itemRecord.id) >= String(relatedId)) continue;
-      try {
-        await host.parents.addRelated(parent, related);
-        await host.parents.addRelated(related, parent);
-      } catch {
-        warnings.push({ code: "related_item_restore_failed", itemId: itemRecord.id, childId: relatedId });
-      }
-    }
-  }
+  const imported = await host.researchBundles.importPapers({
+    operationId: researchImportOperationId(),
+    libraryId: libraryID,
+    papers,
+  });
+  const importedItems = imported.papers
+    .filter((paper) => paper.outcome === "committed" || paper.outcome === "reused")
+    .map((paper) => ({
+      bundleItemId: paper.graphId,
+      itemRef: paper.itemRef,
+      ...(host.items?.getByLibraryAndKey
+        ? (() => {
+            const item = host.items.getByLibraryAndKey(
+              paper.itemRef.libraryId,
+              paper.itemRef.key,
+            );
+            return item
+              ? { itemId: item.id, itemKey: item.key }
+              : { itemKey: paper.itemRef.key };
+          })()
+        : { itemKey: paper.itemRef.key }),
+    }));
+  const failedItems = imported.papers
+    .filter((paper) => paper.outcome !== "committed" && paper.outcome !== "reused")
+    .map((paper) => ({
+      bundleItemId: paper.graphId,
+      code: "parent_import_failed",
+      ...(paper.attemptId ? { attemptId: paper.attemptId } : {}),
+    }));
 
   return {
     kind: "literature_bundle_import",
@@ -1177,6 +1214,7 @@ export async function importLiteratureBundleArchive(args) {
     importedItems,
     failedItems,
     warnings,
+    importResult: imported,
   };
 }
 
@@ -1216,92 +1254,188 @@ function productPayloadNoteKind(payloadType) {
         ? "citation-analysis"
         : payloadType === "literature-score-json"
           ? "literature-score"
-        : "conversation-note";
+    : "conversation-note";
+}
+
+function portableResearchItem(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new Error("research product metadata must be an object");
+  }
+  const itemType = normalizeText(metadata.itemType);
+  if (!itemType) throw new Error("research product itemType is missing");
+  const excluded = new Set([
+    "itemType",
+    "creators",
+    "tags",
+    "collections",
+    "relations",
+    "key",
+    "version",
+    "libraryID",
+    "dateAdded",
+    "dateModified",
+    "uri",
+  ]);
+  const fields = {};
+  for (const [field, value] of Object.entries(metadata)) {
+    if (excluded.has(field) || value === null || value === undefined) continue;
+    if (["string", "number", "boolean"].includes(typeof value)) {
+      fields[field] = String(value);
+    }
+  }
+  const creators = (Array.isArray(metadata.creators) ? metadata.creators : [])
+    .map((creator) => ({
+      ...(normalizeText(creator?.firstName) ? { firstName: normalizeText(creator.firstName) } : {}),
+      ...(normalizeText(creator?.lastName) ? { lastName: normalizeText(creator.lastName) } : {}),
+      ...(normalizeText(creator?.name) ? { name: normalizeText(creator.name) } : {}),
+      ...(normalizeText(creator?.creatorType) ? { creatorType: normalizeText(creator.creatorType) } : {}),
+    }));
+  const tags = (Array.isArray(metadata.tags) ? metadata.tags : [])
+    .map((tag) => normalizeText(typeof tag === "string" ? tag : tag?.tag))
+    .filter(Boolean);
+  return {
+    schema: "zotero-agents.portable-regular-item.v1",
+    itemType,
+    fields,
+    creators,
+    tags,
+  };
+}
+
+function researchImportOperationId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return `research-product-import:${uuid || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
+}
+
+function researchPayloadValue(payloadType, content) {
+  return payloadType === "digest-markdown" || payloadType === "conversation-note-markdown"
+    ? content
+    : JSON.parse(content);
+}
+
+function researchPayloadSummary(payloadType, payload, content) {
+  return {
+    payloadType,
+    noteKind: productPayloadNoteKind(payloadType),
+    version: normalizeText(payload?.version) || "1",
+    format: payload?.format === "json" ? "json" : "markdown",
+    encoding: "utf-8",
+    estimatedBytes: new TextEncoder().encode(content).byteLength,
+    source: { kind: "inline" },
+    state: "available",
+    issues: [],
+  };
 }
 
 export async function importResearchProductArchive(args) {
   const { host, archive, manifest } = args;
   const target = args.target || resolveLiteratureBundleImportTarget(host);
   const { view, libraryID } = target;
-  const importedItems = [];
-  const failedItems = [];
   const warnings = [...(manifest.warnings || [])];
-  for (const paper of manifest.papers) {
-    let parent = null;
-    const createdChildren = [];
-    try {
-      const metadata = JSON.parse(await archive.readText(paper.metadata_path));
-      parent = await host.items.createFromJson({ itemJson: metadata, libraryID });
-      if (view.currentCollection?.id && Number(view.currentCollection.libraryId) === libraryID) {
-        await host.collections.add(parent, view.currentCollection.id);
-      }
-      if (paper.source?.path) {
-        const isMarkdown = paper.source.kind === "markdown" || /\.md$/i.test(paper.source.path);
-        const attachment = await host.attachments.importStoredFile({
-          parent,
-          path: archive.resolvePath(paper.source.path),
-          title: "Research source",
-          mimeType: isMarkdown ? "text/markdown" : "application/pdf",
-          companionFiles: isMarkdown
-            ? (paper.source.assets || []).map((asset) => ({
-                sourcePath: archive.resolvePath(asset.path),
-                relativePath: asset.source_relative_path || asset.relativePath,
-              }))
-            : [],
-        });
-        createdChildren.push(attachment);
-      }
-      for (const payload of paper.payloads || []) {
-        const content = await archive.readText(payload.path);
-        const noteKind = productPayloadNoteKind(payload.payload_type);
-        if (payload.payload_type === "literature-score-json") {
-          const applied = await upsertLiteratureScoreNote({
-            runtime: args.runtime || { hostApi: host },
-            parentItem: parent,
-            payload: buildLiteratureScorePayload(
-              productPayloadForImport(payload.payload_type, content),
-              payload.path,
-            ),
-            existingNotes: [],
-          });
-          createdChildren.push(applied.note);
-          continue;
-        }
-        const note = await host.parents.addNote(parent, {
-          content: `<div data-zs-note-kind="${noteKind}"></div>`,
-        });
-        createdChildren.push(note);
-        await attachWorkbenchPayloadToNote({
-          runtime: args.runtime || { hostApi: host },
-          note,
-          noteKind,
-          payloadType: payload.payload_type,
-          payload: productPayloadForImport(payload.payload_type, content),
-        });
-      }
-      importedItems.push({ bundleItemId: paper.logical_id, itemId: parent.id, itemKey: parent.key });
-    } catch (error) {
-      appendLiteratureBundleImportLog(host, {
-        stage: "research-product-paper-import-failed",
-        operation: "materialize-paper",
-        details: { paperId: paper.logical_id },
-        error,
-      });
-      for (const child of createdChildren.reverse()) {
-        try { await host.items.remove(child); } catch { warnings.push({ code: "import_cleanup_failed", itemId: paper.logical_id }); }
-      }
-      if (parent) {
-        try { await host.items.remove(parent); } catch { warnings.push({ code: "import_cleanup_failed", itemId: paper.logical_id }); }
-      }
-      failedItems.push({ bundleItemId: paper.logical_id, code: "parent_import_failed" });
-    }
+  if (typeof host.resources?.materializeFile !== "function") {
+    throw new Error("Research Product import requires resources.materializeFile");
   }
+  if (typeof host.researchBundles?.importPapers !== "function") {
+    throw new Error("Research Product import requires researchBundles.importPapers");
+  }
+  const collectionRef = view.currentCollection?.ref;
+  const collectionRefs =
+    Number(collectionRef?.libraryId) === libraryID && normalizeText(collectionRef?.key)
+      ? [{ libraryId: libraryID, key: normalizeText(collectionRef.key) }]
+      : [];
+  const papers = [];
+  for (const paper of manifest.papers) {
+    const metadata = JSON.parse(await archive.readText(paper.metadata_path));
+    const attachments = [];
+    if (paper.source?.path) {
+      const isMarkdown = paper.source.kind === "markdown" || /\.md$/i.test(paper.source.path);
+      const main = await host.resources.materializeFile({
+        slotId: "research-import-files",
+        sourcePath: archive.resolvePath(paper.source.path),
+        displayName: paper.source.path.split("/").pop(),
+        contentType: isMarkdown ? "text/markdown" : "application/pdf",
+      });
+      const companions = [];
+      for (const asset of isMarkdown ? paper.source.assets || [] : []) {
+        const materialized = await host.resources.materializeFile({
+          slotId: "research-import-files",
+          sourcePath: archive.resolvePath(asset.path),
+          displayName: asset.path.split("/").pop(),
+          contentType: normalizeText(asset.content_type) || "application/octet-stream",
+        });
+        companions.push({
+          resourceRef: materialized.ref,
+          targetRelativePath: asset.source_relative_path || asset.relativePath,
+        });
+      }
+      attachments.push({
+        attachmentId: "research-source",
+        source: {
+          kind: "stored_file",
+          main: {
+            resourceRef: main.ref,
+            targetFilename: paper.source.path.split("/").pop(),
+          },
+          companions,
+        },
+        metadata: {
+          title: "Research source",
+          contentType: isMarkdown ? "text/markdown" : "application/pdf",
+        },
+      });
+    }
+    const notes = [];
+    for (let index = 0; index < (paper.payloads || []).length; index += 1) {
+      const payload = paper.payloads[index];
+      const content = await archive.readText(payload.path);
+      const noteKind = productPayloadNoteKind(payload.payload_type);
+      notes.push({
+        noteId: `${noteKind}-${String(index + 1).padStart(3, "0")}`,
+        content: {
+          format: "html",
+          value: `<div data-zs-note-kind="${noteKind}"></div>`,
+        },
+        tags: [],
+        payloads: [{
+          summary: researchPayloadSummary(payload.payload_type, payload, content),
+          value: researchPayloadValue(payload.payload_type, content),
+        }],
+      });
+    }
+    papers.push({
+      graphId: paper.logical_id,
+      target: { kind: "create" },
+      item: portableResearchItem(metadata),
+      collectionRefs,
+      notes,
+      attachments,
+      relatedGraphIds: paper.related_paper_ids || [],
+      relatedExistingRefs: [],
+    });
+  }
+  const imported = await host.researchBundles.importPapers({
+    operationId: researchImportOperationId(),
+    libraryId: libraryID,
+    papers,
+  });
+  const importedItems = imported.papers
+    .filter((paper) => paper.outcome === "committed" || paper.outcome === "reused")
+    .map((paper) => ({ bundleItemId: paper.graphId, itemRef: paper.itemRef }));
+  const failedItems = imported.papers
+    .filter((paper) => paper.outcome !== "committed" && paper.outcome !== "reused")
+    .map((paper) => ({
+      bundleItemId: paper.graphId,
+      code: paper.outcome,
+      ...(paper.attemptId ? { attemptId: paper.attemptId } : {}),
+      ...(paper.reason ? { reason: paper.reason } : {}),
+    }));
   return {
     kind: "literature_bundle_import",
-    status: failedItems.length || warnings.length ? "partial" : "completed",
+    status: imported.outcome === "complete" && !warnings.length ? "completed" : "partial",
     importedItems,
     failedItems,
     warnings,
+    importResult: imported,
   };
 }
 

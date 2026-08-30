@@ -8,13 +8,13 @@ Implementation baseline: `4dbddc24e884921262c559428bf851db5eadf2d7`. Begin only 
 
 ## 2. Exact Contract Tests
 
-- [ ] 2.1 Extend `test/node/core/187-workflow-host-contract-governance.test.ts` with failing exact 23-top-level/21-module/85-callable, recursive nested, version, interaction-mode, candidate type, unique manifest, and duplicate/unresolved alias cases.
+- [ ] 2.1 Extend `test/node/core/187-workflow-host-contract-governance.test.ts` with failing exact 23-top-level/21-module/87-callable, recursive nested, version, interaction-mode, candidate type, unique manifest, and duplicate/unresolved alias cases.
 - [ ] 2.2 Add failing side-by-side interactive/non-interactive tests proving identical shape and stable deny behavior, including present-but-unavailable filesystem/Synthesis members.
 - [ ] 2.3 Add failing package and static-governance scans for exact v12 guard and every raw/legacy escape hatch across official built-in packages and hook scopes; record baseline findings before migration.
 
 ## 3. Atomic V12 Identity and Composition
 
-- [ ] 3.1 Replace candidate/current identity in `src/workflows/workflowHostContract.ts` with the single readonly nested v12 manifest and bidirectional type checks; verify 23/21/85 metrics and version 12.
+- [ ] 3.1 Replace candidate/current identity in `src/workflows/workflowHostContract.ts` with the single readonly nested v12 manifest and bidirectional type checks; verify 23/21/87 metrics and version 12.
 - [ ] 3.2 Finalize `WorkflowHostApiV12` and its exact member signatures in `src/workflows/types.ts`, removing optional `resources`/`synthesis`, raw refs, duplicate public declarations, and legacy public member types; verify TypeScript exactness.
 - [ ] 3.3 Refactor `src/workflows/hostApi.ts` into explicit owner-member composition with interactive adapters and non-interactive deny adapters; verify no spread, proxy, catalog, whole-Broker alias, cached runtime object, or domain implementation remains.
 
@@ -48,4 +48,4 @@ Implementation baseline: `4dbddc24e884921262c559428bf851db5eadf2d7`. Begin only 
 - [ ] 8.1 Run all focused contract, Broker, runtime, library, snapshot, mutation, research, Synthesis, and built-in workflow suites and resolve task-scoped failures.
 - [ ] 8.2 Run `npm run test:node:core`, `npm run test:node:workflow`, `npm run test:zotero:core`, `npm run test:zotero:workflow`, `npm run test:synthesis:invariants`, `npm run check:builtin-workflow-manifest`, `npm run lint:check`, `npm run build`, and `npm run test:gate:pr`; record pass/fail/not-run with causes.
 - [ ] 8.3 Run `openspec validate harden-workflow-host-api-v12 --strict --no-interactive` and OpenSpec verification against the architecture record; verify manifest, DTO/error closure, owner seams, deletion ledger, deferred list, and implementation are coherent.
-- [ ] 8.4 Produce the final completion report confirming v12 atomic activation, no compatibility path, 23/21/85 conformance, zero bypass findings, all owner gates, and the separate subprocess companion status.
+- [ ] 8.4 Produce the final completion report confirming v12 atomic activation, no compatibility path, 23/21/87 conformance, zero bypass findings, all owner gates, and the separate subprocess companion status.

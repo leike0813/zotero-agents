@@ -2067,6 +2067,31 @@ describe("host bridge workflow control", function () {
     }
   });
 
+  it("accepts an omitted binding set when every resource slot is optional", async function () {
+    const entry = workflow("optional-resources");
+    entry.manifest.supportedInvocationModes = [
+      "interactive",
+      "non-interactive",
+    ];
+    entry.manifest.resourceRequirements = [
+      {
+        id: "research-materialized-files",
+        direction: "input",
+        kind: "file",
+        cardinality: "many",
+        required: false,
+      },
+    ];
+
+    const validation = await validateWorkflowResourceBindings({
+      manifest: entry.manifest,
+      raw: undefined,
+    });
+
+    assert.strictEqual(validation.bindings, undefined);
+    assert.deepEqual(validation.inputs, {});
+  });
+
   it("lists native queued units, inspects their active submission, and cancels only pending units", async function () {
     const token = configureHostBridgeServerForTests({
       token: "workflow-token",

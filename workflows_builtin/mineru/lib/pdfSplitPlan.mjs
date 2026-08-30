@@ -42,15 +42,12 @@ export function resolveSourceAttachment(selectionContext) {
   };
 }
 
-async function readPdfBytes(filePath) {
-  const io = globalThis.IOUtils;
-  if (io?.read) {
-    const bytes = await io.read(filePath);
-    return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+async function readPdfBytes(args) {
+  const reader = args.runtime?.hostApi?.file?.readBytes;
+  if (typeof reader !== "function") {
+    throw new Error("Workflow Host file.readBytes is unavailable");
   }
-  const dynamicImport = new Function("specifier", "return import(specifier)");
-  const fs = await dynamicImport("fs/promises");
-  const bytes = await fs.readFile(filePath);
+  const bytes = await reader(args.filePath);
   return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 }
 
@@ -185,12 +182,12 @@ async function flattenPdfJsOutline(doc, entries, level = 1, output = []) {
   return output;
 }
 
-async function readMetadataFromPdfJs(filePath) {
+async function readMetadataFromPdfJs(args) {
   const pdfjs = await loadPdfJs();
   if (!pdfjs) {
     return null;
   }
-  const bytes = await readPdfBytes(filePath);
+  const bytes = await readPdfBytes(args);
   let loadingTask = null;
   let doc = null;
   try {
@@ -240,8 +237,8 @@ function estimatePageCountFromPdfText(text) {
   return maxCount;
 }
 
-async function readMetadataFromFallback(filePath) {
-  const bytes = await readPdfBytes(filePath);
+async function readMetadataFromFallback(args) {
+  const bytes = await readPdfBytes(args);
   const text = decodePdfBytes(bytes);
   const pageCount = estimatePageCountFromPdfText(text);
   if (pageCount <= 0) {
@@ -258,8 +255,8 @@ export async function readPdfSplitMetadata(args) {
   const diagnostics = [];
   const readers = [
     readMetadataFromRuntimeHelper,
-    ({ filePath }) => readMetadataFromPdfJs(filePath),
-    ({ filePath }) => readMetadataFromFallback(filePath),
+    readMetadataFromPdfJs,
+    readMetadataFromFallback,
   ];
   for (const reader of readers) {
     try {

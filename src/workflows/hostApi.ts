@@ -57,13 +57,29 @@ import type {
   WorkflowHostMutationRequest,
   WorkflowHostLiveReadAdapters,
   WorkflowPreparedNoteImage,
+  WorkflowResearchBundleApi,
+  WorkflowCallControl,
+  ImportPapersRequestDto,
+  ImportPapersResultDto,
+  MaterializePapersRequestDto,
+  PortableItemRef,
+  ResourceRef,
+  WorkflowResourceFile,
 } from "./types";
 import { createWorkflowArchiveApi } from "./archive";
+import { createWorkflowFileApi } from "./file";
 import { materializeWorkflowInputFile } from "./workflowInputMaterialization";
 import { prepareWorkflowNoteImage } from "./workflowNoteImagePreparation";
 import { createWorkflowStoredAttachmentImport } from "./workflowStoredAttachmentImport";
 import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
-import { createResearchBundleMaterializer } from "../modules/researchBundleService";
+import {
+  createResearchBundleImportEffects,
+  createResearchBundleImporter,
+  createCanonicalResearchBundleMaterializer,
+  createResearchBundleMaterializer,
+} from "../modules/researchBundleService";
+import { MutationAuthorityExecutionError } from "../modules/zoteroHostMutationAuthority";
+import { sha256Hex } from "../utils/sha256";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 import type { WorkflowInteractionMember } from "./workflowHostErrorContract";
 
@@ -171,6 +187,587 @@ function requireConfirmedMutationResult<
   );
   Object.assign(error, { attempt: result.attempt });
   throw error;
+}
+
+async function researchImportEffectOperationId(
+  operationId: string,
+  consistencyGroupId: string,
+  member: string,
+  identity: string,
+) {
+  const digest = await sha256Hex(
+    new TextEncoder().encode(
+      JSON.stringify([operationId, consistencyGroupId, member, identity]),
+    ),
+  );
+  if (!digest) {
+    throw new Error("SHA-256 is unavailable for research import identity");
+  }
+  return `research-import:${digest}`;
+}
+
+function requireMutationItemRef(value: unknown): {
+  ref: { libraryId: number; key: string };
+  revision: string;
+} {
+  const candidate = value as {
+    ref?: { libraryId?: unknown; key?: unknown };
+    revision?: unknown;
+  };
+  const libraryId = Number(candidate?.ref?.libraryId);
+  const key = String(candidate?.ref?.key || "").trim();
+  const revision = String(candidate?.revision || "").trim();
+  if (!Number.isInteger(libraryId) || libraryId <= 0 || !key || !revision) {
+    throw new Error("Research import mutation returned an invalid item result");
+  }
+  return { ref: { libraryId, key }, revision };
+}
+
+function escapeResearchImportHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeResearchImportRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function bindResearchImportImageSlots(
+  html: string,
+  attachmentKeys: ReadonlyMap<string, string>,
+) {
+  let result = html;
+  for (const [slot, attachmentKey] of attachmentKeys) {
+    const escapedSlot = escapeResearchImportRegex(slot);
+    const attribute = new RegExp(
+      `\\sdata-zotero-agents-image-slot\\s*=\\s*(?:"${escapedSlot}"|'${escapedSlot}')`,
+      "gi",
+    );
+    result = result.replace(
+      attribute,
+      ` data-attachment-key="${attachmentKey}"`,
+    );
+  }
+  return result;
+}
+
+export function createWorkflowResearchBundleImportApi(args: {
+  base: WorkflowHostApi;
+  ownerId: string;
+  resources: {
+    get(ref: ResourceRef): Promise<WorkflowResourceFile>;
+  };
+}): NonNullable<WorkflowHostApi["researchBundles"]["importPapers"]> {
+  const broker = createZoteroHostCapabilityBroker();
+  const callerScope = { ownerId: args.ownerId };
+  const mutationResult = async (
+    request: Parameters<typeof broker.mutations.execute>[0],
+    control?: Parameters<typeof broker.mutations.execute>[2],
+  ) =>
+    requireConfirmedMutationResult(
+      await broker.mutations.execute(request, callerScope, control),
+    );
+  const importPapers = createResearchBundleImporter({
+    ownerId: args.ownerId,
+    effects: createResearchBundleImportEffects({
+      resolveLibraryId(libraryId) {
+        return (
+          libraryId || Number(resolveHostZotero().Libraries?.userLibraryID) || 1
+        );
+      },
+      async readExistingTarget({ itemRef, control }) {
+        const detail = await broker.library.getItemDetail(itemRef, control);
+        if (!detail || detail.kind !== "regular") return null;
+        return {
+          itemRef: detail.item.ref,
+          revision: detail.item.revision,
+          itemType: detail.item.itemType,
+        };
+      },
+      async readCollectionTarget({ collectionRef, control }) {
+        let cursor: string | undefined;
+        do {
+          const page = await broker.library.listCollections(
+            {
+              libraryId: collectionRef.libraryId,
+              limit: 500,
+              ...(cursor ? { cursor } : {}),
+            },
+            control,
+          );
+          const collection = page.collections.find(
+            (entry) => entry.ref.key === collectionRef.key,
+          );
+          if (collection) {
+            return {
+              collectionRef: collection.ref,
+              revision: collection.revision,
+            };
+          }
+          cursor = page.nextCursor || undefined;
+        } while (cursor);
+        return null;
+      },
+      async resolveResource({ resourceRef }) {
+        const resource = await args.resources.get(resourceRef);
+        const sizeBytes = Number(resource.sizeBytes ?? resource.size);
+        const sha256 = String(resource.sha256 || "").replace(/^sha256:/, "");
+        if (!resource.path || !Number.isFinite(sizeBytes) || !sha256) {
+          throw new Error("Research import resource is incomplete");
+        }
+        return {
+          path: resource.path,
+          sizeBytes,
+          sha256,
+          ...(resource.contentType
+            ? { contentType: resource.contentType }
+            : {}),
+        };
+      },
+      async createItem({
+        operationId,
+        consistencyGroupId,
+        graphId,
+        libraryId,
+        item,
+        control,
+      }) {
+        const result = await mutationResult(
+          {
+            operation: "item.create",
+            operationId: await researchImportEffectOperationId(
+              operationId,
+              consistencyGroupId,
+              "item.create",
+              graphId,
+            ),
+            libraryId,
+            itemType: item.itemType,
+            fields: item.fields,
+            creators: item.creators,
+            initialTags: item.tags,
+          },
+          control,
+        );
+        return requireMutationItemRef(result.item);
+      },
+      async addToCollection({
+        operationId,
+        consistencyGroupId,
+        graphId,
+        itemRef,
+        collectionRef,
+        control,
+      }) {
+        await mutationResult(
+          {
+            operation: "collection.updateMembership",
+            operationId: await researchImportEffectOperationId(
+              operationId,
+              consistencyGroupId,
+              "collection.updateMembership",
+              `${graphId}:${collectionRef.libraryId}:${collectionRef.key}`,
+            ),
+            collectionRef,
+            add: [itemRef],
+            remove: [],
+          },
+          control,
+        );
+      },
+      async createNote({
+        operationId,
+        consistencyGroupId,
+        graphId,
+        parentRef,
+        note,
+        embeddedImages,
+        control,
+      }) {
+        const content =
+          note.content.format === "html"
+            ? note.content.value
+            : `<p>${escapeResearchImportHtml(note.content.value)}</p>`;
+        let noteResult:
+          | ReturnType<typeof requireMutationItemRef>
+          | undefined;
+        const embeddedRefs: Array<{ libraryId: number; key: string }> = [];
+        try {
+          noteResult = requireMutationItemRef(
+            (
+              requireConfirmedMutationResult(
+                await broker.notes.create(
+              {
+                operationId: await researchImportEffectOperationId(
+                  operationId,
+                  consistencyGroupId,
+                  "notes.create",
+                  `${graphId}:${note.noteId}`,
+                ),
+                parentRef,
+                content,
+              },
+              callerScope,
+              control,
+              ),
+              )
+            ).note,
+          );
+
+          if (embeddedImages.length) {
+            const noteItem = args.base.items.getByLibraryAndKey(
+              noteResult.ref.libraryId,
+              noteResult.ref.key,
+            );
+            if (!noteItem) {
+              throw new Error("Research import note is unavailable");
+            }
+            const attachmentKeys = new Map<string, string>();
+            for (const image of embeddedImages) {
+              const bytes = await args.base.file.readBytes(image.resource.path);
+              const mimeType =
+                image.resource.contentType === "image/jpeg"
+                  ? "image/jpeg"
+                  : "image/png";
+              const prepared = {
+                bytes,
+                mimeType,
+                width: 1,
+                height: 1,
+                originalBytes: bytes.byteLength,
+                compressedBytes: bytes.byteLength,
+              };
+              const imported = await args.base.notes.importEmbeddedImage(
+                noteItem,
+                prepared,
+              );
+              const itemRef = toBrokerItemRef(imported.attachmentItem);
+              embeddedRefs.push(itemRef);
+              attachmentKeys.set(image.slot, imported.attachmentKey);
+            }
+            await args.base.notes.update(noteItem, {
+              content: bindResearchImportImageSlots(content, attachmentKeys),
+            });
+          }
+
+          if (note.tags.length) {
+            await mutationResult(
+              {
+                operation: "item.updateTags",
+                operationId: await researchImportEffectOperationId(
+                  operationId,
+                  consistencyGroupId,
+                  "item.updateTags",
+                  `${graphId}:${note.noteId}`,
+                ),
+                itemRef: noteResult.ref,
+                add: note.tags,
+                remove: [],
+              },
+              control,
+            );
+          }
+          for (const payload of note.payloads) {
+            requireConfirmedMutationResult(
+              await broker.notes.upsertPayload(
+                {
+                  operationId: await researchImportEffectOperationId(
+                    operationId,
+                    consistencyGroupId,
+                    "notes.upsertPayload",
+                    `${graphId}:${note.noteId}:${payload.summary.payloadType}`,
+                  ),
+                  noteRef: noteResult.ref,
+                  payloadType: payload.summary.payloadType,
+                  noteKind: payload.summary.noteKind,
+                  payload: payload.value,
+                },
+                callerScope,
+                control,
+              ),
+            );
+          }
+          return {
+            ...noteResult,
+            ...(embeddedRefs.length ? { ownedRefs: embeddedRefs } : {}),
+          };
+        } catch (error) {
+          const affectedRefs = [
+            ...(noteResult ? [noteResult.ref] : []),
+            ...embeddedRefs,
+          ];
+          const residualRefs: Array<{ libraryId: number; key: string }> = [];
+          for (const itemRef of [...affectedRefs].reverse()) {
+            try {
+              const item = args.base.items.getByLibraryAndKey(
+                itemRef.libraryId,
+                itemRef.key,
+              );
+              if (item) await args.base.items.remove(item);
+            } catch {
+              residualRefs.push(itemRef);
+            }
+          }
+          throw new MutationAuthorityExecutionError(
+            residualRefs.length ? "repair_required" : "failed",
+            "execution_failed",
+            "compensation",
+            residualRefs.length ? "reconcile" : "retry_same_operation",
+            {
+              phase: "cleanup",
+              recovery: residualRefs.length
+                ? "reconcile"
+                : "retry_same_operation",
+              affectedCount: affectedRefs.length,
+              residualCount: residualRefs.length,
+            },
+            error instanceof Error
+              ? error.message
+              : "Research note import failed",
+            affectedRefs.map((ref) => ({ kind: "item" as const, ref })),
+            residualRefs.map((ref) => ({ kind: "item" as const, ref })),
+          );
+        }
+      },
+      async createAttachment({
+        parentRef,
+        attachment,
+        materializedSource,
+      }) {
+        const parent = args.base.items.getByLibraryAndKey(
+          parentRef.libraryId,
+          parentRef.key,
+        );
+        if (!parent) {
+          throw new Error("Research import attachment parent is unavailable");
+        }
+        const created =
+          materializedSource.kind === "stored_file"
+            ? await args.base.attachments.importStoredFile({
+                parent,
+                path: materializedSource.main.path,
+                title: attachment.metadata?.title,
+                mimeType: attachment.metadata?.contentType,
+                charset: attachment.metadata?.charset,
+                url: attachment.metadata?.originalUrl,
+                companionFiles: materializedSource.companions.map(
+                  (companion) => ({
+                    sourcePath: companion.path,
+                    relativePath: companion.targetRelativePath,
+                  }),
+                ),
+              })
+            : await args.base.attachments.createFromUrl({
+                parent,
+                url: materializedSource.url,
+                title: attachment.metadata?.title,
+                mimeType: attachment.metadata?.contentType,
+                deduplicate: false,
+              });
+        const ref = toBrokerItemRef(created);
+        const detail = await broker.library.getItemDetail(ref);
+        if (!detail || detail.kind !== "attachment") {
+          throw new Error("Research import attachment verification failed");
+        }
+        return { ref, revision: detail.item.revision };
+      },
+      async addRelated({
+        operationId,
+        consistencyGroupId,
+        sourceGraphId,
+        sourceRef,
+        targetRef,
+        control,
+      }) {
+        await mutationResult(
+          {
+            operation: "item.addRelated",
+            operationId: await researchImportEffectOperationId(
+              operationId,
+              consistencyGroupId,
+              "item.addRelated",
+              `${sourceGraphId}:${targetRef.libraryId}:${targetRef.key}`,
+            ),
+            sourceRef,
+            relatedRef: targetRef,
+          },
+          control,
+        );
+      },
+      async readRevision({ itemRef, control }) {
+        try {
+          const detail = await broker.library.getItemDetail(itemRef, control);
+          if (detail) return detail.item.revision;
+        } catch {
+          // Some plugin-managed note attachments do not have a public detail
+          // projection, but they still participate in the group receipt.
+        }
+        const item = args.base.items.getByLibraryAndKey(
+          itemRef.libraryId,
+          itemRef.key,
+        ) as (Zotero.Item & { version?: unknown; dateModified?: unknown }) | null;
+        const revision =
+          item?.version ??
+          item?.dateModified ??
+          (item as any)?.toJSON?.()?.version;
+        if (revision === undefined || revision === null || !String(revision)) {
+          throw new Error("Imported research item is unavailable");
+        }
+        return String(revision);
+      },
+      async removeItem({ itemRef }) {
+        const item = args.base.items.getByLibraryAndKey(
+          itemRef.libraryId,
+          itemRef.key,
+        );
+        if (!item) throw new Error("Research import compensation target is missing");
+        await args.base.items.remove(item);
+      },
+    }),
+  });
+  return (
+    request: ImportPapersRequestDto,
+    control?: Parameters<typeof importPapers>[1],
+  ): Promise<ImportPapersResultDto> => importPapers(request, control);
+}
+
+export function createWorkflowResearchBundleMaterializeApi(args: {
+  resources: {
+    materializeFile(input: {
+      slotId: string;
+      sourcePath: string;
+      displayName?: string;
+      contentType?: string;
+      kind?: "file" | "archive";
+    }): Promise<WorkflowResourceFile>;
+    releaseResources(refs: ResourceRef[]): Promise<void>;
+  };
+}) {
+  const broker = createZoteroHostCapabilityBroker();
+  const readPaper = async (
+    ref: PortableItemRef,
+    control?: WorkflowCallControl,
+  ) => {
+      const detail = await broker.library.getItemDetail(ref, control);
+      if (!detail || detail.kind !== "regular") return null;
+      const [item] = await broker.library.exportPortableItems([ref], control);
+      if (!item) return null;
+      const noteSummaries = await broker.library.getItemNotes(ref, control);
+      const notes = await Promise.all(
+        noteSummaries.map(async (summary) => {
+          const note = await broker.library.getNoteDetail(
+            summary.ref,
+            { format: "html" },
+            control,
+          );
+          const payloadSummaries = await broker.library.listNotePayloads(
+            summary.ref,
+            control,
+          );
+          const payloads = await Promise.all(
+            payloadSummaries
+              .filter((payload) => payload.state === "available")
+              .map((payload) =>
+                broker.library.getNotePayload(
+                  summary.ref,
+                  { payloadType: payload.payloadType },
+                  control,
+                ),
+              ),
+          );
+          return {
+            source: { ref: summary.ref, revision: summary.revision },
+            content: {
+              format: "html" as const,
+              value: note.content,
+              embeddedImages: [],
+            },
+            tags: [],
+            payloads,
+          };
+        }),
+      );
+      const attachments = (
+        await broker.library.getItemAttachments(ref, control)
+      ).filter((attachment) => attachment.role === "ordinary");
+      const annotations = await broker.library.listAnnotations(ref, control);
+      return {
+        source: { ref: detail.item.ref, revision: detail.item.revision },
+        item,
+        collectionRefs: detail.item.collectionRefs,
+        relatedRefs: detail.item.relatedRefs,
+        notes,
+        attachments,
+        annotations,
+      };
+  };
+  return async (
+    request: MaterializePapersRequestDto,
+    control: WorkflowCallControl = {},
+  ) => {
+    const stagedRefs: ResourceRef[] = [];
+    const materialize = createCanonicalResearchBundleMaterializer({
+      readPaper,
+      resources: {
+        async stageFile(stageArgs) {
+          const staged = await args.resources.materializeFile({
+            ...stageArgs,
+            slotId: "research-materialized-files",
+          });
+          if (
+            !staged.ref ||
+            !staged.path ||
+            staged.sizeBytes === undefined ||
+            !staged.sha256
+          ) {
+            throw new Error("Materialized research resource is incomplete");
+          }
+          stagedRefs.push(staged.ref);
+          return {
+            ref: staged.ref,
+            path: staged.path,
+            displayName: staged.displayName,
+            contentType: staged.contentType,
+            sizeBytes: staged.sizeBytes,
+            sha256: staged.sha256,
+          };
+        },
+        cleanup: () => args.resources.releaseResources(stagedRefs),
+      },
+    });
+    return materialize(request, control);
+  };
+}
+
+export function createBoundWorkflowResearchBundleApi(args: {
+  base: WorkflowHostApi;
+  ownerId: string;
+  resources: Parameters<typeof createWorkflowResearchBundleMaterializeApi>[0]["resources"] & {
+    get(ref: ResourceRef): Promise<WorkflowResourceFile>;
+  };
+}): WorkflowResearchBundleApi {
+  const canonicalMaterialize = createWorkflowResearchBundleMaterializeApi({
+    resources: args.resources,
+  });
+  const materializePapers = (async (
+    request: Parameters<WorkflowResearchBundleApi["materializePapers"]>[0],
+    control?: WorkflowCallControl,
+  ) => {
+    if ("paperRefs" in request) {
+      return canonicalMaterialize(request, control);
+    }
+    return args.base.researchBundles.materializePapers(request);
+  }) as WorkflowResearchBundleApi["materializePapers"];
+  return {
+    materializePapers,
+    importPapers: createWorkflowResearchBundleImportApi({
+      base: args.base,
+      ownerId: args.ownerId,
+      resources: args.resources,
+    }),
+  };
 }
 
 export async function withWorkflowLibraryItemSnapshot(
@@ -833,7 +1430,26 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       return attachmentFromResult(result);
     },
   } satisfies WorkflowHostApi["attachments"];
-  cachedHostApi = {
+  const workflowFile = createWorkflowFileApi();
+  const legacyMaterializePapers = async (args: {
+    papers: Array<{ paperRef: string }>;
+    sourcePaperRefs?: string[];
+  }) => {
+    const materialized = await materializeWorkflowResearchBundlePapers(args);
+    return {
+      ...materialized,
+      warnings: materialized.warnings.map((warning) =>
+        warning.code === "source_missing"
+          ? { ...warning, code: "core_source_missing" }
+          : warning,
+      ),
+    };
+  };
+  const researchBundles: WorkflowResearchBundleApi = {
+    materializePapers:
+      legacyMaterializePapers as WorkflowResearchBundleApi["materializePapers"],
+  };
+  const hostApi: WorkflowHostApi = {
     version: WORKFLOW_HOST_API_VERSION,
     addon: {
       getConfig: resolveHostAddonConfig,
@@ -888,22 +1504,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     library,
     mutations,
     metadata,
-    researchBundles: {
-      async materializePapers(args) {
-        const materialized = await materializeWorkflowResearchBundlePapers({
-          papers: args.papers,
-          sourcePaperRefs: args.sourcePaperRefs,
-        });
-        return {
-          ...materialized,
-          warnings: materialized.warnings.map((warning) =>
-            warning.code === "source_missing"
-              ? { ...warning, code: "core_source_missing" }
-              : warning,
-          ),
-        };
-      },
-    },
+    researchBundles,
     prefs: {
       get(key, global = true) {
         return resolveHostZotero().Prefs.get(
@@ -1020,54 +1621,13 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       pathToFile(path: string) {
         return resolveHostZotero().File.pathToFile(requireHostFilePath(path));
       },
-      readText,
-      writeText,
-      readBytes,
-      writeBytes,
-      copy: copyFile,
-      exists: pathExists,
-      makeDirectory,
-      materializeWorkflowInputFile,
-      getTempDirectoryPath() {
-        return resolveRuntimeTemporaryDirectory();
-      },
-      async pickDirectory(args) {
-        return openRuntimeFilePicker({
-          title: args?.title,
-          mode: "folder",
-          directory: args?.directory,
-        }) as Promise<string | null>;
-      },
-      async pickFile(args) {
-        return openRuntimeFilePicker({
-          title: args?.title,
-          mode: "open",
-          filters: args?.filters,
-          directory: args?.directory,
-        }) as Promise<string | null>;
-      },
-      async pickSaveFile(args) {
-        return openRuntimeFilePicker({
-          title: args?.title,
-          mode: "save",
-          filters: args?.filters,
-          directory: args?.directory,
-          suggestion: args?.suggestedName,
-        }) as Promise<string | null>;
-      },
-      async pickFiles(args) {
-        return openRuntimeFilePicker({
-          title: args?.title,
-          mode: "multiple",
-          filters: args?.filters,
-          directory: args?.directory,
-        }) as Promise<string[] | null>;
-      },
+      ...workflowFile,
     },
     archive: createWorkflowArchiveApi(),
     synthesis: createWorkflowSynthesisHostApi(),
   };
-  return cachedHostApi;
+  cachedHostApi = hostApi;
+  return hostApi;
 }
 
 export function resetWorkflowHostApiForTests() {

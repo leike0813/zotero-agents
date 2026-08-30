@@ -4,6 +4,10 @@ import {
   writeRuntimeTextFileStrict,
 } from "../modules/runtimePersistence";
 import { joinPath } from "../utils/path";
+import {
+  digestRuntimeFileSource,
+  inspectRuntimeFileSource,
+} from "../modules/runtimeFileTransfer";
 
 const RESERVED_FILE_SEGMENTS = new Set([
   "con",
@@ -36,6 +40,14 @@ export type WorkflowInputMaterializationRequest = {
   fileName?: string;
   content?: string;
   bytes?: Uint8Array | ArrayBuffer;
+};
+
+export type ScopedWorkflowInputMaterializationRequest = {
+  key?: string;
+  fileName: string;
+  content:
+    | { kind: "text"; text: string }
+    | { kind: "bytes"; bytes: Uint8Array | ArrayBuffer };
 };
 
 function normalizeManagedPathSegment(value: unknown, fallback: string) {
@@ -96,5 +108,38 @@ export async function materializeWorkflowInputFile(
   } else {
     await writeRuntimeTextFileStrict(targetPath, String(args.content ?? ""));
   }
-  return { path: targetPath };
+  const source = await inspectRuntimeFileSource(targetPath);
+  const digest = await digestRuntimeFileSource(source);
+  return {
+    path: targetPath,
+    sizeBytes: source.size,
+    sha256: digest.sha256.replace(/^sha256:/, ""),
+  };
+}
+
+export function createWorkflowInputMaterializer(scope: {
+  workflowId: string;
+  runId: string;
+}) {
+  const workflowId = normalizeManagedPathSegment(scope.workflowId, "workflow");
+  const runId = normalizeManagedPathSegment(scope.runId, "run");
+  return (request: ScopedWorkflowInputMaterializationRequest) => {
+    if (request?.content?.kind === "text") {
+      return materializeWorkflowInputFile({
+        workflowId: `${workflowId}-${runId}`,
+        key: request.key,
+        fileName: request.fileName,
+        content: request.content.text,
+      });
+    }
+    if (request?.content?.kind === "bytes") {
+      return materializeWorkflowInputFile({
+        workflowId: `${workflowId}-${runId}`,
+        key: request.key,
+        fileName: request.fileName,
+        bytes: request.content.bytes,
+      });
+    }
+    throw new Error("Workflow input content variant is invalid");
+  };
 }

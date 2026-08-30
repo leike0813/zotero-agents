@@ -27,7 +27,7 @@ file: readText, writeText, readBytes, writeBytes, copy, exists,
   makeDirectory, materializeWorkflowInputFile, getTempDirectoryPath,
   pickDirectory, pickFile, pickSaveFile, pickFiles, stat, list, move, remove
 archive: measureEntries, writeZipAtomic, withExtractedZip
-resources: getInput, getInputs, allocateOutput, publishOutput, listOutputs
+resources: getInput, getInputs, get, materializeFile, allocateOutput, publishOutput, listOutputs
 clipboard: readText, writeText, hasText, clear
 editor: openSession
 notifications: toast
@@ -41,11 +41,11 @@ synthesis.tags: loadVocabulary, saveVocabulary, exportVocabularyForRegulator,
   discardStagedSuggestions, withAuditRun, acknowledgeRegulation
 ```
 
-The manifest SHALL measure 23 top-level keys, including two metadata values and twenty-one nested modules, and 85 callable members. Synthesis grouping keys SHALL not count as callable members.
+The manifest SHALL measure 23 top-level keys, including two metadata values and twenty-one nested modules, and 87 callable members. Synthesis grouping keys SHALL not count as callable members.
 
 #### Scenario: Interactive projection is inspected
 - **WHEN** recursive conformance inspects every top-level and nested key
-- **THEN** the projection has exactly the declared 23/21/85 identity and every callable position is a function
+- **THEN** the projection has exactly the declared 23/21/87 identity and every callable position is a function
 
 #### Scenario: Undeclared member is exposed
 - **WHEN** composition, Broker growth, or a spread adds a top-level or nested member

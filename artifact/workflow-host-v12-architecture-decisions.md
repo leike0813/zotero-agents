@@ -389,6 +389,14 @@ type WorkflowHostApiV12 = Readonly<{
   resources: Readonly<{
     getInput(slotId: string): WorkflowResourceFileDto | null;
     getInputs(slotId: string): WorkflowResourceFileDto[];
+    get(
+      ref: ResourceRef,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowResourceFileDto>;
+    materializeFile(
+      input: WorkflowResourceMaterializeFileRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowResourceFileDto>;
     allocateOutput(
       input: WorkflowResourceAllocationRequestDto,
       control?: WorkflowCallControl,
@@ -497,7 +505,7 @@ type WorkflowHostApiV12 = Readonly<{
 }>;
 ```
 
-manifest metrics 固定为：23 个 top-level keys（2 个 metadata values + 21 个 nested modules）与 85 个 callable members。`synthesis` 的 14 个 callable members 计入 85，但其 `workflowApply/topics/artifacts/tags` grouping keys 不计作 callable member。
+manifest metrics 固定为：23 个 top-level keys（2 个 metadata values + 21 个 nested modules）与 87 个 callable members。`synthesis` 的 14 个 callable members 计入 87，但其 `workflowApply/topics/artifacts/tags` grouping keys 不计作 callable member。
 
 明确不存在的 top-level keys：`items`、`prefs`、`parents`、generic `tags`、generic `collections`、`command`、legacy `literature`。`resources.mode`、optional `resources`、optional `synthesis`、flat Synthesis aliases 与任何 runtime capability map 同样不存在。
 
@@ -5183,6 +5191,8 @@ v12 不新增 archive-entry handle、通用 path registry 或与 local-path seam
 
 ```text
 getInput / getInputs
+get
+materializeFile
 allocateOutput / publishOutput
 listOutputs
 ```
@@ -5204,6 +5214,14 @@ type WorkflowResourceFileDto = {
   kind: "file" | "archive";
   sizeBytes: number;
   sha256: string;
+};
+
+type WorkflowResourceMaterializeFileRequestDto = {
+  slotId: string;
+  sourcePath: string;
+  displayName?: string;
+  contentType?: string;
+  kind?: "file" | "archive";
 };
 
 type WorkflowResourceAllocationRequestDto = {
@@ -5240,7 +5258,7 @@ type WorkflowResourceOutputDescriptorDto = {
 };
 ```
 
-`ResourceRef` 统一替代平行的 `fileId`/resource handle 表示，但不替代 local path；in-process DTO 可以同时含 managed `path`，remote descriptor 必须删除它。allocation ID 是 output publish 的 current-run reservation identity；它不是通用 path handle，也不能解析任意 local path。`resources.mode` 删除，调用模式只读顶层 `interactionMode`。
+`ResourceRef` 统一替代平行的 `fileId`/resource handle 表示，但不替代 local path；in-process DTO 可以同时含 managed `path`，remote descriptor 必须删除它。`get()` 是 opaque ref 到当前可信 in-process file projection 的唯一解析 seam：它只接受当前 run 的 Host-issued ref，每次读取都重新校验 retained bytes，并拒绝 forged、foreign-run、expired、cleaned 或内容已变化的 ref。`materializeFile()` 是 callback-local path 到 immutable ref 的 composition seam：`sourcePath` 可以来自 `file`、picker 或 `archive.withExtractedZip()` callback，但 Host 必须在调用返回前把当前字节复制到当前 run 的 managed resource scope，校验 manifest-bound slot、kind、content type、extension 与 bytes，并返回新 `ResourceRef`；source path 本身不进入资源 identity，callback settle 后也不再需要有效。`slotId` 必须对应 runtime 已绑定的 input/materialization slot，workflow 不能自报或放宽 slot definition。allocation ID 是 output publish 的 current-run reservation identity；它不是通用 path handle，也不能解析任意 local path。`resources.mode` 删除，调用模式只读顶层 `interactionMode`。
 
 补齐：
 
@@ -5258,6 +5276,8 @@ resources path contract：
 
 - input 的 remote `fileId` 由 Host Bridge 解析为当前可信进程可用的 `WorkflowResourceFile.path`；remote caller 永远看不到该 path；
 - `allocateOutput()` 返回的 path 绑定当前 run、slot 与 allocation registry；`publishOutput()` 必须拒绝未分配、跨 run 或 slot 不匹配的路径；
+- `materializeFile()` 必须在调用动态范围内读取并固定 `sourcePath` 的字节，返回当前 run 的 managed path 与不可变 `ResourceRef`；不得保存或延迟重读 archive callback-local path；
+- `get()` 只解析当前 run 已注册的 input/materialized resource，并在返回 managed path 前复核 size/hash；workflow 不得从 ref ID 推导路径或绕过 owner；
 - publish 前验证 manifest 声明的 kind、content type、extension、`maxBytes`、最终 size/hash，并把 publish 作为明确的 finalize boundary；
 - publish result/list output descriptor 只包含 strict-JSON opaque identity、display metadata、size/hash、expiry 与 download command，不包含 local path；
 - run terminal、cancel、failure 与 expiry 的 lease/physical-file cleanup responsibility 必须明确，descriptor 释放不能被误认为 durable storage；
@@ -5979,7 +5999,7 @@ public Workflow Host 删除 `requiresConfirmation`；authorization、permission 
 21. `statusTags.transition` 由 Broker/canonical authority 原子执行，不返回 legacy `warnings[]`；现有 callers 对 attempt 分支保留 domain partial diagnostics。
 22. `researchBundles.importPapers` 验证 dependency DAG、SCC atomic group、independent partial success、receipt/attempt reference SSOT、cancel 与 repair precedence。
 23. Synthesis projection 只有 4 groups/14 members，新增 wire contracts 与 canonical package/Rust sidecar parity，flat aliases 与 raw callbacks 不存在。
-24. manifest AST 指标固定为 23/21/85，所有可达 noncanonical public types 有唯一 declaration，禁止 duplicate declaration 与 unresolved alias。
+24. manifest AST 指标固定为 23/21/87，所有可达 noncanonical public types 有唯一 declaration，禁止 duplicate declaration 与 unresolved alias。
 25. production TypeScript 的普通异步文件操作不在批准例外之外直接选择 `IOUtils`、`OS.File` 或 Node adapter；AST/import governance 只允许 `runtimePersistence` owner 与 §4.5 的闭合 native workload allowlist。
 26. `runtimePersistence` interface 测试覆盖 strict/tolerant failure、adapter unavailable、Unicode-safe append、atomic operation 与 per-call late binding；同一 cached caller 在两次调用间更换 runtime globals 时，第二次必须使用新 adapter。
 27. `platform/subprocess` interface 测试覆盖 normalized stdout/stderr/exit、unavailable、timeout、bounded termination 与 Windows hidden one-shot execution；ACP transport、bridge、installer 和 dependency probe 继续从各自可观察 outcome 测试 lifecycle，不锁定底层 fallback 调用顺序。
@@ -6226,7 +6246,7 @@ Platform subprocess companion 的完成证据必须包括：
 
 集中式 contract authoring 已闭合以下内容：
 
-- §3.7 冻结 23 个 top-level keys、21 个 nested modules 与 85 个 callable members；机械 AST 计数与正文指标一致；
+- §3.7 冻结 23 个 top-level keys、21 个 nested modules 与 87 个 callable members；机械 AST 计数与正文指标一致；
 - exact manifest 可达的 205 个 contract type references 均能在本工件找到定义，或明确来自 `packages/synthesis-contracts` canonical package；没有 unresolved noncanonical type；
 - 11 个 generic execute operations、3 个 mandatory preview operations、全部 specialized mutation receipt discriminants、request/result maps 与三种 exact preview plans 已闭合；
 - `researchBundles.importPapers` 的 per-paper result、SCC consistency group、dependency scheduling、late relation binding、partial success、receipts/attempts、cancellation/compensation、outcome precedence 与 limits 已闭合；
@@ -6288,7 +6308,7 @@ Platform subprocess companion 的完成证据必须包括：
 
 #### 19.7.3 过度设计审阅
 
-方案规模很大，但没有发现应从 v12 删除的已批准 capability。85 个 callable members 看起来很宽，实际被 21 个 coherent namespaces 分隔，其中大量是现有基础能力的固化与去 raw 化；把它们删除会重新迫使 caller 使用 handler、Zotero object、filesystem/runtime 或 sidecar transport。复杂部分也有对应需求：Hermes 完整索引需要 stable snapshot；tag audit 需要 durable promotion correctness；Research Bundle raw-domain migration 需要 graph import；stored attachment 需要 managed staging/compensation。
+方案规模很大，但没有发现应从 v12 删除的已批准 capability。87 个 callable members 看起来很宽，实际被 21 个 coherent namespaces 分隔，其中大量是现有基础能力的固化与去 raw 化；把它们删除会重新迫使 caller 使用 handler、Zotero object、filesystem/runtime 或 sidecar transport。复杂部分也有对应需求：Hermes 完整索引需要 stable snapshot；tag audit 需要 durable promotion correctness；Research Bundle raw-domain migration 需要 graph import；stored attachment 需要 managed staging/compensation。
 
 本轮已经主动去掉或拒绝了容易演化成过度设计的部分：
 

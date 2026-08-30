@@ -87,7 +87,10 @@ import {
   acquireHostBridgeUploadedFileLease,
   releaseHostBridgeUploadedFileLease,
 } from "./hostBridgeFileRegistry";
-import { createWorkflowHostApi } from "../workflows/hostApi";
+import {
+  createBoundWorkflowResearchBundleApi,
+  createWorkflowHostApi,
+} from "../workflows/hostApi";
 import {
   createDirectoryBundleReader,
   type BundleReader,
@@ -2110,21 +2113,34 @@ export async function submitHostBridgeWorkflow(args: {
     ? await acquireHostBridgeUploadedFileLease(inputFileIds)
     : null;
   let releaseLeaseOnExit = true;
+  let resourceApi:
+    | Awaited<ReturnType<typeof createHostBridgeWorkflowResourceApi>>
+    | undefined;
+  let resourceCleanupDeferred = false;
   try {
     const validatedResources = await validateWorkflowResourceBindings({
       manifest: workflow.manifest,
       raw: plan.resourceBindings,
     });
-    const resourceApi = await createHostBridgeWorkflowResourceApi({
+    resourceApi = await createHostBridgeWorkflowResourceApi({
       workflowId: workflow.manifest.id,
       manifest: workflow.manifest,
       inputs: validatedResources.inputs,
       outputBindings: validatedResources.bindings?.outputs || {},
     });
+    const baseHostApi = createWorkflowHostApi();
+    const researchBundles = createBoundWorkflowResearchBundleApi({
+      base: baseHostApi,
+      ownerId: `host-bridge-workflow:${workflow.manifest.id}`,
+      resources: resourceApi,
+    });
     const runtime = {
       invocationMode: "non-interactive" as const,
       hostApi: createNonInteractiveWorkflowHostApi({
-        base: createWorkflowHostApi(),
+        base: {
+          ...baseHostApi,
+          researchBundles,
+        },
         resources: resourceApi,
       }),
     };
@@ -2173,12 +2189,14 @@ export async function submitHostBridgeWorkflow(args: {
       skippedByGuard: duplicateGuard.skippedByDuplicate,
       messageFormatter,
       onTerminal: () => {
+        void resourceApi?.cleanup();
         if (lease) {
           releaseHostBridgeUploadedFileLease(lease.leaseId);
           releaseLeaseOnExit = false;
         }
       },
     });
+    resourceCleanupDeferred = true;
     if (submission.admission === "host-queue") {
       if (lease) {
         releaseLeaseOnExit = false;
@@ -2220,6 +2238,9 @@ export async function submitHostBridgeWorkflow(args: {
       resourceOutputs: resourceApi.listOutputs(),
     };
   } finally {
+    if (resourceApi && !resourceCleanupDeferred) {
+      await resourceApi.cleanup();
+    }
     if (lease && releaseLeaseOnExit) {
       releaseHostBridgeUploadedFileLease(lease.leaseId);
     }

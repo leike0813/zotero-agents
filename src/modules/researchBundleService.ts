@@ -26,6 +26,30 @@ import {
   SynthesisDeliveryContext,
   SynthesisPaperArtifactType,
 } from "../../packages/synthesis-contracts/src/index";
+import type {
+  ImportPaperGraphDto,
+  ImportPaperResultDto,
+  ImportPapersRequestDto,
+  ImportPapersResultDto,
+  ImportAttachmentDto,
+  ImportNoteDto,
+  AnnotationDetailDto,
+  AttachmentDetailDto,
+  JsonValue,
+  MaterializedNoteDto,
+  MaterializedPaperDto,
+  MaterializePapersRequestDto,
+  MaterializePapersResultDto,
+  MutationChangeDto,
+  PortableCollectionRef,
+  PortableItemRef,
+  ResourceRef,
+  WorkflowCallControl,
+} from "../workflows/types";
+import {
+  executeReservedMutation,
+  MutationAuthorityExecutionError,
+} from "./zoteroHostMutationAuthority";
 
 const MAX_PAPER_SELECTORS = 100;
 const MAX_TOPIC_SELECTORS = 20;
@@ -292,7 +316,7 @@ async function rewriteMarkdownImages(args: {
       warnings.push({
         code: "markdown_image_outside_source_tree",
         paper_ref: args.paperRef,
-        path: resolved.path,
+        path: getBaseName(resolved.path),
       });
       continue;
     }
@@ -301,7 +325,7 @@ async function rewriteMarkdownImages(args: {
       warnings.push({
         code: "markdown_image_missing",
         paper_ref: args.paperRef,
-        path: resolved.path,
+        path: resolved.relativePath,
       });
       continue;
     }
@@ -1407,3 +1431,1495 @@ export const directResearchBundleLimits = {
   files: MAX_BUNDLE_FILES,
   bytes: MAX_BUNDLE_BYTES,
 } as const;
+
+const RESEARCH_IMPORT_LIMITS = Object.freeze({
+  papers: 1_000,
+  notesPerPaper: 500,
+  attachmentsPerPaper: 500,
+  payloadsPerNote: 100,
+  embeddedImagesPerNote: 100,
+  relationEdges: 20_000,
+  metadataBytes: 128 * 1024 * 1024,
+  resourceBytes: 32 * 1024 * 1024 * 1024,
+  identifierCharacters: 128,
+});
+
+export class ResearchBundleImportValidationError extends Error {
+  constructor(
+    readonly code:
+      | "invalid_request"
+      | "invalid_ref"
+      | "resource_limited"
+      | "conflict",
+    readonly details: Record<string, string | number>,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ResearchBundleImportValidationError";
+  }
+}
+
+export type ResearchBundleCommittedPaper = {
+  graphId: string;
+  itemRef: PortableItemRef;
+  revision: string;
+  noteRefs: Array<{ noteId: string; ref: PortableItemRef }>;
+  attachmentRefs: Array<{ attachmentId: string; ref: PortableItemRef }>;
+};
+
+export type ResearchBundleImportEffects = {
+  resolveLibraryId(libraryId: number | undefined): number | Promise<number>;
+  validateExistingTarget(args: {
+    itemRef: PortableItemRef;
+    expectedRevision?: string;
+    libraryId: number;
+    control?: WorkflowCallControl;
+  }): Promise<{ itemRef: PortableItemRef; revision: string }>;
+  validateCollectionTarget?(args: {
+    collectionRef: PortableCollectionRef;
+    libraryId: number;
+    control?: WorkflowCallControl;
+  }): Promise<{ collectionRef: PortableCollectionRef; revision: string }>;
+  validateResource(args: {
+    resourceRef: ResourceRef;
+    control?: WorkflowCallControl;
+  }): Promise<{ sizeBytes: number; sha256: string }>;
+  commitGroup(args: {
+    operationId: string;
+    consistencyGroupId: string;
+    libraryId: number;
+    papers: Extract<ImportPaperGraphDto, { target: { kind: "create" } }>[];
+    resolvedTargets: ReadonlyMap<string, PortableItemRef>;
+    control?: WorkflowCallControl;
+  }): Promise<{
+    papers: ResearchBundleCommittedPaper[];
+    changes: MutationChangeDto[];
+  }>;
+};
+
+type ResearchBundleResolvedResource = {
+  path: string;
+  sizeBytes: number;
+  sha256: string;
+  contentType?: string;
+};
+
+type ResearchBundleCreatedValue =
+  | PortableItemRef
+  | {
+      ref: PortableItemRef;
+      revision?: string;
+      ownedRefs?: PortableItemRef[];
+    };
+
+export type ResearchBundleImportHostEffects = {
+  resolveLibraryId(libraryId: number | undefined): number | Promise<number>;
+  readExistingTarget(args: {
+    itemRef: PortableItemRef;
+    control?: WorkflowCallControl;
+  }): Promise<{
+    itemRef: PortableItemRef;
+    revision: string;
+    itemType: string;
+  } | null>;
+  readCollectionTarget?(args: {
+    collectionRef: PortableCollectionRef;
+    control?: WorkflowCallControl;
+  }): Promise<{
+    collectionRef: PortableCollectionRef;
+    revision: string;
+  } | null>;
+  resolveResource(args: {
+    resourceRef: ResourceRef;
+    control?: WorkflowCallControl;
+  }): Promise<ResearchBundleResolvedResource>;
+  createItem(args: {
+    operationId: string;
+    consistencyGroupId: string;
+    graphId: string;
+    libraryId: number;
+    item: CreateImportPaper["item"];
+    control?: WorkflowCallControl;
+  }): Promise<ResearchBundleCreatedValue>;
+  addToCollection(args: {
+    operationId: string;
+    consistencyGroupId: string;
+    graphId: string;
+    itemRef: PortableItemRef;
+    collectionRef: CreateImportPaper["collectionRefs"][number];
+    control?: WorkflowCallControl;
+  }): Promise<void>;
+  createNote(args: {
+    operationId: string;
+    consistencyGroupId: string;
+    graphId: string;
+    parentRef: PortableItemRef;
+    note: ImportNoteDto;
+    embeddedImages: Array<{
+      slot: string;
+      resource: ResearchBundleResolvedResource;
+      altText?: string;
+    }>;
+    control?: WorkflowCallControl;
+  }): Promise<ResearchBundleCreatedValue>;
+  createAttachment(args: {
+    operationId: string;
+    consistencyGroupId: string;
+    graphId: string;
+    parentRef: PortableItemRef;
+    attachment: ImportAttachmentDto;
+    materializedSource:
+      | {
+          kind: "stored_file";
+          main: ResearchBundleResolvedResource & { targetFilename?: string };
+          companions: Array<
+            ResearchBundleResolvedResource & { targetRelativePath: string }
+          >;
+        }
+      | { kind: "linked_url" | "stored_url"; url: string };
+    control?: WorkflowCallControl;
+  }): Promise<ResearchBundleCreatedValue>;
+  addRelated(args: {
+    operationId: string;
+    consistencyGroupId: string;
+    sourceGraphId: string;
+    sourceRef: PortableItemRef;
+    targetRef: PortableItemRef;
+    control?: WorkflowCallControl;
+  }): Promise<void>;
+  readRevision(args: {
+    itemRef: PortableItemRef;
+    control?: WorkflowCallControl;
+  }): Promise<string>;
+  removeItem(args: {
+    operationId: string;
+    consistencyGroupId: string;
+    itemRef: PortableItemRef;
+    control?: WorkflowCallControl;
+  }): Promise<void>;
+};
+
+function createdRef(value: ResearchBundleCreatedValue): PortableItemRef {
+  return "ref" in value ? value.ref : value;
+}
+
+function createdOwnedRefs(value: ResearchBundleCreatedValue) {
+  return "ref" in value && Array.isArray(value.ownedRefs)
+    ? value.ownedRefs
+    : [];
+}
+
+function throwIfResearchImportCanceled(control?: WorkflowCallControl) {
+  if (!control?.signal?.aborted) return;
+  throw new MutationAuthorityExecutionError(
+    "canceled",
+    "execution_failed",
+    "commit",
+    "retry_same_operation",
+    { phase: "commit", recovery: "retry_same_operation" },
+    "Research import was canceled",
+  );
+}
+
+export function createResearchBundleImportEffects(
+  host: ResearchBundleImportHostEffects,
+): ResearchBundleImportEffects {
+  return {
+    resolveLibraryId: host.resolveLibraryId,
+    async validateExistingTarget(args) {
+      const existing = await host.readExistingTarget({
+        itemRef: args.itemRef,
+        control: args.control,
+      });
+      if (
+        !existing ||
+        existing.itemRef.libraryId !== args.libraryId ||
+        !existing.itemType
+      ) {
+        importValidationError(
+          "invalid_ref",
+          { kind: "item", reason: existing ? "foreign_scope" : "not_found" },
+          "Existing research target is unavailable",
+        );
+      }
+      return { itemRef: existing.itemRef, revision: existing.revision };
+    },
+    async validateCollectionTarget(args) {
+      const collection = await host.readCollectionTarget?.({
+        collectionRef: args.collectionRef,
+        control: args.control,
+      });
+      if (
+        !collection ||
+        collection.collectionRef.libraryId !== args.libraryId
+      ) {
+        importValidationError(
+          "invalid_ref",
+          {
+            kind: "collection",
+            reason: collection ? "foreign_scope" : "not_found",
+          },
+          "Research import collection is unavailable",
+        );
+      }
+      return collection;
+    },
+    async validateResource(args) {
+      const resource = await host.resolveResource(args);
+      return { sizeBytes: resource.sizeBytes, sha256: resource.sha256 };
+    },
+    async commitGroup(args) {
+      const created: PortableItemRef[] = [];
+      const residual: PortableItemRef[] = [];
+      const parentByGraphId = new Map<string, PortableItemRef>();
+      const noteRefsByGraphId = new Map<
+        string,
+        Array<{ noteId: string; ref: PortableItemRef }>
+      >();
+      const attachmentRefsByGraphId = new Map<
+        string,
+        Array<{ attachmentId: string; ref: PortableItemRef }>
+      >();
+      try {
+        for (const paper of args.papers) {
+          throwIfResearchImportCanceled(args.control);
+          const ref = createdRef(
+            await host.createItem({
+              operationId: args.operationId,
+              consistencyGroupId: args.consistencyGroupId,
+              graphId: paper.graphId,
+              libraryId: args.libraryId,
+              item: paper.item,
+              control: args.control,
+            }),
+          );
+          validatePortableRef(ref, "created.itemRef", args.libraryId);
+          parentByGraphId.set(paper.graphId, ref);
+          created.push(ref);
+        }
+        for (const paper of args.papers) {
+          const parentRef = parentByGraphId.get(paper.graphId)!;
+          for (const collectionRef of paper.collectionRefs) {
+            throwIfResearchImportCanceled(args.control);
+            await host.addToCollection({
+              operationId: args.operationId,
+              consistencyGroupId: args.consistencyGroupId,
+              graphId: paper.graphId,
+              itemRef: parentRef,
+              collectionRef,
+              control: args.control,
+            });
+          }
+          const noteRefs: Array<{ noteId: string; ref: PortableItemRef }> = [];
+          for (const note of paper.notes) {
+            throwIfResearchImportCanceled(args.control);
+            const embeddedImages = await Promise.all(
+              (note.content.embeddedImages || []).map(async (image) => ({
+                slot: image.slot,
+                resource: await host.resolveResource({
+                  resourceRef: image.resourceRef,
+                  control: args.control,
+                }),
+                ...(image.altText ? { altText: image.altText } : {}),
+              })),
+            );
+            const createdNote = await host.createNote({
+              operationId: args.operationId,
+              consistencyGroupId: args.consistencyGroupId,
+              graphId: paper.graphId,
+              parentRef,
+              note,
+              embeddedImages,
+              control: args.control,
+            });
+            const ref = createdRef(createdNote);
+            validatePortableRef(ref, "created.noteRef", args.libraryId);
+            created.push(ref);
+            for (const ownedRef of createdOwnedRefs(createdNote)) {
+              validatePortableRef(
+                ownedRef,
+                "created.noteOwnedRef",
+                args.libraryId,
+              );
+              created.push(ownedRef);
+            }
+            noteRefs.push({ noteId: note.noteId, ref });
+          }
+          noteRefsByGraphId.set(paper.graphId, noteRefs);
+          const attachmentRefs: Array<{
+            attachmentId: string;
+            ref: PortableItemRef;
+          }> = [];
+          for (const attachment of paper.attachments) {
+            throwIfResearchImportCanceled(args.control);
+            const materializedSource =
+              attachment.source.kind === "stored_file"
+                ? {
+                    kind: "stored_file" as const,
+                    main: {
+                      ...(await host.resolveResource({
+                        resourceRef: attachment.source.main.resourceRef,
+                        control: args.control,
+                      })),
+                      ...(attachment.source.main.targetFilename
+                        ? {
+                            targetFilename:
+                              attachment.source.main.targetFilename,
+                          }
+                        : {}),
+                    },
+                    companions: await Promise.all(
+                      (attachment.source.companions || []).map(
+                        async (companion) => ({
+                          ...(await host.resolveResource({
+                            resourceRef: companion.resourceRef,
+                            control: args.control,
+                          })),
+                          targetRelativePath: companion.targetRelativePath,
+                        }),
+                      ),
+                    ),
+                  }
+                : {
+                    kind: attachment.source.kind,
+                    url: attachment.source.url,
+                  };
+            const ref = createdRef(
+              await host.createAttachment({
+                operationId: args.operationId,
+                consistencyGroupId: args.consistencyGroupId,
+                graphId: paper.graphId,
+                parentRef,
+                attachment,
+                materializedSource,
+                control: args.control,
+              }),
+            );
+            validatePortableRef(ref, "created.attachmentRef", args.libraryId);
+            created.push(ref);
+            attachmentRefs.push({ attachmentId: attachment.attachmentId, ref });
+          }
+          attachmentRefsByGraphId.set(paper.graphId, attachmentRefs);
+        }
+        for (const paper of args.papers) {
+          const sourceRef = parentByGraphId.get(paper.graphId)!;
+          const targets = [
+            ...paper.relatedGraphIds.map(
+              (graphId) =>
+                parentByGraphId.get(graphId) ||
+                args.resolvedTargets.get(graphId)!,
+            ),
+            ...paper.relatedExistingRefs,
+          ];
+          for (const targetRef of targets) {
+            throwIfResearchImportCanceled(args.control);
+            await host.addRelated({
+              operationId: args.operationId,
+              consistencyGroupId: args.consistencyGroupId,
+              sourceGraphId: paper.graphId,
+              sourceRef,
+              targetRef,
+              control: args.control,
+            });
+          }
+        }
+        const changes: MutationChangeDto[] = [];
+        const revisionByIdentity = new Map<string, string>();
+        for (const itemRef of created) {
+          const revision = await host.readRevision({
+            itemRef,
+            control: args.control,
+          });
+          revisionByIdentity.set(
+            `${itemRef.libraryId}:${itemRef.key}`,
+            revision,
+          );
+          changes.push({
+            entity: { kind: "item", ref: itemRef },
+            effect: "created",
+            before: null,
+            after: { revision, state: "active" },
+          });
+        }
+        const papers: ResearchBundleCommittedPaper[] = [];
+        for (const paper of args.papers) {
+          const itemRef = parentByGraphId.get(paper.graphId)!;
+          const revision = revisionByIdentity.get(
+            `${itemRef.libraryId}:${itemRef.key}`,
+          )!;
+          papers.push({
+            graphId: paper.graphId,
+            itemRef,
+            revision,
+            noteRefs: noteRefsByGraphId.get(paper.graphId) || [],
+            attachmentRefs: attachmentRefsByGraphId.get(paper.graphId) || [],
+          });
+        }
+        return { papers, changes };
+      } catch (error) {
+        const nestedAttempt =
+          error instanceof MutationAuthorityExecutionError ? error : null;
+        const nestedAffected = (nestedAttempt?.affectedRefs || [])
+          .filter(
+            (entry): entry is Extract<typeof entry, { kind: "item" }> =>
+              entry.kind === "item",
+          )
+          .map((entry) => entry.ref);
+        residual.push(
+          ...(nestedAttempt?.residualRefs || [])
+            .filter(
+              (entry): entry is Extract<typeof entry, { kind: "item" }> =>
+                entry.kind === "item",
+            )
+            .map((entry) => entry.ref),
+        );
+        for (const itemRef of [...created].reverse()) {
+          try {
+            await host.removeItem({
+              operationId: args.operationId,
+              consistencyGroupId: args.consistencyGroupId,
+              itemRef,
+              control: args.control,
+            });
+          } catch {
+            residual.push(itemRef);
+          }
+        }
+        const uniqueAffected = new Map(
+          [...created, ...nestedAffected].map((ref) => [
+            `${ref.libraryId}:${ref.key}`,
+            ref,
+          ]),
+        );
+        const uniqueResidual = new Map(
+          residual.map((ref) => [`${ref.libraryId}:${ref.key}`, ref]),
+        );
+        const status = uniqueResidual.size ? "repair_required" : "failed";
+        throw new MutationAuthorityExecutionError(
+          status,
+          "execution_failed",
+          "compensation",
+          residual.length ? "reconcile" : "retry_same_operation",
+          {
+            phase: "cleanup",
+            recovery: uniqueResidual.size
+              ? "reconcile"
+              : "retry_same_operation",
+            affectedCount: uniqueAffected.size,
+            residualCount: uniqueResidual.size,
+          },
+          error instanceof Error
+            ? error.message
+            : "Research import group failed",
+          [...uniqueAffected.values()].map((ref) => ({ kind: "item", ref })),
+          [...uniqueResidual.values()].map((ref) => ({ kind: "item", ref })),
+        );
+      }
+    },
+  };
+}
+
+type CreateImportPaper = Extract<
+  ImportPaperGraphDto,
+  { target: { kind: "create" } }
+>;
+
+function importValidationError(
+  code: ResearchBundleImportValidationError["code"],
+  details: Record<string, string | number>,
+  message: string,
+): never {
+  throw new ResearchBundleImportValidationError(code, details, message);
+}
+
+function requireImportIdentifier(value: unknown, field: string) {
+  const normalized = String(value || "").trim();
+  if (
+    !normalized ||
+    normalized.length > RESEARCH_IMPORT_LIMITS.identifierCharacters
+  ) {
+    importValidationError(
+      "invalid_request",
+      { reason: "invalid_value", field },
+      `${field} is invalid`,
+    );
+  }
+  return normalized;
+}
+
+function validatePortableRef(
+  ref: PortableItemRef,
+  field: string,
+  libraryId?: number,
+) {
+  if (
+    !ref ||
+    !Number.isInteger(ref.libraryId) ||
+    ref.libraryId <= 0 ||
+    !/^[A-Za-z0-9]{1,128}$/.test(String(ref.key || ""))
+  ) {
+    importValidationError(
+      "invalid_ref",
+      { kind: "item", reason: "invalid_shape", field },
+      `${field} contains an invalid item reference`,
+    );
+  }
+  if (libraryId !== undefined && ref.libraryId !== libraryId) {
+    importValidationError(
+      "invalid_ref",
+      { kind: "item", reason: "foreign_scope", field },
+      `${field} belongs to another library`,
+    );
+  }
+}
+
+function validatePortableCollectionRef(
+  ref: PortableCollectionRef,
+  field: string,
+  libraryId?: number,
+) {
+  if (
+    !ref ||
+    !Number.isInteger(ref.libraryId) ||
+    ref.libraryId <= 0 ||
+    !/^[A-Za-z0-9]{1,128}$/.test(String(ref.key || ""))
+  ) {
+    importValidationError(
+      "invalid_ref",
+      { kind: "collection", reason: "invalid_shape", field },
+      `${field} contains an invalid collection reference`,
+    );
+  }
+  if (libraryId !== undefined && ref.libraryId !== libraryId) {
+    importValidationError(
+      "invalid_ref",
+      { kind: "collection", reason: "foreign_scope", field },
+      `${field} belongs to another library`,
+    );
+  }
+}
+
+function resourceRefsFromPaper(paper: CreateImportPaper) {
+  const refs: ResourceRef[] = [];
+  for (const note of paper.notes) {
+    for (const image of note.content.embeddedImages || []) {
+      refs.push(image.resourceRef);
+    }
+  }
+  for (const attachment of paper.attachments) {
+    if (attachment.source.kind !== "stored_file") continue;
+    refs.push(attachment.source.main.resourceRef);
+    for (const companion of attachment.source.companions || []) {
+      refs.push(companion.resourceRef);
+    }
+  }
+  return refs;
+}
+
+function validateCreatePaperShape(paper: CreateImportPaper) {
+  if (
+    !paper.item ||
+    paper.item.schema !== "zotero-agents.portable-regular-item.v1" ||
+    !Array.isArray(paper.collectionRefs) ||
+    !Array.isArray(paper.notes) ||
+    !Array.isArray(paper.attachments) ||
+    !Array.isArray(paper.relatedGraphIds) ||
+    !Array.isArray(paper.relatedExistingRefs)
+  ) {
+    importValidationError(
+      "invalid_request",
+      { reason: "invalid_schema", field: paper.graphId },
+      "Create paper graph shape is invalid",
+    );
+  }
+  if (paper.notes.length > RESEARCH_IMPORT_LIMITS.notesPerPaper) {
+    importValidationError(
+      "resource_limited",
+      {
+        resource: "entries",
+        limit: RESEARCH_IMPORT_LIMITS.notesPerPaper,
+        observed: paper.notes.length,
+      },
+      "Paper note limit exceeded",
+    );
+  }
+  if (paper.attachments.length > RESEARCH_IMPORT_LIMITS.attachmentsPerPaper) {
+    importValidationError(
+      "resource_limited",
+      {
+        resource: "entries",
+        limit: RESEARCH_IMPORT_LIMITS.attachmentsPerPaper,
+        observed: paper.attachments.length,
+      },
+      "Paper attachment limit exceeded",
+    );
+  }
+  const noteIds = new Set<string>();
+  for (const note of paper.notes) {
+    const noteId = requireImportIdentifier(note.noteId, "noteId");
+    if (noteIds.has(noteId)) {
+      importValidationError(
+        "invalid_request",
+        { reason: "duplicate_value", field: "noteId" },
+        "Paper note IDs must be unique",
+      );
+    }
+    noteIds.add(noteId);
+    if (note.payloads.length > RESEARCH_IMPORT_LIMITS.payloadsPerNote) {
+      importValidationError(
+        "resource_limited",
+        {
+          resource: "entries",
+          limit: RESEARCH_IMPORT_LIMITS.payloadsPerNote,
+          observed: note.payloads.length,
+        },
+        "Note payload limit exceeded",
+      );
+    }
+    if (
+      (note.content.embeddedImages || []).length >
+      RESEARCH_IMPORT_LIMITS.embeddedImagesPerNote
+    ) {
+      importValidationError(
+        "resource_limited",
+        {
+          resource: "entries",
+          limit: RESEARCH_IMPORT_LIMITS.embeddedImagesPerNote,
+          observed: (note.content.embeddedImages || []).length,
+        },
+        "Note embedded image limit exceeded",
+      );
+    }
+  }
+  const attachmentIds = new Set<string>();
+  for (const attachment of paper.attachments) {
+    const attachmentId = requireImportIdentifier(
+      attachment.attachmentId,
+      "attachmentId",
+    );
+    if (attachmentIds.has(attachmentId)) {
+      importValidationError(
+        "invalid_request",
+        { reason: "duplicate_value", field: "attachmentId" },
+        "Paper attachment IDs must be unique",
+      );
+    }
+    attachmentIds.add(attachmentId);
+  }
+}
+
+function validateExistingPaperShape(
+  paper: Extract<ImportPaperGraphDto, { target: { kind: "existing" } }>,
+) {
+  const extraKeys = Object.keys(paper).filter(
+    (key) => key !== "graphId" && key !== "target",
+  );
+  if (extraKeys.length) {
+    importValidationError(
+      "invalid_request",
+      { reason: "invalid_combination", field: extraKeys[0] },
+      "Existing targets are reuse-only",
+    );
+  }
+  requireImportIdentifier(paper.target.expectedRevision, "expectedRevision");
+}
+
+function computeStronglyConnectedGroups(
+  papers: CreateImportPaper[],
+  paperById: ReadonlyMap<string, ImportPaperGraphDto>,
+) {
+  const createIds = new Set(papers.map((paper) => paper.graphId));
+  const indexById = new Map<string, number>();
+  const lowById = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const groups: string[][] = [];
+  let nextIndex = 0;
+  const visit = (graphId: string) => {
+    indexById.set(graphId, nextIndex);
+    lowById.set(graphId, nextIndex);
+    nextIndex += 1;
+    stack.push(graphId);
+    onStack.add(graphId);
+    const paper = paperById.get(graphId) as CreateImportPaper;
+    for (const relatedId of paper.relatedGraphIds) {
+      if (!createIds.has(relatedId)) continue;
+      if (!indexById.has(relatedId)) {
+        visit(relatedId);
+        lowById.set(
+          graphId,
+          Math.min(lowById.get(graphId)!, lowById.get(relatedId)!),
+        );
+      } else if (onStack.has(relatedId)) {
+        lowById.set(
+          graphId,
+          Math.min(lowById.get(graphId)!, indexById.get(relatedId)!),
+        );
+      }
+    }
+    if (lowById.get(graphId) !== indexById.get(graphId)) return;
+    const group: string[] = [];
+    while (stack.length) {
+      const member = stack.pop()!;
+      onStack.delete(member);
+      group.push(member);
+      if (member === graphId) break;
+    }
+    groups.push(group);
+  };
+  for (const paper of papers) {
+    if (!indexById.has(paper.graphId)) visit(paper.graphId);
+  }
+  return groups;
+}
+
+function summarizeImportResult(
+  request: ImportPapersRequestDto,
+  libraryId: number,
+  papers: ImportPaperResultDto[],
+  receipts: ImportPapersResultDto["receipts"],
+  attempts: ImportPapersResultDto["attempts"],
+): ImportPapersResultDto {
+  const count = (outcome: ImportPaperResultDto["outcome"]) =>
+    papers.filter((paper) => paper.outcome === outcome).length;
+  const counts = {
+    requested: papers.length,
+    reused: count("reused"),
+    committed: count("committed"),
+    failed: count("failed"),
+    rolledBack: count("rolled_back"),
+    repairRequired: count("repair_required"),
+    notStarted: count("not_started"),
+  };
+  const hasSuccess = counts.reused + counts.committed > 0;
+  const hasCanceled = papers.some(
+    (paper) => paper.outcome === "not_started" && paper.reason === "canceled",
+  );
+  const outcome = counts.repairRequired
+    ? "repair_required"
+    : hasCanceled
+      ? "canceled"
+      : counts.reused + counts.committed === counts.requested
+        ? "complete"
+        : hasSuccess
+          ? "partial"
+          : "failed";
+  return {
+    schema: "zotero-agents.research-import.v1",
+    operationId: request.operationId,
+    libraryId,
+    outcome,
+    papers,
+    receipts,
+    attempts,
+    counts,
+  };
+}
+
+export function createResearchBundleImporter(dependencies: {
+  ownerId: string;
+  effects: ResearchBundleImportEffects;
+}) {
+  const ownerId = requireImportIdentifier(dependencies.ownerId, "ownerId");
+  return async (
+    request: ImportPapersRequestDto,
+    control: WorkflowCallControl = {},
+  ): Promise<ImportPapersResultDto> => {
+    const operationId = requireImportIdentifier(
+      request?.operationId,
+      "operationId",
+    );
+    const papers = Array.isArray(request?.papers) ? request.papers : [];
+    if (!papers.length || papers.length > RESEARCH_IMPORT_LIMITS.papers) {
+      importValidationError(
+        papers.length ? "resource_limited" : "invalid_request",
+        papers.length
+          ? {
+              resource: "items",
+              limit: RESEARCH_IMPORT_LIMITS.papers,
+              observed: papers.length,
+            }
+          : { reason: "missing_field", field: "papers" },
+        "Research import paper count is invalid",
+      );
+    }
+    const metadataBytes = new TextEncoder().encode(
+      JSON.stringify(papers),
+    ).length;
+    if (metadataBytes > RESEARCH_IMPORT_LIMITS.metadataBytes) {
+      importValidationError(
+        "resource_limited",
+        {
+          resource: "bytes",
+          limit: RESEARCH_IMPORT_LIMITS.metadataBytes,
+          observed: metadataBytes,
+        },
+        "Research import metadata limit exceeded",
+      );
+    }
+    const libraryId = Number(
+      await dependencies.effects.resolveLibraryId(request.libraryId),
+    );
+    if (!Number.isInteger(libraryId) || libraryId <= 0) {
+      importValidationError(
+        "invalid_request",
+        { reason: "invalid_value", field: "libraryId" },
+        "Target library is invalid",
+      );
+    }
+    const paperById = new Map<string, ImportPaperGraphDto>();
+    let relationEdges = 0;
+    for (const paper of papers) {
+      const graphId = requireImportIdentifier(paper?.graphId, "graphId");
+      if (paperById.has(graphId)) {
+        importValidationError(
+          "invalid_request",
+          { reason: "duplicate_value", field: "graphId" },
+          "Research import graph IDs must be unique",
+        );
+      }
+      if (paper?.target?.kind === "create") {
+        const createPaper = paper as CreateImportPaper;
+        validateCreatePaperShape(createPaper);
+        relationEdges +=
+          createPaper.relatedGraphIds.length +
+          createPaper.relatedExistingRefs.length;
+      } else if (paper?.target?.kind === "existing") {
+        const existingPaper = paper as Extract<
+          ImportPaperGraphDto,
+          { target: { kind: "existing" } }
+        >;
+        validateExistingPaperShape(existingPaper);
+        validatePortableRef(
+          existingPaper.target.itemRef,
+          "target.itemRef",
+          libraryId,
+        );
+      } else {
+        importValidationError(
+          "invalid_request",
+          { reason: "missing_field", field: "target" },
+          "Every paper requires an explicit create or existing target",
+        );
+      }
+      paperById.set(graphId, paper);
+    }
+    if (relationEdges > RESEARCH_IMPORT_LIMITS.relationEdges) {
+      importValidationError(
+        "resource_limited",
+        {
+          resource: "entries",
+          limit: RESEARCH_IMPORT_LIMITS.relationEdges,
+          observed: relationEdges,
+        },
+        "Research import relation edge limit exceeded",
+      );
+    }
+    for (const paper of papers) {
+      if (paper.target.kind !== "create") continue;
+      const createPaper = paper as CreateImportPaper;
+      const relatedIds = new Set<string>();
+      for (const relatedIdRaw of createPaper.relatedGraphIds) {
+        const relatedId = requireImportIdentifier(
+          relatedIdRaw,
+          "relatedGraphIds",
+        );
+        if (relatedIds.has(relatedId)) {
+          importValidationError(
+            "invalid_request",
+            { reason: "duplicate_value", field: "relatedGraphIds" },
+            "Paper graph relations must be unique",
+          );
+        }
+        relatedIds.add(relatedId);
+        if (!paperById.has(relatedId)) {
+          importValidationError(
+            "invalid_request",
+            { reason: "invalid_value", field: "relatedGraphIds" },
+            "Paper graph relation target is unavailable",
+          );
+        }
+      }
+      for (const ref of createPaper.relatedExistingRefs) {
+        validatePortableRef(ref, "relatedExistingRefs", libraryId);
+      }
+      for (const ref of createPaper.collectionRefs) {
+        validatePortableCollectionRef(ref, "collectionRefs", libraryId);
+      }
+    }
+
+    const relatedExistingTargets = new Map<string, PortableItemRef>();
+    const collectionTargets = new Map<string, PortableCollectionRef>();
+    for (const paper of papers) {
+      if (paper.target.kind !== "create") continue;
+      const createPaper = paper as CreateImportPaper;
+      for (const ref of createPaper.relatedExistingRefs) {
+        relatedExistingTargets.set(`${ref.libraryId}:${ref.key}`, ref);
+      }
+      for (const ref of createPaper.collectionRefs) {
+        collectionTargets.set(`${ref.libraryId}:${ref.key}`, ref);
+      }
+    }
+    for (const itemRef of relatedExistingTargets.values()) {
+      await dependencies.effects.validateExistingTarget({
+        itemRef,
+        libraryId,
+        control,
+      });
+    }
+    for (const collectionRef of collectionTargets.values()) {
+      if (!dependencies.effects.validateCollectionTarget) {
+        importValidationError(
+          "invalid_ref",
+          { kind: "collection", reason: "not_found" },
+          "Research import collection validation is unavailable",
+        );
+      }
+      await dependencies.effects.validateCollectionTarget({
+        collectionRef,
+        libraryId,
+        control,
+      });
+    }
+
+    const resolvedTargets = new Map<string, PortableItemRef>();
+    const resultById = new Map<string, ImportPaperResultDto>();
+    const claimedExisting = new Set<string>();
+    for (const paper of papers) {
+      if (paper.target.kind !== "existing") continue;
+      const identity = `${paper.target.itemRef.libraryId}:${paper.target.itemRef.key}`;
+      if (claimedExisting.has(identity)) {
+        importValidationError(
+          "invalid_request",
+          { reason: "duplicate_value", field: "target.itemRef" },
+          "An existing target can be claimed only once",
+        );
+      }
+      claimedExisting.add(identity);
+      const existing = await dependencies.effects.validateExistingTarget({
+        itemRef: paper.target.itemRef,
+        expectedRevision: paper.target.expectedRevision,
+        libraryId,
+        control,
+      });
+      validatePortableRef(existing.itemRef, "existing.itemRef", libraryId);
+      if (existing.revision !== paper.target.expectedRevision) {
+        importValidationError(
+          "conflict",
+          { reason: "revision_mismatch", field: paper.graphId },
+          "Existing target revision changed",
+        );
+      }
+      resolvedTargets.set(paper.graphId, existing.itemRef);
+      resultById.set(paper.graphId, {
+        graphId: paper.graphId,
+        outcome: "reused",
+        itemRef: existing.itemRef,
+        revision: existing.revision,
+      });
+    }
+
+    const resourceRefs = new Map<string, ResourceRef>();
+    for (const paper of papers) {
+      if (paper.target.kind !== "create") continue;
+      for (const ref of resourceRefsFromPaper(paper as CreateImportPaper)) {
+        if (ref?.kind !== "workflow_resource" || !String(ref.id || "").trim()) {
+          importValidationError(
+            "invalid_ref",
+            { kind: "resource", reason: "invalid_shape" },
+            "Research import resource reference is invalid",
+          );
+        }
+        resourceRefs.set(ref.id, ref);
+      }
+    }
+    let resourceBytes = 0;
+    for (const resourceRef of resourceRefs.values()) {
+      const resource = await dependencies.effects.validateResource({
+        resourceRef,
+        control,
+      });
+      resourceBytes += Math.max(0, Number(resource.sizeBytes) || 0);
+      if (resourceBytes > RESEARCH_IMPORT_LIMITS.resourceBytes) {
+        importValidationError(
+          "resource_limited",
+          {
+            resource: "bytes",
+            limit: RESEARCH_IMPORT_LIMITS.resourceBytes,
+            observed: resourceBytes,
+          },
+          "Research import resource byte limit exceeded",
+        );
+      }
+    }
+
+    const createPapers = papers.filter(
+      (paper): paper is CreateImportPaper => paper.target.kind === "create",
+    );
+    const groups = computeStronglyConnectedGroups(createPapers, paperById);
+    const requestIndex = new Map(
+      papers.map((paper, index) => [paper.graphId, index]),
+    );
+    groups.forEach((group) =>
+      group.sort(
+        (left, right) => requestIndex.get(left)! - requestIndex.get(right)!,
+      ),
+    );
+    groups.sort(
+      (left, right) => requestIndex.get(left[0])! - requestIndex.get(right[0])!,
+    );
+    const groupByGraphId = new Map<string, number>();
+    groups.forEach((group, groupIndex) =>
+      group.forEach((graphId) => groupByGraphId.set(graphId, groupIndex)),
+    );
+    const groupDependencies = groups.map((group, groupIndex) => {
+      const dependencies = new Set<number>();
+      for (const graphId of group) {
+        const paper = paperById.get(graphId) as CreateImportPaper;
+        for (const relatedId of paper.relatedGraphIds) {
+          const dependency = groupByGraphId.get(relatedId);
+          if (dependency !== undefined && dependency !== groupIndex) {
+            dependencies.add(dependency);
+          }
+        }
+      }
+      return dependencies;
+    });
+    const groupState = groups.map(
+      () => "pending" as "pending" | "committed" | "failed",
+    );
+    const receipts: ImportPapersResultDto["receipts"] = [];
+    const attempts: ImportPapersResultDto["attempts"] = [];
+    let pending = groups.length;
+    while (pending > 0) {
+      let progressed = false;
+      for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+        if (groupState[groupIndex] !== "pending") continue;
+        const dependencyStates = [...groupDependencies[groupIndex]].map(
+          (index) => groupState[index],
+        );
+        if (dependencyStates.includes("pending")) continue;
+        const graphIds = groups[groupIndex];
+        const consistencyGroupId = `group-${String(
+          Math.min(...graphIds.map((id) => requestIndex.get(id)!)) + 1,
+        ).padStart(4, "0")}`;
+        if (dependencyStates.includes("failed")) {
+          const blockingGraphIds = [...groupDependencies[groupIndex]]
+            .filter((index) => groupState[index] === "failed")
+            .flatMap((index) => groups[index]);
+          for (const graphId of graphIds) {
+            resultById.set(graphId, {
+              graphId,
+              outcome: "not_started",
+              reason: "dependency_failed",
+              blockingGraphIds,
+            });
+          }
+          groupState[groupIndex] = "failed";
+          pending -= 1;
+          progressed = true;
+          continue;
+        }
+        if (control.signal?.aborted) {
+          for (const graphId of graphIds) {
+            resultById.set(graphId, {
+              graphId,
+              outcome: "not_started",
+              reason: "canceled",
+              blockingGraphIds: [],
+            });
+          }
+          groupState[groupIndex] = "failed";
+          pending -= 1;
+          progressed = true;
+          continue;
+        }
+        const groupPapers = graphIds.map(
+          (graphId) => paperById.get(graphId) as CreateImportPaper,
+        );
+        const execution = await executeReservedMutation({
+          scope: { ownerId: `${ownerId}:${consistencyGroupId}` },
+          operationId,
+          operation: "researchBundles.importPapers",
+          semanticInput: {
+            libraryId,
+            consistencyGroupId,
+            papers: groupPapers,
+          } as unknown as JsonValue,
+          control,
+          async execute() {
+            const committed = await dependencies.effects.commitGroup({
+              operationId,
+              consistencyGroupId,
+              libraryId,
+              papers: groupPapers,
+              resolvedTargets,
+              control,
+            });
+            if (
+              committed.papers.length !== groupPapers.length ||
+              new Set(committed.papers.map((paper) => paper.graphId)).size !==
+                groupPapers.length
+            ) {
+              throw new Error("Research import group result is incomplete");
+            }
+            return {
+              outcome: "committed" as const,
+              changes: committed.changes,
+              result: { papers: committed.papers },
+            };
+          },
+        });
+        if (
+          execution.outcome === "committed" ||
+          execution.outcome === "unchanged"
+        ) {
+          receipts.push(execution.receipt);
+          const committed = execution.result
+            .papers as ResearchBundleCommittedPaper[];
+          for (const paper of committed) {
+            resolvedTargets.set(paper.graphId, paper.itemRef);
+            resultById.set(paper.graphId, {
+              graphId: paper.graphId,
+              outcome: "committed",
+              consistencyGroupId,
+              itemRef: paper.itemRef,
+              revision: paper.revision,
+              noteRefs: paper.noteRefs,
+              attachmentRefs: paper.attachmentRefs,
+              receiptId: execution.receipt.receiptId,
+            });
+          }
+          groupState[groupIndex] = "committed";
+        } else if ("attempt" in execution) {
+          attempts.push(execution.attempt);
+          const rowOutcome =
+            execution.outcome === "repair_required" ||
+            execution.outcome === "unknown"
+              ? "repair_required"
+              : execution.attempt.affectedRefs.length > 0 &&
+                  execution.attempt.residualRefs.length === 0
+                ? "rolled_back"
+                : "failed";
+          for (const graphId of graphIds) {
+            resultById.set(graphId, {
+              graphId,
+              outcome: rowOutcome,
+              consistencyGroupId,
+              attemptId: execution.attempt.attemptId,
+            });
+          }
+          groupState[groupIndex] = "failed";
+        } else {
+          throw new Error(
+            "Research import authority returned an invalid result",
+          );
+        }
+        pending -= 1;
+        progressed = true;
+      }
+      if (!progressed) {
+        throw new Error("Research import dependency scheduler stalled");
+      }
+    }
+    return summarizeImportResult(
+      { ...request, operationId },
+      libraryId,
+      papers.map((paper) => resultById.get(paper.graphId)!),
+      receipts,
+      attempts,
+    );
+  };
+}
+
+export const researchBundleImportLimits = RESEARCH_IMPORT_LIMITS;
+
+export type CanonicalResearchPaperSnapshot = {
+  source: { ref: PortableItemRef; revision: string };
+  item: MaterializedPaperDto["item"];
+  collectionRefs: MaterializedPaperDto["collectionRefs"];
+  relatedRefs: MaterializedPaperDto["relatedRefs"];
+  notes: MaterializedNoteDto[];
+  attachments: AttachmentDetailDto[];
+  annotations: AnnotationDetailDto[];
+};
+
+export type ResearchBundleMaterializationResourceStore = {
+  stageFile(args: {
+    slotId: string;
+    sourcePath: string;
+    displayName: string;
+    contentType?: string;
+    kind?: "file" | "archive";
+  }): Promise<{
+    ref: ResourceRef;
+    path: string;
+    displayName: string;
+    contentType: string;
+    sizeBytes: number;
+    sha256: string;
+  }>;
+  cleanup(): Promise<void>;
+};
+
+function validateCanonicalResearchSnapshot(
+  requestedRef: PortableItemRef,
+  snapshot: CanonicalResearchPaperSnapshot,
+) {
+  validatePortableRef(
+    snapshot.source.ref,
+    "source.ref",
+    requestedRef.libraryId,
+  );
+  if (
+    snapshot.source.ref.key !== requestedRef.key ||
+    !String(snapshot.source.revision || "").trim()
+  ) {
+    importValidationError(
+      "invalid_ref",
+      { kind: "item", reason: "identity_mismatch" },
+      "Research materialization source identity does not match the request",
+    );
+  }
+  if (
+    snapshot.item?.schema !== "zotero-agents.portable-regular-item.v1" ||
+    !String(snapshot.item.itemType || "").trim() ||
+    !snapshot.item.fields ||
+    !Array.isArray(snapshot.item.creators) ||
+    !Array.isArray(snapshot.item.tags)
+  ) {
+    importValidationError(
+      "invalid_request",
+      { reason: "invalid_schema", field: "item" },
+      "Research materialization portable item is invalid",
+    );
+  }
+  if (
+    snapshot.notes.length > RESEARCH_IMPORT_LIMITS.notesPerPaper ||
+    snapshot.attachments.length > RESEARCH_IMPORT_LIMITS.attachmentsPerPaper
+  ) {
+    importValidationError(
+      "resource_limited",
+      {
+        resource: "entries",
+        limit: Math.max(
+          RESEARCH_IMPORT_LIMITS.notesPerPaper,
+          RESEARCH_IMPORT_LIMITS.attachmentsPerPaper,
+        ),
+        observed: Math.max(snapshot.notes.length, snapshot.attachments.length),
+      },
+      "Research materialization child count exceeds the fixed limit",
+    );
+  }
+  for (const ref of [...snapshot.collectionRefs, ...snapshot.relatedRefs]) {
+    validatePortableRef(ref, "graph.ref", requestedRef.libraryId);
+  }
+  const childRefs = new Set<string>();
+  for (const note of snapshot.notes) {
+    validatePortableRef(note.source.ref, "note.ref", requestedRef.libraryId);
+    const identity = `${note.source.ref.libraryId}:${note.source.ref.key}`;
+    if (childRefs.has(identity) || !String(note.source.revision || "").trim()) {
+      importValidationError(
+        "invalid_ref",
+        { kind: "item", reason: "duplicate_or_unversioned_child" },
+        "Research materialization note graph is invalid",
+      );
+    }
+    childRefs.add(identity);
+  }
+  for (const attachment of snapshot.attachments) {
+    validatePortableRef(
+      attachment.ref,
+      "attachment.ref",
+      requestedRef.libraryId,
+    );
+    const parentRef = attachment.parentRef;
+    if (
+      !parentRef ||
+      parentRef.libraryId !== requestedRef.libraryId ||
+      parentRef.key !== requestedRef.key
+    ) {
+      importValidationError(
+        "invalid_ref",
+        { kind: "item", reason: "parent_mismatch" },
+        "Research materialization attachment parent is invalid",
+      );
+    }
+    const identity = `${attachment.ref.libraryId}:${attachment.ref.key}`;
+    if (childRefs.has(identity)) {
+      importValidationError(
+        "invalid_ref",
+        { kind: "item", reason: "duplicate_child" },
+        "Research materialization child refs must be unique",
+      );
+    }
+    childRefs.add(identity);
+  }
+  for (const annotation of snapshot.annotations) {
+    validatePortableRef(
+      annotation.ref,
+      "annotation.ref",
+      requestedRef.libraryId,
+    );
+    if (
+      annotation.itemRef.libraryId !== requestedRef.libraryId ||
+      annotation.itemRef.key !== requestedRef.key
+    ) {
+      importValidationError(
+        "invalid_ref",
+        { kind: "item", reason: "parent_mismatch" },
+        "Research materialization annotation parent is invalid",
+      );
+    }
+  }
+}
+
+export function createCanonicalResearchBundleMaterializer(dependencies: {
+  readPaper(
+    ref: PortableItemRef,
+    control?: WorkflowCallControl,
+  ): Promise<CanonicalResearchPaperSnapshot | null>;
+  resources: ResearchBundleMaterializationResourceStore;
+}) {
+  return async (
+    request: MaterializePapersRequestDto,
+    control: WorkflowCallControl = {},
+  ): Promise<MaterializePapersResultDto> => {
+    if (
+      request?.missingFilePolicy !== "require_complete" &&
+      request?.missingFilePolicy !== "record_missing"
+    ) {
+      importValidationError(
+        "invalid_request",
+        { reason: "missing_field", field: "missingFilePolicy" },
+        "Research materialization requires an explicit completeness policy",
+      );
+    }
+    const refs: PortableItemRef[] = [];
+    const seen = new Set<string>();
+    for (const ref of Array.isArray(request?.paperRefs)
+      ? request.paperRefs
+      : []) {
+      validatePortableRef(ref, "paperRefs");
+      const identity = `${ref.libraryId}:${ref.key}`;
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      refs.push({ libraryId: ref.libraryId, key: ref.key });
+    }
+    if (!refs.length || refs.length > RESEARCH_IMPORT_LIMITS.papers) {
+      importValidationError(
+        refs.length ? "resource_limited" : "invalid_request",
+        refs.length
+          ? {
+              resource: "items",
+              limit: RESEARCH_IMPORT_LIMITS.papers,
+              observed: refs.length,
+            }
+          : { reason: "missing_field", field: "paperRefs" },
+        "Research materialization paper count is invalid",
+      );
+    }
+    const papers: MaterializedPaperDto[] = [];
+    const issues: MaterializePapersResultDto["issues"] = [];
+    try {
+      for (const ref of refs) {
+        if (control.signal?.aborted) {
+          throw new ResearchBundleImportValidationError(
+            "invalid_request",
+            { reason: "canceled" },
+            "Research materialization was canceled",
+          );
+        }
+        const snapshot = await dependencies.readPaper(ref, control);
+        if (!snapshot) {
+          importValidationError(
+            "invalid_ref",
+            { kind: "item", reason: "not_found" },
+            "Research paper is unavailable",
+          );
+        }
+        validateCanonicalResearchSnapshot(ref, snapshot);
+        const attachments: MaterializedPaperDto["attachments"] = [];
+        const paperIssues: MaterializedPaperDto["issues"] = [];
+        for (const attachment of snapshot.attachments) {
+          if (attachment.file.state === "not_applicable") {
+            attachments.push({
+              sourceRef: attachment.ref,
+              metadata: attachment,
+              file: { state: "not_applicable" },
+            });
+            continue;
+          }
+          if (attachment.file.state === "missing") {
+            const issue = {
+              code: "resource_missing" as const,
+              target: "attachment" as const,
+            };
+            if (request.missingFilePolicy === "require_complete") {
+              throw new Error("Required research attachment is missing");
+            }
+            issues.push(issue);
+            paperIssues.push(issue);
+            attachments.push({
+              sourceRef: attachment.ref,
+              metadata: attachment,
+              file: { state: "missing", issue },
+            });
+            continue;
+          }
+          try {
+            const staged = await dependencies.resources.stageFile({
+              slotId: `paper:${ref.libraryId}:${ref.key}:attachment:${attachment.ref.key}`,
+              sourcePath: attachment.file.path,
+              displayName: attachment.filename || `${attachment.ref.key}.bin`,
+              contentType: attachment.contentType || undefined,
+            });
+            attachments.push({
+              sourceRef: attachment.ref,
+              metadata: attachment,
+              file: {
+                state: "available",
+                resourceRef: staged.ref,
+                filename: staged.displayName,
+                contentType: attachment.contentType,
+                sizeBytes: staged.sizeBytes,
+                sha256: staged.sha256.replace(/^sha256:/, ""),
+              },
+            });
+          } catch (error) {
+            if (request.missingFilePolicy === "require_complete") throw error;
+            const issue = {
+              code: "resource_unreadable" as const,
+              target: "attachment" as const,
+            };
+            issues.push(issue);
+            paperIssues.push(issue);
+            attachments.push({
+              sourceRef: attachment.ref,
+              metadata: attachment,
+              file: { state: "missing", issue },
+            });
+          }
+        }
+        papers.push({
+          source: snapshot.source,
+          item: snapshot.item,
+          collectionRefs: snapshot.collectionRefs,
+          relatedRefs: snapshot.relatedRefs,
+          notes: snapshot.notes,
+          attachments,
+          annotations: snapshot.annotations,
+          issues: paperIssues,
+        });
+      }
+    } catch (error) {
+      await dependencies.resources.cleanup();
+      throw error;
+    }
+    return {
+      papers,
+      completeness: issues.length ? "incomplete" : "complete",
+      issues,
+    };
+  };
+}

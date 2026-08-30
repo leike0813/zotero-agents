@@ -1,7 +1,15 @@
 import { parsePayloadBlock, parseWorkbenchNoteKind } from "./noteCodecs.mjs";
 import { resolveWorkbenchEmbeddedPayloadBlock } from "./embeddedPayloadAttachments.mjs";
 import { getBaseName, joinPath, sanitizeFileNameSegment } from "./path.mjs";
-import { asUint8Array, createStoreZipBytes } from "./zipStore.mjs";
+
+function asUint8Array(value) {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return new Uint8Array(0);
+}
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -906,12 +914,33 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
   if (typeof hostFile.materializeWorkflowInputFile !== "function") {
     throw new Error("hostApi.file.materializeWorkflowInputFile is required");
   }
-  const materialized = await hostFile.materializeWorkflowInputFile({
-    workflowId,
-    key: "source_bundle_path",
-    fileName: `source-bundle-parent-${String(parentItem?.id || "unknown")}.zip`,
-    bytes: createStoreZipBytes(entries),
-  });
+  const hostArchive = runtime.hostApi.archive;
+  if (typeof hostArchive?.writeZipAtomic !== "function") {
+    throw new Error("hostApi.archive.writeZipAtomic is required");
+  }
+  const temporaryRoot = await hostFile.getTempDirectoryPath();
+  const temporaryPath = joinPath(
+    temporaryRoot,
+    `literature-deep-reading-${Date.now()}-${Math.random().toString(36).slice(2)}.zip`,
+  );
+  let materialized;
+  try {
+    await hostArchive.writeZipAtomic({
+      targetPath: temporaryPath,
+      entries,
+    });
+    materialized = await hostFile.materializeWorkflowInputFile({
+      workflowId,
+      key: "source_bundle_path",
+      fileName: `source-bundle-parent-${String(parentItem?.id || "unknown")}.zip`,
+      bytes: await hostFile.readBytes(temporaryPath),
+    });
+  } finally {
+    await hostFile.remove({
+      path: temporaryPath,
+      missing: "ignore",
+    });
+  }
   const bundlePath = String(materialized?.path || "").trim();
   if (!bundlePath) {
     throw new Error("hostApi.file.materializeWorkflowInputFile returned empty path");

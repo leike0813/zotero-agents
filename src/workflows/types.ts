@@ -2,6 +2,24 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 
+export type ResourceRef = Readonly<{
+  kind: "workflow_resource";
+  id: string;
+}>;
+
+export type StableIssueDto = Readonly<{
+  code:
+    | "source_missing"
+    | "source_unreadable"
+    | "source_unsafe"
+    | "resource_missing"
+    | "resource_unreadable"
+    | "concurrent_modification"
+    | "optional_resource_missing";
+  target: "paper" | "note" | "attachment" | "image" | "resource";
+  logicalPath?: string;
+}>;
+
 export type PortableItemRef = Readonly<{
   libraryId: number;
   key: string;
@@ -202,6 +220,175 @@ export type PortableRegularItemDto = {
   fields: Record<string, string>;
   creators: CreatorDto[];
   tags: string[];
+};
+
+export type MaterializedAttachmentFileDto =
+  | {
+      state: "available";
+      resourceRef: ResourceRef;
+      filename: string;
+      contentType: string | null;
+      sizeBytes: number;
+      sha256: string;
+    }
+  | { state: "missing"; issue: StableIssueDto }
+  | { state: "not_applicable" };
+
+export type MaterializedAttachmentDto = {
+  sourceRef: PortableItemRef;
+  metadata: AttachmentDetailDto;
+  file: MaterializedAttachmentFileDto;
+};
+
+export type MaterializedNoteDto = {
+  source: { ref: PortableItemRef; revision: string };
+  content: {
+    format: "html" | "text";
+    value: string;
+    embeddedImages: Array<{
+      slot: string;
+      resourceRef: ResourceRef;
+      altText: string | null;
+      mimeType: "image/jpeg" | "image/png";
+      sizeBytes: number;
+      sha256: string;
+    }>;
+  };
+  tags: string[];
+  payloads: NotePayloadValueDto[];
+};
+
+export type MaterializedPaperDto = {
+  source: { ref: PortableItemRef; revision: string };
+  item: PortableRegularItemDto;
+  collectionRefs: PortableCollectionRef[];
+  relatedRefs: PortableItemRef[];
+  notes: MaterializedNoteDto[];
+  attachments: MaterializedAttachmentDto[];
+  annotations: AnnotationDetailDto[];
+  issues: StableIssueDto[];
+};
+
+export type MaterializePapersRequestDto = {
+  paperRefs: PortableItemRef[];
+  missingFilePolicy: "require_complete" | "record_missing";
+};
+
+export type MaterializePapersResultDto = {
+  papers: MaterializedPaperDto[];
+  completeness: "complete" | "incomplete";
+  issues: StableIssueDto[];
+};
+
+export type ImportNoteDto = {
+  noteId: string;
+  content: {
+    format: "html" | "text";
+    value: string;
+    embeddedImages?: Array<{
+      slot: string;
+      resourceRef: ResourceRef;
+      altText?: string;
+    }>;
+  };
+  tags: string[];
+  payloads: NotePayloadValueDto[];
+};
+
+export type ImportAttachmentDto = {
+  attachmentId: string;
+  source:
+    | {
+        kind: "stored_file";
+        main: { resourceRef: ResourceRef; targetFilename?: string };
+        companions?: Array<{
+          resourceRef: ResourceRef;
+          targetRelativePath: string;
+        }>;
+      }
+    | { kind: "linked_url"; url: string }
+    | { kind: "stored_url"; url: string };
+  metadata?: {
+    title?: string;
+    contentType?: string;
+    charset?: string;
+    originalUrl?: string;
+  };
+};
+
+export type ImportPaperGraphDto =
+  | {
+      graphId: string;
+      target: { kind: "create" };
+      item: PortableRegularItemDto;
+      collectionRefs: PortableCollectionRef[];
+      notes: ImportNoteDto[];
+      attachments: ImportAttachmentDto[];
+      relatedGraphIds: string[];
+      relatedExistingRefs: PortableItemRef[];
+    }
+  | {
+      graphId: string;
+      target: {
+        kind: "existing";
+        itemRef: PortableItemRef;
+        expectedRevision: string;
+      };
+    };
+
+export type ImportPapersRequestDto = {
+  operationId: string;
+  libraryId?: number;
+  papers: ImportPaperGraphDto[];
+};
+
+export type ImportPaperResultDto =
+  | {
+      graphId: string;
+      outcome: "reused";
+      itemRef: PortableItemRef;
+      revision: string;
+    }
+  | {
+      graphId: string;
+      outcome: "committed";
+      consistencyGroupId: string;
+      itemRef: PortableItemRef;
+      revision: string;
+      noteRefs: Array<{ noteId: string; ref: PortableItemRef }>;
+      attachmentRefs: Array<{ attachmentId: string; ref: PortableItemRef }>;
+      receiptId: string;
+    }
+  | {
+      graphId: string;
+      outcome: "failed" | "rolled_back" | "repair_required";
+      consistencyGroupId: string;
+      attemptId: string;
+    }
+  | {
+      graphId: string;
+      outcome: "not_started";
+      reason: "canceled" | "dependency_failed";
+      blockingGraphIds: string[];
+    };
+
+export type ImportPapersResultDto = {
+  schema: "zotero-agents.research-import.v1";
+  operationId: string;
+  libraryId: number;
+  outcome: "complete" | "partial" | "failed" | "canceled" | "repair_required";
+  papers: ImportPaperResultDto[];
+  receipts: MutationReceipt[];
+  attempts: MutationAttemptReport[];
+  counts: {
+    requested: number;
+    reused: number;
+    committed: number;
+    failed: number;
+    rolledBack: number;
+    repairRequired: number;
+    notStarted: number;
+  };
 };
 
 export type CollectionDto = {
@@ -1357,21 +1544,35 @@ export type WorkflowResourceBindings = {
 };
 
 export type WorkflowResourceFile = {
+  ref?: ResourceRef;
+  slotId?: string;
   fileId: string;
   path: string;
   displayName: string;
   contentType: string;
   size?: number;
   sha256?: string;
+  kind?: "file" | "archive";
+  sizeBytes?: number;
+};
+
+export type WorkflowResourceMaterializeFileRequestDto = {
+  slotId: string;
+  sourcePath: string;
+  displayName?: string;
+  contentType?: string;
+  kind?: "file" | "archive";
 };
 
 export type WorkflowResourceOutputDescriptor = {
+  ref?: ResourceRef;
   slotId: string;
   fileId: string;
   sourceKind: "workflow-artifact";
   displayName: string;
   contentType: string;
   size?: number;
+  sizeBytes?: number;
   sha256?: string;
   createdAt: string;
   expiresAt: string;
@@ -1382,12 +1583,14 @@ export type WorkflowResourceApi = {
   mode: WorkflowInvocationMode;
   getInput: (slotId: string) => WorkflowResourceFile | null;
   getInputs: (slotId: string) => WorkflowResourceFile[];
+  get?: (ref: ResourceRef) => Promise<WorkflowResourceFile>;
   allocateOutput: (args: {
     slotId: string;
     suggestedName?: string;
     contentType?: string;
-  }) => Promise<{ path: string }>;
+  }) => Promise<{ allocationId?: string; slotId?: string; path: string }>;
   publishOutput: (args: {
+    allocationId?: string;
     slotId: string;
     path: string;
     displayName?: string;
@@ -1395,6 +1598,56 @@ export type WorkflowResourceApi = {
   }) => Promise<WorkflowResourceOutputDescriptor>;
   listOutputs: () => WorkflowResourceOutputDescriptor[];
 };
+
+export type WorkflowResearchBundleApi = {
+  materializePapers: {
+    (args: {
+      papers: Array<{ paperRef: string }>;
+      sourcePaperRefs?: string[];
+    }): Promise<{
+      entries: import("../modules/researchBundleService").ResearchBundleEntry[];
+      warnings: import("../modules/researchBundleService").ResearchBundleWarning[];
+      papers: Record<string, unknown>[];
+    }>;
+    (
+      request: MaterializePapersRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MaterializePapersResultDto>;
+  };
+  importPapers?: (
+    request: ImportPapersRequestDto,
+    control?: WorkflowCallControl,
+  ) => Promise<ImportPapersResultDto>;
+};
+
+export type WorkflowFileStatDto = {
+  path: string;
+  kind: "file" | "directory" | "other";
+  sizeBytes: number | null;
+  modifiedAt: string | null;
+};
+
+export type WorkflowFileListRequestDto = {
+  path: string;
+  recursive?: boolean;
+  maxDepth?: number;
+};
+
+export type WorkflowFileListEntryDto = {
+  relativePath: string;
+  kind: "file" | "directory" | "other";
+  sizeBytes: number | null;
+  modifiedAt: string | null;
+};
+
+export type WorkflowFileListResultDto = {
+  rootPath: string;
+  entries: WorkflowFileListEntryDto[];
+  totalEntries: number;
+  totalFileBytes: number;
+};
+
+export type WorkflowFileRemoveResultDto = { removed: boolean };
 
 export type WorkflowResultSpec = {
   fetch?: {
@@ -1576,16 +1829,7 @@ export type WorkflowHostApi = {
   library: WorkflowHostLibraryApi;
   mutations: WorkflowHostMutationApi;
   metadata: WorkflowHostMetadataApi;
-  researchBundles: {
-    materializePapers: (args: {
-      papers: Array<{ paperRef: string }>;
-      sourcePaperRefs?: string[];
-    }) => Promise<{
-      entries: import("../modules/researchBundleService").ResearchBundleEntry[];
-      warnings: import("../modules/researchBundleService").ResearchBundleWarning[];
-      papers: Record<string, unknown>[];
-    }>;
-  };
+  researchBundles: WorkflowResearchBundleApi;
   prefs: {
     get: (key: string, global?: boolean) => unknown;
     set: (key: string, value: unknown, global?: boolean) => void;
@@ -1810,6 +2054,20 @@ export type WorkflowHostApi = {
     copy: (sourcePath: string, targetPath: string) => Promise<void>;
     exists: (path: string) => Promise<boolean>;
     makeDirectory: (path: string) => Promise<void>;
+    stat: (path: string) => Promise<WorkflowFileStatDto>;
+    list: (
+      args: WorkflowFileListRequestDto,
+    ) => Promise<WorkflowFileListResultDto>;
+    move: (args: {
+      sourcePath: string;
+      targetPath: string;
+      overwrite?: boolean;
+    }) => Promise<void>;
+    remove: (args: {
+      path: string;
+      recursive?: boolean;
+      missing?: "error" | "ignore";
+    }) => Promise<WorkflowFileRemoveResultDto>;
     materializeWorkflowInputFile: (args: {
       workflowId?: string;
       key?: string;

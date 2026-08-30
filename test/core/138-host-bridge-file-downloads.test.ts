@@ -3,6 +3,7 @@ import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
+import { rejects as assertRejects } from "node:assert";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -471,6 +472,127 @@ describe("host bridge file downloads", function () {
       await fs.readFile(resolved.source.path, "utf8"),
       "workflow output",
     );
+  });
+
+  it("keeps allocations run-scoped and cleans unpublished output staging", async function () {
+    const resources = await createHostBridgeWorkflowResourceApi({
+      workflowId: "resource-owner-workflow",
+      runId: "run-a",
+      manifest: {
+        schemaVersion: 2,
+        id: "resource-owner-workflow",
+        label: "Resource owner workflow",
+        provider: "pass-through",
+        supportedInvocationModes: ["non-interactive"],
+        resourceRequirements: [
+          {
+            id: "report",
+            direction: "output",
+            kind: "file",
+            cardinality: "one",
+            required: true,
+            accept: { extensions: [".txt"], maxBytes: 32 },
+          },
+        ],
+      },
+      inputs: {},
+      outputBindings: { report: { delivery: "bridge-download" } },
+    });
+    const allocation = await resources.allocateOutput({
+      slotId: "report",
+      suggestedName: "report.txt",
+      contentType: "text/plain",
+    });
+    assert.match(allocation.allocationId || "", /^run-a:allocation:/);
+    await assertRejects(
+      resources.publishOutput({
+        allocationId: allocation.allocationId,
+        slotId: "report",
+        path: allocation.path,
+        displayName: "report.txt",
+        contentType: "text/plain",
+      }),
+    );
+    await assertRejects(
+      resources.resolveResource({
+        kind: "workflow_resource",
+        id: "run-b:input:x:1",
+      }),
+    );
+    await resources.cleanup();
+    await assertRejects(fs.access(allocation.path));
+    assert.deepEqual(resources.listOutputs(), []);
+  });
+
+  it("materializes declared local files into immutable run-scoped resources", async function () {
+    const { root, filePath } = await writeTempFile(
+      "research-source.txt",
+      "original research bytes",
+    );
+    const resources = await createHostBridgeWorkflowResourceApi({
+      workflowId: "resource-materialization-workflow",
+      runId: "materialize-run",
+      manifest: {
+        schemaVersion: 2,
+        id: "resource-materialization-workflow",
+        label: "Resource materialization workflow",
+        provider: "pass-through",
+        supportedInvocationModes: ["non-interactive"],
+        resourceRequirements: [
+          {
+            id: "research-source",
+            direction: "input",
+            kind: "file",
+            cardinality: "many",
+            required: false,
+            accept: {
+              extensions: [".txt"],
+              contentTypes: ["text/plain"],
+              maxCount: 2,
+              maxBytes: 64,
+            },
+          },
+        ],
+      },
+      inputs: {},
+      outputBindings: {},
+    });
+    try {
+      const materialized = await resources.materializeFile({
+        slotId: "research-source",
+        sourcePath: filePath,
+        displayName: "research-source.txt",
+        contentType: "text/plain",
+      });
+      assert.match(
+        materialized.ref?.id || "",
+        /^materialize-run:materialized:/,
+      );
+      assert.notStrictEqual(materialized.path, filePath);
+
+      await fs.writeFile(filePath, "changed source bytes", "utf8");
+      const resolved = await resources.get(materialized.ref!);
+      assert.strictEqual(
+        await fs.readFile(resolved.path, "utf8"),
+        "original research bytes",
+      );
+      await fs.writeFile(materialized.path, "tampered managed bytes", "utf8");
+      await assertRejects(resources.get(materialized.ref!));
+
+      await assertRejects(
+        resources.materializeFile({
+          slotId: "undeclared",
+          sourcePath: filePath,
+          displayName: "research-source.txt",
+          contentType: "text/plain",
+        }),
+      );
+      await resources.cleanup();
+      await assertRejects(resources.get(materialized.ref!));
+    } finally {
+      await resources.cleanup();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("returns bridge-download attachment descriptors without local paths", async function () {

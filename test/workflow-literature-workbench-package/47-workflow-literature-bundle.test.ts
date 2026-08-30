@@ -7,8 +7,12 @@ import {
   writeUtf8,
 } from "../zotero/workflow-test-utils";
 import { handlers } from "../../src/handlers";
-import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import {
+  createBoundWorkflowResearchBundleApi,
+  createWorkflowHostApi,
+} from "../../src/workflows/hostApi";
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
+import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridgeWorkflowResources";
 import {
   buildLiteratureBundleExport,
   buildLiteratureProduct,
@@ -31,6 +35,36 @@ import {
   attachWorkbenchPayloadToNote,
   parseWorkbenchEmbeddedPayloadBytes,
 } from "../../workflows_builtin/literature-workbench-package/lib/embeddedPayloadAttachments.mjs";
+
+async function bindLiteratureImportHost(
+  baseHost: ReturnType<typeof createWorkflowHostApi>,
+) {
+  const loaded = await loadWorkflowManifests(workflowsPath());
+  const workflow = loaded.workflows.find(
+    (entry) => entry.manifest.id === "import-literature-bundle",
+  );
+  assert.isOk(workflow, "import-literature-bundle workflow must be available");
+  const resources = await createHostBridgeWorkflowResourceApi({
+    workflowId: workflow!.manifest.id,
+    runId: `literature-import-test-${Date.now()}-${Math.random()}`,
+    manifest: workflow!.manifest,
+    inputs: {},
+    outputBindings: {},
+  });
+  resources.mode = "interactive";
+  return {
+    host: {
+      ...baseHost,
+      resources,
+      researchBundles: createBoundWorkflowResearchBundleApi({
+        base: baseHost,
+        ownerId: `literature-import-test:${Date.now()}:${Math.random()}`,
+        resources,
+      }),
+    },
+    cleanup: () => resources.cleanup(),
+  };
+}
 
 const portableLiteratureScore = {
   version: 1,
@@ -817,6 +851,44 @@ describe("literature portable bundle workflows", function () {
               return input ? [input] : [];
             },
             listOutputs: () => [],
+            async materializeFile() {
+              assert.fail("metadata-only bundle must not materialize a file");
+            },
+          },
+          researchBundles: {
+            async importPapers(request: any) {
+              const paper = request.papers[0];
+              imported.push({ title: paper.item.fields.title });
+              return {
+                schema: "zotero-agents.research-import.v1",
+                operationId: request.operationId,
+                libraryId: 1,
+                outcome: "complete",
+                papers: [
+                  {
+                    graphId: paper.graphId,
+                    outcome: "committed",
+                    itemRef: { libraryId: 1, key: "REMOTEIMPORT" },
+                    revision: "revision:1",
+                    consistencyGroupId: "group-0001",
+                    noteRefs: [],
+                    attachmentRefs: [],
+                    receiptId: "receipt-1",
+                  },
+                ],
+                receipts: [],
+                attempts: [],
+                counts: {
+                  requested: 1,
+                  reused: 0,
+                  committed: 1,
+                  failed: 0,
+                  rolledBack: 0,
+                  repairRequired: 0,
+                  notStarted: 0,
+                },
+              };
+            },
           },
           file: {
             async pickFile() {
@@ -841,18 +913,6 @@ describe("literature portable bundle workflows", function () {
               libraryId: Zotero.Libraries.userLibraryID,
             }),
           },
-          items: {
-            async createFromJson(args: any) {
-              const item = {
-                id: 501,
-                key: "REMOTEIMPORT",
-                ...args.itemJson,
-              };
-              imported.push(item);
-              return item;
-            },
-            remove: async () => undefined,
-          },
         },
       },
     });
@@ -864,25 +924,52 @@ describe("literature portable bundle workflows", function () {
   });
 
   it("imports Research Product metadata and source through the v2 adapter", async function () {
-    const created: any[] = [];
+    const materialized: any[] = [];
+    let importRequest: any = null;
     const host: any = {
-      items: {
-        async createFromJson(args: any) {
-          const parent = { id: 42, key: "NEWPAPER", ...args.itemJson };
-          created.push(parent);
-          return parent;
-        },
-        async remove() {},
-      },
-      attachments: {
-        async importStoredFile(args: any) {
-          created.push({ kind: "attachment", ...args });
-          return { id: 43 };
+      resources: {
+        async materializeFile(args: any) {
+          materialized.push(args);
+          return {
+            ref: {
+              kind: "workflow_resource",
+              id: `run:materialized:${materialized.length}`,
+            },
+          };
         },
       },
-      parents: {
-        async addNote() {
-          throw new Error("payloads are not part of this fixture");
+      researchBundles: {
+        async importPapers(request: any) {
+          importRequest = request;
+          return {
+            schema: "zotero-agents.research-import.v1",
+            operationId: request.operationId,
+            libraryId: 1,
+            outcome: "complete",
+            papers: [
+              {
+                graphId: "paper-001",
+                outcome: "committed",
+                itemRef: { libraryId: 1, key: "NEWPAPER" },
+                revision: "revision:1",
+                consistencyGroupId: "group-0001",
+                noteRefs: [],
+                attachmentRefs: [],
+                receiptId: "receipt-1",
+              },
+            ],
+            receipts: [],
+            attempts: [],
+            counts: {
+              requested: 1,
+              reused: 0,
+              committed: 1,
+              failed: 0,
+              rolledBack: 0,
+              repairRequired: 0,
+              notStarted: 0,
+            },
+          };
         },
       },
     };
@@ -920,10 +1007,107 @@ describe("literature portable bundle workflows", function () {
     });
     assert.equal(result.status, "completed");
     assert.deepEqual(result.importedItems, [
-      { bundleItemId: "paper-001", itemId: 42, itemKey: "NEWPAPER" },
+      {
+        bundleItemId: "paper-001",
+        itemRef: { libraryId: 1, key: "NEWPAPER" },
+      },
     ]);
-    assert.equal(created[1].path, "/tmp/papers/paper-001/source.pdf");
-    assert.equal(created[1].mimeType, "application/pdf");
+    assert.equal(
+      materialized[0].sourcePath,
+      "/tmp/papers/paper-001/source.pdf",
+    );
+    assert.equal(materialized[0].contentType, "application/pdf");
+    assert.deepEqual(importRequest.papers[0].attachments[0].source.main, {
+      resourceRef: { kind: "workflow_resource", id: "run:materialized:1" },
+      targetFilename: "source.pdf",
+    });
+    assert.notProperty(host, "items");
+    assert.notProperty(host, "attachments");
+  });
+
+  it("preserves per-paper partial outcomes from the Research Bundle owner", async function () {
+    const host: any = {
+      resources: {
+        async materializeFile() {
+          assert.fail("metadata-only fixture must not materialize a file");
+        },
+      },
+      researchBundles: {
+        async importPapers(request: any) {
+          return {
+            schema: "zotero-agents.research-import.v1",
+            operationId: request.operationId,
+            libraryId: 1,
+            outcome: "partial",
+            papers: [
+              {
+                graphId: "paper-001",
+                outcome: "committed",
+                itemRef: { libraryId: 1, key: "COMMITTED" },
+                revision: "revision:1",
+                consistencyGroupId: "group-0001",
+                noteRefs: [],
+                attachmentRefs: [],
+                receiptId: "receipt-1",
+              },
+              {
+                graphId: "paper-002",
+                outcome: "rolled_back",
+                consistencyGroupId: "group-0002",
+                attemptId: "attempt-2",
+              },
+            ],
+            receipts: [],
+            attempts: [],
+            counts: {
+              requested: 2,
+              reused: 0,
+              committed: 1,
+              failed: 0,
+              rolledBack: 1,
+              repairRequired: 0,
+              notStarted: 0,
+            },
+          };
+        },
+      },
+    };
+    const manifest = {
+      schema_id: "research_bundle.product",
+      schema_version: "2.0.0",
+      papers: ["paper-001", "paper-002"].map((logical_id) => ({
+        logical_id,
+        metadata_path: `papers/${logical_id}/metadata.json`,
+        source: null,
+        payloads: [],
+      })),
+      warnings: [],
+    };
+
+    const result = await importResearchProductArchive({
+      host,
+      archive: {
+        readText: async () =>
+          JSON.stringify({ itemType: "journalArticle", title: "Paper" }),
+      },
+      manifest,
+      target: { view: {}, libraryID: 1 },
+    });
+
+    assert.equal(result.status, "partial");
+    assert.deepEqual(result.importedItems, [
+      {
+        bundleItemId: "paper-001",
+        itemRef: { libraryId: 1, key: "COMMITTED" },
+      },
+    ]);
+    assert.deepEqual(result.failedItems, [
+      {
+        bundleItemId: "paper-002",
+        code: "rolled_back",
+        attemptId: "attempt-2",
+      },
+    ]);
   });
 
   it("reports target resolution failures as import failures", async function () {
@@ -1023,11 +1207,42 @@ describe("literature portable bundle workflows", function () {
                 libraryId: Zotero.Libraries.userLibraryID,
               }),
             },
-            items: {
-              createFromJson: async () => {
-                throw new Error("injected parent creation failure");
+            resources: {
+              getInput: () => null,
+              getInputs: () => [],
+              listOutputs: () => [],
+              async materializeFile() {
+                assert.fail("metadata-only bundle must not materialize a file");
               },
-              remove: async () => undefined,
+            },
+            researchBundles: {
+              async importPapers(request: any) {
+                return {
+                  schema: "zotero-agents.research-import.v1",
+                  operationId: request.operationId,
+                  libraryId: Zotero.Libraries.userLibraryID,
+                  outcome: "failed",
+                  papers: [
+                    {
+                      graphId: "i1",
+                      outcome: "rolled_back",
+                      consistencyGroupId: "group-0001",
+                      attemptId: "attempt-1",
+                    },
+                  ],
+                  receipts: [],
+                  attempts: [],
+                  counts: {
+                    requested: 1,
+                    reused: 0,
+                    committed: 0,
+                    failed: 0,
+                    rolledBack: 1,
+                    repairRequired: 0,
+                    notStarted: 0,
+                  },
+                };
+              },
             },
           },
         },
@@ -1037,10 +1252,18 @@ describe("literature portable bundle workflows", function () {
     }
 
     assert.instanceOf(error, Error);
-    assert.equal((error as any).code, "partial");
+    assert.equal(
+      (error as any).code,
+      "partial",
+      String((error as any)?.message || error),
+    );
     assert.equal((error as any).structuredResult?.importedItems.length, 0);
     assert.deepEqual((error as any).structuredResult?.failedItems, [
-      { bundleItemId: "i1", code: "parent_import_failed" },
+      {
+        bundleItemId: "i1",
+        code: "parent_import_failed",
+        attemptId: "attempt-1",
+      },
     ]);
   });
 
@@ -1079,7 +1302,10 @@ describe("literature portable bundle workflows", function () {
       content:
         '<div data-zs-note-kind="conversation-note"><p>Conversation</p></div>',
     });
-    const host = createWorkflowHostApi();
+    const boundImportHost = await bindLiteratureImportHost(
+      createWorkflowHostApi(),
+    );
+    const host = boundImportHost.host as any;
     host.items.exportText = async () => ({
       ok: true,
       content: "@article{portable, title={Portable Round Trip}}\n",
@@ -1229,12 +1455,12 @@ describe("literature portable bundle workflows", function () {
         first.warnings.map((warning: any) => warning.code),
         "primary_source_missing",
       );
+      assert.lengthOf(first.importedItems, 2, JSON.stringify(first));
+      assert.lengthOf(second.importedItems, 2, JSON.stringify(second));
       assert.notEqual(
         first.importedItems[0].itemId,
         second.importedItems[0].itemId,
       );
-      assert.lengthOf(first.importedItems, 2);
-
       const imported = Zotero.Items.get(first.importedItems[0].itemId)!;
       const importedRelated = Zotero.Items.get(first.importedItems[1].itemId)!;
       assert.equal(imported.getField("DOI"), "10.1000/roundtrip");
@@ -1301,25 +1527,69 @@ describe("literature portable bundle workflows", function () {
       assert.include((imported as any).relatedItems, importedRelated.key);
       assert.include((importedRelated as any).relatedItems, imported.key);
     });
+    await boundImportHost.cleanup();
   });
 
-  it("cleans a failed parent and continues importing later parents", async function () {
+  it("maps a failed consistency group while preserving an independent commit", async function () {
     const baseHost = createWorkflowHostApi();
-    let failedParentId = 0;
+    let materialized = 0;
     const host = {
       ...baseHost,
-      items: {
-        ...baseHost.items,
-        async createFromJson(args: any) {
-          const item = await baseHost.items.createFromJson(args);
-          if (args.itemJson.title === "Fail Parent") failedParentId = item.id;
-          return item;
+      resources: {
+        async materializeFile() {
+          materialized += 1;
+          return {
+            ref: {
+              kind: "workflow_resource" as const,
+              id: `failure-fixture:${materialized}`,
+            },
+          };
         },
       },
-      attachments: {
-        ...baseHost.attachments,
-        async importStoredFile() {
-          throw new Error("injected attachment failure");
+      researchBundles: {
+        async importPapers(request: any) {
+          const committed = await baseHost.items.createFromJson({
+            libraryID: Zotero.Libraries.userLibraryID,
+            itemJson: { itemType: "book", title: "Continue Parent" },
+          });
+          return {
+            schema: "zotero-agents.research-import.v1",
+            operationId: request.operationId,
+            libraryId: Zotero.Libraries.userLibraryID,
+            outcome: "partial",
+            papers: [
+              {
+                graphId: "i1",
+                outcome: "rolled_back",
+                consistencyGroupId: "group-0001",
+                attemptId: "attempt-1",
+              },
+              {
+                graphId: "i2",
+                outcome: "committed",
+                consistencyGroupId: "group-0002",
+                itemRef: {
+                  libraryId: committed.libraryID,
+                  key: committed.key,
+                },
+                revision: "revision:2",
+                noteRefs: [],
+                attachmentRefs: [],
+                receiptId: "receipt-2",
+              },
+            ],
+            receipts: [],
+            attempts: [],
+            counts: {
+              requested: 2,
+              reused: 0,
+              committed: 1,
+              failed: 0,
+              rolledBack: 1,
+              repairRequired: 0,
+              notStarted: 0,
+            },
+          };
         },
       },
     };
@@ -1360,9 +1630,13 @@ describe("literature portable bundle workflows", function () {
 
     assert.equal(result.status, "partial");
     assert.deepEqual(result.failedItems, [
-      { bundleItemId: "i1", code: "parent_import_failed" },
+      {
+        bundleItemId: "i1",
+        code: "parent_import_failed",
+        attemptId: "attempt-1",
+      },
     ]);
     assert.equal(result.importedItems[0].bundleItemId, "i2");
-    assert.isUndefined(Zotero.Items.get(failedParentId));
+    assert.isAbove(Number(result.importedItems[0].itemId || 0), 0);
   });
 });

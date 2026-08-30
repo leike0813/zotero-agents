@@ -97,6 +97,25 @@ async function assertInvalidRequest(run: () => Promise<unknown>) {
 }
 
 describe("Synthesis workflow client migration", function () {
+  it("resolves the current Synthesis client for every invocation", async function () {
+    const firstCalls: string[] = [];
+    const secondCalls: string[] = [];
+    const clients = [fakeClient(firstCalls), fakeClient(secondCalls)];
+    let resolutions = 0;
+    const api = createWorkflowSynthesisHostApi({
+      async resolveClient() {
+        return clients[resolutions++];
+      },
+    });
+
+    await api.getTopicReport({ topicId: "topic-a" });
+    await api.getTopicReport({ topicId: "topic-b" });
+
+    assert.equal(resolutions, 2);
+    assert.deepEqual(firstCalls, ["getTopicReport"]);
+    assert.deepEqual(secondCalls, ["getTopicReport"]);
+  });
+
   it("exposes the workflow methods and routes topic planning through grouped capabilities", async function () {
     const calls: string[] = [];
     const changes: Array<{

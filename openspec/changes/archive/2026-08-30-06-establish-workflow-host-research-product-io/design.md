@@ -44,6 +44,8 @@ The file module exposes trusted local path operations backed by runtime persiste
 
 Materialization copies or generates accepted sources into managed run scope and returns immutable resource refs. Later changes to Zotero attachments do not alter the materialized bytes. Source graphs use logical paths and provenance only.
 
+`resources.materializeFile` is the single in-process bridge from callback-local or picker-produced paths into that scope. It must finish copying and content verification before returning. `resources.get` is the inverse local projection seam for an already issued ref and revalidates retained bytes before exposing its managed path. The source path is neither retained nor used as durable identity, and remote callers never receive either local projection. Runtime-bound slot definitions remain authoritative, so a workflow cannot invent a slot or loosen its kind, type, extension, cardinality, or byte limits.
+
 ### Accepted import effects reuse canonical evidence
 
 Import groups use the mutation authority's receipt/attempt data model where Host effects require confirmation, without inserting research operations into the eleven generic mutation union. Failed rows reference canonical attempt identities rather than copying error payloads.

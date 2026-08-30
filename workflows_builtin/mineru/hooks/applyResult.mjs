@@ -1,8 +1,3 @@
-const dynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-);
-
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -129,38 +124,21 @@ function resolveRequestSource(request) {
   };
 }
 
-function resolveIOUtils() {
-  const runtime = globalThis;
-  const io = runtime.IOUtils;
-  if (!io || typeof io !== "object") {
-    return null;
+function requireFileApi(runtime) {
+  const file = runtime?.hostApi?.file;
+  if (!file) {
+    throw new Error("Workflow Host file API is unavailable");
   }
-  return io;
+  return file;
 }
 
-async function statPath(targetPath) {
+async function statPath(file, targetPath) {
   const nativePath = toNativePath(targetPath);
-  const io = resolveIOUtils();
-  if (io?.stat) {
-    try {
-      const stat = await io.stat(nativePath);
-      return {
-        exists: true,
-        isDir: stat.type === "directory",
-      };
-    } catch {
-      return {
-        exists: false,
-        isDir: false,
-      };
-    }
-  }
-  const fs = await dynamicImport("fs/promises");
   try {
-    const stat = await fs.stat(nativePath);
+    const stat = await file.stat(nativePath);
     return {
       exists: true,
-      isDir: stat.isDirectory(),
+      isDir: stat.kind === "directory",
     };
   } catch {
     return {
@@ -170,172 +148,81 @@ async function statPath(targetPath) {
   }
 }
 
-async function ensureDirectory(targetPath) {
+async function ensureDirectory(file, targetPath) {
   const nativePath = toNativePath(targetPath);
-  const io = resolveIOUtils();
-  if (io?.makeDirectory) {
-    await io.makeDirectory(nativePath, { createAncestors: true });
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(nativePath, { recursive: true });
+  await file.makeDirectory(nativePath, { recursive: true });
 }
 
-async function readText(targetPath) {
-  const nativePath = toNativePath(targetPath);
-  const io = resolveIOUtils();
-  if (io?.readUTF8) {
-    return io.readUTF8(nativePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(nativePath, "utf8");
+async function readText(file, targetPath) {
+  return file.readText(toNativePath(targetPath));
 }
 
-async function writeText(targetPath, content) {
+async function writeText(file, targetPath, content) {
   const parentDir = dirnamePath(targetPath);
   if (parentDir) {
-    await ensureDirectory(parentDir);
+    await ensureDirectory(file, parentDir);
   }
-  const nativePath = toNativePath(targetPath);
-  const io = resolveIOUtils();
-  if (io?.writeUTF8) {
-    await io.writeUTF8(nativePath, String(content || ""));
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(nativePath, String(content || ""), "utf8");
+  await file.writeText(toNativePath(targetPath), String(content || ""));
 }
 
-async function removePath(targetPath) {
-  const nativePath = toNativePath(targetPath);
-  const io = resolveIOUtils();
-  if (io?.remove) {
-    await io.remove(nativePath, { recursive: true, ignoreAbsent: true });
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.rm(nativePath, { recursive: true, force: true });
+async function removePath(file, targetPath) {
+  await file.remove({
+    path: toNativePath(targetPath),
+    recursive: true,
+    missing: "ignore",
+  });
 }
 
-async function movePath(sourcePath, targetPath) {
+async function movePath(file, sourcePath, targetPath) {
   const parentDir = dirnamePath(targetPath);
   if (parentDir) {
-    await ensureDirectory(parentDir);
+    await ensureDirectory(file, parentDir);
   }
   const nativeSourcePath = toNativePath(sourcePath);
   const nativeTargetPath = toNativePath(targetPath);
-  const sourceStat = await statPath(nativeSourcePath);
+  const sourceStat = await statPath(file, nativeSourcePath);
   if (!sourceStat.exists) {
     throw new Error(`Source path not found: ${nativeSourcePath}`);
   }
-  const io = resolveIOUtils();
-  if (io?.move) {
-    try {
-      await io.move(nativeSourcePath, nativeTargetPath);
-      return;
-    } catch (error) {
-      if (!sourceStat.isDir) {
-        throw error;
-      }
-      // Some Zotero runtimes fail to move directories; fall through to recursive copy.
-    }
+  await file.move({
+    sourcePath: nativeSourcePath,
+    targetPath: nativeTargetPath,
+    overwrite: false,
+  });
+}
+
+async function copyPath(file, sourcePath, targetPath) {
+  const parentDir = dirnamePath(targetPath);
+  if (parentDir) {
+    await ensureDirectory(file, parentDir);
+  }
+  const nativeSourcePath = toNativePath(sourcePath);
+  const nativeTargetPath = toNativePath(targetPath);
+  const sourceStat = await statPath(file, nativeSourcePath);
+  if (!sourceStat.exists) {
+    throw new Error(`Source path not found: ${nativeSourcePath}`);
   }
   if (!sourceStat.isDir) {
-    if (io?.copy) {
-      try {
-        await io.copy(nativeSourcePath, nativeTargetPath);
-        await removePath(nativeSourcePath);
-        return;
-      } catch {
-        // fall through
-      }
-    }
-    if (io?.read && io?.write) {
-      try {
-        const bytes = await io.read(nativeSourcePath);
-        await io.write(nativeTargetPath, bytes);
-        await removePath(nativeSourcePath);
-        return;
-      } catch {
-        // fall through
-      }
-    }
-    const fs = await dynamicImport("fs/promises");
-    try {
-      await fs.rename(nativeSourcePath, nativeTargetPath);
-      return;
-    } catch {
-      await fs.cp(nativeSourcePath, nativeTargetPath, {
-        recursive: true,
-        force: true,
-      });
-      await fs.rm(nativeSourcePath, { recursive: true, force: true });
-      return;
-    }
+    await file.copy(nativeSourcePath, nativeTargetPath, false);
+    return;
   }
-  await ensureDirectory(nativeTargetPath);
-  const children = await listChildren(nativeSourcePath);
+  await ensureDirectory(file, nativeTargetPath);
+  const children = await listChildren(file, nativeSourcePath);
   for (const child of children) {
     const name = basenamePath(child);
     if (!name) {
       continue;
     }
-    await movePath(child, joinPath(nativeTargetPath, name));
-  }
-  await removePath(nativeSourcePath);
-}
-
-async function copyPath(sourcePath, targetPath) {
-  const parentDir = dirnamePath(targetPath);
-  if (parentDir) {
-    await ensureDirectory(parentDir);
-  }
-  const nativeSourcePath = toNativePath(sourcePath);
-  const nativeTargetPath = toNativePath(targetPath);
-  const sourceStat = await statPath(nativeSourcePath);
-  if (!sourceStat.exists) {
-    throw new Error(`Source path not found: ${nativeSourcePath}`);
-  }
-  const io = resolveIOUtils();
-  if (!sourceStat.isDir) {
-    if (io?.copy) {
-      try {
-        await io.copy(nativeSourcePath, nativeTargetPath);
-        return;
-      } catch {
-        // fall through
-      }
-    }
-    if (io?.read && io?.write) {
-      const bytes = await io.read(nativeSourcePath);
-      await io.write(nativeTargetPath, bytes);
-      return;
-    }
-    const fs = await dynamicImport("fs/promises");
-    await fs.copyFile(nativeSourcePath, nativeTargetPath);
-    return;
-  }
-  await ensureDirectory(nativeTargetPath);
-  const children = await listChildren(nativeSourcePath);
-  for (const child of children) {
-    const name = basenamePath(child);
-    if (!name) {
-      continue;
-    }
-    await copyPath(child, joinPath(nativeTargetPath, name));
+    await copyPath(file, child, joinPath(nativeTargetPath, name));
   }
 }
 
-async function listChildren(targetPath) {
+async function listChildren(file, targetPath) {
   const nativePath = toNativePath(targetPath);
-  const io = resolveIOUtils();
-  if (io?.getChildren) {
-    const children = await io.getChildren(nativePath);
-    return children.map((entry) => String(entry || ""));
-  }
-  const fs = await dynamicImport("fs/promises");
-  const names = await fs.readdir(nativePath);
-  return names.map((name) => joinPath(nativePath, name));
+  const result = await file.list({ path: nativePath, recursive: false });
+  return result.entries.map((entry) =>
+    joinPath(nativePath, entry.relativePath),
+  );
 }
 
 async function findEntryByBaseName(args) {
@@ -343,7 +230,7 @@ async function findEntryByBaseName(args) {
   const expected = String(args.name || "").toLowerCase();
   while (queue.length > 0) {
     const current = queue.shift();
-    const stat = await statPath(current);
+    const stat = await statPath(args.file, current);
     if (!stat.exists) {
       continue;
     }
@@ -356,7 +243,7 @@ async function findEntryByBaseName(args) {
     if (!stat.isDir) {
       continue;
     }
-    const children = await listChildren(current);
+    const children = await listChildren(args.file, current);
     for (const child of children) {
       queue.push(child);
     }
@@ -431,6 +318,7 @@ function resolveBundleExtractedDir(bundleReader) {
 async function collectBundlePart(args) {
   const extractedRoot = await resolveBundleExtractedDir(args.bundleReader);
   const fullMdPath = await findEntryByBaseName({
+    file: args.file,
     rootPath: extractedRoot,
     name: "full.md",
     isDir: false,
@@ -441,12 +329,13 @@ async function collectBundlePart(args) {
     );
   }
   const imagesSourceDir = await findEntryByBaseName({
+    file: args.file,
     rootPath: extractedRoot,
     name: "images",
     isDir: true,
   });
   return {
-    markdown: await readText(fullMdPath),
+    markdown: await readText(args.file, fullMdPath),
     imagesSourceDir,
   };
 }
@@ -478,32 +367,33 @@ function buildStagingDir(sourceDir, sourceItemKey) {
   return joinPath(sourceDir, `.mineru-${sourceItemKey || "output"}-${suffix}`);
 }
 
-async function copyImagesIntoStage(imagesSourceDir, stagedImagesDir) {
+async function copyImagesIntoStage(file, imagesSourceDir, stagedImagesDir) {
   if (!imagesSourceDir) {
     return false;
   }
-  const sourceStat = await statPath(imagesSourceDir);
+  const sourceStat = await statPath(file, imagesSourceDir);
   if (!sourceStat.exists || !sourceStat.isDir) {
     return false;
   }
-  await ensureDirectory(stagedImagesDir);
-  const children = await listChildren(imagesSourceDir);
+  await ensureDirectory(file, stagedImagesDir);
+  const children = await listChildren(file, imagesSourceDir);
   for (const child of children) {
     const name = basenamePath(child);
     if (!name) {
       continue;
     }
     const targetPath = joinPath(stagedImagesDir, name);
-    const existing = await statPath(targetPath);
+    const existing = await statPath(file, targetPath);
     if (existing.exists) {
       throw new Error(`mineru image name collision while merging: ${name}`);
     }
-    await copyPath(child, targetPath);
+    await copyPath(file, child, targetPath);
   }
   return children.length > 0;
 }
 
 async function materializeParts(args) {
+  const file = requireFileApi(args.runtime);
   const sourceDir = dirnamePath(args.source.sourcePath);
   const sourceName = basenamePath(args.source.sourcePath);
   const mdName = replaceExtensionAsMd(sourceName);
@@ -515,9 +405,15 @@ async function materializeParts(args) {
   const stagedMdPath = joinPath(stagingDir, "_merged.md");
   let hasImages = false;
   try {
-    await ensureDirectory(stagingDir);
+    await ensureDirectory(file, stagingDir);
     for (const part of args.parts) {
-      if (await copyImagesIntoStage(part.imagesSourceDir, stagedImagesDir)) {
+      if (
+        await copyImagesIntoStage(
+          file,
+          part.imagesSourceDir,
+          stagedImagesDir,
+        )
+      ) {
         hasImages = true;
       }
     }
@@ -525,19 +421,19 @@ async function materializeParts(args) {
       joinMarkdownParts(args.parts.map((part) => part.markdown)),
       imagesDirName,
     );
-    await writeText(stagedMdPath, markdown);
+    await writeText(file, stagedMdPath, markdown);
 
     if (hasImages) {
-      const currentImages = await statPath(imagesTargetDir);
+      const currentImages = await statPath(file, imagesTargetDir);
       if (currentImages.exists) {
-        await removePath(imagesTargetDir);
+        await removePath(file, imagesTargetDir);
       }
-      await movePath(stagedImagesDir, imagesTargetDir);
+      await movePath(file, stagedImagesDir, imagesTargetDir);
     }
 
-    await writeText(mdPath, markdown);
+    await writeText(file, mdPath, markdown);
   } finally {
-    await removePath(stagingDir);
+    await removePath(file, stagingDir);
   }
 
   if (!(await hasLinkedAttachmentForPath(args.source.parentItem, mdPath))) {
@@ -614,6 +510,7 @@ export async function applyResult({
 }) {
   let stage = "resolve-source";
   try {
+    const file = requireFileApi(runtime);
     const aggregateChildren = getAggregateChildren(resultContext);
     const sourceRequest =
       aggregateChildren.length > 0 ? aggregateChildren[0].request : request;
@@ -629,13 +526,16 @@ export async function applyResult({
       for (const child of aggregateChildren) {
         parts.push(
           await collectBundlePart({
+            file,
             bundleReader: child.bundleReader,
             label: child.unitId,
           }),
         );
       }
     } else {
-      parts.push(await collectBundlePart({ bundleReader, label: "single" }));
+      parts.push(
+        await collectBundlePart({ file, bundleReader, label: "single" }),
+      );
     }
 
     stage = "materialize-parts";

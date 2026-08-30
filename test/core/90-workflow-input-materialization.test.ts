@@ -1,7 +1,9 @@
 import { assert } from "chai";
+import { rejects as assertRejects } from "node:assert";
 import fs from "node:fs/promises";
 import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import { materializeWorkflowInputFile } from "../../src/workflows/workflowInputMaterialization";
+import { createWorkflowFileApi } from "../../src/workflows/file";
 
 describe("Workflow Input Materialization", function () {
   it("materializes isolated text and binary provider inputs under managed runtime tmp", async function () {
@@ -61,5 +63,50 @@ describe("Workflow Input Materialization", function () {
       }
       assert.instanceOf(materializationError, Error);
     }
+  });
+
+  it("owns bounded stat, list, move, and remove operations", async function () {
+    const file = createWorkflowFileApi();
+    const root = `${getRuntimePersistencePaths().tmpDir}/workflow-file-owner-${Date.now()}`;
+    const nested = `${root}/nested`;
+    const source = `${nested}/source.txt`;
+    const moved = `${nested}/moved.txt`;
+    await file.makeDirectory(nested);
+    await file.writeText(source, "owned file\n");
+
+    assert.deepInclude(await file.stat(source), {
+      path: source,
+      kind: "file",
+      sizeBytes: 11,
+    });
+    const listing = await file.list({ path: root, recursive: true });
+    assert.deepEqual(
+      listing.entries.map((entry) => entry.relativePath),
+      ["nested", "nested/source.txt"],
+    );
+    assert.equal(listing.totalFileBytes, 11);
+
+    await file.move({ sourcePath: source, targetPath: moved });
+    assert.isFalse(await file.exists(source));
+    assert.isTrue(await file.exists(moved));
+    await file.remove({ path: root, recursive: true });
+    assert.isFalse(await file.exists(root));
+  });
+
+  it("requires explicit recursive directory removal and honors missing ignore", async function () {
+    const file = createWorkflowFileApi();
+    const root = `${getRuntimePersistencePaths().tmpDir}/workflow-file-remove-${Date.now()}`;
+    await file.makeDirectory(root);
+    await file.writeText(`${root}/file.txt`, "content");
+
+    await assertRejects(
+      file.remove({ path: root }),
+      /Recursive workflow directory removal was not requested/,
+    );
+    assert.deepEqual(
+      await file.remove({ path: `${root}/missing`, missing: "ignore" }),
+      { removed: false },
+    );
+    await file.remove({ path: root, recursive: true });
   });
 });

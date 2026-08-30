@@ -13,6 +13,14 @@
       "cardinality": "one",
       "required": true,
       "accept": { "extensions": [".zip"] }
+    },
+    {
+      "id": "research-import-files",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "many",
+      "required": false,
+      "accept": { "maxCount": 1000, "maxBytes": 17179869184 }
     }
   ],
   "version": "1.0.0",

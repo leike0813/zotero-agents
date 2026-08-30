@@ -17,9 +17,11 @@ import {
   summarizeWorkflowRuntimeCapabilities,
 } from "../modules/workflowPackageDiagnostics";
 import {
+  createBoundWorkflowResearchBundleApi,
   createWorkflowHostApi,
   createWorkflowHostLiveReadAdapters,
 } from "./hostApi";
+import { createHostBridgeWorkflowResourceApi } from "../modules/hostBridgeWorkflowResources";
 import {
   resolveWorkflowHostContractVersion,
   summarizeWorkflowHostApiCapabilities,
@@ -661,11 +663,41 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
   operation: string;
   work: (hookRuntime: WorkflowRuntimeContext) => Promise<T> | T;
 }) {
-  const hookRuntime = createHookRuntimeContext({
+  let hookRuntime = createHookRuntimeContext({
     runtime: args.runtime,
     workflow: args.workflow,
     hookName: args.hookName,
   });
+  let interactiveResources:
+    | Awaited<ReturnType<typeof createHostBridgeWorkflowResourceApi>>
+    | undefined;
+  if (
+    hookRuntime.invocationMode === "interactive" &&
+    !hookRuntime.hostApi.resources &&
+    (args.workflow.manifest.resourceRequirements || []).length > 0
+  ) {
+    interactiveResources = await createHostBridgeWorkflowResourceApi({
+      workflowId: args.workflow.manifest.id,
+      runId: `${args.workflow.manifest.id}-${args.hookName}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+      manifest: args.workflow.manifest,
+      inputs: {},
+      outputBindings: {},
+    });
+    interactiveResources.mode = "interactive";
+    const baseHostApi = hookRuntime.hostApi;
+    hookRuntime = {
+      ...hookRuntime,
+      hostApi: {
+        ...baseHostApi,
+        resources: interactiveResources,
+        researchBundles: createBoundWorkflowResearchBundleApi({
+          base: baseHostApi,
+          ownerId: `interactive-workflow:${args.workflow.manifest.id}`,
+          resources: interactiveResources,
+        }),
+      },
+    };
+  }
   const capabilitySource = resolveHookCapabilitySource(args.workflow);
   const hostApiSummary = summarizeWorkflowHostApiCapabilities(
     hookRuntime.hostApi,
@@ -763,6 +795,8 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
       runtime: hookRuntime,
     });
     throw error;
+  } finally {
+    await interactiveResources?.cleanup();
   }
 }
 

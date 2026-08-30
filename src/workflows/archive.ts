@@ -47,11 +47,11 @@ export type WorkflowExtractedArchive = {
 export type WorkflowArchiveApi = {
   measureEntries: (
     entries: WorkflowArchiveEntry[],
-  ) => Promise<{ files: Record<string, WorkflowArchiveFileIntegrity> }>;
+  ) => Promise<WorkflowArchiveMeasurement>;
   writeZipAtomic: (args: {
     targetPath: string;
     entries: WorkflowArchiveEntry[];
-  }) => Promise<{ files: Record<string, WorkflowArchiveFileIntegrity> }>;
+  }) => Promise<WorkflowArchiveMeasurement & { targetPath: string }>;
   withExtractedZip: <T>(
     sourcePath: string,
     callback: (archive: WorkflowExtractedArchive) => Promise<T> | T,
@@ -406,15 +406,26 @@ function parseStoredZip(bytes: Uint8Array): ParsedStoredEntry[] {
   }
   if (eocd < 0) throw new Error("ZIP end-of-central-directory is missing");
   const count = readU16(bytes, eocd + 10);
+  if (count > WORKFLOW_ARCHIVE_LIMITS.entries) {
+    throw new Error("Archive exceeds the fixed entry count limit");
+  }
   let cursor = readU32(bytes, eocd + 16);
   const decoder = new TextDecoder("utf-8");
   const seen = new Set<string>();
   const entries: ParsedStoredEntry[] = [];
+  let totalBytes = 0;
   for (let index = 0; index < count; index += 1) {
     if (readU32(bytes, cursor) !== 0x02014b50) throw new Error("Invalid ZIP central directory");
     const method = readU16(bytes, cursor + 10);
     const compressedSize = readU32(bytes, cursor + 20);
     const uncompressedSize = readU32(bytes, cursor + 24);
+    if (uncompressedSize > WORKFLOW_ARCHIVE_LIMITS.entryBytes) {
+      throw new Error("Archive entry exceeds the fixed byte limit");
+    }
+    totalBytes += uncompressedSize;
+    if (totalBytes > WORKFLOW_ARCHIVE_LIMITS.totalBytes) {
+      throw new Error("Archive exceeds the fixed total byte limit");
+    }
     const nameLength = readU16(bytes, cursor + 28);
     const extraLength = readU16(bytes, cursor + 30);
     const commentLength = readU16(bytes, cursor + 32);
@@ -470,12 +481,29 @@ async function extractInGecko(
       if (!name || name.endsWith("/")) continue;
       rawNames.push(normalizeWorkflowArchiveEntryName(name));
     }
-    if (new Set(rawNames).size !== rawNames.length) throw new Error("Duplicate zip entry path");
+    if (
+      new Set(rawNames.map((name) => name.toLocaleLowerCase("en-US"))).size !==
+      rawNames.length
+    ) {
+      throw new Error("Duplicate zip entry path");
+    }
+    if (rawNames.length > WORKFLOW_ARCHIVE_LIMITS.entries) {
+      throw new Error("Archive exceeds the fixed entry count limit");
+    }
+    let totalBytes = 0;
     for (const name of rawNames) {
       const target = joinPath(rootPath, ...name.split("/"));
       const parent = dirname(target.replace(/\\/g, "/"));
       if (parent) await ensureDirectory(parent);
       reader.extract(name, runtime.file.pathToFile(target));
+      const stat = await measureLocalFile(target);
+      if (stat.size > WORKFLOW_ARCHIVE_LIMITS.entryBytes) {
+        throw new Error(`Archive entry exceeds the fixed byte limit: ${name}`);
+      }
+      totalBytes += stat.size;
+      if (totalBytes > WORKFLOW_ARCHIVE_LIMITS.totalBytes) {
+        throw new Error("Archive exceeds the fixed total byte limit");
+      }
     }
     return rawNames;
   } finally {
@@ -487,24 +515,44 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
   return {
     async measureEntries(entriesInput) {
       const entries = validateEntries(entriesInput || []);
-      const measurement = await measureValidatedEntries(entries);
-      return { files: measurement.files };
+      return measureValidatedEntries(entries);
     },
     async writeZipAtomic(args) {
       const targetPath = String(args?.targetPath || "").trim();
       if (!targetPath) throw new Error("Archive target path is required");
       const entries = validateEntries(args?.entries || []);
-      await measureValidatedEntries(entries);
+      const measurement = await measureValidatedEntries(entries);
       const geckoRuntime = resolveGeckoArchiveWriterRuntime();
-      return geckoRuntime
+      const written = geckoRuntime
         ? writeZipInGecko(targetPath, entries, geckoRuntime)
         : writeStoredZipAtomic(targetPath, entries);
+      const result = await written;
+      const actual: WorkflowArchiveMeasurement = {
+        files: result.files,
+        totalEntries: Object.keys(result.files).length,
+        totalBytes: Object.values(result.files).reduce(
+          (sum, entry) => sum + entry.size,
+          0,
+        ),
+      };
+      if (
+        actual.totalEntries !== measurement.totalEntries ||
+        actual.totalBytes !== measurement.totalBytes
+      ) {
+        throw new Error("Archive sources changed during atomic write");
+      }
+      return { ...actual, targetPath };
     },
-    async withExtractedZip(sourcePath, callback) {
+    async withExtractedZip<T>(
+      sourcePath: string,
+      callback: (archive: WorkflowExtractedArchive) => Promise<T> | T,
+    ) {
       if (typeof callback !== "function") throw new Error("Archive callback is required");
       const rootPath = await makeTempDir("zs-workflow-archive");
       let active = true;
-      let callbackError: unknown;
+      let operationFailed = false;
+      let operationError: unknown;
+      let result: T | undefined;
       try {
         const geckoRuntime = resolveGeckoArchiveReaderRuntime();
         const entries = geckoRuntime
@@ -551,10 +599,13 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
               await measureLocalFile(resolvePath(entryName)),
             );
           }
-          return { files: measurement.files };
+          return measurement;
         };
         const scopedArchive: WorkflowExtractedArchive = {
-          rootPath,
+          get rootPath() {
+            requireActive();
+            return rootPath;
+          },
           entries: [...entries],
           resolvePath,
           readText: async (entryName) => {
@@ -569,20 +620,23 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
           },
           measureEntries,
         };
-        try {
-          return await callback(scopedArchive);
-        } catch (error) {
-          callbackError = error;
-          throw error;
-        }
-      } finally {
-        active = false;
-        try {
-          await removePath(rootPath);
-        } catch (cleanupError) {
-          if (!callbackError) throw cleanupError;
-        }
+        result = await callback(scopedArchive);
+      } catch (error) {
+        operationFailed = true;
+        operationError = error;
       }
+      active = false;
+      let cleanupFailed = false;
+      let cleanupError: unknown;
+      try {
+        await removePath(rootPath);
+      } catch (error) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
+      if (operationFailed) throw operationError;
+      if (cleanupFailed) throw cleanupError;
+      return result as T;
     },
   };
 }

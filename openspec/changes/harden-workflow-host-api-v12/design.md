@@ -4,7 +4,7 @@ See `proposal.md` for motivation. Changes `01-establish-workflow-host-v12-contra
 
 The fixed baseline is `4dbddc24e884921262c559428bf851db5eadf2d7`. This change begins only after all seven public-contract prerequisites are complete and verified. `02p-consolidate-platform-subprocess-one-shot-seam` is outside the public dependency chain but remains part of the overall runtime-adaptation completion report.
 
-The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§3.3–3.9, 4.1–4.4, 7, 14.1–14.7, 15.1, 16–18, and 19.6–19.7. Its exact 23/21/85 manifest, hard-cut deletion ledger, variant parity, deferred inventory, documentation closure, and final-review criteria take precedence over abbreviated wording in this design.
+The authoritative architecture source is [`artifact/workflow-host-v12-architecture-decisions.md`](../../../artifact/workflow-host-v12-architecture-decisions.md), especially §§3.3–3.9, 4.1–4.4, 7, 14.1–14.7, 15.1, 16–18, and 19.6–19.7. Its exact 23/21/87 manifest, hard-cut deletion ledger, variant parity, deferred inventory, documentation closure, and final-review criteria take precedence over abbreviated wording in this design.
 
 ## Goals / Non-Goals
 
@@ -52,7 +52,7 @@ Conformance asserts unordered exact member sets, callable positions, version, in
 
 - [One cut touches many consumers] → Complete and verify each owner first, then migrate consumer families behind an exact failing conformance gate.
 - [Hidden legacy access remains] → Run AST/import/package scans for every approved escape hatch and require zero findings.
-- [Manifest and TypeScript drift] → Bidirectional compile-time checks plus recursive runtime conformance and 23/21/85 metrics.
+- [Manifest and TypeScript drift] → Bidirectional compile-time checks plus recursive runtime conformance and 23/21/87 metrics.
 - [Non-interactive variant loses members] → Compose deny adapters before removing optional shapes and test both variants side by side.
 - [Documentation becomes a second manifest] → Keep only human-readable contract text and gate its declared version; runtime identity remains code-native.
 - [Parallel changes collide in shared files] → Integrate snapshot-specific contract additions before grouped Synthesis additions, then apply activation only on the verified combined state.
