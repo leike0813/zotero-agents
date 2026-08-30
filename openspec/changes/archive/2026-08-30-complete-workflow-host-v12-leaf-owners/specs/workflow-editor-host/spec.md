@@ -1,8 +1,5 @@
-# workflow-editor-host Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change refactor-workflow-editor-framework. Update Purpose after archive.
-## Requirements
 ### Requirement: Workflow Editor Host SHALL Manage Dialog Lifecycle Uniformly
 The system SHALL provide a generic workflow editor host that owns dialog open/close, action resolution, timer cleanup, caller-scoped concurrency, state bounds, and cleanup for local workflow editors. Renderer, actions, DOM root, callbacks, and mutable state helpers SHALL remain in-process session values and MUST NOT enter Broker, Host Bridge/MCP, durable state, or serialized results.
 
@@ -26,6 +23,15 @@ The system SHALL provide a generic workflow editor host that owns dialog open/cl
 - **THEN** the host preserves the default Save/Cancel flow and dirty-close prompt semantics
 - **AND** the inline session owner remains the only new v12 contract
 
+## REMOVED Requirements
+
+### Requirement: Workflow Editor Host SHALL Dispatch Renderers by Renderer ID
+**Reason**: V12 makes the inline renderer session-owned; a public renderer-id registry creates a second lifecycle and an unbounded capability lookup.
+
+**Migration**: Active workflow callers pass their renderer and actions directly in the editor session request. Internal registration helpers may remain only until those callers migrate in the activation change.
+
+## ADDED Requirements
+
 ### Requirement: Workflow Editor Host SHALL own one active session per caller
 Each caller scope SHALL have at most one active editor session. Additional sessions MUST wait in deterministic order or fail with stable `conflict` evidence, and non-interactive projection MUST retain the member while returning `interaction_required`.
 
@@ -38,12 +44,3 @@ Each caller scope SHALL have at most one active editor session. Additional sessi
 - **WHEN** an editor session is requested through a non-interactive adapter
 - **THEN** it fails with stable `interaction_required` data
 - **AND** no dialog or session timer is created
-
-### Requirement: Workflow Editor Host SHALL Process Multi-Input Sessions Sequentially
-For a single workflow trigger that resolves multiple legal inputs, host-managed editor sessions SHALL be opened one-by-one in deterministic order.
-
-#### Scenario: Multi-input sequential flow
-- **WHEN** workflow trigger includes multiple editor targets
-- **THEN** host SHALL open exactly one dialog at a time
-- **AND** next dialog SHALL open only after previous session is resolved
-

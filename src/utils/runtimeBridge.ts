@@ -3,6 +3,7 @@ type RuntimeAddonLike = {
     config?: {
       addonName?: string;
       addonRef?: string;
+      addonVersion?: string;
       prefsPrefix?: string;
     };
     ztoolkit?: Record<string, unknown>;

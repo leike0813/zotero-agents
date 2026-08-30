@@ -8,6 +8,7 @@ import {
 } from "../../src/modules/runtimeLogManager";
 import {
   closeVisibleWorkflowToasts,
+  createWorkflowNotificationOwner,
   emitWorkflowFinishSummary,
   emitWorkflowJobToasts,
   emitWorkflowStartToast,
@@ -2990,6 +2991,85 @@ describe("workflow execution seams", function () {
     assert.deepEqual(closeTimers, []);
     assert.isTrue(options.every((entry) => entry?.closeOnClick === true));
     assert.isTrue(options.every((entry) => entry?.closeTime === 0));
+  });
+
+  it("bounds workflow-callable toasts per caller and denies non-interactive display", async function () {
+    resetWorkflowToastStateForTests();
+    await clearRuntimeLogs();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const shown: Array<{ text: string; type: string }> = [];
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+      private type = "";
+      createLine(args: { text?: string; type?: string }) {
+        this.text = String(args.text || "");
+        this.type = String(args.type || "");
+        return this;
+      }
+      show() {
+        shown.push({ text: this.text, type: this.type });
+        return this;
+      }
+      startCloseTimer() {
+        return this;
+      }
+    };
+
+    try {
+      const first = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      const second = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      for (let index = 0; index < 5; index += 1) {
+        assert.isUndefined(first.toast({ text: `first-${index}` }));
+      }
+      assert.isUndefined(second.toast({ text: "second", type: "success" }));
+      let limited: unknown;
+      try {
+        first.toast({ text: "sixth" });
+      } catch (error) {
+        limited = error;
+      }
+      assert.strictEqual(
+        (limited as { code?: string })?.code,
+        "resource_limited",
+      );
+      assert.lengthOf(shown, 6);
+      assert.strictEqual(shown[0].type, "default");
+      assert.lengthOf(listHostBridgeNotificationEvents({}).notifications, 6);
+
+      const nonInteractive = createWorkflowNotificationOwner({
+        interactionMode: "non_interactive",
+      });
+      let denied: unknown;
+      try {
+        nonInteractive.toast({ text: "hidden" });
+      } catch (error) {
+        denied = error;
+      }
+      assert.strictEqual(
+        (denied as { code?: string })?.code,
+        "interaction_required",
+      );
+      assert.isTrue(
+        listRuntimeLogs({}).some(
+          (entry) => entry.stage === "workflow-host.notifications",
+        ),
+      );
+      assert.throws(
+        () => first.toast({ text: "x".repeat(4097) }),
+        /character limit/,
+      );
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
   });
 
   it("deduplicates workflow toasts by key and clears dedup state on reset or close", function () {

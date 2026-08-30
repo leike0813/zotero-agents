@@ -20,6 +20,8 @@ import {
   createBoundWorkflowResearchBundleApi,
   createWorkflowHostApi,
   createWorkflowHostLiveReadAdapters,
+  withWorkflowHostLeafScope,
+  type WorkflowHostLeafScope,
 } from "./hostApi";
 import { createHostBridgeWorkflowResourceApi } from "../modules/hostBridgeWorkflowResources";
 import {
@@ -133,6 +135,15 @@ type BuildRequestsResult = unknown[] & {
     skippedUnits: number;
   };
 };
+
+const stagedLeafScopeByRuntime = new WeakMap<object, WorkflowHostLeafScope>();
+let stagedLeafRunSequence = 0;
+
+export function resolveStagedWorkflowHostLeafScope(
+  runtime: WorkflowRuntimeContext,
+) {
+  return stagedLeafScopeByRuntime.get(runtime) || null;
+}
 
 type NoValidInputUnitsError = Error & {
   code: "NO_VALID_INPUT_UNITS";
@@ -728,8 +739,31 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
     runtime: hookRuntime,
   });
   try {
-    const result = await withWorkflowExecutionRuntimeScope(hookRuntime, () =>
-      args.work(hookRuntime),
+    const leafRunId = `${hookRuntime.workflowId || "workflow"}:${hookRuntime.hookName || "hook"}:${++stagedLeafRunSequence}`;
+    const result = await withWorkflowHostLeafScope(
+      {
+        interactionMode:
+          hookRuntime.invocationMode === "non-interactive"
+            ? "non_interactive"
+            : "interactive",
+        runScopeId: leafRunId,
+        logBinding: {
+          workflowId: hookRuntime.workflowId || "unknown",
+          packageId: hookRuntime.packageId || "unknown",
+          runId: leafRunId,
+        },
+        resources: hookRuntime.hostApi.resources,
+      },
+      async (leafScope) => {
+        stagedLeafScopeByRuntime.set(hookRuntime, leafScope);
+        try {
+          return await withWorkflowExecutionRuntimeScope(hookRuntime, () =>
+            args.work(hookRuntime),
+          );
+        } finally {
+          stagedLeafScopeByRuntime.delete(hookRuntime);
+        }
+      },
     );
     emitWorkflowPackageDiagnostic({
       level: "debug",

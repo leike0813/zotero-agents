@@ -9,6 +9,15 @@ import {
   WORKFLOW_HOST_API_VERSION,
 } from "../../../src/workflows/workflowHostContract";
 import { requireHostApi } from "../../../workflows_builtin/literature-workbench-package/lib/runtime.mjs";
+import {
+  createWorkflowAddonOwner,
+  createWorkflowEnvironmentOwner,
+  createWorkflowHostLeafScope,
+} from "../../../src/workflows/hostApi";
+import {
+  installRuntimeBridgeOverrideForTests,
+  resetRuntimeBridgeOverrideForTests,
+} from "../../../src/utils/runtimeBridge";
 
 describe("Workflow Host contract governance", function () {
   this.timeout(10_000);
@@ -182,8 +191,55 @@ describe("Workflow Host contract governance", function () {
       "WorkflowCallControl",
       "WorkflowHostErrorCode",
       "WorkflowHostErrorData",
+      "AddonIdentityDto",
+      "WorkflowEnvironmentInfo",
+      "PreparedNoteImageRef",
+      "PrepareNoteImageRequestDto",
+      "PreparedNoteImageDto",
+      "BibliographyFormatRef",
+      "BibliographyFormatDto",
+      "BibliographyRenderRequestDto",
+      "BibliographyRenderResultDto",
+      "WorkflowToastRequestDto",
+      "WorkflowRuntimeLogRequestDto",
+    ]);
+    const exactProperties = new Map<string, string[]>([
+      ["AddonIdentityDto", ["addonName", "addonRef", "addonVersion"]],
+      ["WorkflowEnvironmentInfo", ["locale", "platform", "zoteroVersion"]],
+      ["PreparedNoteImageRef", ["id", "kind"]],
+      ["PrepareNoteImageRequestDto", ["options", "source"]],
+      [
+        "PreparedNoteImageDto",
+        ["bytes", "height", "mimeType", "ref", "sha256", "width"],
+      ],
+      ["BibliographyFormatRef", ["id"]],
+      [
+        "BibliographyFormatDto",
+        [
+          "availability",
+          "contentType",
+          "fileExtension",
+          "label",
+          "optionsSchema",
+          "ref",
+        ],
+      ],
+      [
+        "BibliographyRenderRequestDto",
+        ["formatOptions", "formatPreference", "itemRefs"],
+      ],
+      [
+        "BibliographyRenderResultDto",
+        ["content", "fallbackUsed", "issues", "requestedFormats", "usedFormat"],
+      ],
+      ["WorkflowToastRequestDto", ["text", "type"]],
+      [
+        "WorkflowRuntimeLogRequestDto",
+        ["details", "level", "message", "operation", "phase", "stage"],
+      ],
     ]);
     const declarations = new Map<string, string[]>();
+    const declarationProperties = new Map<string, string[]>();
     for (const path of paths) {
       const text = await readFile(resolve(path), "utf8");
       const source = ts.createSourceFile(
@@ -202,12 +258,29 @@ describe("Workflow Host contract governance", function () {
           const entries = declarations.get(statement.name.text) || [];
           entries.push(path);
           declarations.set(statement.name.text, entries);
+          const members = ts.isInterfaceDeclaration(statement)
+            ? statement.members
+            : ts.isTypeLiteralNode(statement.type)
+              ? statement.type.members
+              : [];
+          const properties = members
+            .filter(ts.isPropertySignature)
+            .map((member) =>
+              member.name && ts.isIdentifier(member.name)
+                ? member.name.text
+                : member.name.getText(source),
+            )
+            .sort();
+          declarationProperties.set(statement.name.text, properties);
         }
       }
     }
 
     for (const name of canonicalNames) {
       assert.lengthOf(declarations.get(name) || [], 1, name);
+    }
+    for (const [name, properties] of exactProperties) {
+      assert.deepEqual(declarationProperties.get(name), properties, name);
     }
 
     const configPath = resolve("tsconfig.json");
@@ -244,6 +317,105 @@ describe("Workflow Host contract governance", function () {
 
     for (const pattern of forbidden) {
       assert.notMatch(source, pattern);
+    }
+  });
+
+  it("keeps addon identity closed and reads environment facts per invocation", function () {
+    const addon = createWorkflowAddonOwner();
+    const environment = createWorkflowEnvironmentOwner();
+    try {
+      installRuntimeBridgeOverrideForTests({
+        addon: {
+          data: {
+            config: {
+              addonName: "Test Addon",
+              addonRef: "test-addon",
+              addonVersion: "1.2.3",
+              prefsPrefix: "extensions.test",
+            },
+          },
+        },
+        zotero: {
+          ...Zotero,
+          version: "7.0.0",
+          isWin: true,
+          locale: "zh-cn",
+        } as typeof Zotero,
+      });
+      assert.deepEqual(addon.getConfig(), {
+        addonName: "Test Addon",
+        addonRef: "test-addon",
+        addonVersion: "1.2.3",
+      });
+      assert.deepEqual(environment.getInfo(), {
+        zoteroVersion: "7.0.0",
+        platform: "win32",
+        locale: "zh-CN",
+      });
+
+      installRuntimeBridgeOverrideForTests({
+        zotero: {
+          ...Zotero,
+          version: "9.1.0",
+          isMac: true,
+          locale: "en-gb",
+        } as typeof Zotero,
+      });
+      assert.deepEqual(environment.getInfo(), {
+        zoteroVersion: "9.1.0",
+        platform: "darwin",
+        locale: "en-GB",
+      });
+      assert.deepEqual(Object.keys(environment.getInfo()).sort(), [
+        "locale",
+        "platform",
+        "zoteroVersion",
+      ]);
+      assert.strictEqual(WORKFLOW_HOST_API_VERSION, 11);
+    } finally {
+      resetRuntimeBridgeOverrideForTests();
+    }
+  });
+
+  it("composes the eight staged leaf owners explicitly without activating v12", function () {
+    const interactive = createWorkflowHostLeafScope({
+      interactionMode: "interactive",
+      runScopeId: "leaf-interactive",
+      logBinding: { workflowId: "workflow-a", packageId: "package-a" },
+    });
+    const nonInteractive = createWorkflowHostLeafScope({
+      interactionMode: "non_interactive",
+      runScopeId: "leaf-non-interactive",
+      logBinding: { workflowId: "workflow-a", packageId: "package-a" },
+    });
+    try {
+      const expected = [
+        "addon",
+        "bibliography",
+        "clipboard",
+        "editor",
+        "environment",
+        "images",
+        "logging",
+        "notifications",
+      ];
+      assert.deepEqual(Object.keys(interactive.owners).sort(), expected);
+      assert.deepEqual(Object.keys(nonInteractive.owners).sort(), expected);
+      for (const key of expected) {
+        assert.deepEqual(
+          Object.keys(
+            nonInteractive.owners[key as keyof typeof nonInteractive.owners],
+          ).sort(),
+          Object.keys(
+            interactive.owners[key as keyof typeof interactive.owners],
+          ).sort(),
+          key,
+        );
+      }
+      assert.strictEqual(WORKFLOW_HOST_API_VERSION, 11);
+    } finally {
+      interactive.dispose();
+      nonInteractive.dispose();
     }
   });
 });

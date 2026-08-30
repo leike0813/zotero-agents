@@ -54,6 +54,12 @@ import {
   type WorkflowHostErrorDetailsByCode,
 } from "../../src/workflows/workflowHostErrorContract";
 import { createSha256Accumulator, sha256Hex } from "../../src/utils/sha256";
+import { createWorkflowPreparedImageScope } from "../../src/workflows/workflowNoteImagePreparation";
+import { createWorkflowBibliographyOwner } from "../../src/workflows/bibliography";
+import {
+  createMemoryWorkflowClipboardAdapter,
+  createWorkflowClipboardOwner,
+} from "../../src/workflows/clipboard";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -101,6 +107,21 @@ async function expectBrokerError(
       assert.strictEqual((error as ZoteroHostCapabilityError).code, code);
     return error as ZoteroHostCapabilityError;
   }
+}
+
+async function expectWorkflowHostError(
+  operation: Promise<unknown>,
+  code: string,
+) {
+  let captured: unknown;
+  try {
+    await operation;
+  } catch (error) {
+    captured = error;
+  }
+  assert.instanceOf(captured, Error);
+  assert.strictEqual((captured as { code?: string }).code, code);
+  return captured as Error & { code: string };
 }
 
 async function withMockTranslate<T>(
@@ -276,7 +297,10 @@ describe("zotero host broker capability api", function () {
     const createRequest = {
       operationId: "note-create-once",
       parentRef: { libraryId: parent.libraryID, key: parent.key },
-      content: "<div><p>canonical note</p></div>",
+      content: {
+        format: "html" as const,
+        value: "<div><p>canonical note</p></div>",
+      },
     };
 
     const created = await broker.notes.create(createRequest, scope);
@@ -296,7 +320,10 @@ describe("zotero host broker capability api", function () {
         operationId: "note-update-content",
         noteRef: note.ref,
         expectedRevision: note.revision,
-        content: "<div><p>canonical note updated</p></div>",
+        content: {
+          format: "html",
+          value: "<div><p>canonical note updated</p></div>",
+        },
       },
       scope,
     );
@@ -307,7 +334,10 @@ describe("zotero host broker capability api", function () {
         operationId: "note-update-stale",
         noteRef: note.ref,
         expectedRevision: note.revision,
-        content: "<div><p>must not overwrite</p></div>",
+        content: {
+          format: "html",
+          value: "<div><p>must not overwrite</p></div>",
+        },
       },
       scope,
     );
@@ -319,6 +349,247 @@ describe("zotero host broker capability api", function () {
       conflict.attempt.error.recovery,
       "refresh_and_retry_new_operation",
     );
+  });
+
+  it("consumes prepared-image slots inside one replay-safe note mutation", async function () {
+    const preparedScope = createWorkflowPreparedImageScope({
+      runScopeId: "note-image-run",
+      createScopeToken: () => "note-image-scope",
+      createRefId: () => "hero",
+      adapter: {
+        async readPathBlob() {
+          throw new Error("path reads are not expected");
+        },
+        async decode() {
+          return { image: {}, width: 20, height: 10, close() {} };
+        },
+        createEncoder() {
+          return {
+            async encode(mimeType) {
+              return new Blob([new Uint8Array(32)], { type: mimeType });
+            },
+          };
+        },
+      },
+    });
+    const prepared = await preparedScope.owner.prepareForNoteEmbedding({
+      source: { kind: "base64", data: "/9j/4A==", mimeType: "image/jpeg" },
+    });
+    const parent = await createParentItem("Prepared Image Note Parent");
+    const broker = createZoteroHostCapabilityBroker();
+    const callerScope = {
+      ownerId: "prepared-image-note-test",
+      preparedImages: { resolve: preparedScope.resolve },
+    } as any;
+    const originalImport = Zotero.Attachments.importEmbeddedImage;
+    let imports = 0;
+    Zotero.Attachments.importEmbeddedImage = async (args) => {
+      imports += 1;
+      return originalImport(args);
+    };
+    try {
+      const request = {
+        operationId: "note-create-with-prepared-image",
+        parentRef: { libraryId: parent.libraryID, key: parent.key },
+        content: {
+          format: "html" as const,
+          value:
+            '<div><img data-zotero-agents-image-slot="hero" alt="Hero"></div>',
+          embeddedImages: [
+            {
+              slot: "hero",
+              preparedImage: prepared.ref,
+              altText: "Hero",
+            },
+          ],
+        },
+      };
+      const first = await broker.notes.create(request as any, callerScope);
+      const replay = await broker.notes.create(request as any, callerScope);
+
+      assert.strictEqual(first.outcome, "committed");
+      assert.deepEqual(replay, first);
+      assert.strictEqual(imports, 1);
+      if (first.outcome !== "committed") assert.fail("expected committed note");
+      assert.lengthOf(first.receipt.changes, 2);
+      const noteResult = first.result.note as {
+        ref: { libraryId: number; key: string };
+      };
+      const note = Zotero.Items.getByLibraryAndKey(
+        noteResult.ref.libraryId,
+        noteResult.ref.key,
+      );
+      assert.notInclude(note.getNote(), "data-zotero-agents-image-slot");
+      assert.match(note.getNote(), /data-attachment-key="[A-Z0-9]+"/);
+      const attachmentKey = note
+        .getNote()
+        .match(/data-attachment-key="([A-Z0-9]+)"/)?.[1];
+      assert.isString(attachmentKey);
+
+      const updated = await broker.notes.updateContent(
+        {
+          operationId: "note-update-removes-managed-image",
+          noteRef: noteResult.ref,
+          content: { format: "html", value: "<div>image removed</div>" },
+        },
+        callerScope,
+      );
+      assert.strictEqual(updated.outcome, "committed");
+      if (updated.outcome !== "committed") assert.fail("expected update");
+      assert.isTrue(
+        updated.receipt.changes.some(
+          (change) =>
+            change.effect === "deleted" &&
+            change.entity.ref.key === attachmentKey,
+        ),
+      );
+      assert.notInclude(note.getNote(), "data-zotero-agents-managed-image");
+    } finally {
+      Zotero.Attachments.importEmbeddedImage = originalImport;
+      preparedScope.dispose();
+    }
+  });
+
+  it("compensates prepared-image staging and preserves the primary note failure", async function () {
+    let imageSequence = 0;
+    const preparedScope = createWorkflowPreparedImageScope({
+      runScopeId: "note-image-compensation-run",
+      createScopeToken: () => "note-image-compensation",
+      createRefId: () => `image-${++imageSequence}`,
+      adapter: {
+        async readPathBlob() {
+          throw new Error("path reads are not expected");
+        },
+        async decode() {
+          return { image: {}, width: 20, height: 10, close() {} };
+        },
+        createEncoder() {
+          return {
+            async encode(mimeType) {
+              return new Blob([new Uint8Array(32)], { type: mimeType });
+            },
+          };
+        },
+      },
+    });
+    const [firstImage, secondImage] = await Promise.all([
+      preparedScope.owner.prepareForNoteEmbedding({
+        source: { kind: "base64", data: "/9j/4A==" },
+      }),
+      preparedScope.owner.prepareForNoteEmbedding({
+        source: { kind: "base64", data: "/9j/4A==" },
+      }),
+    ]);
+    const parent = await createParentItem("Prepared Image Compensation Parent");
+    const broker = createZoteroHostCapabilityBroker();
+    const callerScope = {
+      ownerId: "prepared-image-compensation-test",
+      preparedImages: { resolve: preparedScope.resolve },
+    } as any;
+    const originalImport = Zotero.Attachments.importEmbeddedImage;
+    let imports = 0;
+    Zotero.Attachments.importEmbeddedImage = async (args) => {
+      imports += 1;
+      if (imports === 2) throw new Error("second image staging failed");
+      return originalImport(args);
+    };
+    try {
+      const result = await broker.notes.create(
+        {
+          operationId: "note-image-staging-failure",
+          parentRef: { libraryId: parent.libraryID, key: parent.key },
+          content: {
+            format: "html",
+            value:
+              '<div><img data-zotero-agents-image-slot="one"><img data-zotero-agents-image-slot="two"></div>',
+            embeddedImages: [
+              { slot: "one", preparedImage: firstImage.ref },
+              { slot: "two", preparedImage: secondImage.ref },
+            ],
+          },
+        },
+        callerScope,
+      );
+      assert.strictEqual(result.outcome, "failed");
+      if (result.outcome !== "failed") assert.fail("expected failed attempt");
+      assert.include(
+        result.attempt.error.message,
+        "second image staging failed",
+      );
+      assert.lengthOf(parent.getNotes(), 0);
+    } finally {
+      Zotero.Attachments.importEmbeddedImage = originalImport;
+      preparedScope.dispose();
+    }
+  });
+
+  it("removes staged images when a note update cannot commit", async function () {
+    const preparedScope = createWorkflowPreparedImageScope({
+      runScopeId: "note-update-compensation-run",
+      adapter: {
+        async readPathBlob() {
+          throw new Error("path reads are not expected");
+        },
+        async decode() {
+          return { image: {}, width: 20, height: 10, close() {} };
+        },
+        createEncoder() {
+          return {
+            async encode(mimeType) {
+              return new Blob([new Uint8Array(32)], { type: mimeType });
+            },
+          };
+        },
+      },
+    });
+    const prepared = await preparedScope.owner.prepareForNoteEmbedding({
+      source: { kind: "base64", data: "/9j/4A==" },
+    });
+    const parent = await createParentItem("Prepared Image Update Parent");
+    const note = await handlers.parent.addNote(parent, {
+      content: "<div>before</div>",
+    });
+    const originalUpdate = handlers.note.update;
+    const originalImport = Zotero.Attachments.importEmbeddedImage;
+    let stagedKey = "";
+    Zotero.Attachments.importEmbeddedImage = async (args) => {
+      const attachment = await originalImport(args);
+      stagedKey = attachment.key;
+      return attachment;
+    };
+    handlers.note.update = async () => {
+      throw new Error("note commit failed");
+    };
+    try {
+      const result =
+        await createZoteroHostCapabilityBroker().notes.updateContent(
+          {
+            operationId: "note-update-image-commit-failure",
+            noteRef: { libraryId: note.libraryID, key: note.key },
+            content: {
+              format: "html",
+              value: '<div><img data-zotero-agents-image-slot="hero"></div>',
+              embeddedImages: [{ slot: "hero", preparedImage: prepared.ref }],
+            },
+          },
+          {
+            ownerId: "prepared-image-update-compensation-test",
+            preparedImages: { resolve: preparedScope.resolve },
+          } as any,
+        );
+      assert.strictEqual(result.outcome, "failed");
+      if (result.outcome !== "failed") assert.fail("expected failed update");
+      assert.include(result.attempt.error.message, "note commit failed");
+      assert.isNotEmpty(stagedKey);
+      assert.isUndefined(
+        Zotero.Items.getByLibraryAndKey(note.libraryID, stagedKey),
+      );
+      assert.strictEqual(note.getNote(), "<div>before</div>");
+    } finally {
+      handlers.note.update = originalUpdate;
+      Zotero.Attachments.importEmbeddedImage = originalImport;
+      preparedScope.dispose();
+    }
   });
 
   it("returns structured attempt evidence when an accepted note payload write cannot commit", async function () {
@@ -2409,6 +2680,218 @@ describe("zotero host broker capability api", function () {
         assert.deepEqual(calls[1].items, [item]);
       },
     );
+  });
+
+  it("lists stable bibliography formats and renders portable refs with declared fallback", async function () {
+    const betterBibtexID = "ca65189f-8815-4afe-8c8b-8c7c15f0edca";
+    const nativeBibtexID = "9cb70025-a888-4a29-a210-93ec52da40d4";
+    const item = await createParentItem("Bibliography Portable Item");
+
+    await withMockExportTranslators(
+      {
+        translators: {
+          [betterBibtexID]: null,
+          [nativeBibtexID]: {
+            translatorID: nativeBibtexID,
+            label: "BibTeX",
+            target: "bib",
+            translatorType: 3,
+          },
+        },
+        outputs: {
+          [nativeBibtexID]: "@article{portable, title={Portable}}\n",
+        },
+      },
+      async (calls) => {
+        const bibliography = createWorkflowBibliographyOwner({
+          resolveRuntime: () => Zotero,
+          resolveItem(ref) {
+            return Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key);
+          },
+        });
+        const formats = await bibliography.listFormats();
+        assert.deepEqual(
+          formats.map((format) => [format.ref.id, format.availability]),
+          [
+            ["better-bibtex", "unavailable"],
+            ["bibtex", "available"],
+          ],
+        );
+
+        const result = await bibliography.render({
+          itemRefs: [{ libraryId: item.libraryID, key: item.key }],
+          formatPreference: [{ id: "better-bibtex" }, { id: "bibtex" }],
+          formatOptions: {
+            exportNotes: false,
+            exportFileData: false,
+            keepUpdated: false,
+          },
+        });
+
+        assert.strictEqual(result.usedFormat.ref.id, "bibtex");
+        assert.isTrue(result.fallbackUsed);
+        assert.strictEqual(
+          result.content,
+          "@article{portable, title={Portable}}\n",
+        );
+        assert.deepEqual(result.issues, [
+          {
+            code: "bibliography_format_fallback",
+            requested: [{ id: "better-bibtex" }, { id: "bibtex" }],
+            used: { id: "bibtex" },
+          },
+        ]);
+        assert.deepEqual(
+          calls.map((call) => call.translatorID),
+          [nativeBibtexID],
+        );
+        assert.deepEqual(calls[0].items, [item]);
+      },
+    );
+  });
+
+  it("fails bibliography rendering closed for unsafe refs, options, bounds, and cancellation", async function () {
+    const nativeBibtexID = "9cb70025-a888-4a29-a210-93ec52da40d4";
+    const item = await createParentItem("Bounded Bibliography Item");
+    await withMockExportTranslators(
+      {
+        translators: {
+          [nativeBibtexID]: {
+            translatorID: nativeBibtexID,
+            label: "BibTeX",
+            translatorType: 3,
+          },
+        },
+        outputs: { [nativeBibtexID]: "@article{bounded}\n" },
+      },
+      async () => {
+        const bibliography = createWorkflowBibliographyOwner({
+          resolveRuntime: () => Zotero,
+          resolveItem(ref) {
+            return Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key);
+          },
+        });
+        const itemRef = { libraryId: item.libraryID, key: item.key };
+        const formatPreference = [{ id: "bibtex" }];
+
+        await expectWorkflowHostError(
+          bibliography.render({
+            itemRefs: [itemRef, itemRef],
+            formatPreference,
+          }),
+          "invalid_request",
+        );
+        await expectWorkflowHostError(
+          bibliography.render({
+            itemRefs: [{ libraryId: item.libraryID, key: "ZZZZ9999" }],
+            formatPreference,
+          }),
+          "not_found",
+        );
+        await expectWorkflowHostError(
+          bibliography.render({
+            itemRefs: [itemRef],
+            formatPreference,
+            formatOptions: { unknownOption: true },
+          }),
+          "invalid_request",
+        );
+        await expectWorkflowHostError(
+          bibliography.render(
+            { itemRefs: [itemRef], formatPreference },
+            { signal: AbortSignal.abort() },
+          ),
+          "canceled",
+        );
+        await expectWorkflowHostError(
+          bibliography.render({
+            itemRefs: Array.from({ length: 10_001 }, () => itemRef),
+            formatPreference,
+          }),
+          "resource_limited",
+        );
+        const tinyOutputOwner = createWorkflowBibliographyOwner({
+          resolveRuntime: () => Zotero,
+          resolveItem(ref) {
+            return Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key);
+          },
+          maxOutputBytes: 8,
+        });
+        await expectWorkflowHostError(
+          tinyOutputOwner.render({ itemRefs: [itemRef], formatPreference }),
+          "resource_limited",
+        );
+      },
+    );
+  });
+
+  it("preserves empty clipboard flavors with per-call adapters and closed variants", async function () {
+    let activeAdapter = createMemoryWorkflowClipboardAdapter();
+    const interactive = createWorkflowClipboardOwner({
+      interactionMode: "interactive",
+      resolveAdapter: () => activeAdapter,
+      maxTextBytes: 8,
+    });
+
+    assert.isNull(await interactive.readText());
+    assert.isFalse(await interactive.hasText());
+    await interactive.writeText("");
+    assert.strictEqual(await interactive.readText(), "");
+    assert.isTrue(await interactive.hasText());
+    await interactive.clear();
+    assert.isNull(await interactive.readText());
+
+    const replacement = createMemoryWorkflowClipboardAdapter("next");
+    activeAdapter = replacement;
+    assert.strictEqual(await interactive.readText(), "next");
+    await expectWorkflowHostError(
+      interactive.writeText("123456789"),
+      "resource_limited",
+    );
+    await expectWorkflowHostError(
+      interactive.writeText("ééééé"),
+      "resource_limited",
+    );
+    await expectWorkflowHostError(
+      interactive.writeText("ignored", { signal: AbortSignal.abort() }),
+      "canceled",
+    );
+    assert.strictEqual(await replacement.readText(), "next");
+
+    const failing = createWorkflowClipboardOwner({
+      interactionMode: "interactive",
+      resolveAdapter: () => ({
+        readText: async () => {
+          throw new Error("secret clipboard payload");
+        },
+        writeText: async () => {},
+        hasText: async () => false,
+        clear: async () => {},
+      }),
+    });
+    const failure = await expectWorkflowHostError(
+      failing.readText(),
+      "unavailable",
+    );
+    assert.notInclude(failure.message, "secret");
+
+    const nonInteractive = createWorkflowClipboardOwner({
+      interactionMode: "non_interactive",
+      resolveAdapter: () => replacement,
+    });
+    assert.deepEqual(
+      Object.keys(nonInteractive).sort(),
+      Object.keys(interactive).sort(),
+    );
+    for (const operation of [
+      nonInteractive.readText(),
+      nonInteractive.hasText(),
+      nonInteractive.writeText("text"),
+      nonInteractive.clear(),
+    ]) {
+      await expectWorkflowHostError(operation, "interaction_required");
+    }
+    assert.strictEqual(await replacement.readText(), "next");
   });
 
   it("normalizes Host file paths and keeps exists a total boolean probe", async function () {

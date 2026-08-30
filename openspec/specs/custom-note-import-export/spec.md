@@ -83,12 +83,26 @@ Note creation, content update, removal, and payload upsert SHALL validate portab
 
 ### Requirement: Embedded image writes SHALL preserve one content boundary
 
-Prepared note images and note content changes SHALL validate all image inputs and managed destinations before the note mutation boundary. If a later resource write fails, the operation SHALL compensate or return `unknown`/`repair_required` with the original failure retained as primary.
+Note creation and content update SHALL accept embedded images only as unique logical slots bound to opaque prepared-image refs from the same workflow run. The Host MUST validate content format, slot syntax and completeness, prepared refs, MIME, dimensions, and aggregate byte limits before mutation; materialize all new image attachments within the canonical note operation; clean replaced plugin-managed images; and issue one receipt covering the note and all affected attachments.
+
+#### Scenario: Prepared image cannot be staged before note mutation
+- **WHEN** any slot binding is duplicate, missing, unused, invalid, foreign, expired, or cannot be staged
+- **THEN** the note remains unchanged and any operation-local staging is cleaned
+- **AND** the failure does not expose a path or prepared bytes
 
 #### Scenario: Image copy fails after note creation
+- **WHEN** an accepted note mutation creates image attachments but cannot commit note content
+- **THEN** cleanup of every new attachment is attempted and the original note failure remains primary
+- **AND** the returned attempt reports any residue as `unknown` or `repair_required` without claiming committed success
 
-- **WHEN** an accepted note mutation creates state but an embedded image cannot be finalized
-- **THEN** cleanup is attempted and the returned attempt reports any remaining note or resource state without claiming committed success
+#### Scenario: Text content declares an embedded image
+- **WHEN** a text-format note content request includes an embedded-image slot
+- **THEN** validation fails before any attachment or note write
+
+#### Scenario: Accepted note operation is replayed
+- **WHEN** the same operation identity and prepared-image bindings are replayed
+- **THEN** the canonical mutation result is reused
+- **AND** no duplicate image attachment is created
 
 ### Requirement: Note payload diagnostics SHALL be closed
 

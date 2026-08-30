@@ -213,32 +213,32 @@ The canonical `literature.ingest` mutation SHALL accept an explicit Zotero item 
 
 ### Requirement: Workflow Host API executes ordered text export translators
 
-Workflow Host API v10 SHALL expose a generic item text-export operation that executes registered Zotero export translators in caller-provided priority order.
+The staged bibliography API SHALL list stable Host-issued format refs with current availability and SHALL render portable regular-item refs using the caller's ordered, non-empty format preference. The Host MUST select only the first available declared format, report the actual format and derived fallback status, validate strict-JSON options against that format's schema, preserve input item order, and return complete bounded content without exposing translator objects or native identities. The active v11 text-export adapter MAY delegate to the same renderer until atomic activation.
 
 #### Scenario: Preferred translator succeeds
-
-- **WHEN** `hostApi.items.exportText()` receives Zotero items, ordered translator candidates, and bounded display options
-- **AND** the first candidate is a registered export translator that returns non-empty text
-- **THEN** the host SHALL return that text, the actual translator identity, `fallbackUsed: false`, and an ordered successful attempt record
-- **AND** SHALL pass the supplied item set to one `Zotero.Translate.Export` execution.
+- **WHEN** bibliography render receives valid portable regular-item refs and the first requested format is available
+- **THEN** the Host returns complete content, the actual stable format DTO, `fallbackUsed: false`, and no fallback issue
+- **AND** item order is preserved
 
 #### Scenario: Host advances to fallback translator
-
-- **WHEN** a candidate is unavailable, translator lookup fails, translation throws, or translation returns empty text
-- **THEN** the host SHALL record a structured attempt status
-- **AND** SHALL try the next candidate without requiring plugin-specific workflow logic
-- **AND** a later success SHALL report `fallbackUsed: true` and the actual translator identity.
+- **WHEN** an earlier requested format is unavailable and a later requested format is available
+- **THEN** the Host uses the later format, reports `fallbackUsed: true`, and returns the closed fallback issue
+- **AND** it does not insert an undeclared fallback
 
 #### Scenario: Every candidate fails
+- **WHEN** none of the caller-declared formats is currently available
+- **THEN** rendering fails with stable `unavailable` data for `bibliography_format`
+- **AND** it does not return partial content or native translator diagnostics
 
-- **WHEN** every ordered translator candidate is unavailable or cannot return non-empty text
-- **THEN** the host SHALL return a structured failure containing all attempt records
-- **AND** SHALL NOT claim a successful translator or output.
+#### Scenario: Render request is not safely bounded
+- **WHEN** a request contains duplicates, a non-regular or missing item, more than 10,000 refs, invalid format options, or output larger than 64 MiB
+- **THEN** the entire render fails with the applicable stable validation or resource error
+- **AND** no partial bibliography is returned
 
 #### Scenario: Workflow remains decoupled from plugin-private interfaces
-
-- **WHEN** a workflow requests Better BibTeX output through the registered translator candidate
-- **THEN** the workflow SHALL NOT require a Better BibTeX global object, add-on-manager lookup, fixed localhost port, or JSON-RPC call.
+- **WHEN** a workflow prefers a format supplied by an optional extension
+- **THEN** it uses the stable format ref and availability contract
+- **AND** it does not require extension globals, add-on-manager lookup, localhost RPC, translator UUIDs, or numeric native constants
 
 ### Requirement: Broker references are portable
 
@@ -406,3 +406,21 @@ Notes, note payloads, attachments, prepared note images, and status-tag transiti
 
 - **WHEN** the status-tag mutation is accepted but fails
 - **THEN** the workflow maps the structured attempt to its partial diagnostic result rather than reading a warning bag or treating cleanup as successful
+
+### Requirement: Prepared-image contract SHALL be bounded and run-scoped
+Image preparation SHALL validate encoded and decoded source size, MIME declaration and signature, dimensions, options, and output before unbounded decode or registry admission. One input MUST NOT exceed 32 MiB decoded, `maxLongEdge` MUST NOT exceed 8,192 pixels, `hardMaxBytes` MUST NOT exceed 8 MiB, `targetBytes` MUST NOT exceed `hardMaxBytes`, and one workflow run MUST NOT retain more than 64 MiB of live prepared images.
+
+#### Scenario: Prepared image is reused within one run
+- **WHEN** the same valid prepared-image ref is bound to multiple note operations in its owning run
+- **THEN** each operation may resolve the same immutable prepared content
+- **AND** operation replay does not create duplicate Zotero attachments
+
+#### Scenario: Workflow run terminates
+- **WHEN** a workflow run reaches any terminal outcome
+- **THEN** all prepared-image resources owned by that run are cleaned automatically
+- **AND** callers are not required to release refs manually
+
+#### Scenario: Image request exceeds a bound
+- **WHEN** source size, dimensions, options, output bytes, or live per-run bytes exceed a declared hard limit
+- **THEN** preparation fails with `resource_limited` before admitting the result
+- **AND** no partial registry entry remains

@@ -517,3 +517,16 @@ export function createWorkflowHostErrorData<Code extends WorkflowHostErrorCode>(
     details: safeDetails,
   } as unknown as Extract<WorkflowHostErrorData, { code: Code }>;
 }
+
+export function createWorkflowHostError<Code extends WorkflowHostErrorCode>(
+  code: Code,
+  message: string,
+  details: WorkflowHostErrorDetailsByCode[Code],
+  options: Readonly<{ retryable?: boolean }> = {},
+): Error & Extract<WorkflowHostErrorData, { code: Code }> {
+  const error = new Error(message) as Error &
+    Extract<WorkflowHostErrorData, { code: Code }>;
+  Object.assign(error, createWorkflowHostErrorData(code, details, options));
+  error.name = "WorkflowHostError";
+  return error;
+}

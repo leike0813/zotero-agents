@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import {
   clearWorkflowEditorRendererRegistry,
+  createWorkflowEditorOwner,
   installWorkflowEditorHostBridge,
   openWorkflowEditorSession,
   registerWorkflowEditorRenderer,
@@ -570,5 +571,75 @@ describe("workflow editor host", function () {
     assert.isFalse(result.saved);
     assert.equal(result.actionId, "run");
     assert.deepEqual(result.result, { value: "coordinator-ok" });
+  });
+
+  it("owns bounded inline renderers and queues sessions per caller", async function () {
+    const owner = createWorkflowEditorOwner({ interactionMode: "interactive" });
+    MockDialog.nextButtons.push("save", "save");
+    MockDialog.nextDelays.push(15, 15);
+    const renderer = {
+      render: () => {},
+      serialize: ({ state }: { state: unknown }) => state,
+    };
+
+    const results = await Promise.all([
+      owner.openSession({
+        rendererId: "inline-only",
+        renderer,
+        title: "First",
+        initialState: { index: 1 },
+      }),
+      owner.openSession({
+        rendererId: "inline-only",
+        renderer,
+        title: "Second",
+        initialState: { index: 2 },
+      }),
+    ]);
+    assert.equal(MockDialog.maxInFlight, 1);
+    assert.deepEqual(
+      results.map((entry) => entry.result),
+      [{ index: 1 }, { index: 2 }],
+    );
+
+    let missing: unknown;
+    try {
+      await openWorkflowEditorSession({
+        rendererId: "inline-only",
+        title: "Must not leak",
+        initialState: {},
+      });
+    } catch (error) {
+      missing = error;
+    }
+    assert.match(String((missing as Error)?.message), /renderer not found/i);
+  });
+
+  it("rejects unsafe session values and non-interactive calls before opening", async function () {
+    const interactive = createWorkflowEditorOwner({
+      interactionMode: "interactive",
+    });
+    const nonInteractive = createWorkflowEditorOwner({
+      interactionMode: "non_interactive",
+    });
+    const input = {
+      rendererId: "bounded-inline",
+      renderer: { render: () => {} },
+      title: "Bounded",
+      initialState: { callback: () => "unsafe" },
+    };
+    for (const [owner, code] of [
+      [interactive, "invalid_request"],
+      [nonInteractive, "interaction_required"],
+    ] as const) {
+      let error: unknown;
+      try {
+        await owner.openSession(input);
+      } catch (caught) {
+        error = caught;
+      }
+      assert.strictEqual((error as { code?: string })?.code, code);
+    }
+    assert.equal(MockDialog.maxInFlight, 0);
   });
 });

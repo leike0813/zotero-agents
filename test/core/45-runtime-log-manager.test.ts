@@ -4,6 +4,7 @@ import path from "node:path";
 import { config } from "../../package.json";
 import {
   appendRuntimeLog,
+  createWorkflowLoggingOwner,
   buildRuntimeDiagnosticBundle,
   buildRuntimeIssueDiagnosticBundle,
   buildRuntimeIssueSummary,
@@ -130,6 +131,78 @@ describe("runtime log manager", function () {
       "ok",
     );
     assert.equal(entry!.error?.message, "boom");
+  });
+
+  it("binds workflow log identity and rejects unsafe input before storage", function () {
+    const logging = createWorkflowLoggingOwner({
+      workflowId: "workflow-a",
+      packageId: "package-a",
+      runId: "run-a",
+      requestId: "request-a",
+      jobId: "job-a",
+      backendId: "backend-a",
+    });
+    assert.deepEqual(Object.keys(logging), ["appendRuntimeLog"]);
+    logging.appendRuntimeLog({
+      level: "warn",
+      stage: "apply",
+      message: "Bearer secret-token failed at /home/alice/private.txt",
+      operation: "note.update",
+      phase: "commit",
+      details: {
+        token: "secret-token",
+        sourcePath: "/home/alice/private.txt",
+        visible: "ok",
+      },
+    });
+    const entry = listRuntimeLogs().at(-1)!;
+    assert.include(entry, {
+      workflowId: "workflow-a",
+      packageId: "package-a",
+      runId: "run-a",
+      requestId: "request-a",
+      jobId: "job-a",
+      backendId: "backend-a",
+      stage: "apply",
+      operation: "note.update",
+      phase: "commit",
+    });
+    assert.notInclude(entry.message, "secret-token");
+    assert.notInclude(entry.message, "/home/alice");
+    assert.deepEqual(entry.details, {
+      token: "<redacted>",
+      sourcePath: "<redacted>",
+      visible: "ok",
+    });
+
+    const before = listRuntimeLogs().length;
+    for (const input of [
+      {
+        level: "info",
+        stage: "x".repeat(129),
+        message: "oversized stage",
+      },
+      {
+        level: "info",
+        stage: "apply",
+        message: "x".repeat(16 * 1024 + 1),
+      },
+      {
+        level: "info",
+        stage: "apply",
+        message: "native error",
+        details: { error: new Error("native") },
+      },
+      {
+        level: "info",
+        stage: "apply",
+        message: "identity injection",
+        runId: "caller-run",
+      },
+    ]) {
+      assert.throws(() => logging.appendRuntimeLog(input as never));
+    }
+    assert.lengthOf(listRuntimeLogs(), before);
   });
 
   it("skips debug logs by default and keeps error logs", function () {

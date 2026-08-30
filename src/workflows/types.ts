@@ -7,18 +7,28 @@ export type ResourceRef = Readonly<{
   id: string;
 }>;
 
-export type StableIssueDto = Readonly<{
-  code:
-    | "source_missing"
-    | "source_unreadable"
-    | "source_unsafe"
-    | "resource_missing"
-    | "resource_unreadable"
-    | "concurrent_modification"
-    | "optional_resource_missing";
-  target: "paper" | "note" | "attachment" | "image" | "resource";
-  logicalPath?: string;
-}>;
+export type StableIssueDto =
+  | Readonly<{
+      code:
+        | "source_missing"
+        | "source_unreadable"
+        | "source_unsafe"
+        | "resource_missing"
+        | "resource_unreadable"
+        | "concurrent_modification"
+        | "optional_resource_missing";
+      target: "paper" | "note" | "attachment" | "image" | "resource";
+      logicalPath?: string;
+    }>
+  | Readonly<{
+      code: "bibliography_format_fallback";
+      requested: BibliographyFormatRef[];
+      used: BibliographyFormatRef;
+    }>
+  | Readonly<{
+      code: "bibliography_renderer_warning";
+      itemRef: PortableItemRef | null;
+    }>;
 
 export type PortableItemRef = Readonly<{
   libraryId: number;
@@ -28,6 +38,134 @@ export type PortableItemRef = Readonly<{
 export type PortableCollectionRef = Readonly<{
   libraryId: number;
   key: string;
+}>;
+
+export type AddonIdentityDto = {
+  readonly addonName: string;
+  readonly addonRef: string;
+  readonly addonVersion: string;
+};
+
+export type WorkflowEnvironmentInfo = {
+  readonly zoteroVersion: string;
+  readonly platform: "win32" | "darwin" | "linux" | "unknown";
+  readonly locale: string;
+};
+
+export type PreparedNoteImageRef = {
+  readonly kind: "prepared_note_image";
+  readonly id: string;
+};
+
+export type PrepareNoteImageRequestDto = {
+  readonly source:
+    | Readonly<{ kind: "file"; path: string }>
+    | Readonly<{ kind: "resource"; resourceRef: ResourceRef }>
+    | Readonly<{ kind: "base64"; data: string; mimeType?: string }>;
+  readonly options?: Readonly<{
+    maxLongEdge?: number;
+    targetBytes?: number;
+    hardMaxBytes?: number;
+    outputFormat?: "auto" | "jpeg" | "png";
+  }>;
+};
+
+export type PreparedNoteImageDto = {
+  readonly ref: PreparedNoteImageRef;
+  readonly mimeType: "image/jpeg" | "image/png";
+  readonly width: number;
+  readonly height: number;
+  readonly bytes: number;
+  readonly sha256: string;
+};
+
+export type BibliographyFormatRef = {
+  readonly id: string;
+};
+
+export type BibliographyFormatDto = {
+  readonly ref: BibliographyFormatRef;
+  readonly label: string;
+  readonly fileExtension: string;
+  readonly contentType: string;
+  readonly availability: "available" | "unavailable";
+  readonly optionsSchema: JsonObject | null;
+};
+
+export type BibliographyRenderRequestDto = {
+  readonly itemRefs: PortableItemRef[];
+  readonly formatPreference: BibliographyFormatRef[];
+  readonly formatOptions?: JsonObject;
+};
+
+export type BibliographyRenderResultDto = {
+  readonly content: string;
+  readonly requestedFormats: BibliographyFormatRef[];
+  readonly usedFormat: BibliographyFormatDto;
+  readonly fallbackUsed: boolean;
+  readonly issues: StableIssueDto[];
+};
+
+export type WorkflowToastRequestDto = {
+  readonly text: string;
+  readonly type?: "default" | "success" | "error";
+};
+
+export type WorkflowRuntimeLogRequestDto = {
+  readonly level: "debug" | "info" | "warn" | "error";
+  readonly stage: string;
+  readonly message: string;
+  readonly operation?: string;
+  readonly phase?: string;
+  readonly details?: JsonObject;
+};
+
+export type WorkflowAddonOwner = Readonly<{
+  getConfig(): AddonIdentityDto;
+}>;
+
+export type WorkflowEnvironmentOwner = Readonly<{
+  getInfo(): WorkflowEnvironmentInfo;
+}>;
+
+export type WorkflowPreparedImageOwner = Readonly<{
+  prepareForNoteEmbedding(
+    input: PrepareNoteImageRequestDto,
+    control?: WorkflowCallControl,
+  ): Promise<PreparedNoteImageDto>;
+}>;
+
+export type WorkflowBibliographyOwner = Readonly<{
+  listFormats(control?: WorkflowCallControl): Promise<BibliographyFormatDto[]>;
+  render(
+    input: BibliographyRenderRequestDto,
+    control?: WorkflowCallControl,
+  ): Promise<BibliographyRenderResultDto>;
+}>;
+
+export type WorkflowClipboardOwner = Readonly<{
+  readText(control?: WorkflowCallControl): Promise<string | null>;
+  writeText(text: string, control?: WorkflowCallControl): Promise<void>;
+  hasText(control?: WorkflowCallControl): Promise<boolean>;
+  clear(control?: WorkflowCallControl): Promise<void>;
+}>;
+
+export type WorkflowEditorOwner = Readonly<{
+  openSession(
+    input: Parameters<
+      typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
+    >[0],
+  ): ReturnType<
+    typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
+  >;
+}>;
+
+export type WorkflowNotificationOwner = Readonly<{
+  toast(input: WorkflowToastRequestDto): void;
+}>;
+
+export type WorkflowLoggingOwner = Readonly<{
+  appendRuntimeLog(input: WorkflowRuntimeLogRequestDto): void;
 }>;
 
 /** Canonical portable representation of a Zotero creator. */
@@ -643,9 +781,11 @@ export type MutationPhase =
   | "validation"
   | "reservation"
   | "read"
+  | "staging"
   | "commit"
   | "verification"
-  | "compensation";
+  | "compensation"
+  | "cleanup";
 
 export type MutationRecovery =
   | "none"
@@ -985,16 +1125,26 @@ export type MutationPreviewResult<TPlan extends object> = {
   token: MutationPreviewTokenDto;
 };
 
+export type NoteContentInput = {
+  format: "html" | "text";
+  value: string;
+  embeddedImages?: Array<{
+    slot: string;
+    preparedImage: PreparedNoteImageRef;
+    altText?: string;
+  }>;
+};
+
 export type NoteCreateRequestDto = {
   operationId: string;
   parentRef?: PortableItemRef;
-  content: string;
+  content: NoteContentInput;
 };
 export type NoteUpdateContentRequestDto = {
   operationId: string;
   noteRef: PortableItemRef;
   expectedRevision?: string;
-  content: string;
+  content: NoteContentInput;
 };
 export type NoteRemoveRequestDto = {
   operationId: string;
@@ -1834,9 +1984,9 @@ export type WorkflowHostApi = {
       ref: Zotero.Item | number | string,
     ) => Record<string, unknown>;
     exportText: (
-      args: import("../modules/zoteroItemTextExporter").WorkflowItemTextExportArgs,
+      args: import("./bibliography").WorkflowItemTextExportArgs,
     ) => Promise<
-      import("../modules/zoteroItemTextExporter").WorkflowItemTextExportResult
+      import("./bibliography").WorkflowItemTextExportResult
     >;
     createFromJson: (args: {
       itemJson: Record<string, unknown>;

@@ -88,12 +88,15 @@ import type {
   AttachmentReplaceFileRequestDto,
   AttachmentUpdateMetadataRequestDto,
   NoteCreateRequestDto,
+  NoteContentInput,
   NotePayloadUpsertRequestDto,
   NoteRemoveRequestDto,
   NoteUpdateContentRequestDto,
+  PreparedNoteImageRef,
   StatusTagTransitionRequestDto,
   StatusTagTransitionResultDto,
   WorkflowCallControl,
+  WorkflowBibliographyOwner,
   WorkflowHostCreatorDto as ZoteroHostMetadataCreatorDto,
 } from "../workflows/types";
 import {
@@ -133,6 +136,14 @@ import {
   validateMutationPreviewToken,
   type ZoteroHostMutationCallerScope,
 } from "./zoteroHostMutationAuthority";
+import { createWorkflowBibliographyOwner } from "../workflows/bibliography";
+
+type ZoteroHostNoteMutationCallerScope = ZoteroHostMutationCallerScope &
+  Readonly<{
+    preparedImages?: Readonly<{
+      resolve(ref: PreparedNoteImageRef): { blob: Blob };
+    }>;
+  }>;
 
 export type {
   JsonObject,
@@ -141,6 +152,7 @@ export type {
   PortableCollectionRef as ZoteroHostCollectionRefInput,
   PortableItemRef as ZoteroHostItemRefInput,
   WorkflowHostCreatorDto as ZoteroHostMetadataCreatorDto,
+  WorkflowBibliographyOwner,
 } from "../workflows/types";
 
 export type ZoteroHostItemSummaryDto = {
@@ -746,6 +758,7 @@ export interface ZoteroHostCapabilityBroker {
       args: ZoteroHostMetadataTranslateIdentifierArgs,
     ): Promise<ZoteroHostMetadataTranslateIdentifierResponse>;
   };
+  readonly bibliography: WorkflowBibliographyOwner;
   readonly mutations: {
     preview(
       request: MutationPreviewRequestByOperation[MutationPreviewOperation],
@@ -778,12 +791,12 @@ export interface ZoteroHostCapabilityBroker {
   readonly notes: {
     create(
       request: NoteCreateRequestDto,
-      scope: ZoteroHostMutationCallerScope,
+      scope: ZoteroHostNoteMutationCallerScope,
       control?: WorkflowCallControl,
     ): Promise<MutationExecutionResult<JsonObject>>;
     updateContent(
       request: NoteUpdateContentRequestDto,
-      scope: ZoteroHostMutationCallerScope,
+      scope: ZoteroHostNoteMutationCallerScope,
       control?: WorkflowCallControl,
     ): Promise<MutationExecutionResult<JsonObject>>;
     remove(
@@ -3088,6 +3101,114 @@ function normalizeContent(value: unknown) {
     );
   }
   return content;
+}
+
+const NOTE_IMAGE_SLOT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function normalizeNoteContentInput(input: NoteContentInput) {
+  if (!input || typeof input !== "object") {
+    throw capabilityError("invalid_request", "note content is required", {
+      reason: "invalid_type",
+      field: "content",
+    });
+  }
+  if (input.format !== "html" && input.format !== "text") {
+    throw capabilityError("invalid_request", "note content format is invalid", {
+      reason: "invalid_value",
+      field: "content.format",
+    });
+  }
+  const value = normalizeContent(input.value);
+  const embeddedImages = Array.isArray(input.embeddedImages)
+    ? input.embeddedImages
+    : [];
+  if (input.format === "text" && embeddedImages.length > 0) {
+    throw capabilityError(
+      "invalid_request",
+      "text note content cannot contain embedded images",
+      { reason: "invalid_combination", field: "content.embeddedImages" },
+    );
+  }
+  const bindings = new Map<
+    string,
+    { preparedImage: PreparedNoteImageRef; altText?: string }
+  >();
+  for (const [index, entry] of embeddedImages.entries()) {
+    const slot = String(entry?.slot || "").trim();
+    if (!NOTE_IMAGE_SLOT_PATTERN.test(slot)) {
+      throw capabilityError("invalid_request", "image slot is invalid", {
+        reason: "invalid_format",
+        field: `content.embeddedImages.${index}.slot`,
+      });
+    }
+    if (bindings.has(slot)) {
+      throw capabilityError("invalid_request", "image slot is duplicated", {
+        reason: "duplicate_value",
+        field: "content.embeddedImages.slot",
+      });
+    }
+    bindings.set(slot, {
+      preparedImage: entry.preparedImage,
+      ...(entry.altText === undefined
+        ? {}
+        : { altText: trimText(entry.altText, 4096) }),
+    });
+  }
+  const referencedSlots = [
+    ...value.matchAll(
+      /\sdata-zotero-agents-image-slot\s*=\s*(?:"([^"]+)"|'([^']+)')/gi,
+    ),
+  ].map((match) => String(match[1] || match[2] || "").trim());
+  const referenceCounts = new Map<string, number>();
+  for (const slot of referencedSlots) {
+    referenceCounts.set(slot, (referenceCounts.get(slot) || 0) + 1);
+  }
+  for (const slot of new Set([...bindings.keys(), ...referenceCounts.keys()])) {
+    if (!bindings.has(slot) || referenceCounts.get(slot) !== 1) {
+      throw capabilityError(
+        "invalid_request",
+        "note image slots and bindings do not match",
+        { reason: "invalid_combination", field: "content.embeddedImages" },
+      );
+    }
+  }
+  return { format: input.format, value, bindings };
+}
+
+function bindNoteImageSlots(
+  content: string,
+  attachmentKeys: ReadonlyMap<string, string>,
+) {
+  return content.replace(
+    /\sdata-zotero-agents-image-slot\s*=\s*(?:"([^"]+)"|'([^']+)')/gi,
+    (_attribute, doubleQuoted: string, singleQuoted: string) => {
+      const slot = String(doubleQuoted || singleQuoted || "").trim();
+      const attachmentKey = attachmentKeys.get(slot);
+      if (!attachmentKey) {
+        throw capabilityError("invalid_request", "image slot is unbound", {
+          reason: "invalid_combination",
+          field: "content.embeddedImages",
+        });
+      }
+      return ` data-attachment-key="${attachmentKey}" data-zotero-agents-managed-image="1"`;
+    },
+  );
+}
+
+function managedNoteImageKeys(content: string) {
+  const keys = new Set<string>();
+  for (const match of content.matchAll(/<img\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (!/\sdata-zotero-agents-managed-image\s*=\s*(?:"1"|'1')/i.test(tag)) {
+      continue;
+    }
+    const key = tag.match(
+      /\sdata-attachment-key\s*=\s*(?:"([^"]+)"|'([^']+)')/i,
+    );
+    const normalized = trimText(key?.[1] || key?.[2]);
+    if (normalized) keys.add(normalized);
+  }
+  return keys;
 }
 
 function normalizeCollectionName(request: ZoteroHostMutationRequest) {
@@ -5781,6 +5902,125 @@ function assertExpectedNoteRevision(
   return version;
 }
 
+type ResolvedNoteImageBinding = {
+  slot: string;
+  blob: Blob;
+};
+
+function resolveNoteImageBindings(
+  content: ReturnType<typeof normalizeNoteContentInput>,
+  scope: ZoteroHostNoteMutationCallerScope,
+): ResolvedNoteImageBinding[] {
+  if (content.bindings.size === 0) return [];
+  if (!scope.preparedImages) {
+    throw capabilityError(
+      "unavailable",
+      "prepared-image owner is unavailable",
+      {
+        reason: "capability",
+        kind: "prepared_image",
+      },
+    );
+  }
+  return [...content.bindings].map(([slot, binding]) => {
+    const resolved = scope.preparedImages?.resolve(binding.preparedImage);
+    if (!resolved?.blob) {
+      throw capabilityError("invalid_ref", "prepared image is invalid", {
+        kind: "prepared_image",
+        reason: "forged",
+      });
+    }
+    if (
+      resolved.blob.type !== "image/jpeg" &&
+      resolved.blob.type !== "image/png"
+    ) {
+      throw capabilityError("invalid_ref", "prepared image has invalid MIME", {
+        kind: "prepared_image",
+        reason: "wrong_kind",
+      });
+    }
+    return { slot, blob: resolved.blob };
+  });
+}
+
+async function cleanupNoteMutationItems(items: Zotero.Item[]) {
+  const residualRefs: MutationEntityRef[] = [];
+  for (const item of [...items].reverse()) {
+    try {
+      await handlers.item.remove(item);
+    } catch {
+      const key = trimText(item.key);
+      if (key) {
+        residualRefs.push({
+          kind: "item",
+          ref: {
+            libraryId: normalizeLibraryId(item.libraryID),
+            key,
+          },
+        });
+      }
+    }
+  }
+  return residualRefs;
+}
+
+async function importPreparedNoteImages(
+  note: Zotero.Item,
+  bindings: ResolvedNoteImageBinding[],
+) {
+  const zotero = resolveZotero();
+  if (typeof zotero.Attachments?.importEmbeddedImage !== "function") {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "unavailable",
+      "staging",
+      "retry_same_operation",
+      { reason: "capability", kind: "attachment" },
+      "Zotero embedded image import is unavailable",
+    );
+  }
+  const attachments: Zotero.Item[] = [];
+  const attachmentKeys = new Map<string, string>();
+  try {
+    for (const binding of bindings) {
+      const attachment = await zotero.Attachments.importEmbeddedImage({
+        blob: binding.blob,
+        parentItemID: note.id,
+      });
+      const key = trimText(attachment?.key);
+      if (!key) throw new Error("embedded image attachment has no key");
+      attachments.push(attachment);
+      attachmentKeys.set(binding.slot, key);
+    }
+    return { attachments, attachmentKeys };
+  } catch (error) {
+    const residualRefs = await cleanupNoteMutationItems(attachments);
+    throw new MutationAuthorityExecutionError(
+      residualRefs.length ? "repair_required" : "failed",
+      "execution_failed",
+      "staging",
+      residualRefs.length ? "manual_repair" : "retry_same_operation",
+      {
+        phase: "staging",
+        recovery: residualRefs.length
+          ? "manual_repair"
+          : "retry_same_operation",
+        affectedCount: attachments.length,
+        residualCount: residualRefs.length,
+      },
+      error instanceof Error ? error.message : "embedded image staging failed",
+      attachments.map((attachment) => ({
+        kind: "item" as const,
+        ref: {
+          libraryId: normalizeLibraryId(attachment.libraryID),
+          key: trimText(attachment.key),
+        },
+      })),
+      residualRefs,
+    );
+  }
+}
+
 async function executeNoteMutation(
   request:
     | NoteCreateRequestDto
@@ -5792,7 +6032,7 @@ async function executeNoteMutation(
     | "notes.updateContent"
     | "notes.remove"
     | "notes.upsertPayload",
-  scope: ZoteroHostMutationCallerScope,
+  scope: ZoteroHostNoteMutationCallerScope,
   control?: WorkflowCallControl,
 ): Promise<MutationExecutionResult<JsonObject>> {
   const operationId = trimText(request.operationId, 129);
@@ -5803,6 +6043,16 @@ async function executeNoteMutation(
       operation,
     });
   }
+  const noteContent =
+    operation === "notes.create" || operation === "notes.updateContent"
+      ? normalizeNoteContentInput(
+          (request as NoteCreateRequestDto | NoteUpdateContentRequestDto)
+            .content,
+        )
+      : null;
+  const resolvedImages = noteContent
+    ? resolveNoteImageBindings(noteContent, scope)
+    : [];
   const normalized = { ...request, operationId } as unknown as JsonObject;
   assertWorkflowHostStrictJsonValue(normalized);
   try {
@@ -5815,15 +6065,17 @@ async function executeNoteMutation(
       async execute() {
         if (operation === "notes.create") {
           const input = request as NoteCreateRequestDto;
-          const content = normalizeContent(input.content);
+          const content = noteContent as NonNullable<typeof noteContent>;
           const parent = input.parentRef
             ? requireItem(canonicalItemRef(input.parentRef), "parent item")
             : null;
           let note: Zotero.Item;
           try {
             note = parent
-              ? await handlers.parent.addNote(parent, { content })
-              : await handlers.note.create({ content });
+              ? await handlers.parent.addNote(parent, {
+                  content: content.value,
+                })
+              : await handlers.note.create({ content: content.value });
           } catch (error) {
             throw new MutationAuthorityExecutionError(
               "unknown",
@@ -5834,11 +6086,65 @@ async function executeNoteMutation(
               error instanceof Error ? error.message : "note create failed",
             );
           }
+          let attachments: Zotero.Item[] = [];
+          if (resolvedImages.length > 0) {
+            try {
+              const staged = await importPreparedNoteImages(
+                note,
+                resolvedImages,
+              );
+              attachments = staged.attachments;
+              await handlers.note.update(note, {
+                content: bindNoteImageSlots(
+                  content.value,
+                  staged.attachmentKeys,
+                ),
+              });
+            } catch (error) {
+              const residualRefs = await cleanupNoteMutationItems([
+                ...attachments,
+                note,
+              ]);
+              if (error instanceof MutationAuthorityExecutionError) {
+                if (residualRefs.length === 0) throw error;
+                throw new MutationAuthorityExecutionError(
+                  "repair_required",
+                  error.code,
+                  error.phase,
+                  "manual_repair",
+                  error.details,
+                  error.message,
+                  error.affectedRefs,
+                  [...error.residualRefs, ...residualRefs],
+                );
+              }
+              throw new MutationAuthorityExecutionError(
+                residualRefs.length ? "repair_required" : "failed",
+                "execution_failed",
+                "commit",
+                residualRefs.length ? "manual_repair" : "retry_same_operation",
+                {
+                  phase: "commit",
+                  recovery: residualRefs.length
+                    ? "manual_repair"
+                    : "retry_same_operation",
+                  affectedCount: attachments.length + 1,
+                  residualCount: residualRefs.length,
+                },
+                error instanceof Error
+                  ? error.message
+                  : "note image commit failed",
+                [],
+                residualRefs,
+              );
+            }
+          }
           const ref = {
             libraryId: normalizeLibraryId(note.libraryID),
             key: trimText(note.key),
           };
-          const after = canonicalNoteVersion(note);
+          const committedNote = requireNote(ref);
+          const after = canonicalNoteVersion(committedNote);
           return {
             outcome: "committed",
             changes: [
@@ -5848,8 +6154,22 @@ async function executeNoteMutation(
                 before: null,
                 after,
               },
+              ...attachments.map((attachment) => ({
+                entity: {
+                  kind: "item" as const,
+                  ref: {
+                    libraryId: normalizeLibraryId(attachment.libraryID),
+                    key: trimText(attachment.key),
+                  },
+                },
+                effect: "created" as const,
+                before: null,
+                after: canonicalItemVersion(attachment),
+              })),
             ],
-            result: strictJsonObject({ note: canonicalNoteResult(note) }),
+            result: strictJsonObject({
+              note: canonicalNoteResult(committedNote),
+            }),
           };
         }
 
@@ -5867,24 +6187,100 @@ async function executeNoteMutation(
         const before = assertExpectedNoteRevision(note, expectedRevision);
 
         if (operation === "notes.updateContent") {
-          const content = normalizeContent(
-            (request as NoteUpdateContentRequestDto).content,
-          );
+          const contentInput = noteContent as NonNullable<typeof noteContent>;
+          let content = contentInput.value;
+          let attachments: Zotero.Item[] = [];
+          if (resolvedImages.length > 0) {
+            const staged = await importPreparedNoteImages(note, resolvedImages);
+            attachments = staged.attachments;
+            content = bindNoteImageSlots(content, staged.attachmentKeys);
+          }
           const current = trimText(note.getNote?.(), NOTE_HTML_INPUT_LIMIT);
+          const oldManagedImageKeys = managedNoteImageKeys(current);
+          const retainedImageKeys = managedNoteImageKeys(content);
           const changed = current !== content;
           if (changed) {
             try {
               await handlers.note.update(note, { content });
             } catch (error) {
+              const residualRefs = await cleanupNoteMutationItems(attachments);
               throw new MutationAuthorityExecutionError(
-                "unknown",
+                residualRefs.length ? "repair_required" : "failed",
                 "execution_failed",
                 "commit",
-                "reconcile",
-                { phase: "commit", recovery: "reconcile" },
+                residualRefs.length ? "manual_repair" : "retry_same_operation",
+                {
+                  phase: "commit",
+                  recovery: residualRefs.length
+                    ? "manual_repair"
+                    : "retry_same_operation",
+                  affectedCount: attachments.length,
+                  residualCount: residualRefs.length,
+                },
                 error instanceof Error ? error.message : "note update failed",
                 [{ kind: "item", ref: noteRef }],
+                residualRefs,
               );
+            }
+          }
+          const removedImageChanges: MutationChangeDto[] = [];
+          if (changed) {
+            for (const key of oldManagedImageKeys) {
+              if (retainedImageKeys.has(key)) continue;
+              const attachment =
+                resolveZotero().Items.getByLibraryAndKey?.(
+                  normalizeLibraryId(note.libraryID),
+                  key,
+                ) || null;
+              if (!attachment) continue;
+              const attachmentRef = {
+                libraryId: normalizeLibraryId(attachment.libraryID),
+                key,
+              };
+              const attachmentBefore = canonicalItemVersion(attachment);
+              try {
+                await handlers.item.remove(attachment);
+              } catch (error) {
+                throw new MutationAuthorityExecutionError(
+                  "repair_required",
+                  "execution_failed",
+                  "cleanup",
+                  "manual_repair",
+                  {
+                    phase: "cleanup",
+                    recovery: "manual_repair",
+                    affectedCount: 1 + attachments.length,
+                    residualCount: 1,
+                  },
+                  error instanceof Error
+                    ? error.message
+                    : "old embedded image cleanup failed",
+                  [
+                    { kind: "item", ref: noteRef },
+                    ...attachments.map((created) => ({
+                      kind: "item" as const,
+                      ref: {
+                        libraryId: normalizeLibraryId(created.libraryID),
+                        key: trimText(created.key),
+                      },
+                    })),
+                  ],
+                  [{ kind: "item", ref: attachmentRef }],
+                );
+              }
+              removedImageChanges.push({
+                entity: { kind: "item", ref: attachmentRef },
+                effect: "deleted",
+                before: attachmentBefore,
+                after: {
+                  revision: hashSynthesisContractCanonicalJson({
+                    ref: attachmentRef,
+                    state: "deleted",
+                    operationId,
+                  }),
+                  state: "deleted",
+                },
+              });
             }
           }
           const afterNote = requireNote(noteRef);
@@ -5911,6 +6307,19 @@ async function executeNoteMutation(
                 before,
                 after,
               },
+              ...attachments.map((attachment) => ({
+                entity: {
+                  kind: "item" as const,
+                  ref: {
+                    libraryId: normalizeLibraryId(attachment.libraryID),
+                    key: trimText(attachment.key),
+                  },
+                },
+                effect: "created" as const,
+                before: null,
+                after: canonicalItemVersion(attachment),
+              })),
+              ...removedImageChanges,
             ],
             result: strictJsonObject({ note: canonicalNoteResult(afterNote) }),
           };
@@ -8531,6 +8940,7 @@ export function createZoteroHostCapabilityBroker(
     metadata: {
       translateIdentifier: translateMetadataIdentifier,
     },
+    bibliography: createWorkflowBibliographyOwner(),
     mutations: {
       preview: previewCanonicalMutation,
       execute: executeCanonicalMutation,
@@ -8624,7 +9034,10 @@ export function createZoteroHostCapabilityBroker(
                     {
                       operationId,
                       parentRef: canonicalItemRef(request.parent!),
-                      content: normalizeContent(request.content),
+                      content: {
+                        format: "html",
+                        value: normalizeContent(request.content),
+                      },
                     },
                     "notes.create",
                     scope,
@@ -8636,7 +9049,10 @@ export function createZoteroHostCapabilityBroker(
                         noteRef: canonicalItemRef(
                           request.note || request.target!,
                         ),
-                        content: normalizeContent(request.content),
+                        content: {
+                          format: "html",
+                          value: normalizeContent(request.content),
+                        },
                       },
                       "notes.updateContent",
                       scope,

@@ -1,10 +1,16 @@
 import { handlers } from "../handlers";
+import { config as packageConfig, version as packageVersion } from "../../package.json";
 import {
+  createWorkflowEditorOwner,
   openWorkflowEditorSession,
   registerWorkflowEditorRenderer,
   unregisterWorkflowEditorRenderer,
 } from "../modules/workflowEditorHost";
-import { appendRuntimeLog } from "../modules/runtimeLogManager";
+import {
+  appendRuntimeLog,
+  createWorkflowLoggingOwner,
+  type WorkflowRuntimeLogBinding,
+} from "../modules/runtimeLogManager";
 import {
   recordLeakProbeTempArtifactForTests,
   releaseLeakProbeTempArtifactForTests,
@@ -28,7 +34,10 @@ import {
   type ZoteroHostLibrarySyncSnapshotRequest,
   type ZoteroHostMutationRequest,
 } from "../modules/zoteroHostCapabilityBroker";
-import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
+import {
+  createWorkflowNotificationOwner,
+  showWorkflowToast,
+} from "../modules/workflowExecution/feedbackSeam";
 import {
   copyRuntimeFile,
   ensureRuntimeDirectoryStrict,
@@ -47,8 +56,13 @@ import {
   resolveRuntimeAddon,
   resolveRuntimeZotero,
 } from "../utils/runtimeBridge";
+import {
+  canonicalizeLocale,
+  resolveRuntimeLocale,
+} from "../utils/localizationGovernance";
 import { joinPath } from "../utils/path";
 import { normalizeNativeLocalPath } from "../platform/path";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { openRuntimeFilePicker } from "../platform/filePicker";
 import type {
   WorkflowHostApi,
@@ -64,14 +78,25 @@ import type {
   MaterializePapersRequestDto,
   PortableItemRef,
   ResourceRef,
+  WorkflowAddonOwner,
+  WorkflowEnvironmentOwner,
   WorkflowResourceFile,
+  WorkflowResourceApi,
 } from "./types";
 import { createWorkflowArchiveApi } from "./archive";
 import { createWorkflowFileApi } from "./file";
 import { materializeWorkflowInputFile } from "./workflowInputMaterialization";
-import { prepareWorkflowNoteImage } from "./workflowNoteImagePreparation";
+import {
+  createWorkflowPreparedImageScope,
+  prepareWorkflowNoteImage,
+  type WorkflowPreparedImageScope,
+} from "./workflowNoteImagePreparation";
 import { createWorkflowStoredAttachmentImport } from "./workflowStoredAttachmentImport";
-import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
+import {
+  createWorkflowBibliographyOwner,
+  exportZoteroItemsAsText,
+} from "./bibliography";
+import { createWorkflowClipboardOwner } from "./clipboard";
 import {
   createResearchBundleImportEffects,
   createResearchBundleImporter,
@@ -84,6 +109,77 @@ import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 import type { WorkflowInteractionMember } from "./workflowHostErrorContract";
 
 export { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
+
+export type WorkflowHostLeafScope = Readonly<{
+  owners: Readonly<{
+    addon: ReturnType<typeof createWorkflowAddonOwner>;
+    environment: ReturnType<typeof createWorkflowEnvironmentOwner>;
+    images: WorkflowPreparedImageScope["owner"];
+    bibliography: ReturnType<typeof createWorkflowBibliographyOwner>;
+    clipboard: ReturnType<typeof createWorkflowClipboardOwner>;
+    editor: ReturnType<typeof createWorkflowEditorOwner>;
+    notifications: ReturnType<typeof createWorkflowNotificationOwner>;
+    logging: ReturnType<typeof createWorkflowLoggingOwner>;
+  }>;
+  preparedImages: Pick<WorkflowPreparedImageScope, "resolve">;
+  dispose(): void;
+}>;
+
+export function createWorkflowHostLeafScope(args: {
+  interactionMode: "interactive" | "non_interactive";
+  runScopeId: string;
+  logBinding: WorkflowRuntimeLogBinding;
+  resources?: Pick<WorkflowResourceApi, "get">;
+  imageAdapter?: Parameters<typeof createWorkflowPreparedImageScope>[0]["adapter"];
+}): WorkflowHostLeafScope {
+  const prepared = createWorkflowPreparedImageScope({
+    runScopeId: args.runScopeId,
+    adapter: args.imageAdapter,
+    readResourceBlob: args.resources?.get
+      ? async (ref) => {
+          const resource = await args.resources!.get!(ref);
+          return new Blob([await readRuntimeBytes(resource.path)], {
+            type: resource.contentType,
+          });
+        }
+      : undefined,
+  });
+  const callerScope = {};
+  return {
+    owners: {
+      addon: createWorkflowAddonOwner(),
+      environment: createWorkflowEnvironmentOwner(),
+      images: prepared.owner,
+      bibliography: createWorkflowBibliographyOwner(),
+      clipboard: createWorkflowClipboardOwner({
+        interactionMode: args.interactionMode,
+      }),
+      editor: createWorkflowEditorOwner({
+        interactionMode: args.interactionMode,
+        callerScope,
+      }),
+      notifications: createWorkflowNotificationOwner({
+        interactionMode: args.interactionMode,
+        callerScope,
+      }),
+      logging: createWorkflowLoggingOwner(args.logBinding),
+    },
+    preparedImages: { resolve: prepared.resolve },
+    dispose: prepared.dispose,
+  };
+}
+
+export async function withWorkflowHostLeafScope<T>(
+  args: Parameters<typeof createWorkflowHostLeafScope>[0],
+  work: (scope: WorkflowHostLeafScope) => Promise<T> | T,
+) {
+  const scope = createWorkflowHostLeafScope(args);
+  try {
+    return await work(scope);
+  } finally {
+    scope.dispose();
+  }
+}
 
 export function createWorkflowHostLiveReadAdapters(args: {
   interactionMode: "interactive" | "non_interactive";
@@ -253,6 +349,13 @@ function bindResearchImportImageSlots(
   return result;
 }
 
+function stripResearchImportImageSlots(html: string) {
+  return html.replace(
+    /\sdata-zotero-agents-image-slot\s*=\s*(?:"[^"]*"|'[^']*')/gi,
+    "",
+  );
+}
+
 export function createWorkflowResearchBundleImportApi(args: {
   base: WorkflowHostApi;
   ownerId: string;
@@ -407,7 +510,12 @@ export function createWorkflowResearchBundleImportApi(args: {
                   `${graphId}:${note.noteId}`,
                 ),
                 parentRef,
-                content,
+                content: {
+                  format: "html",
+                  value: embeddedImages.length
+                    ? stripResearchImportImageSlots(content)
+                    : content,
+                },
               },
               callerScope,
               control,
@@ -839,6 +947,40 @@ function resolveHostAddonConfig() {
   };
 }
 
+export function createWorkflowAddonOwner(): WorkflowAddonOwner {
+  return {
+    getConfig() {
+      const runtime = resolveRuntimeAddon()?.data?.config;
+      return {
+        addonName: String(runtime?.addonName || packageConfig.addonName).trim(),
+        addonRef: String(runtime?.addonRef || packageConfig.addonRef).trim(),
+        addonVersion: String(runtime?.addonVersion || packageVersion).trim(),
+      };
+    },
+  };
+}
+
+export function createWorkflowEnvironmentOwner(): WorkflowEnvironmentOwner {
+  return {
+    getInfo() {
+      const zotero = resolveRuntimeZotero();
+      return {
+        zoteroVersion: String(zotero?.version || "unknown").trim() || "unknown",
+        platform: detectRuntimePlatform(
+          zotero?.isWin
+            ? "win32"
+            : zotero?.isMac
+              ? "darwin"
+              : zotero?.isLinux
+                ? "linux"
+                : "unknown",
+        ),
+        locale: canonicalizeLocale(resolveRuntimeLocale(zotero?.locale)),
+      };
+    },
+  };
+}
+
 function resolveHostZotero() {
   const runtimeZotero =
     resolveRuntimeZotero() ||
@@ -1207,7 +1349,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         await zoteroBroker.notes.create(
           {
             operationId: workflowMutationOperationId("notes.create"),
-            content: note.content,
+            content: { format: "html", value: note.content },
           },
           { ownerId: "workflow-host-v11" },
         ),
@@ -1225,7 +1367,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
           {
             operationId: workflowMutationOperationId("notes.updateContent"),
             noteRef: toBrokerItemRef(noteRef),
-            content: patch.content,
+            content: { format: "html", value: patch.content },
           },
           { ownerId: "workflow-host-v11" },
         ),
@@ -1533,7 +1675,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
             {
               operationId: workflowMutationOperationId("notes.create"),
               parentRef: toBrokerItemRef(parentRef),
-              content: note.content,
+              content: { format: "html", value: note.content },
             },
             { ownerId: "workflow-host-v11" },
           ),
