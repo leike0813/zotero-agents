@@ -2340,50 +2340,150 @@
     },
     "library.sync_snapshot": {
       "category": "library",
-      "summary": "Return a paginated Zotero library metadata snapshot for local librarian indexes.",
+      "summary": "Read one fixed, process-local full-library snapshot through opaque continuation state.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": ["number", "string"]
-          },
-          "collection": {},
-          "collectionId": {
-            "type": ["number", "string"]
-          },
-          "collectionKey": {
-            "type": "string"
-          },
-          "collectionLibraryId": {
-            "type": ["number", "string"]
-          },
-          "tag": {
-            "type": "string"
-          },
-          "itemType": {
-            "type": "string"
-          },
-          "query": {
-            "type": "string"
-          },
-          "limit": {
-            "type": ["number", "string"],
+            "type": "integer",
             "minimum": 1
           },
+          "batchSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "snapshotId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
           "cursor": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           }
+        },
+        "required": ["libraryId"],
+        "dependentRequired": {
+          "snapshotId": ["cursor"],
+          "cursor": ["snapshotId"]
         },
         "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
-        "description": "Result data owned by library.sync_snapshot.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
         "properties": {
+          "schema": {
+            "const": "zotero-agents.library-full-index.v1"
+          },
+          "snapshotId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "libraryId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "scope": {
+            "const": "top-level-regular"
+          },
+          "order": {
+            "const": "stable_identity"
+          },
+          "batchSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "batchIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
           "items": {
-            "type": "array"
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "object",
+                  "properties": {
+                    "libraryId": { "type": "integer", "minimum": 1 },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "required": ["libraryId", "key"],
+                  "additionalProperties": false
+                },
+                "itemType": { "type": "string" },
+                "title": { "type": "string" },
+                "creators": { "type": "array", "items": { "type": "string" } },
+                "year": { "type": "string" },
+                "date": { "type": "string" },
+                "publicationTitle": { "type": "string" },
+                "tags": { "type": "array", "items": { "type": "string" } },
+                "collections": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "libraryId": { "type": "integer", "minimum": 1 },
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "required": ["libraryId", "key"],
+                    "additionalProperties": false
+                  }
+                },
+                "revision": { "type": "string", "minLength": 1 },
+                "state": { "const": "active" },
+                "identifiers": {
+                  "type": "object",
+                  "properties": {
+                    "doi": { "type": ["string", "null"] },
+                    "isbn": { "type": ["string", "null"] },
+                    "issn": { "type": ["string", "null"] },
+                    "arxiv": { "type": ["string", "null"] },
+                    "pmid": { "type": ["string", "null"] }
+                  },
+                  "required": ["doi", "isbn", "issn", "arxiv", "pmid"],
+                  "additionalProperties": false
+                },
+                "url": { "type": ["string", "null"] },
+                "noteCount": { "type": "integer", "minimum": 0 },
+                "attachmentCount": { "type": "integer", "minimum": 0 },
+                "annotationCount": { "type": "integer", "minimum": 0 },
+                "modifiedAt": { "type": "string" }
+              },
+              "required": [
+                "ref",
+                "itemType",
+                "title",
+                "creators",
+                "year",
+                "date",
+                "publicationTitle",
+                "tags",
+                "collections",
+                "revision",
+                "state",
+                "identifiers",
+                "url",
+                "noteCount",
+                "attachmentCount",
+                "annotationCount",
+                "modifiedAt"
+              ],
+              "additionalProperties": false
+            }
           },
           "nextCursor": {
             "type": ["string", "null"]
@@ -2395,15 +2495,90 @@
             "type": "integer",
             "minimum": 0
           },
-          "total": {
+          "deliveredItems": {
             "type": "integer",
             "minimum": 0
           },
-          "limit": {
+          "deliveredBatches": {
             "type": "integer",
             "minimum": 0
+          },
+          "outcome": {
+            "enum": ["active", "completed"]
+          },
+          "completionEvidence": {
+            "type": "object",
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "schema": { "const": "zotero-agents.library-full-index.v1" },
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "scope": { "const": "top-level-regular" },
+              "totalItems": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "totalBatches": { "type": "integer", "minimum": 1 },
+              "order": { "const": "stable_identity" },
+              "contentDigest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "completedAt": { "type": "string" }
+            },
+            "required": [
+              "snapshotId",
+              "schema",
+              "libraryId",
+              "scope",
+              "totalItems",
+              "totalBatches",
+              "order",
+              "contentDigest",
+              "completedAt"
+            ],
+            "additionalProperties": false
           }
-        }
+        },
+        "required": [
+          "schema",
+          "snapshotId",
+          "libraryId",
+          "scope",
+          "order",
+          "batchSize",
+          "batchIndex",
+          "items",
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "deliveredItems",
+          "deliveredBatches",
+          "outcome"
+        ],
+        "oneOf": [
+          {
+            "properties": {
+              "outcome": { "const": "active" },
+              "nextCursor": { "type": "string", "minLength": 1 },
+              "hasMore": { "const": true }
+            },
+            "not": { "required": ["completionEvidence"] }
+          },
+          {
+            "properties": {
+              "outcome": { "const": "completed" },
+              "nextCursor": { "type": "null" },
+              "hasMore": { "const": false }
+            },
+            "required": ["completionEvidence"]
+          }
+        ],
+        "additionalProperties": false
       },
       "effect": "read",
       "approval": "none",

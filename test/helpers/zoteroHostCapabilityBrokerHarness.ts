@@ -40,6 +40,7 @@ export function createFailClosedZoteroHostCapabilityBroker(
       traverseItems: unexpected("library.traverseItems"),
       listCollections: unexpected("library.listCollections"),
       syncSnapshot: unexpected("library.syncSnapshot"),
+      cancelSnapshot: unexpected("library.cancelSnapshot"),
       readinessAudit: unexpected("library.readinessAudit"),
       searchItems: unexpected("library.searchItems"),
       getItemDetail: unexpected("library.getItemDetail"),
@@ -59,6 +60,27 @@ export function createFailClosedZoteroHostCapabilityBroker(
       preview: unexpected("mutations.preview"),
       execute: unexpected("mutations.execute"),
     },
+    legacyMutations: {
+      preview: unexpected("legacyMutations.preview"),
+      execute: unexpected("legacyMutations.execute"),
+    },
+    statusTags: {
+      getPolicy: unexpected("statusTags.getPolicy"),
+      transition: unexpected("statusTags.transition"),
+    },
+    notes: {
+      create: unexpected("notes.create"),
+      updateContent: unexpected("notes.updateContent"),
+      remove: unexpected("notes.remove"),
+      upsertPayload: unexpected("notes.upsertPayload"),
+    },
+    attachments: {
+      create: unexpected("attachments.create"),
+      updateMetadata: unexpected("attachments.updateMetadata"),
+      replaceFile: unexpected("attachments.replaceFile"),
+      move: unexpected("attachments.move"),
+      remove: unexpected("attachments.remove"),
+    },
   };
   return {
     ...broker,
@@ -67,5 +89,12 @@ export function createFailClosedZoteroHostCapabilityBroker(
     library: { ...broker.library, ...configuration.library },
     metadata: { ...broker.metadata, ...configuration.metadata },
     mutations: { ...broker.mutations, ...configuration.mutations },
+    legacyMutations: {
+      ...broker.legacyMutations,
+      ...configuration.legacyMutations,
+    },
+    statusTags: { ...broker.statusTags, ...configuration.statusTags },
+    notes: { ...broker.notes, ...configuration.notes },
+    attachments: { ...broker.attachments, ...configuration.attachments },
   };
 }

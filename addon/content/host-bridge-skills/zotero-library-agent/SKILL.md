@@ -149,6 +149,7 @@ Do not dispatch both analysis and synthesis over an unresolved candidate set mer
 - Do not monitor a self-owned `agentRunId` through the Zotero-managed run plane or use a `workflowRunId` for agent apply-back.
 - Do not model `submissionId`, `queueId`, and `workflowRunId` as aliases. A native queued submission is monitored through its submission projection; only an admitted unit with a real run handle enters the Zotero-managed run plane.
 - Do not create a coordinator-owned workflow queue, reservation table, replay loop, or unattended batch scheduler. The coordinator may choose an explicitly bounded concurrency value for the current authorized submission, while Zotero owns pending-unit ordering, admission, and pending cancellation.
+- Treat Host-issued full-snapshot completion evidence as proof of one captured complete set only. An active, interrupted, expired, or restarted snapshot cannot establish whole-library absence or authorize replacement of a cached generation, and a completed snapshot does not replace a later live read when current state controls the answer or a write.
 
 ## LLM And Tool Responsibilities
 

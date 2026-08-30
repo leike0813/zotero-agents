@@ -748,7 +748,10 @@ describe("workflow: literature-deep-reading", function () {
             getPolicy: () => ({}),
             transition: async (args: unknown) => {
               statusTransitions.push(args);
-              return { added: [], removed: [], warnings: [] };
+              return {
+                outcome: "committed",
+                result: { added: [], removed: [], unchanged: [] },
+              };
             },
           },
         } as any,

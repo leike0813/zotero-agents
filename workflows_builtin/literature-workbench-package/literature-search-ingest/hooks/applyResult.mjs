@@ -1,4 +1,5 @@
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
 
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -95,13 +96,13 @@ async function applyResultImpl(args) {
         add: transition.add,
       });
       taggedItemIds.push(transition.itemId);
-      for (const warning of result?.warnings || []) {
-        statusWarnings.push({
-          code: "search_status_transition_failed",
-          itemId: transition.itemId,
-          ...warning,
-        });
-      }
+      statusWarnings.push(
+        ...collectStatusTransitionDiagnostics(
+          result,
+          "search_status_transition_failed",
+          { itemId: transition.itemId },
+        ),
+      );
     } catch (error) {
       statusWarnings.push({
         code: "search_status_transition_failed",

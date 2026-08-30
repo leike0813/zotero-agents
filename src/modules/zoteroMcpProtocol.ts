@@ -519,9 +519,11 @@ function validateToolArguments(
   }
 }
 
+const LIBRARY_SNAPSHOT_TOOL_NAME = "library.sync_snapshot" as const;
+
 const LIBRARY_CURSOR_TOOL_NAMES = new Set([
   "library.list_items",
-  "library.sync_snapshot",
+  LIBRARY_SNAPSHOT_TOOL_NAME,
   "library.readiness_audit",
   ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
 ]);

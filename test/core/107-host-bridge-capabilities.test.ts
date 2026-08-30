@@ -357,7 +357,7 @@ describe("host bridge capability calls", function () {
       const capability = listHostBridgeCapabilities().find(
         (entry) => entry.name === name,
       );
-      assert.deepEqual(capability?.inputSchema.properties?.cursor, {
+      assert.deepInclude(capability?.inputSchema.properties?.cursor, {
         type: "string",
       });
     }
@@ -426,31 +426,70 @@ describe("host bridge capability calls", function () {
     });
     const item = await createParentItem("Bridge Snapshot DTO Paper");
     item.setField("DOI", "10.5555/bridge-snapshot");
+    await item.saveTx();
 
-    const parsed = await callBridgeCapability({
+    const first = await callBridgeCapability({
       token,
       capability: "library.sync_snapshot",
       input: {
-        query: "Bridge Snapshot",
-        limit: 10,
+        libraryId: Zotero.Libraries.userLibraryID,
+        batchSize: 1,
       },
     });
 
-    assert.strictEqual(parsed.status, 200);
-    assert.strictEqual(parsed.json.status, "ok");
-    assert.strictEqual(parsed.json.result.capability, "library.sync_snapshot");
-    assert.strictEqual(parsed.json.result.approval, "none");
+    assert.strictEqual(first.status, 200);
+    assert.strictEqual(first.json.status, "ok");
+    assert.strictEqual(first.json.result.capability, "library.sync_snapshot");
+    assert.strictEqual(first.json.result.approval, "none");
     assert.strictEqual(
-      parsed.json.result.data.schema,
-      "zotero.library.snapshot.v1",
+      first.json.result.data.schema,
+      "zotero-agents.library-full-index.v1",
     );
-    assert.lengthOf(parsed.json.result.data.items, 1);
-    assert.strictEqual(parsed.json.result.data.items[0].key, item.key);
+    assert.lengthOf(first.json.result.data.items, 1);
+    assert.strictEqual(first.json.result.data.items[0].ref.key, item.key);
     assert.strictEqual(
-      parsed.json.result.data.items[0].DOI,
+      first.json.result.data.items[0].identifiers.doi,
       "10.5555/bridge-snapshot",
     );
-    assert.isString(parsed.json.result.data.nextCursor);
+    assert.isString(first.json.result.data.snapshotId);
+    if (first.json.result.data.outcome === "active") {
+      assert.isString(first.json.result.data.nextCursor);
+      assert.notProperty(first.json.result.data, "completionEvidence");
+      const terminal = await callBridgeCapability({
+        token,
+        capability: "library.sync_snapshot",
+        input: {
+          libraryId: Zotero.Libraries.userLibraryID,
+          batchSize: 1,
+          snapshotId: first.json.result.data.snapshotId,
+          cursor: first.json.result.data.nextCursor,
+        },
+      });
+      assert.strictEqual(terminal.status, 200);
+      assert.strictEqual(terminal.json.result.data.outcome, "completed");
+      assert.isObject(terminal.json.result.data.completionEvidence);
+    } else {
+      assert.strictEqual(first.json.result.data.outcome, "completed");
+      assert.isObject(first.json.result.data.completionEvidence);
+    }
+
+    const encoded = JSON.stringify(first.json.result.data);
+    for (const forbidden of [
+      "localPath",
+      "nativeHandle",
+      "registry",
+      "sessionRecord",
+    ]) {
+      assert.notInclude(encoded, forbidden);
+    }
+
+    const filtered = await callBridgeCapability({
+      token,
+      capability: "library.sync_snapshot",
+      input: { libraryId: Zotero.Libraries.userLibraryID, tag: "forbidden" },
+    });
+    assert.strictEqual(filtered.status, 400);
+    assert.strictEqual(filtered.json.error.code, "invalid_capability_input");
   });
 
   it("routes library readiness audits with shared artifact evidence", async function () {

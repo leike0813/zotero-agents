@@ -6,6 +6,7 @@ use crate::durable_bundle::{
     DurableCanonicalCapture, DurableCanonicalPreparation, DurableEnvelope,
 };
 use crate::knowledge_checkpoint::KnowledgeCheckpointRepositoryPort;
+use crate::library_snapshot_index::LibrarySnapshotIndexRepositoryPort;
 use crate::reference_matching::ReferenceReviewDecision;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -38,6 +39,9 @@ use synthesis_repository::{
 use synthesis_repository::{
     DebugProjection, DurableBundleCapture, DurableImportApply, DurableImportCapture,
     DurableTopicBasis, KnowledgeCheckpointCapture, KnowledgeCheckpointReplacement,
+};
+use synthesis_repository::{
+    LibrarySnapshotGenerationRecord, LibrarySnapshotIndexItemRecord, LibrarySnapshotPromotion,
 };
 
 pub trait RelatedItemsRepositoryPort: Send + Sync {
@@ -626,6 +630,28 @@ impl RepositoryPort {
             )?;
             Ok((artifacts, raw_references, redirects, bindings))
         })
+    }
+}
+
+impl LibrarySnapshotIndexRepositoryPort for RepositoryPort {
+    fn begin(&self, record: &LibrarySnapshotGenerationRecord) -> Result<(), String> {
+        self.with_writer(|repository| repository.begin_library_snapshot_generation(record))
+    }
+
+    fn stage(
+        &self,
+        generation_id: &str,
+        snapshot_id: &str,
+        library_id: i64,
+        records: &[LibrarySnapshotIndexItemRecord],
+    ) -> Result<(), String> {
+        self.with_writer(|repository| {
+            repository.stage_library_snapshot_items(generation_id, snapshot_id, library_id, records)
+        })
+    }
+
+    fn promote(&self, promotion: &LibrarySnapshotPromotion) -> Result<(), String> {
+        self.with_writer(|repository| repository.promote_library_snapshot_generation(promotion))
     }
 }
 

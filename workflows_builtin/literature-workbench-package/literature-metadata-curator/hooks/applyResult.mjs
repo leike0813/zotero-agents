@@ -8,6 +8,7 @@ import {
   resolveCanonicalResult,
 } from "../../lib/metadataCurator.mjs";
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
 
 const BLOCKED_FIELD_KEYS = new Set([
   "itemType",
@@ -112,10 +113,10 @@ async function removeCurationTag(runtime, parent) {
 async function cleanupResult(runtime, parent) {
   try {
     const transition = await removeCurationTag(runtime, parent);
-    const cleanupWarnings = (transition?.warnings || []).map((warning) => ({
-      code: "metadata_curation_tag_cleanup_failed",
-      ...warning,
-    }));
+    const cleanupWarnings = collectStatusTransitionDiagnostics(
+      transition,
+      "metadata_curation_tag_cleanup_failed",
+    );
     return {
       curationTagRemoved: cleanupWarnings.length === 0,
       partial: cleanupWarnings.length > 0,

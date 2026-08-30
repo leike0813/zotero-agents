@@ -173,6 +173,8 @@ active/recent 列表仅用于发现。使用返回的 `skillRunId` 定位 reply 
 
 缓存的索引和先前的任务结果可能会缩小发现范围，但无法取代当前状态控制答案或写入的实时读取。
 
+只有 terminal result 携带同一 snapshot identity、library、scope、已交付 item 数、已交付 batch 数、稳定顺序和内容 digest 的 completion evidence 时，Host 签发的全库 snapshot 才能证明一个有界且完整的捕获集合。active page 与未完成 session 只能用作发现材料；它们不能支持“对象不存在”的结论，也不能替换缓存 generation。Snapshot evidence 也有时间边界：只把它用于其已完成的 captured-set 问题；后续若要得出当前状态结论或进入状态变更阶段，应重新读取相关 live object。
+
 ### 证据深度阶梯
 
 说明每个来源最有力的可用基础：

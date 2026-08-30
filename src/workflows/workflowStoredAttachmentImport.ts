@@ -1,4 +1,8 @@
-import { getParentPath, normalizeNativeLocalPath } from "../platform/path";
+import {
+  getBaseName,
+  getParentPath,
+  normalizeNativeLocalPath,
+} from "../platform/path";
 import { joinPath } from "../utils/path";
 
 export type WorkflowStoredAttachmentImportRequest = {
@@ -21,6 +25,7 @@ type StoredAttachmentImportArgs = Omit<
 
 export type WorkflowStoredAttachmentImportDependencies = {
   getStagingRoot: () => string;
+  validateSource?: (path: string) => Promise<void>;
   ensureDirectory: (path: string) => Promise<void>;
   copyFile: (sourcePath: string, targetPath: string) => Promise<void>;
   removePath: (path: string) => Promise<unknown>;
@@ -33,6 +38,7 @@ export type WorkflowStoredAttachmentImportDependencies = {
 type ValidatedCompanion = {
   sourcePath: string;
   segments: string[];
+  normalizedTarget: string;
 };
 
 function normalizeCompanionPath(value: unknown) {
@@ -94,13 +100,34 @@ export function createWorkflowStoredAttachmentImport(
     const path = requireNativePath(request?.path, "Stored attachment path");
     const companions: ValidatedCompanion[] = (
       request?.companionFiles || []
-    ).map((companion) => ({
-      sourcePath: requireNativePath(
-        companion?.sourcePath,
-        "Companion source path",
-      ),
-      segments: normalizeCompanionPath(companion?.relativePath),
-    }));
+    ).map((companion) => {
+      const segments = normalizeCompanionPath(companion?.relativePath);
+      return {
+        sourcePath: requireNativePath(
+          companion?.sourcePath,
+          "Companion source path",
+        ),
+        segments,
+        normalizedTarget: segments.join("/").toLocaleLowerCase(),
+      };
+    });
+    const mainFilename = getBaseName(path);
+    if (!mainFilename) {
+      throw new Error("Stored attachment filename is invalid");
+    }
+    const targets = new Set([mainFilename.toLocaleLowerCase()]);
+    for (const companion of companions) {
+      if (targets.has(companion.normalizedTarget)) {
+        throw new Error(
+          `Stored attachment targets collide: ${companion.segments.join("/")}`,
+        );
+      }
+      targets.add(companion.normalizedTarget);
+    }
+    await dependencies.validateSource?.(path);
+    for (const companion of companions) {
+      await dependencies.validateSource?.(companion.sourcePath);
+    }
     const importArgs: StoredAttachmentImportArgs = {
       parent: request?.parent,
       path,
@@ -109,12 +136,13 @@ export function createWorkflowStoredAttachmentImport(
       charset: request?.charset,
       url: request?.url,
     };
-    if (!companions.length) {
-      return dependencies.importStoredFromPath(importArgs);
-    }
-
     const stagingDirectory = createStagingDirectory(
       dependencies.getStagingRoot(),
+    );
+    const stagedMainPath = joinPath(
+      stagingDirectory,
+      "main",
+      mainFilename,
     );
     const stagedCompanions = companions.map((companion, index) => ({
       ...companion,
@@ -126,6 +154,8 @@ export function createWorkflowStoredAttachmentImport(
     }));
     let attachment: Zotero.Item | null = null;
     try {
+      await dependencies.ensureDirectory(getParentPath(stagedMainPath));
+      await dependencies.copyFile(path, stagedMainPath);
       for (const companion of stagedCompanions) {
         await dependencies.ensureDirectory(getParentPath(companion.stagedPath));
         await dependencies.copyFile(
@@ -134,7 +164,10 @@ export function createWorkflowStoredAttachmentImport(
         );
       }
 
-      attachment = await dependencies.importStoredFromPath(importArgs);
+      attachment = await dependencies.importStoredFromPath({
+        ...importArgs,
+        path: stagedMainPath,
+      });
       const storedPath = String(
         (await attachment.getFilePathAsync?.()) || "",
       ).trim();

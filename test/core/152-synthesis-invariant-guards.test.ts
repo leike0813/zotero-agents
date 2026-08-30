@@ -80,7 +80,10 @@ describe("Synthesis invariant guards", function () {
     assert.include(supervisor, "await controlClient.health(connection)");
     assert.include(supervisor, "await controlClient.handshake(connection)");
     assert.notMatch(supervisor, /resolveRuntimeCommand|pathSearch|\bnode\b/i);
-    assert.include(defaultClient, "createReadyNativeSynthesisClientComposition");
+    assert.include(
+      defaultClient,
+      "createReadyNativeSynthesisClientComposition",
+    );
     assert.notMatch(defaultClient, /legacy|fallback|implementation selector/i);
   });
 

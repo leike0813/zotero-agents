@@ -654,12 +654,16 @@ export async function applyResult({
         item: source.parentItem,
         remove: ["need-fulltext", "need-markdown"],
       });
-      statusWarnings.push(
-        ...(statusTransition?.warnings || []).map((warning) => ({
+      if (
+        statusTransition?.outcome !== "committed" &&
+        statusTransition?.outcome !== "unchanged"
+      ) {
+        statusWarnings.push({
           code: "mineru_status_transition_failed",
-          ...warning,
-        })),
-      );
+          outcome: String(statusTransition?.outcome || "failed"),
+          attempt: statusTransition?.attempt || null,
+        });
+      }
     } catch (error) {
       statusWarnings.push({
         code: "mineru_status_transition_failed",

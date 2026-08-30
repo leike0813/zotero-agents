@@ -8,7 +8,7 @@
     "workerOperationRoster": "../../../../native/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
-    "crossProcessCapabilities": 119,
+    "crossProcessCapabilities": 120,
     "deterministicWorkerOperations": 15
   },
   "documents": [
@@ -958,6 +958,14 @@
       "domain": "compute",
       "requestSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphBuildTransferRequest",
       "resultSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphBuildTransferResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.items.sync_snapshot",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {

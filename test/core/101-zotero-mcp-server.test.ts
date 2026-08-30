@@ -1429,7 +1429,7 @@ describe("embedded Zotero MCP server protocol", function () {
       {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
-            mutations: {
+            legacyMutations: {
               preview: async () => ({
                 ok: true,
                 operation: "item.addTags",
@@ -1489,7 +1489,7 @@ describe("embedded Zotero MCP server protocol", function () {
       {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
-            mutations: {
+            legacyMutations: {
               preview: async () => ({
                 ok: true,
                 operation: "item.addTags",
@@ -1968,7 +1968,7 @@ describe("embedded Zotero MCP server protocol", function () {
       {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
-            mutations: {
+            legacyMutations: {
               preview: async (mutation: any) => ({
                 ok: true,
                 operation: mutation.operation,
@@ -2065,7 +2065,7 @@ describe("embedded Zotero MCP server protocol", function () {
       {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
-            mutations: {
+            legacyMutations: {
               preview: async (mutation: any) => {
                 mutationContent = mutation.content;
                 return {
@@ -2114,7 +2114,7 @@ describe("embedded Zotero MCP server protocol", function () {
   it("updates markdown-backed notes through generic mutation.execute", async function () {
     let executeCalls = 0;
     const broker = createFailClosedZoteroHostCapabilityBroker({
-      mutations: {
+      legacyMutations: {
         preview: async (mutation: any) => ({
           ok: true,
           operation: mutation.operation,
@@ -2212,7 +2212,7 @@ describe("embedded Zotero MCP server protocol", function () {
       {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
-            mutations: {
+            legacyMutations: {
               preview: async () => ({
                 ok: true,
                 operation: "item.addTags",
@@ -2250,7 +2250,7 @@ describe("embedded Zotero MCP server protocol", function () {
       {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
-            mutations: {
+            legacyMutations: {
               preview: async () => ({
                 ok: true,
                 operation: "item.addTags",

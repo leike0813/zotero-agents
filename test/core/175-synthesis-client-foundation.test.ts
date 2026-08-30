@@ -20,9 +20,8 @@ import {
 } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
-const createTestSynthesisClient = (
-  port: Partial<SynthesisClientPort>,
-) => createSynthesisClientFromPort(port as SynthesisClientPort);
+const createTestSynthesisClient = (port: Partial<SynthesisClientPort>) =>
+  createSynthesisClientFromPort(port as SynthesisClientPort);
 const WORKFLOW_REVIEW_RESULT = (
   JSON.parse(
     fs.readFileSync(

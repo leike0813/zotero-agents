@@ -9,6 +9,10 @@ import type {
   LiteratureQualitySnapshot,
   SynthesisPaperArtifactType,
 } from "./literatureArtifacts.js";
+import type {
+  ZoteroLibrarySnapshotPageDto,
+  ZoteroLibrarySnapshotRequestDto,
+} from "./librarySnapshot.js";
 
 export const SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT = 50 as const;
 export const SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX = 100 as const;
@@ -120,6 +124,9 @@ export type SynthesisHostArtifactReadResult = {
 };
 
 export interface SynthesisHostLibraryReadPort {
+  syncSnapshot(
+    request: ZoteroLibrarySnapshotRequestDto,
+  ): Promise<ZoteroLibrarySnapshotPageDto>;
   listItemsPage(
     request: SynthesisHostPageRequest,
   ): Promise<SynthesisHostLibraryItemsPageResult>;

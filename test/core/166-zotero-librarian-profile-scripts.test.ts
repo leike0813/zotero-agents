@@ -73,7 +73,81 @@ if (args.join(" ") === "context selection get") {
     { libraryId: 1, key: "NOTE1", id: 102, itemType: "note", parent: { id: 12, key: "PARENT2" } }
   ] } });
 } else if (args[0] === "library" && args[1] === "snapshot") {
-  out({ result: { items: [{ libraryId: 1, key: "PARENT1", id: 11, itemType: "journalArticle", title: "One" }], hasMore: false } });
+  const inputIndex = Math.max(args.indexOf("--input"), args.indexOf("--query"));
+  const input = inputIndex >= 0 ? JSON.parse(args[inputIndex + 1]) : {};
+  const scenario = process.env.FAKE_SNAPSHOT_SCENARIO || "complete-one";
+  if (scenario === "interrupted") {
+    if (input.cursor) fail("snapshot continuation interrupted");
+    out({ result: {
+      schema: "zotero-agents.library-full-index.v1",
+      snapshotId: "snapshot-interrupted",
+      libraryId: 1,
+      scope: "top-level-regular",
+      order: "stable_identity",
+      batchSize: 1,
+      batchIndex: 0,
+      items: [{ ref: { libraryId: 1, key: "PARENT2" }, id: 12, libraryId: 1, key: "PARENT2", itemType: "journalArticle", title: "Interrupted" }],
+      nextCursor: "cursor-interrupted",
+      hasMore: true,
+      returned: 1,
+      deliveredItems: 1,
+      deliveredBatches: 1,
+      outcome: "active"
+    } });
+  } else if (scenario === "terminal-incomplete") {
+    out({ result: {
+      schema: "zotero-agents.library-full-index.v1",
+      snapshotId: "snapshot-incomplete",
+      libraryId: 1,
+      scope: "top-level-regular",
+      order: "stable_identity",
+      batchSize: 500,
+      batchIndex: 0,
+      items: [{ ref: { libraryId: 1, key: "PARENT2" }, libraryId: 1, key: "PARENT2", id: 12, itemType: "journalArticle", title: "Incomplete" }],
+      nextCursor: null,
+      hasMore: false,
+      returned: 1,
+      deliveredItems: 1,
+      deliveredBatches: 1,
+      outcome: "active"
+    } });
+  } else if (scenario === "complete-empty") {
+    out({ result: {
+      schema: "zotero-agents.library-full-index.v1",
+      snapshotId: "snapshot-empty",
+      libraryId: 1,
+      scope: "top-level-regular",
+      order: "stable_identity",
+      batchSize: 500,
+      batchIndex: 0,
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      returned: 0,
+      deliveredItems: 0,
+      deliveredBatches: 1,
+      outcome: "completed",
+      completionEvidence: { snapshotId: "snapshot-empty", schema: "zotero-agents.library-full-index.v1", libraryId: 1, scope: "top-level-regular", totalItems: 0, totalBatches: 1, order: "stable_identity", contentDigest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", completedAt: "2026-08-30T00:00:00.000Z" }
+    } });
+  } else {
+    out({ result: {
+      schema: "zotero-agents.library-full-index.v1",
+      snapshotId: "snapshot-one",
+      libraryId: 1,
+      scope: "top-level-regular",
+      order: "stable_identity",
+      batchSize: 500,
+      batchIndex: 0,
+      items: [{ ref: { libraryId: 1, key: "PARENT1" }, libraryId: 1, key: "PARENT1", id: 11, itemType: "journalArticle", title: "One" }],
+      nextCursor: null,
+      hasMore: false,
+      returned: 1,
+      deliveredItems: 1,
+      deliveredBatches: 1,
+      outcome: "completed",
+      completionEvidence: { snapshotId: "snapshot-one", schema: "zotero-agents.library-full-index.v1", libraryId: 1, scope: "top-level-regular", totalItems: 1, totalBatches: 1, order: "stable_identity", contentDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111", completedAt: "2026-08-30T00:00:00.000Z" }
+    } });
+  }
 } else if (args.join(" ") === "workflow list") {
   out({ result: { workflows: [{ id: "literature-analysis", label: "Literature Analysis" }] } });
 } else if (args.join(" ").startsWith("workflow describe")) {
@@ -160,6 +234,65 @@ describe("zotero-librarian resident service", function () {
     );
     assert.strictEqual(quiet.status, 0);
     assert.strictEqual(quiet.stdout.trim(), "[SILENT]");
+  });
+
+  it("preserves the prior index across interrupted refresh and promotes a complete empty generation", function () {
+    const temp = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zotero-librarian-snapshot-"),
+    );
+    const bridge = writeFakeBridge(temp);
+    const db = path.join(temp, "state.sqlite");
+    const baseEnv = { ZOTERO_LIBRARIAN_STATE_DIR: temp };
+
+    const initial = payload(
+      runPython(["--bridge", bridge, "--db", db, "index", "refresh"], baseEnv),
+    );
+    assert.strictEqual(initial.data.total, 1);
+
+    const interrupted = runPython(
+      ["--bridge", bridge, "--db", db, "index", "refresh", "--limit", "1"],
+      { ...baseEnv, FAKE_SNAPSHOT_SCENARIO: "interrupted" },
+    );
+    assert.notStrictEqual(interrupted.status, 0);
+    const interruptedReceipt = JSON.parse(String(interrupted.stdout));
+    assert.strictEqual(interruptedReceipt.status, "failed");
+
+    const retained = payload(
+      runPython(
+        ["--bridge", bridge, "--db", db, "index", "item", "PARENT1"],
+        baseEnv,
+      ),
+    );
+    assert.strictEqual(retained.data.item.key, "PARENT1");
+
+    const incomplete = runPython(
+      ["--bridge", bridge, "--db", db, "index", "refresh"],
+      { ...baseEnv, FAKE_SNAPSHOT_SCENARIO: "terminal-incomplete" },
+    );
+    assert.notStrictEqual(incomplete.status, 0);
+    assert.strictEqual(JSON.parse(String(incomplete.stdout)).status, "failed");
+    const stillRetained = payload(
+      runPython(
+        ["--bridge", bridge, "--db", db, "index", "item", "PARENT1"],
+        baseEnv,
+      ),
+    );
+    assert.strictEqual(stillRetained.data.item.key, "PARENT1");
+
+    const emptied = payload(
+      runPython(["--bridge", bridge, "--db", db, "index", "refresh"], {
+        ...baseEnv,
+        FAKE_SNAPSHOT_SCENARIO: "complete-empty",
+      }),
+    );
+    assert.strictEqual(emptied.status, "changed");
+    assert.deepInclude(emptied.data, { deleted: 1, total: 0 });
+    const stats = payload(
+      runPython(["--bridge", bridge, "--db", db, "index", "stats"], baseEnv),
+    );
+    assert.strictEqual(stats.data.itemCount, 0);
+    assert.isString(stats.data.currentGenerationId);
+    assert.strictEqual(stats.data.stagingGenerationCount, 0);
   });
 
   it("rejects removed profile-owned workflow queue commands", function () {

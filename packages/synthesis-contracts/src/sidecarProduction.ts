@@ -49,6 +49,12 @@ import {
   type SynthesisHostPageRequest,
 } from "./hostRead.js";
 import {
+  rebuildZoteroLibrarySnapshotPage,
+  rebuildZoteroLibrarySnapshotRequest,
+  type ZoteroLibrarySnapshotPageDto,
+  type ZoteroLibrarySnapshotRequestDto,
+} from "./librarySnapshot.js";
+import {
   rebuildSynthesisHostExportDeliveryResult,
   rebuildSynthesisHostExportDeliveryTransferRequest,
   rebuildSynthesisHostRunWorkspaceMaterializationResult,
@@ -112,6 +118,7 @@ export const SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA =
   "synthesis-sidecar-discovery.v5" as const;
 
 export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
+  "library.items.sync_snapshot",
   "library.items.list_page",
   "library.items.get_by_ref",
   "library.artifacts.scan_page",
@@ -132,6 +139,10 @@ export type SynthesisReverseHostCapability =
   (typeof SYNTHESIS_REVERSE_HOST_CAPABILITIES)[number];
 
 export interface SynthesisReverseHostContractMap {
+  "library.items.sync_snapshot": {
+    request: Omit<ZoteroLibrarySnapshotRequestDto, "libraryId">;
+    result: ZoteroLibrarySnapshotPageDto;
+  };
   "library.items.list_page": {
     request: Omit<SynthesisHostPageRequest, "libraryId">;
     result: SynthesisHostLibraryItemsPageResult;
@@ -199,6 +210,10 @@ export type SynthesisReverseHostResult<
 > = SynthesisReverseHostContractMap[Capability]["result"];
 
 export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
+  "library.items.sync_snapshot": Object.freeze({
+    responseBodyBytes: 8 * 1024 * 1024,
+    callTimeoutMs: 30_000,
+  }),
   "library.artifacts.scan_page": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
     callTimeoutMs: 10_000,
@@ -700,6 +715,13 @@ export function rebuildSynthesisReverseHostPayload<
 ): SynthesisReverseHostPayload<Capability> {
   let rebuilt: SynthesisReverseHostContractMap[SynthesisReverseHostCapability]["request"];
   switch (capability) {
+    case "library.items.sync_snapshot": {
+      const payload = toSynthesisJsonObject(value, "librarySnapshotRequest");
+      const { libraryId: _libraryId, ...request } =
+        rebuildZoteroLibrarySnapshotRequest({ ...payload, libraryId: 1 });
+      rebuilt = request;
+      break;
+    }
     case "library.items.list_page":
       {
         const payload = toSynthesisJsonObject(value, "hostPageRequest");
@@ -807,6 +829,9 @@ export function rebuildSynthesisReverseHostResult<
 ): SynthesisReverseHostResult<Capability> {
   let rebuilt: SynthesisReverseHostContractMap[SynthesisReverseHostCapability]["result"];
   switch (capability) {
+    case "library.items.sync_snapshot":
+      rebuilt = rebuildZoteroLibrarySnapshotPage(value);
+      break;
     case "library.items.list_page":
       rebuilt = rebuildSynthesisHostLibraryItemsPageResult(value);
       break;

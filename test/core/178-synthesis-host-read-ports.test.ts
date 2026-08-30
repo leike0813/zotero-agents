@@ -6,6 +6,7 @@ import {
 } from "../../packages/synthesis-contracts/src/index";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
+import { resetZoteroHostSnapshotRuntimeForTests } from "../../src/modules/zoteroHostCapabilityBroker";
 import {
   resetZoteroLibraryPageQueryAdapterForTests,
   setZoteroLibraryPageQueryAdapterForTests,
@@ -52,6 +53,33 @@ describe("Synthesis Host read capability ports", function () {
 
   afterEach(function () {
     resetZoteroLibraryPageQueryAdapterForTests();
+    resetZoteroHostSnapshotRuntimeForTests();
+  });
+
+  it("consumes the Broker-owned fixed snapshot instead of live pagination", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTSNAP", "Host Snapshot");
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+
+    const page = await port.library.syncSnapshot({
+      libraryId,
+      batchSize: 500,
+    });
+
+    assert.equal(page.outcome, "completed");
+    assert.deepEqual(
+      page.items.map((item) => item.ref),
+      [{ libraryId, key: paper.key }],
+    );
+    if (page.outcome === "completed") {
+      assert.equal(page.completionEvidence.totalItems, 1);
+      assert.match(
+        page.completionEvidence.contentDigest,
+        /^sha256:[a-f0-9]{64}$/u,
+      );
+    }
+    assert.notProperty(page, "path");
+    assert.notProperty(page, "registry");
   });
 
   it("pages JSON-safe library summaries and resolves finite stable refs", async function () {
@@ -172,5 +200,4 @@ describe("Synthesis Host read capability ports", function () {
     assert.instanceOf(failure, SynthesisClientError);
     assert.equal((failure as SynthesisClientError).code, "invalid_request");
   });
-
 });

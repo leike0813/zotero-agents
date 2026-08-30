@@ -79,6 +79,8 @@ When the user asks for recurring behavior:
 6. Submit once through the CLI join point and branch on the returned admission contract. For direct admission, preserve the real `workflowRunId`. For host-queue admission, preserve `submissionId`, inspect its immutable unit projection, use `workflow queue list` only for active queue observation, use `workflow queue cancel <queueId>` only for a pending unit, and correlate admitted tasks with `run list --submission`.
 7. Return `zotero-librarian.operation-receipt.v1` plus the live evidence needed to support the user-facing conclusion. Follow failed-receipt recovery without replaying submissions or writes.
 
+对于 `index refresh`，让 service 拥有完整的 snapshot session 与 database boundary。它把每个已接受页面写入非 authoritative staging generation，针对同一个 snapshot 校验 terminal snapshot completion evidence，然后原子 promote generation。在 promotion 成功前，搜索与 item read 继续使用先前的 current generation。snapshot 中断、过期、不匹配、达到资源上限或重启时，返回 failure 且不删除缺失行；应重新开始一次完整 refresh，不要 resume 或重建旧 session。
+
 ## Resident routing
 
 Use the service domains as follows:
@@ -129,6 +131,7 @@ Zotero's native queue is the sole owner of pending units. A pending unit may be 
 - Do not infer a Product, artifact, item change, or successful maintenance outcome from terminal workflow state.
 - Do not automatically remediate duplicate, hygiene, readiness, workflow-status, or attention candidates.
 - Do not modify `state.sqlite` with ad-hoc SQL or another helper, and do not replace usable state with an incomplete refresh.
+- 不得把 staging row、active snapshot page、本地 counter 或以前的 completion receipt 当作 promotion evidence。只有本次 refresh 匹配的 Host 签发 terminal evidence 才允许 service promote generation，并删除该完整 snapshot 中缺失的行；完整的空 snapshot 可以 promote 为空的 current generation。
 - Do not persist or hand-edit workflow submission payloads, create a resident pending-unit queue, reserve native units, or maintain a replay journal. Live workflow validation and the native submission projection are the workflow-control facts.
 - A reviewed selection/options/provider/concurrency scope is input evidence, not a stored approval token. Every submit invocation requires current authority.
 - A queued submission or admitted unit with an uncertain response may already have changed remote state. Inspect the original `submissionId` and submission-filtered tasks before another submission.

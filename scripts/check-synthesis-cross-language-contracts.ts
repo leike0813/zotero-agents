@@ -345,7 +345,7 @@ function inspectProtocolRegistry(errors: string[]) {
     errors.push("protocol_registry_identity_invalid");
   }
   if (
-    registry.expected.crossProcessCapabilities !== 119 ||
+    registry.expected.crossProcessCapabilities !== 120 ||
     registry.expected.deterministicWorkerOperations !== 15
   ) {
     errors.push("protocol_registry_expected_counts_invalid");

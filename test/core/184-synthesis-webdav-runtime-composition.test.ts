@@ -367,5 +367,4 @@ describe("Synthesis WebDAV runtime composition", function () {
     });
     assert.notInclude(JSON.stringify(result), "secret");
   });
-
 });

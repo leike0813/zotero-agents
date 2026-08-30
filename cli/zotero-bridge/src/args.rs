@@ -574,8 +574,8 @@ pub enum LibraryCommand {
     Annotation(AnnotationArgs),
 
     #[command(
-        about = "Sync a Zotero library metadata snapshot page",
-        long_about = "Call Zotero capability library.sync_snapshot. Use --query for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query. The output includes schema, generatedAt, snapshotId, items, nextCursor, hasMore, returned, and totalScanned."
+        about = "Read a fixed Zotero full-library snapshot page",
+        long_about = "Call Zotero capability library.sync_snapshot. The first query requires libraryId and may set batchSize (default 500, maximum 1000). Continue only with the returned snapshotId and cursor under the same libraryId and batchSize. A completed terminal page includes Host-issued completionEvidence; active, interrupted, expired, or restarted sessions do not authorize index replacement. Snapshot and cursor values are opaque process-local state, not change cursors."
     )]
     Snapshot(BridgeQueryArgs),
 
@@ -2991,7 +2991,7 @@ mod tests {
             "library",
             "snapshot",
             "--query",
-            "{\"limit\":200,\"collectionKey\":\"COLL\"}",
+            "{\"libraryId\":1,\"batchSize\":500,\"snapshotId\":\"opaque-snapshot\",\"cursor\":\"opaque-cursor\"}",
         ]);
 
         match cli.command {
@@ -2999,7 +2999,7 @@ mod tests {
                 LibraryCommand::Snapshot(input) => {
                     assert_eq!(
                         input.query.as_deref(),
-                        Some("{\"limit\":200,\"collectionKey\":\"COLL\"}")
+                        Some("{\"libraryId\":1,\"batchSize\":500,\"snapshotId\":\"opaque-snapshot\",\"cursor\":\"opaque-cursor\"}")
                     );
                 }
                 _ => panic!("expected library snapshot"),

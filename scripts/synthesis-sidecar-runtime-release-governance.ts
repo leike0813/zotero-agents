@@ -121,8 +121,7 @@ const BUILD_STATIC_INPUTS = [
   "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts",
   "scripts/package-synthesis-sidecar-runtime.ts",
 ] as const;
-const VERIFICATION_STATIC_INPUTS = [
-] as const;
+const VERIFICATION_STATIC_INPUTS = [] as const;
 const PREBUILD_PIPELINE_STATIC_INPUTS = [
   ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
   "packages/synthesis-contracts/src/sidecarRuntimeRelease.ts",

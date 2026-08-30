@@ -97,3 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_node_type_updated ON synt_topic_
 CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_review_source ON synt_topic_graph_review_item(source_topic_id,status);
 CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_review_status_updated ON synt_topic_graph_review_item(status,updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_review_target ON synt_topic_graph_review_item(target_topic_id,status);
+CREATE TABLE IF NOT EXISTS synt_library_snapshot_generation (generation_id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, library_id INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('staging','current')), content_digest TEXT NOT NULL DEFAULT '', total_items INTEGER NOT NULL DEFAULT 0, total_batches INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, promoted_at TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS synt_library_snapshot_item (generation_id TEXT NOT NULL REFERENCES synt_library_snapshot_generation(generation_id) ON DELETE CASCADE, library_id INTEGER NOT NULL, item_key TEXT NOT NULL, revision TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY(generation_id,library_id,item_key));
+CREATE TABLE IF NOT EXISTS synt_library_snapshot_state (singleton_id INTEGER PRIMARY KEY CHECK(singleton_id=1), current_generation_id TEXT NOT NULL REFERENCES synt_library_snapshot_generation(generation_id));
+CREATE INDEX IF NOT EXISTS idx_synt_library_snapshot_item_generation ON synt_library_snapshot_item(generation_id,library_id,item_key);

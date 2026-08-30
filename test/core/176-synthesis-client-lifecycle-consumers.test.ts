@@ -385,6 +385,4 @@ describe("Synthesis lifecycle client consumers", function () {
       );
     }
   });
-
-
 });

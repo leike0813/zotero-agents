@@ -601,7 +601,7 @@ describe("workflow: literature-explainer", function () {
   );
 
   itNodeOnly(
-    "keeps oversized markdown payload fully inlined while still creating the parent note",
+    "keeps an oversized markdown payload complete while creating a bounded parent note",
     async function () {
       const parent = await handlers.item.create({
         itemType: "journalArticle",

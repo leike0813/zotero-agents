@@ -10,6 +10,69 @@ function createAttachment(path = "/zotero/storage/KEY/main.pdf") {
 }
 
 describe("Workflow Stored Attachment Import", function () {
+  it("validates and stages the main file before creating a Zotero attachment", async function () {
+    const events: string[] = [];
+    const importStoredFile = createWorkflowStoredAttachmentImport({
+      getStagingRoot: () => "/managed/tmp/attachment-import",
+      async validateSource(path) {
+        events.push(`validate:${path}`);
+      },
+      async ensureDirectory() {},
+      async copyFile(sourcePath, targetPath) {
+        events.push(`copy:${sourcePath}->${targetPath}`);
+      },
+      async removePath() {},
+      async importStoredFromPath(args) {
+        events.push(`import:${args.path}`);
+        assert.match(args.path, /^\/managed\/tmp\/attachment-import\//);
+        return createAttachment();
+      },
+      async removeAttachment() {},
+    });
+
+    await importStoredFile({ path: "/source/main.pdf" });
+
+    assert.deepEqual(events.slice(0, 2), [
+      "validate:/source/main.pdf",
+      "copy:/source/main.pdf->" + events[1].split("->")[1],
+    ]);
+    assert.match(events[2], /^import:\/managed\/tmp\/attachment-import\//);
+  });
+
+  it("rejects normalized and case-folded target collisions before staging", async function () {
+    let imported = false;
+    let copied = false;
+    const importStoredFile = createWorkflowStoredAttachmentImport({
+      getStagingRoot: () => "/managed/tmp/attachment-import",
+      async ensureDirectory() {},
+      async copyFile() {
+        copied = true;
+      },
+      async removePath() {},
+      async importStoredFromPath() {
+        imported = true;
+        return createAttachment();
+      },
+      async removeAttachment() {},
+    });
+
+    try {
+      await importStoredFile({
+        path: "/source/main.pdf",
+        companionFiles: [
+          { sourcePath: "/source/A.bin", relativePath: "assets/Data.bin" },
+          { sourcePath: "/source/B.bin", relativePath: "assets/data.bin" },
+        ],
+      });
+      assert.fail("expected a normalized target collision");
+    } catch (error) {
+      assert.include(String(error), "collide");
+    }
+
+    assert.isFalse(copied);
+    assert.isFalse(imported);
+  });
+
   it("rejects unsafe companion paths before staging or attachment creation", async function () {
     let imported = false;
     const copiedTargets: string[] = [];
@@ -160,6 +223,45 @@ describe("Workflow Stored Attachment Import", function () {
 
     assert.strictEqual(removedAttachment, attachment);
     assert.isTrue(stagingCleanupAttempted);
+  });
+
+  it("preserves the publish failure while attaching rollback and cleanup failures as secondary evidence", async function () {
+    const attachment = createAttachment();
+    const importStoredFile = createWorkflowStoredAttachmentImport({
+      getStagingRoot: () => "/managed/tmp/attachment-import",
+      async ensureDirectory() {},
+      async copyFile(_sourcePath, targetPath) {
+        if (targetPath.startsWith("/zotero/storage/")) {
+          throw new Error("primary publish failure");
+        }
+      },
+      async removePath() {
+        throw new Error("staging cleanup failure");
+      },
+      async importStoredFromPath() {
+        return attachment;
+      },
+      async removeAttachment() {
+        throw new Error("attachment rollback failure");
+      },
+    });
+
+    try {
+      await importStoredFile({
+        path: "/source/main.pdf",
+        companionFiles: [
+          { sourcePath: "/source/data.bin", relativePath: "data.bin" },
+        ],
+      });
+      assert.fail("expected publish failure");
+    } catch (error) {
+      assert.include(String(error), "primary publish failure");
+      const cleanupErrors = (error as Error & { cleanupErrors?: unknown[] })
+        .cleanupErrors;
+      assert.lengthOf(cleanupErrors || [], 2);
+      assert.include(String(cleanupErrors?.[0]), "rollback failure");
+      assert.include(String(cleanupErrors?.[1]), "cleanup failure");
+    }
   });
 
   it("rolls back when managed staging reports that cleanup did not complete", async function () {

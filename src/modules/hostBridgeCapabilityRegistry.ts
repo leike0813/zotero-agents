@@ -57,6 +57,7 @@ import {
   type ZoteroHostCollectionRefInput,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
+  type ZoteroHostLibrarySyncSnapshotRequest,
   type ZoteroHostMutationRequest,
   type ZoteroHostNoteDetailArgs,
   type ZoteroHostNotePayloadDetailArgs,
@@ -171,6 +172,22 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function asObject(input: unknown): Record<string, unknown> {
   return isPlainObject(input) ? input : {};
+}
+
+function librarySnapshotArgsFromInput(
+  input: unknown,
+): ZoteroHostLibrarySyncSnapshotRequest {
+  const object = asObject(input);
+  return {
+    libraryId: Number(object.libraryId),
+    ...(object.batchSize === undefined
+      ? {}
+      : { batchSize: Number(object.batchSize) }),
+    ...(typeof object.snapshotId === "string"
+      ? { snapshotId: object.snapshotId }
+      : {}),
+    ...(typeof object.cursor === "string" ? { cursor: object.cursor } : {}),
+  };
 }
 
 function capabilityPageCriteria(
@@ -561,9 +578,9 @@ async function executeMutationWithBridgeProjection(
   input: unknown,
   context: HostBridgeCapabilityContext,
 ) {
-  const response = await resolveCapabilityBroker(context).mutations.execute(
-    normalizeHostBridgeMutationRequest(input),
-  );
+  const response = await resolveCapabilityBroker(
+    context,
+  ).legacyMutations.execute(normalizeHostBridgeMutationRequest(input));
   if (!response.ok || !response.result.attachments?.length) {
     return response;
   }
@@ -1926,7 +1943,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   ),
   capability("library.sync_snapshot", (input, context) =>
     resolveCapabilityBroker(context).library.syncSnapshot(
-      libraryListArgsFromInput(input),
+      librarySnapshotArgsFromInput(input),
+      { ownerId: `host-bridge:${context.connectionMode}` },
     ),
   ),
   capability("library.readiness_audit", (input, context) =>
@@ -2110,7 +2128,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     return { productId: product.productId, removed: true };
   }),
   capability("mutation.preview", (input, context) =>
-    resolveCapabilityBroker(context).mutations.preview(
+    resolveCapabilityBroker(context).legacyMutations.preview(
       normalizeHostBridgeMutationRequest(input),
     ),
   ),

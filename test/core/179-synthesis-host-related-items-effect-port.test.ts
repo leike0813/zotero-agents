@@ -43,7 +43,6 @@ function effect(
   };
 }
 
-
 describe("Synthesis Host Related Items effect port", function () {
   it("applies idempotent ensure-present and ensure-absent effects", async function () {
     const source = await createPaper("SOURCE01", "Source");
@@ -154,5 +153,4 @@ describe("Synthesis Host Related Items effect port", function () {
       source.saveTx = previousSave;
     }
   });
-
 });

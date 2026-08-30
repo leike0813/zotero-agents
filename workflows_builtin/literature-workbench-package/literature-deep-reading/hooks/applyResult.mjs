@@ -10,6 +10,7 @@ import {
   collectSkillOutputDiagnostics,
 } from "../../lib/resultOutput.mjs";
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -220,10 +221,10 @@ async function applyResultImpl({
       remove: ["need-deep-reading"],
     });
     statusWarnings.push(
-      ...(statusTransition?.warnings || []).map((warning) => ({
-        code: "literature_deep_reading_status_transition_failed",
-        ...warning,
-      })),
+      ...collectStatusTransitionDiagnostics(
+        statusTransition,
+        "literature_deep_reading_status_transition_failed",
+      ),
     );
   } catch (error) {
     statusWarnings.push({
