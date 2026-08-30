@@ -5774,11 +5774,9 @@ export function readSkillRunnerWorkspaceOwnerDetails(): AssistantWorkspaceOwnerD
 }
 
 /**
- * Canonical transcript item projection for SkillRunner conversation entries
- * (design Decision 2): the single producer-side SSOT that replaces the
- * child-side normalization in runDialog.js/chatThinkingCore.js (deleted in
- * Stage 4). Items are display-mode neutral; plain/bubble folding stays a
- * child concern.
+ * Canonical transcript item projection for SkillRunner conversation entries:
+ * the single producer-side SSOT. Items are display-mode neutral; plain/bubble
+ * folding stays a child concern.
  *
  * Mapping:
  * - assistant_process with process type tool_call/command_execution (entry
@@ -5790,9 +5788,8 @@ export function readSkillRunnerWorkspaceOwnerDetails(): AssistantWorkspaceOwnerD
  *   attempt are dropped;
  * - assistant_revision entries pair by message id: the paired final carries
  *   the revision badge metadata {count, status, repairRound}, and the
- *   rejected draft itself renders as its own assistant message row (legacy
- *   runDialog.js revision branch); unpaired revisions are dropped (legacy
- *   behavior);
+ *   rejected draft itself renders as its own assistant message row; unpaired
+ *   revisions are dropped;
  * - a pending permission request appends a synthetic permission item.
  */
 export function projectSkillRunnerConversationEntriesToTranscriptItems(
