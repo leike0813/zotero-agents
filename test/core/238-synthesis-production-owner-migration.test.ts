@@ -270,7 +270,7 @@ describe("Synthesis legacy production owner migration", function () {
             "SELECT value FROM synt_schema_meta WHERE key='repository_foundation_schema_version'",
           )
           .get().value,
-        "synthesis-repository-foundation.v3",
+        "synthesis-repository-foundation.v4",
       );
       assert.equal(
         migrated

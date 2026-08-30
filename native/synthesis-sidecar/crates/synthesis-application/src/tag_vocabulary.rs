@@ -107,6 +107,13 @@ pub struct TagVocabularySnapshot {
     pub validation_warnings: Vec<TagValidationWarning>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagVocabularyRegulatorExport {
+    pub vocabulary_hash: String,
+    pub allowed_tags: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TagParentBinding {
@@ -1397,17 +1404,20 @@ impl TagVocabularyApplication {
         }
     }
 
-    pub fn export_regulator_tags(&self) -> Result<Vec<String>, String> {
-        let mut tags = self
-            .repository
-            .list_entries()?
+    pub fn export_regulator_tags(&self) -> Result<TagVocabularyRegulatorExport, String> {
+        let snapshot = self.load_public_vocabulary()?;
+        let mut allowed_tags = snapshot
+            .entries
             .into_iter()
-            .filter(|entry| entry.deprecated == 0)
+            .filter(|entry| !entry.deprecated)
             .map(|entry| entry.tag)
             .collect::<Vec<_>>();
-        tags.sort();
-        tags.dedup();
-        Ok(tags)
+        allowed_tags.sort();
+        allowed_tags.dedup();
+        Ok(TagVocabularyRegulatorExport {
+            vocabulary_hash: snapshot.manifest.manifest_hash,
+            allowed_tags,
+        })
     }
 
     pub fn replace_audits(

@@ -115,6 +115,12 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.applyTagVocabularyImport",
   "client.replaceTagAuditRecords",
   "client.clearTagAuditRecord",
+  "client.beginTagAuditRun",
+  "client.appendTagAuditRun",
+  "client.promoteTagAuditRun",
+  "client.abortTagAuditRun",
+  "client.prepareTagRegulationAcknowledgement",
+  "client.commitTagRegulationAcknowledgement",
   "client.getSynthesisWorkbenchChromeInput",
   "client.getSynthesisWorkbenchSurfaceInput",
   "client.getSynthesisBackgroundJobRows",
@@ -146,7 +152,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "137c9864d71d11f36a66b2010acf76de5ba26e8c08a77b9989335279f1644bb7" as const;
+  "d2f8d0e6baf3fe170b595102209d95dca8b2a2ae5ea346de7bb17f2fa85aa0f1" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.listTopics",
   "client.findTopicsByPaperRef",
@@ -200,6 +206,12 @@ export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.exportTagVocabularyForRegulator",
   "client.listStagedTagSuggestions",
   "client.clearTagAuditRecord",
+  "client.beginTagAuditRun",
+  "client.appendTagAuditRun",
+  "client.promoteTagAuditRun",
+  "client.abortTagAuditRun",
+  "client.prepareTagRegulationAcknowledgement",
+  "client.commitTagRegulationAcknowledgement",
   "client.initializeBuiltinTagPolicy",
   "client.saveTagVocabulary",
   "client.validateTagVocabulary",

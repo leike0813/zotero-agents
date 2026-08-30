@@ -1065,6 +1065,18 @@ describe("Synthesis native client composition", function () {
       { requestPlane: "transfer" },
     );
     for (const capability of [
+      "client.applyTopicPlan",
+      "client.appendTagAuditRun",
+    ] as const) {
+      assert.include(synthesisProductionOperationPolicy(capability), {
+        requestPlane: "transfer",
+      });
+    }
+    assert.include(
+      synthesisProductionOperationPolicy("client.applyTopicPlan"),
+      { resultPlane: "locator" },
+    );
+    for (const capability of [
       "client.readPaperArtifacts",
       "client.getReviewInput",
     ] as const) {
@@ -1075,6 +1087,12 @@ describe("Synthesis native client composition", function () {
     assert.include(
       synthesisProductionOperationPolicy("client.exportFilteredPaperArtifacts"),
       { resultPlane: "delivery" },
+    );
+    assert.include(
+      synthesisProductionOperationPolicy(
+        "client.exportTagVocabularyForRegulator",
+      ),
+      { resultPlane: "locator" },
     );
     const receiptCapabilities = [
       "client.startReferenceSidecarRefresh",
@@ -1139,11 +1157,116 @@ describe("Synthesis native client composition", function () {
         );
       }).sort(),
       [
+        "client.appendTagAuditRun",
+        "client.applyTopicPlan",
         "client.applyTopicSynthesisResult",
         "client.exportFilteredPaperArtifacts",
+        "client.exportTagVocabularyForRegulator",
         "client.getReviewInput",
         "client.readPaperArtifacts",
       ],
+    );
+  });
+
+  it("stages an oversized canonical Topic plan as one production-client request", async function () {
+    const calls: Array<{ capability: string; payload: any }> = [];
+    const transferStatus = (state: "receiving_input" | "input_sealed") => ({
+      sessionId: "native-transfer:request",
+      state,
+      input: {
+        receivedPages: state === "receiving_input" ? 0 : 1,
+        totalPages: 1,
+        stagedBytes: 900_000,
+      },
+      execution: { attempts: 0 },
+      stagedBytes: 900_000,
+      createdAtMs: 1,
+      lastActivityAtMs: 2,
+    });
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({ capability: args.capability, payload: args.payload });
+          const action = (args.payload as { action?: string }).action;
+          if (action === "begin") {
+            return args.rebuildResult(transferStatus("receiving_input"));
+          }
+          if (action === "put_input_page") {
+            return args.rebuildResult(transferStatus("receiving_input"));
+          }
+          if (action === "seal_input") {
+            return args.rebuildResult(transferStatus("input_sealed"));
+          }
+          if (action === "cancel") {
+            return args.rebuildResult({ canceled: true });
+          }
+          return args.rebuildResult({
+            status: "conflict",
+            graph_hash: `sha256:${"0".repeat(64)}`,
+            coverage_stale: false,
+            recommended_updates: [],
+            diagnostics: [],
+            receipt: null,
+          });
+        },
+      },
+    });
+
+    const largePlan = {
+      kind: "topic_plan" as const,
+      operation: "reconcile" as const,
+      base_graph_hash: `sha256:${"1".repeat(64)}`,
+      library_index_hash: `sha256:${"2".repeat(64)}`,
+      topic_actions: [],
+      relation_proposals: [],
+      coverage_manifest_path: "coverage/topic-plan.json",
+      recommended_updates: Array.from(
+        { length: 250 },
+        (_, index) => `${index}:${"x".repeat(3990)}`,
+      ),
+    };
+    await composition.client.workflowApply.applyTopicPlan(largePlan);
+
+    const transferCalls = calls.filter(
+      (call) => call.capability === "transfer.content",
+    );
+    assert.equal(transferCalls[0]?.payload.action, "begin");
+    assert.equal(
+      transferCalls[0]?.payload.manifest.header.target,
+      "production_client_request",
+    );
+    assert.equal(
+      transferCalls[0]?.payload.manifest.header.capability,
+      "client.applyTopicPlan",
+    );
+    assert.isAbove(
+      transferCalls.filter((call) => call.payload.action === "put_input_page")
+        .length,
+      1,
+    );
+    assert.deepEqual(
+      transferCalls.slice(-2).map((call) => call.payload.action),
+      ["seal_input", "cancel"],
+    );
+    assert.deepEqual(
+      calls.find((call) => call.capability === "client.applyTopicPlan")
+        ?.payload,
+      {
+        args: [
+          {
+            requestTransfer: { sessionId: "native-transfer:request" },
+          },
+        ],
+      },
     );
   });
 

@@ -21,6 +21,8 @@ import {
   rebuildSynthesisTopicReportResult,
   rebuildSynthesisTopicApplyRequest,
   rebuildSynthesisTopicApplyResult,
+  rebuildSynthesisTopicPlanApplyRequest,
+  rebuildSynthesisTopicPlanApplyResult,
   rebuildSynthesisLiteratureDigestApplyRequest,
   rebuildSynthesisLiteratureDigestApplyResult,
   rebuildSynthesisArtifactCapabilityResult,
@@ -30,6 +32,7 @@ import {
   rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisReferenceCapabilityResult,
   rebuildSynthesisTagCapabilityResult,
+  rebuildTagVocabularyRegulatorExportDto,
   rebuildSynthesisTopicGraphCapabilityResult,
   rebuildSynthesisWorkflowTopicOptionsRequest,
   rebuildSynthesisWorkflowTopicOptionsResult,
@@ -79,6 +82,12 @@ import {
   type SynthesisSyncConflictResolutionRequest,
   type SynthesisSyncTransportClient,
   type SynthesisTagAuditReplaceRequest,
+  type TagAuditRunAbortRequestDto,
+  type TagAuditRunAppendRequestDto,
+  type TagAuditRunBeginRequestDto,
+  type TagAuditRunPromoteRequestDto,
+  type TagRegulationAcknowledgementPrepareRequestDto,
+  type TagRegulationVerifiedCommitDto,
   type SynthesisTagCommandResult,
   type SynthesisTagImportApplyRequest,
   type SynthesisTagImportPreviewRequest,
@@ -168,7 +177,7 @@ export interface SynthesisClientPort {
   debugSynthesisCleanInstallReset?: ClientMethod<"debug", "cleanInstallReset">;
   listWorkflowTopicOptions: ClientMethod<"topics", "listWorkflowOptions">;
   getTopicPlanningContext?: ClientMethod<"topics", "getPlanningContext">;
-  applyTopicPlan?: ClientMethod<"topics", "applyPlan">;
+  applyTopicPlan?: ClientMethod<"workflowApply", "applyTopicPlan">;
   reconcileSynthesisRuntimeWorkStateOnStartup?(): SynthesisStartupReconcileResult;
   resetSynthesisDatabase?: ClientMethod<"maintenance", "resetDatabase">;
   consumeRelatedItemsSyncEcho?: (
@@ -244,6 +253,18 @@ export interface SynthesisClientPort {
   applyTagVocabularyImport?: ClientMethod<"tags", "applyTagVocabularyImport">;
   replaceTagAuditRecords?: ClientMethod<"tags", "replaceTagAuditRecords">;
   clearTagAuditRecord?: ClientMethod<"tags", "clearTagAuditRecord">;
+  beginTagAuditRun?: ClientMethod<"tags", "beginTagAuditRun">;
+  appendTagAuditRun?: ClientMethod<"tags", "appendTagAuditRun">;
+  promoteTagAuditRun?: ClientMethod<"tags", "promoteTagAuditRun">;
+  abortTagAuditRun?: ClientMethod<"tags", "abortTagAuditRun">;
+  prepareTagRegulationAcknowledgement?: ClientMethod<
+    "tags",
+    "prepareTagRegulationAcknowledgement"
+  >;
+  commitTagRegulationAcknowledgement?: ClientMethod<
+    "tags",
+    "commitTagRegulationAcknowledgement"
+  >;
   getSynthesisWorkbenchChromeInput?(
     state: Record<string, unknown>,
   ): Promise<SynthesisWorkbenchProjection>;
@@ -1921,17 +1942,6 @@ export function createSynthesisClientFromPort(
           ),
         );
       },
-      async applyPlan(plan) {
-        return runClientPort(async () =>
-          toSynthesisJsonObject(
-            await requireClientPort(
-              port.applyTopicPlan,
-              "topics.applyPlan",
-            )(plan),
-            "$.topicPlanResult",
-          ),
-        );
-      },
       async getTopicReport(request) {
         return runClientPort(async () =>
           rebuildSynthesisTopicReportResult(
@@ -2073,6 +2083,16 @@ export function createSynthesisClientFromPort(
               port.applyLiteratureDigestSidecar,
               "workflowApply.applyLiteratureDigestSidecar",
             )(rebuildSynthesisLiteratureDigestApplyRequest(request)),
+          ),
+        );
+      },
+      async applyTopicPlan(request) {
+        return runClientPort(async () =>
+          rebuildSynthesisTopicPlanApplyResult(
+            await requireClientPort(
+              port.applyTopicPlan,
+              "workflowApply.applyTopicPlan",
+            )(rebuildSynthesisTopicPlanApplyRequest(request)),
           ),
         );
       },
@@ -2241,25 +2261,21 @@ export function createSynthesisClientFromPort(
       },
       async exportTagVocabularyForRegulator() {
         return runClientPort(async () => {
-          const result = normalizeClientJson(
-            await requireClientPort(
-              port.exportTagVocabularyForRegulator,
-              "tags.exportTagVocabularyForRegulator",
-            )(),
-          );
-          if (
-            !Array.isArray(result) ||
-            result.some((tag) => typeof tag !== "string")
-          ) {
-            throw new SynthesisClientError(
-              "internal",
-              "Tag regulator vocabulary response is invalid",
-            );
+          const result = await requireClientPort(
+            port.exportTagVocabularyForRegulator,
+            "tags.exportTagVocabularyForRegulator",
+          )();
+          try {
+            return rebuildTagVocabularyRegulatorExportDto(result);
+          } catch (error) {
+            if (error instanceof SynthesisClientError) {
+              throw new SynthesisClientError(
+                "internal",
+                "Tag regulator vocabulary response is invalid",
+              );
+            }
+            throw error;
           }
-          return rebuildSynthesisTagCapabilityResult(
-            "client.exportTagVocabularyForRegulator",
-            result,
-          );
         });
       },
       async listStagedTagSuggestions() {
@@ -2418,6 +2434,76 @@ export function createSynthesisClientFromPort(
             result ?? { ok: true },
           );
         });
+      },
+      async beginTagAuditRun(request: TagAuditRunBeginRequestDto) {
+        return runClientPort(async () =>
+          rebuildSynthesisTagCapabilityResult(
+            "client.beginTagAuditRun",
+            await requireClientPort(
+              port.beginTagAuditRun,
+              "tags.beginTagAuditRun",
+            )(request),
+          ),
+        );
+      },
+      async appendTagAuditRun(request: TagAuditRunAppendRequestDto) {
+        return runClientPort(async () =>
+          rebuildSynthesisTagCapabilityResult(
+            "client.appendTagAuditRun",
+            await requireClientPort(
+              port.appendTagAuditRun,
+              "tags.appendTagAuditRun",
+            )(request),
+          ),
+        );
+      },
+      async promoteTagAuditRun(request: TagAuditRunPromoteRequestDto) {
+        return runClientPort(async () =>
+          rebuildSynthesisTagCapabilityResult(
+            "client.promoteTagAuditRun",
+            await requireClientPort(
+              port.promoteTagAuditRun,
+              "tags.promoteTagAuditRun",
+            )(request),
+          ),
+        );
+      },
+      async abortTagAuditRun(request: TagAuditRunAbortRequestDto) {
+        return runClientPort(async () =>
+          rebuildSynthesisTagCapabilityResult(
+            "client.abortTagAuditRun",
+            await requireClientPort(
+              port.abortTagAuditRun,
+              "tags.abortTagAuditRun",
+            )(request),
+          ),
+        );
+      },
+      async prepareTagRegulationAcknowledgement(
+        request: TagRegulationAcknowledgementPrepareRequestDto,
+      ) {
+        return runClientPort(async () =>
+          rebuildSynthesisTagCapabilityResult(
+            "client.prepareTagRegulationAcknowledgement",
+            await requireClientPort(
+              port.prepareTagRegulationAcknowledgement,
+              "tags.prepareTagRegulationAcknowledgement",
+            )(request),
+          ),
+        );
+      },
+      async commitTagRegulationAcknowledgement(
+        request: TagRegulationVerifiedCommitDto,
+      ) {
+        return runClientPort(async () =>
+          rebuildSynthesisTagCapabilityResult(
+            "client.commitTagRegulationAcknowledgement",
+            await requireClientPort(
+              port.commitTagRegulationAcknowledgement,
+              "tags.commitTagRegulationAcknowledgement",
+            )(request),
+          ),
+        );
       },
     },
     libraryIndex: {

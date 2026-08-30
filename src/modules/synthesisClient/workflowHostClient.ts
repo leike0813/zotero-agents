@@ -1,6 +1,9 @@
 import {
   SynthesisClientError,
+  hashSynthesisContractCanonicalJson,
+  rebuildTagAuditStagingEntries,
   rebuildSynthesisTopicApplyRequest,
+  rebuildSynthesisTopicPlanApplyRequest,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -8,6 +11,8 @@ import {
   type SynthesisJsonValue,
   type SynthesisLiteratureDigestApplyRequest,
   type SynthesisMaterializedAsset,
+  type TagAuditExecutionIdentityDto,
+  type TagAuditRunAbortRequestDto,
   type SynthesisTopicApplyRequest,
   type SynthesisWorkflowItemSnapshot,
 } from "../../../packages/synthesis-contracts/src/index";
@@ -15,9 +20,16 @@ import type {
   WorkflowLiteratureDigestApplyInput,
   WorkflowSynthesisApi,
   WorkflowSynthesisApplyContext,
+  WorkflowSynthesisV11Api,
 } from "../../workflows/types";
 import { notifySynthesisWorkbenchSidecarChanged } from "../synthesisWorkbenchInvalidation";
 import { getDefaultSynthesisClient } from "./defaultClient";
+import {
+  consumeTagAuditTraversalCompletionEvidence,
+  resolveZoteroHostCapabilityBroker,
+  type ZoteroHostCapabilityBroker,
+} from "../zoteroHostCapabilityBroker";
+import { pinVerifiedMutationReceipt } from "../zoteroHostMutationAuthority";
 
 const DEFAULT_MATERIALIZATION_LIMITS = {
   maxAssets: 256,
@@ -56,6 +68,8 @@ type TopicMaterializationLimits = {
 
 type WorkflowSynthesisHostApiOptions = {
   resolveClient?: () => Promise<SynthesisClient>;
+  resolveAuditExecutionIdentity?: () => Promise<TagAuditExecutionIdentityDto>;
+  resolveHostBroker?: () => ZoteroHostCapabilityBroker;
   notifyChanged?: typeof notifySynthesisWorkbenchSidecarChanged;
 };
 
@@ -435,6 +449,329 @@ export function createWorkflowSynthesisHostApi(
   const notifyChanged =
     options.notifyChanged || notifySynthesisWorkbenchSidecarChanged;
   return {
+    workflowApply: {
+      async applyLiteratureDigest(input) {
+        const result = await (
+          await resolveClient()
+        ).workflowApply.applyLiteratureDigestSidecar(input);
+        const sourceRef = cleanString(result.sourceRef || result.source_ref);
+        notifyChanged({
+          invalidatedSurfaces: ["index", "graph"],
+          sourceRefs: sourceRef ? [sourceRef] : [],
+          reason: "literature_digest_apply",
+        });
+        return result;
+      },
+      async applyTopicPlan(input) {
+        const result = await (
+          await resolveClient()
+        ).workflowApply.applyTopicPlan(
+          rebuildSynthesisTopicPlanApplyRequest(input),
+        );
+        if (result.status === "persisted") {
+          notifyChanged({
+            invalidatedSurfaces: ["home", "topics", "graph"],
+            reason: "topic_plan_apply",
+          });
+        }
+        return result;
+      },
+      async applyTopicSynthesisResult(input) {
+        const result = await (
+          await resolveClient()
+        ).workflowApply.applyTopicSynthesisResult(input);
+        if (result.status === "persisted") {
+          notifyChanged({
+            invalidatedSurfaces: [
+              "home",
+              "topics",
+              "concepts",
+              "graph",
+              "review",
+            ],
+            reason: "topic_synthesis_apply",
+          });
+        }
+        return result;
+      },
+    },
+    topics: {
+      async getReport(input) {
+        return (await resolveClient()).topics.getTopicReport(input);
+      },
+    },
+    artifacts: {
+      async readPaperArtifacts(input) {
+        return (await resolveClient()).artifacts.readPaperArtifacts(input);
+      },
+    },
+    tags: {
+      async loadVocabulary() {
+        return (await resolveClient()).tags.loadTagVocabulary();
+      },
+      async saveVocabulary(input) {
+        const result = await (
+          await resolveClient()
+        ).tags.saveTagVocabulary(input);
+        if (result.status === "committed") {
+          notifyChanged({
+            invalidatedSurfaces: ["tags"],
+            reason: "tag_vocabulary_save",
+          });
+        }
+        return result;
+      },
+      async exportVocabularyForRegulator() {
+        return (await resolveClient()).tags.exportTagVocabularyForRegulator();
+      },
+      async listStagedSuggestions() {
+        return (await resolveClient()).tags.listStagedTagSuggestions();
+      },
+      async stageSuggestions(input) {
+        const result = await (
+          await resolveClient()
+        ).tags.stageTagSuggestions(input);
+        notifyChanged({
+          invalidatedSurfaces: ["tags"],
+          reason: "tag_suggestions_stage",
+        });
+        return result;
+      },
+      async promoteStagedSuggestions(input) {
+        const result = await (
+          await resolveClient()
+        ).tags.promoteStagedTagSuggestions(input);
+        if (result.promoted.length > 0) {
+          notifyChanged({
+            invalidatedSurfaces: ["tags"],
+            reason: "tag_suggestions_promote",
+          });
+        }
+        return result;
+      },
+      async discardStagedSuggestions(input) {
+        const result = await (
+          await resolveClient()
+        ).tags.discardStagedTagSuggestions(input);
+        if (result.discarded.length > 0) {
+          notifyChanged({
+            invalidatedSurfaces: ["tags"],
+            reason: "tag_suggestions_discard",
+          });
+        }
+        return result;
+      },
+      async withAuditRun(input, control, callback) {
+        if (!options.resolveAuditExecutionIdentity) {
+          throw new SynthesisClientError(
+            "unavailable",
+            "Trusted tag-audit execution identity is unavailable",
+          );
+        }
+        const client = await resolveClient();
+        const identity = await options.resolveAuditExecutionIdentity();
+        const begun = await client.tags.beginTagAuditRun({
+          ...input,
+          executionIdentity: identity,
+        });
+        const run = begun.run;
+        let sequence = 0;
+        let stagedItems = 0;
+        const abort = async (reason: TagAuditRunAbortRequestDto["reason"]) => {
+          try {
+            await (
+              await resolveClient()
+            ).tags.abortTagAuditRun({ run, reason });
+          } catch {
+            // The original outcome/error remains primary; cleanup is best effort.
+          }
+        };
+        const writer = {
+          async append(
+            entries: Parameters<Parameters<typeof callback>[0]["append"]>[0],
+          ) {
+            if (control.signal?.aborted) {
+              throw new SynthesisClientError(
+                "unavailable",
+                "Tag-audit run was canceled",
+                { reason: "caller_signal" },
+              );
+            }
+            const normalized = rebuildTagAuditStagingEntries(entries);
+            if (
+              normalized.some(
+                (entry) => entry.target.libraryId !== input.libraryId,
+              )
+            ) {
+              throw new SynthesisClientError(
+                "invalid_request",
+                "Tag-audit entry targets a different library",
+              );
+            }
+            const appended = await (
+              await resolveClient()
+            ).tags.appendTagAuditRun({
+              run,
+              sequence,
+              batchDigest: hashSynthesisContractCanonicalJson(normalized),
+              entries: normalized,
+            });
+            sequence += 1;
+            stagedItems = appended.stagedItems;
+          },
+        };
+        try {
+          const traversal = await callback(writer);
+          if (traversal.outcome === "canceled" || control.signal?.aborted) {
+            await abort("canceled");
+            return { outcome: "canceled", auditedItems: stagedItems };
+          }
+          if (traversal.outcome === "resource_limited") {
+            await abort("resource_limited");
+            return {
+              outcome: "resource_limited",
+              auditedItems: stagedItems,
+              limit:
+                traversal.reason === "max_items"
+                  ? "items"
+                  : traversal.reason === "max_pages"
+                    ? "pages"
+                    : "duration",
+            };
+          }
+          const evidenceValid = consumeTagAuditTraversalCompletionEvidence({
+            evidence: traversal.completionEvidence,
+            libraryId: input.libraryId,
+            visitedItems: traversal.visitedItems,
+            visitedBatches: traversal.visitedBatches,
+          });
+          if (!evidenceValid || traversal.visitedItems !== stagedItems) {
+            await abort("conflicted");
+            return {
+              outcome: "conflicted",
+              auditedItems: stagedItems,
+              conflictCount: 1,
+              conflicts: [],
+              retryable: true,
+            };
+          }
+          return await (
+            await resolveClient()
+          ).tags.promoteTagAuditRun({
+            run,
+            visitedItems: traversal.visitedItems,
+            coverageDigest: traversal.completionEvidence.coverageDigest,
+            evidenceId: traversal.completionEvidence.evidenceId,
+          });
+        } catch (error) {
+          await abort(control.signal?.aborted ? "canceled" : "failed");
+          throw error;
+        }
+      },
+      async acknowledgeRegulation(input, control = {}) {
+        if (control.signal?.aborted) {
+          return { outcome: "stale", reason: "item_revision_changed" };
+        }
+        const pinned = pinVerifiedMutationReceipt(input.mutationReceipt);
+        if (!pinned) {
+          return { outcome: "conflict", reason: "receipt_invalid" };
+        }
+        try {
+          const receipt = pinned.receipt;
+          if (receipt.operation !== "item.updateTags") {
+            return { outcome: "conflict", reason: "wrong_operation" };
+          }
+          const target = {
+            libraryId: input.target.libraryId,
+            itemKey: input.target.key,
+          };
+          const changes = receipt.changes.filter(
+            (change) => change.entity.kind === "item",
+          );
+          if (
+            changes.length !== 1 ||
+            changes[0]!.entity.kind !== "item" ||
+            changes[0]!.entity.ref.libraryId !== target.libraryId ||
+            changes[0]!.entity.ref.key !== target.itemKey
+          ) {
+            return { outcome: "conflict", reason: "wrong_target" };
+          }
+          const semantic = toSynthesisJsonObject(
+            pinned.semanticInput,
+            "tagRegulationReceipt.semanticInput",
+          );
+          if (
+            semantic.operation !== "item.updateTags" ||
+            !Array.isArray(semantic.add) ||
+            !Array.isArray(semantic.remove)
+          ) {
+            return {
+              outcome: "conflict",
+              reason: "receipt_delta_inconsistent",
+            };
+          }
+          const client = await resolveClient();
+          const prepared =
+            await client.tags.prepareTagRegulationAcknowledgement({
+              target,
+              receiptId: receipt.receiptId,
+            });
+          if (prepared.outcome !== "ready") return prepared;
+          const change = changes[0]!;
+          if (change.before?.revision !== prepared.auditedRevision) {
+            return {
+              outcome: "conflict",
+              reason: "audited_revision_mismatch",
+            };
+          }
+          const broker = (
+            options.resolveHostBroker || resolveZoteroHostCapabilityBroker
+          )();
+          const current = await broker.library.getItemAuditState(
+            input.target,
+            control,
+          );
+          if (change.after.revision !== current.revision) {
+            return { outcome: "stale", reason: "item_revision_changed" };
+          }
+          const add = new Set(semantic.add.map(String));
+          const remove = new Set(semantic.remove.map(String));
+          if (
+            current.tags.some((tag) => remove.has(tag)) ||
+            Array.from(add).some((tag) => !current.tags.includes(tag))
+          ) {
+            return {
+              outcome: "conflict",
+              reason: "receipt_delta_inconsistent",
+            };
+          }
+          return await client.tags.commitTagRegulationAcknowledgement({
+            schema: "zotero-agents.tag-regulation-verified-commit.v1",
+            target,
+            receiptId: receipt.receiptId,
+            expectedSnapshotRevision: prepared.snapshotRevision,
+            auditedRevision: prepared.auditedRevision,
+            currentRevision: current.revision,
+            finalTagDigest: current.tagDigest,
+            finalTags: current.tags,
+            vocabularyHash: prepared.vocabularyHash,
+          });
+        } finally {
+          pinned.release();
+        }
+      },
+    },
+  };
+}
+
+export function createWorkflowSynthesisV11Adapter(
+  options: WorkflowSynthesisHostApiOptions = {},
+): WorkflowSynthesisV11Api {
+  const resolveClient = options.resolveClient || getDefaultSynthesisClient;
+  const notifyChanged =
+    options.notifyChanged || notifySynthesisWorkbenchSidecarChanged;
+  const grouped = createWorkflowSynthesisHostApi(options);
+  return {
     async applyLiteratureDigestSidecar(input = {}) {
       const raw = input as WorkflowLiteratureDigestApplyInput &
         Record<string, unknown>;
@@ -456,84 +793,46 @@ export function createWorkflowSynthesisHostApi(
         ...snapshot,
         ...extras,
       } as SynthesisLiteratureDigestApplyRequest;
-      const result = await (
-        await resolveClient()
-      ).workflowApply.applyLiteratureDigestSidecar(request);
-      const sourceRef = cleanString(result.sourceRef || result.source_ref);
-      notifyChanged({
-        invalidatedSurfaces: ["index", "graph"],
-        sourceRefs: sourceRef ? [sourceRef] : [],
-        reason: "literature_digest_apply",
-      });
-      return result;
+      return grouped.workflowApply.applyLiteratureDigest(request);
     },
     async applyTopicSynthesisResult(bundle, context) {
-      const result = await (
-        await resolveClient()
-      ).workflowApply.applyTopicSynthesisResult(
+      return grouped.workflowApply.applyTopicSynthesisResult(
         await materializeTopicApplyRequest(bundle, context),
       );
-      notifyChanged({
-        invalidatedSurfaces: ["home", "topics", "concepts", "graph", "review"],
-        reason: "topic_synthesis_apply",
-      });
-      return result;
     },
     async getTopicReport(request) {
-      return (await resolveClient()).topics.getTopicReport(request);
+      return grouped.topics.getReport(request);
     },
     async getTopicPlanningContext() {
       return (await resolveClient()).topics.getPlanningContext();
     },
     async applyTopicPlan(plan) {
-      const result = await (await resolveClient()).topics.applyPlan(plan);
-      notifyChanged({
-        invalidatedSurfaces: ["home", "topics", "graph"],
-        reason: "topic_plan_apply",
-      });
-      return result;
+      return toSynthesisJsonObject(
+        await grouped.workflowApply.applyTopicPlan(
+          rebuildSynthesisTopicPlanApplyRequest(plan),
+        ),
+      );
     },
     async readPaperArtifacts(request) {
-      return (await resolveClient()).artifacts.readPaperArtifacts(request);
+      return grouped.artifacts.readPaperArtifacts(request);
     },
     async loadTagVocabulary() {
-      return (await resolveClient()).tags.loadTagVocabulary();
+      return grouped.tags.loadVocabulary();
     },
     async saveTagVocabulary(request) {
-      const result = await (
-        await resolveClient()
-      ).tags.saveTagVocabulary(request);
-      notifyChanged({
-        invalidatedSurfaces: ["tags"],
-        reason: "tag_vocabulary_save",
-      });
-      return result;
+      return grouped.tags.saveVocabulary(request);
     },
     async exportTagVocabularyForRegulator() {
-      return (await resolveClient()).tags.exportTagVocabularyForRegulator();
+      return (await grouped.tags.exportVocabularyForRegulator()).allowedTags;
     },
     async listStagedTagSuggestions() {
-      return (await resolveClient()).tags.listStagedTagSuggestions();
+      return grouped.tags.listStagedSuggestions();
     },
     async stageTagSuggestions(request) {
-      const result = await (
-        await resolveClient()
-      ).tags.stageTagSuggestions(request);
-      notifyChanged({
-        invalidatedSurfaces: ["tags"],
-        reason: "tag_suggestions_stage",
-      });
-      return result;
+      return grouped.tags.stageSuggestions(request);
     },
     async discardStagedTagSuggestions(request) {
-      const result = await (
-        await resolveClient()
-      ).tags.discardStagedTagSuggestions(request);
-      notifyChanged({
-        invalidatedSurfaces: ["tags"],
-        reason: "tag_suggestions_discard",
-      });
-      return result;
+      return grouped.tags.discardStagedSuggestions(request);
     },
     async replaceTagAuditRecords(request) {
       const result = await (

@@ -17,7 +17,6 @@
     "resultTypes": {
       "boolean": ["client.isBuiltinTagPolicyInitialized"],
       "array": [
-        "client.exportTagVocabularyForRegulator",
         "client.listStagedTagSuggestions",
         "client.validateTagVocabulary"
       ]

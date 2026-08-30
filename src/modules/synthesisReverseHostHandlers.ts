@@ -19,6 +19,8 @@ import {
   type SynthesisHostLibraryItemsByRefRequest,
   type SynthesisHostPageRequest,
   type SynthesisHostReadPort,
+  type SynthesisHostTagAuditStateRequest,
+  type SynthesisHostTagAuditStateResult,
   type SynthesisHostRelatedItemsEffectPort,
   type SynthesisHostRepresentativeImageReadPort,
   type SynthesisHostStagedTagBindingMigrationPort,
@@ -41,6 +43,7 @@ import {
   createZoteroSynthesisTagEffectPort,
 } from "./synthesis/tagEffectAdapter";
 import { createPrefsConfiguredSynthesisWebDavSyncPort } from "./synthesis/webDavSyncAdapter";
+import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import type {
   SynthesisReverseHostHandler,
   SynthesisReverseHostHandlers,
@@ -62,6 +65,11 @@ type Ports = {
   stagedTagBindingPort: SynthesisHostStagedTagBindingMigrationPort;
   tagEffectPort: SynthesisHostTagEffectPort;
   webDavPort: SynthesisHostWebDavSyncPort;
+  tagAuditStatePort?: {
+    read(
+      request: SynthesisHostTagAuditStateRequest,
+    ): Promise<SynthesisHostTagAuditStateResult>;
+  };
   exportTransfer?: {
     rpcClient: SynthesisSidecarTransferRpcClient;
     getConnection(): SynthesisSidecarTransferConnection | null;
@@ -169,6 +177,18 @@ export function createSynthesisReverseHostHandlers(
           "paperRefs",
         ]) as SynthesisHostLibraryItemsByRefRequest,
       ),
+    "library.items.get_audit_state": async (payload) => {
+      const request = exactPayload(payload, ["targets"]);
+      if (!ports.tagAuditStatePort) {
+        throw new SynthesisClientError(
+          "unavailable",
+          "The tag-audit Host state port is unavailable",
+        );
+      }
+      return ports.tagAuditStatePort.read(
+        request as SynthesisHostTagAuditStateRequest,
+      );
+    },
     "library.artifacts.scan_page": async (payload) =>
       ports.hostReadPort.artifacts.scanPage(
         exactPayload(
@@ -410,6 +430,26 @@ export function createDefaultSynthesisReverseHostHandlers(args: {
     relatedItemsEffectPort: createZoteroSynthesisRelatedItemsEffectPort(),
     stagedTagBindingPort: createZoteroSynthesisStagedTagBindingMigrationPort(),
     tagEffectPort: createZoteroSynthesisTagEffectPort(),
+    tagAuditStatePort: {
+      async read(request) {
+        const broker = resolveZoteroHostCapabilityBroker();
+        return {
+          states: await Promise.all(
+            request.targets.map(async (target) => {
+              const state = await broker.library.getItemAuditState({
+                libraryId: target.libraryId,
+                key: target.itemKey,
+              });
+              return {
+                target: state.target,
+                revision: state.revision,
+                tagDigest: state.tagDigest,
+              };
+            }),
+          ),
+        };
+      },
+    },
     webDavPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     exportTransfer: {
       rpcClient: createSynthesisSidecarRpcClient({

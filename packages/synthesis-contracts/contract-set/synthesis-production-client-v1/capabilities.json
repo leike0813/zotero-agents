@@ -1,7 +1,7 @@
 {
   "schema": "synthesis-production-client-capabilities.v1",
   "canonicalization": "sorted-newline-terminated",
-  "fingerprintSha256": "137c9864d71d11f36a66b2010acf76de5ba26e8c08a77b9989335279f1644bb7",
+  "fingerprintSha256": "d2f8d0e6baf3fe170b595102209d95dca8b2a2ae5ea346de7bb17f2fa85aa0f1",
   "capabilities": [
     "client.listTopics",
     "client.findTopicsByPaperRef",
@@ -72,6 +72,12 @@
     "client.applyTagVocabularyImport",
     "client.replaceTagAuditRecords",
     "client.clearTagAuditRecord",
+    "client.beginTagAuditRun",
+    "client.appendTagAuditRun",
+    "client.promoteTagAuditRun",
+    "client.abortTagAuditRun",
+    "client.prepareTagRegulationAcknowledgement",
+    "client.commitTagRegulationAcknowledgement",
     "client.getSynthesisWorkbenchChromeInput",
     "client.getSynthesisWorkbenchSurfaceInput",
     "client.getSynthesisBackgroundJobRows",

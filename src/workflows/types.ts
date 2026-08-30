@@ -457,7 +457,11 @@ export type LibraryTraversalRequestDto = {
 
 export type LibraryTraversalBatchDto = {
   batchIndex: number;
-  items: RegularItemSummaryDto[];
+  items: LibraryTraversalItemDto[];
+};
+
+export type LibraryTraversalItemDto = RegularItemSummaryDto & {
+  tagDigest: string;
 };
 
 export type LibraryTraversalCompletionEvidenceDto = {
@@ -1259,18 +1263,33 @@ import type { ProductStorageApi } from "../modules/workflowProductStore";
 import type {
   SynthesisJsonObject,
   SynthesisJsonValue,
+  SynthesisLiteratureDigestApplyRequest,
+  SynthesisLiteratureDigestApplyResult,
   SynthesisPaperArtifactsRequest,
   SynthesisPaperArtifactsResult,
+  SynthesisTagDiscardResult,
   SynthesisTagAuditReplaceRequest,
   SynthesisTagCommandResult,
+  SynthesisTagMutationResult,
+  SynthesisTagPromotionResult,
   SynthesisTagSelectionRequest,
+  SynthesisTagStageResult,
   SynthesisTagSuggestionStageRequest,
   SynthesisTagStagedSuggestion,
   SynthesisTagVocabularySnapshot,
   SynthesisTagVocabularySaveRequest,
+  SynthesisTopicApplyRequest,
+  SynthesisTopicApplyResult,
+  SynthesisTopicPlanApplyRequest,
+  SynthesisTopicPlanApplyResult,
   SynthesisTopicReportRequest,
   SynthesisTopicReportResult,
   SynthesisWorkflowItemSnapshot,
+  TagAuditRunRequestDto,
+  TagAuditRunResultDto,
+  TagAuditStagingEntry,
+  TagRegulationAcknowledgementResultDto,
+  TagVocabularyRegulatorExportDto,
 } from "../../packages/synthesis-contracts/src/index";
 import type {
   BuiltinStatusKey,
@@ -2098,7 +2117,7 @@ export type WorkflowHostApi = {
     }) => Promise<string[] | null>;
   };
   archive: import("./archive").WorkflowArchiveApi;
-  synthesis?: WorkflowSynthesisApi;
+  synthesis?: WorkflowSynthesisV11Api;
 };
 
 export type WorkflowSynthesisApplyContext = {
@@ -2119,7 +2138,83 @@ export type WorkflowLiteratureDigestApplyInput = Partial<
   source?: unknown;
 };
 
+export type TagAuditRunWriter = Readonly<{
+  append(entries: TagAuditStagingEntry[]): Promise<void>;
+}>;
+
+export type TagRegulationAcknowledgementRequestDto = {
+  target: PortableItemRef;
+  mutationReceipt: MutationReceipt;
+};
+
 export interface WorkflowSynthesisApi {
+  readonly workflowApply: Readonly<{
+    applyLiteratureDigest(
+      input: SynthesisLiteratureDigestApplyRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisLiteratureDigestApplyResult>;
+    applyTopicPlan(
+      input: SynthesisTopicPlanApplyRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTopicPlanApplyResult>;
+    applyTopicSynthesisResult(
+      input: SynthesisTopicApplyRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTopicApplyResult>;
+  }>;
+  readonly topics: Readonly<{
+    getReport(
+      input: SynthesisTopicReportRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTopicReportResult>;
+  }>;
+  readonly artifacts: Readonly<{
+    readPaperArtifacts(
+      input: SynthesisPaperArtifactsRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisPaperArtifactsResult>;
+  }>;
+  readonly tags: Readonly<{
+    loadVocabulary(
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTagVocabularySnapshot>;
+    saveVocabulary(
+      input: SynthesisTagVocabularySaveRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTagMutationResult>;
+    exportVocabularyForRegulator(
+      control?: WorkflowCallControl,
+    ): Promise<TagVocabularyRegulatorExportDto>;
+    listStagedSuggestions(
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTagStagedSuggestion[]>;
+    stageSuggestions(
+      input: SynthesisTagSuggestionStageRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTagStageResult>;
+    promoteStagedSuggestions(
+      input: SynthesisTagSelectionRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTagPromotionResult>;
+    discardStagedSuggestions(
+      input: SynthesisTagSelectionRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTagDiscardResult>;
+    withAuditRun(
+      input: TagAuditRunRequestDto,
+      control: WorkflowCallControl,
+      callback: (
+        run: TagAuditRunWriter,
+      ) => Promise<LibraryTraversalResultDto> | LibraryTraversalResultDto,
+    ): Promise<TagAuditRunResultDto>;
+    acknowledgeRegulation(
+      input: TagRegulationAcknowledgementRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<TagRegulationAcknowledgementResultDto>;
+  }>;
+}
+
+export interface WorkflowSynthesisV11Api {
   applyLiteratureDigestSidecar(
     input?: WorkflowLiteratureDigestApplyInput,
   ): Promise<SynthesisJsonObject>;

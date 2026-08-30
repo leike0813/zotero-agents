@@ -281,6 +281,90 @@
         "reopen",
         "no_partial_write"
       ]
+    },
+    {
+      "id": "client.beginTagAuditRun",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write"
+      ]
+    },
+    {
+      "id": "client.appendTagAuditRun",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "batch_atomicity"
+      ]
+    },
+    {
+      "id": "client.promoteTagAuditRun",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "host_effect"
+      ]
+    },
+    {
+      "id": "client.abortTagAuditRun",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write"
+      ]
+    },
+    {
+      "id": "client.prepareTagRegulationAcknowledgement",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order",
+        "pagination"
+      ]
+    },
+    {
+      "id": "client.commitTagRegulationAcknowledgement",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write"
+      ]
     }
   ]
 }

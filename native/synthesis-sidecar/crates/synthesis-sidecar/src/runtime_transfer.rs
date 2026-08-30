@@ -99,6 +99,12 @@ enum ContentInputHeaderDto {
     TopicApplyAssets {
         assets: Vec<TopicAssetDescriptorDto>,
     },
+    ProductionClientRequest {
+        capability: String,
+        #[serde(rename = "byteLength")]
+        byte_length: u64,
+        sha256: String,
+    },
     ProductionClientResult,
     HostExportEntries,
 }
@@ -664,6 +670,25 @@ fn validate_manifest_dto(
             false,
             "input",
         ) if manifest.pages.is_empty() => {}
+        (
+            TransferManifestHeaderDto::ContentInput(
+                ContentInputHeaderDto::ProductionClientRequest {
+                    capability,
+                    byte_length,
+                    sha256,
+                },
+            ),
+            false,
+            "input",
+        ) => {
+            if !production_client_membership.contains(capability)
+                || *byte_length > MAX_DIRECTION_BYTES
+                || !valid_transfer_hash(sha256)
+                || manifest.pages.iter().any(|page| page.kind != "content")
+            {
+                return Err("invalid_request".into());
+            }
+        }
         (TransferManifestHeaderDto::ContentOutput(header), false, "output") => {
             if manifest.pages.iter().any(|page| page.kind != "content") {
                 return Err("invalid_request".into());
@@ -1276,6 +1301,65 @@ impl NativeTransferOwner {
             return Err("transfer_conflict".to_owned());
         }
         Ok(result)
+    }
+
+    pub(crate) fn production_client_request(
+        &self,
+        session_id: &str,
+        capability: &str,
+    ) -> Result<Value, String> {
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| "transfer_not_found".to_owned())?;
+        if session.cleanup_requested {
+            return Err("transfer_not_found".into());
+        }
+        if session.state != "input_sealed"
+            || session.manifest["transferVersion"] != CONTENT_TRANSFER_VERSION
+            || session.manifest["encoding"] != CONTENT_TRANSFER_ENCODING
+            || session.manifest["direction"] != "input"
+            || session.manifest["header"]["target"] != "production_client_request"
+            || session.manifest["header"]["capability"] != capability
+        {
+            return Err("transfer_conflict".to_owned());
+        }
+        let descriptors = descriptors(&session.manifest)?;
+        if descriptors.iter().enumerate().any(|(index, descriptor)| {
+            descriptor.kind != "content"
+                || descriptor.page_index != index as u64
+                || descriptor.row_count != 1
+        }) {
+            return Err("transfer_conflict".to_owned());
+        }
+        let mut text = String::new();
+        for descriptor in &descriptors {
+            let staged = session
+                .pages
+                .get(&(descriptor.kind.clone(), descriptor.page_index))
+                .ok_or_else(|| "transfer_incomplete".to_owned())?;
+            let page = read_value(&staged.path)?;
+            page_identity(&page)?;
+            let rows = page["rows"]
+                .as_array()
+                .filter(|rows| rows.len() == 1)
+                .ok_or_else(|| "transfer_conflict".to_owned())?;
+            text.push_str(
+                rows[0]
+                    .as_str()
+                    .ok_or_else(|| "transfer_conflict".to_owned())?,
+            );
+        }
+        let expected_bytes = session.manifest["header"]["byteLength"]
+            .as_u64()
+            .ok_or_else(|| "transfer_conflict".to_owned())?;
+        let expected_hash = bounded_string(&session.manifest["header"]["sha256"], 80)?;
+        if text.len() as u64 != expected_bytes
+            || canonical_sha256(&text).map_err(|_| "transfer_conflict".to_owned())? != expected_hash
+        {
+            return Err("transfer_conflict".to_owned());
+        }
+        serde_json::from_str(&text).map_err(|_| "invalid_request".to_owned())
     }
 
     fn publish_content(
@@ -2027,6 +2111,7 @@ fn descriptors_direction(
         && matches!(
             manifest["header"]["target"].as_str(),
             Some("topic_apply_assets" | "production_client_result" | "host_export_entries")
+                | Some("production_client_request")
         );
     if object.len() != 6
         || [
@@ -2342,6 +2427,27 @@ mod tests {
         manifest
     }
 
+    fn production_client_request_manifest(pages: &[Value], capability: &str, text: &str) -> Value {
+        let body = json!({
+            "transferVersion":"synthesis-production-content-transfer.v1",
+            "encoding":"canonical_json_text_chunks.v1",
+            "direction":"input",
+            "header":{
+                "target":"production_client_request",
+                "capability":capability,
+                "byteLength":text.len(),
+                "sha256":canonical_sha256(&text).expect("request hash"),
+            },
+            "pages":pages.iter().map(|page| page["descriptor"].clone()).collect::<Vec<_>>(),
+        });
+        let mut manifest = body.clone();
+        manifest.as_object_mut().expect("manifest").insert(
+            "rootSha256".to_owned(),
+            Value::String(canonical_sha256(&body).expect("manifest hash")),
+        );
+        manifest
+    }
+
     #[test]
     fn materializes_hash_bound_topic_assets_from_a_sealed_content_session() {
         let root = temporary_root("topic-content");
@@ -2385,6 +2491,58 @@ mod tests {
             owner
                 .handle(json!({"action":"execute","sessionId":session_id}), 4)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn materializes_a_capability_bound_production_client_request() {
+        let root = temporary_root("production-client-request");
+        let mut owner =
+            NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
+        let payload = json!({"args":[{"kind":"topic_plan","operation":"reconcile"}]});
+        let text = canonical_json(&payload).expect("canonical payload");
+        let pages = [page("content", json!([text]))];
+        let action = json!({
+            "action":"begin",
+            "idempotencyKey":"production-client-request",
+            "manifest":production_client_request_manifest(
+                &pages,
+                "client.applyTopicPlan",
+                &text,
+            ),
+        });
+        let parsed: TransferActionDto =
+            serde_json::from_value(action.clone()).expect("parse request transfer action");
+        let TransferActionDto::Begin { manifest, .. } = parsed else {
+            panic!("begin action");
+        };
+        validate_manifest_dto(&manifest, true, &production_client_membership())
+            .expect("validate request transfer manifest");
+        let TransferDispatch::Response(begun) = owner.handle(action, 1).expect("begin") else {
+            panic!("begin response");
+        };
+        let session_id = begun["sessionId"].as_str().expect("session id");
+        owner
+            .handle(
+                json!({"action":"put_input_page","sessionId":session_id,"page":pages[0]}),
+                2,
+            )
+            .expect("put page");
+        owner
+            .handle(json!({"action":"seal_input","sessionId":session_id}), 3)
+            .expect("seal");
+
+        assert_eq!(
+            owner
+                .production_client_request(session_id, "client.applyTopicPlan")
+                .expect("request"),
+            payload
+        );
+        assert_eq!(
+            owner
+                .production_client_request(session_id, "client.appendTagAuditRun")
+                .expect_err("capability fence"),
+            "transfer_conflict"
         );
     }
 

@@ -22,13 +22,19 @@ const OWNED = [
   "client.updateStagedTagSuggestion",
   "client.updateTagVocabularyEntry",
   "client.validateTagVocabulary",
+  "client.beginTagAuditRun",
+  "client.appendTagAuditRun",
+  "client.promoteTagAuditRun",
+  "client.abortTagAuditRun",
+  "client.prepareTagRegulationAcknowledgement",
+  "client.commitTagRegulationAcknowledgement",
 ] as const;
 
 describe("Synthesis native Tag surface", () => {
   it("admits exactly the complete fixture-backed Tag roster", () => {
     assert.deepEqual(inspectSynthesisTagSurfaceParity(), {
       ok: true,
-      operations: 19,
+      operations: 25,
       errors: [],
     });
     for (const capability of OWNED)

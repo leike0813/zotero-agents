@@ -657,6 +657,54 @@
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {
+      "capability": "client.beginTagAuditRun",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.appendTagAuditRun",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.promoteTagAuditRun",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/PromoteTagAuditRunRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/PromoteTagAuditRunResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.abortTagAuditRun",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/AbortTagAuditRunRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/AbortTagAuditRunResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.prepareTagRegulationAcknowledgement",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.commitTagRegulationAcknowledgement",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
       "capability": "client.getSynthesisWorkbenchChromeInput",
       "direction": "host-to-sidecar",
       "domain": "topic-workbench",
@@ -982,6 +1030,14 @@
       "domain": "reverse-host",
       "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetByRefRequest",
       "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetByRefResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.items.get_audit_state",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {

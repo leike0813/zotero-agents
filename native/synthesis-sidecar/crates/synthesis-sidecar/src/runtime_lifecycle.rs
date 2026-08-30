@@ -314,7 +314,7 @@ mod tests {
             }),
             service_version: env!("CARGO_PKG_VERSION").into(),
             protocol_version: "synthesis-sidecar.v1".into(),
-            schema_version: "synthesis-repository-foundation.v3".into(),
+            schema_version: "synthesis-repository-foundation.v4".into(),
             supervisor_instance_id: "supervisor-1".into(),
             diagnostics_enabled: false,
             startup_trace: None,

@@ -36,10 +36,20 @@
     "client.applyTopicSynthesisResult": {
       "requestPlane": "transfer"
     },
+    "client.applyTopicPlan": {
+      "requestPlane": "transfer",
+      "resultPlane": "locator"
+    },
+    "client.appendTagAuditRun": {
+      "requestPlane": "transfer"
+    },
     "client.readPaperArtifacts": {
       "resultPlane": "locator"
     },
     "client.getReviewInput": {
+      "resultPlane": "locator"
+    },
+    "client.exportTagVocabularyForRegulator": {
       "resultPlane": "locator"
     },
     "client.exportFilteredPaperArtifacts": {
@@ -180,6 +190,12 @@
     "client.applyTagVocabularyImport": "mutation",
     "client.replaceTagAuditRecords": "mutation",
     "client.clearTagAuditRecord": "mutation",
+    "client.beginTagAuditRun": "mutation",
+    "client.appendTagAuditRun": "mutation",
+    "client.promoteTagAuditRun": "mutation",
+    "client.abortTagAuditRun": "mutation",
+    "client.prepareTagRegulationAcknowledgement": "read",
+    "client.commitTagRegulationAcknowledgement": "mutation",
     "client.getSynthesisWorkbenchChromeInput": "read",
     "client.getSynthesisWorkbenchSurfaceInput": "read",
     "client.getSynthesisBackgroundJobRows": "read",

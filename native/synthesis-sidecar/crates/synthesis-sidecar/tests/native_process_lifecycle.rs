@@ -166,7 +166,7 @@ fn write_launch_config(root: &Path, reverse_host_port: u16) -> (PathBuf, PathBuf
         "platformSignature":platform_signature,
         "serviceVersion":env!("CARGO_PKG_VERSION"),
         "protocolVersion":"synthesis-sidecar.v1",
-        "schemaVersion":"synthesis-repository-foundation.v3",
+        "schemaVersion":"synthesis-repository-foundation.v4",
         "supervisorInstanceId":"supervisor-1",
         "diagnosticsEnabled":false,
         "repositoryDbPath":root.join("state/synthesis.db"),

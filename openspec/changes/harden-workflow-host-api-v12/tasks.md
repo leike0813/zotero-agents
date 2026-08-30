@@ -28,14 +28,14 @@ Implementation baseline: `4dbddc24e884921262c559428bf851db5eadf2d7`. Begin only 
 
 - [ ] 5.1 Migrate literature-workbench library/context/navigation/metadata/bibliography consumers to named v12 reads and grouped result envelopes; verify their focused workflow tests pass.
 - [ ] 5.2 Migrate literature-workbench item/collection/note/attachment/status consumers to canonical mutation/named module results; verify partial diagnostics preserve primary workflow products.
-- [ ] 5.3 Migrate tag-auditor/regulator/bootstrapper and `workflows_builtin/synthesis-layer/**` to grouped Synthesis, completed traversal evidence, audit runs, and receipt acknowledgement; verify tag and Synthesis workflow tests pass.
+- [ ] 5.3 Bind the grouped audit identity resolver from trusted package/workflow content facts, then migrate tag-auditor/regulator/bootstrapper and `workflows_builtin/synthesis-layer/**` to grouped Synthesis, completed traversal evidence, audit runs, and receipt acknowledgement; verify complete and incomplete audit, concurrent promotion, confirmed and unchanged acknowledgement, mismatched or failed receipt, old-process receipt, audited-revision mismatch, and newer-snapshot race cases in the tag and Synthesis workflow suites.
 - [ ] 5.4 Migrate Research Bundle, file/archive/resources, MinerU, workflow-debug-probe, and all workflow test helpers to v12; verify package tests contain no raw orchestration or compatibility branch.
 
 ## 6. Approved Deletions
 
 - [ ] 6.1 Remove the approved legacy public members, aliases, handler spreads, injected globals, and dead compatibility code only after all official consumers pass; verify each ledger entry is absent and no unapproved symbol/file is deleted.
 - [ ] 6.2 Delete shallow tests that only assert removed aliases or empty command behavior after stable v12 interface tests replace them; verify no user-observable behavior coverage is lost.
-- [ ] 6.3 Run AST/import/package governance and verify zero raw escape hatches, zero flat Synthesis names, zero v2-v11 guards, zero implicit Broker projections, and exactly one runtime manifest.
+- [ ] 6.3 Run AST/import/package governance and verify zero raw escape hatches, zero flat Synthesis names in `WorkflowHostApiV12`, official consumers, and the code-native manifest, zero v2-v11 guards, zero implicit Broker projections, and exactly one runtime manifest. Internal native legacy routes retained outside the v12 projection are not candidate aliases.
 
 ## 7. Specs and Documentation
 

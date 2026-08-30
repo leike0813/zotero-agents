@@ -41,7 +41,7 @@ import {
   writeRuntimeBytes,
   writeRuntimeTextFileStrict,
 } from "../modules/runtimePersistence";
-import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
+import { createWorkflowSynthesisV11Adapter } from "../modules/synthesisClient/workflowHostClient";
 import { getDefaultSynthesisClient } from "../modules/synthesisClient/defaultClient";
 import {
   resolveRuntimeAddon,
@@ -1624,7 +1624,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       ...workflowFile,
     },
     archive: createWorkflowArchiveApi(),
-    synthesis: createWorkflowSynthesisHostApi(),
+    synthesis: createWorkflowSynthesisV11Adapter(),
   };
   cachedHostApi = hostApi;
   return hostApi;

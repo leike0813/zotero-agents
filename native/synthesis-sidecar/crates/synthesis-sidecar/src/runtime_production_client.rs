@@ -748,6 +748,12 @@ struct TopicApplyTransferReference {
     session_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionClientRequestTransferControl {
+    request_transfer: TopicApplyTransferReference,
+}
+
 #[cfg(test)]
 fn dispatch_typed_client(
     apps: &crate::runtime_production_ports::ProductionApplications,
@@ -860,10 +866,40 @@ fn dispatch_production_client(
         .route(capability)
         .ok_or_else(|| "invalid_request".to_owned())?;
     let metadata = &route.metadata;
+    let control_payload_bytes = serde_json::to_vec(&payload)
+        .map_err(|_| "invalid_request".to_owned())?
+        .len();
+    if control_payload_bytes > metadata.request_bytes {
+        return Err("request_too_large".into());
+    }
+    let transferred_request = metadata.request_plane == ProductionClientDataPlane::Transfer
+        && payload.pointer("/args/0/requestTransfer").is_some();
+    let payload = if transferred_request {
+        let control: ClientArguments =
+            serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
+        if control.args.len() != 1 {
+            return Err("invalid_request".into());
+        }
+        let transfer_control: ProductionClientRequestTransferControl =
+            serde_json::from_value(control.args[0].clone())
+                .map_err(|_| "invalid_request".to_owned())?;
+        runtime
+            .transfer
+            .lock()
+            .map_err(|_| "transfer_unavailable".to_owned())?
+            .production_client_request(&transfer_control.request_transfer.session_id, capability)?
+    } else {
+        payload
+    };
     let payload_bytes = serde_json::to_vec(&payload)
         .map_err(|_| "invalid_request".to_owned())?
         .len();
-    if payload_bytes > metadata.request_bytes {
+    let request_limit = match capability {
+        "client.applyTopicPlan" => 64 * 1024 * 1024,
+        "client.appendTagAuditRun" => 8 * 1024 * 1024,
+        _ => metadata.request_bytes,
+    };
+    if payload_bytes > request_limit {
         return Err("request_too_large".into());
     }
     let envelope: ClientArguments =
@@ -885,7 +921,8 @@ fn dispatch_production_client(
             .map_err(|_| "transfer_unavailable".to_owned())?
             .topic_apply_assets(&control.asset_transfer.session_id)?;
         vec![json!({"bundle":control.bundle,"assets":assets})]
-    } else if metadata.request_plane == ProductionClientDataPlane::Transfer
+    } else if !transferred_request
+        && metadata.request_plane == ProductionClientDataPlane::Transfer
         && payload_bytes > metadata.control_target_bytes
     {
         return Err("request_too_large".to_owned());

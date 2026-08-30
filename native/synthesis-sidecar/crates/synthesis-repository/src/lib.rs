@@ -21,10 +21,13 @@ mod reference_redirect_graph;
 pub use reference_redirect_graph::*;
 mod tag_concept_topic_graph;
 pub use tag_concept_topic_graph::*;
+mod tag_audit;
+pub use tag_audit::*;
 
 const FOUNDATION_SCHEMA_V1: &str = "synthesis-repository-foundation.v1";
 const FOUNDATION_SCHEMA_V2: &str = "synthesis-repository-foundation.v2";
-pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v3";
+const FOUNDATION_SCHEMA_V3: &str = "synthesis-repository-foundation.v3";
+pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v4";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
@@ -188,8 +191,13 @@ const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigra
     },
     RegisteredProductionSchemaMigration {
         from: FOUNDATION_SCHEMA_V2,
-        to: SCHEMA_VERSION,
+        to: FOUNDATION_SCHEMA_V3,
         migrate: migrate_repository_foundation_v2_to_v3,
+    },
+    RegisteredProductionSchemaMigration {
+        from: FOUNDATION_SCHEMA_V3,
+        to: SCHEMA_VERSION,
+        migrate: migrate_repository_foundation_v3_to_v4,
     },
 ];
 
@@ -596,6 +604,36 @@ fn migrate_repository_foundation_v2_to_v3(connection: &Connection) -> Result<(),
              UPDATE synt_schema_meta
                SET value='synthesis-topic-graph-application-repository.v2'
                WHERE key='topic_graph_application_schema_version';",
+        )
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute(
+            "UPDATE synt_schema_meta SET value=?1
+             WHERE key='repository_foundation_schema_version'",
+            [FOUNDATION_SCHEMA_V3],
+        )
+        .map_err(map_sqlite_error)?;
+    Ok(())
+}
+
+fn migrate_repository_foundation_v3_to_v4(connection: &Connection) -> Result<(), String> {
+    let invalidated = connection
+        .query_row("SELECT COUNT(*) FROM synt_tag_audit", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute_batch(SCHEMA_SQL)
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute("DELETE FROM synt_tag_audit", [])
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute(
+            "INSERT INTO synt_schema_meta(key,value)
+             VALUES('tag_audit_v3_invalidated_rows',?1)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [invalidated.to_string()],
         )
         .map_err(map_sqlite_error)?;
     connection
@@ -1089,20 +1127,28 @@ impl Repository {
             repository_id: repository_id.clone(),
         };
         let marker_path = root.join("identity.json");
+        let database_path = root.join("synthesis.db");
         if marker_path.exists() {
             let current: IdentityMarker = serde_json::from_slice(
                 &fs::read(&marker_path)
                     .map_err(|error| format!("repository_identity_read:{error}"))?,
             )
             .map_err(|_| "repository_identity_invalid".to_owned())?;
-            if current != marker {
+            let mut legacy = marker.clone();
+            legacy.schema_version = FOUNDATION_SCHEMA_V3.into();
+            if current == legacy {
+                if !database_path.exists() {
+                    return Err("repository_identity_mismatch".into());
+                }
+                prepare_production_schema(&database_path, &root.join("migration-backups"))?;
+                write_marker(&marker_path, &marker)?;
+            } else if current != marker {
                 return Err("repository_identity_mismatch".into());
             }
         } else {
             write_marker(&marker_path, &marker)?;
         }
 
-        let database_path = root.join("synthesis.db");
         Self::open_database(database_path, repository_id, reconcile_now)
     }
 
@@ -3055,8 +3101,8 @@ mod tests {
         assert_eq!(pragmas["foreignKeys"], 1);
         assert_eq!(pragmas["busyTimeout"], 250);
         let inventory = repository.schema_inventory().expect("inventory");
-        assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(56));
-        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(47));
+        assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(62));
+        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(51));
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
@@ -3142,6 +3188,70 @@ mod tests {
             Repository::initialize_production(&database_path, identity(),).unwrap_err(),
             "repository_production_database_exists"
         );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn registered_v3_migration_invalidates_only_unprovable_audit_rows() {
+        let root = root("production-schema-v4");
+        let database_path = root.join("state/synthesis.db");
+        Repository::initialize_production(&database_path, identity())
+            .expect("initialize")
+            .close()
+            .expect("close");
+        let connection = Connection::open(&database_path).expect("fixture");
+        connection
+            .execute_batch(
+                "INSERT INTO synt_tag_vocabulary_entry(tag,facet) VALUES('method:kept','method');
+                 INSERT INTO synt_tag_audit(
+                   library_id,item_key,needs_tag_regulation,non_compliant_tags_json
+                 ) VALUES(1,'AAAA1111',1,'[\"topic:legacy\"]');
+                 DROP INDEX idx_synt_tag_regulation_ack_target;
+                 DROP INDEX idx_synt_tag_audit_active_library;
+                 DROP INDEX idx_synt_tag_audit_staging_run;
+                 DROP INDEX idx_synt_tag_audit_run_library_status;
+                 DROP TABLE synt_tag_regulation_ack;
+                 DROP TABLE synt_tag_audit_active;
+                 DROP TABLE synt_tag_audit_snapshot;
+                 DROP TABLE synt_tag_audit_staging;
+                 DROP TABLE synt_tag_audit_batch;
+                 DROP TABLE synt_tag_audit_run;",
+            )
+            .expect("downgrade fixture");
+        connection
+            .execute(
+                "UPDATE synt_schema_meta SET value=?1
+                 WHERE key='repository_foundation_schema_version'",
+                [FOUNDATION_SCHEMA_V3],
+            )
+            .expect("mark v3");
+        drop(connection);
+
+        let backup_root = root.join("state/synthesis-migration-backups");
+        prepare_production_schema(&database_path, &backup_root).expect("migrate v4");
+        let migrated =
+            Repository::open_production(&database_path, identity(), "2026-08-30T00:00:00.000Z")
+                .expect("reopen");
+        assert_eq!(
+            migrated
+                .query("SELECT tag FROM synt_tag_vocabulary_entry", &[])
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(migrated.list_tag_audits().unwrap().is_empty());
+        assert_eq!(
+            migrated
+                .query(
+                    "SELECT value FROM synt_schema_meta
+                     WHERE key='tag_audit_v3_invalidated_rows'",
+                    &[],
+                )
+                .unwrap()[0]["value"],
+            "1"
+        );
+        assert!(migrated.get_tag_audit_snapshot(1).unwrap().is_none());
+        migrated.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -34,12 +34,14 @@ import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient
 import {
   configureZoteroHostMutationRuntimeForTests,
   configureZoteroHostSnapshotRuntimeForTests,
+  consumeTagAuditTraversalCompletionEvidence,
   createZoteroHostCapabilityBroker,
   verifyLibraryTraversalCompletionEvidence,
   resetZoteroHostMutationRuntimeForTests,
   resetZoteroHostSnapshotRuntimeForTests,
   ZoteroHostCapabilityError,
 } from "../../src/modules/zoteroHostCapabilityBroker";
+import { pinVerifiedMutationReceipt } from "../../src/modules/zoteroHostMutationAuthority";
 import { withWorkflowLibraryItemSnapshot } from "../../src/workflows/hostApi";
 import {
   assertStrictJsonValue,
@@ -51,6 +53,7 @@ import {
   type WorkflowHostErrorCode,
   type WorkflowHostErrorDetailsByCode,
 } from "../../src/workflows/workflowHostErrorContract";
+import { createSha256Accumulator, sha256Hex } from "../../src/utils/sha256";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -845,6 +848,21 @@ describe("zotero host broker capability api", function () {
       assert.include(["committed", "unchanged"], result.outcome);
       assert.strictEqual(result.receipt.operation, request.operation);
       assertStrictJsonValue(result);
+      if (request.operation === "item.updateTags") {
+        const pinned = pinVerifiedMutationReceipt(result.receipt);
+        assert.isOk(pinned);
+        assert.deepInclude(pinned?.semanticInput as Record<string, unknown>, {
+          operation: "item.updateTags",
+          operationId: "map-tags",
+        });
+        assert.isNull(
+          pinVerifiedMutationReceipt({
+            ...result.receipt,
+            operation: "item.remove",
+          }),
+        );
+        pinned?.release();
+      }
     }
   });
 
@@ -1747,6 +1765,12 @@ describe("zotero host broker capability api", function () {
     await createParentItem("Traversal Canonical Two");
     const broker = createZoteroHostCapabilityBroker();
     const batches: string[][] = [];
+    const coverage = await createSha256Accumulator();
+    assert.isOk(coverage);
+    const expectedTagDigest = await sha256Hex(
+      new TextEncoder().encode(JSON.stringify([])),
+    );
+    assert.isString(expectedTagDigest);
     let callbackActive = false;
 
     const completed = await broker.library.traverseItems(
@@ -1760,6 +1784,19 @@ describe("zotero host broker capability api", function () {
         assert.isFalse(callbackActive);
         callbackActive = true;
         await Promise.resolve();
+        for (const item of batch.items) {
+          const traversalItem = item as typeof item & { tagDigest?: string };
+          assert.strictEqual(traversalItem.tagDigest, expectedTagDigest);
+          coverage?.update(
+            new TextEncoder().encode(
+              `${JSON.stringify([
+                item.ref,
+                item.revision,
+                traversalItem.tagDigest,
+              ])}\n`,
+            ),
+          );
+        }
         batches.push(batch.items.map((item) => item.ref.key));
         callbackActive = false;
       },
@@ -1770,9 +1807,37 @@ describe("zotero host broker capability api", function () {
       [1, 1],
     );
     if (completed.outcome !== "completed") assert.fail("expected completion");
+    assert.strictEqual(
+      completed.completionEvidence.coverageDigest,
+      coverage?.digestHex(),
+    );
     assert.isTrue(
       verifyLibraryTraversalCompletionEvidence(completed.completionEvidence),
     );
+
+    const auditTraversal = await broker.library.traverseItems(
+      { scope: "top-level-regular", pageSize: 10 },
+      {},
+      () => undefined,
+    );
+    assert.equal(auditTraversal.outcome, "completed");
+    if (auditTraversal.outcome !== "completed") {
+      assert.fail("expected complete audit traversal");
+    }
+    const auditEvidence = {
+      evidence: auditTraversal.completionEvidence,
+      libraryId: auditTraversal.libraryId,
+      visitedItems: auditTraversal.visitedItems,
+      visitedBatches: auditTraversal.visitedBatches,
+    };
+    assert.isTrue(consumeTagAuditTraversalCompletionEvidence(auditEvidence));
+    assert.isFalse(consumeTagAuditTraversalCompletionEvidence(auditEvidence));
+
+    const listed = await broker.library.listItems({
+      query: "Traversal Canonical",
+      limit: 1,
+    });
+    assert.notProperty(listed.items[0], "tagDigest");
 
     const limited = await broker.library.traverseItems(
       {

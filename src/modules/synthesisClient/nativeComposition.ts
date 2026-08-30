@@ -14,6 +14,7 @@ import {
   type SynthesisJsonObject,
   type SynthesisMaterializedAsset,
   type SynthesisSidecarTopicAssetsManifest,
+  type SynthesisSidecarProductionClientRequestManifest,
   type SynthesisSidecarTopicAssetTransferDescriptor,
   type SynthesisSidecarTransferPage,
   type SynthesisSidecarProductionClientCapability,
@@ -33,6 +34,7 @@ import {
 import {
   consumeSynthesisSidecarOutputJson,
   createSynthesisSidecarContentTransferClient,
+  SynthesisSidecarTransferClientError,
 } from "../synthesisSidecarTransferClient";
 import { beginSynthesisSidecarBusinessAudit } from "../synthesisSidecarBusinessAudit";
 import {
@@ -61,19 +63,22 @@ type NativeRpcClient = Pick<
 >;
 
 const CONTENT_CHUNK_TARGET_BYTES = 48 * 1024;
+const PRODUCTION_REQUEST_CHUNK_TARGET_BYTES = 512 * 1024;
 
-function splitContentText(text: string) {
+function splitContentText(
+  text: string,
+  targetBytes = CONTENT_CHUNK_TARGET_BYTES,
+) {
   const encoder = new TextEncoder();
   const chunks: string[] = [];
   let remaining = text;
-  while (encoder.encode(remaining).byteLength > CONTENT_CHUNK_TARGET_BYTES) {
+  while (encoder.encode(remaining).byteLength > targetBytes) {
     let low = 1;
     let high = remaining.length;
     while (low < high) {
       const middle = Math.ceil((low + high) / 2);
       if (
-        encoder.encode(remaining.slice(0, middle)).byteLength <=
-        CONTENT_CHUNK_TARGET_BYTES
+        encoder.encode(remaining.slice(0, middle)).byteLength <= targetBytes
       ) {
         low = middle;
       } else {
@@ -175,6 +180,86 @@ async function stageTopicAssets(args: {
   }
 }
 
+function productionClientRequestTransfer(
+  capability: SynthesisSidecarProductionClientCapability,
+  payload: SynthesisJsonObject,
+): {
+  manifest: SynthesisSidecarProductionClientRequestManifest;
+  pages: Extract<
+    SynthesisSidecarTransferPage,
+    { descriptor: { kind: "content" } }
+  >[];
+} {
+  const artifact = canonicalizeSynthesisContractJsonArtifact(payload);
+  const pages = splitContentText(
+    artifact.text,
+    PRODUCTION_REQUEST_CHUNK_TARGET_BYTES,
+  ).map((chunk, pageIndex) => {
+    const rows: [string] = [chunk];
+    const pageArtifact = canonicalizeSynthesisContractJsonArtifact(rows);
+    return {
+      descriptor: {
+        kind: "content" as const,
+        pageIndex,
+        rowCount: 1,
+        byteLength: pageArtifact.byteLength,
+        sha256: pageArtifact.sha256,
+      },
+      rows,
+    };
+  });
+  const body = {
+    transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+    encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+    direction: "input" as const,
+    header: {
+      target: "production_client_request" as const,
+      capability,
+      byteLength: artifact.byteLength,
+      sha256: hashSynthesisContractCanonicalJson(artifact.text),
+    },
+    pages: pages.map((page) => page.descriptor),
+  };
+  return {
+    pages,
+    manifest: {
+      ...body,
+      rootSha256: hashSynthesisContractCanonicalJson(body),
+    },
+  };
+}
+
+async function stageProductionClientRequest(args: {
+  connection: NativeControlConnection;
+  rpcClient: NativeRpcClient;
+  capability: SynthesisSidecarProductionClientCapability;
+  payload: SynthesisJsonObject;
+}) {
+  const transfer = productionClientRequestTransfer(
+    args.capability,
+    args.payload,
+  );
+  const client = createSynthesisSidecarContentTransferClient({
+    rpcClient: args.rpcClient,
+  });
+  const connection = rpcConnection(args.connection);
+  const begun = await client.begin(
+    connection,
+    transfer.manifest.rootSha256,
+    transfer.manifest,
+  );
+  try {
+    for (const page of transfer.pages) {
+      await client.putInputPage(connection, begun.sessionId, page);
+    }
+    await client.sealInput(connection, begun.sessionId);
+    return { client, connection, sessionId: begun.sessionId };
+  } catch (error) {
+    await client.cancel(connection, begun.sessionId).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function resolveContentTransferResult(args: {
   connection: NativeControlConnection;
   rpcClient: NativeRpcClient;
@@ -228,6 +313,13 @@ function unavailable(reason: string): SynthesisClientError {
 function normalizeRpcError(error: unknown) {
   if (error instanceof SynthesisClientError) {
     return error;
+  }
+  if (error instanceof SynthesisSidecarTransferClientError) {
+    return new SynthesisClientError(
+      error.code === "invalid_request" ? "invalid_request" : "unavailable",
+      "The native Synthesis content transfer failed",
+      { sidecarCode: error.code },
+    );
   }
   if (error instanceof SynthesisSidecarRpcError) {
     const detailReason = error.details.reason;
@@ -321,15 +413,20 @@ function createNativePort(args: {
             normalizedArgs.pop();
           }
           let staged: Awaited<ReturnType<typeof stageTopicAssets>> | undefined;
+          let payload =
+            rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
+              capability: operation,
+              direction: "request",
+              value: { args: normalizedArgs },
+            });
+          const policy = synthesisProductionOperationPolicy(operation);
           if (property === "applyTopicSynthesisResult") {
             const request = normalizedArgs[0] as {
               bundle: Record<string, unknown>;
               assets: SynthesisMaterializedAsset[];
             };
-            const policy = synthesisProductionOperationPolicy(operation);
-            const inlineBytes = new TextEncoder().encode(
-              JSON.stringify({ args: normalizedArgs }),
-            ).byteLength;
+            const inlineBytes =
+              canonicalizeSynthesisContractJsonArtifact(payload).byteLength;
             if (
               policy.requestPlane === "transfer" &&
               inlineBytes > policy.controlTargetBytes &&
@@ -346,16 +443,38 @@ function createNativePort(args: {
                   assetTransfer: { sessionId: staged.sessionId },
                 },
               ];
+              payload =
+                rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
+                  capability: operation,
+                  direction: "request",
+                  value: { args: normalizedArgs },
+                });
             }
           }
-          let result: unknown;
-          try {
-            const payload =
+          if (
+            !staged &&
+            policy.requestPlane === "transfer" &&
+            canonicalizeSynthesisContractJsonArtifact(payload).byteLength >
+              policy.controlTargetBytes
+          ) {
+            staged = await stageProductionClientRequest({
+              connection,
+              rpcClient: args.rpcClient,
+              capability: operation,
+              payload,
+            });
+            normalizedArgs = [
+              { requestTransfer: { sessionId: staged.sessionId } },
+            ];
+            payload =
               rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
                 capability: operation,
                 direction: "request",
                 value: { args: normalizedArgs },
               });
+          }
+          let result: unknown;
+          try {
             result = await args.rpcClient.call({
               connection: rpcConnection(connection),
               capability: operation,

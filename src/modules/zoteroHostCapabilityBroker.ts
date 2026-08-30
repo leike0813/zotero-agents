@@ -638,6 +638,13 @@ export type ZoteroHostAnnotationExportDto = {
   markdown?: string;
 };
 
+export type ZoteroHostItemAuditStateDto = {
+  target: { libraryId: number; itemKey: string };
+  revision: string;
+  tagDigest: string;
+  tags: string[];
+};
+
 export interface ZoteroHostCapabilityBroker {
   readonly context: {
     getCurrentView(): CurrentViewDto;
@@ -695,6 +702,10 @@ export interface ZoteroHostCapabilityBroker {
       ref: ZoteroHostItemRefInput,
       control?: WorkflowCallControl,
     ): Promise<ItemDetailDto>;
+    getItemAuditState(
+      ref: ZoteroHostItemRefInput,
+      control?: WorkflowCallControl,
+    ): Promise<ZoteroHostItemAuditStateDto>;
     getItemNotes(
       ref: ZoteroHostItemRefInput,
       control?: WorkflowCallControl,
@@ -7177,7 +7188,14 @@ async function listLibraryCollections(
 
 const traversalEvidenceRegistry = new Map<
   string,
-  LibraryTraversalCompletionEvidenceDto
+  LibraryTraversalCompletionEvidenceDto & {
+    libraryId: number;
+    scope: LibraryTraversalRequestDto["scope"];
+    filtered: boolean;
+    resumed: boolean;
+    visitedItems: number;
+    visitedBatches: number;
+  }
 >();
 let traversalEvidenceSequence = 0;
 
@@ -7190,6 +7208,28 @@ export function verifyLibraryTraversalCompletionEvidence(
     registered.criteriaDigest === evidence.criteriaDigest &&
     registered.coverageDigest === evidence.coverageDigest &&
     registered.completedAt === evidence.completedAt,
+  );
+}
+
+export function consumeTagAuditTraversalCompletionEvidence(args: {
+  evidence: LibraryTraversalCompletionEvidenceDto;
+  libraryId: number;
+  visitedItems: number;
+  visitedBatches: number;
+}) {
+  const registered = traversalEvidenceRegistry.get(args.evidence.evidenceId);
+  if (!registered) return false;
+  traversalEvidenceRegistry.delete(args.evidence.evidenceId);
+  return Boolean(
+    registered.libraryId === args.libraryId &&
+    registered.scope === "top-level-regular" &&
+    !registered.filtered &&
+    !registered.resumed &&
+    registered.visitedItems === args.visitedItems &&
+    registered.visitedBatches === args.visitedBatches &&
+    registered.criteriaDigest === args.evidence.criteriaDigest &&
+    registered.coverageDigest === args.evidence.coverageDigest &&
+    registered.completedAt === args.evidence.completedAt,
   );
 }
 
@@ -7220,6 +7260,10 @@ function traversalLimit(
 async function issueTraversalEvidence(
   criteriaDigest: string,
   coverageDigest: string,
+  facts: Omit<
+    NonNullable<ReturnType<typeof traversalEvidenceRegistry.get>>,
+    keyof LibraryTraversalCompletionEvidenceDto
+  >,
 ) {
   const completedAt = new Date().toISOString();
   traversalEvidenceSequence += 1;
@@ -7249,7 +7293,7 @@ async function issueTraversalEvidence(
     coverageDigest,
     completedAt,
   } satisfies LibraryTraversalCompletionEvidenceDto;
-  traversalEvidenceRegistry.set(evidenceId, evidence);
+  traversalEvidenceRegistry.set(evidenceId, { ...evidence, ...facts });
   while (traversalEvidenceRegistry.size > 256) {
     const oldest = traversalEvidenceRegistry.keys().next().value;
     if (!oldest) break;
@@ -7348,23 +7392,29 @@ async function traverseLibraryItems(
         );
       }
     }
-    const items = page.items.map((item) => {
-      if (item.kind !== "regular") {
-        throw canonicalReadFailure("item");
-      }
-      return item;
-    });
+    const items = await Promise.all(
+      page.items.map(async (item) => {
+        if (item.kind !== "regular") {
+          throw canonicalReadFailure("item");
+        }
+        const revision = canonicalItemVersion(requireItem(item.ref)).revision;
+        const tags = Array.from(new Set(item.tags)).sort((left, right) =>
+          left.localeCompare(right),
+        );
+        const tagDigest = await sha256Hex(
+          new TextEncoder().encode(JSON.stringify(tags)),
+        );
+        if (!tagDigest) throw canonicalReadFailure("item");
+        return { ...item, revision, tags, tagDigest };
+      }),
+    );
     if (items.length) {
       const batch = { batchIndex: visitedBatches, items };
       await onBatch(batch);
       for (const item of items) {
-        const tagDigest = await sha256Hex(
-          new TextEncoder().encode(JSON.stringify(item.tags)),
-        );
-        if (!tagDigest) throw canonicalReadFailure("item");
         coverage.update(
           new TextEncoder().encode(
-            `${JSON.stringify([item.ref, item.revision, tagDigest])}\n`,
+            `${JSON.stringify([item.ref, item.revision, item.tagDigest])}\n`,
           ),
         );
       }
@@ -7378,6 +7428,16 @@ async function traverseLibraryItems(
       const completionEvidence = await issueTraversalEvidence(
         criteriaDigest,
         coverage.digestHex(),
+        {
+          libraryId,
+          scope: input.scope,
+          filtered: Boolean(
+            input.collectionRef || input.tag || input.itemType || input.query,
+          ),
+          resumed: Boolean(input.resumeCursor),
+          visitedItems,
+          visitedBatches,
+        },
       );
       return {
         outcome: "completed",
@@ -8378,6 +8438,37 @@ export function createZoteroHostCapabilityBroker(
         const detail = await serializeCanonicalItemDetail(requireItem(ref));
         throwIfWorkflowCallCanceled(control);
         return detail;
+      },
+      async getItemAuditState(
+        ref: ZoteroHostItemRefInput,
+        control: WorkflowCallControl = {},
+      ) {
+        throwIfWorkflowCallCanceled(control);
+        const item = requireItem(ref);
+        const detail = await serializeCanonicalItemDetail(item);
+        if (detail.kind !== "regular") {
+          throw capabilityError("invalid_request", "item is not regular", {
+            reason: "invalid_type",
+            field: "itemRef",
+          });
+        }
+        const tags = Array.from(new Set(detail.item.tags)).sort((left, right) =>
+          left.localeCompare(right),
+        );
+        const tagDigest = await sha256Hex(
+          new TextEncoder().encode(JSON.stringify(tags)),
+        );
+        if (!tagDigest) throw canonicalReadFailure("item");
+        throwIfWorkflowCallCanceled(control);
+        return {
+          target: {
+            libraryId: detail.item.ref.libraryId,
+            itemKey: detail.item.ref.key,
+          },
+          revision: canonicalItemVersion(item).revision,
+          tagDigest,
+          tags,
+        };
       },
       async getItemNotes(
         ref: ZoteroHostItemRefInput,

@@ -482,6 +482,9 @@ describe("Synthesis Rust production client route", function () {
           if (capability === "library.artifacts.read") {
             return dataset.readArtifact(payload);
           }
+          if (capability === "library.items.get_audit_state") {
+            return { states: [] };
+          }
           if (capability === "webdav.describe") return { configured: false };
           return { status: "unavailable", diagnostics: [] };
         },
@@ -1272,7 +1275,17 @@ describe("Synthesis Rust production client route", function () {
           );
         }
         let result: Record<string, unknown>;
-        if (requestCall.capability === "library.artifacts.scan_page") {
+        if (requestCall.capability === "library.items.list_page") {
+          result = {
+            items: [],
+            cursor: "",
+            nextCursor: "",
+            hasMore: false,
+            returned: 0,
+            limit: 500,
+            snapshotRevision: "content-route-library",
+          };
+        } else if (requestCall.capability === "library.artifacts.scan_page") {
           result = {
             artifacts: [
               {
@@ -1420,6 +1433,23 @@ describe("Synthesis Rust production client route", function () {
         );
       assert.equal(applied.status, "persisted");
 
+      const planned = await composition.client.workflowApply.applyTopicPlan({
+        kind: "topic_plan",
+        operation: "reconcile",
+        base_graph_hash: `sha256:${"1".repeat(64)}`,
+        library_index_hash: `sha256:${"2".repeat(64)}`,
+        topic_actions: [],
+        relation_proposals: [],
+        coverage_manifest_path: "coverage/large-topic-plan.json",
+        recommended_updates: Array.from(
+          { length: 250 },
+          (_, index) => `${index}:${"x".repeat(3990)}`,
+        ),
+      });
+      assert.equal(planned.status, "conflict");
+      assert.lengthOf(planned.recommended_updates, 250);
+      assert.notInclude(JSON.stringify(planned), "native-transfer:");
+
       const artifacts = await composition.client.artifacts.readPaperArtifacts({
         paper_refs: ["1:CONTENT1"],
         artifact_types: ["references"],
@@ -1551,7 +1581,7 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
-  it("executes the closed 98-operation scenario matrix through native composition", async function () {
+  it("executes the closed 104-operation scenario matrix through native composition", async function () {
     this.timeout(120_000);
     const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
     const harness = await startSynthesisProductionRouteHarness({
@@ -1576,6 +1606,9 @@ describe("Synthesis Rust production client route", function () {
           if (capability === "library.artifacts.read") {
             return dataset.readArtifact(payload);
           }
+          if (capability === "library.items.get_audit_state") {
+            return { states: [] };
+          }
           if (capability === "webdav.describe") {
             return { configured: false };
           }
@@ -1593,10 +1626,10 @@ describe("Synthesis Rust production client route", function () {
         );
       assert.equal(seeded.status, "persisted");
       const observed = await executeSynthesisProductionRouteScenarios(harness);
-      assert.lengthOf(observed, 98);
+      assert.lengthOf(observed, 104);
       assert.equal(
         new Set(observed.map(({ operation }) => operation)).size,
-        98,
+        104,
       );
       assert.isTrue(
         harness.recorder.wire.every(

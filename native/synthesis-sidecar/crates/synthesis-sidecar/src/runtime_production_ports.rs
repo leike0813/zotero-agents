@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use synthesis_application::citation_graph::{
@@ -22,6 +22,10 @@ use synthesis_application::reference_matching::{
 use synthesis_application::related_items::{
     RelatedItemsApplication, RelatedItemsHostEffect, RelatedItemsHostEffectPort,
     RelatedItemsHostReceipt,
+};
+use synthesis_application::tag_audit::{
+    TagAuditApplication, TagAuditFreshState, TagAuditFreshStatePort, TagAuditItemRef,
+    TagAuditRuntimePort,
 };
 use synthesis_application::tag_vocabulary::{
     TagHostEffectPort, TagHostEffectReceipt, TagIndexOutput, TagLegacyBindingResolution,
@@ -80,6 +84,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) related_items: RelatedItemsApplication,
     pub(crate) references: ReferenceApplication,
     pub(crate) tags: TagVocabularyApplication,
+    pub(crate) tag_audits: TagAuditApplication,
     pub(crate) concepts: Arc<ConceptKbApplication>,
     pub(crate) topic_graph: Arc<TopicGraphApplication>,
     pub(crate) debug: DebugMaintenanceApplication,
@@ -239,6 +244,14 @@ pub(crate) fn build_production_applications(
     )
     .with_library_id(config.as_deref().map_or(0, |config| config.library_id));
     let _ = tags.ensure_staged_bindings_migrated();
+    let tag_audits = TagAuditApplication::new(
+        repository.clone(),
+        host.clone(),
+        Arc::new(NativeTagAuditRuntimePort {
+            service_instance_id: service_instance_id.clone(),
+            sequence: AtomicU64::new(0),
+        }),
+    );
     let debug = DebugMaintenanceApplication::new(repository.clone(), canonical.clone());
     let durable = DurableBundleApplication::acquire(repository.clone(), canonical.clone())?;
     let webdav = Arc::new(WebDavSyncApplication::new(
@@ -260,6 +273,7 @@ pub(crate) fn build_production_applications(
         related_items,
         references,
         tags,
+        tag_audits,
         concepts,
         topic_graph,
         debug,
@@ -270,6 +284,28 @@ pub(crate) fn build_production_applications(
         config,
         service_instance_id,
     })
+}
+
+struct NativeTagAuditRuntimePort {
+    service_instance_id: String,
+    sequence: AtomicU64,
+}
+
+impl TagAuditRuntimePort for NativeTagAuditRuntimePort {
+    fn now(&self) -> String {
+        utc_now_iso8601()
+    }
+
+    fn opaque_id(&self, kind: &str) -> String {
+        let sequence = self.sequence.fetch_add(1, Ordering::Relaxed);
+        canonical_json_hash(&json!({
+            "kind": kind,
+            "serviceInstanceId": self.service_instance_id,
+            "sequence": sequence,
+            "at": utc_now_iso8601(),
+        }))
+        .unwrap_or_else(|_| format!("{kind}-{sequence}"))
+    }
 }
 
 struct NativeCitationGraphComputePort {
@@ -1866,6 +1902,26 @@ impl ReverseHostApplicationPort {
             .as_deref()
             .ok_or_else(|| "reverse_host_unavailable".to_owned())?;
         call_reverse_host(config, &self.service_instance_id, capability, payload)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReverseHostTagAuditStatesDto {
+    states: Vec<TagAuditFreshState>,
+}
+
+impl TagAuditFreshStatePort for ReverseHostApplicationPort {
+    fn read(&self, targets: &[TagAuditItemRef]) -> Result<Vec<TagAuditFreshState>, String> {
+        if targets.len() > 500 {
+            return Err("invalid_request".into());
+        }
+        let result: ReverseHostTagAuditStatesDto = serde_json::from_value(self.call(
+            "library.items.get_audit_state",
+            serde_json::json!({"targets": targets}),
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        Ok(result.states)
     }
 }
 

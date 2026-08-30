@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   SynthesisClientError,
+  hashSynthesisContractCanonicalJson,
   type SynthesisClient,
   type SynthesisSidecarProductionClientCapability,
   type SynthesisWorkbenchReadState,
@@ -179,6 +180,9 @@ const literatureApplyRequest = {
   dateAdded: "2026-08-02T00:00:00.000Z",
 };
 
+let scenarioVocabularyHash = "";
+let scenarioAuditRun = { auditRunId: "missing", leaseToken: "missing" };
+
 const GROUPED_INVOCATIONS: Record<
   SynthesisSidecarProductionClientCapability,
   (client: SynthesisClient) => Promise<unknown>
@@ -252,14 +256,14 @@ const GROUPED_INVOCATIONS: Record<
   "client.getTopicPlanningContext": (client) =>
     client.topics.getPlanningContext(),
   "client.applyTopicPlan": (client) =>
-    client.topics.applyPlan({
+    client.workflowApply.applyTopicPlan({
       kind: "topic_plan",
       operation: "reconcile",
       base_graph_hash: "scenario-stale-graph",
       library_index_hash: "scenario-stale-library",
       topic_actions: [],
       relation_proposals: [],
-      coverage_manifest_path: "",
+      coverage_manifest_path: "coverage/topic-plan.json",
       recommended_updates: [],
     }),
   "client.reconcileSynthesisRuntimeWorkStateOnStartup": (client) =>
@@ -322,8 +326,11 @@ const GROUPED_INVOCATIONS: Record<
     client.tags.validateTagVocabulary(),
   "client.rebuildTagVocabularyIndex": (client) =>
     client.tags.rebuildTagVocabularyIndex(),
-  "client.exportTagVocabularyForRegulator": (client) =>
-    client.tags.exportTagVocabularyForRegulator(),
+  "client.exportTagVocabularyForRegulator": async (client) => {
+    const result = await client.tags.exportTagVocabularyForRegulator();
+    scenarioVocabularyHash = result.vocabularyHash;
+    return result;
+  },
   "client.listStagedTagSuggestions": (client) =>
     client.tags.listStagedTagSuggestions(),
   "client.stageTagSuggestions": (client) =>
@@ -365,15 +372,70 @@ const GROUPED_INVOCATIONS: Record<
     client.tags.previewTagVocabularyImport({
       payload: '{"entries":[],"aliases":{},"abbrev":{}}',
     }),
-  "client.applyTagVocabularyImport": (client) =>
-    client.tags.applyTagVocabularyImport({
+  "client.applyTagVocabularyImport": async (client) => {
+    const result = await client.tags.applyTagVocabularyImport({
       payload: '{"entries":[],"aliases":{},"abbrev":{}}',
       action: "merge-non-conflicting",
-    }),
+    });
+    if (result.vocabularyHash) {
+      scenarioVocabularyHash = result.vocabularyHash;
+    }
+    return result;
+  },
   "client.replaceTagAuditRecords": (client) =>
     client.tags.replaceTagAuditRecords({ libraryId: 1, entries: [] }),
   "client.clearTagAuditRecord": (client) =>
     client.tags.clearTagAuditRecord({ libraryId: 1, itemKey: "SCENARIO1" }),
+  "client.beginTagAuditRun": async (client) => {
+    const result = await client.tags.beginTagAuditRun({
+      libraryId: 1,
+      vocabularyHash: scenarioVocabularyHash,
+      executionIdentity: {
+        hostInstanceId: "scenario-host",
+        principal: {
+          packageId: "scenario-package",
+          workflowId: "scenario-workflow",
+          contentDigest: `sha256:${"3".repeat(64)}`,
+        },
+      },
+    });
+    scenarioAuditRun = result.run;
+    return result;
+  },
+  "client.appendTagAuditRun": (client) =>
+    client.tags.appendTagAuditRun({
+      run: scenarioAuditRun,
+      sequence: 0,
+      batchDigest: hashSynthesisContractCanonicalJson([]),
+      entries: [],
+    }),
+  "client.promoteTagAuditRun": (client) =>
+    client.tags.promoteTagAuditRun({
+      run: scenarioAuditRun,
+      visitedItems: 0,
+      coverageDigest:
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      evidenceId: "scenario-complete-traversal",
+    }),
+  "client.abortTagAuditRun": (client) =>
+    client.tags.abortTagAuditRun({ run: scenarioAuditRun, reason: "canceled" }),
+  "client.prepareTagRegulationAcknowledgement": (client) =>
+    client.tags.prepareTagRegulationAcknowledgement({
+      target: { libraryId: 1, itemKey: "SCENARIO1" },
+      receiptId: "scenario-receipt",
+    }),
+  "client.commitTagRegulationAcknowledgement": (client) =>
+    client.tags.commitTagRegulationAcknowledgement({
+      schema: "zotero-agents.tag-regulation-verified-commit.v1",
+      target: { libraryId: 1, itemKey: "SCENARIO1" },
+      receiptId: "scenario-receipt",
+      expectedSnapshotRevision: "scenario-snapshot",
+      auditedRevision: "scenario-audited-revision",
+      currentRevision: "scenario-current-revision",
+      finalTagDigest: hashSynthesisContractCanonicalJson([]),
+      finalTags: [],
+      vocabularyHash: scenarioVocabularyHash,
+    }),
   "client.getSynthesisWorkbenchChromeInput": (client) =>
     client.workbench.readChrome({ state: WORKBENCH_READ_STATE }),
   "client.getSynthesisWorkbenchSurfaceInput": (client) =>

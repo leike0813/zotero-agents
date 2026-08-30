@@ -3548,9 +3548,9 @@ function handleAction(
       const client = await getDefaultSynthesisClient();
       return client.tags
         .exportTagVocabularyForRegulator()
-        .then((tags) =>
+        .then(({ allowedTags }) =>
           runtime.hostWindow.navigator?.clipboard?.writeText?.(
-            `${tags.join("\n")}\n`,
+            `${allowedTags.join("\n")}\n`,
           ),
         );
     });

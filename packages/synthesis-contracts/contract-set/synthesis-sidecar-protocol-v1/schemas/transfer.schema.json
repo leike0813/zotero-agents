@@ -432,6 +432,19 @@
         }
       }
     },
+    "ProductionClientRequestHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "capability", "byteLength", "sha256"],
+      "properties": {
+        "target": { "const": "production_client_request" },
+        "capability": { "$ref": "#/$defs/ProductionClientCapability" },
+        "byteLength": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
     "ProductionClientCapability": {
       "enum": [
         "client.listTopics",
@@ -503,6 +516,12 @@
         "client.applyTagVocabularyImport",
         "client.replaceTagAuditRecords",
         "client.clearTagAuditRecord",
+        "client.beginTagAuditRun",
+        "client.appendTagAuditRun",
+        "client.promoteTagAuditRun",
+        "client.abortTagAuditRun",
+        "client.prepareTagRegulationAcknowledgement",
+        "client.commitTagRegulationAcknowledgement",
         "client.getSynthesisWorkbenchChromeInput",
         "client.getSynthesisWorkbenchSurfaceInput",
         "client.getSynthesisBackgroundJobRows",
@@ -661,6 +680,32 @@
         "direction": { "const": "input" },
         "header": { "$ref": "#/$defs/ContentInputHeader" },
         "pages": { "type": "array", "maxItems": 0 },
+        "rootSha256": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "ProductionClientRequestManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transferVersion",
+        "encoding",
+        "direction",
+        "header",
+        "pages",
+        "rootSha256"
+      ],
+      "properties": {
+        "transferVersion": {
+          "const": "synthesis-production-content-transfer.v1"
+        },
+        "encoding": { "const": "canonical_json_text_chunks.v1" },
+        "direction": { "const": "input" },
+        "header": { "$ref": "#/$defs/ProductionClientRequestHeader" },
+        "pages": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/ContentPageDescriptor" }
+        },
         "rootSha256": { "$ref": "common.schema.json#/$defs/sha256" }
       }
     },
@@ -920,6 +965,7 @@
           "oneOf": [
             { "$ref": "#/$defs/CitationInputManifest" },
             { "$ref": "#/$defs/TopicAssetsManifest" },
+            { "$ref": "#/$defs/ProductionClientRequestManifest" },
             { "$ref": "#/$defs/ContentInputManifest" }
           ]
         }

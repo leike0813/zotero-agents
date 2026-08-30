@@ -176,6 +176,7 @@ pub struct TopicPlanScope {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TopicPlanAction {
     pub action: String,
     pub topic_id: String,
@@ -195,15 +196,16 @@ pub struct TopicPlanAction {
     pub basis: Vec<Value>,
     #[serde(default)]
     pub provenance: Vec<Value>,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TopicPlanRelationProposal {
     pub source_topic_id: String,
     pub target_topic_id: String,
     pub relation: String,
+    #[serde(default)]
+    pub status: Option<String>,
     #[serde(default)]
     pub confidence: Option<f64>,
     #[serde(default)]
@@ -213,6 +215,7 @@ pub struct TopicPlanRelationProposal {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TopicPlanReconcileRequest {
     pub kind: String,
     pub operation: String,
@@ -491,13 +494,6 @@ impl TopicGraphApplication {
                 diagnostics.push("invalid_planned_topic_id");
                 continue;
             }
-            if ["paper_ids", "paper_refs", "papers", "members"]
-                .iter()
-                .any(|field| action.extra.contains_key(*field))
-            {
-                diagnostics.push("planned_topic_membership_forbidden");
-                continue;
-            }
             if previous
                 .as_ref()
                 .is_some_and(|node| node.node_type == "materialized")
@@ -647,7 +643,10 @@ impl TopicGraphApplication {
                 source_topic_id: proposal.source_topic_id.clone(),
                 target_topic_id: proposal.target_topic_id.clone(),
                 relation: proposal.relation.clone(),
-                status: "suggested".into(),
+                status: proposal
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| "suggested".into()),
                 confidence: proposal.confidence,
                 provenance_json: serde_json::to_string(&proposal.provenance)
                     .unwrap_or_else(|_| "[]".into()),
@@ -659,7 +658,7 @@ impl TopicGraphApplication {
         }
         if !diagnostics.is_empty() || has_broader_cycle(&next) {
             if has_broader_cycle(&next) {
-                diagnostics.push("broader_cycle_rejected");
+                diagnostics.push("relation_cycle");
             }
             return topic_plan_result(
                 "conflict",
@@ -675,7 +674,7 @@ impl TopicGraphApplication {
             .sort_by(|left, right| left.edge_id.cmp(&right.edge_id));
         next.state.singleton_id = 1;
         next.state.index_stale = 1;
-        next.state.updated_at = now;
+        next.state.updated_at = now.clone();
         if set_topic_graph_manifest(&mut next).is_err() {
             return topic_plan_result(
                 "conflict",
@@ -708,24 +707,27 @@ impl TopicGraphApplication {
             );
         }
         let result = self.apply_replacement(Some(&current.state.manifest_hash), &next);
-        topic_plan_result(
-            if result.status == TopicGraphMutationStatus::Committed {
-                "persisted"
-            } else {
-                "conflict"
-            },
-            result
-                .manifest_hash
-                .as_deref()
-                .unwrap_or(&current.state.manifest_hash),
-            coverage_stale,
-            &request.recommended_updates,
-            if result.status == TopicGraphMutationStatus::Committed {
-                Vec::new()
-            } else {
-                vec!["topic_graph_commit_failed"]
-            },
-        )
+        let graph_hash = result
+            .manifest_hash
+            .as_deref()
+            .unwrap_or(&current.state.manifest_hash);
+        if result.status == TopicGraphMutationStatus::Committed {
+            topic_plan_persisted_result(
+                &current.state.manifest_hash,
+                graph_hash,
+                coverage_stale,
+                &request.recommended_updates,
+                &now,
+            )
+        } else {
+            topic_plan_result(
+                "conflict",
+                graph_hash,
+                coverage_stale,
+                &request.recommended_updates,
+                vec!["topic_graph_commit_failed"],
+            )
+        }
     }
 
     pub fn ingest_proposals(&self, request: &TopicGraphIngestRequest) -> TopicGraphMutationResult {
@@ -1557,13 +1559,73 @@ fn topic_plan_result(
     recommended_updates: &[String],
     diagnostics: Vec<&str>,
 ) -> Value {
+    let mut diagnostics = diagnostics;
+    if coverage_stale && !diagnostics.contains(&"coverage_stale") {
+        diagnostics.push("coverage_stale");
+    }
     json!({
         "status":status,
         "graph_hash":graph_hash,
         "coverage_stale":coverage_stale,
         "recommended_updates":recommended_updates,
-        "diagnostics":diagnostics.into_iter().map(|code|json!({"code":code})).collect::<Vec<_>>(),
+        "diagnostics":diagnostics.into_iter().map(topic_plan_diagnostic).collect::<Vec<_>>(),
+        "receipt":Value::Null,
     })
+}
+
+fn topic_plan_persisted_result(
+    before_graph_hash: &str,
+    after_graph_hash: &str,
+    coverage_stale: bool,
+    recommended_updates: &[String],
+    committed_at: &str,
+) -> Value {
+    let transaction_id = canonical_json_hash(&json!({
+        "operation":"topic_plan.reconcile",
+        "beforeGraphHash":before_graph_hash,
+        "afterGraphHash":after_graph_hash,
+        "committedAt":committed_at,
+    }))
+    .unwrap_or_else(|_| format!("topic-plan-{committed_at}"));
+    let diagnostics = if coverage_stale {
+        vec![topic_plan_diagnostic("coverage_stale")]
+    } else {
+        Vec::new()
+    };
+    json!({
+        "status":"persisted",
+        "graph_hash":after_graph_hash,
+        "coverage_stale":coverage_stale,
+        "recommended_updates":recommended_updates,
+        "diagnostics":diagnostics,
+        "receipt":{
+            "schema":"zotero-agents.synthesis-canonical-transaction-receipt.v1",
+            "transaction_id":transaction_id,
+            "operation":"topic_plan.reconcile",
+            "before_graph_hash":before_graph_hash,
+            "after_graph_hash":after_graph_hash,
+            "committed_at":committed_at,
+        },
+    })
+}
+
+fn topic_plan_diagnostic(code: &str) -> Value {
+    let canonical = match code {
+        "planned_topic_revision_conflict"
+        | "topic_graph_compare_and_swap_conflict"
+        | "topic_graph_commit_failed" => "topic_revision_conflict",
+        "invalid_topic_plan_relation" => "relation_endpoint_missing",
+        "relation_cycle" => "relation_cycle",
+        "coverage_stale" => "coverage_stale",
+        _ => "topic_action_noop",
+    };
+    json!({"code":canonical,"message":match canonical {
+        "topic_revision_conflict" => "The Topic plan revision no longer matches the current graph.",
+        "relation_endpoint_missing" => "A proposed relation endpoint is missing or invalid.",
+        "relation_cycle" => "The proposed broader-than relation would create a cycle.",
+        "coverage_stale" => "The library coverage basis changed while the plan was applied.",
+        _ => "A Topic plan action could not change the current graph.",
+    }})
 }
 
 fn set_topic_graph_manifest(snapshot: &mut TopicGraphReplacement) -> Result<(), String> {
@@ -1770,8 +1832,14 @@ mod tests {
             app.replace_snapshot(None, &snapshot("base", false)).status,
             TopicGraphMutationStatus::Committed
         );
-        let mut forbidden = BTreeMap::new();
-        forbidden.insert("paper_refs".into(), json!(["1:ITEM"]));
+        assert!(
+            serde_json::from_value::<TopicPlanAction>(json!({
+                "action":"create",
+                "topic_id":"topic:planned",
+                "paper_refs":["1:ITEM"]
+            }))
+            .is_err()
+        );
         let request = TopicPlanReconcileRequest {
             kind: "topic_plan".into(),
             operation: "reconcile".into(),
@@ -1783,7 +1851,6 @@ mod tests {
                 title: "Planned".into(),
                 definition: "Reusable definition".into(),
                 resolver: json!({"tags":["planned"]}),
-                extra: forbidden,
                 ..serde_json::from_value(json!({
                     "action":"create","topic_id":"placeholder"
                 }))
@@ -1793,19 +1860,7 @@ mod tests {
             coverage_manifest_path: String::new(),
             recommended_updates: Vec::new(),
         };
-        let rejected = app.reconcile_plan(&request, "library");
-        assert_eq!(rejected["status"], "conflict");
-        assert!(
-            app.load()
-                .unwrap()
-                .nodes
-                .iter()
-                .all(|node| node.topic_id != "topic:planned")
-        );
-
-        let mut accepted = request;
-        accepted.topic_actions[0].extra.clear();
-        let persisted = app.reconcile_plan(&accepted, "library");
+        let persisted = app.reconcile_plan(&request, "library");
         assert_eq!(persisted["status"], "persisted");
         let planned = app
             .load()
@@ -1831,7 +1886,7 @@ mod tests {
                 }))
                 .expect("action defaults")
             }],
-            ..accepted
+            ..request
         };
         assert_eq!(
             app.reconcile_plan(&stale_update, "library")["status"],

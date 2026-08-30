@@ -29,6 +29,7 @@ export const SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING =
   "canonical_json_text_chunks.v1" as const;
 export const SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_TARGETS = [
   "topic_apply_assets",
+  "production_client_request",
   "production_client_result",
   "host_export_entries",
 ] as const;
@@ -140,6 +141,21 @@ export type SynthesisSidecarTopicAssetsManifest =
     encoding: typeof SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING;
   };
 
+export type SynthesisSidecarProductionClientRequestManifest =
+  SynthesisSidecarTransferManifestBase<
+    "input",
+    {
+      target: "production_client_request";
+      capability: SynthesisSidecarProductionClientCapability;
+      byteLength: number;
+      sha256: string;
+    },
+    "content"
+  > & {
+    transferVersion: typeof SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION;
+    encoding: typeof SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING;
+  };
+
 export type SynthesisSidecarPublishedContentInputManifest =
   SynthesisSidecarTransferManifestBase<
     "input",
@@ -175,6 +191,7 @@ export type SynthesisSidecarTransferManifest =
   | SynthesisSidecarCitationInputManifest
   | SynthesisSidecarCitationOutputManifest
   | SynthesisSidecarTopicAssetsManifest
+  | SynthesisSidecarProductionClientRequestManifest
   | SynthesisSidecarPublishedContentInputManifest
   | SynthesisSidecarPublishedContentOutputManifest;
 
@@ -788,6 +805,42 @@ export function rebuildSynthesisSidecarTransferManifest(
         header: {
           target: "topic_apply_assets",
           assets: header.assets.map(assetDescriptor),
+        },
+        pages: descriptorKinds(
+          pages,
+          ["content"],
+          "transferManifest.pages.kind",
+        ),
+        rootSha256,
+      };
+    }
+    if (header.target === "production_client_request") {
+      exactFields(
+        header,
+        ["target", "capability", "byteLength", "sha256"],
+        "transferManifest.header",
+      );
+      if (
+        typeof header.capability !== "string" ||
+        !SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.includes(
+          header.capability as SynthesisSidecarProductionClientCapability,
+        )
+      ) {
+        invalid("transferManifest.header.capability");
+      }
+      return {
+        transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+        encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+        direction: "input",
+        header: {
+          target: "production_client_request",
+          capability:
+            header.capability as SynthesisSidecarProductionClientCapability,
+          byteLength: nonNegativeInteger(
+            header.byteLength,
+            "transferManifest.header.byteLength",
+          ),
+          sha256: sha256(header.sha256, "transferManifest.header.sha256"),
         },
         pages: descriptorKinds(
           pages,

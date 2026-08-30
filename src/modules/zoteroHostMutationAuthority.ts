@@ -44,6 +44,7 @@ type MutationTerminalRecord = {
   terminalAt: number;
   lastAccessedAt: number;
   serializedBytes: number;
+  semanticInput: JsonValue;
 };
 
 type MutationRunningRecord = {
@@ -119,6 +120,7 @@ const defaultRuntimeConfiguration = (): MutationRuntimeConfiguration => ({
 let runtimeConfiguration = defaultRuntimeConfiguration();
 const mutationRecords = new Map<string, MutationRecord>();
 const previewTokens = new Map<string, PreviewTokenRecord>();
+const pinnedMutationReceipts = new Map<string, number>();
 
 function requireScope(scope: ZoteroHostMutationCallerScope) {
   const ownerId = String(scope?.ownerId || "").trim();
@@ -185,7 +187,15 @@ function terminalRecords() {
 
 function pruneTerminalRecords(now: number) {
   for (const [key, record] of terminalRecords()) {
-    if (now - record.terminalAt >= TERMINAL_RETENTION_MS) {
+    const receiptId =
+      record.result.outcome === "committed" ||
+      record.result.outcome === "unchanged"
+        ? record.result.receipt.receiptId
+        : "";
+    if (
+      now - record.terminalAt >= TERMINAL_RETENTION_MS &&
+      !pinnedMutationReceipts.has(receiptId)
+    ) {
       mutationRecords.delete(key);
     }
   }
@@ -376,9 +386,55 @@ export async function executeReservedMutation<TResult extends object>(args: {
     terminalAt,
     lastAccessedAt: terminalAt,
     serializedBytes,
+    semanticInput: canonicalSemanticValue(args.semanticInput),
   });
   resolveResult(terminal);
   return terminal as MutationExecutionResult<TResult>;
+}
+
+export type PinnedMutationReceiptEvidence = Readonly<{
+  receipt: MutationReceipt;
+  semanticInput: JsonValue;
+  release(): void;
+}>;
+
+export function pinVerifiedMutationReceipt(
+  receipt: MutationReceipt,
+): PinnedMutationReceiptEvidence | null {
+  assertWorkflowHostStrictJsonValue(receipt as unknown as JsonValue);
+  for (const [, record] of terminalRecords()) {
+    if (
+      record.result.outcome !== "committed" &&
+      record.result.outcome !== "unchanged"
+    ) {
+      continue;
+    }
+    const stored = record.result.receipt;
+    if (
+      stored.receiptId !== receipt.receiptId ||
+      canonicalDigest(stored as unknown as JsonValue) !==
+        canonicalDigest(receipt as unknown as JsonValue)
+    ) {
+      continue;
+    }
+    pinnedMutationReceipts.set(
+      stored.receiptId,
+      (pinnedMutationReceipts.get(stored.receiptId) || 0) + 1,
+    );
+    let released = false;
+    return {
+      receipt: stored,
+      semanticInput: record.semanticInput,
+      release() {
+        if (released) return;
+        released = true;
+        const count = pinnedMutationReceipts.get(stored.receiptId) || 0;
+        if (count <= 1) pinnedMutationReceipts.delete(stored.receiptId);
+        else pinnedMutationReceipts.set(stored.receiptId, count - 1);
+      },
+    };
+  }
+  return null;
 }
 
 export function issueMutationPreviewToken(args: {
@@ -474,5 +530,6 @@ export function configureMutationAuthorityRuntimeForTests(
 export function resetMutationAuthorityRuntimeForTests() {
   mutationRecords.clear();
   previewTokens.clear();
+  pinnedMutationReceipts.clear();
   runtimeConfiguration = defaultRuntimeConfiguration();
 }

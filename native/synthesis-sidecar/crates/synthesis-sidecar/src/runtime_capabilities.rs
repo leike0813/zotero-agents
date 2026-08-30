@@ -97,7 +97,7 @@ fn json_within_bounds_for_capability(
         0,
         nodes,
         max_nodes,
-        if capability.starts_with("client.") {
+        if capability.starts_with("client.") || capability == "transfer.content" {
             MAX_READ_BODY_BYTES
         } else {
             64 * 1024
@@ -608,7 +608,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn production_client_string_uses_the_request_budget() {
+    fn production_client_and_content_transfer_strings_use_the_request_budget() {
         let payload = json!({"args":[{"content":"x".repeat(128 * 1024)}]});
         let mut general_nodes = 0;
         assert!(!json_within_bounds(
@@ -622,6 +622,14 @@ mod tests {
             &payload,
             "client.applyLiteratureDigestSidecar",
             &mut production_nodes,
+            MAX_JSON_NODES,
+        ));
+        let transfer_payload = json!({"page":{"rows":["x".repeat(512 * 1024)]}});
+        let mut transfer_nodes = 0;
+        assert!(json_within_bounds_for_capability(
+            &transfer_payload,
+            "transfer.content",
+            &mut transfer_nodes,
             MAX_JSON_NODES,
         ));
     }

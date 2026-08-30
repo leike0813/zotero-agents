@@ -6,11 +6,21 @@ import {
   type SynthesisClient,
 } from "../../packages/synthesis-contracts/src/index";
 import {
+  createWorkflowSynthesisV11Adapter,
   createWorkflowSynthesisHostApi,
   materializeTopicApplyRequest,
   snapshotWorkflowSynthesisItem,
 } from "../../src/modules/synthesisClient/workflowHostClient";
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
+import {
+  createZoteroHostCapabilityBroker,
+  resetZoteroHostMutationRuntimeForTests,
+} from "../../src/modules/zoteroHostCapabilityBroker";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const WORKFLOW_METHODS = [
@@ -29,6 +39,27 @@ const WORKFLOW_METHODS = [
   "applyTopicPlan",
   "stageTagSuggestions",
 ].sort();
+
+const GROUPED_WORKFLOW_METHODS = {
+  workflowApply: [
+    "applyLiteratureDigest",
+    "applyTopicPlan",
+    "applyTopicSynthesisResult",
+  ],
+  topics: ["getReport"],
+  artifacts: ["readPaperArtifacts"],
+  tags: [
+    "loadVocabulary",
+    "saveVocabulary",
+    "exportVocabularyForRegulator",
+    "listStagedSuggestions",
+    "stageSuggestions",
+    "promoteStagedSuggestions",
+    "discardStagedSuggestions",
+    "withAuditRun",
+    "acknowledgeRegulation",
+  ],
+} as const;
 
 function topicApplyBundle(overrides: Record<string, unknown> = {}) {
   return {
@@ -51,12 +82,32 @@ function fakeClient(calls: string[]): SynthesisClient {
   return {
     workflowApply: {
       applyLiteratureDigestSidecar: record("applyLiteratureDigestSidecar"),
-      applyTopicSynthesisResult: record("applyTopicSynthesisResult"),
+      async applyTopicSynthesisResult(request: unknown) {
+        calls.push("applyTopicSynthesisResult");
+        return { status: "persisted", request };
+      },
+      async applyTopicPlan(request: unknown) {
+        calls.push("applyTopicPlan");
+        return {
+          status: "persisted",
+          graph_hash: "graph-after",
+          coverage_stale: false,
+          recommended_updates: [],
+          diagnostics: [],
+          receipt: {
+            schema: "zotero-agents.synthesis-canonical-transaction-receipt.v1",
+            transaction_id: "transaction-1",
+            operation: "topic_plan.reconcile",
+            before_graph_hash: "graph-before",
+            after_graph_hash: "graph-after",
+            committed_at: "2026-08-30T00:00:00.000Z",
+          },
+        };
+      },
     },
     topics: {
       listWorkflowOptions: record("listWorkflowOptions"),
       getPlanningContext: record("getTopicPlanningContext"),
-      applyPlan: record("applyTopicPlan"),
       getTopicReport: record("getTopicReport"),
     },
     artifacts: {
@@ -64,13 +115,26 @@ function fakeClient(calls: string[]): SynthesisClient {
     },
     tags: {
       loadTagVocabulary: record("loadTagVocabulary"),
-      saveTagVocabulary: record("saveTagVocabulary"),
+      async saveTagVocabulary() {
+        calls.push("saveTagVocabulary");
+        return { status: "committed" };
+      },
       exportTagVocabularyForRegulator: record(
         "exportTagVocabularyForRegulator",
       ),
       listStagedTagSuggestions: record("listStagedTagSuggestions"),
-      stageTagSuggestions: record("stageTagSuggestions"),
-      discardStagedTagSuggestions: record("discardStagedTagSuggestions"),
+      async stageTagSuggestions() {
+        calls.push("stageTagSuggestions");
+        return { staged: [] };
+      },
+      async promoteStagedTagSuggestions() {
+        calls.push("promoteStagedTagSuggestions");
+        return { promoted: [], skipped: [] };
+      },
+      async discardStagedTagSuggestions() {
+        calls.push("discardStagedTagSuggestions");
+        return { discarded: [] };
+      },
       replaceTagAuditRecords: record("replaceTagAuditRecords"),
       clearTagAuditRecord: record("clearTagAuditRecord"),
     },
@@ -97,6 +161,30 @@ async function assertInvalidRequest(run: () => Promise<unknown>) {
 }
 
 describe("Synthesis workflow client migration", function () {
+  it("exposes exactly four groups and fourteen explicit candidate members", function () {
+    const api = createWorkflowSynthesisHostApi({
+      resolveClient: async () => fakeClient([]),
+      resolveAuditExecutionIdentity: async () => ({
+        hostInstanceId: "host-1",
+        principal: {
+          packageId: "package-1",
+          workflowId: "workflow-1",
+          contentDigest: "content-1",
+        },
+      }),
+    });
+
+    assert.deepEqual(Object.keys(api), Object.keys(GROUPED_WORKFLOW_METHODS));
+    for (const [group, members] of Object.entries(GROUPED_WORKFLOW_METHODS)) {
+      assert.deepEqual(Object.keys(api[group as keyof typeof api]), [
+        ...members,
+      ]);
+    }
+    assert.notProperty(api, "applyTopicPlan");
+    assert.notProperty(api.tags, "replaceTagAuditRecords");
+    assert.notProperty(api.tags, "clearTagAuditRecord");
+  });
+
   it("resolves the current Synthesis client for every invocation", async function () {
     const firstCalls: string[] = [];
     const secondCalls: string[] = [];
@@ -108,12 +196,196 @@ describe("Synthesis workflow client migration", function () {
       },
     });
 
-    await api.getTopicReport({ topicId: "topic-a" });
-    await api.getTopicReport({ topicId: "topic-b" });
+    await api.topics.getReport({ topicId: "topic-a" });
+    await api.topics.getReport({ topicId: "topic-b" });
 
     assert.equal(resolutions, 2);
     assert.deepEqual(firstCalls, ["getTopicReport"]);
     assert.deepEqual(secondCalls, ["getTopicReport"]);
+  });
+
+  it("owns the complete traversal audit lifecycle behind one callback", async function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+    try {
+      const item = new Zotero.Item("journalArticle");
+      item.setField("title", "Workflow audit lifecycle");
+      await item.saveTx();
+
+      const calls: string[] = [];
+      const client = fakeClient(calls);
+      let stagedItems = 0;
+      client.tags.beginTagAuditRun = async () => {
+        calls.push("beginTagAuditRun");
+        return {
+          outcome: "ready",
+          run: { auditRunId: "audit-run-1", leaseToken: "lease-1" },
+        };
+      };
+      client.tags.appendTagAuditRun = async (request) => {
+        calls.push("appendTagAuditRun");
+        stagedItems += request.entries.length;
+        return { outcome: "appended", stagedItems };
+      };
+      client.tags.promoteTagAuditRun = async (request) => {
+        calls.push("promoteTagAuditRun");
+        assert.equal(request.visitedItems, stagedItems);
+        return {
+          outcome: "published",
+          snapshot: {
+            schema: "zotero-agents.tag-audit-snapshot.v1",
+            libraryId: item.libraryID,
+            snapshotRevision: "snapshot-1",
+            vocabularyHash: "vocabulary-1",
+            basisDigest: "basis-1",
+            coverageDigest: request.coverageDigest,
+            auditedItems: stagedItems,
+            needsRegulation: 0,
+            publishedAt: "2026-08-30T00:00:00.000Z",
+            updatedAt: "2026-08-30T00:00:00.000Z",
+          },
+        };
+      };
+      client.tags.abortTagAuditRun = async () => {
+        calls.push("abortTagAuditRun");
+        return { outcome: "aborted" };
+      };
+      const broker = createZoteroHostCapabilityBroker();
+      const api = createWorkflowSynthesisHostApi({
+        resolveClient: async () => client,
+        resolveAuditExecutionIdentity: async () => ({
+          hostInstanceId: "host-1",
+          principal: {
+            packageId: "package-1",
+            workflowId: "workflow-1",
+            contentDigest: "content-1",
+          },
+        }),
+      });
+
+      const result = await api.tags.withAuditRun(
+        { libraryId: item.libraryID, vocabularyHash: "vocabulary-1" },
+        {},
+        (writer) =>
+          broker.library.traverseItems(
+            { scope: "top-level-regular", pageSize: 50 },
+            {},
+            (batch) =>
+              writer.append(
+                batch.items.map((entry) => ({
+                  target: {
+                    libraryId: entry.ref.libraryId,
+                    itemKey: entry.ref.key,
+                  },
+                  auditedRevision: entry.revision,
+                  auditedTagDigest: entry.tagDigest,
+                  auditedTags: entry.tags,
+                  evaluation: { state: "compliant" as const },
+                })),
+              ),
+          ),
+      );
+
+      assert.equal(result.outcome, "published");
+      assert.deepEqual(calls, [
+        "beginTagAuditRun",
+        "appendTagAuditRun",
+        "promoteTagAuditRun",
+      ]);
+    } finally {
+      resetZoteroLibraryPageQueryAdapterForTests();
+    }
+  });
+
+  it("acknowledges regulation only from a pinned Host mutation receipt and fresh item state", async function () {
+    const item = new Zotero.Item("journalArticle");
+    Object.assign(item, {
+      version: 1,
+      dateAdded: "2026-08-30T00:00:00.000Z",
+      dateModified: "2026-08-30T00:00:00.000Z",
+    });
+    item.setField("title", "Workflow regulation acknowledgement");
+    await item.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+    try {
+      const mutation = await broker.mutations.execute(
+        {
+          operation: "item.updateTags",
+          operationId: "workflow-regulation-tags",
+          itemRef: { libraryId: item.libraryID, key: item.key },
+          add: ["method:regulated"],
+          remove: [],
+        },
+        { ownerId: "workflow-regulation-test" },
+      );
+      assert.include(["committed", "unchanged"], mutation.outcome);
+      if (
+        mutation.outcome !== "committed" &&
+        mutation.outcome !== "unchanged"
+      ) {
+        assert.fail("expected confirmed tag mutation");
+      }
+      const change = mutation.receipt.changes[0]!;
+      const freshState = await broker.library.getItemAuditState({
+        libraryId: item.libraryID,
+        key: item.key,
+      });
+      assert.equal(freshState.revision, change.after.revision);
+      const calls: string[] = [];
+      const client = fakeClient(calls);
+      client.tags.prepareTagRegulationAcknowledgement = async () => {
+        calls.push("prepareTagRegulationAcknowledgement");
+        return {
+          outcome: "ready",
+          target: { libraryId: item.libraryID, itemKey: item.key },
+          snapshotRevision: "snapshot-1",
+          auditedRevision: change.before!.revision,
+          vocabularyHash: "vocabulary-1",
+          nonCompliantTags: [],
+        };
+      };
+      client.tags.commitTagRegulationAcknowledgement = async (request) => {
+        calls.push("commitTagRegulationAcknowledgement");
+        assert.equal(request.currentRevision, change.after.revision);
+        assert.deepEqual(request.finalTags, ["method:regulated"]);
+        return {
+          outcome: "acknowledged",
+          snapshotRevision: "snapshot-2",
+          remainingNeedsRegulation: 0,
+        };
+      };
+      const api = createWorkflowSynthesisHostApi({
+        resolveClient: async () => client,
+        resolveHostBroker: () => broker,
+      });
+
+      const acknowledged = await api.tags.acknowledgeRegulation({
+        target: { libraryId: item.libraryID, key: item.key },
+        mutationReceipt: mutation.receipt,
+      });
+      assert.deepEqual(acknowledged, {
+        outcome: "acknowledged",
+        snapshotRevision: "snapshot-2",
+        remainingNeedsRegulation: 0,
+      });
+      assert.deepEqual(calls, [
+        "prepareTagRegulationAcknowledgement",
+        "commitTagRegulationAcknowledgement",
+      ]);
+      assert.deepEqual(
+        await api.tags.acknowledgeRegulation({
+          target: { libraryId: item.libraryID, key: item.key },
+          mutationReceipt: {
+            ...mutation.receipt,
+            operation: "item.remove",
+          },
+        }),
+        { outcome: "conflict", reason: "receipt_invalid" },
+      );
+    } finally {
+      resetZoteroHostMutationRuntimeForTests();
+    }
   });
 
   it("exposes the workflow methods and routes topic planning through grouped capabilities", async function () {
@@ -122,7 +394,7 @@ describe("Synthesis workflow client migration", function () {
       reason: string;
       invalidatedSurfaces: string[];
     }> = [];
-    const api = createWorkflowSynthesisHostApi({
+    const api = createWorkflowSynthesisV11Adapter({
       resolveClient: async () => fakeClient(calls),
       notifyChanged(input) {
         changes.push({
@@ -139,6 +411,11 @@ describe("Synthesis workflow client migration", function () {
     await api.applyTopicPlan({
       kind: "topic_plan",
       operation: "reconcile",
+      base_graph_hash: "graph-before",
+      library_index_hash: "library-before",
+      topic_actions: [],
+      relation_proposals: [],
+      recommended_updates: [],
     });
     await api.readPaperArtifacts({ paper_refs: ["1:AAAA1111"] });
     await api.loadTagVocabulary();
@@ -185,10 +462,6 @@ describe("Synthesis workflow client migration", function () {
       },
       {
         reason: "tag_suggestions_stage",
-        invalidatedSurfaces: ["tags"],
-      },
-      {
-        reason: "tag_suggestions_discard",
         invalidatedSurfaces: ["tags"],
       },
       {
@@ -369,7 +642,7 @@ describe("Synthesis workflow client migration", function () {
       mutationCalled = true;
       return {};
     };
-    const api = createWorkflowSynthesisHostApi({
+    const api = createWorkflowSynthesisV11Adapter({
       resolveClient: async () => client,
     });
     await assertInvalidRequest(() =>

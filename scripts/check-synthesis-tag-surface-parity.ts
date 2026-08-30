@@ -69,7 +69,7 @@ export function inspectSynthesisTagSurfaceParity() {
     corpus.bounds.hostPageLimit === 100
       ? []
       : ["invalid corpus bounds"]),
-    ...(ids.length === 19 && new Set(ids).size === ids.length
+    ...(ids.length === 25 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
     ...corpus.operations

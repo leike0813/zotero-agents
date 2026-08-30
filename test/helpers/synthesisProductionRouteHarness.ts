@@ -86,7 +86,7 @@ export function synthesisProductionRouteConfig(args: {
     },
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-repository-foundation.v3",
+    schemaVersion: "synthesis-repository-foundation.v4",
     diagnosticsEnabled: true,
     supervisorInstanceId: args.supervisorInstanceId,
     repositoryDbPath: path.join(args.root, "state", "synthesis.db"),

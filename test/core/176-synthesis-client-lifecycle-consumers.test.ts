@@ -315,7 +315,7 @@ describe("Synthesis lifecycle client consumers", function () {
     const workflow = createWorkflowSynthesisHostApi({
       notifyChanged() {},
     });
-    assert.deepEqual(await workflow.getTopicReport({ topicId: "topic-1" }), {
+    assert.deepEqual(await workflow.topics.getReport({ topicId: "topic-1" }), {
       ok: true,
       status: "available",
       topic_id: "topic-1",

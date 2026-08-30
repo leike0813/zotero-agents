@@ -121,6 +121,7 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
   "library.items.sync_snapshot",
   "library.items.list_page",
   "library.items.get_by_ref",
+  "library.items.get_audit_state",
   "library.artifacts.scan_page",
   "library.artifacts.read",
   "library.representative_image.read",
@@ -138,6 +139,18 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
 export type SynthesisReverseHostCapability =
   (typeof SYNTHESIS_REVERSE_HOST_CAPABILITIES)[number];
 
+export type SynthesisHostTagAuditStateRequest = {
+  targets: Array<{ libraryId: number; itemKey: string }>;
+};
+
+export type SynthesisHostTagAuditStateResult = {
+  states: Array<{
+    target: { libraryId: number; itemKey: string };
+    revision: string;
+    tagDigest: string;
+  }>;
+};
+
 export interface SynthesisReverseHostContractMap {
   "library.items.sync_snapshot": {
     request: Omit<ZoteroLibrarySnapshotRequestDto, "libraryId">;
@@ -150,6 +163,10 @@ export interface SynthesisReverseHostContractMap {
   "library.items.get_by_ref": {
     request: Omit<SynthesisHostLibraryItemsByRefRequest, "libraryId">;
     result: SynthesisHostLibraryItemsByRefResult;
+  };
+  "library.items.get_audit_state": {
+    request: SynthesisHostTagAuditStateRequest;
+    result: SynthesisHostTagAuditStateResult;
   };
   "library.artifacts.scan_page": {
     request: Omit<SynthesisHostArtifactScanPageRequest, "libraryId">;
@@ -753,6 +770,39 @@ export function rebuildSynthesisReverseHostPayload<
         rebuilt = request;
       }
       break;
+    case "library.items.get_audit_state": {
+      const payload = toSynthesisJsonObject(value, "hostTagAuditStateRequest");
+      exactFields(payload, ["targets"], "hostTagAuditStateRequest");
+      if (!Array.isArray(payload.targets) || payload.targets.length > 500) {
+        invalid("hostTagAuditStateRequest.targets");
+      }
+      rebuilt = {
+        targets: payload.targets.map((value, index) => {
+          const target = toSynthesisJsonObject(
+            value,
+            `hostTagAuditStateRequest.targets[${index}]`,
+          );
+          exactFields(
+            target,
+            ["libraryId", "itemKey"],
+            `hostTagAuditStateRequest.targets[${index}]`,
+          );
+          return {
+            libraryId: safeInteger(
+              target.libraryId,
+              `hostTagAuditStateRequest.targets[${index}].libraryId`,
+              1,
+            ),
+            itemKey: boundedString(
+              target.itemKey,
+              `hostTagAuditStateRequest.targets[${index}].itemKey`,
+              128,
+            ),
+          };
+        }),
+      };
+      break;
+    }
     case "library.artifacts.scan_page":
       {
         const payload = toSynthesisJsonObject(
@@ -838,6 +888,59 @@ export function rebuildSynthesisReverseHostResult<
     case "library.items.get_by_ref":
       rebuilt = rebuildSynthesisHostLibraryItemsByRefResult(value);
       break;
+    case "library.items.get_audit_state": {
+      const result = toSynthesisJsonObject(value, "hostTagAuditStateResult");
+      exactFields(result, ["states"], "hostTagAuditStateResult");
+      if (!Array.isArray(result.states) || result.states.length > 500) {
+        invalid("hostTagAuditStateResult.states");
+      }
+      rebuilt = {
+        states: result.states.map((value, index) => {
+          const state = toSynthesisJsonObject(
+            value,
+            `hostTagAuditStateResult.states[${index}]`,
+          );
+          exactFields(
+            state,
+            ["target", "revision", "tagDigest"],
+            `hostTagAuditStateResult.states[${index}]`,
+          );
+          const target = toSynthesisJsonObject(
+            state.target,
+            `hostTagAuditStateResult.states[${index}].target`,
+          );
+          exactFields(
+            target,
+            ["libraryId", "itemKey"],
+            `hostTagAuditStateResult.states[${index}].target`,
+          );
+          return {
+            target: {
+              libraryId: safeInteger(
+                target.libraryId,
+                `hostTagAuditStateResult.states[${index}].target.libraryId`,
+                1,
+              ),
+              itemKey: boundedString(
+                target.itemKey,
+                `hostTagAuditStateResult.states[${index}].target.itemKey`,
+                128,
+              ),
+            },
+            revision: boundedString(
+              state.revision,
+              `hostTagAuditStateResult.states[${index}].revision`,
+              256,
+            ),
+            tagDigest: hash(
+              state.tagDigest,
+              `hostTagAuditStateResult.states[${index}].tagDigest`,
+            ),
+          };
+        }),
+      };
+      break;
+    }
     case "library.artifacts.scan_page":
       rebuilt = rebuildSynthesisHostArtifactScanPageResult(value);
       break;

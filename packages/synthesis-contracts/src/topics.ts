@@ -41,9 +41,7 @@ export type SynthesisWorkflowTopicOptionsRequest = {
   filter: "all" | "updatable" | "planned";
 };
 
-export type SynthesisTopicPlan = SynthesisJsonObject;
 export type SynthesisTopicPlanningContext = SynthesisJsonObject;
-export type SynthesisTopicPlanReconcileResult = SynthesisJsonObject;
 
 export type SynthesisWorkflowTopicOptionsResult = {
   options: SynthesisWorkflowTopicOption[];
@@ -315,9 +313,6 @@ export interface SynthesisTopicsClient {
     request: SynthesisWorkflowTopicOptionsRequest,
   ): Promise<SynthesisWorkflowTopicOptionsResult>;
   getPlanningContext(): Promise<SynthesisTopicPlanningContext>;
-  applyPlan(
-    plan: SynthesisTopicPlan,
-  ): Promise<SynthesisTopicPlanReconcileResult>;
   getTopicReport(
     request: SynthesisTopicReportRequest,
   ): Promise<SynthesisTopicReportResult>;

@@ -93,9 +93,9 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
   {
     id: "tag",
     schema: "synthesis-tag-surface-parity.v1",
-    operations: 19,
+    operations: 25,
     operationFingerprint:
-      "b1426370401c39112148eb660460f4fa88c0ae18cbbe3137e59bc257534d9e23",
+      "58e6b10a3ca48adb8c9e38fc4328ad6b82c6d0f5ec845036c8bafdc9afbabfb6",
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-tag-surface-v1/corpus.json",
     evidencePath: "test/core/233-synthesis-native-tag-surface.test.ts",

@@ -1,5 +1,10 @@
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
+use synthesis_application::tag_audit::{
+    TagAuditRunAbortRequest, TagAuditRunAppendRequest, TagAuditRunBeginRequest,
+    TagAuditRunPromoteRequest, TagRegulationAcknowledgementPrepareRequest,
+    TagRegulationVerifiedCommit,
+};
 use synthesis_application::tag_vocabulary::{
     TagImportPreview, TagMutationResult, TagSelectionRequest, TagStagedUpdateRequest,
     TagSuggestionStageRequest, TagVocabularyEntryDeleteRequest, TagVocabularyEntryUpdateRequest,
@@ -129,6 +134,18 @@ pub(crate) const TAG_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
         .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
     ProductionClientRouteEntry::new("client.replaceTagAuditRecords", replace_audits),
     ProductionClientRouteEntry::new("client.clearTagAuditRecord", clear_audit),
+    ProductionClientRouteEntry::new("client.beginTagAuditRun", begin_audit_run),
+    ProductionClientRouteEntry::new("client.appendTagAuditRun", append_audit_run),
+    ProductionClientRouteEntry::new("client.promoteTagAuditRun", promote_audit_run),
+    ProductionClientRouteEntry::new("client.abortTagAuditRun", abort_audit_run),
+    ProductionClientRouteEntry::new(
+        "client.prepareTagRegulationAcknowledgement",
+        prepare_regulation_acknowledgement,
+    ),
+    ProductionClientRouteEntry::new(
+        "client.commitTagRegulationAcknowledgement",
+        commit_regulation_acknowledgement,
+    ),
 ];
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
@@ -318,4 +335,59 @@ fn clear_audit(apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
     apps.tags
         .clear_audit(request.library_id, &request.item_key)?;
     Ok(json!({"ok":true}))
+}
+
+fn begin_audit_run(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    let run = apps
+        .tag_audits
+        .begin(&one::<TagAuditRunBeginRequest>(args)?)?;
+    Ok(json!({"outcome":"ready","run":run}))
+}
+
+fn append_audit_run(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    let outcome = apps
+        .tag_audits
+        .append(&one::<TagAuditRunAppendRequest>(args)?)?;
+    Ok(match outcome {
+        synthesis_repository::TagAuditAppendOutcome::Appended { staged_items } => {
+            json!({"outcome":"appended","stagedItems":staged_items})
+        }
+        synthesis_repository::TagAuditAppendOutcome::AlreadyAppended { staged_items } => {
+            json!({"outcome":"already_appended","stagedItems":staged_items})
+        }
+    })
+}
+
+fn promote_audit_run(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    wire(
+        apps.tag_audits
+            .promote(&one::<TagAuditRunPromoteRequest>(args)?)?,
+    )
+}
+
+fn abort_audit_run(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    wire(
+        apps.tag_audits
+            .abort(&one::<TagAuditRunAbortRequest>(args)?)?,
+    )
+}
+
+fn prepare_regulation_acknowledgement(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<Value, String> {
+    wire(
+        apps.tag_audits
+            .prepare_acknowledgement(&one::<TagRegulationAcknowledgementPrepareRequest>(args)?)?,
+    )
+}
+
+fn commit_regulation_acknowledgement(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<Value, String> {
+    wire(
+        apps.tag_audits
+            .commit_acknowledgement(&one::<TagRegulationVerifiedCommit>(args)?)?,
+    )
 }

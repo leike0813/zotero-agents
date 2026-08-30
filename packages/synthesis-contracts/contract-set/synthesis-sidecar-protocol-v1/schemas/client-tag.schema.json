@@ -345,6 +345,228 @@
         "previewDigest": { "$ref": "common.schema.json#/$defs/sha256" }
       }
     },
+    "TagAuditRunHandle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["auditRunId", "leaseToken"],
+      "properties": {
+        "auditRunId": { "$ref": "#/$defs/NonEmptyString" },
+        "leaseToken": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "TagAuditExecutionIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostInstanceId", "principal"],
+      "properties": {
+        "hostInstanceId": { "$ref": "#/$defs/NonEmptyString" },
+        "principal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["packageId", "workflowId", "contentDigest"],
+          "properties": {
+            "packageId": { "$ref": "#/$defs/NonEmptyString" },
+            "workflowId": { "$ref": "#/$defs/NonEmptyString" },
+            "contentDigest": { "$ref": "#/$defs/NonEmptyString" }
+          }
+        }
+      }
+    },
+    "TagAuditStagingEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "auditedRevision",
+        "auditedTagDigest",
+        "auditedTags",
+        "evaluation"
+      ],
+      "properties": {
+        "target": { "$ref": "#/$defs/HostItemRef" },
+        "auditedRevision": { "$ref": "#/$defs/NonEmptyString" },
+        "auditedTagDigest": { "$ref": "#/$defs/NonEmptyString" },
+        "auditedTags": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        },
+        "evaluation": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["state"],
+              "properties": { "state": { "const": "compliant" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["state", "nonCompliantTags"],
+              "properties": {
+                "state": { "const": "needs_regulation" },
+                "nonCompliantTags": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "uniqueItems": true,
+                  "items": { "$ref": "#/$defs/NonEmptyString" }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "TagAuditSnapshotSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "libraryId",
+        "snapshotRevision",
+        "vocabularyHash",
+        "basisDigest",
+        "coverageDigest",
+        "auditedItems",
+        "needsRegulation",
+        "publishedAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "schema": { "const": "zotero-agents.tag-audit-snapshot.v1" },
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "snapshotRevision": { "$ref": "#/$defs/NonEmptyString" },
+        "vocabularyHash": { "$ref": "#/$defs/NonEmptyString" },
+        "basisDigest": { "$ref": "#/$defs/NonEmptyString" },
+        "coverageDigest": { "$ref": "#/$defs/NonEmptyString" },
+        "auditedItems": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "needsRegulation": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "publishedAt": { "$ref": "#/$defs/NonEmptyString" },
+        "updatedAt": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "TagAuditRunResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "snapshot"],
+          "properties": {
+            "outcome": { "const": "published" },
+            "snapshot": { "$ref": "#/$defs/TagAuditSnapshotSummary" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "outcome",
+            "auditedItems",
+            "conflictCount",
+            "conflicts",
+            "retryable"
+          ],
+          "properties": {
+            "outcome": { "const": "conflicted" },
+            "auditedItems": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "conflictCount": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "conflicts": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target", "auditedRevision", "currentRevision"],
+                "properties": {
+                  "target": { "$ref": "#/$defs/HostItemRef" },
+                  "auditedRevision": { "$ref": "#/$defs/NonEmptyString" },
+                  "currentRevision": { "$ref": "#/$defs/NonEmptyString" }
+                }
+              }
+            },
+            "retryable": { "const": true }
+          }
+        }
+      ]
+    },
+    "TagRegulationAcknowledgementResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "outcome",
+            "snapshotRevision",
+            "remainingNeedsRegulation"
+          ],
+          "properties": {
+            "outcome": { "const": "acknowledged" },
+            "snapshotRevision": { "$ref": "#/$defs/NonEmptyString" },
+            "remainingNeedsRegulation": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "snapshotRevision"],
+          "properties": {
+            "outcome": { "const": "already_acknowledged" },
+            "snapshotRevision": { "$ref": "#/$defs/NonEmptyString" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "reason"],
+          "properties": {
+            "outcome": { "const": "stale" },
+            "reason": {
+              "enum": [
+                "item_revision_changed",
+                "audit_snapshot_changed",
+                "vocabulary_changed",
+                "final_tags_changed",
+                "still_noncompliant"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "reason"],
+          "properties": {
+            "outcome": { "const": "conflict" },
+            "reason": {
+              "enum": [
+                "receipt_invalid",
+                "wrong_operation",
+                "wrong_target",
+                "audited_revision_mismatch",
+                "receipt_delta_inconsistent"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "properties": { "outcome": { "const": "not_found" } }
+        }
+      ]
+    },
     "InitializeBuiltinTagPolicyRequest": { "$ref": "#/$defs/NoArgs" },
     "InitializeBuiltinTagPolicyResult": { "$ref": "#/$defs/TagSnapshot" },
     "IsBuiltinTagPolicyInitializedRequest": { "$ref": "#/$defs/NoArgs" },
@@ -376,7 +598,20 @@
       "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation"
     },
     "ExportTagVocabularyForRegulatorRequest": { "$ref": "#/$defs/NoArgs" },
-    "ExportTagVocabularyForRegulatorResult": { "$ref": "#/$defs/StringList" },
+    "ExportTagVocabularyForRegulatorResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vocabularyHash", "allowedTags"],
+      "properties": {
+        "vocabularyHash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "allowedTags": {
+          "type": "array",
+          "maxItems": 100000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/NonEmptyString" }
+        }
+      }
+    },
     "ListStagedTagSuggestionsRequest": { "$ref": "#/$defs/NoArgs" },
     "ListStagedTagSuggestionsResult": {
       "type": "array",
@@ -595,6 +830,265 @@
       }
     },
     "ApplyTagVocabularyImportResult": { "$ref": "#/$defs/MutationResult" },
+    "BeginTagAuditRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["libraryId", "vocabularyHash", "executionIdentity"],
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "vocabularyHash": { "$ref": "#/$defs/NonEmptyString" },
+              "executionIdentity": {
+                "$ref": "#/$defs/TagAuditExecutionIdentity"
+              }
+            }
+          }
+        }
+      }
+    },
+    "BeginTagAuditRunResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "run"],
+      "properties": {
+        "outcome": { "const": "ready" },
+        "run": { "$ref": "#/$defs/TagAuditRunHandle" }
+      }
+    },
+    "ProductionClientRequestTransferControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestTransfer"],
+      "properties": {
+        "requestTransfer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessionId"],
+          "properties": { "sessionId": { "$ref": "#/$defs/NonEmptyString" } }
+        }
+      }
+    },
+    "AppendTagAuditRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["run", "sequence", "batchDigest", "entries"],
+                "properties": {
+                  "run": { "$ref": "#/$defs/TagAuditRunHandle" },
+                  "sequence": {
+                    "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+                  },
+                  "batchDigest": { "$ref": "#/$defs/NonEmptyString" },
+                  "entries": {
+                    "type": "array",
+                    "maxItems": 500,
+                    "items": { "$ref": "#/$defs/TagAuditStagingEntry" }
+                  }
+                }
+              },
+              { "$ref": "#/$defs/ProductionClientRequestTransferControl" }
+            ]
+          }
+        }
+      }
+    },
+    "AppendTagAuditRunResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "stagedItems"],
+      "properties": {
+        "outcome": { "enum": ["appended", "already_appended"] },
+        "stagedItems": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
+    },
+    "PromoteTagAuditRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["run", "visitedItems", "coverageDigest", "evidenceId"],
+            "properties": {
+              "run": { "$ref": "#/$defs/TagAuditRunHandle" },
+              "visitedItems": {
+                "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+              },
+              "coverageDigest": { "$ref": "#/$defs/NonEmptyString" },
+              "evidenceId": { "$ref": "#/$defs/NonEmptyString" }
+            }
+          }
+        }
+      }
+    },
+    "PromoteTagAuditRunResult": { "$ref": "#/$defs/TagAuditRunResult" },
+    "AbortTagAuditRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["run", "reason"],
+            "properties": {
+              "run": { "$ref": "#/$defs/TagAuditRunHandle" },
+              "reason": {
+                "enum": ["canceled", "resource_limited", "conflicted", "failed"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "AbortTagAuditRunResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome"],
+      "properties": { "outcome": { "enum": ["aborted", "already_terminal"] } }
+    },
+    "PrepareTagRegulationAcknowledgementRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target", "receiptId"],
+            "properties": {
+              "target": { "$ref": "#/$defs/HostItemRef" },
+              "receiptId": { "$ref": "#/$defs/NonEmptyString" }
+            }
+          }
+        }
+      }
+    },
+    "PrepareTagRegulationAcknowledgementResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "outcome",
+            "target",
+            "snapshotRevision",
+            "auditedRevision",
+            "vocabularyHash",
+            "nonCompliantTags"
+          ],
+          "properties": {
+            "outcome": { "const": "ready" },
+            "target": { "$ref": "#/$defs/HostItemRef" },
+            "snapshotRevision": { "$ref": "#/$defs/NonEmptyString" },
+            "auditedRevision": { "$ref": "#/$defs/NonEmptyString" },
+            "vocabularyHash": { "$ref": "#/$defs/NonEmptyString" },
+            "nonCompliantTags": {
+              "type": "array",
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/NonEmptyString" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "snapshotRevision"],
+          "properties": {
+            "outcome": { "const": "already_acknowledged" },
+            "snapshotRevision": { "$ref": "#/$defs/NonEmptyString" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "properties": { "outcome": { "const": "not_found" } }
+        }
+      ]
+    },
+    "CommitTagRegulationAcknowledgementRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schema",
+              "target",
+              "receiptId",
+              "expectedSnapshotRevision",
+              "auditedRevision",
+              "currentRevision",
+              "finalTagDigest",
+              "finalTags",
+              "vocabularyHash"
+            ],
+            "properties": {
+              "schema": {
+                "const": "zotero-agents.tag-regulation-verified-commit.v1"
+              },
+              "target": { "$ref": "#/$defs/HostItemRef" },
+              "receiptId": { "$ref": "#/$defs/NonEmptyString" },
+              "expectedSnapshotRevision": { "$ref": "#/$defs/NonEmptyString" },
+              "auditedRevision": { "$ref": "#/$defs/NonEmptyString" },
+              "currentRevision": { "$ref": "#/$defs/NonEmptyString" },
+              "finalTagDigest": { "$ref": "#/$defs/NonEmptyString" },
+              "finalTags": {
+                "type": "array",
+                "maxItems": 100,
+                "uniqueItems": true,
+                "items": { "$ref": "#/$defs/NonEmptyString" }
+              },
+              "vocabularyHash": { "$ref": "#/$defs/NonEmptyString" }
+            }
+          }
+        }
+      }
+    },
+    "CommitTagRegulationAcknowledgementResult": {
+      "$ref": "#/$defs/TagRegulationAcknowledgementResult"
+    },
     "ReplaceTagAuditRecordsPayload": {
       "type": "object",
       "additionalProperties": false,

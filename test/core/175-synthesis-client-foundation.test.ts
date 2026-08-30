@@ -4,6 +4,8 @@ import path from "path";
 import {
   SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS,
   SynthesisClientError,
+  rebuildTagAuditStagingEntries,
+  rebuildTagRegulationVerifiedCommitDto,
   rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisWorkbenchSurfaceResult,
   type SynthesisWorkflowTopicOptionsResult,
@@ -74,6 +76,78 @@ function conceptMutation(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Synthesis client foundation", function () {
+  it("rebuilds audit rows and verified acknowledgement commits as closed JSON contracts", function () {
+    assert.deepEqual(
+      rebuildTagAuditStagingEntries([
+        {
+          target: { libraryId: 1, itemKey: "AAAA1111" },
+          auditedRevision: "revision-1",
+          auditedTagDigest: "digest-1",
+          auditedTags: ["method:review", "topic:agents"],
+          evaluation: {
+            state: "needs_regulation",
+            nonCompliantTags: ["topic:agents"],
+          },
+        },
+      ]),
+      [
+        {
+          target: { libraryId: 1, itemKey: "AAAA1111" },
+          auditedRevision: "revision-1",
+          auditedTagDigest: "digest-1",
+          auditedTags: ["method:review", "topic:agents"],
+          evaluation: {
+            state: "needs_regulation",
+            nonCompliantTags: ["topic:agents"],
+          },
+        },
+      ],
+    );
+    assert.deepEqual(
+      rebuildTagRegulationVerifiedCommitDto({
+        schema: "zotero-agents.tag-regulation-verified-commit.v1",
+        target: { libraryId: 1, itemKey: "AAAA1111" },
+        receiptId: "receipt-1",
+        expectedSnapshotRevision: "snapshot-1",
+        auditedRevision: "revision-1",
+        currentRevision: "revision-2",
+        finalTagDigest: "digest-2",
+        finalTags: ["method:review"],
+        vocabularyHash: "vocabulary-1",
+      }),
+      {
+        schema: "zotero-agents.tag-regulation-verified-commit.v1",
+        target: { libraryId: 1, itemKey: "AAAA1111" },
+        receiptId: "receipt-1",
+        expectedSnapshotRevision: "snapshot-1",
+        auditedRevision: "revision-1",
+        currentRevision: "revision-2",
+        finalTagDigest: "digest-2",
+        finalTags: ["method:review"],
+        vocabularyHash: "vocabulary-1",
+      },
+    );
+  });
+
+  it("rejects audit evaluations that are not a subset of the same-read tags", function () {
+    assert.throws(
+      () =>
+        rebuildTagAuditStagingEntries([
+          {
+            target: { libraryId: 1, itemKey: "AAAA1111" },
+            auditedRevision: "revision-1",
+            auditedTagDigest: "digest-1",
+            auditedTags: ["method:review"],
+            evaluation: {
+              state: "needs_regulation",
+              nonCompliantTags: ["topic:missing"],
+            },
+          },
+        ]),
+      SynthesisClientError,
+    );
+  });
+
   it("classifies non-JSON capability values by protocol direction", function () {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
@@ -166,6 +240,46 @@ describe("Synthesis client foundation", function () {
     );
     assert.equal(requestedFilter, "updatable");
     assert.notProperty(client, "listWorkflowTopicOptions");
+  });
+
+  it("routes canonical Topic plan apply through workflowApply without a topics alias", async function () {
+    let captured: unknown;
+    const client = createTestSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async applyTopicPlan(request) {
+        captured = request;
+        return {
+          status: "conflict",
+          graph_hash: "graph-current",
+          coverage_stale: false,
+          recommended_updates: [],
+          diagnostics: [],
+          receipt: null,
+        };
+      },
+    });
+    const request = {
+      kind: "topic_plan",
+      operation: "reconcile",
+      base_graph_hash: "graph-basis",
+      library_index_hash: "library-basis",
+      topic_actions: [],
+      relation_proposals: [],
+      recommended_updates: [],
+    };
+
+    assert.deepEqual(await client.workflowApply.applyTopicPlan(request), {
+      status: "conflict",
+      graph_hash: "graph-current",
+      coverage_stale: false,
+      recommended_updates: [],
+      diagnostics: [],
+      receipt: null,
+    });
+    assert.deepEqual(captured, request);
+    assert.notProperty(client.topics, "applyPlan");
   });
 
   it("normalizes ordinary failures to a stable client error", async function () {
@@ -764,7 +878,10 @@ describe("Synthesis client foundation", function () {
       },
       async exportTagVocabularyForRegulator() {
         calls.push("export");
-        return ["data:coco", "model:detr"];
+        return {
+          vocabularyHash: "vocabulary-hash",
+          allowedTags: ["data:coco", "model:detr"],
+        };
       },
     });
 
@@ -779,10 +896,10 @@ describe("Synthesis client foundation", function () {
       await client.tags.rebuildTagVocabularyIndex(),
       maintenanceOperation("tag-vocabulary:rebuild"),
     );
-    assert.deepEqual(await client.tags.exportTagVocabularyForRegulator(), [
-      "data:coco",
-      "model:detr",
-    ]);
+    assert.deepEqual(await client.tags.exportTagVocabularyForRegulator(), {
+      vocabularyHash: "vocabulary-hash",
+      allowedTags: ["data:coco", "model:detr"],
+    });
     assert.deepEqual(calls, ["validate", "rebuild", "export"]);
   });
 
@@ -806,7 +923,7 @@ describe("Synthesis client foundation", function () {
         });
       },
       async exportTagVocabularyForRegulator() {
-        return ["valid", 7];
+        return { vocabularyHash: "hash", allowedTags: ["valid", 7] };
       },
     });
     const invalidResultClient = createTestSynthesisClient({

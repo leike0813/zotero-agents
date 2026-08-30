@@ -76,6 +76,9 @@ describe("Synthesis reverse Host handlers", function () {
       tagEffectPort: {
         applyBatch: () => result("tags.applyBatch") as never,
       },
+      tagAuditStatePort: {
+        read: () => result("tags.readAuditState") as never,
+      },
       webDavPort: {
         describe: () => result("webdav.describe") as never,
         readText: () => result("webdav.readText") as never,
@@ -114,6 +117,10 @@ describe("Synthesis reverse Host handlers", function () {
       { libraryId: 1, paperRefs: [] },
       {} as never,
     );
+    await handlers["library.items.get_audit_state"](
+      { targets: [{ libraryId: 1, itemKey: "AAAA1111" }] },
+      {} as never,
+    );
     await handlers["library.artifacts.scan_page"](
       { libraryId: 1 },
       {} as never,
@@ -137,6 +144,7 @@ describe("Synthesis reverse Host handlers", function () {
     assert.deepEqual(calls, [
       "library.listItemsPage",
       "library.getItemsByRef",
+      "tags.readAuditState",
       "artifacts.scanPage",
       "artifacts.read",
       "webdav.describe",

@@ -2648,6 +2648,19 @@
         "evidence_refs": { "$ref": "#/$defs/TopicPlanningEvidenceList" }
       }
     },
+    "ProductionClientRequestTransferControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestTransfer"],
+      "properties": {
+        "requestTransfer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessionId"],
+          "properties": { "sessionId": { "$ref": "#/$defs/String" } }
+        }
+      }
+    },
     "ApplyTopicPlanRequest": {
       "type": "object",
       "additionalProperties": false,
@@ -2658,35 +2671,40 @@
           "minItems": 1,
           "maxItems": 1,
           "items": {
-            "type": "object",
-            "required": [
-              "kind",
-              "operation",
-              "base_graph_hash",
-              "library_index_hash",
-              "topic_actions",
-              "relation_proposals",
-              "recommended_updates"
-            ],
-            "properties": {
-              "kind": { "const": "topic_plan" },
-              "operation": { "const": "reconcile" },
-              "base_graph_hash": { "type": "string" },
-              "library_index_hash": { "type": "string" },
-              "topic_actions": {
-                "type": "array",
-                "maxItems": 250,
-                "items": { "$ref": "#/$defs/TopicPlanAction" }
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "operation",
+                  "base_graph_hash",
+                  "library_index_hash",
+                  "topic_actions",
+                  "relation_proposals",
+                  "recommended_updates"
+                ],
+                "properties": {
+                  "kind": { "const": "topic_plan" },
+                  "operation": { "const": "reconcile" },
+                  "base_graph_hash": { "type": "string" },
+                  "library_index_hash": { "type": "string" },
+                  "topic_actions": {
+                    "type": "array",
+                    "maxItems": 250,
+                    "items": { "$ref": "#/$defs/TopicPlanAction" }
+                  },
+                  "relation_proposals": {
+                    "type": "array",
+                    "maxItems": 1000,
+                    "items": { "$ref": "#/$defs/TopicPlanRelationProposal" }
+                  },
+                  "coverage_manifest_path": { "type": "string" },
+                  "recommended_updates": { "$ref": "#/$defs/Strings" }
+                },
+                "additionalProperties": false
               },
-              "relation_proposals": {
-                "type": "array",
-                "maxItems": 1000,
-                "items": { "$ref": "#/$defs/TopicPlanRelationProposal" }
-              },
-              "coverage_manifest_path": { "type": "string" },
-              "recommended_updates": { "$ref": "#/$defs/Strings" }
-            },
-            "additionalProperties": false
+              { "$ref": "#/$defs/ProductionClientRequestTransferControl" }
+            ]
           }
         }
       }
@@ -2699,7 +2717,8 @@
         "graph_hash",
         "coverage_stale",
         "recommended_updates",
-        "diagnostics"
+        "diagnostics",
+        "receipt"
       ],
       "properties": {
         "status": {
@@ -2716,12 +2735,52 @@
             "additionalProperties": false,
             "required": ["code"],
             "properties": {
-              "code": { "$ref": "#/$defs/String" },
-              "message": { "type": "string", "maxLength": 65536 },
+              "code": {
+                "enum": [
+                  "topic_action_noop",
+                  "topic_revision_conflict",
+                  "relation_duplicate",
+                  "relation_endpoint_missing",
+                  "relation_cycle",
+                  "coverage_stale"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              },
               "source_topic_id": { "$ref": "#/$defs/String" },
               "target_topic_id": { "$ref": "#/$defs/String" }
             }
           }
+        },
+        "receipt": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schema",
+                "transaction_id",
+                "operation",
+                "before_graph_hash",
+                "after_graph_hash",
+                "committed_at"
+              ],
+              "properties": {
+                "schema": {
+                  "const": "zotero-agents.synthesis-canonical-transaction-receipt.v1"
+                },
+                "transaction_id": { "$ref": "#/$defs/String" },
+                "operation": { "const": "topic_plan.reconcile" },
+                "before_graph_hash": { "$ref": "#/$defs/String" },
+                "after_graph_hash": { "$ref": "#/$defs/String" },
+                "committed_at": { "$ref": "#/$defs/String" }
+              }
+            }
+          ]
         }
       }
     },

@@ -9,12 +9,12 @@ Architecture source: [`artifact/workflow-host-v12-architecture-decisions.md`](..
 ## What Changes
 
 - Define the grouped `workflowApply`, `topics`, `artifacts`, and `tags` Workflow projection with exactly fourteen callable members.
-- Add canonical `applyTopicPlan`, staged-tag promotion, callback-scoped tag audit, and regulation acknowledgement contracts across the shared package, TypeScript client, and Rust sidecar.
+- Add canonical `applyTopicPlan`, staged-tag promotion, callback-scoped tag audit, and two-phase regulation acknowledgement contracts across the shared package, TypeScript client, and Rust sidecar.
 - Make `withAuditRun` hide begin/append/finalize/abort, active ledger, lease, fencing, promotion, cancellation, and cleanup.
 - Require regulation acknowledgement to consume a Host-confirmed mutation receipt rather than a raw clear request.
-- Migrate built-in Synthesis and literature-workbench tag consumers to grouped names.
 - Keep reverse Host effects on existing typed ports and keep Rust application/repository ownership intact.
-- Prepare grouped adapters while retaining v11 flat names until final activation; final deletion of the legacy TypeScript service remains out of scope.
+- Prepare the grouped candidate behind one v11 flat adapter. Eleven equivalent flat calls delegate to the grouped implementation; the three v11-only planning/audit compatibility calls remain invocation-late legacy passthroughs until atomic v12 activation.
+- Final deletion of the legacy TypeScript service remains out of scope.
 
 ## Capabilities
 
@@ -27,8 +27,9 @@ None.
 - `synthesis-layer-integration`: Define the grouped Workflow projection and canonical package/native parity.
 - `synthesis-workflow-client`: Add the fourteen-member grouped client facade without exposing transport or repository internals.
 - `synthesis-tag-vocabulary`: Add callback-scoped audit promotion and mutation-receipt regulation acknowledgement.
+- `zotero-host-broker-capability-api`: Deliver the Broker-owned canonical tag digest with each traversal item so audit callbacks can forward same-read evidence without hashing tags themselves.
 
 ## Impact
 
-- Canonical Synthesis contracts, TypeScript Synthesis client composition, Rust application/repository owners, built-in Synthesis workflows, tag auditor/regulator/bootstrapper, and existing native/client/workflow tests.
-- No Workflow Host flat alias removal before activation, no repository or telemetry exposure, no new reverse-Host path, no legacy-service deletion, dependency change, or release action.
+- Canonical Synthesis contracts, the traversal-only Workflow Host item DTO, Broker traversal serialization, TypeScript Synthesis client composition, Rust application/repository owners, and existing native/client/workflow tests.
+- No Workflow Host flat alias removal before activation, no repository or telemetry exposure, no public reverse-Host path, no legacy-service deletion, dependency change, or release action.

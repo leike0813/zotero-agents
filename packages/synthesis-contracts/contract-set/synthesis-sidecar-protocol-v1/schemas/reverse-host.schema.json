@@ -328,6 +328,39 @@
         }
       }
     },
+    "LibraryItemsGetAuditStateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targets"],
+      "properties": {
+        "targets": {
+          "type": "array",
+          "maxItems": 500,
+          "items": { "$ref": "#/$defs/ItemRef" }
+        }
+      }
+    },
+    "LibraryItemsGetAuditStateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["states"],
+      "properties": {
+        "states": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target", "revision", "tagDigest"],
+            "properties": {
+              "target": { "$ref": "#/$defs/ItemRef" },
+              "revision": { "$ref": "#/$defs/NonEmptyString" },
+              "tagDigest": { "$ref": "common.schema.json#/$defs/sha256" }
+            }
+          }
+        }
+      }
+    },
     "LiteratureQuality": {
       "type": "object",
       "additionalProperties": false,

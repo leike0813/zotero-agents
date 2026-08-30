@@ -730,7 +730,11 @@ type LibraryTraversalRequestDto = {
 
 type LibraryTraversalBatchDto = {
   batchIndex: number;
-  items: RegularItemSummaryDto[];
+  items: LibraryTraversalItemDto[];
+};
+
+type LibraryTraversalItemDto = RegularItemSummaryDto & {
+  tagDigest: string;
 };
 
 type LibraryTraversalResultDto =
@@ -756,6 +760,7 @@ type LibraryTraversalResultDto =
 已确认的语义：
 
 - Host 拥有 item enumeration、cursor loop、分页、ordering、budget、cancellation 与统计。
+- `LibraryTraversalItemDto.tagDigest` 由 Broker 的 canonical tag normalization/order/hash SSOT 从该 item summary 的同一次完整 tag read 生成；该 traversal-only 字段不扩宽 `library.listItems`、selection snapshot 或其他 `RegularItemSummaryDto` projections。
 - caller 不直接循环 Zotero/Broker page cursor。
 - `onBatch` 串行执行；上一批 callback settle 后才能读取下一批。
 - callback 是 trusted local seam，不进入 native RPC 或 Host Bridge/MCP。
@@ -824,7 +829,7 @@ type LibraryTraversalCompleted = {
 
 - `criteriaDigest` 绑定 resolved library、scope、filters 与 canonical ordering；
 - `coverageDigest` 绑定实际交给 callback 的全部 canonical `(itemRef, revision, tagDigest)` tuples；
-- revision 与 tag digest 必须来自对应 batch item 的同一次完整 Host read；
+- revision 与 `LibraryTraversalItemDto.tagDigest` 必须来自对应 batch item 的同一次完整 Host read，coverage 生成必须复用已经交付的 digest，不得再次读取或另算；
 - 只有 cursor 确认耗尽才能签发；canceled、resource_limited 与 failure 不返回 completion evidence；
 - empty library 签发 canonical empty coverage evidence，使完整空扫描可以清除旧 ledger；
 - evidence 由 Host registry/verification seam 核验，caller 不能自行构造可信 evidence；
@@ -2161,6 +2166,8 @@ type TagVocabularyRegulatorExportDto = {
 
 callback 必须返回本轮 `library.traverseItems` 的 exact result；返回其他值是 `invalid_request`。facade 根据该 result 自动决定 promotion 或 abort，workflow 不持有 finalize/abort member。
 
+`TagAuditRunWriter`、callback signature、`LibraryTraversalResultDto` 与带 raw `MutationReceipt` 的 acknowledgement wrapper 是 trusted in-process Workflow Host types，保留在 `src/workflows/types.ts`。`packages/synthesis-contracts` 只拥有 strict-JSON request/result 与 native wire DTO，不得为了跨 package 复用而复制 Host receipt 或 callback declaration。
+
 run identity：
 
 - `auditRunId` 由 sidecar 生成；workflow 不能指定、读取后用于控制流或持久化；
@@ -2185,6 +2192,21 @@ concurrency：
 
 caller 不能伪造 package/content identity。begin 与 promotion 都核验 vocabulary hash；扫描期间 vocabulary 变化使 promotion conflict，旧 active ledger 保持可见。
 
+grouped candidate 通过 invocation-late trusted resolver 取得：
+
+```ts
+type TagAuditExecutionIdentity = {
+  hostInstanceId: string;
+  principal: {
+    packageId: string;
+    workflowId: string;
+    contentDigest: string;
+  };
+};
+```
+
+resolver 缺失或任一 identity 无法由 trusted loader/runtime 确认时，`withAuditRun` 必须在 native begin 前 fail closed。identity 不进入 `WorkflowCallControl`，workflow callback 不能填写；v11 cached Host projection 也不得缓存它。07 只建立 resolver seam，production runtime/loader 在 `harden-workflow-host-api-v12` 原子激活时绑定真实 package/content facts。
+
 为给 caller 提供可信 basis，v12 深化 vocabulary regulator export：
 
 ```ts
@@ -2203,17 +2225,19 @@ staging 保存本轮每个 audited item 的判断与最小一致性证据，不�
 ```ts
 type TagAuditStagingEntry =
   | {
-      target: PortableItemRef;
+      target: SynthesisHostItemRef;
       auditedRevision: string;
       auditedTagDigest: string;
+      auditedTags: string[];
       evaluation: {
         state: "compliant";
       };
     }
   | {
-      target: PortableItemRef;
+      target: SynthesisHostItemRef;
       auditedRevision: string;
       auditedTagDigest: string;
+      auditedTags: string[];
       evaluation: {
         state: "needs_regulation";
         nonCompliantTags: string[];
@@ -2226,13 +2250,14 @@ coverage 与 storage：
 - staging 暂存本轮成功扫描的全部 items，包括 compliant items；
 - 全量 staging 使 promotion 能证明本轮覆盖，并删除 active ledger 中已经恢复 compliant 的旧记录；
 - promotion 后 active ledger 只保留 `needs_regulation` rows 与 snapshot metadata，不长期保存全部 compliant rows；
-- staging row 不保存完整 tag set、title、其他 metadata、raw item 或 local path；
+- `auditedTags` 只属于 append wire input；application 完成 canonical normalization、digest 与 subset 校验后不持久化完整 tag set；staging row 不保存完整 tag set、title、其他 metadata、raw item 或 local path；
 - durable unique key 是 `(auditRunId, libraryId, itemKey)`；target library 必须等于 run library。
 
 evidence：
 
 - `auditedRevision` 来自 `library.traverseItems` 的同一 item DTO；
 - `auditedTagDigest` 由 Host canonical tag normalization/order/hash SSOT 从同一次完整 tag read 生成，workflow 不实现第二套 hash；
+- `auditedTags` 来自同一 traversal item 的 complete tags；application 必须独立核验 canonical order/deduplication 与 `auditedTagDigest`，不能只信 workflow 提交的 digest；
 - revision 保护整个 contract-visible item state，tag digest 只证明 evaluation 对应的 tag set，不是第二套 revision；
 - `compliant` / `needs_regulation` 使用判别联合，empty array 不承担多种状态含义；
 - `nonCompliantTags` 必须 normalize、deduplicate、canonical sort，并且是 audited tag set 的子集；
@@ -2397,6 +2422,8 @@ cleanup 顺序：
 
 cleanup failure 不覆盖 primary canceled/conflicted/failed outcome，也不长期阻塞同库新扫描；run-scoped staging key 保证 terminal leftovers 与新 run 隔离。
 
+repository schema v4 为 run、batch、staging、active snapshot/rows 与 acknowledgement records 建立独立 owner tables。v3 `synt_tag_audit` 缺少 snapshot、audited revision、tag digest、vocabulary、basis 与 coverage evidence，migration 只能把这些旧 derived rows 失效并记录数量，不能伪造为 v4 active ledger；vocabulary、staged suggestions、effects 与其他 source facts必须保留。已知同 profile/data identity 的 v3 repository marker 显式升级到 v4，未知 marker 继续 fail closed。migration 必须覆盖 backup、失败回滚与 reopen。
+
 recovery sweep：
 
 - plugin/sidecar startup 执行 bounded abandoned/terminal-run sweep；
@@ -2505,6 +2532,7 @@ type TagRegulationAcknowledgementResultDto =
       outcome: "stale";
       reason:
         | "item_revision_changed"
+        | "audit_snapshot_changed"
         | "vocabulary_changed"
         | "final_tags_changed"
         | "still_noncompliant";
@@ -2515,6 +2543,7 @@ type TagRegulationAcknowledgementResultDto =
         | "receipt_invalid"
         | "wrong_operation"
         | "wrong_target"
+        | "audited_revision_mismatch"
         | "receipt_delta_inconsistent";
     }
   | {
@@ -2522,16 +2551,51 @@ type TagRegulationAcknowledgementResultDto =
     };
 ```
 
+public request 继续只包含 target 与 raw Host receipt；workflow 不自报 snapshot identity。composition 使用 two-phase native handshake：
+
+```ts
+type TagRegulationAcknowledgementPrepareRequestDto = {
+  target: SynthesisHostItemRef;
+  receiptId: string;
+};
+
+type TagRegulationAcknowledgementPrepareResultDto =
+  | {
+      outcome: "ready";
+      target: SynthesisHostItemRef;
+      snapshotRevision: string;
+      auditedRevision: string;
+      vocabularyHash: string;
+      nonCompliantTags: string[];
+    }
+  | { outcome: "already_acknowledged"; snapshotRevision: string }
+  | { outcome: "not_found" };
+
+type TagRegulationVerifiedCommitDto = {
+  schema: "zotero-agents.tag-regulation-verified-commit.v1";
+  target: SynthesisHostItemRef;
+  receiptId: string;
+  expectedSnapshotRevision: string;
+  auditedRevision: string;
+  currentRevision: string;
+  finalTagDigest: string;
+  finalTags: string[];
+  vocabularyHash: string;
+};
+```
+
 composition verification：
 
-1. sidecar 读取 target active row 与 snapshot；
-2. Host process-local mutation registry 核验 receipt ID/effect digest、`item.updateTags` operation 与 target；
-3. receipt before revision 等于 row `auditedRevision`；
+1. Host process-local mutation registry 先按 raw receipt 全字段核验 receipt ID/effect digest、`item.updateTags` operation、target 与 private delta，并在 flow terminal 前 pin record；
+2. `client.prepareTagRegulationAcknowledgement` 读取 target active row 与 snapshot，返回 commit 所需的 exact current basis；
+3. receipt before revision 等于 prepared row `auditedRevision`，否则返回 `conflict/audited_revision_mismatch`；
 4. Host fresh-read current item revision 与 complete tag set；
 5. receipt after revision 等于 current revision；
 6. current canonical tag digest 等于 registry `finalTagDigest`；
-7. snapshot vocabulary hash 等于 current vocabulary hash；
-8. current ordinary tags 全部属于该 vocabulary，原 `nonCompliantTags` 已全部消失。
+7. prepared snapshot vocabulary hash 等于 current vocabulary hash；
+8. current ordinary tags 全部属于该 vocabulary，原 `nonCompliantTags` 已全部消失；
+9. composition 只把 `TagRegulationVerifiedCommitDto` 交给 `client.commitTagRegulationAcknowledgement`；raw receipt、effect digest、requested/actual delta 与 public changes 不进入 native wire；
+10. commit 或任一失败路径 terminal 后解除 receipt pin。
 
 ack transaction：
 
@@ -2540,10 +2604,12 @@ ack transaction：
 - row 已删除但存在相同 acknowledgement record 时返回 `already_acknowledged`；
 - row 不存在且没有相同 record 时返回 `not_found`；
 - newer snapshot 中同一 item 再次出现时，旧 receipt/ack record 不能删除新 row；
+- prepare 后 snapshot 变化时 commit 返回 `stale/audit_snapshot_changed`；不得把旧 proof 套用到 newer snapshot；
 - receipt 可以包含 caller 明确要求的其他 ordinary-tag delta；final state 完整合规即可，不要求匹配不存在的 staged plan；
 - unchanged receipt 只有在 fresh final compliance 成立时才可 acknowledge；
 - item/tag fresh read 由 Host/Broker 完成，sidecar 不直接读取 Zotero；
 - acknowledgement 未通过时 active row 保留，可在原因修复后用同一 receipt 安全重试；
+- Host restart 后 process registry 缺失时，即使 durable acknowledgement record 存在也先返回 `conflict/receipt_invalid`；durable record 不能升级为跨进程 receipt proof；
 - active-ledger UI invalidation 只在 confirmed `acknowledged` 后发送。
 
 ## 10. Synthesis sidecar 与 WorkflowSynthesisApi
@@ -2659,15 +2725,31 @@ current flat name 到 v12 member 的迁移：
 | `replaceTagAuditRecords` | 删除，由 `tags.withAuditRun` 取代 |
 | `clearTagAuditRecord` | 删除，由 `tags.acknowledgeRegulation` 取代 |
 
+07 的 active v11 adapter 只对十一项存在等价 grouped semantics 的 flat methods 做 delegation。`getTopicPlanningContext` 没有 v12 member，`replaceTagAuditRecords` 没有 complete traversal evidence，`clearTagAuditRecord` 没有 confirmed mutation receipt；三者必须保持窄的 invocation-late legacy client passthrough，直到 `harden-workflow-host-api-v12` 迁移 callers 后原子删除。不得伪造 evidence 来宣称全量 delegation。
+
 projection 与 naming constraints：
 
 - v12 不保留任何 flat alias；所有 builtin callers 迁移到 grouped interface；
 - public name 不包含 implementation term `Sidecar`；
 - 已有 group context 时删除 `Tag` / `Topic` 重复词，但不把不同语义压成 generic `get/save/apply` bag；
 - `createWorkflowSynthesisHostApi` 使用逐成员显式对象字面量投影 grouped `SynthesisClient`；不得传播完整 client、spread、proxy 或 runtime capability catalog；
+- `WorkflowSynthesisApi` 与 `createWorkflowSynthesisHostApi` 分别命名 grouped candidate type/builder；`WorkflowSynthesisV11Api` 与 `createWorkflowSynthesisV11Adapter` 分别命名 active flat compatibility type/builder，`src/workflows/hostApi.ts` 在 v12 activation 前只装配后者；
 - `applyTopicPlan`、`withAuditRun`、`acknowledgeRegulation` 的 wire DTO 已分别在 §10.6、§9.7–§9.10 与 §9.13 冻结；
 - native RPC、Rust applications、SQLite repository、bundle/materialization helpers、`TagEffectAdapter`、runtime filesystem adapter 与 legacy `SynthesisService` 全部保持 internal；
 - legacy TypeScript service 可以暂留为 test/legacy adapter，但不能成为 WorkflowSynthesisApi 类型或行为的定义来源。
+
+full canonical client/native wire 为 audit/acknowledgement 新增六个 internal operations：
+
+```text
+client.beginTagAuditRun
+client.appendTagAuditRun
+client.promoteTagAuditRun
+client.abortTagAuditRun
+client.prepareTagRegulationAcknowledgement
+client.commitTagRegulationAcknowledgement
+```
+
+这些 operations 不进入 Workflow projection；`withAuditRun` 与 `acknowledgeRegulation` 是唯一 workflow-facing composition。既有 `client.applyTopicPlan`、`client.promoteStagedTagSuggestions` 与 v11 legacy replace/clear transport 不重复实现。
 
 ### 10.6 Synthesis wire-contract closure
 
@@ -2741,10 +2823,20 @@ type SynthesisTopicPlanDiagnosticDto = {
     | "topic_revision_conflict"
     | "relation_duplicate"
     | "relation_endpoint_missing"
+    | "relation_cycle"
     | "coverage_stale";
   message: string;
   source_topic_id?: string;
   target_topic_id?: string;
+};
+
+type SynthesisCanonicalTransactionReceipt = {
+  schema: "zotero-agents.synthesis-canonical-transaction-receipt.v1";
+  transaction_id: string;
+  operation: "topic_plan.reconcile";
+  before_graph_hash: string;
+  after_graph_hash: string;
+  committed_at: string;
 };
 
 type SynthesisTopicPlanApplyResult = {
@@ -2757,9 +2849,11 @@ type SynthesisTopicPlanApplyResult = {
 };
 ```
 
-`persisted` 必须带 receipt；其他 statuses 的 receipt 为 `null`。action/relation IDs、hash、path 与 diagnostic fields 全部 bounded；request 最多 10,000 actions、20,000 relation proposals、serialized 64 MiB。`resolver/basis/provenance/evidence_refs` 只允许 strict `JsonValue`，不能继续使用 `Record<string, unknown>`、`unknown[]` 或 `Partial<SynthesisTopicGraphEdge>`。field naming 保留当前 workflow product 的 snake_case，以免新增无价值的双向 mapping。
+`persisted` 必须带 receipt；其他 statuses 的 receipt 为 `null`。receipt 只证明 opaque transaction identity、固定 operation、提交时间与前后 graph basis，不暴露 repository record、lease、fencing 或 telemetry。action/relation IDs、hash、path 与 diagnostic fields 全部 bounded；request 最多 10,000 actions、20,000 relation proposals、serialized 64 MiB。`resolver/basis/provenance/evidence_refs` 只允许 strict `JsonValue`，不能继续使用 `Record<string, unknown>`、`unknown[]` 或 `Partial<SynthesisTopicGraphEdge>`。field naming 保留当前 workflow product 的 snake_case，以免新增无价值的双向 mapping。
 
-三个新增 Synthesis members 的 public limits 同步固定：`withAuditRun` 每次 `append` 最多 500 rows、serialized 8 MiB，单 row 最多 100 个 non-compliant tags，conflict result 最多返回 100 个 canonical samples；run 的总 items/pages/duration 直接继承并核验 callback 返回的 §5.3 traversal evidence，不建立第二套 caller knobs。`exportVocabularyForRegulator` 最多返回 100,000 个 tags、serialized 16 MiB。`acknowledgeRegulation` 是单 target operation，不接受 batch。所有更大的 durable staging、lease、telemetry 与 cleanup limits 仍属于 Synthesis internal contract，不进入 Workflow Host。
+三个新增 Synthesis members 的 public limits 同步固定：`withAuditRun` 每次 `append` 最多 500 rows、serialized 8 MiB，单 row 最多 100 个 audited tags 与 100 个 non-compliant tags，conflict result 最多返回 100 个 canonical samples；run 的总 items/pages/duration 直接继承并核验 callback 返回的 §5.3 traversal evidence，不建立第二套 caller knobs。`exportVocabularyForRegulator` 最多返回 100,000 个 tags、serialized 16 MiB。`acknowledgeRegulation` 是单 target operation，不接受 batch。所有更大的 durable staging、lease、telemetry 与 cleanup limits 仍属于 Synthesis internal contract，不进入 Workflow Host。
+
+control RPC 的 1 MiB / 50,000-node envelope 不能反向缩小这些 public limits。`applyTopicPlan` request、audit append request 与 regulator-vocabulary export result 超出 control envelope 时必须透明复用 existing bounded transfer plane；小 acknowledgement requests 继续走 control plane。operation policy、protocol registry、schema/corpus 与 composition 必须保持同一选择。
 
 ## 11. Legacy handler domain consolidation
 
