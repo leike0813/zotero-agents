@@ -367,8 +367,11 @@ export function assertWorkflowHostStrictJsonValue(
 }
 
 export function sanitizeWorkflowHostDetailToken(value: unknown): string {
-  const normalized = String(value ?? "")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
+  const normalized = Array.from(String(value ?? ""), (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || codePoint === 0x7f ? " " : character;
+  })
+    .join("")
     .trim();
   return normalized.slice(0, BOUNDED_DETAIL_TOKEN_LENGTH);
 }

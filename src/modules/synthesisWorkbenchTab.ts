@@ -20,9 +20,7 @@ import { resolveAddonRef, resolveRuntimeToolkit } from "../utils/runtimeBridge";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
-import {
-  writeRuntimeTextFile,
-} from "./runtimePersistence";
+import { writeRuntimeTextFile } from "./runtimePersistence";
 import { readPackagedBinaryAsset } from "./packagedAssetResolver";
 import { isTransientStorageBusyError } from "./guardedSqlite";
 import {

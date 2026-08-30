@@ -200,5 +200,4 @@ describe("Synthesis Host read capability ports", function () {
     assert.instanceOf(failure, SynthesisClientError);
     assert.equal((failure as SynthesisClientError).code, "invalid_request");
   });
-
 });

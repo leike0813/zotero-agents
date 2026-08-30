@@ -31,8 +31,10 @@ import {
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 import {
+  configureZoteroHostMutationRuntimeForTests,
   configureZoteroHostSnapshotRuntimeForTests,
   createZoteroHostCapabilityBroker,
+  resetZoteroHostMutationRuntimeForTests,
   resetZoteroHostSnapshotRuntimeForTests,
   ZoteroHostCapabilityError,
 } from "../../src/modules/zoteroHostCapabilityBroker";
@@ -200,12 +202,938 @@ describe("zotero host broker capability api", function () {
   });
 
   afterEach(async function () {
+    resetZoteroHostMutationRuntimeForTests();
     resetZoteroHostSnapshotRuntimeForTests();
     resetZoteroLibraryPageQueryAdapterForTests();
     resetWorkflowHostApiForTests();
     resetZoteroMcpServerForTests();
     setDefaultSynthesisClientCompositionFactoryForTests(null);
     await resetDefaultSynthesisClientForTests();
+  });
+
+  it("reserves canonical mutations once and replays the original confirmed result", async function () {
+    let sequence = 0;
+    configureZoteroHostMutationRuntimeForTests({
+      randomId: () => `mutation-lifecycle-${++sequence}`,
+    });
+    const item = await createParentItem("Mutation Lifecycle Before");
+    const broker = createZoteroHostCapabilityBroker();
+    const request = {
+      operation: "item.updateMetadata",
+      operationId: "lifecycle-replay",
+      itemRef: { libraryId: item.libraryID, key: item.key },
+      patch: { fields: { title: "Mutation Lifecycle After" } },
+    };
+
+    const first = await (broker.mutations.execute as any)(request, {
+      ownerId: "workflow-a",
+    });
+    const replay = await (broker.mutations.execute as any)(
+      {
+        ...request,
+        patch: { fields: { title: "Mutation Lifecycle After" } },
+      },
+      { ownerId: "workflow-a" },
+    );
+
+    assert.strictEqual(first.outcome, "committed");
+    assert.deepEqual(replay, first);
+    assert.strictEqual(first.receipt.operationId, "lifecycle-replay");
+    assert.strictEqual(first.receipt.operation, "item.updateMetadata");
+    assert.match(first.receipt.effectDigest, /^sha256:/);
+    assert.strictEqual(first.result.item.title, "Mutation Lifecycle After");
+    assertStrictJsonValue(first);
+  });
+
+  it("routes note writes through the shared reservation, revision, and receipt authority", async function () {
+    const parent = await createParentItem("Canonical Note Parent");
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "note-authority-test" };
+    const createRequest = {
+      operationId: "note-create-once",
+      parentRef: { libraryId: parent.libraryID, key: parent.key },
+      content: "<div><p>canonical note</p></div>",
+    };
+
+    const created = await broker.notes.create(createRequest, scope);
+    const replay = await broker.notes.create(createRequest, scope);
+    assert.strictEqual(created.outcome, "committed");
+    assert.deepEqual(replay, created);
+    if (created.outcome !== "committed") assert.fail("expected note creation");
+    assert.strictEqual(created.receipt.operation, "notes.create");
+    assert.lengthOf(created.receipt.changes, 1);
+
+    const note = created.result.note as {
+      ref: { libraryId: number; key: string };
+      revision: string;
+    };
+    const updated = await broker.notes.updateContent(
+      {
+        operationId: "note-update-content",
+        noteRef: note.ref,
+        expectedRevision: note.revision,
+        content: "<div><p>canonical note updated</p></div>",
+      },
+      scope,
+    );
+    assert.strictEqual(updated.outcome, "committed");
+
+    const conflict = await broker.notes.updateContent(
+      {
+        operationId: "note-update-stale",
+        noteRef: note.ref,
+        expectedRevision: note.revision,
+        content: "<div><p>must not overwrite</p></div>",
+      },
+      scope,
+    );
+    assert.strictEqual(conflict.outcome, "failed");
+    if (conflict.outcome !== "failed")
+      assert.fail("expected revision conflict");
+    assert.strictEqual(conflict.attempt.error.code, "conflict");
+    assert.strictEqual(
+      conflict.attempt.error.recovery,
+      "refresh_and_retry_new_operation",
+    );
+  });
+
+  it("returns structured attempt evidence when an accepted note payload write cannot commit", async function () {
+    const parent = await createParentItem("Canonical Payload Parent");
+    const note = await handlers.parent.addNote(parent, {
+      content: "<div><p>payload basis</p></div>",
+    });
+    const originalImport = Zotero.Attachments.importEmbeddedImage;
+    Zotero.Attachments.importEmbeddedImage = async () => {
+      throw new Error("payload attachment write failed");
+    };
+    try {
+      const result =
+        await createZoteroHostCapabilityBroker().notes.upsertPayload(
+          {
+            operationId: "payload-write-unknown",
+            noteRef: { libraryId: note.libraryID, key: note.key },
+            payloadType: "literature-matching-metadata-json",
+            noteKind: "digest",
+            payload: { schema: "literature_matching_metadata.v1" },
+          },
+          { ownerId: "note-payload-authority-test" },
+        );
+
+      assert.strictEqual(result.outcome, "unknown");
+      if (result.outcome !== "unknown") assert.fail("expected unknown attempt");
+      assert.strictEqual(result.attempt.error.code, "execution_failed");
+      assert.strictEqual(result.attempt.error.recovery, "reconcile");
+      assert.deepInclude(result.attempt.affectedRefs, {
+        kind: "item",
+        ref: { libraryId: note.libraryID, key: note.key },
+      });
+      assertStrictJsonValue(result);
+    } finally {
+      Zotero.Attachments.importEmbeddedImage = originalImport;
+    }
+  });
+
+  it("records only verified collection membership deltas and compensates partial writes", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "membership-authority-test" };
+    const collection = await createCollection("Canonical Membership");
+    const first = await createParentItem("Membership First");
+    const second = await createParentItem("Membership Second");
+    const collectionRef = {
+      libraryId: collection.libraryID,
+      key: collection.key,
+    };
+    const refs = [first, second].map((item) => ({
+      libraryId: item.libraryID,
+      key: item.key,
+    }));
+
+    const committed = await (broker.mutations.execute as any)(
+      {
+        operation: "collection.updateMembership",
+        operationId: "membership-add",
+        collectionRef,
+        add: refs,
+        remove: [],
+      },
+      scope,
+    );
+    assert.strictEqual(committed.outcome, "committed");
+    assert.lengthOf(committed.receipt.changes, 3);
+    assert.include(first.getCollections(), collection.id);
+    assert.include(second.getCollections(), collection.id);
+
+    const unchanged = await (broker.mutations.execute as any)(
+      {
+        operation: "collection.updateMembership",
+        operationId: "membership-unchanged",
+        collectionRef,
+        add: refs,
+        remove: [],
+      },
+      scope,
+    );
+    assert.strictEqual(unchanged.outcome, "unchanged");
+    assert.lengthOf(unchanged.receipt.changes, 1);
+
+    await handlers.collection.remove([first, second], collection);
+    const originalAdd = handlers.collection.add;
+    let writes = 0;
+    handlers.collection.add = (async (...args: any[]) => {
+      writes += 1;
+      if (writes === 2) throw new Error("second membership write failed");
+      return (originalAdd as any)(...args);
+    }) as typeof handlers.collection.add;
+    try {
+      const failed = await (broker.mutations.execute as any)(
+        {
+          operation: "collection.updateMembership",
+          operationId: "membership-compensate",
+          collectionRef,
+          add: refs,
+          remove: [],
+        },
+        scope,
+      );
+      assert.strictEqual(failed.outcome, "failed");
+      assert.strictEqual(failed.attempt.error.phase, "compensation");
+      assert.notInclude(first.getCollections(), collection.id);
+      assert.notInclude(second.getCollections(), collection.id);
+    } finally {
+      handlers.collection.add = originalAdd;
+    }
+  });
+
+  it("routes stored attachment creation through canonical replay and preserves cleanup evidence", async function () {
+    const parent = await createParentItem("Attachment Authority Parent");
+    let creates = 0;
+    const broker = createZoteroHostCapabilityBroker({
+      async createStoredFile(_request, owner) {
+        creates += 1;
+        const attachment = new Zotero.Item("attachment");
+        if (owner) attachment.parentID = owner.id;
+        attachment.setField("title", "Authority Attachment");
+        await attachment.saveTx();
+        return attachment;
+      },
+    });
+    const scope = { ownerId: "attachment-authority-test" };
+    const request = {
+      operationId: "attachment-create-once",
+      placement: {
+        kind: "child" as const,
+        parentRef: { libraryId: parent.libraryID, key: parent.key },
+      },
+      source: {
+        kind: "stored_file" as const,
+        main: {
+          source: { kind: "local_path" as const, path: "/source/paper.pdf" },
+        },
+      },
+    };
+    const created = await broker.attachments.create(request, scope);
+    const replay = await broker.attachments.create(request, scope);
+    assert.strictEqual(created.outcome, "committed");
+    assert.deepEqual(replay, created);
+    assert.strictEqual(creates, 1);
+    assert.notInclude(JSON.stringify(created.receipt), "/source/paper.pdf");
+
+    const collection = await createCollection("Attachment Rollback Target");
+    const originalAdd = handlers.collection.add;
+    const originalRemove = handlers.attachment.remove;
+    handlers.collection.add = (async () => {
+      throw new Error("attachment placement failed");
+    }) as typeof handlers.collection.add;
+    handlers.attachment.remove = (async () => {
+      throw new Error("attachment rollback failed");
+    }) as typeof handlers.attachment.remove;
+    try {
+      const repair = await broker.attachments.create(
+        {
+          operationId: "attachment-create-repair",
+          placement: {
+            kind: "top_level",
+            collectionRefs: [
+              { libraryId: collection.libraryID, key: collection.key },
+            ],
+          },
+          source: request.source,
+        },
+        scope,
+      );
+      assert.strictEqual(repair.outcome, "repair_required");
+      if (repair.outcome !== "repair_required") {
+        assert.fail("expected attachment repair evidence");
+      }
+      assert.include(
+        repair.attempt.error.message,
+        "attachment placement failed",
+      );
+      assert.lengthOf(repair.attempt.residualRefs, 1);
+    } finally {
+      handlers.collection.add = originalAdd;
+      handlers.attachment.remove = originalRemove;
+    }
+  });
+
+  it("routes attachment update, replacement, move, and removal through confirmed authority results", async function () {
+    const parent = await createParentItem("Attachment Operation Parent");
+    const attachment = new Zotero.Item("attachment") as Zotero.Item & {
+      attachmentLinkMode: number;
+      getFilePathAsync: () => Promise<string>;
+    };
+    attachment.attachmentLinkMode = 2;
+    attachment.setField("title", "Attachment Before");
+    let attachmentPath = "/source/before.pdf";
+    attachment.getFilePathAsync = async () => attachmentPath;
+    await attachment.saveTx();
+    const ref = { libraryId: attachment.libraryID, key: attachment.key };
+    const scope = { ownerId: "attachment-operation-test" };
+    const broker = createZoteroHostCapabilityBroker({
+      async replaceFile(request, target) {
+        if (request.source.kind !== "linked_file") {
+          throw new Error("expected linked replacement");
+        }
+        attachmentPath = request.source.path;
+        return target;
+      },
+    });
+
+    const updated = await broker.attachments.updateMetadata(
+      {
+        operationId: "attachment-update",
+        attachmentRef: ref,
+        patch: { title: "Attachment After" },
+      },
+      scope,
+    );
+    assert.strictEqual(updated.outcome, "committed");
+    if (updated.outcome !== "committed") assert.fail("expected update");
+
+    const replaced = await broker.attachments.replaceFile(
+      {
+        operationId: "attachment-replace",
+        attachmentRef: ref,
+        expectedRevision: (updated.result.attachment as any).revision,
+        source: { kind: "linked_file", path: "/source/after.pdf" },
+      },
+      scope,
+    );
+    assert.strictEqual(replaced.outcome, "committed");
+    if (replaced.outcome !== "committed") assert.fail("expected replacement");
+    assert.strictEqual((replaced.result as any).outcome, "replaced");
+
+    const moved = await broker.attachments.move(
+      {
+        operationId: "attachment-move",
+        attachmentRef: ref,
+        expectedRevision: (replaced.result.attachment as any).revision,
+        placement: {
+          kind: "child",
+          parentRef: { libraryId: parent.libraryID, key: parent.key },
+        },
+      },
+      scope,
+    );
+    assert.strictEqual(moved.outcome, "committed");
+    if (moved.outcome !== "committed") assert.fail("expected move");
+    assert.strictEqual((moved.result as any).outcome, "moved");
+
+    const removed = await broker.attachments.remove(
+      {
+        operationId: "attachment-remove",
+        attachmentRef: ref,
+        expectedRevision: (moved.result.attachment as any).revision,
+        disposition: "permanent",
+      },
+      scope,
+    );
+    assert.strictEqual(removed.outcome, "committed");
+    if (removed.outcome !== "committed") assert.fail("expected removal");
+    assert.strictEqual((removed.result as any).outcome, "permanently_deleted");
+    assert.strictEqual(removed.receipt.operation, "attachments.remove");
+    assert.notInclude(JSON.stringify(removed.receipt), attachmentPath);
+    assertStrictJsonValue(removed);
+  });
+
+  it("serializes identical in-progress submissions and rejects conflicting digests before another write", async function () {
+    const item = await createParentItem("Mutation Reservation Before");
+    const original = handlers.parent.updateMetadata;
+    let writes = 0;
+    let releaseWrite: (() => void) | null = null;
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    handlers.parent.updateMetadata = (async (...args: any[]) => {
+      writes += 1;
+      await writeGate;
+      return (original as any)(...args);
+    }) as typeof handlers.parent.updateMetadata;
+    const broker = createZoteroHostCapabilityBroker();
+    const request = {
+      operation: "item.updateMetadata",
+      operationId: "concurrent-replay",
+      itemRef: { libraryId: item.libraryID, key: item.key },
+      patch: { fields: { title: "Mutation Reservation After" } },
+    };
+
+    try {
+      const first = (broker.mutations.execute as any)(request, {
+        ownerId: "workflow-a",
+      });
+      const replay = (broker.mutations.execute as any)(request, {
+        ownerId: "workflow-a",
+      });
+      releaseWrite?.();
+      const [firstResult, replayResult] = await Promise.all([first, replay]);
+      assert.strictEqual(writes, 1);
+      assert.deepEqual(replayResult, firstResult);
+
+      try {
+        await (broker.mutations.execute as any)(
+          {
+            ...request,
+            patch: { fields: { title: "Conflicting Title" } },
+          },
+          { ownerId: "workflow-a" },
+        );
+        assert.fail("expected an idempotency conflict");
+      } catch (error) {
+        assert.instanceOf(error, ZoteroHostCapabilityError);
+        assert.strictEqual(
+          (error as ZoteroHostCapabilityError).code,
+          "conflict",
+        );
+        assert.strictEqual(
+          (error as ZoteroHostCapabilityError).details.reason,
+          "idempotency_conflict",
+        );
+      }
+      assert.strictEqual(item.getField("title"), "Mutation Reservation After");
+    } finally {
+      handlers.parent.updateMetadata = original;
+      releaseWrite?.();
+    }
+  });
+
+  it("returns confirmed unchanged evidence and a structured revision-CAS attempt", async function () {
+    const item = await createParentItem("Mutation CAS");
+    const broker = createZoteroHostCapabilityBroker();
+    const ref = { libraryId: item.libraryID, key: item.key };
+    const current = await broker.library.getItemDetail(ref);
+    assert.isOk(current);
+
+    const unchanged = await (broker.mutations.execute as any)(
+      {
+        operation: "item.updateMetadata",
+        operationId: "unchanged-metadata",
+        itemRef: ref,
+        expectedRevision: (current as any).revision,
+        patch: { fields: { title: "Mutation CAS" } },
+      },
+      { ownerId: "workflow-a" },
+    );
+    assert.strictEqual(unchanged.outcome, "unchanged");
+    assert.strictEqual(unchanged.receipt.changes[0].effect, "unchanged");
+
+    const conflict = await (broker.mutations.execute as any)(
+      {
+        operation: "item.updateMetadata",
+        operationId: "stale-metadata",
+        itemRef: ref,
+        expectedRevision: "stale-revision",
+        patch: { fields: { title: "Must Not Be Written" } },
+      },
+      { ownerId: "workflow-a" },
+    );
+    assert.strictEqual(conflict.outcome, "failed");
+    assert.strictEqual(conflict.attempt.status, "failed");
+    assert.strictEqual(conflict.attempt.error.code, "conflict");
+    assert.strictEqual(conflict.attempt.error.phase, "read");
+    assert.strictEqual(
+      conflict.attempt.error.recovery,
+      "refresh_and_retry_new_operation",
+    );
+    assert.strictEqual(item.getField("title"), "Mutation CAS");
+    assertStrictJsonValue(conflict);
+  });
+
+  it("invalidates mutation reservations and receipts when the process runtime resets", async function () {
+    const item = await createParentItem("Mutation Restart Before");
+    const request = {
+      operation: "item.updateMetadata",
+      operationId: "restart-operation",
+      itemRef: { libraryId: item.libraryID, key: item.key },
+      patch: { fields: { title: "Mutation Restart First" } },
+    };
+    const first = await (
+      createZoteroHostCapabilityBroker().mutations.execute as any
+    )(request, { ownerId: "workflow-a" });
+    resetZoteroHostMutationRuntimeForTests();
+    const second = await (
+      createZoteroHostCapabilityBroker().mutations.execute as any
+    )(
+      {
+        ...request,
+        patch: { fields: { title: "Mutation Restart Second" } },
+      },
+      { ownerId: "workflow-a" },
+    );
+
+    assert.strictEqual(first.outcome, "committed");
+    assert.strictEqual(second.outcome, "committed");
+    assert.notStrictEqual(second.receipt.receiptId, first.receipt.receiptId);
+    assert.strictEqual(item.getField("title"), "Mutation Restart Second");
+  });
+
+  it("returns canceled, failed, unknown, and repair-required attempt evidence after reservation", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const item = await createParentItem("Mutation Attempt Basis");
+    const ref = { libraryId: item.libraryID, key: item.key };
+    const base = {
+      operation: "item.updateMetadata",
+      itemRef: ref,
+      patch: { fields: { title: "Mutation Attempt Target" } },
+    };
+    const controller = new AbortController();
+    controller.abort();
+    const canceled = await (broker.mutations.execute as any)(
+      { ...base, operationId: "attempt-canceled" },
+      { ownerId: "attempt-owner" },
+      { signal: controller.signal },
+    );
+    assert.strictEqual(canceled.outcome, "canceled");
+    assert.strictEqual(canceled.attempt.error.code, "canceled");
+
+    const originalUpdate = handlers.parent.updateMetadata;
+    try {
+      handlers.parent.updateMetadata = (async () => {
+        throw new Error("confirmed write failure");
+      }) as typeof handlers.parent.updateMetadata;
+      const failed = await (broker.mutations.execute as any)(
+        { ...base, operationId: "attempt-failed" },
+        { ownerId: "attempt-owner" },
+      );
+      assert.strictEqual(failed.outcome, "failed");
+      assert.strictEqual(failed.attempt.error.phase, "commit");
+
+      handlers.parent.updateMetadata = (async (target) =>
+        target) as typeof handlers.parent.updateMetadata;
+      const unknown = await (broker.mutations.execute as any)(
+        { ...base, operationId: "attempt-unknown" },
+        { ownerId: "attempt-owner" },
+      );
+      assert.strictEqual(unknown.outcome, "unknown");
+      assert.strictEqual(unknown.attempt.error.recovery, "reconcile");
+    } finally {
+      handlers.parent.updateMetadata = originalUpdate;
+    }
+
+    const originalTagAdd = handlers.tag.add;
+    const originalRemove = handlers.item.remove;
+    try {
+      handlers.tag.add = (async () => {
+        throw new Error("initial tag write failed");
+      }) as typeof handlers.tag.add;
+      handlers.item.remove = (async () => {
+        throw new Error("created item rollback failed");
+      }) as typeof handlers.item.remove;
+      const repair = await (broker.mutations.execute as any)(
+        {
+          operation: "item.create",
+          operationId: "attempt-repair",
+          itemType: "journalArticle",
+          fields: { title: "Residual Created Item" },
+          initialTags: ["attempt:repair"],
+        },
+        { ownerId: "attempt-owner" },
+      );
+      assert.strictEqual(repair.outcome, "repair_required");
+      assert.strictEqual(repair.attempt.error.recovery, "manual_repair");
+      assert.lengthOf(repair.attempt.residualRefs, 1);
+      assert.include(repair.attempt.error.message, "initial tag write failed");
+    } finally {
+      handlers.tag.add = originalTagAdd;
+      handlers.item.remove = originalRemove;
+    }
+  });
+
+  it("executes the closed canonical item, relation, and collection operation map", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "canonical-operation-map" };
+    const execute = (request: Record<string, unknown>) =>
+      (broker.mutations.execute as any)(request, scope);
+    const created = await execute({
+      operation: "item.create",
+      operationId: "map-item-create",
+      itemType: "journalArticle",
+      fields: { title: "Canonical Map Item" },
+    });
+    const itemRef = created.result.item.ref;
+    const related = await createParentItem("Canonical Map Related");
+    const relatedRef = { libraryId: related.libraryID, key: related.key };
+    const collectionCreated = await execute({
+      operation: "collection.create",
+      operationId: "map-collection-create",
+      name: "Canonical Map Collection",
+      placement: { kind: "root", libraryId: itemRef.libraryId },
+    });
+    const collectionRef = collectionCreated.result.collection.ref;
+    const operations = [
+      {
+        operation: "item.updateTags",
+        operationId: "map-tags",
+        itemRef,
+        add: ["canonical:map"],
+        remove: [],
+      },
+      {
+        operation: "item.addRelated",
+        operationId: "map-related-add",
+        sourceRef: itemRef,
+        relatedRef,
+      },
+      {
+        operation: "item.removeRelated",
+        operationId: "map-related-remove",
+        sourceRef: itemRef,
+        relatedRef,
+      },
+      {
+        operation: "collection.update",
+        operationId: "map-collection-update",
+        collectionRef,
+        patch: { name: "Canonical Map Collection Updated" },
+      },
+      {
+        operation: "collection.updateMembership",
+        operationId: "map-membership",
+        collectionRef,
+        add: [itemRef],
+        remove: [],
+      },
+      {
+        operation: "item.remove",
+        operationId: "map-item-trash",
+        itemRef,
+        disposition: "trash",
+      },
+    ];
+    for (const request of operations) {
+      const result = await execute(request);
+      assert.include(["committed", "unchanged"], result.outcome);
+      assert.strictEqual(result.receipt.operation, request.operation);
+      assertStrictJsonValue(result);
+    }
+  });
+
+  it("executes permanent item and collection removals only against complete preview evidence", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "destructive-execute" };
+    const parent = await createParentItem("Permanent Removal Parent");
+    const note = new Zotero.Item("note");
+    note.parentID = parent.id;
+    note.setNote("<p>remove me</p>");
+    await note.saveTx();
+    const itemPreview = await (broker.mutations.preview as any)(
+      {
+        operation: "item.remove",
+        itemRef: { libraryId: parent.libraryID, key: parent.key },
+        disposition: "permanent",
+        childPolicy: "cascade",
+      },
+      scope,
+    );
+    const removedItem = await (broker.mutations.execute as any)(
+      {
+        operation: "item.remove",
+        operationId: "permanent-item-remove",
+        itemRef: itemPreview.plan.itemRef,
+        disposition: "permanent",
+        childPolicy: "cascade",
+        expectedRevision: itemPreview.plan.revision,
+        previewToken: itemPreview.token.value,
+      },
+      scope,
+    );
+    assert.strictEqual(removedItem.outcome, "committed");
+    assert.lengthOf(removedItem.receipt.changes, 2);
+    assert.isUndefined(Zotero.Items.get(parent.id));
+    assert.isUndefined(Zotero.Items.get(note.id));
+
+    const member = await createParentItem("Collection Removal Member");
+    const collection = await createCollection("Collection Removal Root");
+    const child = await createCollection("Collection Removal Child");
+    (child as any).parentID = collection.id;
+    await child.saveTx();
+    member.addToCollection(collection.id);
+    await member.saveTx();
+    const collectionPreview = await (broker.mutations.preview as any)(
+      {
+        operation: "collection.remove",
+        collectionRef: {
+          libraryId: collection.libraryID,
+          key: collection.key,
+        },
+        childPolicy: "cascade",
+      },
+      scope,
+    );
+    const removedCollection = await (broker.mutations.execute as any)(
+      {
+        operation: "collection.remove",
+        operationId: "permanent-collection-remove",
+        collectionRef: collectionPreview.plan.collectionRef,
+        childPolicy: "cascade",
+        expectedRevision: collectionPreview.plan.deletedCollections[0].revision,
+        previewToken: collectionPreview.token.value,
+      },
+      scope,
+    );
+    assert.strictEqual(removedCollection.outcome, "committed");
+    assert.isUndefined(Zotero.Collections.get(collection.id));
+    assert.isUndefined(Zotero.Collections.get(child.id));
+    assert.isOk(Zotero.Items.get(member.id));
+    assert.notInclude(member.getCollections(), collection.id);
+  });
+
+  it("builds complete read-only plans for the three destructive preview operations", async function () {
+    const item = await createParentItem("Preview Type Change");
+    const removable = await createParentItem("Preview Item Removal");
+    const note = new Zotero.Item("note");
+    note.parentID = removable.id;
+    note.setNote("<p>child</p>");
+    await note.saveTx();
+    const collection = await createCollection("Preview Collection Removal");
+    const childCollection = await createCollection("Preview Child Collection");
+    (childCollection as any).parentID = collection.id;
+    await childCollection.saveTx();
+    removable.addToCollection(collection.id);
+    await removable.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "preview-owner" };
+    const cases = [
+      {
+        operation: "item.changeType",
+        request: {
+          operation: "item.changeType",
+          itemRef: { libraryId: item.libraryID, key: item.key },
+          targetItemType: "book",
+          incompatibleData: "move_to_extra",
+        },
+        assertPlan(plan: any) {
+          assert.strictEqual(plan.itemRef.key, item.key);
+          assert.strictEqual(plan.sourceItemType, "journalArticle");
+          assert.strictEqual(plan.targetItemType, "book");
+          assert.property(plan, "preservedFields");
+          assert.property(plan, "dropped");
+        },
+      },
+      {
+        operation: "item.remove",
+        request: {
+          operation: "item.remove",
+          itemRef: { libraryId: removable.libraryID, key: removable.key },
+          disposition: "permanent",
+          childPolicy: "cascade",
+        },
+        assertPlan(plan: any) {
+          assert.deepInclude(plan.children, {
+            ref: { libraryId: note.libraryID, key: note.key },
+            kind: "note",
+            revision: plan.children[0].revision,
+          });
+          assert.property(plan, "managedResources");
+          assert.property(plan, "relationInvalidations");
+        },
+      },
+      {
+        operation: "collection.remove",
+        request: {
+          operation: "collection.remove",
+          collectionRef: {
+            libraryId: collection.libraryID,
+            key: collection.key,
+          },
+          childPolicy: "cascade",
+        },
+        assertPlan(plan: any) {
+          assert.sameDeepMembers(
+            plan.deletedCollections.map((entry: any) => entry.ref),
+            [
+              { libraryId: collection.libraryID, key: collection.key },
+              {
+                libraryId: childCollection.libraryID,
+                key: childCollection.key,
+              },
+            ],
+          );
+          assert.deepInclude(plan.detachedMemberships, {
+            collectionRef: {
+              libraryId: collection.libraryID,
+              key: collection.key,
+            },
+            itemRef: { libraryId: removable.libraryID, key: removable.key },
+            itemRevision: plan.detachedMemberships[0].itemRevision,
+          });
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const preview = await (broker.mutations.preview as any)(
+        testCase.request,
+        scope,
+      );
+      assert.strictEqual(preview.schema, "zotero-agents.mutation-preview.v1");
+      assert.strictEqual(preview.operation, testCase.operation);
+      assert.isNotEmpty(preview.observations);
+      assert.isString(preview.token.value);
+      assert.isString(preview.token.expiresAt);
+      testCase.assertPlan(preview.plan);
+      assertStrictJsonValue(preview);
+    }
+
+    assert.strictEqual(item.itemType, "journalArticle");
+    assert.isOk(Zotero.Items.get(removable.id));
+    assert.isOk(Zotero.Collections.get(collection.id));
+  });
+
+  it("binds preview tokens to fifteen minutes, caller scope, fresh state, and process lifetime", async function () {
+    let now = Date.parse("2026-08-30T00:00:00.000Z");
+    let sequence = 0;
+    configureZoteroHostMutationRuntimeForTests({
+      now: () => now,
+      randomId: () => `preview-token-${++sequence}`,
+    });
+    const item = await createParentItem("Preview Token Basis");
+    const broker = createZoteroHostCapabilityBroker();
+    const ref = { libraryId: item.libraryID, key: item.key };
+    const previewRequest = {
+      operation: "item.changeType",
+      itemRef: ref,
+      targetItemType: "book",
+      incompatibleData: "move_to_extra",
+    };
+    const preview = await (broker.mutations.preview as any)(previewRequest, {
+      ownerId: "preview-owner-a",
+    });
+    assert.strictEqual(
+      Date.parse(preview.token.expiresAt) - now,
+      15 * 60 * 1000,
+    );
+
+    const execute = (operationId: string, token: string, ownerId: string) =>
+      (broker.mutations.execute as any)(
+        {
+          ...previewRequest,
+          operationId,
+          expectedRevision: preview.plan.sourceRevision,
+          previewToken: token,
+        },
+        { ownerId },
+      );
+    const foreign = await execute(
+      "preview-foreign",
+      preview.token.value,
+      "preview-owner-b",
+    );
+    assert.strictEqual(foreign.outcome, "failed");
+    assert.strictEqual(foreign.attempt.error.code, "conflict");
+
+    now += 15 * 60 * 1000 + 1;
+    const expired = await execute(
+      "preview-expired",
+      preview.token.value,
+      "preview-owner-a",
+    );
+    assert.strictEqual(expired.outcome, "failed");
+    assert.strictEqual(expired.attempt.error.code, "invalid_ref");
+
+    const equivalent = await (broker.mutations.preview as any)(previewRequest, {
+      ownerId: "preview-owner-a",
+    });
+    assert.notStrictEqual(equivalent.token.value, preview.token.value);
+    const converted = await execute(
+      "preview-equivalent-reissue",
+      equivalent.token.value,
+      "preview-owner-a",
+    );
+    assert.strictEqual(converted.outcome, "committed");
+    assert.strictEqual(item.itemType, "book");
+
+    const driftItem = await createParentItem("Preview Drift Basis");
+    const driftRef = { libraryId: driftItem.libraryID, key: driftItem.key };
+    const driftRequest = { ...previewRequest, itemRef: driftRef };
+    const driftPreview = await (broker.mutations.preview as any)(driftRequest, {
+      ownerId: "preview-owner-a",
+    });
+    await handlers.parent.updateFields(driftItem, { title: "Preview Drifted" });
+    const drifted = await (broker.mutations.execute as any)(
+      {
+        ...driftRequest,
+        operationId: "preview-drift",
+        expectedRevision: driftPreview.plan.sourceRevision,
+        previewToken: driftPreview.token.value,
+      },
+      { ownerId: "preview-owner-a" },
+    );
+    assert.strictEqual(drifted.outcome, "failed");
+    assert.strictEqual(drifted.attempt.error.code, "conflict");
+
+    const restartItem = await createParentItem("Preview Restart Basis");
+    const restartRequest = {
+      ...previewRequest,
+      itemRef: { libraryId: restartItem.libraryID, key: restartItem.key },
+    };
+    const restartPreview = await (broker.mutations.preview as any)(
+      restartRequest,
+      { ownerId: "preview-owner-a" },
+    );
+    resetZoteroHostMutationRuntimeForTests();
+    const restarted = await (
+      createZoteroHostCapabilityBroker().mutations.execute as any
+    )(
+      {
+        ...restartRequest,
+        operationId: "preview-restart",
+        expectedRevision: restartPreview.plan.sourceRevision,
+        previewToken: restartPreview.token.value,
+      },
+      { ownerId: "preview-owner-a" },
+    );
+    assert.strictEqual(restarted.outcome, "failed");
+    assert.strictEqual(restarted.attempt.error.code, "invalid_ref");
+  });
+
+  it("rejects a destructive preview instead of returning a truncated plan", async function () {
+    configureZoteroHostMutationRuntimeForTests({ maxPreviewTargets: 2 } as any);
+    const parent = await createParentItem("Preview Hard Limit");
+    for (let index = 0; index < 3; index += 1) {
+      const note = new Zotero.Item("note");
+      note.parentID = parent.id;
+      note.setNote(`<p>child ${index}</p>`);
+      await note.saveTx();
+    }
+    try {
+      await (createZoteroHostCapabilityBroker().mutations.preview as any)(
+        {
+          operation: "item.remove",
+          itemRef: { libraryId: parent.libraryID, key: parent.key },
+          disposition: "permanent",
+          childPolicy: "cascade",
+        },
+        { ownerId: "preview-limit" },
+      );
+      assert.fail("expected the complete-plan hard limit to reject preview");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual(
+        (error as ZoteroHostCapabilityError).code,
+        "resource_limited",
+      );
+    }
+    assert.isOk(Zotero.Items.get(parent.id));
   });
 
   it("binds full-snapshot pages to one process, owner, basis, and cursor", async function () {
@@ -233,8 +1161,16 @@ describe("zotero host broker capability api", function () {
     assertStrictJsonValue(first);
 
     for (const attempt of [
-      { ownerId: "owner-b", snapshotId: first.snapshotId, cursor: first.nextCursor },
-      { ownerId: "owner-a", snapshotId: first.snapshotId, cursor: "foreign-cursor" },
+      {
+        ownerId: "owner-b",
+        snapshotId: first.snapshotId,
+        cursor: first.nextCursor,
+      },
+      {
+        ownerId: "owner-a",
+        snapshotId: first.snapshotId,
+        cursor: "foreign-cursor",
+      },
     ]) {
       try {
         await broker.library.syncSnapshot(
@@ -270,7 +1206,10 @@ describe("zotero host broker capability api", function () {
       assert.fail("expected an expired snapshot to fail");
     } catch (error) {
       assert.instanceOf(error, ZoteroHostCapabilityError);
-      assert.strictEqual((error as ZoteroHostCapabilityError).code, "invalid_ref");
+      assert.strictEqual(
+        (error as ZoteroHostCapabilityError).code,
+        "invalid_ref",
+      );
       assert.strictEqual(
         (error as ZoteroHostCapabilityError).details.reason,
         "expired",
@@ -291,7 +1230,10 @@ describe("zotero host broker capability api", function () {
       assert.fail("expected a prior-process snapshot to fail");
     } catch (error) {
       assert.instanceOf(error, ZoteroHostCapabilityError);
-      assert.strictEqual((error as ZoteroHostCapabilityError).code, "invalid_ref");
+      assert.strictEqual(
+        (error as ZoteroHostCapabilityError).code,
+        "invalid_ref",
+      );
     }
 
     assert.notStrictEqual(firstItem.key, secondItem.key);
@@ -380,16 +1322,20 @@ describe("zotero host broker capability api", function () {
     }
 
     resetZoteroHostSnapshotRuntimeForTests();
-    const stableFirst = await createZoteroHostCapabilityBroker().library.syncSnapshot(
-      { libraryId: firstItem.libraryID, batchSize: 1 },
-      { ownerId: "basis-owner" },
-    );
-    const remainingKey = stableFirst.items[0]?.ref.key === firstItem.key
-      ? (await createZoteroHostCapabilityBroker().library.listItems({
-          libraryId: firstItem.libraryID,
-          limit: 10,
-        })).items.find((item) => item.key !== firstItem.key)?.key
-      : firstItem.key;
+    const stableFirst =
+      await createZoteroHostCapabilityBroker().library.syncSnapshot(
+        { libraryId: firstItem.libraryID, batchSize: 1 },
+        { ownerId: "basis-owner" },
+      );
+    const remainingKey =
+      stableFirst.items[0]?.ref.key === firstItem.key
+        ? (
+            await createZoteroHostCapabilityBroker().library.listItems({
+              libraryId: firstItem.libraryID,
+              limit: 10,
+            })
+          ).items.find((item) => item.key !== firstItem.key)?.key
+        : firstItem.key;
     const remaining = remainingKey
       ? Zotero.Items.getByLibraryAndKey(firstItem.libraryID, remainingKey)
       : null;
@@ -746,6 +1692,46 @@ describe("zotero host broker capability api", function () {
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
   });
 
+  it("does not infer Workflow Host members from widened internal handler registries", function () {
+    const widened = handlers.note as typeof handlers.note & {
+      testOnlyWidening?: () => void;
+    };
+    const widenedTags = handlers.tag as typeof handlers.tag & {
+      testOnlyWidening?: () => void;
+    };
+    const widenedCollections =
+      handlers.collection as typeof handlers.collection & {
+        testOnlyWidening?: () => void;
+      };
+    const widenedCommand = handlers.command as typeof handlers.command & {
+      testOnlyWidening?: () => void;
+    };
+    widened.testOnlyWidening = () => undefined;
+    widenedTags.testOnlyWidening = () => undefined;
+    widenedCollections.testOnlyWidening = () => undefined;
+    widenedCommand.testOnlyWidening = () => undefined;
+    resetWorkflowHostApiForTests();
+    try {
+      const hostApi = createWorkflowHostApi();
+      assert.notProperty(hostApi.notes, "testOnlyWidening");
+      assert.notProperty(hostApi.tags, "testOnlyWidening");
+      assert.notProperty(hostApi.collections, "testOnlyWidening");
+      assert.notProperty(hostApi.command, "testOnlyWidening");
+      assert.deepEqual(Object.keys(hostApi.notes).sort(), [
+        "create",
+        "importEmbeddedImage",
+        "remove",
+        "update",
+      ]);
+    } finally {
+      delete widened.testOnlyWidening;
+      delete widenedTags.testOnlyWidening;
+      delete widenedCollections.testOnlyWidening;
+      delete widenedCommand.testOnlyWidening;
+      resetWorkflowHostApiForTests();
+    }
+  });
+
   it("inspects interactive and non-interactive Workflow Host contract variants", function () {
     const interactive = createWorkflowHostApi();
     const interactiveInspection = inspectWorkflowHostContract(
@@ -1049,36 +2035,87 @@ describe("zotero host broker capability api", function () {
     );
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Status Transition");
+    const itemRef = { libraryId: item.libraryID, key: item.key };
 
     const added = await hostApi.statusTags.transition({
-      item,
+      operationId: "status-transition-add",
+      itemRef,
       add: ["need-analysis", "need-fulltext"],
     });
-    assert.sameMembers(added.added, [
-      "status:need-analysis",
-      "status:need-fulltext",
-    ]);
-    assert.deepEqual(added.warnings, []);
+    assert.strictEqual(added.outcome, "committed");
+    assert.sameMembers(
+      added.outcome === "committed" ? added.result.added : [],
+      ["status:need-analysis", "status:need-fulltext"],
+    );
 
     const idempotent = await hostApi.statusTags.transition({
-      item,
+      operationId: "status-transition-idempotent",
+      itemRef,
       add: ["need-analysis"],
       remove: ["need-fulltext"],
     });
-    assert.deepEqual(idempotent.added, []);
-    assert.deepEqual(idempotent.removed, ["status:need-fulltext"]);
+    assert.strictEqual(idempotent.outcome, "committed");
+    assert.deepEqual(
+      idempotent.outcome === "committed" ? idempotent.result.added : [],
+      [],
+    );
+    assert.deepEqual(
+      idempotent.outcome === "committed" ? idempotent.result.removed : [],
+      ["status:need-fulltext"],
+    );
+    assert.deepEqual(
+      idempotent.outcome === "committed" ? idempotent.result.unchanged : [],
+      ["status:need-analysis"],
+    );
     assert.deepEqual(await handlers.tag.list(item), ["status:need-analysis"]);
 
     for (const request of [
-      { item, add: ["unknown"] },
-      { item, add: ["need-analysis"], remove: ["need-analysis"] },
+      { operationId: "status-invalid-key", itemRef, add: ["unknown"] },
+      {
+        operationId: "status-overlap",
+        itemRef,
+        add: ["need-analysis"],
+        remove: ["need-analysis"],
+      },
     ]) {
       try {
         await hostApi.statusTags.transition(request as any);
         assert.fail("expected invalid status transition to fail");
       } catch (error) {
-        assert.match(String(error), /status key|added and removed/i);
+        assert.instanceOf(error, ZoteroHostCapabilityError);
+        assert.strictEqual(
+          (error as ZoteroHostCapabilityError).code,
+          "invalid_request",
+        );
       }
+    }
+  });
+
+  it("returns a structured attempt when an accepted status transition fails", async function () {
+    const item = await createParentItem("Broker Status Failure");
+    const originalUpdate = handlers.tag.update;
+    handlers.tag.update = async () => {
+      throw new Error("status write failed");
+    };
+    try {
+      const result =
+        await createZoteroHostCapabilityBroker().statusTags.transition(
+          {
+            operationId: "status-transition-failed",
+            itemRef: { libraryId: item.libraryID, key: item.key },
+            add: ["need-analysis"],
+          },
+          { ownerId: "status-authority-test" },
+        );
+
+      assert.strictEqual(result.outcome, "failed");
+      if (result.outcome !== "failed") assert.fail("expected failed attempt");
+      assert.strictEqual(result.attempt.error.phase, "commit");
+      assert.strictEqual(result.attempt.error.recovery, "retry_same_operation");
+      assert.deepEqual(await handlers.tag.list(item), []);
+      assertStrictJsonValue(result);
+    } finally {
+      handlers.tag.update = originalUpdate;
     }
   });
 
@@ -1289,16 +2326,14 @@ describe("zotero host broker capability api", function () {
       libraryId: included.libraryID,
     });
 
-    assert.strictEqual(
-      snapshot.schema,
-      "zotero-agents.library-full-index.v1",
-    );
+    assert.strictEqual(snapshot.schema, "zotero-agents.library-full-index.v1");
     assert.isString(snapshot.snapshotId);
     assert.lengthOf(snapshot.items, 2);
     assert.strictEqual(snapshot.returned, 2);
     assert.isFalse(snapshot.hasMore);
     assert.strictEqual(snapshot.outcome, "completed");
-    if (snapshot.outcome !== "completed") throw new Error("expected terminal page");
+    if (snapshot.outcome !== "completed")
+      throw new Error("expected terminal page");
     assert.strictEqual(snapshot.completionEvidence.totalItems, 2);
     const indexed = snapshot.items.find(
       (item) => item.ref.key === included.key,

@@ -686,7 +686,10 @@ describe("Literature Search Ingest workflow contract", function () {
           statusTags: {
             async transition(value: unknown) {
               transitions.push(value);
-              return { added: [], removed: [], warnings: [] };
+              return {
+                outcome: "committed",
+                result: { added: [], removed: [], unchanged: [] },
+              };
             },
           },
         },
@@ -723,7 +726,10 @@ describe("Literature Search Ingest workflow contract", function () {
         statusTags: {
           async transition(value: unknown) {
             calls.push(value);
-            return { added: [], removed: [], warnings: [] };
+            return {
+              outcome: "committed",
+              result: { added: [], removed: [], unchanged: [] },
+            };
           },
         },
       },

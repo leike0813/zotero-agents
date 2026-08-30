@@ -5030,7 +5030,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-graph-legend-node-size");
     assert.include(source, "synthesis-graph-legend-halo");
     assert.include(uiModel, "metrics?: {");
-    assert.include(workbenchTab, "buildTopicDetailHtmlExport(runtime, topicId)");
+    assert.include(
+      workbenchTab,
+      "buildTopicDetailHtmlExport(runtime, topicId)",
+    );
     assert.include(workbenchTab, "writeRuntimeTextFile(");
     assert.notInclude(workbenchTab, "currentTopicDetailHtmlMetadata");
     assert.include(uiModel, "function normalizeGraphNodeMetrics");

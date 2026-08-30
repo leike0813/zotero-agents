@@ -520,9 +520,9 @@ async function executeMutationWithBridgeProjection(
   input: unknown,
   context: HostBridgeCapabilityContext,
 ) {
-  const response = await resolveCapabilityBroker(context).mutations.execute(
-    normalizeHostBridgeMutationRequest(input),
-  );
+  const response = await resolveCapabilityBroker(
+    context,
+  ).legacyMutations.execute(normalizeHostBridgeMutationRequest(input));
   if (!response.ok || !response.result.attachments?.length) {
     return response;
   }
@@ -2052,7 +2052,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     return { productId: product.productId, removed: true };
   }),
   capability("mutation.preview", (input, context) =>
-    resolveCapabilityBroker(context).mutations.preview(
+    resolveCapabilityBroker(context).legacyMutations.preview(
       normalizeHostBridgeMutationRequest(input),
     ),
   ),

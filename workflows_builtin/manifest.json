@@ -90,6 +90,7 @@
     "literature-workbench-package/literature-analysis/hooks/buildRequest.mjs",
     "literature-workbench-package/literature-analysis/workflow.json",
     "literature-workbench-package/literature-analysis/README.md",
+    "literature-workbench-package/lib/statusTransition.mjs",
     "literature-workbench-package/literature-translator/hooks/applyResult.mjs",
     "literature-workbench-package/literature-translator/hooks/buildRequest.mjs",
     "literature-workbench-package/literature-translator/workflow.json",

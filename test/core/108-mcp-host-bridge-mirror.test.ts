@@ -132,7 +132,7 @@ describe("MCP Host Bridge capability mirror", function () {
 
   it("projects mutation attachments without host-local paths", async function () {
     const broker = createFailClosedZoteroHostCapabilityBroker({
-      mutations: {
+      legacyMutations: {
         async preview(request) {
           return {
             ok: true,

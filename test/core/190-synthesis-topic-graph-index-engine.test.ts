@@ -229,7 +229,6 @@ describe("Synthesis Topic Graph index engine", function () {
     assert.notInclude(checkpoints, "complete:7");
   });
 
-
   it("keeps the engine source environment-neutral", async function () {
     const source = await fs.readFile(
       path.resolve("packages/synthesis-engine/src/topicGraphIndex.ts"),

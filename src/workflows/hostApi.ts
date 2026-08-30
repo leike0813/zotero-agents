@@ -51,14 +51,6 @@ import { createWorkflowArchiveApi } from "./archive";
 import { materializeWorkflowInputFile } from "./workflowInputMaterialization";
 import { prepareWorkflowNoteImage } from "./workflowNoteImagePreparation";
 import { createWorkflowStoredAttachmentImport } from "./workflowStoredAttachmentImport";
-import {
-  getBuiltinStatusPolicy,
-  getBuiltinStatusTag,
-  isBuiltinStatusKey,
-  type BuiltinStatusKey,
-  type BuiltinStatusTag,
-} from "../modules/synthesis/builtinTagPolicy";
-
 import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
 import { createResearchBundleMaterializer } from "../modules/researchBundleService";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
@@ -76,6 +68,31 @@ function workflowSnapshotOwnerId() {
     crypto?.randomUUID?.() ||
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
   }`;
+}
+
+function workflowMutationOperationId(member: string) {
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  const suffix =
+    crypto?.randomUUID?.() ||
+    Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+  return member + ":" + suffix;
+}
+
+function requireConfirmedMutationResult<
+  TResult extends Record<string, unknown>,
+>(
+  result: import("./types").MutationExecutionResult<TResult>,
+): TResult {
+  if ("result" in result) {
+    return result.result;
+  }
+  const error = new Error(
+    result.attempt.error.message ||
+      `Workflow Host mutation ${result.outcome}: ${result.attempt.error.code}`,
+  );
+  Object.assign(error, { attempt: result.attempt });
+  throw error;
 }
 
 export async function withWorkflowLibraryItemSnapshot(
@@ -180,84 +197,6 @@ function assertHostItem(ref: Zotero.Item | number | string) {
     throw new Error(`Item not found: ${String(ref)}`);
   }
   return item;
-}
-
-function normalizeBuiltinStatusKeys(values: unknown): BuiltinStatusKey[] {
-  const keys = Array.from(
-    new Set(
-      (Array.isArray(values) ? values : [])
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean),
-    ),
-  );
-  const unknown = keys.filter((key) => !isBuiltinStatusKey(key));
-  if (unknown.length) {
-    throw new Error(`Unknown builtin status key: ${unknown.join(", ")}`);
-  }
-  return keys as BuiltinStatusKey[];
-}
-
-async function transitionBuiltinStatusTags(args: {
-  item: Zotero.Item | number | string;
-  add?: BuiltinStatusKey[];
-  remove?: BuiltinStatusKey[];
-}) {
-  const addKeys = normalizeBuiltinStatusKeys(args?.add);
-  const removeKeys = normalizeBuiltinStatusKeys(args?.remove);
-  const removeSet = new Set(removeKeys);
-  const overlapping = addKeys.filter((key) => removeSet.has(key));
-  if (overlapping.length) {
-    throw new Error(
-      `Builtin status keys cannot be added and removed together: ${overlapping.join(", ")}`,
-    );
-  }
-  const synthesisClient = await getDefaultSynthesisClient();
-  if (!(await synthesisClient.tags.isBuiltinTagPolicyInitialized())) {
-    throw new Error("Builtin status tag policy is not initialized");
-  }
-  const item = assertHostItem(args.item);
-  const current = new Set(await handlers.tag.list(item));
-  const addTags = addKeys
-    .map(getBuiltinStatusTag)
-    .filter((tag) => !current.has(tag));
-  const removeTags = removeKeys
-    .map(getBuiltinStatusTag)
-    .filter((tag) => current.has(tag));
-  const added: BuiltinStatusTag[] = [];
-  const removed: BuiltinStatusTag[] = [];
-  const warnings: Array<{
-    code: string;
-    operation: "add" | "remove";
-    tags: BuiltinStatusTag[];
-    message: string;
-  }> = [];
-  if (addTags.length) {
-    try {
-      await handlers.tag.add(item, addTags);
-      added.push(...addTags);
-    } catch (error) {
-      warnings.push({
-        code: "builtin_status_add_failed",
-        operation: "add",
-        tags: addTags,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-  if (removeTags.length) {
-    try {
-      await handlers.tag.remove(item, removeTags);
-      removed.push(...removeTags);
-    } catch (error) {
-      warnings.push({
-        code: "builtin_status_remove_failed",
-        operation: "remove",
-        tags: removeTags,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-  return { added, removed, warnings };
 }
 
 async function readText(path: string) {
@@ -462,7 +401,48 @@ export function createWorkflowHostApi(): WorkflowHostApi {
   if (cachedHostApi) {
     return cachedHostApi;
   }
-  const zoteroBroker = createZoteroHostCapabilityBroker();
+  const importStoredFile = createWorkflowStoredAttachmentImport({
+    getStagingRoot: () =>
+      joinPath(
+        getRuntimePersistencePaths().tmpDir,
+        "workflow-attachment-import",
+      ),
+    ensureDirectory: makeDirectory,
+    copyFile,
+    removePath: removeRuntimePath,
+    importStoredFromPath: (args) =>
+      handlers.attachment.importStoredFromPath(args),
+    removeAttachment: (attachment) =>
+      handlers.attachment.remove(attachment),
+  });
+  const zoteroBroker = createZoteroHostCapabilityBroker({
+    async createStoredFile(request, parent) {
+      if (request.source.kind !== "stored_file") {
+        throw new Error("stored attachment source is required");
+      }
+      if (request.source.main.source.kind !== "local_path") {
+        throw new Error("resource attachment source is not materialized");
+      }
+      const companions = (request.source.companions || []).map((entry) => {
+        if (entry.source.kind !== "local_path") {
+          throw new Error("resource companion source is not materialized");
+        }
+        return {
+          sourcePath: entry.source.path,
+          relativePath: entry.targetRelativePath,
+        };
+      });
+      return importStoredFile({
+        parent,
+        path: request.source.main.source.path,
+        title: request.metadata?.title,
+        mimeType: request.metadata?.contentType,
+        charset: request.metadata?.charset,
+        url: request.metadata?.originalUrl,
+        companionFiles: companions,
+      });
+    },
+  });
   const materializeWorkflowResearchBundlePapers =
     createResearchBundleMaterializer({
       async resolvePaper({ paperRef, libraryId, itemKey }) {
@@ -531,27 +511,250 @@ export function createWorkflowHostApi(): WorkflowHostApi {
   } satisfies WorkflowHostApi["library"];
   const mutations = {
     preview: (request: WorkflowHostMutationRequest) =>
-      zoteroBroker.mutations.preview(toBrokerMutationRequest(request)),
+      zoteroBroker.legacyMutations.preview(toBrokerMutationRequest(request)),
     execute: (request: WorkflowHostMutationRequest) =>
-      zoteroBroker.mutations.execute(toBrokerMutationRequest(request)),
+      zoteroBroker.legacyMutations.execute(toBrokerMutationRequest(request)),
   } satisfies WorkflowHostApi["mutations"];
   const metadata = {
     translateIdentifier: zoteroBroker.metadata.translateIdentifier,
   } satisfies WorkflowHostApi["metadata"];
-  const importStoredFile = createWorkflowStoredAttachmentImport({
-    getStagingRoot: () =>
-      joinPath(
-        getRuntimePersistencePaths().tmpDir,
-        "workflow-attachment-import",
-      ),
-    ensureDirectory: makeDirectory,
-    copyFile,
-    removePath: removeRuntimePath,
-    importStoredFromPath: (args) =>
-      handlers.attachment.importStoredFromPath(args),
-    removeAttachment: (attachment) =>
-      handlers.attachment.remove(attachment),
-  });
+  const resolveBrokerResultItem = (ref: ZoteroHostItemRefInput) => {
+    const item = resolveHostZotero().Items.getByLibraryAndKey(
+      Number(ref.libraryId),
+      ref.key,
+    );
+    if (!item) throw new Error(`Mutation result item not found: ${ref.key}`);
+    return item;
+  };
+  const notes = {
+    async create(note: { content: string }) {
+      const result = requireConfirmedMutationResult(
+        await zoteroBroker.notes.create(
+          {
+            operationId: workflowMutationOperationId("notes.create"),
+            content: note.content,
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+      return resolveBrokerResultItem(
+        (result.note as { ref: ZoteroHostItemRefInput }).ref,
+      );
+    },
+    async update(
+      noteRef: WorkflowHostItemRefInput,
+      patch: { content: string },
+    ) {
+      const result = requireConfirmedMutationResult(
+        await zoteroBroker.notes.updateContent(
+          {
+            operationId: workflowMutationOperationId("notes.updateContent"),
+            noteRef: toBrokerItemRef(noteRef),
+            content: patch.content,
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+      return resolveBrokerResultItem(
+        (result.note as { ref: ZoteroHostItemRefInput }).ref,
+      );
+    },
+    async remove(noteRef: WorkflowHostItemRefInput) {
+      requireConfirmedMutationResult(
+        await zoteroBroker.notes.remove(
+          {
+            operationId: workflowMutationOperationId("notes.remove"),
+            noteRef: toBrokerItemRef(noteRef),
+            disposition: "permanent",
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+    },
+    importEmbeddedImage,
+  } satisfies WorkflowHostApi["notes"];
+  const attachmentPlacement = (parent?: WorkflowHostItemRefInput | null) =>
+    parent
+      ? ({ kind: "child", parentRef: toBrokerItemRef(parent) } as const)
+      : ({ kind: "top_level" } as const);
+  const attachmentFromResult = (result: Record<string, unknown>) =>
+    resolveBrokerResultItem(
+      (result.attachment as { ref: ZoteroHostItemRefInput }).ref,
+    );
+  const legacyFilePath = (spec: { file?: any; filePath?: string }) => {
+    const path = String(spec.filePath || spec.file?.path || "").trim();
+    if (!path) throw new Error("Attachment file path is required");
+    return path;
+  };
+  const attachments = {
+    async create(spec: { file?: any; filePath?: string }) {
+      const result = requireConfirmedMutationResult(
+        await zoteroBroker.attachments.create(
+          {
+            operationId: workflowMutationOperationId("attachments.create"),
+            placement: { kind: "top_level" },
+            source: { kind: "linked_file", path: legacyFilePath(spec) },
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+      return attachmentFromResult(result);
+    },
+    async createFromPath(options: {
+      parent?: WorkflowHostItemRefInput | null;
+      path?: string | null;
+      dataPath?: string | null;
+      title?: string | null;
+      mimeType?: string | null;
+    }) {
+      const path = String(options.path || options.dataPath || "").trim();
+      const result = requireConfirmedMutationResult(
+        await zoteroBroker.attachments.create(
+          {
+            operationId: workflowMutationOperationId("attachments.create"),
+            placement: attachmentPlacement(options.parent),
+            source: { kind: "linked_file", path },
+            metadata: {
+              ...(options.title ? { title: options.title } : {}),
+              ...(options.mimeType ? { contentType: options.mimeType } : {}),
+            },
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+      return attachmentFromResult(result);
+    },
+    async importStoredFromPath(options: {
+      parent?: WorkflowHostItemRefInput | null;
+      path?: string | null;
+      title?: string | null;
+      mimeType?: string | null;
+      charset?: string | null;
+      url?: string | null;
+    }) {
+      const result = requireConfirmedMutationResult(
+        await zoteroBroker.attachments.create(
+          {
+            operationId: workflowMutationOperationId("attachments.create"),
+            placement: attachmentPlacement(options.parent),
+            source: {
+              kind: "stored_file",
+              main: {
+                source: {
+                  kind: "local_path",
+                  path: String(options.path || "").trim(),
+                },
+              },
+            },
+            metadata: {
+              ...(options.title ? { title: options.title } : {}),
+              ...(options.mimeType ? { contentType: options.mimeType } : {}),
+              ...(options.charset ? { charset: options.charset } : {}),
+              ...(options.url ? { originalUrl: options.url } : {}),
+            },
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+      return attachmentFromResult(result);
+    },
+    async createFromUrl(options: {
+      parent?: WorkflowHostItemRefInput | null;
+      url: string;
+      title?: string | null;
+      mimeType?: string | null;
+    }) {
+      const result = requireConfirmedMutationResult(
+        await zoteroBroker.attachments.create(
+          {
+            operationId: workflowMutationOperationId("attachments.create"),
+            placement: attachmentPlacement(options.parent),
+            source: { kind: "linked_url", url: options.url },
+            metadata: {
+              ...(options.title ? { title: options.title } : {}),
+              ...(options.mimeType ? { contentType: options.mimeType } : {}),
+            },
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+      return attachmentFromResult(result);
+    },
+    async update(
+      attachmentRef: WorkflowHostItemRefInput,
+      patch: Record<string, string | number | boolean | null>,
+    ) {
+      const allowed = new Set(["title", "url", "contentType", "charset"]);
+      const unsupported = Object.keys(patch).find((field) => !allowed.has(field));
+      if (unsupported) {
+        throw new Error(`Unsupported attachment metadata field: ${unsupported}`);
+      }
+      const result = requireConfirmedMutationResult(
+        await zoteroBroker.attachments.updateMetadata(
+          {
+            operationId: workflowMutationOperationId(
+              "attachments.updateMetadata",
+            ),
+            attachmentRef: toBrokerItemRef(attachmentRef),
+            patch: patch as {
+              title?: string | null;
+              url?: string | null;
+              contentType?: string | null;
+              charset?: string | null;
+            },
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+      return attachmentFromResult(result);
+    },
+    async remove(attachmentRef: WorkflowHostItemRefInput) {
+      requireConfirmedMutationResult(
+        await zoteroBroker.attachments.remove(
+          {
+            operationId: workflowMutationOperationId("attachments.remove"),
+            attachmentRef: toBrokerItemRef(attachmentRef),
+            disposition: "permanent",
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+    },
+    async importStoredFile(args: {
+      parent?: WorkflowHostItemRefInput | null;
+      path: string;
+      title?: string | null;
+      mimeType?: string | null;
+      charset?: string | null;
+      url?: string | null;
+      companionFiles?: Array<{ sourcePath: string; relativePath: string }>;
+    }) {
+      const result = requireConfirmedMutationResult(
+        await zoteroBroker.attachments.create(
+          {
+            operationId: workflowMutationOperationId("attachments.create"),
+            placement: attachmentPlacement(args.parent),
+            source: {
+              kind: "stored_file",
+              main: { source: { kind: "local_path", path: args.path } },
+              companions: (args.companionFiles || []).map((entry) => ({
+                source: { kind: "local_path", path: entry.sourcePath },
+                targetRelativePath: entry.relativePath,
+              })),
+            },
+            metadata: {
+              ...(args.title ? { title: args.title } : {}),
+              ...(args.mimeType ? { contentType: args.mimeType } : {}),
+              ...(args.charset ? { charset: args.charset } : {}),
+              ...(args.url ? { originalUrl: args.url } : {}),
+            },
+          },
+          { ownerId: "workflow-host-v11" },
+        ),
+      );
+      return attachmentFromResult(result);
+    },
+  } satisfies WorkflowHostApi["attachments"];
   cachedHostApi = {
     version: WORKFLOW_HOST_API_VERSION,
     addon: {
@@ -644,25 +847,75 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         );
       },
     },
-    parents: handlers.parent,
-    notes: {
-      ...handlers.note,
-      importEmbeddedImage,
+    parents: {
+      async addNote(parentRef, note) {
+        const result = requireConfirmedMutationResult(
+          await zoteroBroker.notes.create(
+            {
+              operationId: workflowMutationOperationId("notes.create"),
+              parentRef: toBrokerItemRef(parentRef),
+              content: note.content,
+            },
+            { ownerId: "workflow-host-v11" },
+          ),
+        );
+        return resolveBrokerResultItem(
+          (result.note as { ref: ZoteroHostItemRefInput }).ref,
+        );
+      },
+      addAttachment: (parentRef, spec) =>
+        attachments.createFromPath({
+          parent: parentRef,
+          path: legacyFilePath(spec),
+        }),
+      addRelated: handlers.parent.addRelated,
+      removeRelated: handlers.parent.removeRelated,
+      updateFields: handlers.parent.updateFields,
+      updateMetadata: handlers.parent.updateMetadata,
     },
+    notes,
     images: {
       prepareForNoteEmbedding: prepareWorkflowNoteImage,
     },
-    attachments: {
-      ...handlers.attachment,
-      importStoredFile,
+    attachments,
+    tags: {
+      add: handlers.tag.add,
+      list: handlers.tag.list,
+      remove: handlers.tag.remove,
+      replace: handlers.tag.replace,
     },
-    tags: handlers.tag,
     statusTags: {
-      getPolicy: getBuiltinStatusPolicy,
-      transition: transitionBuiltinStatusTags,
+      getPolicy: zoteroBroker.statusTags.getPolicy,
+      transition: (request, control) => {
+        const legacyRequest = request as typeof request & {
+          item?: WorkflowHostItemRefInput;
+        };
+        return zoteroBroker.statusTags.transition(
+          {
+            ...request,
+            operationId:
+              request.operationId ||
+              workflowMutationOperationId("statusTags.transition"),
+            itemRef: toBrokerItemRef(
+              legacyRequest.itemRef ?? legacyRequest.item!,
+            ),
+          },
+          { ownerId: "workflow-host-v11" },
+          control,
+        );
+      },
     },
-    collections: handlers.collection,
-    command: handlers.command,
+    collections: {
+      update: handlers.collection.update,
+      create: handlers.collection.create,
+      delete: handlers.collection.delete,
+      add: handlers.collection.add,
+      remove: handlers.collection.remove,
+      replace: handlers.collection.replace,
+    },
+    command: {
+      run: handlers.command.run,
+    },
     editor: {
       openSession: openWorkflowEditorSession,
       registerRenderer: registerWorkflowEditorRenderer,

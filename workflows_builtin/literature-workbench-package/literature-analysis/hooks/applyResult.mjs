@@ -13,6 +13,7 @@ import {
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
+import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -502,10 +503,10 @@ async function applyResultImpl({
         remove: ["need-analysis"],
       });
       statusWarnings.push(
-        ...(statusTransition?.warnings || []).map((warning) => ({
-          code: "literature_analysis_status_transition_failed",
-          ...warning,
-        })),
+        ...collectStatusTransitionDiagnostics(
+          statusTransition,
+          "literature_analysis_status_transition_failed",
+        ),
       );
     } catch (error) {
       statusWarnings.push({
@@ -702,10 +703,10 @@ async function applyResultImpl({
       remove: ["need-analysis"],
     });
     statusWarnings.push(
-      ...(statusTransition?.warnings || []).map((warning) => ({
-        code: "literature_analysis_status_transition_failed",
-        ...warning,
-      })),
+      ...collectStatusTransitionDiagnostics(
+        statusTransition,
+        "literature_analysis_status_transition_failed",
+      ),
     );
   } catch (error) {
     statusWarnings.push({

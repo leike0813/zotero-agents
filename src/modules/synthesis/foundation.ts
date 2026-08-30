@@ -86,9 +86,8 @@ export function resolveSynthesisPersistenceRoot(root: string) {
 }
 
 export function resolveSynthesisRuntimeFileRoot(root: string) {
-  return getRuntimePersistencePaths(
-    resolveSynthesisPersistenceRoot(root),
-  ).synthesisDataRoot;
+  return getRuntimePersistencePaths(resolveSynthesisPersistenceRoot(root))
+    .synthesisDataRoot;
 }
 
 export function buildSynthesisKnowledgeGraphPaths(

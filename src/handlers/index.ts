@@ -43,7 +43,7 @@ type AttachmentPathOptions = {
   allowMissing?: boolean;
 };
 type AttachmentUrlOptions = {
-  parent: ItemRef;
+  parent?: ItemRef | null;
   url: string;
   title?: string | null;
   mimeType?: string | null;
@@ -510,6 +510,18 @@ export const handlers = {
       const item = resolveItem(itemRef);
       await eraseItemTx(item, "handlers:item.remove:eraseTx");
     },
+    trash: async (itemRef: ItemRef) => {
+      const item = resolveItem(itemRef);
+      const trashTx = (
+        Zotero.Items as unknown as {
+          trashTx?: (ids: number[]) => Promise<void>;
+        }
+      ).trashTx;
+      if (typeof trashTx !== "function") {
+        throw new Error("Zotero.Items.trashTx is unavailable");
+      }
+      await trashTx([item.id]);
+    },
   },
   parent: {
     addNote: async (parentRef: ItemRef, note: NotePayload) => {
@@ -685,8 +697,8 @@ export const handlers = {
     createFromUrl: async (options: AttachmentUrlOptions) => {
       const url = String(options.url || "").trim();
       assertHttpUrl(url);
-      const parent = resolveItem(options.parent);
-      if (options.deduplicate !== false) {
+      const parent = options.parent ? resolveItem(options.parent) : null;
+      if (parent && options.deduplicate !== false) {
         const existing = findChildAttachmentByUrl(parent, url);
         if (existing) {
           return existing;
@@ -704,12 +716,31 @@ export const handlers = {
         () =>
           Zotero.Attachments.linkFromURL({
             url,
-            parentItemID: parent.id,
+            ...(parent ? { parentItemID: parent.id } : {}),
             title: options.title || url,
             contentType: options.mimeType || "text/html",
           }),
       );
       return attachment;
+    },
+    importStoredFromUrl: async (options: AttachmentUrlOptions) => {
+      const url = String(options.url || "").trim();
+      assertHttpUrl(url);
+      const parent = options.parent ? resolveItem(options.parent) : null;
+      if (typeof Zotero.Attachments?.importFromURL !== "function") {
+        throw new Error("Zotero.Attachments.importFromURL is unavailable");
+      }
+      return measureAsyncTestPerformanceSpan(
+        "handlers:attachment.importStoredFromUrl:importFromURL",
+        { hasParent: !!parent, hasUrl: true },
+        () =>
+          Zotero.Attachments.importFromURL({
+            url,
+            ...(parent ? { parentItemID: parent.id } : {}),
+            ...(options.title ? { title: options.title } : {}),
+            ...(options.mimeType ? { contentType: options.mimeType } : {}),
+          }),
+      );
     },
     update: async (attachmentRef: ItemRef, patch: FieldPatch) => {
       const attachment = resolveItem(attachmentRef);
@@ -727,6 +758,16 @@ export const handlers = {
     },
   },
   tag: {
+    update: async (itemRef: ItemRef, tags: string[]) => {
+      const item = resolveItem(itemRef);
+      const current = item.getTags().map((entry) => entry.tag);
+      current.forEach((tag) => item.removeTag(tag));
+      tags.forEach((tag) => item.addTag(tag));
+      await saveItemTx(item, "handlers:tag.update:saveTx", {
+        previousTagCount: current.length,
+        nextTagCount: tags.length,
+      });
+    },
     add: async (itemRef: ItemRef | ItemRef[], tags: string[]) => {
       assertNonEmptyTags(tags);
       const items = resolveItems(itemRef);
@@ -766,6 +807,25 @@ export const handlers = {
     },
   },
   collection: {
+    update: async (
+      collectionRef: number | string | Zotero.Collection,
+      patch: { name?: string; parentID?: number | null },
+    ) => {
+      const collectionId = resolveCollectionId(collectionRef);
+      const collection = getCollectionByIdOrKey(collectionId);
+      if (!collection) throw new Error(`Collection not found: ${collectionId}`);
+      if (patch.name !== undefined) collection.name = patch.name;
+      if (patch.parentID !== undefined) {
+        (collection as unknown as { parentID: number | null }).parentID =
+          patch.parentID;
+      }
+      await measureAsyncTestPerformanceSpan(
+        "handlers:collection.update:saveTx",
+        undefined,
+        () => collection.saveTx(),
+      );
+      return collection;
+    },
     create: async (options: CreateCollectionOptions) => {
       const collection = new Zotero.Collection();
       collection.name = options.name;

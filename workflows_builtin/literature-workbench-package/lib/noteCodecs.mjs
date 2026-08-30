@@ -297,11 +297,20 @@ export function buildConversationNotePayload(args) {
 }
 
 export function buildConversationNoteContent(args) {
+  const markdown = String(args.markdown || "");
+  let previewLength = Math.min(markdown.length, 40_000);
+  let renderedPreview = renderMarkdownToHtml(markdown.slice(0, previewLength));
+  while (renderedPreview.length > 40_000 && previewLength > 0) {
+    previewLength = Math.floor(
+      previewLength * (40_000 / renderedPreview.length) * 0.95,
+    );
+    renderedPreview = renderMarkdownToHtml(markdown.slice(0, previewLength));
+  }
   return [
     '<div data-zs-note-kind="conversation-note">',
     `<h1>${escapeHtml(String(args.title || ""))}</h1>`,
     '<div data-zs-view="conversation-note-html">',
-    renderMarkdownToHtml(args.markdown),
+    renderedPreview,
     "</div>",
     "</div>",
   ].join("\n");

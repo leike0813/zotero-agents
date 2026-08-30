@@ -131,7 +131,12 @@ function stringValue(value: unknown, location: string, allowEmpty = false) {
   return value;
 }
 
-function integer(value: unknown, location: string, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
+function integer(
+  value: unknown,
+  location: string,
+  minimum = 0,
+  maximum = Number.MAX_SAFE_INTEGER,
+) {
   if (
     typeof value !== "number" ||
     !Number.isSafeInteger(value) ||
@@ -144,7 +149,10 @@ function integer(value: unknown, location: string, minimum = 0, maximum = Number
 }
 
 function strings(value: unknown, location: string) {
-  if (!Array.isArray(value) || value.length > ZOTERO_LIBRARY_SNAPSHOT_ITEM_LIMIT) {
+  if (
+    !Array.isArray(value) ||
+    value.length > ZOTERO_LIBRARY_SNAPSHOT_ITEM_LIMIT
+  ) {
     invalid(location);
   }
   return value.map((entry, index) =>

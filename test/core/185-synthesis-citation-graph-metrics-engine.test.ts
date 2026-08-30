@@ -327,5 +327,4 @@ describe("Synthesis Citation Graph metrics engine", function () {
     assert.include(checkpoints, "pagerank:2");
     assert.notInclude(checkpoints, "complete:");
   });
-
 });

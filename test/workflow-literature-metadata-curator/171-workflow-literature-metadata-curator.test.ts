@@ -1209,7 +1209,10 @@ describe("workflow: literature-metadata-curator", function () {
               await runtimeHandlers.tag.remove(item, [
                 "status:need-metadata-curation",
               ]);
-              return { added: [], removed: remove, warnings: [] };
+              return {
+                outcome: "committed",
+                result: { added: [], removed: remove, unchanged: [] },
+              };
             },
           },
         },
@@ -1279,7 +1282,10 @@ describe("workflow: literature-metadata-curator", function () {
                 item,
                 tags: ["status:need-metadata-curation"],
               });
-              return { added: [], removed: remove, warnings: [] };
+              return {
+                outcome: "committed",
+                result: { added: [], removed: remove, unchanged: [] },
+              };
             },
           },
         },

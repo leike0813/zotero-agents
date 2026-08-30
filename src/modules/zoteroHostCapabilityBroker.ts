@@ -32,10 +32,38 @@ import { queryZoteroLibraryPage } from "./zoteroLibraryPageQuery";
 import type {
   JsonObject,
   JsonValue,
+  ItemUpdateMetadataRequest,
+  MutationChangeDto,
+  MutationEntityRef,
+  MutationExecuteRequest,
+  MutationExecutionResult,
+  MutationItemResultDto,
+  MutationOperation,
+  MutationPlanByOperation,
+  MutationPreviewOperation,
+  MutationPreviewRequestByOperation,
+  MutationPreviewResult,
+  AttachmentCreateRequestDto,
+  AttachmentMoveRequestDto,
+  AttachmentRemoveRequestDto,
+  AttachmentReplaceFileRequestDto,
+  AttachmentUpdateMetadataRequestDto,
+  NoteCreateRequestDto,
+  NotePayloadUpsertRequestDto,
+  NoteRemoveRequestDto,
+  NoteUpdateContentRequestDto,
+  StatusTagTransitionRequestDto,
+  StatusTagTransitionResultDto,
   PortableCollectionRef as ZoteroHostCollectionRefInput,
   PortableItemRef as ZoteroHostItemRefInput,
+  WorkflowCallControl,
   WorkflowHostCreatorDto as ZoteroHostMetadataCreatorDto,
 } from "../workflows/types";
+import {
+  getBuiltinStatusPolicy,
+  getBuiltinStatusTag,
+  isBuiltinStatusKey,
+} from "./synthesis/builtinTagPolicy";
 import {
   assertWorkflowHostStrictJsonValue,
   createWorkflowHostErrorData,
@@ -57,6 +85,17 @@ import {
   type ZoteroLibrarySnapshotPageDto,
   type ZoteroLibrarySnapshotRequestDto,
 } from "../../packages/synthesis-contracts/src/index";
+import {
+  configureMutationAuthorityRuntimeForTests,
+  discardMutationPreviewToken,
+  executeReservedMutation,
+  issueMutationPreviewToken,
+  MutationAuthorityAdmissionError,
+  MutationAuthorityExecutionError,
+  resetMutationAuthorityRuntimeForTests,
+  validateMutationPreviewToken,
+  type ZoteroHostMutationCallerScope,
+} from "./zoteroHostMutationAuthority";
 
 export type {
   JsonObject,
@@ -86,6 +125,7 @@ export type ZoteroHostItemSummaryDto = {
 };
 
 export type ZoteroHostItemDetailDto = ZoteroHostItemSummaryDto & {
+  revision: string;
   fields: Record<string, string | number | boolean>;
   noteCount: number;
   attachmentCount: number;
@@ -247,8 +287,7 @@ export type ZoteroHostLibraryListResponse = {
   };
 };
 
-export type ZoteroHostLibrarySyncSnapshotItemDto =
-  ZoteroLibrarySnapshotItemDto;
+export type ZoteroHostLibrarySyncSnapshotItemDto = ZoteroLibrarySnapshotItemDto;
 export type ZoteroHostLibrarySyncSnapshotResponse =
   ZoteroLibrarySnapshotPageDto;
 export type ZoteroHostLibrarySyncSnapshotRequest =
@@ -639,13 +678,94 @@ export interface ZoteroHostCapabilityBroker {
   };
   readonly mutations: {
     preview(
+      request: MutationPreviewRequestByOperation[MutationPreviewOperation],
+      scope: ZoteroHostMutationCallerScope,
+    ): Promise<
+      MutationPreviewResult<MutationPlanByOperation[MutationPreviewOperation]>
+    >;
+    execute(
+      request: MutationExecuteRequest,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+  };
+  readonly legacyMutations: {
+    preview(
       request: ZoteroHostMutationRequest,
     ): Promise<ZoteroHostMutationPreviewResponse>;
     execute(
       request: ZoteroHostMutationRequest,
     ): Promise<ZoteroHostMutationExecuteResponse>;
   };
+  readonly statusTags: {
+    getPolicy(): ReturnType<typeof getBuiltinStatusPolicy>;
+    transition(
+      request: StatusTagTransitionRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<StatusTagTransitionResultDto>>;
+  };
+  readonly notes: {
+    create(
+      request: NoteCreateRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+    updateContent(
+      request: NoteUpdateContentRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+    remove(
+      request: NoteRemoveRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+    upsertPayload(
+      request: NotePayloadUpsertRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+  };
+  readonly attachments: {
+    create(
+      request: AttachmentCreateRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+    updateMetadata(
+      request: AttachmentUpdateMetadataRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+    replaceFile(
+      request: AttachmentReplaceFileRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+    move(
+      request: AttachmentMoveRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+    remove(
+      request: AttachmentRemoveRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<JsonObject>>;
+  };
 }
+
+export type ZoteroHostAttachmentMutationPrimitives = Readonly<{
+  createStoredFile?: (
+    request: AttachmentCreateRequestDto,
+    parent: Zotero.Item | null,
+  ) => Promise<Zotero.Item>;
+  replaceFile?: (
+    request: AttachmentReplaceFileRequestDto,
+    attachment: Zotero.Item,
+  ) => Promise<Zotero.Item>;
+}>;
 
 const SUMMARY_TEXT_LIMIT = 300;
 const FIELD_TEXT_LIMIT = 4000;
@@ -669,6 +789,15 @@ const LIBRARY_READINESS_CHECKS: ZoteroHostLibraryReadinessCheck[] = [
 const TARGET_LIMIT_MAX = 50;
 const TAG_LIMIT_MAX = 100;
 const TAG_TEXT_LIMIT = 200;
+
+function legacyMutationOperationId(operation: string) {
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  return `${operation}:${
+    crypto?.randomUUID?.() ||
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  }`;
+}
 const INGEST_FIELD_LIMIT = 2000;
 const NOTE_EXCERPT_DEFAULT = 800;
 const NOTE_EXCERPT_MAX = 2000;
@@ -807,6 +936,11 @@ function assertJsonValue(
   _path = "$",
 ): asserts value is JsonValue {
   assertWorkflowHostStrictJsonValue(value);
+}
+
+function strictJsonObject(value: object): JsonObject {
+  assertWorkflowHostStrictJsonValue(value);
+  return value as JsonObject;
 }
 
 function capabilityError<Code extends ZoteroHostCapabilityErrorCode>(
@@ -1042,7 +1176,7 @@ function serializeItemDetail(item: Zotero.Item): ZoteroHostItemDetailDto {
   } catch {
     attachmentCount = 0;
   }
-  return {
+  const detail = {
     ...serializeZoteroItemSummary(item),
     fields,
     noteCount,
@@ -1054,6 +1188,10 @@ function serializeItemDetail(item: Zotero.Item): ZoteroHostItemDetailDto {
           .map((entry) => trimText(entry))
           .filter(Boolean)
       : [],
+  };
+  return {
+    ...detail,
+    revision: hashSynthesisContractCanonicalJson(detail),
   };
 }
 
@@ -1308,9 +1446,13 @@ function serializeLibrarySyncSnapshotItem(
     const attachment = resolveZotero().Items.get(attachmentId);
     if (!attachment) continue;
     try {
-      annotationCount += ((attachment as Zotero.Item & {
-        getAnnotations?: () => unknown[];
-      }).getAnnotations?.() || []).length;
+      annotationCount += (
+        (
+          attachment as Zotero.Item & {
+            getAnnotations?: () => unknown[];
+          }
+        ).getAnnotations?.() || []
+      ).length;
     } catch {
       // A failed child read changes the basis into a failed snapshot later.
       throw capabilityError(
@@ -1362,10 +1504,14 @@ function getChildItemIds(
 ) {
   const values = item[getter]?.() || [];
   if (!Array.isArray(values)) {
-    throw capabilityError("execution_failed", "snapshot child list is invalid", {
-      phase: "read",
-      recovery: "refresh_and_retry_new_operation",
-    });
+    throw capabilityError(
+      "execution_failed",
+      "snapshot child list is invalid",
+      {
+        phase: "read",
+        recovery: "refresh_and_retry_new_operation",
+      },
+    );
   }
   return values
     .map((value) => parsePositiveInteger(value))
@@ -3269,6 +3415,2689 @@ async function executeMutationOrThrow(
   }
 }
 
+function canonicalItemRef(ref: ZoteroHostItemRefInput) {
+  const libraryId = parsePositiveInteger(ref?.libraryId);
+  const key = trimText(ref?.key, 64);
+  if (!libraryId || !key) {
+    throw capabilityError("invalid_ref", "item ref is invalid", {
+      kind: "item",
+      reason: !libraryId ? "invalid_library_id" : "invalid_key",
+    });
+  }
+  return { libraryId, key };
+}
+
+function canonicalCollectionRef(ref: ZoteroHostCollectionRefInput) {
+  const libraryId = parsePositiveInteger(ref?.libraryId);
+  const key = trimText(ref?.key, 64);
+  if (!libraryId || !key) {
+    throw capabilityError("invalid_ref", "collection ref is invalid", {
+      kind: "collection",
+      reason: !libraryId ? "invalid_library_id" : "invalid_key",
+    });
+  }
+  return { libraryId, key };
+}
+
+function canonicalItemVersion(item: Zotero.Item) {
+  const detail = serializeItemDetail(item);
+  const deleted = Boolean(
+    (item as Zotero.Item & { deleted?: unknown }).deleted,
+  );
+  return {
+    revision: detail.revision,
+    state: deleted ? ("trashed" as const) : ("active" as const),
+  };
+}
+
+function canonicalMutationItemResult(item: Zotero.Item): MutationItemResultDto {
+  const detail = serializeItemDetail(item);
+  return {
+    ref: { libraryId: detail.libraryId, key: detail.key },
+    revision: detail.revision,
+    itemType: detail.itemType,
+    title: detail.title,
+    fields: detail.fields,
+    creators: detail.creators,
+    tags: detail.tags,
+    collectionIds: detail.collections,
+    relatedItemKeys: detail.relatedItemKeys,
+  };
+}
+
+function normalizeItemUpdateMetadataRequest(
+  request: ItemUpdateMetadataRequest,
+): ItemUpdateMetadataRequest {
+  const itemRef = canonicalItemRef(request.itemRef);
+  const operationId = trimText(request.operationId, 129);
+  if (!operationId || operationId.length > 128) {
+    throw capabilityError("invalid_request", "operationId is invalid", {
+      reason: "invalid_value",
+      field: "operationId",
+      operation: "item.updateMetadata",
+    });
+  }
+  const fields = request.patch?.fields;
+  const creators = request.patch?.creators;
+  if (fields === undefined && creators === undefined) {
+    throw capabilityError("invalid_request", "metadata patch is empty", {
+      reason: "missing_field",
+      field: "patch",
+      operation: "item.updateMetadata",
+    });
+  }
+  if (fields !== undefined) {
+    if (!fields || Array.isArray(fields) || typeof fields !== "object") {
+      throw capabilityError("invalid_request", "fields patch is invalid", {
+        reason: "invalid_type",
+        field: "patch.fields",
+        operation: "item.updateMetadata",
+      });
+    }
+    if (Object.keys(fields).length > 512) {
+      throw capabilityError("resource_limited", "fields patch is too large", {
+        resource: "entries",
+        limit: 512,
+        observed: Object.keys(fields).length,
+      });
+    }
+    for (const [field, value] of Object.entries(fields)) {
+      if (
+        !field.trim() ||
+        (typeof value !== "string" && value !== null) ||
+        (typeof value === "string" && value.length > FIELD_TEXT_LIMIT)
+      ) {
+        throw capabilityError("invalid_request", "field patch is invalid", {
+          reason: "invalid_value",
+          field: `patch.fields.${field}`,
+          operation: "item.updateMetadata",
+        });
+      }
+    }
+  }
+  if (creators !== undefined && !Array.isArray(creators)) {
+    throw capabilityError("invalid_request", "creators patch is invalid", {
+      reason: "invalid_type",
+      field: "patch.creators",
+      operation: "item.updateMetadata",
+    });
+  }
+  const normalized = {
+    operation: "item.updateMetadata" as const,
+    operationId,
+    itemRef,
+    ...(request.expectedRevision
+      ? { expectedRevision: trimText(request.expectedRevision, 512) }
+      : {}),
+    patch: {
+      ...(fields !== undefined
+        ? {
+            fields: Object.fromEntries(
+              Object.entries(fields)
+                .map(([field, value]) => [field.trim(), value] as const)
+                .sort(([left], [right]) => left.localeCompare(right)),
+            ),
+          }
+        : {}),
+      ...(creators !== undefined
+        ? {
+            creators: creators.map((creator) => ({
+              ...(trimText(creator.firstName)
+                ? { firstName: trimText(creator.firstName) }
+                : {}),
+              ...(trimText(creator.lastName)
+                ? { lastName: trimText(creator.lastName) }
+                : {}),
+              ...(trimText(creator.name)
+                ? { name: trimText(creator.name) }
+                : {}),
+              ...(trimText(creator.creatorType)
+                ? { creatorType: trimText(creator.creatorType) }
+                : {}),
+            })),
+          }
+        : {}),
+    },
+  };
+  assertWorkflowHostStrictJsonValue(normalized as unknown as JsonValue);
+  return normalized;
+}
+
+function mutationAdmissionError(error: MutationAuthorityAdmissionError) {
+  return new ZoteroHostCapabilityError(
+    error.code,
+    error.message,
+    error.details as never,
+  );
+}
+
+async function executeItemCreate(
+  request: Extract<MutationExecuteRequest, { operation: "item.create" }>,
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<JsonObject>> {
+  const operationId = trimText(request.operationId, 129);
+  const itemType = trimText(request.itemType, 128);
+  const libraryId =
+    parsePositiveInteger(request.libraryId) || normalizeLibraryId(undefined);
+  if (!operationId || operationId.length > 128 || !itemType) {
+    throw capabilityError("invalid_request", "item create request is invalid", {
+      reason: "invalid_value",
+      operation: "item.create",
+    });
+  }
+  try {
+    resolveZotero().ItemTypes.getID(itemType);
+  } catch {
+    throw capabilityError("invalid_request", "item type is unsupported", {
+      reason: "unsupported_value",
+      field: "itemType",
+      operation: "item.create",
+    });
+  }
+  const probe = new (resolveZotero().Item as typeof Zotero.Item)(
+    itemType as any,
+  );
+  const fields = Object.keys(request.fields || {}).length
+    ? validateFieldPatch(probe, request.fields)
+    : {};
+  const tags = Array.from(new Set(request.initialTags || [])).map((tag) =>
+    trimText(tag, TAG_TEXT_LIMIT),
+  );
+  const collectionRefs = (request.collectionRefs || []).map(
+    canonicalCollectionRef,
+  );
+  const collections = collectionRefs.map((ref) => {
+    const collection = resolveCollection(ref);
+    if (!collection) throw notFoundError("collection", ref);
+    return collection;
+  });
+  const relatedRefs = (request.initialRelatedRefs || []).map(canonicalItemRef);
+  const related = relatedRefs.map((ref) => requireItem(ref, "related item"));
+  const normalized = {
+    operation: "item.create" as const,
+    operationId,
+    libraryId,
+    itemType,
+    fields,
+    creators: request.creators || [],
+    initialTags: tags,
+    collectionRefs,
+    initialRelatedRefs: relatedRefs,
+  };
+  try {
+    return (await executeReservedMutation<object>({
+      scope,
+      operationId,
+      operation: "item.create",
+      semanticInput: normalized as unknown as JsonValue,
+      control,
+      async execute() {
+        let created: Zotero.Item | null = null;
+        try {
+          created = await handlers.item.create({
+            itemType,
+            libraryID: libraryId,
+            fields,
+          });
+          if (request.creators !== undefined) {
+            await handlers.parent.updateMetadata(created, {
+              creators: request.creators,
+            });
+          }
+          if (tags.length) await handlers.tag.add(created, tags);
+          for (const collection of collections) {
+            await handlers.collection.add(created, collection);
+          }
+          if (related.length)
+            await handlers.parent.addRelated(created, related);
+        } catch (primary) {
+          if (!created) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "execution_failed",
+              "commit",
+              "retry_same_operation",
+              { phase: "commit", recovery: "retry_same_operation" },
+              primary instanceof Error ? primary.message : "item create failed",
+            );
+          }
+          const ref = {
+            libraryId: normalizeLibraryId(created.libraryID),
+            key: trimText(created.key),
+          };
+          try {
+            await handlers.item.remove(created);
+          } catch {
+            throw new MutationAuthorityExecutionError(
+              "repair_required",
+              "execution_failed",
+              "compensation",
+              "manual_repair",
+              {
+                phase: "cleanup",
+                recovery: "manual_repair",
+                affectedCount: 1,
+                residualCount: 1,
+              },
+              primary instanceof Error
+                ? primary.message
+                : "item initialization failed",
+              [{ kind: "item", ref }],
+              [{ kind: "item", ref }],
+            );
+          }
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "execution_failed",
+            "compensation",
+            "retry_same_operation",
+            {
+              phase: "cleanup",
+              recovery: "retry_same_operation",
+              affectedCount: 1,
+            },
+            primary instanceof Error
+              ? primary.message
+              : "item initialization failed",
+            [{ kind: "item", ref }],
+          );
+        }
+        const ref = {
+          libraryId: normalizeLibraryId(created.libraryID),
+          key: trimText(created.key),
+        };
+        const afterItem = requireItem(ref, "created item");
+        const after = canonicalItemVersion(afterItem);
+        return {
+          outcome: "committed",
+          changes: [
+            {
+              entity: { kind: "item", ref },
+              effect: "created",
+              before: null,
+              after,
+            },
+          ],
+          result: { item: canonicalMutationItemResult(afterItem) },
+        };
+      },
+    })) as MutationExecutionResult<JsonObject>;
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError) {
+      throw mutationAdmissionError(error);
+    }
+    throw error;
+  }
+}
+
+async function executeItemChangeType(
+  request: Extract<MutationExecuteRequest, { operation: "item.changeType" }>,
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<JsonObject>> {
+  const normalized = {
+    operation: "item.changeType" as const,
+    operationId: trimText(request.operationId, 129),
+    itemRef: canonicalItemRef(request.itemRef),
+    expectedRevision: trimText(request.expectedRevision, 512),
+    targetItemType: trimText(request.targetItemType, 128),
+    incompatibleData: request.incompatibleData,
+    previewToken: trimText(request.previewToken, 512),
+  };
+  if (
+    !normalized.operationId ||
+    normalized.operationId.length > 128 ||
+    !normalized.expectedRevision ||
+    !normalized.targetItemType ||
+    !normalized.previewToken ||
+    !["reject", "move_to_extra", "drop"].includes(normalized.incompatibleData)
+  ) {
+    throw capabilityError("invalid_request", "change type request is invalid", {
+      reason: "invalid_value",
+      operation: "item.changeType",
+    });
+  }
+  try {
+    return await executeReservedMutation<JsonObject>({
+      scope,
+      operationId: normalized.operationId,
+      operation: normalized.operation,
+      semanticInput: normalized as unknown as JsonValue,
+      control,
+      async execute() {
+        const basis = buildItemChangeTypePreview(normalized);
+        validateMutationPreviewToken({
+          scope,
+          token: normalized.previewToken,
+          operation: normalized.operation,
+          semanticInput: basis.semanticInput,
+          plan: basis.plan,
+          observations: basis.observations,
+        });
+        if (basis.plan.sourceRevision !== normalized.expectedRevision) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "conflict",
+            "read",
+            "refresh_and_retry_new_operation",
+            { reason: "revision_mismatch", kind: "item" },
+            "item revision no longer matches the preview",
+          );
+        }
+        if (
+          normalized.incompatibleData === "reject" &&
+          (basis.plan.dropped.length || basis.plan.movedToExtra.length)
+        ) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "conflict",
+            "read",
+            "refresh_and_retry_new_operation",
+            { reason: "ambiguous_state", kind: "item" },
+            "incompatible item data prevents conversion",
+          );
+        }
+        const item = requireItem(normalized.itemRef, "item");
+        const before = canonicalItemVersion(item);
+        if (item.itemType !== normalized.targetItemType) {
+          try {
+            await handlers.parent.updateMetadata(item, {
+              itemType: normalized.targetItemType,
+              fields: basis.plan.resultFields,
+              creators: basis.plan.resultCreators,
+            });
+          } catch (error) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "execution_failed",
+              "commit",
+              "retry_same_operation",
+              { phase: "commit", recovery: "retry_same_operation" },
+              error instanceof Error ? error.message : "item conversion failed",
+              [{ kind: "item", ref: normalized.itemRef }],
+            );
+          }
+        }
+        const afterItem = requireItem(normalized.itemRef, "item");
+        if (afterItem.itemType !== normalized.targetItemType) {
+          throw new MutationAuthorityExecutionError(
+            "unknown",
+            "execution_failed",
+            "verification",
+            "reconcile",
+            { phase: "verification", recovery: "reconcile" },
+            "item type conversion could not be confirmed",
+            [{ kind: "item", ref: normalized.itemRef }],
+          );
+        }
+        const after = canonicalItemVersion(afterItem);
+        const outcome =
+          before.revision === after.revision ? "unchanged" : "committed";
+        return {
+          outcome,
+          changes: [
+            {
+              entity: { kind: "item", ref: normalized.itemRef },
+              effect: outcome === "committed" ? "updated" : "unchanged",
+              before,
+              after,
+            },
+          ],
+          result: { item: canonicalMutationItemResult(afterItem) },
+        };
+      },
+    });
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError) {
+      throw mutationAdmissionError(error);
+    }
+    throw error;
+  }
+}
+
+function canonicalMutationCollectionResult(collection: Zotero.Collection) {
+  const dto = serializeCollection(collection);
+  return {
+    ref: { libraryId: dto.libraryId, key: dto.key },
+    revision: canonicalCollectionVersion(collection).revision,
+    name: dto.name,
+    parentRef: dto.parentKey
+      ? { libraryId: dto.libraryId, key: dto.parentKey }
+      : null,
+  };
+}
+
+function assertExpectedItemRevision(
+  item: Zotero.Item,
+  expectedRevision: string | undefined,
+) {
+  const version = canonicalItemVersion(item);
+  if (expectedRevision && expectedRevision !== version.revision) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "conflict",
+      "read",
+      "refresh_and_retry_new_operation",
+      { reason: "revision_mismatch", kind: "item" },
+      "item revision no longer matches expectedRevision",
+    );
+  }
+  return version;
+}
+
+function assertExpectedCollectionRevision(
+  collection: Zotero.Collection,
+  expectedRevision: string | undefined,
+) {
+  const version = canonicalCollectionVersion(collection);
+  if (expectedRevision && expectedRevision !== version.revision) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "conflict",
+      "read",
+      "refresh_and_retry_new_operation",
+      { reason: "revision_mismatch", kind: "collection" },
+      "collection revision no longer matches expectedRevision",
+    );
+  }
+  return version;
+}
+
+async function executeOtherCanonicalMutation(
+  request: Exclude<
+    MutationExecuteRequest,
+    | { operation: "item.create" }
+    | { operation: "item.updateMetadata" }
+    | { operation: "item.changeType" }
+    | { operation: "collection.remove" }
+  >,
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<JsonObject>> {
+  const operationId = trimText(request.operationId, 129);
+  if (!operationId || operationId.length > 128) {
+    throw capabilityError("invalid_request", "operationId is invalid", {
+      reason: "invalid_value",
+      field: "operationId",
+      operation: request.operation,
+    });
+  }
+  assertWorkflowHostStrictJsonValue(request as unknown as JsonValue);
+  try {
+    return (await executeReservedMutation<object>({
+      scope,
+      operationId,
+      operation: request.operation,
+      semanticInput: request as unknown as JsonValue,
+      control,
+      async execute() {
+        switch (request.operation) {
+          case "item.updateTags": {
+            const itemRef = canonicalItemRef(request.itemRef);
+            const item = requireItem(itemRef, "item");
+            const before = assertExpectedItemRevision(
+              item,
+              request.expectedRevision,
+            );
+            const add = Array.from(
+              new Set(request.add.map((tag) => trimText(tag, TAG_TEXT_LIMIT))),
+            );
+            const remove = Array.from(
+              new Set(
+                request.remove.map((tag) => trimText(tag, TAG_TEXT_LIMIT)),
+              ),
+            );
+            if (
+              add.length > TAG_LIMIT_MAX ||
+              remove.length > TAG_LIMIT_MAX ||
+              add.some((tag) => !tag) ||
+              remove.some((tag) => !tag) ||
+              add.some((tag) => remove.includes(tag)) ||
+              [...add, ...remove].some((tag) => tag.startsWith("status:"))
+            ) {
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "invalid_request",
+                "validation",
+                "refresh_and_retry_new_operation",
+                { reason: "invalid_combination", operation: request.operation },
+                "tag delta is invalid",
+              );
+            }
+            const current = getTags(item);
+            const next = current
+              .filter((tag) => !remove.includes(tag))
+              .concat(add.filter((tag) => !current.includes(tag)))
+              .sort();
+            const changed =
+              JSON.stringify([...current].sort()) !== JSON.stringify(next);
+            if (changed) await handlers.tag.update(item, next);
+            const afterItem = requireItem(itemRef, "item");
+            const after = canonicalItemVersion(afterItem);
+            return {
+              outcome: changed ? "committed" : "unchanged",
+              changes: [
+                {
+                  entity: { kind: "item", ref: itemRef },
+                  effect: changed ? "updated" : "unchanged",
+                  before,
+                  after,
+                },
+              ],
+              result: { item: canonicalMutationItemResult(afterItem) },
+            };
+          }
+          case "item.addRelated":
+          case "item.removeRelated": {
+            const sourceRef = canonicalItemRef(request.sourceRef);
+            const relatedRef = canonicalItemRef(request.relatedRef);
+            const source = requireItem(sourceRef, "source item");
+            const related = requireItem(relatedRef, "related item");
+            const before = assertExpectedItemRevision(
+              source,
+              request.expectedRevision,
+            );
+            const current = Array.isArray((source as any).relatedItems)
+              ? [...(source as any).relatedItems]
+              : [];
+            const present = current.includes(related.key);
+            const shouldBePresent = request.operation === "item.addRelated";
+            const changed = present !== shouldBePresent;
+            if (changed) {
+              if (shouldBePresent)
+                await handlers.parent.addRelated(source, related);
+              else await handlers.parent.removeRelated(source, related);
+            }
+            const afterItem = requireItem(sourceRef, "source item");
+            const after = canonicalItemVersion(afterItem);
+            return {
+              outcome: changed ? "committed" : "unchanged",
+              changes: [
+                {
+                  entity: { kind: "item", ref: sourceRef },
+                  effect: changed ? "updated" : "unchanged",
+                  before,
+                  after,
+                },
+              ],
+              result: { sourceRef, relatedRef, related: shouldBePresent },
+            };
+          }
+          case "item.remove": {
+            const itemRef = canonicalItemRef(request.itemRef);
+            const item = requireItem(itemRef, "item");
+            const before = assertExpectedItemRevision(
+              item,
+              request.expectedRevision,
+            );
+            if (request.disposition !== "trash") {
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "unsupported_operation",
+                "validation",
+                "refresh_and_retry_new_operation",
+                { memberOrOperation: "item.remove:permanent" },
+                "permanent item removal requires validated preview execution",
+              );
+            }
+            if (before.state === "trashed") {
+              return {
+                outcome: "unchanged",
+                changes: [
+                  {
+                    entity: { kind: "item", ref: itemRef },
+                    effect: "unchanged",
+                    before,
+                    after: before,
+                  },
+                ],
+                result: { itemRef, outcome: "already_trashed" },
+              };
+            }
+            await handlers.item.trash(item);
+            const afterItem = requireItem(itemRef, "item");
+            const after = canonicalItemVersion(afterItem);
+            return {
+              outcome: "committed",
+              changes: [
+                {
+                  entity: { kind: "item", ref: itemRef },
+                  effect: "trashed",
+                  before,
+                  after,
+                },
+              ],
+              result: { itemRef, outcome: "trashed" },
+            };
+          }
+          case "collection.create": {
+            const name = trimText(request.name, 1024);
+            if (!name) {
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "invalid_request",
+                "validation",
+                "retry_same_operation",
+                {
+                  reason: "invalid_value",
+                  field: "name",
+                  operation: request.operation,
+                },
+                "collection name is required",
+              );
+            }
+            let parent: Zotero.Collection | null = null;
+            let libraryId = normalizeLibraryId(undefined);
+            if (request.placement.kind === "root") {
+              libraryId =
+                parsePositiveInteger(request.placement.libraryId) || libraryId;
+            } else {
+              parent = resolveCollection(
+                canonicalCollectionRef(request.placement.parentRef),
+              );
+              if (!parent)
+                throw notFoundError("collection", request.placement.parentRef);
+              libraryId = normalizeLibraryId((parent as any).libraryID);
+            }
+            const members = (request.initialMemberRefs || []).map((ref) =>
+              requireItem(canonicalItemRef(ref), "initial member"),
+            );
+            let created: Zotero.Collection | null = null;
+            try {
+              created = await handlers.collection.create({
+                name,
+                libraryID: libraryId,
+              });
+              if (parent) {
+                await handlers.collection.update(created, {
+                  parentID: Number((parent as any).id),
+                });
+              }
+              for (const member of members)
+                await handlers.collection.add(member, created);
+            } catch (error) {
+              if (created) {
+                try {
+                  await handlers.collection.delete(created);
+                } catch {
+                  const ref = {
+                    libraryId,
+                    key: trimText((created as any).key),
+                  };
+                  throw new MutationAuthorityExecutionError(
+                    "repair_required",
+                    "execution_failed",
+                    "compensation",
+                    "manual_repair",
+                    {
+                      phase: "cleanup",
+                      recovery: "manual_repair",
+                      residualCount: 1,
+                    },
+                    error instanceof Error
+                      ? error.message
+                      : "collection create failed",
+                    [{ kind: "collection", ref }],
+                    [{ kind: "collection", ref }],
+                  );
+                }
+              }
+              throw error;
+            }
+            const ref = { libraryId, key: trimText((created as any).key) };
+            const after = canonicalCollectionVersion(created);
+            return {
+              outcome: "committed",
+              changes: [
+                {
+                  entity: { kind: "collection", ref },
+                  effect: "created",
+                  before: null,
+                  after,
+                },
+              ],
+              result: {
+                collection: canonicalMutationCollectionResult(created),
+              },
+            };
+          }
+          case "collection.update": {
+            const collectionRef = canonicalCollectionRef(request.collectionRef);
+            const collection = resolveCollection(collectionRef);
+            if (!collection) throw notFoundError("collection", collectionRef);
+            const before = assertExpectedCollectionRevision(
+              collection,
+              request.expectedRevision,
+            );
+            const patch: { name?: string; parentID?: number | null } = {};
+            if (request.patch.name !== undefined)
+              patch.name = trimText(request.patch.name, 1024);
+            if (request.patch.parentRef !== undefined) {
+              if (request.patch.parentRef === null) patch.parentID = null;
+              else {
+                const parent = resolveCollection(
+                  canonicalCollectionRef(request.patch.parentRef),
+                );
+                if (!parent)
+                  throw notFoundError("collection", request.patch.parentRef);
+                patch.parentID = Number((parent as any).id);
+              }
+            }
+            const dto = serializeCollection(collection);
+            const changed =
+              (patch.name !== undefined && patch.name !== dto.name) ||
+              (patch.parentID !== undefined &&
+                patch.parentID !== Number(dto.parentId || 0));
+            if (changed) await handlers.collection.update(collection, patch);
+            const afterCollection = resolveCollection(collectionRef)!;
+            const after = canonicalCollectionVersion(afterCollection);
+            return {
+              outcome: changed ? "committed" : "unchanged",
+              changes: [
+                {
+                  entity: { kind: "collection", ref: collectionRef },
+                  effect: changed ? "updated" : "unchanged",
+                  before,
+                  after,
+                },
+              ],
+              result: {
+                collection: canonicalMutationCollectionResult(afterCollection),
+              },
+            };
+          }
+          case "collection.updateMembership": {
+            const collectionRef = canonicalCollectionRef(request.collectionRef);
+            const collection = resolveCollection(collectionRef);
+            if (!collection) throw notFoundError("collection", collectionRef);
+            const before = assertExpectedCollectionRevision(
+              collection,
+              request.expectedRevision,
+            );
+            const refIdentity = (ref: ZoteroHostItemRefInput) =>
+              `${ref.libraryId}:${ref.key}`;
+            const normalizeRefs = (refs: ZoteroHostItemRefInput[]) =>
+              Array.from(
+                new Map(
+                  refs
+                    .map(canonicalItemRef)
+                    .map((ref) => [refIdentity(ref), ref]),
+                ).values(),
+              ).sort((left, right) =>
+                refIdentity(left).localeCompare(refIdentity(right)),
+              );
+            const addRefs = normalizeRefs(request.add);
+            const removeRefs = normalizeRefs(request.remove);
+            if (
+              addRefs.length + removeRefs.length === 0 ||
+              addRefs.length + removeRefs.length > mutationPreviewTargetLimit ||
+              addRefs.some((ref) =>
+                removeRefs.some(
+                  (other) => refIdentity(other) === refIdentity(ref),
+                ),
+              )
+            ) {
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "invalid_request",
+                "validation",
+                "refresh_and_retry_new_operation",
+                { reason: "invalid_combination", operation: request.operation },
+                "membership delta is empty, overlapping, or exceeds the hard limit",
+              );
+            }
+            const collectionId = Number((collection as { id?: unknown }).id);
+            const targets = [...addRefs, ...removeRefs].map((ref) => ({
+              ref,
+              item: requireItem(ref, "member item"),
+            }));
+            for (const { item } of targets) {
+              if (
+                normalizeLibraryId(item.libraryID) !== collectionRef.libraryId
+              ) {
+                throw new MutationAuthorityExecutionError(
+                  "failed",
+                  "invalid_request",
+                  "validation",
+                  "refresh_and_retry_new_operation",
+                  {
+                    reason: "invalid_combination",
+                    operation: request.operation,
+                  },
+                  "collection membership targets must belong to one library",
+                );
+              }
+            }
+            const itemBefore = new Map(
+              targets.map(({ ref, item }) => [
+                refIdentity(ref),
+                canonicalItemVersion(item),
+              ]),
+            );
+            const additions = targets.filter(
+              ({ ref, item }) =>
+                addRefs.some(
+                  (candidate) => refIdentity(candidate) === refIdentity(ref),
+                ) && !item.getCollections().includes(collectionId),
+            );
+            const removals = targets.filter(
+              ({ ref, item }) =>
+                removeRefs.some(
+                  (candidate) => refIdentity(candidate) === refIdentity(ref),
+                ) && item.getCollections().includes(collectionId),
+            );
+            const addedRefs: typeof addRefs = [];
+            const removedRefs: typeof removeRefs = [];
+            const applied: Array<{
+              kind: "add" | "remove";
+              ref: ZoteroHostItemRefInput;
+              item: Zotero.Item;
+            }> = [];
+            try {
+              for (const { ref, item } of additions) {
+                await handlers.collection.add(item, collection);
+                applied.push({ kind: "add", ref, item });
+                addedRefs.push(ref);
+              }
+              for (const { ref, item } of removals) {
+                await handlers.collection.remove(item, collection);
+                applied.push({ kind: "remove", ref, item });
+                removedRefs.push(ref);
+              }
+            } catch (primary) {
+              const residualRefs: MutationEntityRef[] = [];
+              for (const entry of [...applied].reverse()) {
+                try {
+                  if (entry.kind === "add") {
+                    await handlers.collection.remove(entry.item, collection);
+                  } else {
+                    await handlers.collection.add(entry.item, collection);
+                  }
+                } catch {
+                  residualRefs.push({ kind: "item", ref: entry.ref });
+                }
+              }
+              throw new MutationAuthorityExecutionError(
+                residualRefs.length ? "repair_required" : "failed",
+                "execution_failed",
+                "compensation",
+                residualRefs.length ? "manual_repair" : "retry_same_operation",
+                {
+                  phase: "cleanup",
+                  recovery: residualRefs.length
+                    ? "manual_repair"
+                    : "retry_same_operation",
+                  affectedCount: applied.length,
+                  residualCount: residualRefs.length,
+                },
+                primary instanceof Error
+                  ? primary.message
+                  : "collection membership update failed",
+                applied.map((entry) => ({ kind: "item", ref: entry.ref })),
+                residualRefs,
+              );
+            }
+            const changed = addedRefs.length + removedRefs.length > 0;
+            for (const { ref } of additions) {
+              if (
+                !requireItem(ref, "member item")
+                  .getCollections()
+                  .includes(collectionId)
+              ) {
+                throw new MutationAuthorityExecutionError(
+                  "unknown",
+                  "execution_failed",
+                  "verification",
+                  "reconcile",
+                  { phase: "verification", recovery: "reconcile" },
+                  "added collection membership could not be confirmed",
+                  [{ kind: "item", ref }],
+                );
+              }
+            }
+            for (const { ref } of removals) {
+              if (
+                requireItem(ref, "member item")
+                  .getCollections()
+                  .includes(collectionId)
+              ) {
+                throw new MutationAuthorityExecutionError(
+                  "unknown",
+                  "execution_failed",
+                  "verification",
+                  "reconcile",
+                  { phase: "verification", recovery: "reconcile" },
+                  "removed collection membership could not be confirmed",
+                  [{ kind: "item", ref }],
+                );
+              }
+            }
+            const afterCollection = resolveCollection(collectionRef);
+            if (!afterCollection) {
+              throw new MutationAuthorityExecutionError(
+                "unknown",
+                "execution_failed",
+                "verification",
+                "reconcile",
+                { phase: "verification", recovery: "reconcile" },
+                "collection disappeared during membership verification",
+              );
+            }
+            const after = canonicalCollectionVersion(afterCollection);
+            const changedItems = [...addedRefs, ...removedRefs];
+            const changes: MutationChangeDto[] = [
+              {
+                entity: { kind: "collection", ref: collectionRef },
+                effect: changed ? "updated" : "unchanged",
+                before,
+                after,
+              },
+              ...changedItems.map((ref) => ({
+                entity: { kind: "item" as const, ref },
+                effect: "updated" as const,
+                before: itemBefore.get(refIdentity(ref)) || null,
+                after: canonicalItemVersion(requireItem(ref, "member item")),
+              })),
+            ];
+            return {
+              outcome: changed ? "committed" : "unchanged",
+              changes,
+              result: {
+                collection: canonicalMutationCollectionResult(afterCollection),
+                addedRefs,
+                removedRefs,
+              },
+            };
+          }
+        }
+      },
+    })) as MutationExecutionResult<JsonObject>;
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError)
+      throw mutationAdmissionError(error);
+    throw error;
+  }
+}
+
+async function executeDestructiveCanonicalMutation(
+  request:
+    | Extract<MutationExecuteRequest, { operation: "item.remove" }>
+    | Extract<MutationExecuteRequest, { operation: "collection.remove" }>,
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<JsonObject>> {
+  const operationId = trimText(request.operationId, 129);
+  if (!operationId || operationId.length > 128) {
+    throw capabilityError("invalid_request", "operationId is invalid", {
+      reason: "invalid_value",
+      field: "operationId",
+      operation: request.operation,
+    });
+  }
+  try {
+    return (await executeReservedMutation<object>({
+      scope,
+      operationId,
+      operation: request.operation,
+      semanticInput: request as unknown as JsonValue,
+      control,
+      async execute() {
+        if (request.operation === "item.remove") {
+          if (request.disposition !== "permanent") {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "invalid_request",
+              "validation",
+              "refresh_and_retry_new_operation",
+              { reason: "invalid_combination", operation: request.operation },
+              "destructive execution requires permanent disposition",
+            );
+          }
+          const previewRequest = {
+            operation: "item.remove" as const,
+            itemRef: canonicalItemRef(request.itemRef),
+            disposition: "permanent" as const,
+            childPolicy: request.childPolicy,
+          };
+          const preview = await previewCanonicalMutation(previewRequest, scope);
+          discardMutationPreviewToken(preview.token.value);
+          validateMutationPreviewToken({
+            scope,
+            token: request.previewToken,
+            operation: "item.remove",
+            semanticInput: previewRequest,
+            plan: preview.plan,
+            observations: preview.observations,
+          });
+          const plan = preview.plan as MutationPlanByOperation["item.remove"];
+          if (plan.revision !== request.expectedRevision) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "conflict",
+              "read",
+              "refresh_and_retry_new_operation",
+              { reason: "revision_mismatch", kind: "item" },
+              "item removal revision no longer matches preview",
+            );
+          }
+          if (
+            request.childPolicy === "reject_if_present" &&
+            plan.children.length
+          ) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "conflict",
+              "read",
+              "refresh_and_retry_new_operation",
+              { reason: "ambiguous_state", kind: "item" },
+              "item has children and childPolicy rejects removal",
+            );
+          }
+          const targetRefs = [
+            ...plan.children.map((entry) => entry.ref),
+            plan.itemRef,
+          ];
+          const beforeVersions = new Map(
+            preview.observations
+              .filter((entry) => entry.entity.kind === "item")
+              .map((entry) => [entry.entity.ref.key, entry.version]),
+          );
+          const deleted: typeof targetRefs = [];
+          try {
+            for (const ref of targetRefs) {
+              const item = requireItem(ref, "removal target");
+              await handlers.item.remove(item);
+              deleted.push(ref);
+            }
+          } catch (error) {
+            const remaining = targetRefs.filter(
+              (ref) => !deleted.some((entry) => entry.key === ref.key),
+            );
+            throw new MutationAuthorityExecutionError(
+              deleted.length ? "repair_required" : "failed",
+              "execution_failed",
+              "commit",
+              deleted.length ? "manual_repair" : "retry_same_operation",
+              {
+                phase: "commit",
+                recovery: deleted.length
+                  ? "manual_repair"
+                  : "retry_same_operation",
+                affectedCount: deleted.length,
+                residualCount: remaining.length,
+              },
+              error instanceof Error ? error.message : "item removal failed",
+              deleted.map((ref) => ({ kind: "item" as const, ref })),
+              remaining.map((ref) => ({ kind: "item" as const, ref })),
+            );
+          }
+          const changes: MutationChangeDto[] = targetRefs.map((ref) => ({
+            entity: { kind: "item", ref },
+            effect: "deleted",
+            before: beforeVersions.get(ref.key) || null,
+            after: {
+              revision: hashSynthesisContractCanonicalJson({
+                ref,
+                state: "deleted",
+                operationId,
+              }),
+              state: "deleted",
+            },
+          }));
+          return {
+            outcome: "committed",
+            changes,
+            result: { itemRef: plan.itemRef, outcome: "permanently_deleted" },
+          };
+        }
+
+        const previewRequest = {
+          operation: "collection.remove" as const,
+          collectionRef: canonicalCollectionRef(request.collectionRef),
+          childPolicy: request.childPolicy,
+        };
+        const preview = await previewCanonicalMutation(previewRequest, scope);
+        discardMutationPreviewToken(preview.token.value);
+        validateMutationPreviewToken({
+          scope,
+          token: request.previewToken,
+          operation: "collection.remove",
+          semanticInput: previewRequest,
+          plan: preview.plan,
+          observations: preview.observations,
+        });
+        const plan =
+          preview.plan as MutationPlanByOperation["collection.remove"];
+        const target = plan.deletedCollections[0];
+        if (!target || target.revision !== request.expectedRevision) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "conflict",
+            "read",
+            "refresh_and_retry_new_operation",
+            { reason: "revision_mismatch", kind: "collection" },
+            "collection removal revision no longer matches preview",
+          );
+        }
+        if (
+          request.childPolicy === "reject_if_present" &&
+          plan.deletedCollections.length > 1
+        ) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "conflict",
+            "read",
+            "refresh_and_retry_new_operation",
+            { reason: "ambiguous_state", kind: "collection" },
+            "collection has descendants and childPolicy rejects removal",
+          );
+        }
+        const itemBefore = new Map(
+          preview.observations
+            .filter((entry) => entry.entity.kind === "item")
+            .map((entry) => [entry.entity.ref.key, entry.version]),
+        );
+        try {
+          for (const membership of plan.detachedMemberships) {
+            const item = requireItem(membership.itemRef, "collection member");
+            const collection = resolveCollection(membership.collectionRef);
+            if (collection) await handlers.collection.remove(item, collection);
+          }
+          for (const entry of [...plan.deletedCollections].reverse()) {
+            const collection = resolveCollection(entry.ref);
+            if (collection) await handlers.collection.delete(collection);
+          }
+        } catch (error) {
+          throw new MutationAuthorityExecutionError(
+            "repair_required",
+            "execution_failed",
+            "commit",
+            "manual_repair",
+            {
+              phase: "commit",
+              recovery: "manual_repair",
+              residualCount: plan.deletedCollections.length,
+            },
+            error instanceof Error
+              ? error.message
+              : "collection removal failed",
+            [],
+            plan.deletedCollections.map((entry) => ({
+              kind: "collection" as const,
+              ref: entry.ref,
+            })),
+          );
+        }
+        const changes: MutationChangeDto[] = [
+          ...plan.deletedCollections.map((entry) => ({
+            entity: { kind: "collection" as const, ref: entry.ref },
+            effect: "deleted" as const,
+            before: { revision: entry.revision, state: "active" as const },
+            after: {
+              revision: hashSynthesisContractCanonicalJson({
+                ref: entry.ref,
+                state: "deleted",
+                operationId,
+              }),
+              state: "deleted" as const,
+            },
+          })),
+          ...Array.from(
+            new Map(
+              plan.detachedMemberships.map((entry) => [
+                entry.itemRef.key,
+                entry.itemRef,
+              ]),
+            ).values(),
+          ).map((ref) => {
+            const item = requireItem(ref, "detached member");
+            return {
+              entity: { kind: "item" as const, ref },
+              effect: "updated" as const,
+              before: itemBefore.get(ref.key) || null,
+              after: canonicalItemVersion(item),
+            };
+          }),
+        ];
+        return {
+          outcome: "committed",
+          changes,
+          result: { removedRef: plan.collectionRef },
+        };
+      },
+    })) as MutationExecutionResult<JsonObject>;
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError)
+      throw mutationAdmissionError(error);
+    throw error;
+  }
+}
+
+async function executeCanonicalMutation(
+  request: MutationExecuteRequest,
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<JsonObject>> {
+  if (request?.operation === "item.create") {
+    return executeItemCreate(request, scope, control);
+  }
+  if (request?.operation === "item.changeType") {
+    return executeItemChangeType(request, scope, control);
+  }
+  if (
+    request?.operation === "collection.remove" ||
+    (request?.operation === "item.remove" &&
+      request.disposition === "permanent")
+  ) {
+    return executeDestructiveCanonicalMutation(request, scope, control);
+  }
+  if (request?.operation !== "item.updateMetadata") {
+    return executeOtherCanonicalMutation(request, scope, control);
+  }
+  const normalized = normalizeItemUpdateMetadataRequest(request);
+  try {
+    return await executeReservedMutation({
+      scope,
+      operationId: normalized.operationId,
+      operation: normalized.operation,
+      semanticInput: normalized as unknown as JsonValue,
+      control,
+      async execute() {
+        const item = requireItem(normalized.itemRef, "item");
+        if (item.isNote?.() || item.isAttachment?.() || item.isAnnotation?.()) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "invalid_ref",
+            "read",
+            "refresh_and_retry_new_operation",
+            { kind: "item", reason: "wrong_kind" },
+            "item.updateMetadata requires an active regular item",
+          );
+        }
+        const before = canonicalItemVersion(item);
+        if (
+          normalized.expectedRevision &&
+          normalized.expectedRevision !== before.revision
+        ) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "conflict",
+            "read",
+            "refresh_and_retry_new_operation",
+            { reason: "revision_mismatch", kind: "item" },
+            "item revision no longer matches expectedRevision",
+          );
+        }
+        const fields = normalized.patch.fields
+          ? validateFieldPatch(item, normalized.patch.fields)
+          : undefined;
+        const currentCreators = (() => {
+          try {
+            return (
+              (
+                item as Zotero.Item & {
+                  getCreators?: () => ZoteroHostMetadataCreatorDto[];
+                }
+              ).getCreators?.() || []
+            );
+          } catch {
+            return [];
+          }
+        })();
+        const fieldsChanged = Object.entries(fields || {}).some(
+          ([field, value]) =>
+            readField(item, field, FIELD_TEXT_LIMIT) !== String(value ?? ""),
+        );
+        const creatorsChanged =
+          normalized.patch.creators !== undefined &&
+          JSON.stringify(currentCreators) !==
+            JSON.stringify(normalized.patch.creators);
+        if (fieldsChanged || creatorsChanged) {
+          try {
+            await handlers.parent.updateMetadata(item, {
+              fields,
+              creators: normalized.patch.creators,
+            });
+          } catch (error) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "execution_failed",
+              "commit",
+              "retry_same_operation",
+              { phase: "commit", recovery: "retry_same_operation" },
+              error instanceof Error ? error.message : "metadata update failed",
+              [{ kind: "item", ref: normalized.itemRef }],
+            );
+          }
+        }
+        const afterItem = requireItem(normalized.itemRef, "item");
+        const after = canonicalItemVersion(afterItem);
+        for (const [field, value] of Object.entries(fields || {})) {
+          if (
+            readField(afterItem, field, FIELD_TEXT_LIMIT) !==
+            String(value ?? "")
+          ) {
+            throw new MutationAuthorityExecutionError(
+              "unknown",
+              "execution_failed",
+              "verification",
+              "reconcile",
+              { phase: "verification", recovery: "reconcile" },
+              "item metadata final state could not be confirmed",
+              [{ kind: "item", ref: normalized.itemRef }],
+            );
+          }
+        }
+        const outcome =
+          fieldsChanged || creatorsChanged ? "committed" : "unchanged";
+        const change: MutationChangeDto = {
+          entity: { kind: "item", ref: normalized.itemRef },
+          effect: outcome === "committed" ? "updated" : "unchanged",
+          before,
+          after,
+        };
+        return {
+          outcome,
+          changes: [change],
+          result: { item: canonicalMutationItemResult(afterItem) },
+        };
+      },
+    });
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError) {
+      throw mutationAdmissionError(error);
+    }
+    throw error;
+  }
+}
+
+function normalizeStatusTransitionKeys(
+  values: unknown,
+  field: "add" | "remove",
+) {
+  if (values === undefined) return [];
+  if (!Array.isArray(values)) {
+    throw capabilityError("invalid_request", "status key list is invalid", {
+      reason: "invalid_type",
+      field,
+      operation: "statusTags.transition",
+    });
+  }
+  const keys = Array.from(new Set(values.map((value) => trimText(value))));
+  if (keys.length > 16) {
+    throw capabilityError("resource_limited", "status key list is too large", {
+      resource: "entries",
+      limit: 16,
+      observed: keys.length,
+    });
+  }
+  if (keys.some((key) => !isBuiltinStatusKey(key))) {
+    throw capabilityError("invalid_request", "status key is invalid", {
+      reason: "unsupported_value",
+      field,
+      operation: "statusTags.transition",
+    });
+  }
+  return keys as Array<Parameters<typeof getBuiltinStatusTag>[0]>;
+}
+
+async function executeStatusTagTransition(
+  request: StatusTagTransitionRequestDto,
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<StatusTagTransitionResultDto>> {
+  const operationId = trimText(request.operationId, 129);
+  const itemRef = canonicalItemRef(request.itemRef);
+  const addKeys = normalizeStatusTransitionKeys(request.add, "add");
+  const removeKeys = normalizeStatusTransitionKeys(request.remove, "remove");
+  if (
+    !operationId ||
+    operationId.length > 128 ||
+    (!addKeys.length && !removeKeys.length)
+  ) {
+    throw capabilityError("invalid_request", "status transition is empty", {
+      reason: "missing_field",
+      field: "add|remove",
+      operation: "statusTags.transition",
+    });
+  }
+  if (addKeys.some((key) => removeKeys.includes(key))) {
+    throw capabilityError("invalid_request", "status add/remove sets overlap", {
+      reason: "invalid_combination",
+      operation: "statusTags.transition",
+    });
+  }
+  const normalized = {
+    operationId,
+    itemRef,
+    ...(request.expectedRevision
+      ? { expectedRevision: trimText(request.expectedRevision, 512) }
+      : {}),
+    add: addKeys,
+    remove: removeKeys,
+  };
+  try {
+    return await executeReservedMutation({
+      scope,
+      operationId,
+      operation: "statusTags.transition",
+      semanticInput: normalized as unknown as JsonValue,
+      control,
+      async execute() {
+        const item = requireItem(itemRef, "status item");
+        const before = assertExpectedItemRevision(
+          item,
+          normalized.expectedRevision,
+        );
+        const current = getTags(item);
+        const addTags = addKeys.map(getBuiltinStatusTag);
+        const removeTags = removeKeys.map(getBuiltinStatusTag);
+        const added = addTags.filter((tag) => !current.includes(tag));
+        const removed = removeTags.filter((tag) => current.includes(tag));
+        const unchanged = [
+          ...addTags.filter((tag) => current.includes(tag)),
+          ...removeTags.filter((tag) => !current.includes(tag)),
+        ];
+        const next = current
+          .filter((tag) => !removed.includes(tag as any))
+          .concat(added)
+          .sort();
+        const changed = added.length + removed.length > 0;
+        if (changed) {
+          try {
+            await handlers.tag.update(item, next);
+          } catch (error) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "execution_failed",
+              "commit",
+              "retry_same_operation",
+              { phase: "commit", recovery: "retry_same_operation" },
+              error instanceof Error
+                ? error.message
+                : "status transition failed",
+              [{ kind: "item", ref: itemRef }],
+            );
+          }
+        }
+        const afterItem = requireItem(itemRef, "status item");
+        const finalTags = getTags(afterItem);
+        if (
+          addTags.some((tag) => !finalTags.includes(tag)) ||
+          removeTags.some((tag) => finalTags.includes(tag))
+        ) {
+          throw new MutationAuthorityExecutionError(
+            "unknown",
+            "execution_failed",
+            "verification",
+            "reconcile",
+            { phase: "verification", recovery: "reconcile" },
+            "status transition final state could not be confirmed",
+            [{ kind: "item", ref: itemRef }],
+          );
+        }
+        const after = canonicalItemVersion(afterItem);
+        return {
+          outcome: changed ? "committed" : "unchanged",
+          changes: [
+            {
+              entity: { kind: "item", ref: itemRef },
+              effect: changed ? "updated" : "unchanged",
+              before,
+              after,
+            },
+          ],
+          result: {
+            itemRef,
+            added,
+            removed,
+            unchanged,
+            revision: after.revision,
+          },
+        };
+      },
+    });
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError) {
+      throw mutationAdmissionError(error);
+    }
+    throw error;
+  }
+}
+
+function canonicalNoteResult(note: Zotero.Item) {
+  const dto = serializeNote(note);
+  return {
+    ...dto,
+    ref: { libraryId: dto.libraryId, key: dto.key },
+    revision: canonicalNoteVersion(note).revision,
+  };
+}
+
+function canonicalNoteVersion(note: Zotero.Item) {
+  const base = canonicalItemVersion(note);
+  return {
+    ...base,
+    revision: hashSynthesisContractCanonicalJson({
+      baseRevision: base.revision,
+      content: String(note.getNote?.() || ""),
+    }),
+  };
+}
+
+function assertExpectedNoteRevision(
+  note: Zotero.Item,
+  expectedRevision: string | undefined,
+) {
+  const version = canonicalNoteVersion(note);
+  if (expectedRevision && expectedRevision !== version.revision) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "conflict",
+      "read",
+      "refresh_and_retry_new_operation",
+      { reason: "revision_mismatch", kind: "item" },
+      "note revision no longer matches expectedRevision",
+    );
+  }
+  return version;
+}
+
+async function executeNoteMutation(
+  request:
+    | NoteCreateRequestDto
+    | NoteUpdateContentRequestDto
+    | NoteRemoveRequestDto
+    | NotePayloadUpsertRequestDto,
+  operation:
+    | "notes.create"
+    | "notes.updateContent"
+    | "notes.remove"
+    | "notes.upsertPayload",
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<JsonObject>> {
+  const operationId = trimText(request.operationId, 129);
+  if (!operationId || operationId.length > 128) {
+    throw capabilityError("invalid_request", "operationId is invalid", {
+      reason: "invalid_value",
+      field: "operationId",
+      operation,
+    });
+  }
+  const normalized = { ...request, operationId } as unknown as JsonObject;
+  assertWorkflowHostStrictJsonValue(normalized);
+  try {
+    return await executeReservedMutation<JsonObject>({
+      scope,
+      operationId,
+      operation,
+      semanticInput: normalized,
+      control,
+      async execute() {
+        if (operation === "notes.create") {
+          const input = request as NoteCreateRequestDto;
+          const content = normalizeContent(input.content);
+          const parent = input.parentRef
+            ? requireItem(canonicalItemRef(input.parentRef), "parent item")
+            : null;
+          let note: Zotero.Item;
+          try {
+            note = parent
+              ? await handlers.parent.addNote(parent, { content })
+              : await handlers.note.create({ content });
+          } catch (error) {
+            throw new MutationAuthorityExecutionError(
+              "unknown",
+              "execution_failed",
+              "commit",
+              "reconcile",
+              { phase: "commit", recovery: "reconcile" },
+              error instanceof Error ? error.message : "note create failed",
+            );
+          }
+          const ref = {
+            libraryId: normalizeLibraryId(note.libraryID),
+            key: trimText(note.key),
+          };
+          const after = canonicalNoteVersion(note);
+          return {
+            outcome: "committed",
+            changes: [
+              {
+                entity: { kind: "item", ref },
+                effect: "created",
+                before: null,
+                after,
+              },
+            ],
+            result: strictJsonObject({ note: canonicalNoteResult(note) }),
+          };
+        }
+
+        const noteRef = canonicalItemRef(
+          (
+            request as
+              | NoteUpdateContentRequestDto
+              | NoteRemoveRequestDto
+              | NotePayloadUpsertRequestDto
+          ).noteRef,
+        );
+        const note = requireNote(noteRef);
+        const expectedRevision =
+          "expectedRevision" in request ? request.expectedRevision : undefined;
+        const before = assertExpectedNoteRevision(note, expectedRevision);
+
+        if (operation === "notes.updateContent") {
+          const content = normalizeContent(
+            (request as NoteUpdateContentRequestDto).content,
+          );
+          const current = trimText(note.getNote?.(), NOTE_HTML_INPUT_LIMIT);
+          const changed = current !== content;
+          if (changed) {
+            try {
+              await handlers.note.update(note, { content });
+            } catch (error) {
+              throw new MutationAuthorityExecutionError(
+                "unknown",
+                "execution_failed",
+                "commit",
+                "reconcile",
+                { phase: "commit", recovery: "reconcile" },
+                error instanceof Error ? error.message : "note update failed",
+                [{ kind: "item", ref: noteRef }],
+              );
+            }
+          }
+          const afterNote = requireNote(noteRef);
+          if (
+            trimText(afterNote.getNote?.(), NOTE_HTML_INPUT_LIMIT) !== content
+          ) {
+            throw new MutationAuthorityExecutionError(
+              "unknown",
+              "execution_failed",
+              "verification",
+              "reconcile",
+              { phase: "verification", recovery: "reconcile" },
+              "note content final state could not be confirmed",
+              [{ kind: "item", ref: noteRef }],
+            );
+          }
+          const after = canonicalNoteVersion(afterNote);
+          return {
+            outcome: changed ? "committed" : "unchanged",
+            changes: [
+              {
+                entity: { kind: "item", ref: noteRef },
+                effect: changed ? "updated" : "unchanged",
+                before,
+                after,
+              },
+            ],
+            result: strictJsonObject({ note: canonicalNoteResult(afterNote) }),
+          };
+        }
+
+        if (operation === "notes.remove") {
+          const disposition = (request as NoteRemoveRequestDto).disposition;
+          if (disposition === "trash") await handlers.item.trash(note);
+          else await handlers.note.remove(note);
+          const after =
+            disposition === "trash"
+              ? canonicalNoteVersion(requireNote(noteRef))
+              : {
+                  revision: hashSynthesisContractCanonicalJson({
+                    ref: noteRef,
+                    state: "deleted",
+                    operationId,
+                  }),
+                  state: "deleted" as const,
+                };
+          return {
+            outcome: "committed",
+            changes: [
+              {
+                entity: { kind: "item", ref: noteRef },
+                effect: disposition === "trash" ? "trashed" : "deleted",
+                before,
+                after,
+              },
+            ],
+            result: strictJsonObject({
+              noteRef,
+              outcome:
+                disposition === "trash" ? "trashed" : "permanently_deleted",
+            }),
+          };
+        }
+
+        const input = request as NotePayloadUpsertRequestDto;
+        let payloadResult: Awaited<
+          ReturnType<typeof upsertNotePayloadAttachment>
+        >;
+        try {
+          payloadResult = await upsertNotePayloadAttachment({
+            operation: "note.upsertPayload",
+            note: noteRef,
+            payloadType: input.payloadType,
+            noteKind: input.noteKind,
+            payload: input.payload,
+            payloadFormat: "json",
+          });
+        } catch (error) {
+          throw new MutationAuthorityExecutionError(
+            "unknown",
+            "execution_failed",
+            "commit",
+            "reconcile",
+            { phase: "commit", recovery: "reconcile" },
+            error instanceof Error
+              ? error.message
+              : "note payload upsert failed",
+            [{ kind: "item", ref: noteRef }],
+          );
+        }
+        const afterNote = requireNote(noteRef);
+        const after = canonicalNoteVersion(afterNote);
+        return {
+          outcome:
+            before.revision === after.revision ? "unchanged" : "committed",
+          changes: [
+            {
+              entity: { kind: "item", ref: noteRef },
+              effect:
+                before.revision === after.revision ? "unchanged" : "updated",
+              before,
+              after,
+            },
+          ],
+          result: strictJsonObject({
+            note: canonicalNoteResult(afterNote),
+            payloadType: payloadResult.payload.payloadType,
+            payloadHash: payloadResult.payload.payloadHash,
+            replaced: payloadResult.payload.replaced,
+          }),
+        };
+      },
+    });
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError) {
+      throw mutationAdmissionError(error);
+    }
+    throw error;
+  }
+}
+
+function requireAttachment(ref: ZoteroHostItemRefInput) {
+  const attachment = requireItem(ref, "attachment");
+  if (!attachment.isAttachment?.()) {
+    throw capabilityError("invalid_ref", "item is not an attachment", {
+      kind: "attachment",
+      reason: "wrong_kind",
+    });
+  }
+  return attachment;
+}
+
+async function canonicalAttachmentVersion(attachment: Zotero.Item) {
+  const base = canonicalItemVersion(attachment);
+  let path = "";
+  try {
+    path = trimText(await attachment.getFilePathAsync?.(), FIELD_TEXT_LIMIT);
+  } catch {
+    path = "";
+  }
+  return {
+    ...base,
+    revision: hashSynthesisContractCanonicalJson({
+      baseRevision: base.revision,
+      linkMode: Number(
+        (attachment as Zotero.Item & { attachmentLinkMode?: unknown })
+          .attachmentLinkMode,
+      ),
+      path,
+      title: trimText(attachment.getField?.("title"), FIELD_TEXT_LIMIT),
+      url: trimText(attachment.getField?.("url"), FIELD_TEXT_LIMIT),
+      contentType: trimText(
+        (attachment as Zotero.Item & { attachmentContentType?: unknown })
+          .attachmentContentType,
+        512,
+      ),
+      charset: trimText(
+        (attachment as Zotero.Item & { attachmentCharset?: unknown })
+          .attachmentCharset,
+        512,
+      ),
+    }),
+  };
+}
+
+async function assertExpectedAttachmentRevision(
+  attachment: Zotero.Item,
+  expectedRevision: string | undefined,
+) {
+  const version = await canonicalAttachmentVersion(attachment);
+  if (expectedRevision && expectedRevision !== version.revision) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "conflict",
+      "read",
+      "refresh_and_retry_new_operation",
+      { reason: "revision_mismatch", kind: "attachment" },
+      "attachment revision no longer matches expectedRevision",
+    );
+  }
+  return version;
+}
+
+async function canonicalAttachmentResult(attachment: Zotero.Item) {
+  const ref = {
+    libraryId: normalizeLibraryId(attachment.libraryID),
+    key: trimText(attachment.key),
+  };
+  const parent = (attachment as Zotero.Item & { parentItem?: Zotero.Item })
+    .parentItem;
+  let path = "";
+  try {
+    path = trimText(await attachment.getFilePathAsync?.(), FIELD_TEXT_LIMIT);
+  } catch {
+    path = "";
+  }
+  const linkMode = Number(
+    (attachment as Zotero.Item & { attachmentLinkMode?: unknown })
+      .attachmentLinkMode,
+  );
+  const semanticLinkMode =
+    linkMode === 0
+      ? "stored_file"
+      : linkMode === 1
+        ? "stored_url"
+        : linkMode === 2
+          ? "linked_file"
+          : linkMode === 3
+            ? "linked_url"
+            : "embedded_image";
+  return strictJsonObject({
+    ref,
+    parentRef: parent
+      ? {
+          libraryId: normalizeLibraryId(parent.libraryID),
+          key: trimText(parent.key),
+        }
+      : null,
+    revision: (await canonicalAttachmentVersion(attachment)).revision,
+    title: trimText(attachment.getField?.("title"), FIELD_TEXT_LIMIT),
+    filename:
+      trimText(
+        (attachment as Zotero.Item & { attachmentFilename?: unknown })
+          .attachmentFilename,
+        FIELD_TEXT_LIMIT,
+      ) || null,
+    contentType:
+      trimText(
+        (attachment as Zotero.Item & { attachmentContentType?: unknown })
+          .attachmentContentType,
+        512,
+      ) || null,
+    charset:
+      trimText(
+        (attachment as Zotero.Item & { attachmentCharset?: unknown })
+          .attachmentCharset,
+        512,
+      ) || null,
+    url: trimText(attachment.getField?.("url"), FIELD_TEXT_LIMIT) || null,
+    linkMode: semanticLinkMode,
+    role: semanticLinkMode === "embedded_image" ? "note_image" : "ordinary",
+    file:
+      semanticLinkMode === "linked_url"
+        ? { state: "not_applicable" }
+        : path
+          ? { state: "available", path, sizeBytes: 0, modifiedAt: null }
+          : { state: "missing" },
+  });
+}
+
+function attachmentRefFromItem(attachment: Zotero.Item) {
+  return {
+    libraryId: normalizeLibraryId(attachment.libraryID),
+    key: trimText(attachment.key),
+  };
+}
+
+async function executeAttachmentMutation(
+  request:
+    | AttachmentCreateRequestDto
+    | AttachmentUpdateMetadataRequestDto
+    | AttachmentReplaceFileRequestDto
+    | AttachmentMoveRequestDto
+    | AttachmentRemoveRequestDto,
+  operation:
+    | "attachments.create"
+    | "attachments.updateMetadata"
+    | "attachments.replaceFile"
+    | "attachments.move"
+    | "attachments.remove",
+  scope: ZoteroHostMutationCallerScope,
+  primitives: ZoteroHostAttachmentMutationPrimitives,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<JsonObject>> {
+  const operationId = trimText(request.operationId, 129);
+  if (!operationId || operationId.length > 128) {
+    throw capabilityError("invalid_request", "operationId is invalid", {
+      reason: "invalid_value",
+      field: "operationId",
+      operation,
+    });
+  }
+  const normalized = strictJsonObject({ ...request, operationId });
+  try {
+    return await executeReservedMutation<JsonObject>({
+      scope,
+      operationId,
+      operation,
+      semanticInput: normalized,
+      control,
+      async execute() {
+        if (operation === "attachments.create") {
+          const input = request as AttachmentCreateRequestDto;
+          const parent =
+            input.placement.kind === "child"
+              ? requireItem(
+                  canonicalItemRef(input.placement.parentRef),
+                  "parent item",
+                )
+              : null;
+          const libraryId = parent
+            ? normalizeLibraryId(parent.libraryID)
+            : parsePositiveInteger(
+                input.placement.kind === "top_level"
+                  ? input.placement.libraryId
+                  : undefined,
+              ) || normalizeLibraryId(undefined);
+          const collectionRefs =
+            input.placement.kind === "top_level"
+              ? (input.placement.collectionRefs || []).map(
+                  canonicalCollectionRef,
+                )
+              : [];
+          const collections = collectionRefs.map((ref) => {
+            const collection = resolveCollection(ref);
+            if (!collection) throw notFoundError("collection", ref);
+            if (
+              normalizeLibraryId((collection as any).libraryID) !== libraryId
+            ) {
+              throw capabilityError(
+                "invalid_request",
+                "attachment placement crosses libraries",
+                {
+                  reason: "invalid_combination",
+                  operation,
+                },
+              );
+            }
+            return collection;
+          });
+          let created: Zotero.Item | null = null;
+          try {
+            if (input.source.kind === "stored_file") {
+              if (!primitives.createStoredFile) {
+                throw new Error("stored attachment import is unavailable");
+              }
+              created = await primitives.createStoredFile(input, parent);
+            } else if (input.source.kind === "linked_file") {
+              created = await handlers.attachment.createFromPath({
+                parent,
+                path: input.source.path,
+                title: input.metadata?.title,
+                mimeType: input.metadata?.contentType,
+              });
+            } else if (input.source.kind === "linked_url") {
+              created = await handlers.attachment.createFromUrl({
+                parent,
+                url: input.source.url,
+                title: input.metadata?.title,
+                mimeType: input.metadata?.contentType,
+                deduplicate: false,
+              });
+            } else {
+              created = await handlers.attachment.importStoredFromUrl({
+                parent,
+                url: input.source.url,
+                title: input.metadata?.title,
+                mimeType: input.metadata?.contentType,
+                deduplicate: false,
+              });
+            }
+            for (const collection of collections) {
+              await handlers.collection.add(created, collection);
+            }
+          } catch (primary) {
+            if (!created) {
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "execution_failed",
+                "commit",
+                "retry_same_operation",
+                { phase: "commit", recovery: "retry_same_operation" },
+                primary instanceof Error
+                  ? primary.message
+                  : "attachment creation failed",
+              );
+            }
+            const ref = attachmentRefFromItem(created);
+            try {
+              await handlers.attachment.remove(created);
+            } catch {
+              throw new MutationAuthorityExecutionError(
+                "repair_required",
+                "execution_failed",
+                "compensation",
+                "manual_repair",
+                {
+                  phase: "cleanup",
+                  recovery: "manual_repair",
+                  affectedCount: 1,
+                  residualCount: 1,
+                },
+                primary instanceof Error
+                  ? primary.message
+                  : "attachment initialization failed",
+                [{ kind: "item", ref }],
+                [{ kind: "item", ref }],
+              );
+            }
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "execution_failed",
+              "compensation",
+              "retry_same_operation",
+              {
+                phase: "cleanup",
+                recovery: "retry_same_operation",
+                affectedCount: 1,
+                residualCount: 0,
+              },
+              primary instanceof Error
+                ? primary.message
+                : "attachment initialization failed",
+              [{ kind: "item", ref }],
+            );
+          }
+          const ref = attachmentRefFromItem(created);
+          const confirmed = requireAttachment(ref);
+          return {
+            outcome: "committed",
+            changes: [
+              {
+                entity: { kind: "item", ref },
+                effect: "created",
+                before: null,
+                after: await canonicalAttachmentVersion(confirmed),
+              },
+            ],
+            result: strictJsonObject({
+              attachment: await canonicalAttachmentResult(confirmed),
+            }),
+          };
+        }
+
+        const input = request as
+          | AttachmentUpdateMetadataRequestDto
+          | AttachmentReplaceFileRequestDto
+          | AttachmentMoveRequestDto
+          | AttachmentRemoveRequestDto;
+        const attachmentRef = canonicalItemRef(input.attachmentRef);
+        const attachment = requireAttachment(attachmentRef);
+        const before = await assertExpectedAttachmentRevision(
+          attachment,
+          input.expectedRevision,
+        );
+
+        if (operation === "attachments.updateMetadata") {
+          const patch = (input as AttachmentUpdateMetadataRequestDto).patch;
+          const fields = Object.fromEntries(
+            Object.entries(patch || {}).map(([key, value]) => [
+              key === "contentType" ? "contentType" : key,
+              value ?? "",
+            ]),
+          );
+          if (!Object.keys(fields).length) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "invalid_request",
+              "validation",
+              "refresh_and_retry_new_operation",
+              { reason: "missing_field", field: "patch", operation },
+              "attachment metadata patch is empty",
+            );
+          }
+          const current = Object.fromEntries(
+            Object.keys(fields).map((field) => [
+              field,
+              trimText(attachment.getField?.(field)),
+            ]),
+          );
+          const changed = Object.entries(fields).some(
+            ([field, value]) => current[field] !== String(value),
+          );
+          if (changed)
+            await handlers.attachment.update(attachment, fields as any);
+          const afterAttachment = requireAttachment(attachmentRef);
+          const after = await canonicalAttachmentVersion(afterAttachment);
+          return {
+            outcome: changed ? "committed" : "unchanged",
+            changes: [
+              {
+                entity: { kind: "item", ref: attachmentRef },
+                effect: changed ? "updated" : "unchanged",
+                before,
+                after,
+              },
+            ],
+            result: strictJsonObject({
+              attachment: await canonicalAttachmentResult(afterAttachment),
+            }),
+          };
+        }
+
+        if (operation === "attachments.replaceFile") {
+          if (!primitives.replaceFile) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "unsupported_operation",
+              "validation",
+              "none",
+              { memberOrOperation: operation },
+              "attachment replacement is unavailable",
+            );
+          }
+          let replaced: Zotero.Item;
+          try {
+            replaced = await primitives.replaceFile(
+              input as AttachmentReplaceFileRequestDto,
+              attachment,
+            );
+          } catch (error) {
+            throw new MutationAuthorityExecutionError(
+              "unknown",
+              "execution_failed",
+              "commit",
+              "reconcile",
+              { phase: "commit", recovery: "reconcile" },
+              error instanceof Error
+                ? error.message
+                : "attachment replacement failed",
+              [{ kind: "item", ref: attachmentRef }],
+            );
+          }
+          const after = await canonicalAttachmentVersion(replaced);
+          const changed = before.revision !== after.revision;
+          return {
+            outcome: changed ? "committed" : "unchanged",
+            changes: [
+              {
+                entity: { kind: "item", ref: attachmentRef },
+                effect: changed ? "updated" : "unchanged",
+                before,
+                after,
+              },
+            ],
+            result: strictJsonObject({
+              attachment: await canonicalAttachmentResult(replaced),
+              outcome: changed ? "replaced" : "unchanged",
+            }),
+          };
+        }
+
+        if (operation === "attachments.move") {
+          const placement = (input as AttachmentMoveRequestDto).placement;
+          const oldParent = (attachment as any).parentItem || null;
+          const oldCollections = attachment.getCollections();
+          const nextParent =
+            placement.kind === "child"
+              ? requireItem(
+                  canonicalItemRef(placement.parentRef),
+                  "parent item",
+                )
+              : null;
+          const nextCollections =
+            placement.kind === "top_level"
+              ? (placement.collectionRefs || []).map((ref) => {
+                  const collection = resolveCollection(
+                    canonicalCollectionRef(ref),
+                  );
+                  if (!collection) throw notFoundError("collection", ref);
+                  return collection;
+                })
+              : [];
+          const changed =
+            Number(oldParent?.id || 0) !== Number(nextParent?.id || 0) ||
+            JSON.stringify([...oldCollections].sort()) !==
+              JSON.stringify(
+                nextCollections.map((entry: any) => entry.id).sort(),
+              );
+          if (changed) {
+            try {
+              await handlers.item.setParent(attachment, nextParent);
+              await handlers.collection.replace(attachment, nextCollections);
+            } catch (primary) {
+              try {
+                await handlers.item.setParent(attachment, oldParent);
+                await handlers.collection.replace(attachment, oldCollections);
+              } catch {
+                throw new MutationAuthorityExecutionError(
+                  "repair_required",
+                  "execution_failed",
+                  "compensation",
+                  "manual_repair",
+                  {
+                    phase: "cleanup",
+                    recovery: "manual_repair",
+                    affectedCount: 1,
+                    residualCount: 1,
+                  },
+                  primary instanceof Error
+                    ? primary.message
+                    : "attachment move failed",
+                  [{ kind: "item", ref: attachmentRef }],
+                  [{ kind: "item", ref: attachmentRef }],
+                );
+              }
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "execution_failed",
+                "compensation",
+                "retry_same_operation",
+                {
+                  phase: "cleanup",
+                  recovery: "retry_same_operation",
+                  affectedCount: 1,
+                  residualCount: 0,
+                },
+                primary instanceof Error
+                  ? primary.message
+                  : "attachment move failed",
+                [{ kind: "item", ref: attachmentRef }],
+              );
+            }
+          }
+          const afterAttachment = requireAttachment(attachmentRef);
+          const after = await canonicalAttachmentVersion(afterAttachment);
+          return {
+            outcome: changed ? "committed" : "unchanged",
+            changes: [
+              {
+                entity: { kind: "item", ref: attachmentRef },
+                effect: changed ? "updated" : "unchanged",
+                before,
+                after,
+              },
+            ],
+            result: strictJsonObject({
+              attachment: await canonicalAttachmentResult(afterAttachment),
+              outcome: changed ? "moved" : "unchanged",
+            }),
+          };
+        }
+
+        const disposition = (input as AttachmentRemoveRequestDto).disposition;
+        if (disposition === "trash") await handlers.item.trash(attachment);
+        else await handlers.attachment.remove(attachment);
+        const after =
+          disposition === "trash"
+            ? await canonicalAttachmentVersion(requireAttachment(attachmentRef))
+            : {
+                revision: hashSynthesisContractCanonicalJson({
+                  ref: attachmentRef,
+                  state: "deleted",
+                  operationId,
+                }),
+                state: "deleted" as const,
+              };
+        return {
+          outcome: "committed",
+          changes: [
+            {
+              entity: { kind: "item", ref: attachmentRef },
+              effect: disposition === "trash" ? "trashed" : "deleted",
+              before,
+              after,
+            },
+          ],
+          result: strictJsonObject({
+            attachmentRef,
+            outcome:
+              disposition === "trash" ? "trashed" : "permanently_deleted",
+          }),
+        };
+      },
+    });
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError) {
+      throw mutationAdmissionError(error);
+    }
+    throw error;
+  }
+}
+
+let mutationPreviewTargetLimit = 10_000;
+
+function buildItemChangeTypePreview(request: {
+  itemRef: ZoteroHostItemRefInput;
+  targetItemType: string;
+  incompatibleData: "reject" | "move_to_extra" | "drop";
+}) {
+  const itemRef = canonicalItemRef(request.itemRef);
+  const item = requireItem(itemRef, "item");
+  if (item.isNote?.() || item.isAttachment?.() || item.isAnnotation?.()) {
+    throw capabilityError("invalid_ref", "item is not a regular item", {
+      kind: "item",
+      reason: "wrong_kind",
+    });
+  }
+  const targetItemType = trimText(request.targetItemType, 128);
+  try {
+    resolveZotero().ItemTypes.getID(targetItemType);
+  } catch {
+    throw capabilityError("invalid_request", "target item type is invalid", {
+      reason: "unsupported_value",
+      field: "targetItemType",
+      operation: "item.changeType",
+    });
+  }
+  const detail = serializeItemDetail(item);
+  const fields = Object.fromEntries(
+    Object.entries(detail.fields).map(([field, value]) => [
+      field,
+      String(value),
+    ]),
+  );
+  const preservedFields: Record<string, string> = {};
+  const incompatible: Array<{ kind: "field"; field: string; value: string }> =
+    [];
+  for (const [field, value] of Object.entries(fields)) {
+    if (itemTypeSupportsField(targetItemType, field))
+      preservedFields[field] = value;
+    else incompatible.push({ kind: "field", field, value });
+  }
+  const creators = (() => {
+    try {
+      return (
+        (
+          item as Zotero.Item & {
+            getCreators?: () => ZoteroHostMetadataCreatorDto[];
+          }
+        ).getCreators?.() || []
+      );
+    } catch {
+      return [];
+    }
+  })();
+  const movedToExtra =
+    request.incompatibleData === "move_to_extra"
+      ? incompatible.map((source) => ({
+          source,
+          serializedLine: `${source.field}: ${source.value}`,
+        }))
+      : [];
+  const resultFields = { ...preservedFields };
+  if (movedToExtra.length) {
+    resultFields.extra = [
+      resultFields.extra || "",
+      ...movedToExtra.map((entry) => entry.serializedLine),
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  const version = canonicalItemVersion(item);
+  const plan: MutationPlanByOperation["item.changeType"] = {
+    itemRef,
+    sourceRevision: version.revision,
+    sourceItemType: item.itemType,
+    targetItemType,
+    incompatibleData: request.incompatibleData,
+    preservedFields,
+    preservedCreators: creators,
+    remappedFields: [],
+    movedToExtra,
+    dropped: request.incompatibleData === "drop" ? incompatible : [],
+    resultFields,
+    resultCreators: creators,
+  };
+  return {
+    semanticInput: {
+      operation: "item.changeType" as const,
+      itemRef,
+      targetItemType,
+      incompatibleData: request.incompatibleData,
+    },
+    plan,
+    observations: [
+      { entity: { kind: "item" as const, ref: itemRef }, version },
+    ],
+    outcome:
+      item.itemType === targetItemType
+        ? ("unchanged" as const)
+        : ("would_change" as const),
+  };
+}
+
+function canonicalCollectionVersion(collection: Zotero.Collection) {
+  const members = (() => {
+    try {
+      return collection
+        .getChildItems(false, false)
+        .map((item) => ({
+          libraryId: normalizeLibraryId(item.libraryID),
+          key: trimText(item.key),
+        }))
+        .sort((left, right) =>
+          `${left.libraryId}:${left.key}`.localeCompare(
+            `${right.libraryId}:${right.key}`,
+          ),
+        );
+    } catch {
+      return [];
+    }
+  })();
+  return {
+    revision: hashSynthesisContractCanonicalJson({
+      collection: serializeCollection(collection),
+      members,
+    }),
+    state: "active" as const,
+  };
+}
+
+async function previewCanonicalMutation(
+  request: MutationPreviewRequestByOperation[MutationPreviewOperation],
+  scope: ZoteroHostMutationCallerScope,
+): Promise<
+  MutationPreviewResult<MutationPlanByOperation[MutationPreviewOperation]>
+> {
+  let built: {
+    semanticInput: JsonObject;
+    plan: JsonObject;
+    observations: Array<any>;
+    outcome: "would_change" | "unchanged";
+  };
+  if (request.operation === "item.changeType") {
+    built = buildItemChangeTypePreview(request);
+  } else if (request.operation === "item.remove") {
+    if (request.disposition !== "permanent") {
+      throw capabilityError(
+        "invalid_request",
+        "preview requires permanent removal",
+        {
+          reason: "invalid_value",
+          field: "disposition",
+          operation: "item.remove",
+        },
+      );
+    }
+    const itemRef = canonicalItemRef(request.itemRef);
+    const item = requireItem(itemRef, "item");
+    const ids = Array.from(
+      new Set([
+        ...(item.getNotes?.() || []),
+        ...(item.getAttachments?.() || []),
+        ...((
+          item as Zotero.Item & { getChildren?: () => number[] }
+        ).getChildren?.() || []),
+      ]),
+    );
+    if (ids.length > mutationPreviewTargetLimit) {
+      throw capabilityError("resource_limited", "removal plan is too large", {
+        resource: "items",
+        limit: mutationPreviewTargetLimit,
+        observed: ids.length,
+      });
+    }
+    const children = ids
+      .map((id) => resolveZotero().Items.get(id))
+      .filter((child): child is Zotero.Item => Boolean(child));
+    const version = canonicalItemVersion(item);
+    const childPlans = children.map((child) => ({
+      ref: {
+        libraryId: normalizeLibraryId(child.libraryID),
+        key: trimText(child.key),
+      },
+      kind: child.isNote?.()
+        ? ("note" as const)
+        : child.isAttachment?.()
+          ? ("attachment" as const)
+          : ("annotation" as const),
+      revision: canonicalItemVersion(child).revision,
+    }));
+    built = {
+      semanticInput: { ...request, itemRef },
+      plan: {
+        itemRef,
+        revision: version.revision,
+        childPolicy: request.childPolicy,
+        children: childPlans,
+        managedResources: {
+          storedFiles: children.filter((child) => child.isAttachment?.())
+            .length,
+          noteImages: 0,
+          notePayloads: 0,
+          linkedFilesPreserved: 0,
+        },
+        relationInvalidations: [],
+      },
+      observations: [
+        { entity: { kind: "item", ref: itemRef }, version },
+        ...children.map((child, index) => ({
+          entity: { kind: "item", ref: childPlans[index].ref },
+          version: canonicalItemVersion(child),
+        })),
+      ],
+      outcome: "would_change",
+    };
+  } else if (request.operation === "collection.remove") {
+    const collectionRef = canonicalCollectionRef(request.collectionRef);
+    const collection = resolveCollection(collectionRef);
+    if (!collection) throw notFoundError("collection", collectionRef);
+    const allCollections = (
+      resolveZotero().Collections as unknown as {
+        getByLibrary?: (libraryId: number) => Zotero.Collection[];
+      }
+    ).getByLibrary?.(collectionRef.libraryId) || [collection];
+    const descendants: Zotero.Collection[] = [];
+    const pending = [collection];
+    while (pending.length) {
+      const current = pending.shift()!;
+      descendants.push(current);
+      pending.push(
+        ...allCollections.filter(
+          (candidate) =>
+            Number((candidate as any).parentID || 0) ===
+            Number((current as any).id),
+        ),
+      );
+      if (descendants.length > mutationPreviewTargetLimit) {
+        throw capabilityError(
+          "resource_limited",
+          "collection plan is too large",
+          {
+            resource: "items",
+            limit: mutationPreviewTargetLimit,
+            observed: descendants.length,
+          },
+        );
+      }
+    }
+    const allItems =
+      (await resolveZotero().Items.getAll?.(collectionRef.libraryId)) || [];
+    const deletedCollections = descendants.map((entry) => ({
+      ref: {
+        libraryId: collectionRef.libraryId,
+        key: trimText((entry as any).key),
+      },
+      revision: canonicalCollectionVersion(entry).revision,
+    }));
+    const detachedMemberships = descendants.flatMap((entry, index) =>
+      allItems
+        .filter((item) => item.getCollections?.().includes((entry as any).id))
+        .map((item) => ({
+          collectionRef: deletedCollections[index].ref,
+          itemRef: {
+            libraryId: normalizeLibraryId(item.libraryID),
+            key: trimText(item.key),
+          },
+          itemRevision: canonicalItemVersion(item).revision,
+        })),
+    );
+    built = {
+      semanticInput: { ...request, collectionRef },
+      plan: {
+        collectionRef,
+        childPolicy: request.childPolicy,
+        deletedCollections,
+        detachedMemberships,
+      },
+      observations: [
+        ...descendants.map((entry, index) => ({
+          entity: { kind: "collection", ref: deletedCollections[index].ref },
+          version: canonicalCollectionVersion(entry),
+        })),
+        ...detachedMemberships.map((entry) => ({
+          entity: { kind: "item", ref: entry.itemRef },
+          version: { revision: entry.itemRevision, state: "active" },
+        })),
+      ],
+      outcome: "would_change",
+    };
+  } else {
+    throw capabilityError(
+      "unsupported_operation",
+      "unsupported preview operation",
+      {
+        memberOrOperation: trimText(
+          (request as { operation?: unknown }).operation,
+        ),
+      },
+    );
+  }
+  const token = issueMutationPreviewToken({
+    scope,
+    operation: request.operation,
+    semanticInput: built.semanticInput,
+    plan: built.plan,
+    observations: built.observations,
+  });
+  return {
+    schema: "zotero-agents.mutation-preview.v1",
+    operation: request.operation,
+    outcome: built.outcome,
+    observedAt: new Date().toISOString(),
+    observations: built.observations,
+    plan: built.plan,
+    token,
+  } as MutationPreviewResult<MutationPlanByOperation[MutationPreviewOperation]>;
+}
+
 async function selectLibraryItemPage(args: ZoteroHostLibraryListArgs = {}) {
   const limit = Math.min(
     LIBRARY_LIST_LIMIT_MAX,
@@ -3337,11 +6166,7 @@ function snapshotOwnerId(scope?: ZoteroHostLibrarySnapshotCallerScope) {
 }
 
 function snapshotLibraryId(value: unknown) {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
     throw capabilityError(
       "invalid_request",
       "snapshot libraryId must be a positive integer",
@@ -3355,11 +6180,7 @@ function snapshotBatchSize(value: unknown, fallback?: number) {
   if (value === undefined) {
     return fallback || ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_DEFAULT;
   }
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
     throw capabilityError(
       "invalid_request",
       "snapshot batchSize must be a positive integer",
@@ -3471,11 +6292,10 @@ async function captureSnapshotItems(libraryId: number) {
     cursor = page.nextCursor;
   }
   if (captured.length !== (expectedTotal || 0)) {
-    throw capabilityError(
-      "conflict",
-      "snapshot captured item count changed",
-      { reason: "concurrent_modification", kind: "library" },
-    );
+    throw capabilityError("conflict", "snapshot captured item count changed", {
+      reason: "concurrent_modification",
+      kind: "library",
+    });
   }
   captured.sort((left, right) =>
     `${left.ref.libraryId}\n${left.ref.key}`.localeCompare(
@@ -4113,7 +6933,9 @@ async function openZoteroSelection(
   };
 }
 
-export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
+export function createZoteroHostCapabilityBroker(
+  attachmentPrimitives: ZoteroHostAttachmentMutationPrimitives = {},
+): ZoteroHostCapabilityBroker {
   return {
     context: {
       getCurrentView(): ZoteroHostCurrentViewDto {
@@ -4274,6 +7096,66 @@ export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
       translateIdentifier: translateMetadataIdentifier,
     },
     mutations: {
+      preview: previewCanonicalMutation,
+      execute: executeCanonicalMutation,
+    },
+    statusTags: {
+      getPolicy: getBuiltinStatusPolicy,
+      transition: executeStatusTagTransition,
+    },
+    notes: {
+      create: (request, scope, control) =>
+        executeNoteMutation(request, "notes.create", scope, control),
+      updateContent: (request, scope, control) =>
+        executeNoteMutation(request, "notes.updateContent", scope, control),
+      remove: (request, scope, control) =>
+        executeNoteMutation(request, "notes.remove", scope, control),
+      upsertPayload: (request, scope, control) =>
+        executeNoteMutation(request, "notes.upsertPayload", scope, control),
+    },
+    attachments: {
+      create: (request, scope, control) =>
+        executeAttachmentMutation(
+          request,
+          "attachments.create",
+          scope,
+          attachmentPrimitives,
+          control,
+        ),
+      updateMetadata: (request, scope, control) =>
+        executeAttachmentMutation(
+          request,
+          "attachments.updateMetadata",
+          scope,
+          attachmentPrimitives,
+          control,
+        ),
+      replaceFile: (request, scope, control) =>
+        executeAttachmentMutation(
+          request,
+          "attachments.replaceFile",
+          scope,
+          attachmentPrimitives,
+          control,
+        ),
+      move: (request, scope, control) =>
+        executeAttachmentMutation(
+          request,
+          "attachments.move",
+          scope,
+          attachmentPrimitives,
+          control,
+        ),
+      remove: (request, scope, control) =>
+        executeAttachmentMutation(
+          request,
+          "attachments.remove",
+          scope,
+          attachmentPrimitives,
+          control,
+        ),
+    },
+    legacyMutations: {
       async preview(
         request: ZoteroHostMutationRequest,
       ): Promise<ZoteroHostMutationPreviewResponse> {
@@ -4292,6 +7174,91 @@ export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
       ): Promise<ZoteroHostMutationExecuteResponse> {
         const operation = normalizeMutationOperation(request?.operation);
         try {
+          if (
+            operation === "note.createChild" ||
+            operation === "note.update" ||
+            operation === "note.upsertPayload"
+          ) {
+            const preview = previewMutationOrThrow(request);
+            const scope = { ownerId: "workflow-host-v11:legacy-mutations" };
+            const operationId = legacyMutationOperationId(operation);
+            const execution =
+              operation === "note.createChild"
+                ? await executeNoteMutation(
+                    {
+                      operationId,
+                      parentRef: canonicalItemRef(request.parent!),
+                      content: normalizeContent(request.content),
+                    },
+                    "notes.create",
+                    scope,
+                  )
+                : operation === "note.update"
+                  ? await executeNoteMutation(
+                      {
+                        operationId,
+                        noteRef: canonicalItemRef(
+                          request.note || request.target!,
+                        ),
+                        content: normalizeContent(request.content),
+                      },
+                      "notes.updateContent",
+                      scope,
+                    )
+                  : await executeNoteMutation(
+                      {
+                        operationId,
+                        noteRef: canonicalItemRef(
+                          request.note || request.target!,
+                        ),
+                        payloadType: normalizePayloadType(request.payloadType),
+                        noteKind: trimText(request.noteKind, 80),
+                        payload: request.payload as JsonValue,
+                      },
+                      "notes.upsertPayload",
+                      scope,
+                    );
+            if (!("result" in execution)) {
+              return {
+                ...preview,
+                ok: false,
+                error: {
+                  code: execution.attempt.error.code,
+                  message:
+                    execution.attempt.error.message ||
+                    "Canonical note mutation failed",
+                  details: execution.attempt as unknown as JsonValue,
+                },
+              };
+            }
+            const result = execution.result as JsonObject;
+            if (operation === "note.upsertPayload") {
+              const note = result.note as JsonObject;
+              return {
+                ...preview,
+                ok: true,
+                result: {
+                  payloads: [
+                    {
+                      noteKey: String((note.ref as JsonObject).key || ""),
+                      payloadType: String(result.payloadType || ""),
+                      noteKind: trimText(request.noteKind, 80),
+                      attachmentKey: "",
+                      bytes: 0,
+                      replaced: Number(result.replaced) || 0,
+                    },
+                  ],
+                },
+              };
+            }
+            return {
+              ...preview,
+              ok: true,
+              result: {
+                notes: [result.note as unknown as ZoteroHostNoteDto],
+              },
+            };
+          }
           return await executeMutationOrThrow(request);
         } catch (error) {
           return errorResponse(
@@ -4306,4 +7273,23 @@ export function createZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
 
 export function resolveZoteroHostCapabilityBroker(): ZoteroHostCapabilityBroker {
   return createZoteroHostCapabilityBroker();
+}
+
+export function configureZoteroHostMutationRuntimeForTests(
+  configuration: Parameters<
+    typeof configureMutationAuthorityRuntimeForTests
+  >[0] & {
+    maxPreviewTargets?: number;
+  },
+) {
+  const { maxPreviewTargets, ...authorityConfiguration } = configuration;
+  configureMutationAuthorityRuntimeForTests(authorityConfiguration);
+  if (maxPreviewTargets !== undefined) {
+    mutationPreviewTargetLimit = Math.max(1, Math.floor(maxPreviewTargets));
+  }
+}
+
+export function resetZoteroHostMutationRuntimeForTests() {
+  resetMutationAuthorityRuntimeForTests();
+  mutationPreviewTargetLimit = 10_000;
 }

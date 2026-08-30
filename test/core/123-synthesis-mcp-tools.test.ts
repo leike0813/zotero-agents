@@ -32,7 +32,6 @@ function request(id: number, name: string, args: Record<string, unknown> = {}) {
   };
 }
 
-
 async function loadProtocolCorpusCase(file: string, id: string) {
   const corpus = JSON.parse(
     await fs.readFile(

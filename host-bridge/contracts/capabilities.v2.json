@@ -2411,7 +2411,11 @@
                   "type": "object",
                   "properties": {
                     "libraryId": { "type": "integer", "minimum": 1 },
-                    "key": { "type": "string", "minLength": 1, "maxLength": 128 }
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
                   },
                   "required": ["libraryId", "key"],
                   "additionalProperties": false
@@ -2429,7 +2433,11 @@
                     "type": "object",
                     "properties": {
                       "libraryId": { "type": "integer", "minimum": 1 },
-                      "key": { "type": "string", "minLength": 1, "maxLength": 128 }
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
                     },
                     "required": ["libraryId", "key"],
                     "additionalProperties": false
@@ -2455,7 +2463,25 @@
                 "annotationCount": { "type": "integer", "minimum": 0 },
                 "modifiedAt": { "type": "string" }
               },
-              "required": ["ref", "itemType", "title", "creators", "year", "date", "publicationTitle", "tags", "collections", "revision", "state", "identifiers", "url", "noteCount", "attachmentCount", "annotationCount", "modifiedAt"],
+              "required": [
+                "ref",
+                "itemType",
+                "title",
+                "creators",
+                "year",
+                "date",
+                "publicationTitle",
+                "tags",
+                "collections",
+                "revision",
+                "state",
+                "identifiers",
+                "url",
+                "noteCount",
+                "attachmentCount",
+                "annotationCount",
+                "modifiedAt"
+              ],
               "additionalProperties": false
             }
           },
@@ -2483,21 +2509,57 @@
           "completionEvidence": {
             "type": "object",
             "properties": {
-              "snapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "snapshotId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
               "schema": { "const": "zotero-agents.library-full-index.v1" },
               "libraryId": { "type": "integer", "minimum": 1 },
               "scope": { "const": "top-level-regular" },
-              "totalItems": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+              "totalItems": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
               "totalBatches": { "type": "integer", "minimum": 1 },
               "order": { "const": "stable_identity" },
-              "contentDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "contentDigest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
               "completedAt": { "type": "string" }
             },
-            "required": ["snapshotId", "schema", "libraryId", "scope", "totalItems", "totalBatches", "order", "contentDigest", "completedAt"],
+            "required": [
+              "snapshotId",
+              "schema",
+              "libraryId",
+              "scope",
+              "totalItems",
+              "totalBatches",
+              "order",
+              "contentDigest",
+              "completedAt"
+            ],
             "additionalProperties": false
           }
         },
-        "required": ["schema", "snapshotId", "libraryId", "scope", "order", "batchSize", "batchIndex", "items", "nextCursor", "hasMore", "returned", "deliveredItems", "deliveredBatches", "outcome"],
+        "required": [
+          "schema",
+          "snapshotId",
+          "libraryId",
+          "scope",
+          "order",
+          "batchSize",
+          "batchIndex",
+          "items",
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "deliveredItems",
+          "deliveredBatches",
+          "outcome"
+        ],
         "oneOf": [
           {
             "properties": {

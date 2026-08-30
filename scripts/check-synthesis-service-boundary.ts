@@ -138,7 +138,9 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     ) {
       continue;
     }
-    const source = fs.readFileSync(filePath, "utf8").split("#[cfg(test)]", 1)[0]!;
+    const source = fs
+      .readFileSync(filePath, "utf8")
+      .split("#[cfg(test)]", 1)[0]!;
     if (
       /\b(?:Repository|CanonicalStore)::open_production\s*\(/.test(source) &&
       relativePath !==
@@ -160,8 +162,7 @@ export function inspectSynthesisServiceBoundary() {
     nodeSidecarPathsPresent: NODE_SIDECAR_PATHS.filter((entry) =>
       fs.existsSync(repoPath(entry)),
     ),
-    productionBoundaryViolations:
-      findSynthesisProductionBoundaryViolations(),
+    productionBoundaryViolations: findSynthesisProductionBoundaryViolations(),
     contractViolations: findSynthesisContractBoundaryViolations(),
     productionClientAdapter: "clientPortAdapter.ts",
     productionRuntimeOwner: "runtime_service.rs",

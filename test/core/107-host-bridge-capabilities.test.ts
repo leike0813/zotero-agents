@@ -474,7 +474,12 @@ describe("host bridge capability calls", function () {
     }
 
     const encoded = JSON.stringify(first.json.result.data);
-    for (const forbidden of ["localPath", "nativeHandle", "registry", "sessionRecord"]) {
+    for (const forbidden of [
+      "localPath",
+      "nativeHandle",
+      "registry",
+      "sessionRecord",
+    ]) {
       assert.notInclude(encoded, forbidden);
     }
 

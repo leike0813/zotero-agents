@@ -130,7 +130,25 @@
     "LibrarySnapshotItem": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ref", "itemType", "title", "creators", "year", "date", "publicationTitle", "tags", "collections", "revision", "state", "identifiers", "url", "noteCount", "attachmentCount", "annotationCount", "modifiedAt"],
+      "required": [
+        "ref",
+        "itemType",
+        "title",
+        "creators",
+        "year",
+        "date",
+        "publicationTitle",
+        "tags",
+        "collections",
+        "revision",
+        "state",
+        "identifiers",
+        "url",
+        "noteCount",
+        "attachmentCount",
+        "annotationCount",
+        "modifiedAt"
+      ],
       "properties": {
         "ref": { "$ref": "#/$defs/LibrarySnapshotRef" },
         "itemType": { "type": "string", "maxLength": 256 },
@@ -140,37 +158,77 @@
         "date": { "type": "string", "maxLength": 256 },
         "publicationTitle": { "type": "string", "maxLength": 65536 },
         "tags": { "$ref": "#/$defs/StringArray" },
-        "collections": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/LibrarySnapshotRef" } },
+        "collections": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/LibrarySnapshotRef" }
+        },
         "revision": { "$ref": "#/$defs/NonEmptyString" },
         "state": { "const": "active" },
         "identifiers": { "$ref": "#/$defs/LibrarySnapshotIdentifiers" },
         "url": { "type": ["string", "null"], "maxLength": 16384 },
-        "noteCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "attachmentCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "annotationCount": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "noteCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "attachmentCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "annotationCount": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "modifiedAt": { "type": "string", "maxLength": 256 }
       }
     },
     "LibrarySnapshotCompletionEvidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["snapshotId", "schema", "libraryId", "scope", "totalItems", "totalBatches", "order", "contentDigest", "completedAt"],
+      "required": [
+        "snapshotId",
+        "schema",
+        "libraryId",
+        "scope",
+        "totalItems",
+        "totalBatches",
+        "order",
+        "contentDigest",
+        "completedAt"
+      ],
       "properties": {
         "snapshotId": { "$ref": "#/$defs/NonEmptyString" },
         "schema": { "const": "zotero-agents.library-full-index.v1" },
         "libraryId": { "$ref": "#/$defs/PositiveInteger" },
         "scope": { "const": "top-level-regular" },
         "totalItems": { "type": "integer", "minimum": 0, "maximum": 1000000 },
-        "totalBatches": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "totalBatches": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "order": { "const": "stable_identity" },
-        "contentDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
         "completedAt": { "$ref": "#/$defs/NonEmptyString" }
       }
     },
     "LibrarySnapshotResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "snapshotId", "libraryId", "scope", "order", "batchSize", "batchIndex", "items", "returned", "deliveredItems", "deliveredBatches", "outcome", "nextCursor", "hasMore"],
+      "required": [
+        "schema",
+        "snapshotId",
+        "libraryId",
+        "scope",
+        "order",
+        "batchSize",
+        "batchIndex",
+        "items",
+        "returned",
+        "deliveredItems",
+        "deliveredBatches",
+        "outcome",
+        "nextCursor",
+        "hasMore"
+      ],
       "properties": {
         "schema": { "const": "zotero-agents.library-full-index.v1" },
         "snapshotId": { "$ref": "#/$defs/NonEmptyString" },
@@ -178,15 +236,31 @@
         "scope": { "const": "top-level-regular" },
         "order": { "const": "stable_identity" },
         "batchSize": { "type": "integer", "minimum": 1, "maximum": 1000 },
-        "batchIndex": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "items": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/LibrarySnapshotItem" } },
-        "returned": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "deliveredItems": { "type": "integer", "minimum": 0, "maximum": 1000000 },
-        "deliveredBatches": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "batchIndex": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/LibrarySnapshotItem" }
+        },
+        "returned": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "deliveredItems": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "deliveredBatches": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "outcome": { "enum": ["active", "completed"] },
         "nextCursor": { "type": ["string", "null"], "maxLength": 4096 },
         "hasMore": { "type": "boolean" },
-        "completionEvidence": { "$ref": "#/$defs/LibrarySnapshotCompletionEvidence" }
+        "completionEvidence": {
+          "$ref": "#/$defs/LibrarySnapshotCompletionEvidence"
+        }
       }
     },
     "LibraryItemsListPageRequest": {

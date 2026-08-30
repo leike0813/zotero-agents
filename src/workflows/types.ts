@@ -47,6 +47,567 @@ export type WorkflowHostMutationReceiptOperation =
   | "statusTags.transition"
   | "researchBundles.importPapers";
 
+export type MutationOperation =
+  | "item.create"
+  | "item.updateMetadata"
+  | "item.changeType"
+  | "item.remove"
+  | "item.updateTags"
+  | "item.addRelated"
+  | "item.removeRelated"
+  | "collection.create"
+  | "collection.update"
+  | "collection.updateMembership"
+  | "collection.remove";
+
+export type MutationPreviewOperation =
+  | "item.changeType"
+  | "item.remove"
+  | "collection.remove";
+
+export type RemovalDisposition = "trash" | "permanent";
+export type RemovalOutcome =
+  | "trashed"
+  | "permanently_deleted"
+  | "already_trashed"
+  | "already_absent";
+
+export type ItemMutationVersionDto = {
+  revision: string;
+  state: "active" | "trashed" | "deleted";
+};
+
+export type CollectionMutationVersionDto = {
+  revision: string;
+  state: "active" | "deleted";
+};
+
+export type MutationEntityRef =
+  | { kind: "item"; ref: PortableItemRef }
+  | { kind: "collection"; ref: PortableCollectionRef };
+
+export type MutationChangeDto =
+  | {
+      entity: { kind: "item"; ref: PortableItemRef };
+      effect: "created" | "updated" | "trashed" | "deleted" | "unchanged";
+      before: ItemMutationVersionDto | null;
+      after: ItemMutationVersionDto;
+    }
+  | {
+      entity: { kind: "collection"; ref: PortableCollectionRef };
+      effect: "created" | "updated" | "deleted" | "unchanged";
+      before: CollectionMutationVersionDto | null;
+      after: CollectionMutationVersionDto;
+    };
+
+export type MutationReceipt = {
+  schema: "zotero-agents.mutation-receipt.v1";
+  receiptId: string;
+  operationId: string;
+  operation: WorkflowHostMutationReceiptOperation;
+  outcome: "committed" | "unchanged";
+  committedAt: string;
+  effectDigest: string;
+  changes: MutationChangeDto[];
+};
+
+export type MutationAttemptStatus =
+  | "failed"
+  | "canceled"
+  | "unknown"
+  | "repair_required";
+
+export type MutationPhase =
+  | "validation"
+  | "reservation"
+  | "read"
+  | "commit"
+  | "verification"
+  | "compensation";
+
+export type MutationRecovery =
+  | "none"
+  | "retry_same_operation"
+  | "refresh_and_retry_new_operation"
+  | "reconcile"
+  | "manual_repair";
+
+import type {
+  WorkflowHostErrorCode,
+  WorkflowHostErrorDetailsByCode,
+} from "./workflowHostErrorContract";
+
+export type MutationAttemptError = {
+  [Code in WorkflowHostErrorCode]: {
+    code: Code;
+    phase: MutationPhase;
+    recovery: MutationRecovery;
+    message?: string;
+    details: WorkflowHostErrorDetailsByCode[Code];
+  };
+}[WorkflowHostErrorCode];
+
+export type MutationAttemptReport = {
+  schema: "zotero-agents.mutation-attempt.v1";
+  attemptId: string;
+  operationId: string;
+  operation: WorkflowHostMutationReceiptOperation;
+  status: MutationAttemptStatus;
+  error: MutationAttemptError;
+  affectedRefs: MutationEntityRef[];
+  residualRefs: MutationEntityRef[];
+};
+
+export type MutationExecutionResult<TResult extends object> =
+  | {
+      outcome: "committed" | "unchanged";
+      receipt: MutationReceipt;
+      result: TResult;
+    }
+  | {
+      outcome: MutationAttemptStatus;
+      attempt: MutationAttemptReport;
+    };
+
+export type MutationItemResultDto = JsonObject & {
+  ref: PortableItemRef;
+  revision: string;
+  itemType: string;
+  title: string;
+};
+
+export type MutationCollectionResultDto = JsonObject & {
+  ref: PortableCollectionRef;
+  revision: string;
+  name: string;
+};
+
+export type ItemRemovalResultDto = JsonObject & {
+  itemRef: PortableItemRef;
+  outcome: RemovalOutcome;
+};
+
+export type RelatedItemMutationResultDto = JsonObject & {
+  sourceRef: PortableItemRef;
+  relatedRef: PortableItemRef;
+  related: boolean;
+};
+
+export type CollectionMembershipResultDto = JsonObject & {
+  collection: MutationCollectionResultDto;
+  addedRefs: PortableItemRef[];
+  removedRefs: PortableItemRef[];
+};
+
+export type CollectionRemovalResultDto = JsonObject & {
+  removedRef: PortableCollectionRef;
+};
+
+export type ItemCreateRequest = {
+  operation: "item.create";
+  operationId: string;
+  libraryId?: number;
+  itemType: string;
+  fields: Record<string, string>;
+  creators?: WorkflowHostCreatorDto[];
+  initialTags?: string[];
+  collectionRefs?: PortableCollectionRef[];
+  initialRelatedRefs?: PortableItemRef[];
+};
+
+export type ItemUpdateMetadataRequest = {
+  operation: "item.updateMetadata";
+  operationId: string;
+  itemRef: PortableItemRef;
+  expectedRevision?: string;
+  patch: {
+    fields?: Record<string, string | null>;
+    creators?: WorkflowHostCreatorDto[];
+  };
+};
+
+export type ItemChangeTypeRequest = {
+  operation: "item.changeType";
+  operationId: string;
+  itemRef: PortableItemRef;
+  expectedRevision: string;
+  targetItemType: string;
+  incompatibleData: "reject" | "move_to_extra" | "drop";
+  previewToken: string;
+};
+
+export type ItemRemoveRequest = {
+  operation: "item.remove";
+  operationId: string;
+  itemRef: PortableItemRef;
+} & (
+  | { disposition: "trash"; expectedRevision?: string }
+  | {
+      disposition: "permanent";
+      expectedRevision: string;
+      childPolicy: "reject_if_present" | "cascade";
+      previewToken: string;
+    }
+);
+
+export type ItemUpdateTagsRequest = {
+  operation: "item.updateTags";
+  operationId: string;
+  itemRef: PortableItemRef;
+  expectedRevision?: string;
+  add: string[];
+  remove: string[];
+};
+
+export type ItemRelatedRequest = {
+  operation: "item.addRelated" | "item.removeRelated";
+  operationId: string;
+  sourceRef: PortableItemRef;
+  relatedRef: PortableItemRef;
+  expectedRevision?: string;
+};
+
+export type ItemAddRelatedRequest = ItemRelatedRequest & {
+  operation: "item.addRelated";
+};
+export type ItemRemoveRelatedRequest = ItemRelatedRequest & {
+  operation: "item.removeRelated";
+};
+
+export type CollectionCreateRequest = {
+  operation: "collection.create";
+  operationId: string;
+  name: string;
+  placement:
+    | { kind: "root"; libraryId?: number }
+    | { kind: "child"; parentRef: PortableCollectionRef };
+  initialMemberRefs?: PortableItemRef[];
+};
+
+export type CollectionUpdateRequest = {
+  operation: "collection.update";
+  operationId: string;
+  collectionRef: PortableCollectionRef;
+  expectedRevision?: string;
+  patch: { name?: string; parentRef?: PortableCollectionRef | null };
+};
+
+export type CollectionUpdateMembershipRequest = {
+  operation: "collection.updateMembership";
+  operationId: string;
+  collectionRef: PortableCollectionRef;
+  expectedRevision?: string;
+  add: PortableItemRef[];
+  remove: PortableItemRef[];
+};
+
+export type CollectionRemoveRequest = {
+  operation: "collection.remove";
+  operationId: string;
+  collectionRef: PortableCollectionRef;
+  expectedRevision: string;
+  childPolicy: "reject_if_present" | "cascade";
+  previewToken: string;
+};
+
+export type MutationExecuteRequest =
+  | ItemCreateRequest
+  | ItemUpdateMetadataRequest
+  | ItemChangeTypeRequest
+  | ItemRemoveRequest
+  | ItemUpdateTagsRequest
+  | ItemAddRelatedRequest
+  | ItemRemoveRelatedRequest
+  | CollectionCreateRequest
+  | CollectionUpdateRequest
+  | CollectionUpdateMembershipRequest
+  | CollectionRemoveRequest;
+
+export type MutationRequestByOperation = {
+  "item.create": ItemCreateRequest;
+  "item.updateMetadata": ItemUpdateMetadataRequest;
+  "item.changeType": ItemChangeTypeRequest;
+  "item.remove": ItemRemoveRequest;
+  "item.updateTags": ItemUpdateTagsRequest;
+  "item.addRelated": ItemAddRelatedRequest;
+  "item.removeRelated": ItemRemoveRelatedRequest;
+  "collection.create": CollectionCreateRequest;
+  "collection.update": CollectionUpdateRequest;
+  "collection.updateMembership": CollectionUpdateMembershipRequest;
+  "collection.remove": CollectionRemoveRequest;
+};
+
+export type MutationResultByOperation = {
+  "item.create": { item: MutationItemResultDto };
+  "item.updateMetadata": { item: MutationItemResultDto };
+  "item.changeType": { item: MutationItemResultDto };
+  "item.remove": ItemRemovalResultDto;
+  "item.updateTags": { item: MutationItemResultDto };
+  "item.addRelated": RelatedItemMutationResultDto;
+  "item.removeRelated": RelatedItemMutationResultDto;
+  "collection.create": { collection: MutationCollectionResultDto };
+  "collection.update": { collection: MutationCollectionResultDto };
+  "collection.updateMembership": CollectionMembershipResultDto;
+  "collection.remove": CollectionRemovalResultDto;
+};
+
+export type ItemChangeTypeDataEntryDto =
+  | { kind: "field"; field: string; value: string }
+  | { kind: "creator"; index: number; creator: WorkflowHostCreatorDto };
+
+export type ItemChangeTypePlan = {
+  itemRef: PortableItemRef;
+  sourceRevision: string;
+  sourceItemType: string;
+  targetItemType: string;
+  incompatibleData: "reject" | "move_to_extra" | "drop";
+  preservedFields: Record<string, string>;
+  preservedCreators: WorkflowHostCreatorDto[];
+  remappedFields: Array<{
+    sourceField: string;
+    targetField: string;
+    value: string;
+  }>;
+  movedToExtra: Array<{
+    source: ItemChangeTypeDataEntryDto;
+    serializedLine: string;
+  }>;
+  dropped: ItemChangeTypeDataEntryDto[];
+  resultFields: Record<string, string>;
+  resultCreators: WorkflowHostCreatorDto[];
+};
+
+export type ItemPermanentRemovePlan = {
+  itemRef: PortableItemRef;
+  revision: string;
+  childPolicy: "reject_if_present" | "cascade";
+  children: Array<{
+    ref: PortableItemRef;
+    kind: "note" | "attachment" | "annotation";
+    revision: string;
+  }>;
+  managedResources: {
+    storedFiles: number;
+    noteImages: number;
+    notePayloads: number;
+    linkedFilesPreserved: number;
+  };
+  relationInvalidations: Array<{
+    sourceRef: PortableItemRef;
+    relatedRef: PortableItemRef;
+  }>;
+};
+
+export type CollectionRemovePlan = {
+  collectionRef: PortableCollectionRef;
+  childPolicy: "reject_if_present" | "cascade";
+  deletedCollections: Array<{
+    ref: PortableCollectionRef;
+    revision: string;
+  }>;
+  detachedMemberships: Array<{
+    collectionRef: PortableCollectionRef;
+    itemRef: PortableItemRef;
+    itemRevision: string;
+  }>;
+};
+
+export type MutationPreviewRequestByOperation = {
+  "item.changeType": Omit<
+    ItemChangeTypeRequest,
+    "operationId" | "expectedRevision" | "previewToken"
+  >;
+  "item.remove": {
+    operation: "item.remove";
+    itemRef: PortableItemRef;
+    disposition: "permanent";
+    childPolicy: "reject_if_present" | "cascade";
+  };
+  "collection.remove": Omit<
+    CollectionRemoveRequest,
+    "operationId" | "expectedRevision" | "previewToken"
+  >;
+};
+
+export type MutationPreviewRequest =
+  MutationPreviewRequestByOperation[MutationPreviewOperation];
+
+export type MutationPlanByOperation = {
+  "item.changeType": ItemChangeTypePlan;
+  "item.remove": ItemPermanentRemovePlan;
+  "collection.remove": CollectionRemovePlan;
+};
+
+export type MutationEntityObservationDto =
+  | {
+      entity: { kind: "item"; ref: PortableItemRef };
+      version: ItemMutationVersionDto;
+    }
+  | {
+      entity: { kind: "collection"; ref: PortableCollectionRef };
+      version: CollectionMutationVersionDto;
+    };
+
+export type MutationPreviewTokenDto = {
+  value: string;
+  expiresAt: string;
+};
+
+export type MutationPreviewResult<TPlan extends object> = {
+  schema: "zotero-agents.mutation-preview.v1";
+  operation: MutationPreviewOperation;
+  outcome: "would_change" | "unchanged";
+  observedAt: string;
+  observations: MutationEntityObservationDto[];
+  plan: TPlan;
+  token: MutationPreviewTokenDto;
+};
+
+export type NoteCreateRequestDto = {
+  operationId: string;
+  parentRef?: PortableItemRef;
+  content: string;
+};
+export type NoteUpdateContentRequestDto = {
+  operationId: string;
+  noteRef: PortableItemRef;
+  expectedRevision?: string;
+  content: string;
+};
+export type NoteRemoveRequestDto = {
+  operationId: string;
+  noteRef: PortableItemRef;
+  disposition: RemovalDisposition;
+  expectedRevision?: string;
+};
+export type NotePayloadUpsertRequestDto = {
+  operationId: string;
+  noteRef: PortableItemRef;
+  expectedRevision?: string;
+  payloadType: string;
+  noteKind: string;
+  payload: JsonValue;
+};
+export type NoteRemovalResultDto = JsonObject & {
+  noteRef: PortableItemRef;
+  outcome: RemovalOutcome;
+};
+export type NotePayloadUpsertResultDto = JsonObject & {
+  note: MutationItemResultDto;
+  payloadType: string;
+  payloadHash: string;
+  replaced: number;
+};
+
+export type WorkflowFileRef =
+  | { kind: "local_path"; path: string }
+  | { kind: "resource"; resourceRef: JsonObject };
+export type StoredFileInput = {
+  source: WorkflowFileRef;
+  targetFilename?: string;
+};
+export type CompanionFileInput = {
+  source: WorkflowFileRef;
+  targetRelativePath: string;
+};
+export type AttachmentPlacementDto =
+  | {
+      kind: "top_level";
+      libraryId?: number;
+      collectionRefs?: PortableCollectionRef[];
+    }
+  | { kind: "child"; parentRef: PortableItemRef };
+export type AttachmentSourceDto =
+  | {
+      kind: "stored_file";
+      main: StoredFileInput;
+      companions?: CompanionFileInput[];
+    }
+  | { kind: "linked_file"; path: string }
+  | { kind: "linked_url"; url: string }
+  | { kind: "stored_url"; url: string };
+export type AttachmentCreateRequestDto = {
+  operationId: string;
+  placement: AttachmentPlacementDto;
+  source: AttachmentSourceDto;
+  metadata?: {
+    title?: string;
+    contentType?: string;
+    charset?: string;
+    originalUrl?: string;
+  };
+};
+export type AttachmentUpdateMetadataRequestDto = {
+  operationId: string;
+  attachmentRef: PortableItemRef;
+  expectedRevision?: string;
+  patch: {
+    title?: string | null;
+    url?: string | null;
+    contentType?: string | null;
+    charset?: string | null;
+  };
+};
+export type AttachmentReplaceFileRequestDto = {
+  operationId: string;
+  attachmentRef: PortableItemRef;
+  expectedRevision?: string;
+  source:
+    | Extract<AttachmentSourceDto, { kind: "stored_file" }>
+    | Extract<AttachmentSourceDto, { kind: "linked_file" }>;
+};
+export type AttachmentMoveRequestDto = {
+  operationId: string;
+  attachmentRef: PortableItemRef;
+  expectedRevision?: string;
+  placement: AttachmentPlacementDto;
+};
+export type AttachmentRemoveRequestDto = {
+  operationId: string;
+  attachmentRef: PortableItemRef;
+  disposition: RemovalDisposition;
+  expectedRevision?: string;
+};
+export type AttachmentReplaceFileResultDto = JsonObject & {
+  attachment: JsonObject;
+  outcome: "replaced" | "unchanged";
+};
+export type AttachmentMoveResultDto = JsonObject & {
+  attachment: JsonObject;
+  outcome: "moved" | "unchanged";
+};
+export type AttachmentRemovalResultDto = JsonObject & {
+  attachmentRef: PortableItemRef;
+  outcome: RemovalOutcome;
+};
+
+export type StatusTagKey =
+  | "need-metadata-curation"
+  | "need-fulltext"
+  | "need-markdown"
+  | "need-analysis"
+  | "need-deep-reading";
+export type StatusTagValue =
+  | "status:need-metadata-curation"
+  | "status:need-fulltext"
+  | "status:need-markdown"
+  | "status:need-analysis"
+  | "status:need-deep-reading";
+export type StatusTagTransitionRequestDto = {
+  operationId: string;
+  itemRef: PortableItemRef;
+  expectedRevision?: string;
+  add?: StatusTagKey[];
+  remove?: StatusTagKey[];
+};
+export type StatusTagTransitionResultDto = JsonObject & {
+  itemRef: PortableItemRef;
+  added: StatusTagValue[];
+  removed: StatusTagValue[];
+  unchanged: StatusTagValue[];
+  revision: string;
+};
+
 export type {
   WorkflowHostErrorCode,
   WorkflowHostErrorData,
@@ -141,10 +702,10 @@ type WorkflowHostLibraryApi = Pick<
 type WorkflowHostMutationApi = {
   preview(
     request: WorkflowHostMutationRequest,
-  ): ReturnType<ZoteroHostCapabilityBroker["mutations"]["preview"]>;
+  ): ReturnType<ZoteroHostCapabilityBroker["legacyMutations"]["preview"]>;
   execute(
     request: WorkflowHostMutationRequest,
-  ): ReturnType<ZoteroHostCapabilityBroker["mutations"]["execute"]>;
+  ): ReturnType<ZoteroHostCapabilityBroker["legacyMutations"]["execute"]>;
 };
 
 type WorkflowHostMetadataApi = Pick<
@@ -675,8 +1236,43 @@ export type WorkflowHostApi = {
     set: (key: string, value: unknown, global?: boolean) => void;
     clear: (key: string, global?: boolean) => void;
   };
-  parents: typeof import("../handlers").handlers.parent;
-  notes: typeof import("../handlers").handlers.note & {
+  parents: {
+    addNote: (
+      parentRef: Zotero.Item | number | string,
+      note: { content: string },
+    ) => Promise<Zotero.Item>;
+    addAttachment: (
+      parentRef: Zotero.Item | number | string,
+      spec: { file: any } | { filePath: string },
+    ) => Promise<Zotero.Item>;
+    addRelated: (
+      parentRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+      relatedRefs: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+    ) => Promise<void>;
+    removeRelated: (
+      parentRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+      relatedRefs: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+    ) => Promise<void>;
+    updateFields: (
+      parentRef: Zotero.Item | number | string,
+      patch: Record<string, string | number | boolean | null>,
+    ) => Promise<Zotero.Item>;
+    updateMetadata: (
+      parentRef: Zotero.Item | number | string,
+      metadata: {
+        itemType?: string | null;
+        fields?: Record<string, string | number | boolean | null> | null;
+        creators?: WorkflowHostCreatorDto[] | null;
+      },
+    ) => Promise<Zotero.Item>;
+  };
+  notes: {
+    create: (note: { content: string }) => Promise<Zotero.Item>;
+    update: (
+      noteRef: Zotero.Item | number | string,
+      patch: { content: string },
+    ) => Promise<Zotero.Item>;
+    remove: (noteRef: Zotero.Item | number | string) => Promise<void>;
     importEmbeddedImage: (
       noteRef: Zotero.Item | number | string,
       image: WorkflowPreparedNoteImage,
@@ -700,7 +1296,46 @@ export type WorkflowHostApi = {
       options?: WorkflowImagePreparationOptions,
     ) => Promise<WorkflowPreparedNoteImage>;
   };
-  attachments: typeof import("../handlers").handlers.attachment & {
+  attachments: {
+    create: (spec: { file: any } | { filePath: string }) => Promise<Zotero.Item>;
+    createFromPath: (options: {
+      parent?: Zotero.Item | number | string | null;
+      path?: string | null;
+      dataPath?: string | null;
+      itemKey?: string;
+      libraryID?: number;
+      title?: string | null;
+      mimeType?: string | null;
+      charset?: string | null;
+      url?: string | null;
+      allowMissing?: boolean;
+    }) => Promise<Zotero.Item>;
+    importStoredFromPath: (options: {
+      parent?: Zotero.Item | number | string | null;
+      path?: string | null;
+      dataPath?: string | null;
+      itemKey?: string;
+      libraryID?: number;
+      title?: string | null;
+      mimeType?: string | null;
+      charset?: string | null;
+      url?: string | null;
+      allowMissing?: boolean;
+    }) => Promise<Zotero.Item>;
+    createFromUrl: (options: {
+      parent?: Zotero.Item | number | string | null;
+      url: string;
+      title?: string | null;
+      mimeType?: string | null;
+      deduplicate?: boolean;
+    }) => Promise<Zotero.Item>;
+    update: (
+      attachmentRef: Zotero.Item | number | string,
+      patch: Record<string, string | number | boolean | null>,
+    ) => Promise<Zotero.Item>;
+    remove: (
+      attachmentRef: Zotero.Item | number | string,
+    ) => Promise<void>;
     importStoredFile: (args: {
       parent?: Zotero.Item | number | string | null;
       path: string;
@@ -714,26 +1349,60 @@ export type WorkflowHostApi = {
       }>;
     }) => Promise<Zotero.Item>;
   };
-  tags: typeof import("../handlers").handlers.tag;
-  statusTags: {
-    getPolicy: () => Readonly<Record<BuiltinStatusKey, BuiltinStatusTag>>;
-    transition: (args: {
-      item: Zotero.Item | number | string;
-      add?: BuiltinStatusKey[];
-      remove?: BuiltinStatusKey[];
-    }) => Promise<{
-      added: BuiltinStatusTag[];
-      removed: BuiltinStatusTag[];
-      warnings: Array<{
-        code: string;
-        operation: "add" | "remove";
-        tags: BuiltinStatusTag[];
-        message: string;
-      }>;
-    }>;
+  tags: {
+    add: (
+      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+      tags: string[],
+    ) => Promise<void>;
+    list: (itemRef: Zotero.Item | number | string) => Promise<string[]>;
+    remove: (
+      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+      tags: string[],
+    ) => Promise<void>;
+    replace: (
+      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+      tags: string[],
+    ) => Promise<void>;
   };
-  collections: typeof import("../handlers").handlers.collection;
-  command: typeof import("../handlers").handlers.command;
+  statusTags: {
+    getPolicy: () => Readonly<Record<StatusTagKey, StatusTagValue>>;
+    transition: (
+      args: StatusTagTransitionRequestDto,
+      control?: WorkflowCallControl,
+    ) => Promise<MutationExecutionResult<StatusTagTransitionResultDto>>;
+  };
+  collections: {
+    update: (
+      collectionRef: number | string | Zotero.Collection,
+      patch: { name?: string; parentID?: number | null },
+    ) => Promise<Zotero.Collection>;
+    create: (options: {
+      name: string;
+      libraryID?: number;
+    }) => Promise<Zotero.Collection>;
+    delete: (
+      collection: number | string | Zotero.Collection,
+    ) => Promise<void>;
+    add: (
+      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+      collection: number | string | Zotero.Collection,
+    ) => Promise<void>;
+    remove: (
+      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+      collection: number | string | Zotero.Collection,
+    ) => Promise<void>;
+    replace: (
+      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
+      collections: Array<number | string | Zotero.Collection>,
+    ) => Promise<void>;
+  };
+  command: {
+    run: (
+      commandId: string,
+      args?: unknown,
+      context?: unknown,
+    ) => Promise<void>;
+  };
   editor: {
     openSession: (
       args: Parameters<

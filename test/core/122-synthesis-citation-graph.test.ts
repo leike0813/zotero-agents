@@ -7,7 +7,6 @@ import { buildCitationGraphInputsFromRegistryInputs } from "../../src/modules/sy
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 
 describe("Synthesis Citation Graph", function () {
-
   it("generates provisional reference keys by deterministic priority", function () {
     assert.equal(
       provisionalReferenceKey({
@@ -281,5 +280,4 @@ describe("Synthesis Citation Graph", function () {
     assert.equal(graph.diagnostics.node_counts.external_reference, 1);
     assert.equal(graph.diagnostics.node_counts.unresolved_reference, 1);
   });
-
 });
