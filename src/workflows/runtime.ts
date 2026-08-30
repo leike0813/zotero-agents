@@ -24,7 +24,9 @@ import {
   type WorkflowHostLeafScope,
 } from "./hostApi";
 import { createHostBridgeWorkflowResourceApi } from "../modules/hostBridgeWorkflowResources";
+import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
 import {
+  WORKFLOW_HOST_API_VERSION,
   resolveWorkflowHostContractVersion,
   summarizeWorkflowHostApiCapabilities,
 } from "./workflowHostContract";
@@ -46,6 +48,7 @@ import type {
   WorkflowPreflightUnit,
   WorkflowResultContext,
   WorkflowRuntimeContext,
+  WorkflowRuntimeInfrastructureContext,
 } from "./types";
 import type { WorkflowRunOptions } from "./zoteroHostAccessOptions";
 import { createProductStorageApi } from "../modules/workflowProductStore";
@@ -138,6 +141,9 @@ type BuildRequestsResult = unknown[] & {
 
 const stagedLeafScopeByRuntime = new WeakMap<object, WorkflowHostLeafScope>();
 let stagedLeafRunSequence = 0;
+const workflowHostInstanceId =
+  globalThis.crypto?.randomUUID?.() ||
+  `workflow-host-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export function resolveStagedWorkflowHostLeafScope(
   runtime: WorkflowRuntimeContext,
@@ -353,6 +359,15 @@ function enrichRequestWithSelectionMeta(
   if (typeof normalized.targetParentID !== "number" && targetParentID) {
     normalized.targetParentID = targetParentID;
   }
+  if (!isObjectRecord(normalized.targetParentRef) && targetParentID) {
+    const parent = Zotero.Items.get(targetParentID);
+    if (parent?.key && Number.isSafeInteger(parent.libraryID)) {
+      normalized.targetParentRef = {
+        libraryId: parent.libraryID,
+        key: parent.key,
+      };
+    }
+  }
 
   const sourceAttachmentPaths =
     Array.isArray(normalized.sourceAttachmentPaths) &&
@@ -480,8 +495,8 @@ function buildPreflightRequestId(args: {
 }
 
 function createRuntimeContext(
-  override?: Partial<WorkflowRuntimeContext>,
-): WorkflowRuntimeContext {
+  override?: Partial<WorkflowRuntimeInfrastructureContext>,
+): WorkflowRuntimeInfrastructureContext {
   const hostCapabilities = resolveRuntimeHostCapabilities();
   const globalHostApi = (globalThis as Record<string, unknown>).__zsHostApi;
   const hasGlobalHostApi = Boolean(
@@ -509,6 +524,8 @@ function createRuntimeContext(
     zotero,
     helpers: override?.helpers || createHookHelpers(zotero),
     hostApi,
+    workflowHostOverride:
+      override?.hostApi || hasGlobalHostApi ? hostApi : undefined,
     workflowHostLiveReads:
       override?.workflowHostLiveReads ||
       createWorkflowHostLiveReadAdapters({
@@ -601,11 +618,9 @@ async function withWorkflowExecutionRuntimeScope<T>(
   const host = globalThis as Record<string, unknown>;
   const previous = host[GLOBAL_WORKFLOW_EXECUTION_RUNTIME_KEY];
   host[GLOBAL_WORKFLOW_EXECUTION_RUNTIME_KEY] = {
-    runtime,
-    zotero: runtime.zotero,
-    handlers: runtime.handlers,
-    helpers: runtime.helpers,
-    addon: runtime.addon ?? null,
+    hostApi: runtime.hostApi,
+    hostApiVersion: runtime.hostApiVersion,
+    invocationMode: runtime.invocationMode,
     debugMode: runtime.debugMode === true,
     workflowId: runtime.workflowId || "",
     packageId: runtime.packageId || "",
@@ -619,7 +634,6 @@ async function withWorkflowExecutionRuntimeScope<T>(
     TextEncoder: runtime.TextEncoder ?? null,
     TextDecoder: runtime.TextDecoder ?? null,
     FileReader: runtime.FileReader ?? null,
-    navigator: runtime.navigator ?? null,
   };
   try {
     return await work();
@@ -634,18 +648,14 @@ async function withWorkflowExecutionRuntimeScope<T>(
 }
 
 function createHookRuntimeContext(args: {
-  runtime: WorkflowRuntimeContext;
+  runtime: WorkflowRuntimeInfrastructureContext;
   workflow: LoadedWorkflow;
   hookName: "preflight" | "buildRequest" | "applyResult";
 }) {
-  const isPackageHostApiWorkflow =
-    args.workflow.hookExecutionMode === "precompiled-host-hook";
   return {
-    ...args.runtime,
-    zotero: isPackageHostApiWorkflow
-      ? (undefined as unknown as typeof Zotero)
-      : args.runtime.zotero,
-    addon: isPackageHostApiWorkflow ? null : args.runtime.addon,
+    hostApi: args.runtime.hostApi,
+    hostApiVersion: args.runtime.hostApiVersion,
+    invocationMode: args.runtime.invocationMode,
     debugMode: args.runtime.debugMode === true,
     workflowId: args.workflow.manifest.id,
     packageId: args.workflow.packageId || "",
@@ -653,6 +663,14 @@ function createHookRuntimeContext(args: {
     packageRootDir: args.workflow.packageRootDir || "",
     workflowSourceKind: args.workflow.workflowSourceKind || "",
     hookName: args.hookName,
+    locale: args.runtime.locale,
+    fetch: args.runtime.fetch,
+    Buffer: args.runtime.Buffer,
+    btoa: args.runtime.btoa,
+    atob: args.runtime.atob,
+    TextEncoder: args.runtime.TextEncoder,
+    TextDecoder: args.runtime.TextDecoder,
+    FileReader: args.runtime.FileReader,
   } satisfies WorkflowRuntimeContext;
 }
 
@@ -668,13 +686,13 @@ function resolveHookCapabilitySource(workflow: LoadedWorkflow) {
 
 async function runWorkflowHookWithDiagnostics<T>(args: {
   workflow: LoadedWorkflow;
-  runtime: WorkflowRuntimeContext;
+  runtime: WorkflowRuntimeInfrastructureContext;
   hookName: "preflight" | "buildRequest" | "applyResult";
   component: string;
   operation: string;
   work: (hookRuntime: WorkflowRuntimeContext) => Promise<T> | T;
 }) {
-  let hookRuntime = createHookRuntimeContext({
+  const hookRuntime = createHookRuntimeContext({
     runtime: args.runtime,
     workflow: args.workflow,
     hookName: args.hookName,
@@ -684,7 +702,6 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
     | undefined;
   if (
     hookRuntime.invocationMode === "interactive" &&
-    !hookRuntime.hostApi.resources &&
     (args.workflow.manifest.resourceRequirements || []).length > 0
   ) {
     interactiveResources = await createHostBridgeWorkflowResourceApi({
@@ -695,19 +712,6 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
       outputBindings: {},
     });
     interactiveResources.mode = "interactive";
-    const baseHostApi = hookRuntime.hostApi;
-    hookRuntime = {
-      ...hookRuntime,
-      hostApi: {
-        ...baseHostApi,
-        resources: interactiveResources,
-        researchBundles: createBoundWorkflowResearchBundleApi({
-          base: baseHostApi,
-          ownerId: `interactive-workflow:${args.workflow.manifest.id}`,
-          resources: interactiveResources,
-        }),
-      },
-    };
   }
   const capabilitySource = resolveHookCapabilitySource(args.workflow);
   const hostApiSummary = summarizeWorkflowHostApiCapabilities(
@@ -755,13 +759,55 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
         resources: hookRuntime.hostApi.resources,
       },
       async (leafScope) => {
-        stagedLeafScopeByRuntime.set(hookRuntime, leafScope);
+        const interactionMode =
+          hookRuntime.invocationMode === "non-interactive"
+            ? "non_interactive"
+            : "interactive";
+        const ownerId = `${interactionMode}-workflow:${args.workflow.manifest.id}:${args.hookName}`;
+        const resources = interactiveResources || hookRuntime.hostApi.resources;
+        const researchBundles = interactiveResources
+          ? createBoundWorkflowResearchBundleApi({
+              ownerId,
+              images: leafScope.owners.images,
+              preparedImages: leafScope.preparedImages,
+              resources: interactiveResources,
+            })
+          : hookRuntime.hostApi.researchBundles;
+        const packageId = String(args.workflow.packageId || "").trim();
+        const workflowId = String(args.workflow.manifest.id || "").trim();
+        const contentDigest = String(args.workflow.contentDigest || "").trim();
+        const synthesis = createWorkflowSynthesisHostApi({
+          ...(packageId && workflowId && contentDigest
+            ? {
+                resolveAuditExecutionIdentity: async () => ({
+                  hostInstanceId: workflowHostInstanceId,
+                  principal: { packageId, workflowId, contentDigest },
+                }),
+              }
+            : {}),
+        });
+        const scopedRuntime = {
+          ...hookRuntime,
+          hostApi:
+            args.runtime.workflowHostOverride ||
+            createWorkflowHostApi({
+              interactionMode,
+              ownerId,
+              owners: leafScope.owners,
+              preparedImages: leafScope.preparedImages,
+              resources,
+              researchBundles,
+              synthesis,
+            }),
+          hostApiVersion: WORKFLOW_HOST_API_VERSION,
+        } satisfies WorkflowRuntimeContext;
+        stagedLeafScopeByRuntime.set(scopedRuntime, leafScope);
         try {
-          return await withWorkflowExecutionRuntimeScope(hookRuntime, () =>
-            args.work(hookRuntime),
+          return await withWorkflowExecutionRuntimeScope(scopedRuntime, () =>
+            args.work(scopedRuntime),
           );
         } finally {
-          stagedLeafScopeByRuntime.delete(hookRuntime);
+          stagedLeafScopeByRuntime.delete(scopedRuntime);
         }
       },
     );

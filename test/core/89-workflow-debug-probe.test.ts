@@ -352,88 +352,12 @@ describe("workflow debug probe", function () {
 
     assert.lengthOf(checks, 1);
     assert.deepInclude(checks[0].hostApiSummary || {}, {
-      items: true,
-      prefs: true,
+      library: true,
+      mutations: true,
       editor: true,
     });
     assert.equal(checks[0].hostApiVersion, WORKFLOW_HOST_API_VERSION);
     assert.equal(checks[0].compiledHookSource, "scan-time-precompile");
-  });
-
-  it("injects runtime addon into applyResult hook context", async function () {
-    const runtime = globalThis as typeof globalThis & {
-      addon?: {
-        data?: {
-          workflowDebugProbe?: {
-            run: (args: {
-              selectionContext: unknown;
-              workflowId?: string;
-            }) => Promise<unknown>;
-          };
-        };
-      };
-    };
-    const previousAddon = runtime.addon;
-    const captured: Array<{ selectionContext: unknown; workflowId?: string }> =
-      [];
-    runtime.addon = {
-      data: {
-        workflowDebugProbe: {
-          run: async (args) => {
-            captured.push(args);
-            return { ok: true };
-          },
-        },
-      },
-    };
-
-    const workflow: LoadedWorkflow = {
-      manifest: {
-        id: "workflow-debug-probe",
-        label: "Workflow Debug Probe",
-        provider: "pass-through",
-        hooks: {
-          applyResult: "hooks/applyResult.js",
-        },
-      },
-      rootDir: "workflows/workflow-debug-probe",
-      packageId: "workflow-debug-probe",
-      hooks: {
-        applyResult: async (args) => {
-          const bridge = (args.runtime?.addon as any)?.data?.workflowDebugProbe;
-          if (!bridge || typeof bridge.run !== "function") {
-            throw new Error("workflow debug probe bridge is unavailable");
-          }
-          return bridge.run({
-            selectionContext: args.runResult,
-            workflowId: args.manifest?.id,
-          });
-        },
-      },
-      buildStrategy: "declarative",
-      workflowSourceKind: "builtin",
-    };
-
-    try {
-      const result = await executeApplyResult({
-        workflow,
-        parent: 1,
-        bundleReader: {
-          readText: async () => "",
-        },
-        runResult: {
-          selectionType: "parent",
-          items: {
-            parents: [{ item: { id: 1 } }],
-          },
-        },
-      });
-      assert.deepEqual(result, { ok: true });
-      assert.lengthOf(captured, 1);
-      assert.equal(captured[0].workflowId, "workflow-debug-probe");
-    } finally {
-      runtime.addon = previousAddon;
-    }
   });
 
   it("debug probe apply hooks consume canonical resultJson instead of responseJson envelopes", async function () {
@@ -553,6 +477,7 @@ describe("workflow debug probe", function () {
   });
 
   it("debug apply buildRequest creates a unique parent and conditional sequence steps", async function () {
+    this.timeout(10000);
     const selectionContext = {
       selectionType: "empty",
       items: { parents: [], attachments: [] },
@@ -565,7 +490,7 @@ describe("workflow debug probe", function () {
       selectionContext,
     })) as Array<{
       kind: string;
-      targetParentID: number;
+      targetParentRef: { libraryId: number; key: string };
       input?: Record<string, unknown>;
       parameter: { run_key?: string };
       steps: Array<{
@@ -589,7 +514,10 @@ describe("workflow debug probe", function () {
       defaultRequests[0].steps.map((step) => step.fetch_type),
       ["bundle"],
     );
-    const defaultParent = Zotero.Items.get(defaultRequests[0].targetParentID)!;
+    const defaultParent = Zotero.Items.getByLibraryAndKey(
+      defaultRequests[0].targetParentRef.libraryId,
+      defaultRequests[0].targetParentRef.key,
+    )!;
     assert.include(
       String(defaultParent.getField("title") || ""),
       "debug-apply-bundle-then-result",
@@ -695,7 +623,7 @@ describe("workflow debug probe", function () {
       workflow: interactiveThenResult,
       selectionContext,
     })) as Array<{
-      targetParentID: number;
+      targetParentRef: { libraryId: number; key: string };
       parameter: { run_key?: string };
       steps: Array<{
         id: string;
@@ -731,8 +659,9 @@ describe("workflow debug probe", function () {
       mixedModeRequests[0].steps.map((step) => step.input),
       [{}, {}],
     );
-    const mixedModeParent = Zotero.Items.get(
-      mixedModeRequests[0].targetParentID,
+    const mixedModeParent = Zotero.Items.getByLibraryAndKey(
+      mixedModeRequests[0].targetParentRef.libraryId,
+      mixedModeRequests[0].targetParentRef.key,
     )!;
     assert.include(
       String(mixedModeParent.getField("title") || ""),
@@ -797,7 +726,10 @@ describe("workflow debug probe", function () {
             throw new Error("strict target validation must run first");
           },
         },
-        request: { targetParentID: 999999999 },
+        request: {
+          targetParentID: 999999999,
+          targetParentRef: { libraryId: 1, key: "MISSING1" },
+        },
         runResult: {
           resultJson: {
             kind: "debug_apply_contract_result",
@@ -814,7 +746,7 @@ describe("workflow debug probe", function () {
     }
 
     assert.isOk(thrown);
-    assert.include(String((thrown as Error).message || thrown), "parent");
+    assert.equal((thrown as { code?: string }).code, "not_found");
   });
 
   it("debug apply hook applies canonical resultJson and ignores stale responseJson", async function () {
@@ -827,7 +759,10 @@ describe("workflow debug probe", function () {
       workflow,
       parent,
       bundleReader: { readText: async () => "" },
-      request: { targetParentID: parent.id },
+      request: {
+        targetParentID: parent.id,
+        targetParentRef: { libraryId: parent.libraryID, key: parent.key },
+      },
       runResult: {
         resultJson: {
           kind: "debug_apply_contract_result",
@@ -898,19 +833,26 @@ describe("workflow debug probe", function () {
       parent,
       bundleReader,
       resultContext,
-      request: { targetParentID: parent.id },
+      request: {
+        targetParentID: parent.id,
+        targetParentRef: { libraryId: parent.libraryID, key: parent.key },
+      },
       runResult,
     })) as {
       mode: string;
       artifactEntryPath: string;
       artifactText: string;
-      attachmentId: number;
+      attachmentRef: { libraryId: number; key: string };
     };
 
     assert.equal(applied.mode, "bundle");
     assert.equal(applied.artifactEntryPath, "result/debug-apply-artifact.txt");
     assert.equal(applied.artifactText, "debug bundle artifact body");
-    assert.include(parent.getAttachments(), applied.attachmentId);
+    const attachment = Zotero.Items.getByLibraryAndKey(
+      applied.attachmentRef.libraryId,
+      applied.attachmentRef.key,
+    );
+    assert.include(parent.getAttachments(), attachment?.id);
   });
 
   it("debug apply manifest-bundle hook reads artifacts listed by resultJson manifest path", async function () {
@@ -963,13 +905,16 @@ describe("workflow debug probe", function () {
       parent,
       bundleReader,
       resultContext,
-      request: { targetParentID: parent.id },
+      request: {
+        targetParentID: parent.id,
+        targetParentRef: { libraryId: parent.libraryID, key: parent.key },
+      },
       runResult,
     })) as {
       mode: string;
       artifactEntryPath: string;
       artifactText: string;
-      attachmentId: number;
+      attachmentRef: { libraryId: number; key: string };
     };
 
     assert.equal(applied.mode, "bundle");
@@ -978,7 +923,11 @@ describe("workflow debug probe", function () {
       "result/manifest-artifacts/debug-apply-artifact.txt",
     );
     assert.equal(applied.artifactText, "debug manifest bundle artifact body");
-    assert.include(parent.getAttachments(), applied.attachmentId);
+    const attachment = Zotero.Items.getByLibraryAndKey(
+      applied.attachmentRef.libraryId,
+      applied.attachmentRef.key,
+    );
+    assert.include(parent.getAttachments(), attachment?.id);
   });
 
   it("debug apply bundle hook writes Windows temp attachments with native separators", async function () {
@@ -996,7 +945,10 @@ describe("workflow debug probe", function () {
       bundleReader: {
         readText: async () => "debug bundle artifact body",
       },
-      request: { targetParentID: parent.id },
+      request: {
+        targetParentID: parent.id,
+        targetParentRef: { libraryId: parent.libraryID, key: parent.key },
+      },
       runResult: {
         resultJson: {
           kind: "debug_apply_contract_result",
@@ -1009,6 +961,14 @@ describe("workflow debug probe", function () {
       },
       runtime: {
         hostApi: {
+          library: {
+            getItemDetail: async () => ({
+              kind: "regular",
+              item: {
+                ref: { libraryId: parent.libraryID, key: parent.key },
+              },
+            }),
+          },
           file: {
             getTempDirectoryPath: () =>
               "C:\\Users\\leike\\AppData\\Local\\Temp\\Zotero",
@@ -1017,21 +977,27 @@ describe("workflow debug probe", function () {
               writtenText = text;
             },
           },
-        } as any,
-        handlers: {
-          ...handlers,
-          attachment: {
-            ...handlers.attachment,
-            createFromPath: async (options: { path: string }) => {
-              attachmentPath = options.path;
-              return { id: 987654 };
+          attachments: {
+            create: async (input: any) => {
+              attachmentPath = input.source.main.source.path;
+              return {
+                outcome: "committed",
+                result: {
+                  attachment: {
+                    ref: { libraryId: 1, key: "MOCKATT1" },
+                  },
+                },
+              };
             },
           },
         } as any,
       },
-    })) as { attachmentId: number };
+    })) as { attachmentRef: { libraryId: number; key: string } };
 
-    assert.equal(applied.attachmentId, 987654);
+    assert.deepEqual(applied.attachmentRef, {
+      libraryId: 1,
+      key: "MOCKATT1",
+    });
     assert.equal(writtenText, "debug bundle artifact body");
     assert.equal(attachmentPath, writtenPath);
     assert.equal(

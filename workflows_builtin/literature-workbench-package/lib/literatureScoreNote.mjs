@@ -1,11 +1,11 @@
 import { attachWorkbenchPayloadToNote } from "./embeddedPayloadAttachments.mjs";
 import { escapeAttribute, escapeHtml } from "./htmlCodec.mjs";
 import {
-  cleanupOwnedEmbeddedImages,
-  extractMarkedEmbeddedImageKeys,
-  renderMarkedEmbeddedImage,
-} from "./noteEmbeddedImages.mjs";
-import { requireHostApi } from "./runtime.mjs";
+  encodeRuntimeBase64Utf8,
+  portableItemRef,
+  requireCommittedMutation,
+  requireHostApi,
+} from "./runtime.mjs";
 
 export const LITERATURE_SCORE_NOTE_KIND = "literature-score";
 export const LITERATURE_SCORE_PAYLOAD_TYPE = "literature-score-json";
@@ -158,77 +158,59 @@ function radarSvg(score) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#fff"/><g>${rings}${axes}<polygon points="${polygon}" fill="#d28a00" fill-opacity="0.28" stroke="#b36d00" stroke-width="3"/>${labels}</g></svg>`;
 }
 
-function encodeUtf8(runtime, value) {
-  const Encoder = runtime?.TextEncoder || globalThis.TextEncoder;
-  if (typeof Encoder !== "function") {
-    throw new Error("TextEncoder is unavailable for score radar");
-  }
-  return new Encoder().encode(value);
-}
-
 async function upsertBaseNote(args, content) {
   const hostApi = requireHostApi(args.runtime);
   if (!args.existingNotes?.length) {
-    return hostApi.parents.addNote(args.parentItem, { content });
+    return requireCommittedMutation(await hostApi.notes.create({
+      operationId: `literature-score:create:${Date.now().toString(36)}`,
+      parentRef: portableItemRef(args.parentItem),
+      content: { format: "html", value: content },
+    })).note;
   }
   const note = args.existingNotes[0];
-  await hostApi.notes.update(note, { content });
-  return note;
+  return requireCommittedMutation(await hostApi.notes.updateContent({
+    operationId: `literature-score:update:${Date.now().toString(36)}`,
+    noteRef: portableItemRef(note),
+    content: { format: "html", value: content },
+  })).note;
 }
 
 export async function upsertLiteratureScoreNote(args) {
   const hostApi = requireHostApi(args.runtime);
   const payload = args.payload;
   const score = normalizeLiteratureScoreArtifact(payload);
-  const previousKeys = extractMarkedEmbeddedImageKeys(
-    args.existingNotes?.[0]?.getNote?.() || "",
-    {
-      markerAttribute: RADAR_MARKER_ATTRIBUTE,
-      markerValue: RADAR_MARKER_VALUE,
-      altSentinel: RADAR_ALT,
-    },
-  );
   const note = await upsertBaseNote(args, renderScoreBody(score));
   let radar = { status: "none", warning: "" };
-  let newAttachmentKey = "";
   try {
-    const prepared = await hostApi.images.prepareForNoteEmbedding(
-      {
-        bytes: encodeUtf8(args.runtime, radarSvg(score)),
+    const prepared = await hostApi.images.prepareForNoteEmbedding({
+      source: {
+        kind: "base64",
+        data: encodeRuntimeBase64Utf8(radarSvg(score), args.runtime),
         mimeType: "image/svg+xml",
       },
-      {
-        outputMimeType: "image/png",
+      options: {
+        outputFormat: "png",
         maxLongEdge: 720,
         targetBytes: 900000,
         hardMaxBytes: 2000000,
-        background: "#ffffff",
-        sourceKind: "literature-score-radar",
       },
-    );
-    const imported = await hostApi.notes.importEmbeddedImage(note, prepared);
-    newAttachmentKey = String(imported.attachmentKey || "").trim();
-    const image = renderMarkedEmbeddedImage({
-      attachmentKey: newAttachmentKey,
-      markerAttribute: RADAR_MARKER_ATTRIBUTE,
-      markerValue: RADAR_MARKER_VALUE,
-      alt: RADAR_ALT,
-      title: RADAR_ALT,
     });
-    await hostApi.notes.update(note, { content: renderScoreBody(score, image) });
-    radar = { status: "embedded", attachmentKey: newAttachmentKey, warning: "" };
+    const image = `<img ${RADAR_MARKER_ATTRIBUTE}="${RADAR_MARKER_VALUE}" data-zotero-agents-image-slot="radar" alt="${RADAR_ALT}">`;
+    requireCommittedMutation(await hostApi.notes.updateContent({
+      operationId: `literature-score:image:${Date.now().toString(36)}`,
+      noteRef: portableItemRef(note),
+      content: {
+        format: "html",
+        value: renderScoreBody(score, image),
+        embeddedImages: [{ slot: "radar", preparedImage: prepared.ref, altText: RADAR_ALT }],
+      },
+    }));
+    radar = { status: "embedded", warning: "" };
   } catch (error) {
     radar = {
       status: "unavailable",
       warning: error instanceof Error ? error.message : String(error),
     };
-    if (newAttachmentKey) {
-      await cleanupOwnedEmbeddedImages({
-        runtime: args.runtime,
-        note,
-        keys: [newAttachmentKey],
-      });
-    }
   }
   await attachWorkbenchPayloadToNote({
     runtime: args.runtime,
@@ -237,13 +219,12 @@ export async function upsertLiteratureScoreNote(args) {
     payloadType: LITERATURE_SCORE_PAYLOAD_TYPE,
     payload,
   });
-  await cleanupOwnedEmbeddedImages({
-    runtime: args.runtime,
-    note,
-    keys: previousKeys.filter((key) => key !== newAttachmentKey),
-  });
   for (const duplicate of (args.existingNotes || []).slice(1)) {
-    await hostApi.notes.remove(duplicate);
+    requireCommittedMutation(await hostApi.notes.remove({
+      operationId: `literature-score:remove:${Date.now().toString(36)}`,
+      noteRef: portableItemRef(duplicate),
+      disposition: "trash",
+    }));
   }
   return { note, radar };
 }

@@ -8,6 +8,7 @@ import { joinPath } from "../utils/path";
 export type WorkflowStoredAttachmentImportRequest = {
   parent?: Zotero.Item | number | string | null;
   path: string;
+  targetFilename?: string | null;
   title?: string | null;
   mimeType?: string | null;
   charset?: string | null;
@@ -111,7 +112,11 @@ export function createWorkflowStoredAttachmentImport(
         normalizedTarget: segments.join("/").toLocaleLowerCase(),
       };
     });
-    const mainFilename = getBaseName(path);
+    const requestedFilename = String(request?.targetFilename || "").trim();
+    if (requestedFilename && getBaseName(requestedFilename) !== requestedFilename) {
+      throw new Error("Stored attachment target filename is invalid");
+    }
+    const mainFilename = requestedFilename || getBaseName(path);
     if (!mainFilename) {
       throw new Error("Stored attachment filename is invalid");
     }

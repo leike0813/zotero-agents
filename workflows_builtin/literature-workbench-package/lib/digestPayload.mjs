@@ -1,4 +1,4 @@
-import { requireHostApi } from "./runtime.mjs";
+import { portableItemRef, requireHostApi } from "./runtime.mjs";
 import { resolveWorkbenchEmbeddedPayloadBlock } from "./embeddedPayloadAttachments.mjs";
 
 const WORKBENCH_EMBEDDED_PAYLOAD_MARKER = "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
@@ -71,21 +71,6 @@ function parseGeneratedNoteKind(noteContent) {
   return "";
 }
 
-function resolveChildAttachment(runtime, ref) {
-  try {
-    if (runtime?.helpers?.resolveItemRef) {
-      return runtime.helpers.resolveItemRef(ref);
-    }
-  } catch {
-    return null;
-  }
-  try {
-    return globalThis?.Zotero?.Items?.get?.(Number(ref)) || null;
-  } catch {
-    return null;
-  }
-}
-
 function parseEmbeddedPayloadBytes(bytes, runtime) {
   const text = decodeUtf8Bytes(bytes || new Uint8Array(), runtime);
   const markerIndex = text.indexOf(WORKBENCH_EMBEDDED_PAYLOAD_MARKER);
@@ -113,36 +98,6 @@ function parseEmbeddedPayloadBytes(bytes, runtime) {
   return content.trim() ? content : null;
 }
 
-async function readDigestMarkdownFromNoteAttachments(noteItem, runtime) {
-  const host = requireHostApi(runtime);
-  const attachmentIds =
-    typeof noteItem?.getAttachments === "function"
-      ? noteItem.getAttachments() || []
-      : [];
-  for (const attachmentRef of attachmentIds) {
-    const attachment = resolveChildAttachment(runtime, attachmentRef);
-    if (!attachment) {
-      continue;
-    }
-    try {
-      const filePath = normalizeText(await attachment?.getFilePathAsync?.());
-      if (!filePath || typeof host.file?.readBytes !== "function") {
-        continue;
-      }
-      const content = parseEmbeddedPayloadBytes(
-        await host.file.readBytes(filePath),
-        runtime,
-      );
-      if (content) {
-        return content;
-      }
-    } catch {
-      // Digest context is optional; ignore non-payload/unreadable attachments.
-    }
-  }
-  return null;
-}
-
 async function readDigestMarkdownFromWorkbenchPayload(noteItem, runtime) {
   try {
     const block = await resolveWorkbenchEmbeddedPayloadBlock({
@@ -160,26 +115,19 @@ async function readDigestMarkdownFromWorkbenchPayload(noteItem, runtime) {
 }
 
 export async function resolveDigestMarkdownForParent(parentItem, runtime) {
-  const noteIds =
-    typeof parentItem?.getNotes === "function"
-      ? parentItem.getNotes() || []
-      : [];
-  for (const noteRef of noteIds) {
-    let noteItem = null;
-    try {
-      noteItem = runtime.helpers.resolveItemRef(noteRef);
-    } catch {
-      noteItem = null;
-    }
-    if (!noteItem) {
+  const host = requireHostApi(runtime);
+  const notes = await host.library.getItemNotes(portableItemRef(parentItem));
+  for (const noteItem of notes) {
+    const detail = await host.library.getNoteDetail(noteItem.ref, {
+      format: "html",
+    });
+    if (parseGeneratedNoteKind(detail.content) !== "digest") {
       continue;
     }
-    if (parseGeneratedNoteKind(noteItem.getNote?.() || "") !== "digest") {
-      continue;
-    }
-    const markdown =
-      (await readDigestMarkdownFromWorkbenchPayload(noteItem, runtime)) ||
-      (await readDigestMarkdownFromNoteAttachments(noteItem, runtime));
+    const markdown = await readDigestMarkdownFromWorkbenchPayload(
+      noteItem,
+      runtime,
+    );
     if (markdown) {
       return markdown;
     }

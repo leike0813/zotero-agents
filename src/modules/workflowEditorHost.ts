@@ -58,7 +58,7 @@ export type WorkflowEditorRenderer<TState = unknown, TContext = unknown> = {
 };
 
 export type WorkflowEditorOpenArgs<TState = unknown, TContext = unknown> = {
-  rendererId: string;
+  rendererId?: string;
   title: string;
   initialState: TState;
   context?: TContext;
@@ -368,12 +368,12 @@ function applyFooterVisibility(args: {
 }
 
 function resolveRenderer(args: WorkflowEditorOpenArgs) {
-  const rendererId = String(args.rendererId || "").trim();
-  if (!rendererId) {
-    throw new Error("workflow editor requires rendererId");
-  }
   if (args.renderer) {
     return args.renderer as WorkflowEditorRenderer;
+  }
+  const rendererId = String(args.rendererId || "").trim();
+  if (!rendererId) {
+    throw new Error("workflow editor requires an inline renderer");
   }
   const renderer = rendererRegistry.get(rendererId);
   if (!renderer) {
@@ -704,7 +704,11 @@ async function openBoundedWorkflowEditorSession(
     assertBoundedEditorValue(args.context, "context");
   }
   const result = await enqueueCallerSession(callerScope, () =>
-    openDialogSession({ ...args, detached: false }),
+    workflowEditorSessionOverrideForTests
+      ? Promise.resolve(
+          workflowEditorSessionOverrideForTests({ ...args, detached: false }),
+        )
+      : openDialogSession({ ...args, detached: false }),
   );
   if (result.result !== undefined) {
     assertBoundedEditorValue(result.result, "result");

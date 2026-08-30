@@ -563,7 +563,7 @@ result schema 当作最外层 stdout schema，也不要从旧示例读取顶层
     {
       "title": "隧道衬砌病害智能识别研究",
       "ingestStatus": "created",
-      "itemRef": { "id": 101 },
+      "itemRef": { "libraryId": 1, "key": "ABCD1234" },
       "pdfStatus": "attached",
       "needsCuration": true
     },
@@ -578,7 +578,7 @@ result schema 当作最外层 stdout schema，也不要从旧示例读取顶层
 
 规则：
 
-- `created` 和 `existing` 暴露 title、ingestStatus、数字 `itemRef.id`、pdfStatus 和 needsCuration；
+- `created` 和 `existing` 暴露 title、ingestStatus、portable `itemRef`（`libraryId` + `key`）、pdfStatus 和 needsCuration；
 - `failed` 和 `not_attempted` 只暴露 title 与 ingestStatus；
 - `summary.created + existing + failed + notAttempted == selected`；
 - `outcomes.length == selected`；

@@ -16,12 +16,7 @@ import {
   type SynthesisTopicApplyRequest,
   type SynthesisWorkflowItemSnapshot,
 } from "../../../packages/synthesis-contracts/src/index";
-import type {
-  WorkflowLiteratureDigestApplyInput,
-  WorkflowSynthesisApi,
-  WorkflowSynthesisApplyContext,
-  WorkflowSynthesisV11Api,
-} from "../../workflows/types";
+import type { WorkflowSynthesisApi } from "../../workflows/types";
 import { notifySynthesisWorkbenchSidecarChanged } from "../synthesisWorkbenchInvalidation";
 import { getDefaultSynthesisClient } from "./defaultClient";
 import {
@@ -760,96 +755,6 @@ export function createWorkflowSynthesisHostApi(
           pinned.release();
         }
       },
-    },
-  };
-}
-
-export function createWorkflowSynthesisV11Adapter(
-  options: WorkflowSynthesisHostApiOptions = {},
-): WorkflowSynthesisV11Api {
-  const resolveClient = options.resolveClient || getDefaultSynthesisClient;
-  const notifyChanged =
-    options.notifyChanged || notifySynthesisWorkbenchSidecarChanged;
-  const grouped = createWorkflowSynthesisHostApi(options);
-  return {
-    async applyLiteratureDigestSidecar(input = {}) {
-      const raw = input as WorkflowLiteratureDigestApplyInput &
-        Record<string, unknown>;
-      const item = resolveWorkflowItem(raw.parentItem || raw.item || raw);
-      const snapshot = snapshotWorkflowSynthesisItem({
-        ...raw,
-        ...snapshotWorkflowSynthesisItem(item),
-      });
-      const extras = compactOptionalJsonFields({
-        digest: raw.digest,
-        references: raw.references,
-        citationAnalysis: raw.citationAnalysis,
-        literatureScore: raw.literatureScore,
-        literatureMatchingMetadata: raw.literatureMatchingMetadata,
-        matchedReferences: raw.matchedReferences,
-        source: raw.source,
-      });
-      const request = {
-        ...snapshot,
-        ...extras,
-      } as SynthesisLiteratureDigestApplyRequest;
-      return grouped.workflowApply.applyLiteratureDigest(request);
-    },
-    async applyTopicSynthesisResult(bundle, context) {
-      return grouped.workflowApply.applyTopicSynthesisResult(
-        await materializeTopicApplyRequest(bundle, context),
-      );
-    },
-    async getTopicReport(request) {
-      return grouped.topics.getReport(request);
-    },
-    async getTopicPlanningContext() {
-      return (await resolveClient()).topics.getPlanningContext();
-    },
-    async applyTopicPlan(plan) {
-      return toSynthesisJsonObject(
-        await grouped.workflowApply.applyTopicPlan(
-          rebuildSynthesisTopicPlanApplyRequest(plan),
-        ),
-      );
-    },
-    async readPaperArtifacts(request) {
-      return grouped.artifacts.readPaperArtifacts(request);
-    },
-    async loadTagVocabulary() {
-      return grouped.tags.loadVocabulary();
-    },
-    async saveTagVocabulary(request) {
-      return grouped.tags.saveVocabulary(request);
-    },
-    async exportTagVocabularyForRegulator() {
-      return (await grouped.tags.exportVocabularyForRegulator()).allowedTags;
-    },
-    async listStagedTagSuggestions() {
-      return grouped.tags.listStagedSuggestions();
-    },
-    async stageTagSuggestions(request) {
-      return grouped.tags.stageSuggestions(request);
-    },
-    async discardStagedTagSuggestions(request) {
-      return grouped.tags.discardStagedSuggestions(request);
-    },
-    async replaceTagAuditRecords(request) {
-      const result = await (
-        await resolveClient()
-      ).tags.replaceTagAuditRecords(request);
-      notifyChanged({
-        invalidatedSurfaces: ["index"],
-        reason: "tag_audit_apply",
-      });
-      return result;
-    },
-    async clearTagAuditRecord(request) {
-      await (await resolveClient()).tags.clearTagAuditRecord(request);
-      notifyChanged({
-        invalidatedSurfaces: ["index"],
-        reason: "tag_regulation_apply",
-      });
     },
   };
 }

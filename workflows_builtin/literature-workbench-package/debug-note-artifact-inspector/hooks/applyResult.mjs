@@ -8,7 +8,11 @@ import {
 } from "../../lib/embeddedPayloadAttachments.mjs";
 import { copyTextToClipboard } from "../../lib/clipboard.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
-import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 
 const PSEUDO_EMBEDDED_PAYLOAD_MARKER = "ZS_EMBEDDED_PAYLOAD_V1:";
 
@@ -280,17 +284,10 @@ function resolveSelectionContext(args) {
 }
 
 function addRef(refs, ref) {
-  if (typeof ref === "number") {
-    refs.push(ref);
-    return;
-  }
-  if (ref && typeof ref === "object") {
-    addRef(refs, ref.id || ref.key);
-    return;
-  }
-  const text = normalizeText(ref);
-  if (text) {
-    refs.push(text);
+  try {
+    refs.push(portableItemRef(ref?.ref || ref?.item?.ref || ref));
+  } catch {
+    // Ignore entries without portable identity.
   }
 }
 
@@ -298,83 +295,37 @@ function collectSelectionRefs(selectionContext) {
   const refs = [];
   const items = selectionContext?.items || {};
   for (const entry of Array.isArray(items.parents) ? items.parents : []) {
-    addRef(refs, entry?.item?.id || entry?.id || entry?.item?.key || entry?.key);
+    addRef(refs, entry);
   }
   for (const entry of Array.isArray(items.notes) ? items.notes : []) {
-    addRef(refs, entry?.item?.id || entry?.id || entry?.item?.key || entry?.key);
+    addRef(refs, entry);
   }
   for (const entry of Array.isArray(items.attachments) ? items.attachments : []) {
     addRef(
       refs,
-      entry?.parent?.id ||
-        entry?.item?.parentItemID ||
-        entry?.parent?.key ||
-        entry?.item?.parentItem,
+      entry?.parent?.ref || entry?.item?.parentRef,
     );
   }
   for (const entry of Array.isArray(items.children) ? items.children : []) {
     addRef(
       refs,
-      entry?.parent?.id ||
-        entry?.item?.parentItemID ||
-        entry?.parent?.key ||
-        entry?.item?.parentItem,
+      entry?.parent?.ref || entry?.item?.parentRef,
     );
   }
   return uniqueRefs(refs);
 }
 
-function resolveHostItem(host, ref) {
-  try {
-    return host.items.get(ref) || null;
-  } catch {
-    return null;
+async function collectNotesFromItem(host, detail) {
+  if (detail.kind === "note") {
+    return [await host.library.getNoteDetail(detail.item.ref, { format: "html" })];
   }
-}
-
-function isNoteItem(item) {
-  try {
-    if (typeof item?.isNote === "function") {
-      return item.isNote();
-    }
-  } catch {
-    // ignore
-  }
-  return String(item?.itemType || "") === "note";
-}
-
-function isRegularItem(item) {
-  try {
-    if (typeof item?.isRegularItem === "function") {
-      return item.isRegularItem();
-    }
-  } catch {
-    // ignore
-  }
-  return !!item && !isNoteItem(item) && String(item.itemType || "") !== "attachment";
-}
-
-function getItemTitle(item) {
-  return normalizeText(item?.getField?.("title")) || normalizeText(item?.title);
-}
-
-function collectNotesFromItem(host, item) {
-  if (!item) {
-    return [];
-  }
-  if (isNoteItem(item)) {
-    return [item];
-  }
-  let parent = item;
-  if (!isRegularItem(parent) && item.parentID) {
-    parent = resolveHostItem(host, item.parentID);
-  }
-  if (!parent || typeof parent.getNotes !== "function") {
-    return [];
-  }
-  return (parent.getNotes() || [])
-    .map((ref) => resolveHostItem(host, ref))
-    .filter(Boolean);
+  const parentRef = detail.kind === "regular" ? detail.item.ref : detail.item.parentRef;
+  if (!parentRef) return [];
+  return Promise.all(
+    (await host.library.getItemNotes(parentRef)).map((note) =>
+      host.library.getNoteDetail(note.ref, { format: "html" }),
+    ),
+  );
 }
 
 async function tryReadPseudoEmbeddedPayload(host, runtime, path) {
@@ -396,7 +347,7 @@ async function tryReadPseudoEmbeddedPayload(host, runtime, path) {
 }
 
 async function resolveAttachmentDetail(host, noteItem, attachmentRef, runtime) {
-  const key = normalizeText(attachmentRef);
+  const key = normalizeText(attachmentRef?.ref?.key || attachmentRef);
   const detail = {
     key,
     found: false,
@@ -409,47 +360,21 @@ async function resolveAttachmentDetail(host, noteItem, attachmentRef, runtime) {
     path: "",
     pseudoEmbeddedPayload: null,
   };
-  if ((!key && typeof attachmentRef !== "number") || !noteItem) {
+  if (!key || !noteItem) {
     return detail;
   }
-  let attachment = null;
-  try {
-    attachment =
-      typeof attachmentRef === "number"
-        ? host.items.get(attachmentRef)
-        : host.items.getByLibraryAndKey(noteItem.libraryID, key);
-  } catch {
-    attachment = null;
-  }
+  const attachment = (await host.library.getItemAttachments(noteItem.ref))
+    .find((entry) => entry.ref.key === key);
   if (!attachment) {
     return detail;
   }
   detail.found = true;
-  detail.id = attachment.id || null;
-  detail.key = normalizeText(attachment.key) || key;
-  detail.parentID = attachment.parentID || attachment.parentItemID || null;
-  detail.parentMatchesNote = detail.parentID === noteItem.id;
-  detail.contentType = normalizeText(
-    attachment.attachmentContentType ||
-      attachment.contentType ||
-      attachment.getField?.("contentType"),
-  );
-  detail.linkMode =
-    typeof attachment.getAttachmentLinkMode === "function"
-      ? attachment.getAttachmentLinkMode()
-      : attachment.attachmentLinkMode ?? null;
-  detail.isEmbeddedImage =
-    typeof attachment.isEmbeddedImageAttachment === "function"
-      ? !!attachment.isEmbeddedImageAttachment()
-      : detail.linkMode === 4;
-  try {
-    detail.path = normalizeText(await attachment.getFilePathAsync?.());
-  } catch {
-    detail.path = "";
-  }
-  if (!detail.path) {
-    detail.path = normalizeText(attachment.getField?.("path"));
-  }
+  detail.key = attachment.ref.key;
+  detail.parentMatchesNote = true;
+  detail.contentType = normalizeText(attachment.contentType);
+  detail.linkMode = attachment.linkMode;
+  detail.isEmbeddedImage = attachment.role === "note_image";
+  detail.path = attachment.file.state === "available" ? attachment.file.path : "";
   detail.pseudoEmbeddedPayload = await tryReadPseudoEmbeddedPayload(
     host,
     runtime,
@@ -503,7 +428,7 @@ async function tryExportNote(args) {
   try {
     const exported = await exportGeneratedNoteCandidate({
       kind: args.kind,
-      noteItemID: args.noteItem.id,
+      noteItemRef: args.noteItem.ref,
       runtime: args.runtime,
     });
     return {
@@ -528,7 +453,7 @@ async function tryExportNote(args) {
 
 export async function analyzeNoteItemForDebug(args) {
   const noteItem = args.noteItem;
-  const noteContent = String(noteItem?.getNote?.() || "");
+  const noteContent = String(noteItem?.content || "");
   const html = analyzeNoteHtmlForDebug(noteContent);
   const attachmentKeys = unique([
     ...html.attachmentKeys,
@@ -547,7 +472,7 @@ export async function analyzeNoteItemForDebug(args) {
     seenAttachments.add(seenKey);
     attachmentDetails.push(detail);
   }
-  for (const ref of noteItem?.getAttachments?.() || []) {
+  for (const ref of await args.host.library.getItemAttachments(noteItem.ref)) {
     const detail = await resolveAttachmentDetail(
       args.host,
       noteItem,
@@ -594,10 +519,9 @@ export async function analyzeNoteItemForDebug(args) {
     runtime: args.runtime,
   });
   return {
-    id: noteItem?.id || null,
-    key: normalizeText(noteItem?.key),
-    parentID: noteItem?.parentID || noteItem?.parentItemID || null,
-    title: getItemTitle(noteItem),
+    ref: noteItem.ref,
+    parentRef: noteItem.parentRef,
+    title: noteItem.title,
     html,
     effectiveExportKindGuess: effectiveKind,
     effectivePayloadTypes,
@@ -618,22 +542,23 @@ async function applyResultImpl(args) {
     addRef(refs, args.parent);
   }
   if (refs.length === 0) {
-    for (const selected of host.context.getSelectedItems?.() || []) {
-      addRef(refs, selected.id || selected.key);
+    for (const selected of await host.context.getSelectedItems()) {
+      addRef(refs, selected.ref);
     }
   }
 
   const notes = [];
   const seenNoteIds = new Set();
-  const selectedItems = uniqueRefs(refs)
-    .map((ref) => resolveHostItem(host, ref))
-    .filter(Boolean);
+  const selectedItems = await Promise.all(
+    uniqueRefs(refs).map((ref) => host.library.getItemDetail(ref)),
+  );
   for (const item of selectedItems) {
-    for (const note of collectNotesFromItem(host, item)) {
-      if (!note?.id || seenNoteIds.has(note.id)) {
+    for (const note of await collectNotesFromItem(host, item)) {
+      const identity = `${note.ref.libraryId}:${note.ref.key}`;
+      if (seenNoteIds.has(identity)) {
         continue;
       }
-      seenNoteIds.add(note.id);
+      seenNoteIds.add(identity);
       notes.push(note);
     }
   }
@@ -653,10 +578,9 @@ async function applyResultImpl(args) {
     generatedAt: new Date().toISOString(),
     selectedRefs: uniqueRefs(refs),
     selectedItems: selectedItems.map((item) => ({
-      id: item.id || null,
-      key: normalizeText(item.key),
-      itemType: normalizeText(item.itemType),
-      title: getItemTitle(item),
+      ref: item.item.ref,
+      kind: item.kind,
+      title: normalizeText(item.item.title),
     })),
     notes: analyzedNotes,
     summary: {

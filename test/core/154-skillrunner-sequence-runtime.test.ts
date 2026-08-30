@@ -2874,24 +2874,27 @@ describe("skillrunner.sequence.v1 runtime", function () {
       getTags: () => [{ tag: "legacy:tag" }],
     };
     const runtime = {
-      hostApiVersion: 6,
-      helpers: {
-        resolveItemRef: () => parentItem,
-        getAttachmentFilePath: (entry: any) => String(entry.filePath || ""),
-        // The hook re-inspects readiness and compares mode/evidenceHash
-        // across calls, so the stub must return a constant value.
-        inspectGeneratedNoteReadiness: async () => ({
-          accepted: true,
-          mode: "full",
-          evidenceHash: "fixture:literature-analysis-ready",
-          artifacts: {},
-        }),
-      },
+      hostApiVersion: 12,
       hostApi: {
+        library: {
+          getItemDetail: async () => ({
+            kind: "regular",
+            item: {
+              ...parentItem,
+              ref: { libraryId: 1, key: "PARENT42" },
+              title: "Sequence Paper",
+              creators: [{ firstName: "Ada", lastName: "Lovelace" }],
+              tags: ["legacy:tag"],
+            },
+          }),
+          getItemNotes: async () => [],
+        },
         synthesis: {
-          exportTagVocabularyForRegulator: async () => [
-            { tag: "topic:sequence" },
-          ],
+          tags: {
+            exportVocabularyForRegulator: async () => ({
+              allowedTags: ["topic:sequence"],
+            }),
+          },
         },
         file: {
           materializeWorkflowInputFile: async (args: {
@@ -2930,7 +2933,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
         attachments: [
           {
             filePath: "D:/papers/sequence.md",
-            parent: { id: 42 },
+            parent: { id: 42, key: "PARENT42", libraryID: 1 },
           },
         ],
       },
@@ -2976,7 +2979,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(tagStep.parameter.tag_note_language, "fr-FR");
     assert.match(
       String(tagStep.input.valid_tags || ""),
-      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]tag-regulator[\\/]valid_tags[\\/]valid_tags-parent-42\.yaml$/,
+      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]tag-regulator[\\/]valid_tags[\\/]valid_tags-parent-PARENT42\.yaml$/,
     );
     assert.deepEqual(tagStep.handoff, {
       bindings: [
@@ -2995,7 +2998,9 @@ describe("skillrunner.sequence.v1 runtime", function () {
       hostApi: {
         ...runtime.hostApi,
         synthesis: {
-          exportTagVocabularyForRegulator: async () => [],
+          tags: {
+            exportVocabularyForRegulator: async () => ({ allowedTags: [] }),
+          },
         },
       },
     };

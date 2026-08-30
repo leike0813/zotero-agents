@@ -32,7 +32,7 @@ function completedPayload() {
         ingestStatus: "created",
         pdfStatus: "missing",
         needsCuration: true,
-        itemRef: { id: 101 },
+        itemRef: { libraryId: 1, key: "SEARCH01" },
       },
     ],
     searchLedgerPath: "result/search-ledger.json",
@@ -681,7 +681,7 @@ describe("Literature Search Ingest workflow contract", function () {
     const result = (await applyResult({
       runResult: { resultJson: completedPayload() },
       runtime: {
-        hostApiVersion: 9,
+        hostApiVersion: 12,
         hostApi: {
           statusTags: {
             async transition(value: unknown) {
@@ -698,7 +698,8 @@ describe("Literature Search Ingest workflow contract", function () {
 
     assert.deepEqual(transitions, [
       {
-        item: 101,
+        operationId: "literature-search-ingest:status:1:SEARCH01",
+        itemRef: { libraryId: 1, key: "SEARCH01" },
         add: [
           "need-markdown",
           "need-analysis",
@@ -709,7 +710,9 @@ describe("Literature Search Ingest workflow contract", function () {
       },
     ]);
     assert.isTrue(result.applied);
-    assert.deepEqual(result.taggedItemIds, [101]);
+    assert.deepEqual(result.taggedItemRefs, [
+      { libraryId: 1, key: "SEARCH01" },
+    ]);
   });
 
   it("does not requeue existing items and omits fulltext when this search attached a PDF", async function () {
@@ -721,7 +724,7 @@ describe("Literature Search Ingest workflow contract", function () {
 
     const calls: unknown[] = [];
     const runtime = {
-      hostApiVersion: 9,
+      hostApiVersion: 12,
       hostApi: {
         statusTags: {
           async transition(value: unknown) {
@@ -742,11 +745,13 @@ describe("Literature Search Ingest workflow contract", function () {
 
     assert.deepEqual(calls, [
       {
-        item: 101,
+        operationId: "literature-search-ingest:status:1:SEARCH01",
+        itemRef: { libraryId: 1, key: "SEARCH01" },
         add: ["need-metadata-curation", "need-fulltext"],
       },
       {
-        item: 101,
+        operationId: "literature-search-ingest:status:1:SEARCH01",
+        itemRef: { libraryId: 1, key: "SEARCH01" },
         add: ["need-markdown", "need-analysis", "need-deep-reading"],
       },
     ]);

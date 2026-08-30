@@ -17,7 +17,7 @@ function buildDigestInput(args) {
     return undefined;
   }
   return {
-    noteKey: cleanString(args.digestNote?.key),
+    noteKey: cleanString(args.digestNote?.ref?.key || args.digestNote?.key),
     content: args.digestText,
     payloadHash: cleanString(args.digestPayloadHash),
   };
@@ -32,7 +32,9 @@ function buildReferencesInput(args) {
     return undefined;
   }
   return {
-    noteKey: cleanString(args.referencesNote?.key),
+    noteKey: cleanString(
+      args.referencesNote?.ref?.key || args.referencesNote?.key,
+    ),
     references: args.referencesPayload?.references || [],
     payloadHash: cleanString(args.referencesPayloadHash),
   };
@@ -47,7 +49,9 @@ function buildCitationAnalysisInput(args) {
     return undefined;
   }
   return {
-    noteKey: cleanString(args.citationAnalysisNote?.key),
+    noteKey: cleanString(
+      args.citationAnalysisNote?.ref?.key || args.citationAnalysisNote?.key,
+    ),
     payloadHash: cleanString(args.citationAnalysisPayloadHash),
     ...(args.citationAnalysisPayload
       ? {
@@ -62,7 +66,9 @@ function buildLiteratureScoreInput(args) {
     return undefined;
   }
   return {
-    noteKey: cleanString(args.literatureScoreNote?.key),
+    noteKey: cleanString(
+      args.literatureScoreNote?.ref?.key || args.literatureScoreNote?.key,
+    ),
     payload: args.literatureScorePayload,
   };
 }
@@ -71,12 +77,12 @@ export async function applyLiteratureDigestSidecar(args) {
   const synthesis = requireHostApi(args.runtime)?.synthesis;
   if (
     !synthesis ||
-    typeof synthesis.applyLiteratureDigestSidecar !== "function"
+    typeof synthesis.workflowApply?.applyLiteratureDigest !== "function"
   ) {
     return null;
   }
   try {
-    return await synthesis.applyLiteratureDigestSidecar({
+    return await synthesis.workflowApply.applyLiteratureDigest({
       parentItem: args.parentItem,
       digest: buildDigestInput(args),
       references: buildReferencesInput(args),

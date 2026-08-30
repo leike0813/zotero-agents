@@ -495,7 +495,7 @@ zotero-bridge library snapshot [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 用于 --query 的最小 JSON 形状。
 
 ```console
-zotero-bridge library snapshot --query '{}'
+zotero-bridge library snapshot --query '{"batchSize":500,"libraryId":1}'
 ```
 
 前置条件：
@@ -574,7 +574,10 @@ zotero-bridge library snapshot --query '{}'
           "prerequisites": [
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
-          "value": {}
+          "value": {
+            "batchSize": 500,
+            "libraryId": 1
+          }
         }
       ],
       "required": false,
@@ -639,15 +642,17 @@ zotero-bridge library snapshot --query '{}'
   ],
   "outputBoundary": {
     "continuation": [
+      "data.snapshotId",
       "data.nextCursor",
       "data.hasMore",
       "data.returned",
-      "data.total",
-      "data.limit"
+      "data.deliveredItems",
+      "data.deliveredBatches",
+      "data.outcome"
     ],
-    "cursorInput": "cursor",
-    "defaultLimit": 25,
-    "maxLimit": 100,
+    "cursorInput": "query",
+    "defaultLimit": 500,
+    "maxLimit": 1000,
     "section": "data.items",
     "strategy": "cursor"
   },
@@ -1072,7 +1077,7 @@ zotero-bridge library snapshot --query '{}'
 ## 操作合同
 
 - 规范 argv 路径： `library` `snapshot`.
-- 输出边界： `cursor`；受管详情： {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"cursor"}.
+- 输出边界： `cursor`；受管详情： {"continuation":["data.snapshotId","data.nextCursor","data.hasMore","data.returned","data.deliveredItems","data.deliveredBatches","data.outcome"],"cursorInput":"query","defaultLimit":500,"maxLimit":1000,"section":"data.items","strategy":"cursor"}.
 - 分页： `cursor`.
 - 类别： `read`；危险等级： `none`.
 - 结构化 binding 模式： `passthrough`.

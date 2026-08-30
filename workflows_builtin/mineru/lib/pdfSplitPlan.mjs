@@ -36,6 +36,9 @@ export function resolveSourceAttachment(selectionContext) {
     fileName: basenamePath(filePath),
     itemId: Number(attachment?.item?.id || 0) || null,
     itemKey: normalizeString(attachment?.item?.key),
+    itemRef: attachment?.item?.key && attachment?.item?.libraryID
+      ? { libraryId: Number(attachment.item.libraryID), key: normalizeString(attachment.item.key) }
+      : null,
     parentId:
       Number(attachment?.parent?.id || attachment?.item?.parentItemID || 0) ||
       null,
@@ -88,21 +91,8 @@ function normalizeOutlineEntries(value) {
 }
 
 async function readMetadataFromRuntimeHelper(args) {
-  const helpers = args.runtime?.helpers;
-  const reader =
-    helpers?.mineruReadPdfMetadata || helpers?.readPdfMetadataForWorkflow;
-  if (typeof reader !== "function") {
-    return null;
-  }
-  const value = await reader(args.filePath);
-  if (!isObject(value)) {
-    return null;
-  }
-  return {
-    pageCount: normalizePageCount(value.pageCount || value.numPages),
-    outline: normalizeOutlineEntries(value.outline),
-    source: "runtime-helper",
-  };
+  void args;
+  return null;
 }
 
 function getPdfJsFromModule(moduleValue) {

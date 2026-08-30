@@ -364,6 +364,8 @@ class MockItem {
   itemType: string;
   libraryID = 1;
   parentItemID: number | null = null;
+  dateAdded = "2026-01-01T00:00:00.000Z";
+  dateModified = "2026-01-01T00:00:00.000Z";
   private fields: Record<string, string | number | boolean | null> = {};
   private note = "";
   private tags: TagEntry[] = [];
@@ -485,6 +487,16 @@ class MockItem {
 
   getAttachments() {
     return [...this.attachments];
+  }
+
+  getAttachmentLinkMode() {
+    return 0;
+  }
+
+  getAnnotations() {
+    return this.children
+      .map((id) => itemsById.get(id))
+      .filter((item) => item?.itemType === "annotation");
   }
 
   getChildren() {

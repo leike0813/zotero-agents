@@ -3654,7 +3654,10 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": {},
+              "value": {
+                "libraryId": 1,
+                "batchSize": 500
+              },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
@@ -3667,15 +3670,17 @@
       "outputBoundary": {
         "strategy": "cursor",
         "section": "data.items",
-        "defaultLimit": 25,
-        "maxLimit": 100,
-        "cursorInput": "cursor",
+        "defaultLimit": 500,
+        "maxLimit": 1000,
+        "cursorInput": "query",
         "continuation": [
+          "data.snapshotId",
           "data.nextCursor",
           "data.hasMore",
           "data.returned",
-          "data.total",
-          "data.limit"
+          "data.deliveredItems",
+          "data.deliveredBatches",
+          "data.outcome"
         ]
       },
       "target": {

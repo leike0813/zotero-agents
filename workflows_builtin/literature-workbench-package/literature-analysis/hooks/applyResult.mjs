@@ -10,10 +10,12 @@ import {
 } from "../../lib/resultOutput.mjs";
 import {
   measureWorkflowTestSpan,
+  portableItemRef,
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
+import { normalizeReferencesPayload } from "../../lib/referenceModel.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -283,9 +285,6 @@ function appendRepresentativeImageApplyLog(args) {
     const failed = requested && status !== "embedded" && status !== "none";
     appendRuntimeLog({
       level: failed ? "warn" : "info",
-      scope: "job",
-      workflowId: "literature-analysis",
-      component: "literature-analysis-apply",
       operation: "representative-image",
       stage: `representative-image-${status || "unknown"}`,
       message:
@@ -394,35 +393,18 @@ async function resolveSourceAttachmentItemKey({
   );
 
   const basenameMatchKeys = new Set();
-  const attachmentRefs = parentItem.getAttachments?.() || [];
-  for (const attachmentRef of attachmentRefs) {
-    let attachment = null;
-    try {
-      attachment = runtime.helpers.resolveItemRef(attachmentRef);
-    } catch {
-      attachment = null;
-    }
-    if (!attachment) {
-      continue;
-    }
-
-    const attachmentKey = String(attachment.key || "").trim();
+  const host = requireHostApi(runtime);
+  for (const attachment of await host.library.getItemAttachments(
+    portableItemRef(parentItem),
+  )) {
+    const attachmentKey = String(attachment.ref.key || "").trim();
     if (!attachmentKey) {
       continue;
     }
 
-    let attachmentPath = "";
-    try {
-      attachmentPath = String(
-        (await attachment.getFilePathAsync?.()) || "",
-      ).trim();
-    } catch {
-      attachmentPath = "";
-    }
-
-    if (!attachmentPath) {
-      attachmentPath = String(attachment.getField?.("path") || "").trim();
-    }
+    const attachmentPath = attachment.file.state === "available"
+      ? attachment.file.path
+      : "";
 
     const normalizedAttachmentPath = normalizePathForCompare(attachmentPath);
     if (
@@ -435,7 +417,7 @@ async function resolveSourceAttachmentItemKey({
 
     const attachmentBasename =
       getBaseNameFromPath(attachmentPath) ||
-      getBaseNameFromPath(String(attachment.getField?.("title") || ""));
+      getBaseNameFromPath(attachment.title);
     if (attachmentBasename && sourceBasenames.has(attachmentBasename)) {
       basenameMatchKeys.add(attachmentKey);
     }
@@ -455,7 +437,9 @@ async function applyResultImpl({
   runResult,
   runtime,
 }) {
-  const parentItem = runtime.helpers.resolveItemRef(parent);
+  const parentItem = (
+    await requireHostApi(runtime).library.getItemDetail(portableItemRef(parent))
+  ).item;
   const workflowParameter = resolveWorkflowParameter({ request, runResult });
   const result = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:readResultJson",
@@ -577,7 +561,7 @@ async function applyResultImpl({
     "executeApplyResult:literatureDigest:normalizeReferencesPayload",
     {},
     async () => {
-      const normalizedReferences = runtime.helpers.normalizeReferencesPayload(
+      const normalizedReferences = normalizeReferencesPayload(
         JSON.parse(referencesResolved.text),
       );
       const referenceQuality =

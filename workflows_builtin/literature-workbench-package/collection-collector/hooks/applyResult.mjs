@@ -69,9 +69,19 @@ function normalizeSelectedItems(result, expectedLibraryId) {
 }
 
 function paperRefFromItem(item, fallbackLibraryId) {
-  const libraryId = Number(item?.libraryId ?? item?.libraryID ?? fallbackLibraryId);
-  const key = normalizeString(item?.key ?? item?.itemKey ?? item?.item_key);
+  const libraryId = Number(
+    item?.ref?.libraryId ?? item?.libraryId ?? item?.libraryID ?? fallbackLibraryId,
+  );
+  const key = normalizeString(
+    item?.ref?.key ?? item?.key ?? item?.itemKey ?? item?.item_key,
+  );
   return libraryId > 0 && key ? `${libraryId}:${key}` : "";
+}
+
+function portableRef(value) {
+  const match = normalizeString(value).match(PAPER_REF_PATTERN);
+  if (!match) throw new Error(`invalid portable item ref: ${value}`);
+  return { libraryId: Number(match[1]), key: match[2] };
 }
 
 async function listCurrentCollectionMembers(host, args) {
@@ -106,21 +116,15 @@ async function listCurrentCollectionMembers(host, args) {
 }
 
 function assertTopLevelRegularItem(detail, paperRef, expectedLibraryId) {
-  if (!detail) {
+  if (!detail || detail.kind !== "regular") {
     throw new Error(`collection-collector apply cannot resolve item: ${paperRef}`);
   }
-  if (Number(detail.libraryId ?? detail.libraryID) !== expectedLibraryId) {
+  if (detail.item.ref.libraryId !== expectedLibraryId) {
     throw new Error(`collection-collector apply resolved cross-library item: ${paperRef}`);
   }
-  const itemType = normalizeString(detail.itemType ?? detail.item_type).toLowerCase();
+  const itemType = normalizeString(detail.item.itemType).toLowerCase();
   if (!itemType || EXCLUDED_ITEM_TYPES.has(itemType)) {
     throw new Error(`collection-collector apply requires a regular Zotero item: ${paperRef}`);
-  }
-  if (
-    Number(detail.parentItemID ?? detail.parentID ?? 0) > 0 ||
-    detail.parentItem === true
-  ) {
-    throw new Error(`collection-collector apply requires a top-level Zotero item: ${paperRef}`);
   }
 }
 
@@ -156,7 +160,7 @@ export async function applyResult(context = {}) {
   const pending = selectedItems.filter((item) => !existing.has(item.paper_ref));
 
   for (const item of pending) {
-    const detail = await host.library.getItemDetail(item.paper_ref);
+    const detail = await host.library.getItemDetail(portableRef(item.paper_ref));
     assertTopLevelRegularItem(detail, item.paper_ref, libraryId);
   }
   if (pending.length === 0) {
@@ -169,9 +173,11 @@ export async function applyResult(context = {}) {
   }
 
   await host.mutations.execute({
-    operation: "collection.addItems",
-    collection,
-    items: pending.map((item) => item.paper_ref),
+    operation: "collection.updateMembership",
+    operationId: `collection-collector:${collection}:${Date.now().toString(36)}`,
+    collectionRef: { libraryId, key: collectionKey },
+    add: pending.map((item) => portableRef(item.paper_ref)),
+    remove: [],
   });
   return {
     ok: true,

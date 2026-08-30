@@ -62,6 +62,10 @@ describe("skillrunner release installer", function () {
       makeDirectory: async (path: string) => {
         dirs.add(path);
       },
+      stat: async (path: string) =>
+        dirs.has(path)
+          ? { type: "directory" }
+          : Promise.reject(new Error("missing")),
       write: async (path: string, data: Uint8Array) => {
         files.set(path, data);
       },
@@ -133,6 +137,10 @@ describe("skillrunner release installer", function () {
       makeDirectory: async (path: string) => {
         dirs.add(path);
       },
+      stat: async (path: string) =>
+        dirs.has(path)
+          ? { type: "directory" }
+          : Promise.reject(new Error("missing")),
       write: async () => {},
       exists: async (path: string) => dirs.has(path),
       remove: async () => {},
@@ -188,6 +196,10 @@ describe("skillrunner release installer", function () {
       makeDirectory: async (path: string) => {
         dirs.add(path);
       },
+      stat: async (path: string) =>
+        dirs.has(path)
+          ? { type: "directory" }
+          : Promise.reject(new Error("missing")),
       write: async () => {},
       exists: async (path: string) => dirs.has(path),
       remove: async (path: string) => {

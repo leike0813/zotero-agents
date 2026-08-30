@@ -1,4 +1,8 @@
 import { assert } from "chai";
+import {
+  createWorkflowHostApi,
+  WORKFLOW_HOST_API_VERSION,
+} from "../../src/workflows/hostApi";
 import { evaluateTagCompliance } from "../../workflows_builtin/literature-workbench-package/lib/tagCompliance.mjs";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/tag-auditor/hooks/applyResult.mjs";
 
@@ -18,6 +22,8 @@ function regularItem(libraryId: number, key: string, tags: string[]) {
     ref: { libraryId, key },
     kind: "regular",
     tags,
+    revision: `revision-${key}`,
+    tagDigest: `tags-${key}`,
   };
 }
 
@@ -48,20 +54,72 @@ function createRuntime(args: {
   ) => Promise<unknown>;
   replacements: AuditReplacement[];
 }) {
+  const base = createWorkflowHostApi();
   return {
-    hostApiVersion: 8,
-    workflowHostLiveReads: {
+    hostApiVersion: WORKFLOW_HOST_API_VERSION,
+    hostApi: {
+      ...base,
       library: {
+        ...base.library,
+        async listItems() {
+          return { libraryId: 1 };
+        },
         traverseItems: args.traverseItems,
       },
-    },
-    hostApi: {
       synthesis: {
-        async exportTagVocabularyForRegulator() {
-          return ["method:review"];
-        },
-        async replaceTagAuditRecords(replacement: AuditReplacement) {
-          args.replacements.push(replacement);
+        ...base.synthesis,
+        tags: {
+          ...base.synthesis.tags,
+          async exportVocabularyForRegulator() {
+            return {
+              vocabularyHash: "vocabulary-1",
+              allowedTags: ["method:review"],
+            };
+          },
+          async withAuditRun(input: any, _control: any, callback: any) {
+            const staged: any[] = [];
+            const traversal = await callback({
+              async append(entries: any[]) {
+                staged.push(...entries);
+              },
+            });
+            const evidence = traversal?.completionEvidence;
+            if (
+              traversal?.outcome !== "completed" ||
+              !evidence?.evidenceId ||
+              !evidence?.criteriaDigest ||
+              !evidence?.coverageDigest ||
+              !evidence?.completedAt
+            ) {
+              return {
+                outcome:
+                  traversal?.outcome === "resource_limited"
+                    ? "resource_limited"
+                    : "canceled",
+                auditedItems: staged.length,
+                ...(traversal?.outcome === "resource_limited"
+                  ? { limit: "items" }
+                  : {}),
+              };
+            }
+            args.replacements.push({
+              libraryId: input.libraryId,
+              entries: staged.map((entry) => ({
+                itemKey: entry.target.itemKey,
+                compliant: entry.evaluation.state === "compliant",
+                nonCompliantTags: entry.evaluation.nonCompliantTags || [],
+              })),
+            });
+            return {
+              outcome: "published",
+              snapshot: {
+                auditedItems: staged.length,
+                needsRegulation: staged.filter(
+                  (entry) => entry.evaluation.state === "needs_regulation",
+                ).length,
+              },
+            };
+          },
         },
       },
     },
@@ -96,7 +154,10 @@ describe("tag compliance evaluation", function () {
       runtime: createRuntime({
         replacements,
         async traverseItems(request, control, onBatch) {
-          assert.deepEqual(request, { scope: "top-level-regular" });
+          assert.deepEqual(request, {
+            libraryId: 1,
+            scope: "top-level-regular",
+          });
           assert.deepEqual(control, {});
           await onBatch({
             batchIndex: 0,

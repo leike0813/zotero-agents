@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "c8d2d9eaa75f5d7adfd7b9b0c9a36fdd9c2c24798e7f34f128333f33256f8837",
+  "commandCatalogChecksum": "75f302ae9619cfc592a0d8b4f508873bad4540a6199b162d064c4dc4bfd919a1",
   "commands": [
     {
       "approvalContract": {
@@ -9381,7 +9381,10 @@
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
-              "value": {}
+              "value": {
+                "batchSize": 500,
+                "libraryId": 1
+              }
             }
           ],
           "required": false,
@@ -9446,15 +9449,17 @@
       ],
       "outputBoundary": {
         "continuation": [
+          "data.snapshotId",
           "data.nextCursor",
           "data.hasMore",
           "data.returned",
-          "data.total",
-          "data.limit"
+          "data.deliveredItems",
+          "data.deliveredBatches",
+          "data.outcome"
         ],
-        "cursorInput": "cursor",
-        "defaultLimit": 25,
-        "maxLimit": 100,
+        "cursorInput": "query",
+        "defaultLimit": 500,
+        "maxLimit": 1000,
         "section": "data.items",
         "strategy": "cursor"
       },

@@ -1,5 +1,8 @@
 import { escapeAttribute } from "./htmlCodec.mjs";
-import { requireHostApi } from "./runtime.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+} from "./runtime.mjs";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -46,16 +49,17 @@ export function renderMarkedEmbeddedImage(args) {
 
 export async function cleanupOwnedEmbeddedImages(args) {
   const hostApi = requireHostApi(args.runtime);
+  const noteRef = portableItemRef(args.note);
+  const attachments = await hostApi.library.getItemAttachments(noteRef);
   for (const key of Array.from(new Set(args.keys || []))) {
     try {
-      const attachment = hostApi.items?.getByLibraryAndKey?.(
-        args.note.libraryID,
-        key,
-      );
-      if (!attachment || attachment.parentID !== args.note.id) {
-        continue;
-      }
-      await hostApi.attachments.remove(attachment);
+      const attachment = attachments.find((entry) => entry.ref.key === key);
+      if (!attachment) continue;
+      await hostApi.attachments.remove({
+        operationId: `note-image:remove:${noteRef.libraryId}:${noteRef.key}:${key}`,
+        attachmentRef: attachment.ref,
+        disposition: "trash",
+      });
     } catch {
       // Derived-image cleanup is best effort.
     }

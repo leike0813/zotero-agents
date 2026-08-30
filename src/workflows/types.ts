@@ -67,6 +67,7 @@ export type PrepareNoteImageRequestDto = {
     targetBytes?: number;
     hardMaxBytes?: number;
     outputFormat?: "auto" | "jpeg" | "png";
+    preserveSourceBytes?: boolean;
   }>;
 };
 
@@ -152,9 +153,12 @@ export type WorkflowClipboardOwner = Readonly<{
 
 export type WorkflowEditorOwner = Readonly<{
   openSession(
-    input: Parameters<
-      typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
-    >[0],
+    input: Omit<
+      import("../modules/workflowEditorHost").WorkflowEditorOpenArgs,
+      "rendererId" | "renderer"
+    > & {
+      renderer: import("../modules/workflowEditorHost").WorkflowEditorRenderer;
+    },
   ): ReturnType<
     typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
   >;
@@ -427,6 +431,7 @@ export type ImportNoteDto = {
       slot: string;
       resourceRef: ResourceRef;
       altText?: string;
+      preserveSourceBytes?: boolean;
     }>;
   };
   tags: string[];
@@ -1287,89 +1292,10 @@ export type {
 } from "./workflowHostErrorContract";
 
 import type {
-  ZoteroHostAttachmentDto,
   ZoteroHostCapabilityBroker,
-  ZoteroHostCollectionRefInput,
-  ZoteroHostCurrentViewDto,
-  ZoteroHostItemDetailDto,
-  ZoteroHostItemRefInput,
-  ZoteroHostLibraryListArgs,
-  ZoteroHostLibraryListResponse,
-  ZoteroHostLibrarySyncSnapshotResponse,
-  ZoteroHostItemSearchArgs,
-  ZoteroHostItemSummaryDto,
-  ZoteroHostMutationExecuteResponse,
-  ZoteroHostMutationPreviewResponse,
-  ZoteroHostMutationRequest,
   ZoteroHostMetadataTranslateIdentifierArgs,
   ZoteroHostMetadataTranslateIdentifierResponse,
-  ZoteroHostNoteDetailArgs,
-  ZoteroHostNoteDetailChunkDto,
-  ZoteroHostNoteDto,
-  ZoteroHostNotePayloadDetailArgs,
-  ZoteroHostNotePayloadDetailDto,
-  ZoteroHostNotePayloadSummaryDto,
 } from "../modules/zoteroHostCapabilityBroker";
-
-export type WorkflowHostItemRefInput =
-  | ZoteroHostItemRefInput
-  | Zotero.Item
-  | number
-  | string;
-export type WorkflowHostCollectionRefInput =
-  | ZoteroHostCollectionRefInput
-  | Zotero.Collection
-  | number
-  | string;
-
-export type WorkflowHostMutationRequest = Omit<
-  ZoteroHostMutationRequest,
-  "target" | "targets" | "item" | "items" | "parent" | "note" | "collection"
-> & {
-  target?: WorkflowHostItemRefInput;
-  targets?: WorkflowHostItemRefInput[];
-  item?: WorkflowHostItemRefInput;
-  items?: WorkflowHostItemRefInput[];
-  parent?: WorkflowHostItemRefInput;
-  note?: WorkflowHostItemRefInput;
-  collection?: WorkflowHostCollectionRefInput;
-};
-
-type WorkflowHostContextApi = {
-  getCurrentView(): ZoteroHostCurrentViewDto;
-  getSelectedItems(): ZoteroHostItemSummaryDto[];
-};
-
-type WorkflowHostLibraryApi = Pick<
-  ZoteroHostCapabilityBroker["library"],
-  "syncSnapshot" | "searchItems"
-> & {
-  listItems(
-    args: ZoteroHostLibraryListArgs,
-  ): Promise<ZoteroHostLibraryListResponse>;
-  getItemDetail(
-    ref: WorkflowHostItemRefInput,
-  ): Promise<ZoteroHostItemDetailDto | null>;
-  getItemNotes(
-    ref: WorkflowHostItemRefInput,
-    args?: ZoteroHostLibraryListArgs,
-  ): Promise<ZoteroHostNoteDto[]>;
-  getNoteDetail(
-    ref: WorkflowHostItemRefInput,
-    args?: ZoteroHostNoteDetailArgs,
-  ): Promise<ZoteroHostNoteDetailChunkDto>;
-  listNotePayloads(
-    ref: WorkflowHostItemRefInput,
-  ): Promise<ZoteroHostNotePayloadSummaryDto[]>;
-  getNotePayload(
-    ref: WorkflowHostItemRefInput,
-    args?: ZoteroHostNotePayloadDetailArgs,
-  ): Promise<ZoteroHostNotePayloadDetailDto>;
-  getItemAttachments(
-    ref: WorkflowHostItemRefInput,
-  ): Promise<ZoteroHostAttachmentDto[]>;
-};
-
 export type WorkflowHostLiveReadAdapters = {
   context: Pick<
     ZoteroHostCapabilityBroker["context"],
@@ -1395,19 +1321,6 @@ export type WorkflowHostLiveReadAdapters = {
   >;
 };
 
-type WorkflowHostMutationApi = {
-  preview(
-    request: WorkflowHostMutationRequest,
-  ): ReturnType<ZoteroHostCapabilityBroker["legacyMutations"]["preview"]>;
-  execute(
-    request: WorkflowHostMutationRequest,
-  ): ReturnType<ZoteroHostCapabilityBroker["legacyMutations"]["execute"]>;
-};
-
-type WorkflowHostMetadataApi = Pick<
-  ZoteroHostCapabilityBroker["metadata"],
-  "translateIdentifier"
->;
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 import type { ProductStorageApi } from "../modules/workflowProductStore";
 import type {
@@ -1752,7 +1665,11 @@ export type WorkflowResourceApi = {
   mode: WorkflowInvocationMode;
   getInput: (slotId: string) => WorkflowResourceFile | null;
   getInputs: (slotId: string) => WorkflowResourceFile[];
-  get?: (ref: ResourceRef) => Promise<WorkflowResourceFile>;
+  get: (ref: ResourceRef) => Promise<WorkflowResourceFile>;
+  materializeFile: (
+    input: WorkflowResourceMaterializeFileRequestDto,
+    control?: WorkflowCallControl,
+  ) => Promise<WorkflowResourceFile>;
   allocateOutput: (args: {
     slotId: string;
     suggestedName?: string;
@@ -1769,21 +1686,11 @@ export type WorkflowResourceApi = {
 };
 
 export type WorkflowResearchBundleApi = {
-  materializePapers: {
-    (args: {
-      papers: Array<{ paperRef: string }>;
-      sourcePaperRefs?: string[];
-    }): Promise<{
-      entries: import("../modules/researchBundleService").ResearchBundleEntry[];
-      warnings: import("../modules/researchBundleService").ResearchBundleWarning[];
-      papers: Record<string, unknown>[];
-    }>;
-    (
-      request: MaterializePapersRequestDto,
-      control?: WorkflowCallControl,
-    ): Promise<MaterializePapersResultDto>;
-  };
-  importPapers?: (
+  materializePapers: (
+    request: MaterializePapersRequestDto,
+    control?: WorkflowCallControl,
+  ) => Promise<MaterializePapersResultDto>;
+  importPapers: (
     request: ImportPapersRequestDto,
     control?: WorkflowCallControl,
   ) => Promise<ImportPapersResultDto>;
@@ -1817,6 +1724,186 @@ export type WorkflowFileListResultDto = {
 };
 
 export type WorkflowFileRemoveResultDto = { removed: boolean };
+
+export type LibrarySnapshotRequestDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotRequestDto;
+export type LibrarySnapshotBatchDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotBatchDto;
+export type LibrarySnapshotResultDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotWorkflowResultDto;
+export type MetadataLookupRequestDto = ZoteroHostMetadataTranslateIdentifierArgs;
+export type MetadataLookupResultDto = ZoteroHostMetadataTranslateIdentifierResponse;
+export type StatusTagPolicyDto = Readonly<Record<StatusTagKey, StatusTagValue>>;
+export type WorkflowFileCopyRequestDto = {
+  sourcePath: string;
+  targetPath: string;
+  overwrite?: boolean;
+};
+export type WorkflowFileMoveRequestDto = WorkflowFileCopyRequestDto;
+export type WorkflowFileRemoveRequestDto = {
+  path: string;
+  recursive?: boolean;
+  missing?: "error" | "ignore";
+};
+export type WorkflowMakeDirectoryRequestDto = { path: string };
+export type WorkflowInputFileMaterializationRequestDto = import("./workflowInputMaterialization").WorkflowInputMaterializationRequest;
+export type WorkflowMaterializedFileDto = { path: string };
+export type FilePickerRequestDto = {
+  title?: string;
+  directory?: string;
+  filters?: [string, string][];
+};
+export type SaveFilePickerRequestDto = FilePickerRequestDto & {
+  suggestedName?: string;
+};
+export type WorkflowArchiveMeasureRequestDto = import("./archive").WorkflowArchiveEntry[];
+export type WorkflowArchiveMeasureResultDto = import("./archive").WorkflowArchiveMeasurement;
+export type WorkflowArchiveWriteRequestDto = {
+  targetPath: string;
+  entries: import("./archive").WorkflowArchiveEntry[];
+};
+export type WorkflowArchiveWriteResultDto =
+  import("./archive").WorkflowArchiveMeasurement & { targetPath: string };
+export type WorkflowArchiveExtractRequestDto = { sourcePath: string };
+export type WorkflowExtractedArchive = import("./archive").WorkflowExtractedArchive;
+export type WorkflowResourceFileDto = WorkflowResourceFile;
+export type WorkflowResourceAllocationRequestDto = {
+  slotId: string;
+  suggestedName?: string;
+  contentType?: string;
+};
+export type WorkflowResourceAllocationDto = {
+  allocationId?: string;
+  slotId?: string;
+  path: string;
+};
+export type WorkflowResourcePublishRequestDto = {
+  allocationId?: string;
+  slotId: string;
+  path: string;
+  displayName?: string;
+  contentType?: string;
+};
+export type WorkflowResourceOutputDescriptorDto = WorkflowResourceOutputDescriptor;
+
+export type WorkflowEditorSessionRequest<
+  TState extends JsonValue,
+  TContext extends JsonValue,
+  _TResult extends JsonValue,
+> = Omit<
+  import("../modules/workflowEditorHost").WorkflowEditorOpenArgs<
+    TState,
+    TContext
+  >,
+  "rendererId" | "renderer"
+> & {
+  renderer: import("../modules/workflowEditorHost").WorkflowEditorRenderer<
+    TState,
+    TContext
+  >;
+};
+export type WorkflowEditorSessionResult<TResult extends JsonValue> = Omit<
+  import("../modules/workflowEditorHost").WorkflowEditorOpenResult,
+  "result"
+> & { result?: TResult };
+
+export type WorkflowHostApiV12 = Readonly<{
+  version: 12;
+  interactionMode: "interactive" | "non_interactive";
+  addon: WorkflowAddonOwner;
+  environment: WorkflowEnvironmentOwner;
+  context: Readonly<{
+    getCurrentView(): CurrentViewDto;
+    getSelectedItems(control?: WorkflowCallControl): Promise<SelectedItemsSnapshotDto>;
+  }>;
+  navigation: Readonly<{
+    openItem(ref: PortableItemRef, control?: WorkflowCallControl): Promise<NavigationResultDto>;
+    openNote(ref: PortableItemRef, control?: WorkflowCallControl): Promise<NavigationResultDto>;
+    openCollection(ref: PortableCollectionRef, control?: WorkflowCallControl): Promise<NavigationResultDto>;
+    openSelection(input: NavigationSelectionInputDto, control?: WorkflowCallControl): Promise<NavigationResultDto>;
+  }>;
+  library: Readonly<{
+    listItems(input: LibraryListItemsRequestDto, control?: WorkflowCallControl): Promise<LibraryListItemsPageDto>;
+    traverseItems(input: LibraryTraversalRequestDto, control: WorkflowCallControl, onBatch: (batch: LibraryTraversalBatchDto) => Promise<void> | void): Promise<LibraryTraversalResultDto>;
+    withItemSnapshot(input: LibrarySnapshotRequestDto, control: WorkflowCallControl, onBatch: (batch: LibrarySnapshotBatchDto) => Promise<void> | void): Promise<LibrarySnapshotResultDto>;
+    listCollections(input: LibraryListCollectionsRequestDto, control?: WorkflowCallControl): Promise<LibraryListCollectionsPageDto>;
+    getItemDetail(ref: PortableItemRef, control?: WorkflowCallControl): Promise<ItemDetailDto>;
+    getItemNotes(parentRef: PortableItemRef, control?: WorkflowCallControl): Promise<NoteSummaryDto[]>;
+    getNoteDetail(noteRef: PortableItemRef, options: NoteDetailOptionsDto, control?: WorkflowCallControl): Promise<NoteDetailDto>;
+    listNotePayloads(noteRef: PortableItemRef, control?: WorkflowCallControl): Promise<NotePayloadSummaryDto[]>;
+    getNotePayload(noteRef: PortableItemRef, options: NotePayloadOptionsDto, control?: WorkflowCallControl): Promise<NotePayloadValueDto>;
+    getItemAttachments(parentRef: PortableItemRef, control?: WorkflowCallControl): Promise<AttachmentDetailDto[]>;
+    listAnnotations(ref: PortableItemRef, control?: WorkflowCallControl): Promise<AnnotationDetailDto[]>;
+    exportPortableItems(itemRefs: PortableItemRef[], control?: WorkflowCallControl): Promise<PortableRegularItemDto[]>;
+  }>;
+  metadata: Readonly<{
+    translateIdentifier(input: MetadataLookupRequestDto, control?: WorkflowCallControl): Promise<MetadataLookupResultDto>;
+  }>;
+  mutations: Readonly<{
+    preview<K extends MutationPreviewOperation>(input: MutationPreviewRequestByOperation[K], control?: WorkflowCallControl): Promise<MutationPreviewResult<MutationPlanByOperation[K]>>;
+    execute<K extends MutationOperation>(input: MutationRequestByOperation[K], control?: WorkflowCallControl): Promise<MutationExecutionResult<MutationResultByOperation[K]>>;
+  }>;
+  notes: Readonly<{
+    create(input: NoteCreateRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<{ note: NoteSummaryDto }>>;
+    updateContent(input: NoteUpdateContentRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<{ note: NoteSummaryDto }>>;
+    remove(input: NoteRemoveRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<NoteRemovalResultDto>>;
+    upsertPayload(input: NotePayloadUpsertRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<NotePayloadUpsertResultDto>>;
+  }>;
+  images: WorkflowPreparedImageOwner;
+  attachments: Readonly<{
+    create(input: AttachmentCreateRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<{ attachment: AttachmentDetailDto }>>;
+    updateMetadata(input: AttachmentUpdateMetadataRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<{ attachment: AttachmentDetailDto }>>;
+    replaceFile(input: AttachmentReplaceFileRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<AttachmentReplaceFileResultDto>>;
+    move(input: AttachmentMoveRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<AttachmentMoveResultDto>>;
+    remove(input: AttachmentRemoveRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<AttachmentRemovalResultDto>>;
+  }>;
+  bibliography: WorkflowBibliographyOwner;
+  researchBundles: Readonly<{
+    materializePapers(input: MaterializePapersRequestDto, control?: WorkflowCallControl): Promise<MaterializePapersResultDto>;
+    importPapers(input: ImportPapersRequestDto, control?: WorkflowCallControl): Promise<ImportPapersResultDto>;
+  }>;
+  statusTags: Readonly<{
+    getPolicy(): StatusTagPolicyDto;
+    transition(input: StatusTagTransitionRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<StatusTagTransitionResultDto>>;
+  }>;
+  file: Readonly<{
+    readText(path: string, control?: WorkflowCallControl): Promise<string>;
+    writeText(path: string, content: string, control?: WorkflowCallControl): Promise<void>;
+    readBytes(path: string, control?: WorkflowCallControl): Promise<Uint8Array>;
+    writeBytes(path: string, bytes: Uint8Array | ArrayBuffer, control?: WorkflowCallControl): Promise<void>;
+    copy(input: WorkflowFileCopyRequestDto, control?: WorkflowCallControl): Promise<void>;
+    exists(path: string, control?: WorkflowCallControl): Promise<boolean>;
+    makeDirectory(input: WorkflowMakeDirectoryRequestDto, control?: WorkflowCallControl): Promise<void>;
+    materializeWorkflowInputFile(input: WorkflowInputFileMaterializationRequestDto, control?: WorkflowCallControl): Promise<WorkflowMaterializedFileDto>;
+    getTempDirectoryPath(): string;
+    pickDirectory(input?: FilePickerRequestDto): Promise<string | null>;
+    pickFile(input?: FilePickerRequestDto): Promise<string | null>;
+    pickSaveFile(input?: SaveFilePickerRequestDto): Promise<string | null>;
+    pickFiles(input?: FilePickerRequestDto): Promise<string[] | null>;
+    stat(path: string, control?: WorkflowCallControl): Promise<WorkflowFileStatDto>;
+    list(input: WorkflowFileListRequestDto, control?: WorkflowCallControl): Promise<WorkflowFileListResultDto>;
+    move(input: WorkflowFileMoveRequestDto, control?: WorkflowCallControl): Promise<void>;
+    remove(input: WorkflowFileRemoveRequestDto, control?: WorkflowCallControl): Promise<WorkflowFileRemoveResultDto>;
+  }>;
+  archive: Readonly<{
+    measureEntries(input: WorkflowArchiveMeasureRequestDto, control?: WorkflowCallControl): Promise<WorkflowArchiveMeasureResultDto>;
+    writeZipAtomic(input: WorkflowArchiveWriteRequestDto, control?: WorkflowCallControl): Promise<WorkflowArchiveWriteResultDto>;
+    withExtractedZip<TResult>(input: WorkflowArchiveExtractRequestDto, control: WorkflowCallControl, callback: (archive: WorkflowExtractedArchive) => Promise<TResult> | TResult): Promise<TResult>;
+  }>;
+  resources: Readonly<{
+    getInput(slotId: string): WorkflowResourceFileDto | null;
+    getInputs(slotId: string): WorkflowResourceFileDto[];
+    get(ref: ResourceRef, control?: WorkflowCallControl): Promise<WorkflowResourceFileDto>;
+    materializeFile(input: WorkflowResourceMaterializeFileRequestDto, control?: WorkflowCallControl): Promise<WorkflowResourceFileDto>;
+    allocateOutput(input: WorkflowResourceAllocationRequestDto, control?: WorkflowCallControl): Promise<WorkflowResourceAllocationDto>;
+    publishOutput(input: WorkflowResourcePublishRequestDto, control?: WorkflowCallControl): Promise<WorkflowResourceOutputDescriptorDto>;
+    listOutputs(): WorkflowResourceOutputDescriptorDto[];
+  }>;
+  clipboard: WorkflowClipboardOwner;
+  editor: Readonly<{
+    openSession<TState extends JsonValue, TContext extends JsonValue, TResult extends JsonValue>(input: WorkflowEditorSessionRequest<TState, TContext, TResult>): Promise<WorkflowEditorSessionResult<TResult>>;
+  }>;
+  notifications: WorkflowNotificationOwner;
+  logging: WorkflowLoggingOwner;
+  synthesis: WorkflowSynthesisApi;
+}>;
 
 export type WorkflowResultSpec = {
   fetch?: {
@@ -1965,310 +2052,7 @@ export type HookHelpers = {
   ) => Promise<WorkflowGeneratedNoteReadinessResult>;
 };
 
-export type WorkflowHostApi = {
-  version: number;
-  resources?: WorkflowResourceApi;
-  addon: {
-    getConfig: () => {
-      addonName: string;
-      addonRef: string;
-      prefsPrefix: string;
-    };
-  };
-  items: {
-    get: (ref: Zotero.Item | number | string) => Zotero.Item | null;
-    resolve: (ref: Zotero.Item | number | string) => Zotero.Item;
-    getByLibraryAndKey: (libraryID: number, key: string) => Zotero.Item | null;
-    getAll: () => Promise<Zotero.Item[]>;
-    exportPortableJson: (
-      ref: Zotero.Item | number | string,
-    ) => Record<string, unknown>;
-    exportText: (
-      args: import("./bibliography").WorkflowItemTextExportArgs,
-    ) => Promise<
-      import("./bibliography").WorkflowItemTextExportResult
-    >;
-    createFromJson: (args: {
-      itemJson: Record<string, unknown>;
-      libraryID?: number;
-    }) => Promise<Zotero.Item>;
-    remove: (ref: Zotero.Item | number | string) => Promise<void>;
-  };
-  context: WorkflowHostContextApi;
-  library: WorkflowHostLibraryApi;
-  mutations: WorkflowHostMutationApi;
-  metadata: WorkflowHostMetadataApi;
-  researchBundles: WorkflowResearchBundleApi;
-  prefs: {
-    get: (key: string, global?: boolean) => unknown;
-    set: (key: string, value: unknown, global?: boolean) => void;
-    clear: (key: string, global?: boolean) => void;
-  };
-  parents: {
-    addNote: (
-      parentRef: Zotero.Item | number | string,
-      note: { content: string },
-    ) => Promise<Zotero.Item>;
-    addAttachment: (
-      parentRef: Zotero.Item | number | string,
-      spec: { file: any } | { filePath: string },
-    ) => Promise<Zotero.Item>;
-    addRelated: (
-      parentRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-      relatedRefs: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-    ) => Promise<void>;
-    removeRelated: (
-      parentRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-      relatedRefs: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-    ) => Promise<void>;
-    updateFields: (
-      parentRef: Zotero.Item | number | string,
-      patch: Record<string, string | number | boolean | null>,
-    ) => Promise<Zotero.Item>;
-    updateMetadata: (
-      parentRef: Zotero.Item | number | string,
-      metadata: {
-        itemType?: string | null;
-        fields?: Record<string, string | number | boolean | null> | null;
-        creators?: WorkflowHostCreatorDto[] | null;
-      },
-    ) => Promise<Zotero.Item>;
-  };
-  notes: {
-    create: (note: { content: string }) => Promise<Zotero.Item>;
-    update: (
-      noteRef: Zotero.Item | number | string,
-      patch: { content: string },
-    ) => Promise<Zotero.Item>;
-    remove: (noteRef: Zotero.Item | number | string) => Promise<void>;
-    importEmbeddedImage: (
-      noteRef: Zotero.Item | number | string,
-      image: WorkflowPreparedNoteImage,
-    ) => Promise<{
-      attachmentKey: string;
-      attachmentItem: Zotero.Item;
-      mimeType: string;
-      bytes: number;
-    }>;
-  };
-  images: {
-    prepareForNoteEmbedding: (
-      source:
-        | string
-        | {
-            path?: string;
-            blob?: Blob;
-            bytes?: Uint8Array | ArrayBuffer;
-            mimeType?: string;
-          },
-      options?: WorkflowImagePreparationOptions,
-    ) => Promise<WorkflowPreparedNoteImage>;
-  };
-  attachments: {
-    create: (spec: { file: any } | { filePath: string }) => Promise<Zotero.Item>;
-    createFromPath: (options: {
-      parent?: Zotero.Item | number | string | null;
-      path?: string | null;
-      dataPath?: string | null;
-      itemKey?: string;
-      libraryID?: number;
-      title?: string | null;
-      mimeType?: string | null;
-      charset?: string | null;
-      url?: string | null;
-      allowMissing?: boolean;
-    }) => Promise<Zotero.Item>;
-    importStoredFromPath: (options: {
-      parent?: Zotero.Item | number | string | null;
-      path?: string | null;
-      dataPath?: string | null;
-      itemKey?: string;
-      libraryID?: number;
-      title?: string | null;
-      mimeType?: string | null;
-      charset?: string | null;
-      url?: string | null;
-      allowMissing?: boolean;
-    }) => Promise<Zotero.Item>;
-    createFromUrl: (options: {
-      parent?: Zotero.Item | number | string | null;
-      url: string;
-      title?: string | null;
-      mimeType?: string | null;
-      deduplicate?: boolean;
-    }) => Promise<Zotero.Item>;
-    update: (
-      attachmentRef: Zotero.Item | number | string,
-      patch: Record<string, string | number | boolean | null>,
-    ) => Promise<Zotero.Item>;
-    remove: (
-      attachmentRef: Zotero.Item | number | string,
-    ) => Promise<void>;
-    importStoredFile: (args: {
-      parent?: Zotero.Item | number | string | null;
-      path: string;
-      title?: string | null;
-      mimeType?: string | null;
-      charset?: string | null;
-      url?: string | null;
-      companionFiles?: Array<{
-        sourcePath: string;
-        relativePath: string;
-      }>;
-    }) => Promise<Zotero.Item>;
-  };
-  tags: {
-    add: (
-      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-      tags: string[],
-    ) => Promise<void>;
-    list: (itemRef: Zotero.Item | number | string) => Promise<string[]>;
-    remove: (
-      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-      tags: string[],
-    ) => Promise<void>;
-    replace: (
-      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-      tags: string[],
-    ) => Promise<void>;
-  };
-  statusTags: {
-    getPolicy: () => Readonly<Record<StatusTagKey, StatusTagValue>>;
-    transition: (
-      args: StatusTagTransitionRequestDto,
-      control?: WorkflowCallControl,
-    ) => Promise<MutationExecutionResult<StatusTagTransitionResultDto>>;
-  };
-  collections: {
-    update: (
-      collectionRef: number | string | Zotero.Collection,
-      patch: { name?: string; parentID?: number | null },
-    ) => Promise<Zotero.Collection>;
-    create: (options: {
-      name: string;
-      libraryID?: number;
-    }) => Promise<Zotero.Collection>;
-    delete: (
-      collection: number | string | Zotero.Collection,
-    ) => Promise<void>;
-    add: (
-      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-      collection: number | string | Zotero.Collection,
-    ) => Promise<void>;
-    remove: (
-      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-      collection: number | string | Zotero.Collection,
-    ) => Promise<void>;
-    replace: (
-      itemRef: Zotero.Item | number | string | Array<Zotero.Item | number | string>,
-      collections: Array<number | string | Zotero.Collection>,
-    ) => Promise<void>;
-  };
-  command: {
-    run: (
-      commandId: string,
-      args?: unknown,
-      context?: unknown,
-    ) => Promise<void>;
-  };
-  editor: {
-    openSession: (
-      args: Parameters<
-        typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
-      >[0],
-    ) => ReturnType<
-      typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
-    >;
-    registerRenderer: (
-      rendererId: string,
-      renderer: Parameters<
-        typeof import("../modules/workflowEditorHost").registerWorkflowEditorRenderer
-      >[1],
-    ) => void;
-    unregisterRenderer: (rendererId: string) => void;
-  };
-  notifications: {
-    toast: (args: {
-      text: string;
-      type?: "default" | "success" | "error";
-    }) => void;
-  };
-  logging: {
-    appendRuntimeLog: (
-      input: import("../modules/runtimeLogManager").RuntimeLogInput,
-    ) => ReturnType<
-      typeof import("../modules/runtimeLogManager").appendRuntimeLog
-    >;
-    recordPerformanceSpanForTests?: (args: {
-      name: string;
-      startedAt: number;
-      durationMs: number;
-      labels?: Record<string, unknown>;
-    }) => void;
-    recordLeakProbeTempArtifactForTests?: (args: {
-      kind: "zip-extracted-dir" | "tag-regulator-valid-tags-yaml";
-      path: string;
-    }) => void;
-    releaseLeakProbeTempArtifactForTests?: (path: string) => void;
-  };
-  file: {
-    pathToFile: (path: string) => unknown;
-    readText: (path: string) => Promise<string>;
-    writeText: (path: string, content: string) => Promise<void>;
-    readBytes: (path: string) => Promise<Uint8Array>;
-    writeBytes: (
-      path: string,
-      bytes: Uint8Array | ArrayBuffer,
-    ) => Promise<void>;
-    copy: (sourcePath: string, targetPath: string) => Promise<void>;
-    exists: (path: string) => Promise<boolean>;
-    makeDirectory: (path: string) => Promise<void>;
-    stat: (path: string) => Promise<WorkflowFileStatDto>;
-    list: (
-      args: WorkflowFileListRequestDto,
-    ) => Promise<WorkflowFileListResultDto>;
-    move: (args: {
-      sourcePath: string;
-      targetPath: string;
-      overwrite?: boolean;
-    }) => Promise<void>;
-    remove: (args: {
-      path: string;
-      recursive?: boolean;
-      missing?: "error" | "ignore";
-    }) => Promise<WorkflowFileRemoveResultDto>;
-    materializeWorkflowInputFile: (args: {
-      workflowId?: string;
-      key?: string;
-      fileName?: string;
-      content?: string;
-      bytes?: Uint8Array | ArrayBuffer;
-    }) => Promise<{ path: string }>;
-    getTempDirectoryPath: () => string;
-    pickDirectory: (args?: {
-      title?: string;
-      directory?: string;
-    }) => Promise<string | null>;
-    pickFile: (args?: {
-      title?: string;
-      directory?: string;
-      filters?: [string, string][];
-    }) => Promise<string | null>;
-    pickSaveFile: (args?: {
-      title?: string;
-      directory?: string;
-      filters?: [string, string][];
-      suggestedName?: string;
-    }) => Promise<string | null>;
-    pickFiles: (args?: {
-      title?: string;
-      directory?: string;
-      filters?: [string, string][];
-    }) => Promise<string[] | null>;
-  };
-  archive: import("./archive").WorkflowArchiveApi;
-  synthesis?: WorkflowSynthesisV11Api;
-};
+export type WorkflowHostApi = WorkflowHostApiV12;
 
 export type WorkflowSynthesisApplyContext = {
   resultContext?: Pick<WorkflowResultContext, "resolveArtifact">;
@@ -2364,43 +2148,6 @@ export interface WorkflowSynthesisApi {
   }>;
 }
 
-export interface WorkflowSynthesisV11Api {
-  applyLiteratureDigestSidecar(
-    input?: WorkflowLiteratureDigestApplyInput,
-  ): Promise<SynthesisJsonObject>;
-  applyTopicSynthesisResult(
-    bundle: unknown,
-    context?: WorkflowSynthesisApplyContext,
-  ): Promise<SynthesisJsonObject>;
-  getTopicReport(
-    request: SynthesisTopicReportRequest,
-  ): Promise<SynthesisTopicReportResult>;
-  getTopicPlanningContext(): Promise<SynthesisJsonObject>;
-  applyTopicPlan(plan: SynthesisJsonObject): Promise<SynthesisJsonObject>;
-  readPaperArtifacts(
-    request: SynthesisPaperArtifactsRequest,
-  ): Promise<SynthesisPaperArtifactsResult>;
-  loadTagVocabulary(): Promise<SynthesisTagVocabularySnapshot>;
-  saveTagVocabulary(
-    request: SynthesisTagVocabularySaveRequest,
-  ): Promise<SynthesisJsonValue>;
-  exportTagVocabularyForRegulator(): Promise<string[]>;
-  listStagedTagSuggestions(): Promise<SynthesisTagStagedSuggestion[]>;
-  stageTagSuggestions(
-    request: SynthesisTagSuggestionStageRequest,
-  ): Promise<SynthesisJsonValue>;
-  discardStagedTagSuggestions(
-    request: SynthesisTagSelectionRequest,
-  ): Promise<SynthesisTagCommandResult>;
-  replaceTagAuditRecords(
-    request: SynthesisTagAuditReplaceRequest,
-  ): Promise<SynthesisJsonObject>;
-  clearTagAuditRecord(request: {
-    libraryId: number;
-    itemKey: string;
-  }): Promise<void>;
-}
-
 export type WorkflowImagePreparationOptions = {
   maxLongEdge?: number;
   targetBytes?: number;
@@ -2425,13 +2172,8 @@ export type WorkflowPreparedNoteImage = {
 };
 
 export type WorkflowRuntimeContext = {
-  handlers: typeof import("../handlers").handlers;
-  zotero: typeof Zotero;
-  helpers: HookHelpers;
-  addon?: typeof addon | null;
   hostApi: WorkflowHostApi;
   hostApiVersion: number;
-  workflowHostLiveReads?: WorkflowHostLiveReadAdapters;
   invocationMode?: WorkflowInvocationMode;
   debugMode?: boolean;
   workflowId?: string;
@@ -2448,6 +2190,15 @@ export type WorkflowRuntimeContext = {
   TextEncoder?: typeof globalThis.TextEncoder | null;
   TextDecoder?: typeof globalThis.TextDecoder | null;
   FileReader?: typeof globalThis.FileReader | null;
+};
+
+export type WorkflowRuntimeInfrastructureContext = WorkflowRuntimeContext & {
+  handlers: typeof import("../handlers").handlers;
+  zotero: typeof Zotero;
+  helpers: HookHelpers;
+  workflowHostOverride?: WorkflowHostApi;
+  addon?: typeof addon | null;
+  workflowHostLiveReads?: WorkflowHostLiveReadAdapters;
   navigator?: typeof globalThis.navigator | null;
 };
 
@@ -2626,6 +2377,7 @@ export type LoadedWorkflow = {
   hooks: WorkflowHooksModule;
   buildStrategy: ResolvedBuildStrategy;
   hookExecutionMode?: WorkflowHookExecutionMode;
+  contentDigest?: string;
 };
 
 export type LoadedWorkflows = {

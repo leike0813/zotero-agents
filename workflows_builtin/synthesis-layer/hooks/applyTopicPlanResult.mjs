@@ -25,9 +25,10 @@ export async function applyResult(args) {
   if (!isObject(plan) || plan.kind !== "topic_plan" || plan.operation !== "reconcile") {
     throw new Error("topic planner applyResult requires a topic_plan/reconcile JSON result");
   }
-  const applyTopicPlan = args?.runtime?.hostApi?.synthesis?.applyTopicPlan;
+  const applyTopicPlan =
+    args?.runtime?.hostApi?.synthesis?.workflowApply?.applyTopicPlan;
   if (typeof applyTopicPlan !== "function") {
-    throw new Error("topic planner applyResult requires runtime.hostApi.synthesis.applyTopicPlan");
+    throw new Error("topic planner applyResult requires Workflow Host topic-plan apply");
   }
   const result = await applyTopicPlan(plan);
   if (isObject(result) && result.status === "conflict") {

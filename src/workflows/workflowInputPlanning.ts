@@ -12,6 +12,7 @@ import type {
   WorkflowInputMemberKind,
   WorkflowManifest,
   WorkflowRuntimeContext,
+  WorkflowRuntimeInfrastructureContext,
   WorkflowSelectionFilter,
   WorkflowValidateSelectionSpec,
 } from "./types";
@@ -40,6 +41,7 @@ type ParentLike = {
   item?: {
     id?: number;
     key?: string;
+    ref?: { libraryId: number; key: string };
     title?: string;
     libraryID?: number;
     data?: { title?: string };
@@ -51,6 +53,7 @@ type ParentLike = {
 type ParentRefLike = {
   id?: number | null;
   key?: string;
+  ref?: { libraryId: number; key: string };
   title?: string;
   libraryID?: number;
 };
@@ -79,6 +82,7 @@ type SelectionLike = {
       item?: {
         id?: number;
         key?: string;
+        ref?: { libraryId: number; key: string };
         title?: string;
         data?: { title?: string };
       };
@@ -125,10 +129,10 @@ type EvaluateWorkflowSelectionArgs = {
     runOptions?: WorkflowRunOptions;
   };
   mode?: WorkflowSelectionValidationMode;
-  runtime?: Partial<WorkflowRuntimeContext>;
+  runtime?: Partial<WorkflowRuntimeInfrastructureContext>;
 };
 
-type RuntimeLike = WorkflowRuntimeContext;
+type RuntimeLike = WorkflowRuntimeInfrastructureContext;
 
 type WorkflowArtifactAbsentRule = Extract<
   WorkflowSelectionFilter,
@@ -136,7 +140,7 @@ type WorkflowArtifactAbsentRule = Extract<
 >;
 
 function createSelectionRuntime(
-  override?: Partial<WorkflowRuntimeContext>,
+  override?: Partial<WorkflowRuntimeInfrastructureContext>,
 ): RuntimeLike {
   const zotero =
     override?.zotero ||
@@ -168,7 +172,7 @@ function createSelectionRuntime(
     addon:
       typeof override?.addon !== "undefined"
         ? (override.addon ?? null)
-        : ((resolveRuntimeAddon() as WorkflowRuntimeContext["addon"]) ?? null),
+        : ((resolveRuntimeAddon() as WorkflowRuntimeInfrastructureContext["addon"]) ?? null),
     debugMode: override?.debugMode,
     workflowId: override?.workflowId,
     packageId: override?.packageId,
@@ -381,8 +385,16 @@ function parentEntryFromRef(
     item: {
       id: id || undefined,
       key,
+      ...(key && Number(raw.ref?.libraryId || raw.libraryID)
+        ? {
+            ref: {
+              libraryId: Number(raw.ref?.libraryId || raw.libraryID),
+              key,
+            },
+          }
+        : {}),
       title: String(raw.title || "").trim(),
-      libraryID: raw.libraryID,
+      libraryID: raw.ref?.libraryId || raw.libraryID,
     },
     attachments: [],
     notes: [],
@@ -869,9 +881,9 @@ async function selectGeneratedNoteCandidates(
   const candidates: Array<Record<string, unknown>> = [];
   const seen = new Set<string>();
   const addCandidate = (
-    candidate: Record<string, unknown> & { kind?: unknown; noteItemID?: unknown },
+    candidate: Record<string, unknown> & { kind?: unknown; noteRef?: unknown },
   ) => {
-    const key = `${candidate.kind || ""}:${candidate.noteItemID || ""}`;
+    const key = `${candidate.kind || ""}:${JSON.stringify(candidate.noteRef || null)}`;
     if (seen.has(key)) {
       return;
     }
@@ -894,10 +906,8 @@ async function selectGeneratedNoteCandidates(
       }
       addCandidate({
         kind: parseGeneratedNoteKind(noteItem.getNote?.() || "") || "custom",
-        noteItemID: noteItem.id,
-        noteItemKey: String(noteItem.key || "").trim(),
-        parentItemID: parentItem.id,
-        parentItemKey: String(parentItem.key || "").trim(),
+        noteRef: { libraryId: noteItem.libraryID, key: noteItem.key },
+        parentRef: { libraryId: parentItem.libraryID, key: parentItem.key },
         parentTitle: String(parentItem.getField?.("title") || "").trim(),
       });
     }
@@ -914,10 +924,8 @@ async function selectGeneratedNoteCandidates(
     }
     addCandidate({
       kind: parseGeneratedNoteKind(noteItem.getNote?.() || "") || "custom",
-      noteItemID: noteItem.id,
-      noteItemKey: String(noteItem.key || "").trim(),
-      parentItemID: parentItem.id,
-      parentItemKey: String(parentItem.key || "").trim(),
+      noteRef: { libraryId: noteItem.libraryID, key: noteItem.key },
+      parentRef: { libraryId: parentItem.libraryID, key: parentItem.key },
       parentTitle: String(parentItem.getField?.("title") || "").trim(),
     });
   }
@@ -932,7 +940,7 @@ async function selectGeneratedNoteCandidates(
     children: [
       {
         item: {
-          id: Number(candidates[0].parentItemID || 0),
+          ref: candidates[0].parentRef as { libraryId: number; key: string },
           title: String(candidates[0].parentTitle || ""),
         },
         parent: null,
@@ -959,10 +967,14 @@ function buildDigestRepresentativeTarget(args: {
 }) {
   return {
     kind: args.kind,
-    noteItemID: args.noteItem.id,
-    noteItemKey: String(args.noteItem.key || "").trim(),
-    parentItemID: args.parentItem.id,
-    parentItemKey: String(args.parentItem.key || "").trim(),
+    noteRef: {
+      libraryId: args.noteItem.libraryID,
+      key: String(args.noteItem.key || "").trim(),
+    },
+    parentRef: {
+      libraryId: args.parentItem.libraryID,
+      key: String(args.parentItem.key || "").trim(),
+    },
     parentTitle: String(args.parentItem.getField?.("title") || "").trim(),
   };
 }

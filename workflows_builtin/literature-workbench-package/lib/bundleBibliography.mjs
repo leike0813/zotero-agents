@@ -1,15 +1,10 @@
-const BETTER_BIBTEX_TRANSLATOR_ID =
-  "ca65189f-8815-4afe-8c8b-8c7c15f0edca";
-const NATIVE_BIBTEX_TRANSLATOR_ID =
-  "9cb70025-a888-4a29-a210-93ec52da40d4";
-
 function normalizeText(value) {
   return String(value || "").trim();
 }
 
 export async function exportBundleBibliography(args) {
-  const items = Array.isArray(args.items) ? args.items : [];
-  if (items.length === 0) {
+  const itemRefs = Array.isArray(args.itemRefs) ? args.itemRefs : [];
+  if (itemRefs.length === 0) {
     return {
       bibliography: {
         status: "not_generated",
@@ -20,61 +15,42 @@ export async function exportBundleBibliography(args) {
       content: "",
     };
   }
-  const host = args.host;
-  if (typeof host?.items?.exportText !== "function") {
-    throw new Error("workflow host does not provide items.exportText");
-  }
-  const exported = await host.items.exportText({
-    items,
-    translatorCandidates: [
-      {
-        translatorID: BETTER_BIBTEX_TRANSLATOR_ID,
-        label: "Better BibTeX",
+  let exported;
+  try {
+    exported = await args.host.bibliography.render({
+      itemRefs,
+      formatPreference: [{ id: "better-bibtex" }, { id: "bibtex" }],
+      formatOptions: {
+        exportNotes: false,
+        exportFileData: false,
+        keepUpdated: false,
+        useJournalAbbreviation: false,
       },
-      {
-        translatorID: NATIVE_BIBTEX_TRANSLATOR_ID,
-        label: "BibTeX",
-      },
-    ],
-    displayOptions: {
-      exportNotes: false,
-      exportFileData: false,
-      keepUpdated: false,
-      useJournalAbbreviation: false,
-    },
-  });
-  if (!exported?.ok) {
+    });
+  } catch {
     const error = new Error("unable to export bundle bibliography");
     error.code = "bibliography_export_failed";
-    error.attempts = exported?.attempts || [];
     throw error;
   }
-  const actualFormat =
-    exported.translator.translatorID === BETTER_BIBTEX_TRANSLATOR_ID
-      ? "better-bibtex"
-      : "bibtex";
+  const actualFormat = exported.usedFormat.ref.id;
   const bibliography = {
     status: "generated",
     path: "references.bib",
     requested_format: "better-bibtex",
     actual_format: actualFormat,
     translator: {
-      translator_id: exported.translator.translatorID,
-      label: exported.translator.label,
+      translator_id: actualFormat,
+      label: exported.usedFormat.label,
     },
     fallback_used: Boolean(exported.fallbackUsed),
-    item_count: items.length,
+    item_count: itemRefs.length,
   };
   if (exported.fallbackUsed) {
-    const primaryAttempt = exported.attempts?.[0] || {};
-    const primaryMessage = normalizeText(primaryAttempt.message);
     args.warnings?.push?.({
       code: "bibliography_export_fallback",
       requested_format: "better-bibtex",
       actual_format: actualFormat,
-      reason_code:
-        primaryAttempt.errorCode || primaryAttempt.status || "unknown",
-      ...(primaryMessage ? { message: primaryMessage } : {}),
+      reason_code: normalizeText(exported.issues?.[0]?.code) || "unavailable",
     });
   }
   return { bibliography, content: String(exported.content || "") };

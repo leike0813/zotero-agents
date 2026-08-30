@@ -546,6 +546,32 @@ describe("runtime platform services", function () {
     }
   });
 
+  it("falls back to Node when the Zotero file adapter cannot create directories", async function () {
+    if (typeof process === "undefined" || process.platform === "win32") {
+      this.skip();
+    }
+    const target = `/tmp/zs-runtime-directory-fallback-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: false,
+      isMac: false,
+      isLinux: true,
+      File: {
+        pathToFile: () => ({ exists: () => false }),
+      },
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", undefined);
+    try {
+      await ensureRuntimeDirectoryStrict(target);
+      assert.isTrue(await runtimePathExists(target));
+    } finally {
+      await removeRuntimePath(target).catch(() => false);
+      restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
+  });
+
   it("splits and merges PATH entries using the path style of the value", function () {
     assert.deepEqual(splitPathEntries("C:\\Tools;D:\\Node"), [
       "C:\\Tools",

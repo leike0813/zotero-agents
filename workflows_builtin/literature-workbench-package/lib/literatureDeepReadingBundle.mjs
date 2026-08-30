@@ -1,6 +1,7 @@
 import { parsePayloadBlock, parseWorkbenchNoteKind } from "./noteCodecs.mjs";
 import { resolveWorkbenchEmbeddedPayloadBlock } from "./embeddedPayloadAttachments.mjs";
 import { getBaseName, joinPath, sanitizeFileNameSegment } from "./path.mjs";
+import { portableItemRef } from "./runtime.mjs";
 
 function asUint8Array(value) {
   if (value instanceof Uint8Array) return value;
@@ -335,20 +336,17 @@ async function rewriteMarkdownImages({
   };
 }
 
-function getAttachmentFileName(entry, runtime) {
-  const viaHelper = runtime?.helpers?.getAttachmentFileName?.(entry);
+function getAttachmentFileName(entry) {
   return (
-    normalizeString(viaHelper) ||
-    normalizeString(entry?.item?.getField?.("title")) ||
+    normalizeString(entry?.item?.filename) ||
+    normalizeString(entry?.item?.title) ||
     getBaseName(normalizeString(entry?.filePath || entry?.path || ""))
   );
 }
 
-async function resolveAttachmentFilePath(entry, runtime) {
-  const viaHelper = runtime?.helpers?.getAttachmentFilePath?.(entry);
+async function resolveAttachmentFilePath(entry) {
   const direct = entry?.filePath || entry?.path || entry?.item?.filePath;
-  const fromItem = await entry?.item?.getFilePathAsync?.();
-  const resolved = normalizeString(viaHelper || direct || fromItem);
+  const resolved = normalizeString(direct);
   if (!resolved) {
     throw new Error(
       "literature-deep-reading cannot resolve source attachment path",
@@ -358,11 +356,19 @@ async function resolveAttachmentFilePath(entry, runtime) {
 }
 
 function readParentField(parentItem, fieldName) {
-  return normalizeString(parentItem?.getField?.(fieldName));
+  return normalizeString(
+      parentItem?.getField?.(fieldName) ??
+      parentItem?.fields?.[fieldName] ??
+      parentItem?.data?.[fieldName] ??
+      parentItem?.[fieldName],
+  );
 }
 
 function readParentCreators(parentItem) {
-  const creators = parentItem?.getCreators?.();
+  const creators =
+    parentItem?.getCreators?.() ||
+    parentItem?.creators ||
+    parentItem?.data?.creators;
   if (!Array.isArray(creators)) {
     return [];
   }
@@ -383,11 +389,12 @@ function readParentCreators(parentItem) {
 }
 
 function normalizePaperRef(parentItem) {
-  const itemKey = normalizeString(parentItem?.key);
-  if (!itemKey) {
+  try {
+    const ref = portableItemRef(parentItem);
+    return `${ref.libraryId}:${ref.key}`;
+  } catch {
     return "";
   }
-  return `1:${itemKey}`;
 }
 
 function normalizeArtifactKind(kind) {
@@ -585,16 +592,18 @@ async function collectSidecarArtifacts({
     references: 0,
     "citation-analysis": 0,
   };
-  const noteIds = parentItem?.getNotes?.() || [];
+  const host = runtime.hostApi;
+  const parentRef = portableItemRef(parentItem);
+  const notes = await host.library.getItemNotes(parentRef);
   const paperRef = normalizePaperRef(parentItem);
 
   if (
     paperRef &&
     runtime?.hostApi?.synthesis &&
-    typeof runtime.hostApi.synthesis.readPaperArtifacts === "function"
+    typeof runtime.hostApi.synthesis.artifacts?.readPaperArtifacts === "function"
   ) {
     try {
-      const result = await runtime.hostApi.synthesis.readPaperArtifacts({
+      const result = await runtime.hostApi.synthesis.artifacts.readPaperArtifacts({
         paper_refs: [paperRef],
         artifact_types: ["digest", "references", "citation_analysis"],
       });
@@ -666,17 +675,9 @@ async function collectSidecarArtifacts({
     });
   }
 
-  for (const noteRef of noteIds) {
-    let noteItem = null;
-    try {
-      noteItem = runtime.helpers.resolveItemRef(noteRef);
-    } catch {
-      noteItem = null;
-    }
-    if (!noteItem) {
-      continue;
-    }
-    const noteContent = noteItem.getNote?.() || "";
+  for (const note of notes) {
+    const noteItem = await host.library.getNoteDetail(note.ref, { format: "html" });
+    const noteContent = noteItem.content;
     const kind = parseWorkbenchNoteKind(noteContent);
     if (!kinds.has(kind) || artifactEntries[kind]) {
       continue;
@@ -763,12 +764,12 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
     workflowId = "literature-deep-reading",
   } = args;
   const hostFile = runtime.hostApi.file;
-  const sourcePath = await resolveAttachmentFilePath(sourceEntry, runtime);
+  const sourcePath = await resolveAttachmentFilePath(sourceEntry);
   const diagnostics = [];
   const entries = [];
-  const sourceFileName = getAttachmentFileName(sourceEntry, runtime);
-  const sourceIsMarkdown = runtime.helpers.isMarkdownAttachment(sourceEntry);
-  const sourceIsPdf = runtime.helpers.isPdfAttachment(sourceEntry);
+  const sourceFileName = getAttachmentFileName(sourceEntry);
+  const sourceIsMarkdown = /\.(?:md|markdown|mmd)$/i.test(sourcePath);
+  const sourceIsPdf = /\.pdf$/i.test(sourcePath);
 
   let sourceMarkdownStatus = "unavailable";
   let imageManifest = [];

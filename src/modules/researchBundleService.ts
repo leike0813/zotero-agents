@@ -1559,6 +1559,7 @@ export type ResearchBundleImportHostEffects = {
       slot: string;
       resource: ResearchBundleResolvedResource;
       altText?: string;
+      preserveSourceBytes?: boolean;
     }>;
     control?: WorkflowCallControl;
   }): Promise<ResearchBundleCreatedValue>;
@@ -1721,6 +1722,9 @@ export function createResearchBundleImportEffects(
                   control: args.control,
                 }),
                 ...(image.altText ? { altText: image.altText } : {}),
+                ...(image.preserveSourceBytes
+                  ? { preserveSourceBytes: true }
+                  : {}),
               })),
             );
             const createdNote = await host.createNote({

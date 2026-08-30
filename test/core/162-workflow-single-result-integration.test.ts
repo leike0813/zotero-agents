@@ -485,13 +485,12 @@ async function runDebugApplyWorkflow(args: {
 }
 
 function getRequestParent(request: Record<string, unknown>) {
-  const parentId = Number(request.targetParentID);
-  assert.isTrue(
-    Number.isFinite(parentId),
-    "request targetParentID is required",
+  const ref = isRecord(request.targetParentRef) ? request.targetParentRef : {};
+  const parent = Zotero.Items.getByLibraryAndKey(
+    Number(ref.libraryId),
+    normalizeString(ref.key),
   );
-  const parent = Zotero.Items.get(parentId);
-  assert.isOk(parent, `parent item ${parentId} should exist`);
+  assert.isOk(parent, "request targetParentRef must resolve to an item");
   return parent!;
 }
 
@@ -750,7 +749,7 @@ describe("workflow single-result behavior integration", function () {
 
     assert.equal(run.providerCalls[0]?.requestKind, "skillrunner.job.v1");
     assert.equal(run.applySummary.succeeded, 1);
-    assert.equal(run.applySummary.failed, 0);
+    assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assertParentHasTag(run.request);
     assert.isOk(findRequestReadyUpdate(run, requestId));
     assert.lengthOf(run.focusCalls, 1);
@@ -791,7 +790,7 @@ describe("workflow single-result behavior integration", function () {
     assert.lengthOf(run.assistantCalls, 0);
     assert.lengthOf(run.focusCalls, 0);
     assert.equal(run.applySummary.succeeded, 1);
-    assert.equal(run.applySummary.failed, 0);
+    assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assertParentHasTag(run.request);
   });
 
@@ -862,7 +861,10 @@ describe("workflow single-result behavior integration", function () {
         },
       });
 
-      assert.equal(Number(run.request.targetParentID), parent.id);
+      assert.deepEqual(run.request.targetParentRef, {
+        libraryId: parent.libraryID,
+        key: parent.key,
+      });
       assert.equal(run.applySummary.succeeded, 1);
       assert.equal(run.applySummary.failed, 0);
       assertParentHasAttachmentTitles(run.request, [
@@ -940,7 +942,7 @@ describe("workflow single-result behavior integration", function () {
     assert.isOk(findRequestReadyUpdate(run, "sr-sequence-result-result_one"));
     assert.isOk(findRequestReadyUpdate(run, "sr-sequence-result-result_two"));
     assert.equal(run.applySummary.succeeded, 1);
-    assert.equal(run.applySummary.failed, 0);
+    assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assert.lengthOf(run.assistantCalls, 0);
     const resultFocusTaskIds = run.focusCalls.map((entry) =>
       normalizeString(entry.runKey),
@@ -1077,7 +1079,7 @@ describe("workflow single-result behavior integration", function () {
     assert.isOk(findRequestReadyUpdate(run, "sr-sequence-bundle-bundle_one"));
     assert.isOk(findRequestReadyUpdate(run, "sr-sequence-bundle-bundle_two"));
     assert.equal(run.applySummary.succeeded, 1);
-    assert.equal(run.applySummary.failed, 0);
+    assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assert.lengthOf(run.assistantCalls, 0);
     const bundleFocusTaskIds = run.focusCalls.map((entry) =>
       normalizeString(entry.runKey),

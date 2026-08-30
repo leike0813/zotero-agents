@@ -109,7 +109,7 @@ Applying a topic synthesis result SHALL persist structured topic content as the 
 
 
 The builtin topic synthesis workflow hook SHALL delegate formal persistence to
-`runtime.hostApi.synthesis.applyTopicSynthesisResult`.
+`runtime.hostApi.synthesis.workflowApply.applyTopicSynthesisResult`.
 
 #### Scenario: Host synthesis service is available
 

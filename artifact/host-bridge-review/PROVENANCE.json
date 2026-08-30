@@ -1,7 +1,7 @@
 {
   "schema": "host-bridge.review-mirror.v2",
-  "generatedAt": "2026-08-29T18:32:05.309Z",
-  "sourceCommit": "539df38cf81bc8a421ad7d90af734e7da28ccb08",
+  "generatedAt": "2026-08-30T17:22:29.030Z",
+  "sourceCommit": "dbd9f8a49e5aa135776ac576784cbff009dd8986",
   "surfaceDefinitions": {
     "path": "host-bridge/surfaces.json",
     "schema": "host-bridge.surface-definitions.v1",
@@ -570,10 +570,10 @@
       "relativePath": "references/commands/library/snapshot.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/snapshot.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/snapshot.md",
-      "sourceSha256": "79f60aed8d750a43cecdb24dc6126d01f269eaca6739ee5ba87675e041a891a0",
-      "protectedStructureSha256": "ab53e4c5c019714ba14de638009743b1fe9eadffc8f53fe2269d7be627ac534c",
-      "translatedSha256": "adc3dac8f1e535c372dbc716a17872ef44dd09ba90abac779a27854275cb756f",
-      "translatedStructureSha256": "ab53e4c5c019714ba14de638009743b1fe9eadffc8f53fe2269d7be627ac534c"
+      "sourceSha256": "0c756c7c3c205f6e0e8423c13516975ed2f7a2cebfa471327416c5b3eddefc9b",
+      "protectedStructureSha256": "54fad2aa7fc08086f06095fcb0a47fe7cf220872df5fecbc7fddbe10f5e14d69",
+      "translatedSha256": "0e94c7ed16a5f4ccd4c421b837596e642f2048a5eae7139276f71aed67032a5c",
+      "translatedStructureSha256": "54fad2aa7fc08086f06095fcb0a47fe7cf220872df5fecbc7fddbe10f5e14d69"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -1626,10 +1626,10 @@
       "relativePath": "references/workflow-catalog.md",
       "artifactPath": "zotero-library-agent/skills/zotero-library-agent/references/workflow-catalog.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
-      "sourceSha256": "acccf587818883164d45729d3d3ba38e929258b93aeb5bf9096ac26a22565e2d",
-      "protectedStructureSha256": "76bd1bbf6520a6dddfc76c417598f3133618d80cc7c19997b3510783beab8b3b",
-      "translatedSha256": "441f280de16f8054c42355f1a2a99aa23cd54c434f2a56894cbf8aac59f07099",
-      "translatedStructureSha256": "76bd1bbf6520a6dddfc76c417598f3133618d80cc7c19997b3510783beab8b3b"
+      "sourceSha256": "44377d2c4d1bb089e2efd1b68f78646694a4da222dbf804700c4571b26afec4c",
+      "protectedStructureSha256": "18a6be9d64456365ccd0fdc2af54ebc094e96c5e31f0095ee87ef4c2c24bbda3",
+      "translatedSha256": "47254bf94dd575d09f9080af48850dddf238fb7586705944a6164bb18ce1c2a1",
+      "translatedStructureSha256": "18a6be9d64456365ccd0fdc2af54ebc094e96c5e31f0095ee87ef4c2c24bbda3"
     },
     {
       "ownerSurfaceId": "zotero-library-agent",

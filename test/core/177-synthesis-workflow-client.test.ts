@@ -6,7 +6,6 @@ import {
   type SynthesisClient,
 } from "../../packages/synthesis-contracts/src/index";
 import {
-  createWorkflowSynthesisV11Adapter,
   createWorkflowSynthesisHostApi,
   materializeTopicApplyRequest,
   snapshotWorkflowSynthesisItem,
@@ -23,23 +22,6 @@ import {
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
-const WORKFLOW_METHODS = [
-  "applyLiteratureDigestSidecar",
-  "applyTopicSynthesisResult",
-  "clearTagAuditRecord",
-  "discardStagedTagSuggestions",
-  "exportTagVocabularyForRegulator",
-  "getTopicPlanningContext",
-  "getTopicReport",
-  "listStagedTagSuggestions",
-  "loadTagVocabulary",
-  "readPaperArtifacts",
-  "replaceTagAuditRecords",
-  "saveTagVocabulary",
-  "applyTopicPlan",
-  "stageTagSuggestions",
-].sort();
-
 const GROUPED_WORKFLOW_METHODS = {
   workflowApply: [
     "applyLiteratureDigest",
@@ -388,97 +370,6 @@ describe("Synthesis workflow client migration", function () {
     }
   });
 
-  it("exposes the workflow methods and routes topic planning through grouped capabilities", async function () {
-    const calls: string[] = [];
-    const changes: Array<{
-      reason: string;
-      invalidatedSurfaces: string[];
-    }> = [];
-    const api = createWorkflowSynthesisV11Adapter({
-      resolveClient: async () => fakeClient(calls),
-      notifyChanged(input) {
-        changes.push({
-          reason: String(input.reason || ""),
-          invalidatedSurfaces: input.invalidatedSurfaces,
-        });
-      },
-    });
-
-    assert.deepEqual(Object.keys(api).sort(), WORKFLOW_METHODS);
-    await api.applyTopicSynthesisResult(topicApplyBundle());
-    await api.getTopicReport({ topicId: "topic-a" });
-    await api.getTopicPlanningContext();
-    await api.applyTopicPlan({
-      kind: "topic_plan",
-      operation: "reconcile",
-      base_graph_hash: "graph-before",
-      library_index_hash: "library-before",
-      topic_actions: [],
-      relation_proposals: [],
-      recommended_updates: [],
-    });
-    await api.readPaperArtifacts({ paper_refs: ["1:AAAA1111"] });
-    await api.loadTagVocabulary();
-    await api.saveTagVocabulary({ entries: [] });
-    await api.exportTagVocabularyForRegulator();
-    await api.listStagedTagSuggestions();
-    await api.stageTagSuggestions({ entries: [] });
-    await api.discardStagedTagSuggestions({ tags: [] });
-    await api.applyLiteratureDigestSidecar({
-      libraryId: 1,
-      itemKey: "AAAA1111",
-    });
-    await api.replaceTagAuditRecords({ libraryId: 1, entries: [] });
-    await api.clearTagAuditRecord({ libraryId: 1, itemKey: "AAAA1111" });
-
-    assert.deepEqual(calls, [
-      "applyTopicSynthesisResult",
-      "getTopicReport",
-      "getTopicPlanningContext",
-      "applyTopicPlan",
-      "readPaperArtifacts",
-      "loadTagVocabulary",
-      "saveTagVocabulary",
-      "exportTagVocabularyForRegulator",
-      "listStagedTagSuggestions",
-      "stageTagSuggestions",
-      "discardStagedTagSuggestions",
-      "applyLiteratureDigestSidecar",
-      "replaceTagAuditRecords",
-      "clearTagAuditRecord",
-    ]);
-    assert.deepEqual(changes, [
-      {
-        reason: "topic_synthesis_apply",
-        invalidatedSurfaces: ["home", "topics", "concepts", "graph", "review"],
-      },
-      {
-        reason: "topic_plan_apply",
-        invalidatedSurfaces: ["home", "topics", "graph"],
-      },
-      {
-        reason: "tag_vocabulary_save",
-        invalidatedSurfaces: ["tags"],
-      },
-      {
-        reason: "tag_suggestions_stage",
-        invalidatedSurfaces: ["tags"],
-      },
-      {
-        reason: "literature_digest_apply",
-        invalidatedSurfaces: ["index", "graph"],
-      },
-      {
-        reason: "tag_audit_apply",
-        invalidatedSurfaces: ["index"],
-      },
-      {
-        reason: "tag_regulation_apply",
-        invalidatedSurfaces: ["index"],
-      },
-    ]);
-  });
-
   it("converts live Zotero items to JSON-safe workflow snapshots", function () {
     const item = {
       libraryID: 1,
@@ -635,23 +526,6 @@ describe("Synthesis workflow client migration", function () {
         assert.equal((error as SynthesisClientError).code, "invalid_request");
       }
     }
-
-    let mutationCalled = false;
-    const client = fakeClient([]);
-    client.workflowApply.applyTopicSynthesisResult = async () => {
-      mutationCalled = true;
-      return {};
-    };
-    const api = createWorkflowSynthesisV11Adapter({
-      resolveClient: async () => client,
-    });
-    await assertInvalidRequest(() =>
-      api.applyTopicSynthesisResult(
-        { analysis_manifest_path: "missing.json" },
-        { bundleReader: { readText: () => Promise.reject("missing") } },
-      ),
-    );
-    assert.isFalse(mutationCalled);
   });
 
   it("enforces asset count and aggregate size bounds", async function () {

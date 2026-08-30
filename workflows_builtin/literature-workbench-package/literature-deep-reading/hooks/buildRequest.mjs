@@ -35,7 +35,7 @@ async function buildRequestImpl({
   const sourceEntry = attachments[0];
   const parentItem = resolveParentItemFromSelection(selectionContext, runtime);
   const workflowParams = resolveWorkflowParams(executionOptions);
-  const sourcePath = await runtime.helpers.getAttachmentFilePath?.(sourceEntry) ||
+  const sourcePath =
     sourceEntry?.filePath ||
     sourceEntry?.path ||
     sourceEntry?.item?.filePath;

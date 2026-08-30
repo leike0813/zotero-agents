@@ -435,36 +435,39 @@ describe("workflow: literature-deep-reading", function () {
     };
     hostApi.synthesis = {
       ...hostApi.synthesis,
-      async readPaperArtifacts(args: Record<string, unknown>) {
-        assert.deepEqual(args.paper_refs, [`1:${parent.key}`]);
-        return {
-          artifacts: [
-            {
-              paper_ref: `1:${parent.key}`,
-              artifact_type: "digest",
-              payload_type: "digest-markdown",
-              status: "available",
-              markdown: "# Host Digest\n\nRead from Host.",
-            },
-            {
-              paper_ref: `1:${parent.key}`,
-              artifact_type: "references",
-              payload_type: "references-json",
-              status: "available",
-              payload: {
-                references: [{ id: "ref-host", title: "Host Reference" }],
+      artifacts: {
+        ...hostApi.synthesis.artifacts,
+        async readPaperArtifacts(args: Record<string, unknown>) {
+          assert.deepEqual(args.paper_refs, [`1:${parent.key}`]);
+          return {
+            artifacts: [
+              {
+                paper_ref: `1:${parent.key}`,
+                artifact_type: "digest",
+                payload_type: "digest-markdown",
+                status: "available",
+                markdown: "# Host Digest\n\nRead from Host.",
               },
-            },
-            {
-              paper_ref: `1:${parent.key}`,
-              artifact_type: "citation_analysis",
-              payload_type: "citation-analysis-markdown",
-              status: "available",
-              decoded_text: "# Host Citation Analysis",
-            },
-          ],
-          diagnostics: [],
-        };
+              {
+                paper_ref: `1:${parent.key}`,
+                artifact_type: "references",
+                payload_type: "references-json",
+                status: "available",
+                payload: {
+                  references: [{ id: "ref-host", title: "Host Reference" }],
+                },
+              },
+              {
+                paper_ref: `1:${parent.key}`,
+                artifact_type: "citation_analysis",
+                payload_type: "citation-analysis-markdown",
+                status: "available",
+                decoded_text: "# Host Citation Analysis",
+              },
+            ],
+            diagnostics: [],
+          };
+        },
       },
     };
 
@@ -761,7 +764,7 @@ describe("workflow: literature-deep-reading", function () {
       },
     })) as {
       ok: boolean;
-      attachmentId: number;
+      attachmentId: null;
       attachmentKey: string;
       htmlPath: string;
       partial?: boolean;
@@ -769,17 +772,25 @@ describe("workflow: literature-deep-reading", function () {
 
     const expectedHtmlPath = joinPath(tempDir, "paper.html");
     assert.isTrue(applied.ok);
-    assert.isAbove(applied.attachmentId, 0);
+    assert.isNull(applied.attachmentId);
     assert.isNotEmpty(applied.attachmentKey);
     assert.equal(applied.htmlPath, expectedHtmlPath);
     assert.equal(await readUtf8(applied.htmlPath), html);
 
-    const attached = Zotero.Items.get(applied.attachmentId)!;
+    const attached = await Zotero.Items.getByLibraryAndKey(
+      parent.libraryID,
+      applied.attachmentKey,
+    );
+    assert.isOk(attached);
     assert.equal(attached.parentID, parent.id);
     assert.equal(attached.getField("title"), "paper.html");
     assert.equal(await countAttachmentsByPath(parent, expectedHtmlPath), 1);
     assert.deepEqual(statusTransitions, [
-      { item: parent, remove: ["need-deep-reading"] },
+      {
+        operationId: statusTransitions[0]?.operationId,
+        itemRef: { libraryId: parent.libraryID, key: parent.key },
+        remove: ["need-deep-reading"],
+      },
     ]);
     assert.isFalse(applied.partial);
   });

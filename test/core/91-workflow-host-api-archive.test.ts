@@ -73,31 +73,38 @@ describe("workflow host api archive facade", function () {
     assert.match(written.files["files/source.bin"].sha256, /^[a-f0-9]{64}$/);
 
     let extractedRoot = "";
-    await host.archive.withExtractedZip(targetPath, async (archive) => {
-      extractedRoot = archive.rootPath;
-      assert.sameMembers(archive.entries, [
-        "manifest.json",
-        "files/source.bin",
-        "files/bytes.bin",
-      ]);
-      assert.equal(await archive.readText("manifest.json"), '{"kind":"test"}');
-      assert.deepEqual(
-        Array.from(await archive.readBytes("files/source.bin")),
-        [1, 2, 3, 4],
-      );
-      assert.equal(
-        archive.resolvePath("files/bytes.bin").replace(/\\/g, "/"),
-        `${archive.rootPath.replace(/\\/g, "/")}/files/bytes.bin`,
-      );
-      const remeasured = await archive.measureEntries([
-        "files/source.bin",
-        "files/bytes.bin",
-      ]);
-      assert.deepEqual(remeasured.files, {
-        "files/source.bin": written.files["files/source.bin"],
-        "files/bytes.bin": written.files["files/bytes.bin"],
-      });
-    });
+    await host.archive.withExtractedZip(
+      { sourcePath: targetPath },
+      {},
+      async (archive) => {
+        extractedRoot = archive.rootPath;
+        assert.sameMembers(archive.entries, [
+          "manifest.json",
+          "files/source.bin",
+          "files/bytes.bin",
+        ]);
+        assert.equal(
+          await archive.readText("manifest.json"),
+          '{"kind":"test"}',
+        );
+        assert.deepEqual(
+          Array.from(await archive.readBytes("files/source.bin")),
+          [1, 2, 3, 4],
+        );
+        assert.equal(
+          archive.resolvePath("files/bytes.bin").replace(/\\/g, "/"),
+          `${archive.rootPath.replace(/\\/g, "/")}/files/bytes.bin`,
+        );
+        const remeasured = await archive.measureEntries([
+          "files/source.bin",
+          "files/bytes.bin",
+        ]);
+        assert.deepEqual(remeasured.files, {
+          "files/source.bin": written.files["files/source.bin"],
+          "files/bytes.bin": written.files["files/bytes.bin"],
+        });
+      },
+    );
     let cleanupError: unknown;
     try {
       await fs.access(extractedRoot);
@@ -235,16 +242,20 @@ describe("workflow host api archive facade", function () {
       assert.isAtLeast(writeCalls, 1);
       assert.equal(moveCalls, 1);
       assert.match(written.files["manifest.json"].sha256, /^[a-f0-9]{64}$/);
-      await archive.withExtractedZip(targetPath, async (extracted) => {
-        assert.equal(
-          await extracted.readText("manifest.json"),
-          '{"runtime":"zotero9"}',
-        );
-        assert.deepEqual(
-          Array.from(await extracted.readBytes("payload.bin")),
-          [4, 5, 6],
-        );
-      });
+      await archive.withExtractedZip(
+        { sourcePath: targetPath },
+        {},
+        async (extracted) => {
+          assert.equal(
+            await extracted.readText("manifest.json"),
+            '{"runtime":"zotero9"}',
+          );
+          assert.deepEqual(
+            Array.from(await extracted.readBytes("payload.bin")),
+            [4, 5, 6],
+          );
+        },
+      );
     } finally {
       restoreRuntime();
     }
@@ -279,21 +290,25 @@ describe("workflow host api archive facade", function () {
       targetPath,
       entries: [{ name: "known.bin", bytes: new Uint8Array([1]) }],
     });
-    await archive.withExtractedZip(targetPath, async (extracted) => {
-      for (const names of [
-        ["../escape.bin"],
-        ["known.bin", "known.bin"],
-        ["unknown.bin"],
-      ]) {
-        let error: unknown;
-        try {
-          await extracted.measureEntries(names);
-        } catch (caught) {
-          error = caught;
+    await archive.withExtractedZip(
+      { sourcePath: targetPath },
+      {},
+      async (extracted) => {
+        for (const names of [
+          ["../escape.bin"],
+          ["known.bin", "known.bin"],
+          ["unknown.bin"],
+        ]) {
+          let error: unknown;
+          try {
+            await extracted.measureEntries(names);
+          } catch (caught) {
+            error = caught;
+          }
+          assert.instanceOf(error, Error);
         }
-        assert.instanceOf(error, Error);
-      }
-    });
+      },
+    );
   });
 
   it("preserves an existing target when archive creation fails", async function () {
@@ -325,10 +340,14 @@ describe("workflow host api archive facade", function () {
     });
 
     let extracted: WorkflowExtractedArchive | undefined;
-    await archive.withExtractedZip(targetPath, async (current) => {
-      extracted = current;
-      assert.equal(await current.readText("payload.txt"), "scoped");
-    });
+    await archive.withExtractedZip(
+      { sourcePath: targetPath },
+      {},
+      async (current) => {
+        extracted = current;
+        assert.equal(await current.readText("payload.txt"), "scoped");
+      },
+    );
 
     assert.throws(() => extracted?.resolvePath("payload.txt"));
     await assertRejects(extracted?.readBytes("payload.txt"));

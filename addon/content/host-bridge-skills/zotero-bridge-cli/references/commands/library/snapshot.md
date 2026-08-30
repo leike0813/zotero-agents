@@ -495,7 +495,7 @@ This command has no separate field-mapping program. Its binding mode is executab
 Minimal JSON shape for --query.
 
 ```console
-zotero-bridge library snapshot --query '{}'
+zotero-bridge library snapshot --query '{"batchSize":500,"libraryId":1}'
 ```
 
 Prerequisites:
@@ -574,7 +574,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "prerequisites": [
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
-          "value": {}
+          "value": {
+            "batchSize": 500,
+            "libraryId": 1
+          }
         }
       ],
       "required": false,
@@ -639,15 +642,17 @@ This closed descriptor is the machine-readable command contract returned by `sur
   ],
   "outputBoundary": {
     "continuation": [
+      "data.snapshotId",
       "data.nextCursor",
       "data.hasMore",
       "data.returned",
-      "data.total",
-      "data.limit"
+      "data.deliveredItems",
+      "data.deliveredBatches",
+      "data.outcome"
     ],
-    "cursorInput": "cursor",
-    "defaultLimit": 25,
-    "maxLimit": 100,
+    "cursorInput": "query",
+    "defaultLimit": 500,
+    "maxLimit": 1000,
     "section": "data.items",
     "strategy": "cursor"
   },
@@ -1072,7 +1077,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ## Operational contract
 
 - Canonical argv path: `library` `snapshot`.
-- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"cursor"}.
+- Output boundary: `cursor`; governed details: {"continuation":["data.snapshotId","data.nextCursor","data.hasMore","data.returned","data.deliveredItems","data.deliveredBatches","data.outcome"],"cursorInput":"query","defaultLimit":500,"maxLimit":1000,"section":"data.items","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Structured binding mode: `passthrough`.

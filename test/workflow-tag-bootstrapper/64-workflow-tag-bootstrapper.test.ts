@@ -4,7 +4,10 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { getBuiltinStatusPolicy } from "../../src/modules/synthesis/builtinTagPolicy";
-import { WORKFLOW_HOST_API_VERSION } from "../../src/workflows/hostApi";
+import {
+  createWorkflowHostApi,
+  WORKFLOW_HOST_API_VERSION,
+} from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { workflowsPath } from "../zotero/workflow-test-utils";
 import { buildRequest } from "../../workflows_builtin/literature-workbench-package/tag-bootstrapper/hooks/buildRequest.mjs";
@@ -93,13 +96,25 @@ async function makeRuntime() {
       staged = Array.from(byTag.values());
     },
   };
+  const base = createWorkflowHostApi();
   return {
     service,
     runtime: {
       hostApiVersion: WORKFLOW_HOST_API_VERSION,
       hostApi: {
-        synthesis: service,
+        ...base,
+        synthesis: {
+          ...base.synthesis,
+          tags: {
+            ...base.synthesis.tags,
+            loadVocabulary: service.loadTagVocabulary,
+            saveVocabulary: service.saveTagVocabulary,
+            listStagedSuggestions: service.listStagedTagSuggestions,
+            stageSuggestions: service.stageTagSuggestions,
+          },
+        },
         statusTags: {
+          ...base.statusTags,
           getPolicy: getBuiltinStatusPolicy,
         },
       },

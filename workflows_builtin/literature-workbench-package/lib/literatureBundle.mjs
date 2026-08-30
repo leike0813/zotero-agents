@@ -1,8 +1,6 @@
 import { getBaseName, sanitizeFileNameSegment } from "./path.mjs";
 import { RESEARCH_PRODUCT_SCHEMA } from "./researchBundle.mjs";
 import {
-  attachWorkbenchPayloadToNote,
-  listWorkbenchEmbeddedPayloadBlocksForNote,
   workbenchPayloadArtifactName,
   workbenchPayloadText,
 } from "./embeddedPayloadAttachments.mjs";
@@ -12,6 +10,7 @@ import {
   buildLiteratureScorePayload,
   upsertLiteratureScoreNote,
 } from "./literatureScoreNote.mjs";
+import { portableItemRef } from "./runtime.mjs";
 
 export { rewriteMarkdownLocalImages };
 
@@ -21,7 +20,6 @@ export const LITERATURE_PRODUCT_SCHEMA = "literature_bundle.product";
 export const LITERATURE_PRODUCT_SCHEMA_VERSION = "1.0.0";
 export const LITERATURE_BUNDLE_SOURCE_ONLY_KIND = "zotero-agents-literature-bundle-source-only";
 export const LITERATURE_EXPORT_MODES = new Set(["selection", "collection", "library"]);
-const EXCLUDED_ITEM_TYPES = new Set(["attachment", "note", "annotation"]);
 const LIST_PAGE_LIMIT = 200;
 const LIST_PAGE_GUARD = 10000;
 
@@ -435,69 +433,51 @@ export async function verifyLiteratureProductFiles(manifest, archive) {
   }
 }
 
-function attachmentMetadata(attachment) {
-  return {
-    title: normalizeText(attachment?.getField?.("title")),
-    contentType: normalizeText(
-      attachment?.attachmentContentType || attachment?.getField?.("contentType"),
-    ),
-    charset: normalizeText(attachment?.attachmentCharset || attachment?.getField?.("charset")),
-    url: normalizeText(attachment?.getField?.("url")),
-    linkMode:
-      typeof attachment?.getAttachmentLinkMode === "function"
-        ? attachment.getAttachmentLinkMode()
-        : attachment?.attachmentLinkMode ?? null,
-  };
-}
-
-async function readableAttachmentPath(attachment, host) {
-  let path = "";
-  try {
-    path = normalizeText(await attachment?.getFilePathAsync?.());
-  } catch {
-    path = "";
-  }
-  return path && (await host.file.exists(path)) ? path : "";
-}
-
 export async function buildLiteratureBundleExport(args) {
   const { host, parents } = args;
-  const warnings = [];
+  const materialized = await host.researchBundles.materializePapers({
+    paperRefs: parents.map(portableItemRef),
+    missingFilePolicy: "record_missing",
+  });
+  const warnings = [...(materialized.issues || [])];
   const payloadEntries = [];
   const itemRecords = [];
-  const parentIds = new Map();
-  const parentKeys = new Map();
-  for (let index = 0; index < parents.length; index += 1) {
-    const id = `i${index + 1}`;
-    parentIds.set(parents[index].id, id);
-    parentKeys.set(normalizeText(parents[index].key), id);
-  }
+  const itemIdByRef = new Map(materialized.papers.map((paper, index) => [
+    `${paper.source.ref.libraryId}:${paper.source.ref.key}`,
+    `i${index + 1}`,
+  ]));
 
-  for (const parent of parents) {
-    const itemId = parentIds.get(parent.id);
+  for (const paper of materialized.papers) {
+    const itemId = itemIdByRef.get(`${paper.source.ref.libraryId}:${paper.source.ref.key}`);
     const attachmentRecords = [];
     const noteRecords = [];
-    let attachmentIndex = 0;
-    for (const attachmentRef of parent.getAttachments?.() || []) {
-      const attachment = host.items.get(attachmentRef);
-      if (!attachment) continue;
-      const id = `a${++attachmentIndex}`;
-      const metadata = attachmentMetadata(attachment);
-      const sourcePath = await readableAttachmentPath(attachment, host);
-      if (!sourcePath && Number(metadata.linkMode) === 3 && metadata.url) {
+    for (let index = 0; index < paper.attachments.length; index += 1) {
+      const attachment = paper.attachments[index];
+      const id = `a${index + 1}`;
+      const metadata = attachment.metadata;
+      if (attachment.file.state === "not_applicable" && metadata.url) {
         attachmentRecords.push({ id, kind: "url", metadata });
         continue;
       }
-      if (!sourcePath) {
+      if (attachment.file.state !== "available") {
         warnings.push({ code: "attachment_file_missing", itemId, childId: id });
         attachmentRecords.push({ id, kind: "skipped", metadata, warningCode: "attachment_file_missing" });
         continue;
       }
+      const resourcePath = (await host.resources.get(attachment.file.resourceRef)).path;
+      const metadataSourcePath =
+        metadata.file?.state === "available"
+          ? metadata.file.path
+          : "";
+      const sourcePath =
+        metadataSourcePath && (await host.file.exists(metadataSourcePath))
+          ? metadataSourcePath
+          : resourcePath;
       const baseName = sanitizeFileNameSegment(getBaseName(sourcePath) || `${id}.bin`);
       const basePath = `items/${itemId}/attachments/${id}`;
       const isMarkdown = /(?:markdown|text\/plain)/i.test(metadata.contentType) || /\.md$/i.test(baseName);
       if (isMarkdown) {
-        const original = await host.file.readText(sourcePath);
+        const original = await host.file.readText(resourcePath);
         const rewritten = await rewriteMarkdownLocalImages({
           markdown: original,
           sourcePath,
@@ -520,41 +500,79 @@ export async function buildLiteratureBundleExport(args) {
       }
     }
 
-    let noteIndex = 0;
-    for (const noteRef of parent.getNotes?.() || []) {
-      const note = host.items.get(noteRef);
-      if (!note) continue;
-      const id = `n${++noteIndex}`;
+    for (let index = 0; index < paper.notes.length; index += 1) {
+      const note = paper.notes[index];
+      const id = `n${index + 1}`;
       const imageRecords = [];
-      const keyRefs = new Map();
-      let imageIndex = 0;
-      for (const imageRef of note.getAttachments?.() || []) {
-        const image = host.items.get(imageRef);
-        if (!image) continue;
-        const imageId = `e${++imageIndex}`;
-        const sourcePath = await readableAttachmentPath(image, host);
-        if (!sourcePath) {
-          warnings.push({ code: "note_image_missing", itemId, childId: `${id}:${imageId}` });
-          continue;
-        }
-        const path = `items/${itemId}/notes/${id}/images/${imageId}/${sanitizeFileNameSegment(getBaseName(sourcePath) || `${imageId}.bin`)}`;
+      const imageIdBySlot = new Map();
+      let portableHtml = note.content.value;
+      for (let imageIndex = 0; imageIndex < note.content.embeddedImages.length; imageIndex += 1) {
+        const image = note.content.embeddedImages[imageIndex];
+        const imageId = `e${imageIndex + 1}`;
+        const resource = await host.resources.get(image.resourceRef);
+        const path = `items/${itemId}/notes/${id}/images/${imageId}/${sanitizeFileNameSegment(resource.displayName || `${imageId}.bin`)}`;
+        const sourcePath = resource.path;
         payloadEntries.push({ name: path, sourcePath });
-        keyRefs.set(normalizeText(image.key), imageId);
-        imageRecords.push({ id: imageId, path, metadata: attachmentMetadata(image) });
+        portableHtml = portableHtml.replace(
+          new RegExp(`data-zotero-agents-image-slot=(["'])${escapeRegex(image.slot)}\\1`, "i"),
+          `data-zb-attachment-ref="${imageId}"`,
+        );
+        imageIdBySlot.set(image.slot, imageId);
+        imageRecords.push({
+          id: imageId,
+          path,
+          metadata: { title: image.altText, contentType: image.mimeType },
+        });
       }
-      const portable = makePortableNoteHtml(note.getNote?.() || "", keyRefs);
-      warnings.push(...portable.unresolvedKeys.map(() => ({ code: "note_image_missing", itemId, childId: id })));
+      const portable = makePortableNoteHtml(portableHtml, new Map());
+      portableHtml = portable.html;
+      warnings.push(
+        ...portable.unresolvedKeys.map(() => ({
+          code: "note_image_missing",
+          itemId,
+          childId: id,
+        })),
+      );
       const htmlPath = `items/${itemId}/notes/${id}/note.html`;
-      payloadEntries.push({ name: htmlPath, text: portable.html });
-      noteRecords.push({ id, htmlPath, images: imageRecords });
+      payloadEntries.push({ name: htmlPath, text: portableHtml });
+      const payloads = note.payloads.map((block) => {
+        const source = block.summary.source;
+        const sourceSlot =
+          source.kind === "embedded_attachment"
+            ? `${source.attachmentRef.libraryId}:${source.attachmentRef.key}`
+            : "";
+        return {
+          ...block,
+          sourceImageId: imageIdBySlot.get(sourceSlot) || null,
+        };
+      });
+      const payloadImageIds = new Set(
+        payloads.map((block) => block.sourceImageId).filter(Boolean),
+      );
+      noteRecords.push({
+        id,
+        htmlPath,
+        images: imageRecords.map((image) => ({
+          ...image,
+          ...(payloadImageIds.has(image.id)
+            ? { preserveSourceBytes: true }
+            : {}),
+        })),
+        payloads,
+      });
     }
 
-    const relatedItemIds = Array.from(parent.relatedItems || [])
-      .map((key) => parentKeys.get(normalizeText(key)))
+    const relatedItemIds = paper.relatedRefs
+      .map((ref) => itemIdByRef.get(`${ref.libraryId}:${ref.key}`))
       .filter(Boolean);
     itemRecords.push({
       id: itemId,
-      itemJson: host.items.exportPortableJson(parent),
+      itemJson: {
+        itemType: paper.item.itemType,
+        ...paper.item.fields,
+        creators: paper.item.creators,
+        tags: paper.item.tags,
+      },
       relatedItemIds,
       attachments: attachmentRecords,
       notes: noteRecords,
@@ -567,7 +585,7 @@ export async function buildLiteratureBundleExport(args) {
     schemaVersion: LITERATURE_BUNDLE_SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
     source: {
-      zoteroVersion: normalizeText(globalThis.Zotero?.version),
+      zoteroVersion: normalizeText(host.environment.getInfo().zoteroVersion),
       addonVersion: normalizeText(host.addon?.getConfig?.()?.addonVersion),
     },
     warnings,
@@ -632,16 +650,6 @@ export async function buildLiteratureProduct(args) {
       `paper-${String(index + 1).padStart(3, "0")}`,
     ]),
   );
-  const runtime = {
-    ...(args.runtime || {}),
-    hostApi: host,
-    helpers: {
-      ...(args.runtime?.helpers || {}),
-      resolveItemRef:
-        args.runtime?.helpers?.resolveItemRef || ((ref) => host.items.get(ref)),
-    },
-  };
-
   for (const entry of snapshot.entries) {
     const itemId = /^items\/([^/]+)\//.exec(entry.name)?.[1];
     const logicalId = paperIdByItemId.get(itemId);
@@ -666,7 +674,7 @@ export async function buildLiteratureProduct(args) {
         path: remapPath(asset.path),
       })),
     }));
-    const notes = (item.notes || []).map((note) => ({
+    const notes = (item.notes || []).map(({ payloads: _payloads, ...note }) => ({
       ...note,
       htmlPath: remapPath(note.htmlPath),
       images: (note.images || []).map((image) => ({
@@ -681,46 +689,37 @@ export async function buildLiteratureProduct(args) {
     });
 
     const payloads = [];
-    let noteRecordIndex = 0;
     const payloadOrdinals = new Map();
-    for (const noteRef of parent.getNotes?.() || []) {
-      const note = host.items.get(noteRef);
-      if (!note) continue;
-      const noteRecord = notes[noteRecordIndex++];
-      if (!noteRecord) continue;
-      const imageIdByKey = new Map();
-      let imageIndex = 0;
-      for (const imageRef of note.getAttachments?.() || []) {
-        const image = host.items.get(imageRef);
-        if (!image) continue;
-        const imageId = `e${++imageIndex}`;
-        if (noteRecord.images.some((record) => record.id === imageId)) {
-          imageIdByKey.set(normalizeText(image.key), imageId);
-        }
-      }
-      const blocks = await listWorkbenchEmbeddedPayloadBlocksForNote({
-        noteItem: note,
-        runtime,
-      });
-      for (const block of blocks) {
-        const artifactName = workbenchPayloadArtifactName(block.payloadType);
-        const sourceImageId = imageIdByKey.get(normalizeText(block.attachmentKey));
-        if (!artifactName || !sourceImageId) continue;
-        const ordinal = (payloadOrdinals.get(block.payloadType) || 0) + 1;
-        payloadOrdinals.set(block.payloadType, ordinal);
-        const extension = block.format === "json" ? "json" : "md";
+    for (let noteIndex = 0; noteIndex < notes.length; noteIndex += 1) {
+      const noteRecord = notes[noteIndex];
+      for (const block of item.notes[noteIndex].payloads || []) {
+        const payloadType = block.summary.payloadType;
+        const artifactName = workbenchPayloadArtifactName(payloadType);
+        if (!artifactName || !block.sourceImageId) continue;
+        const ordinal = (payloadOrdinals.get(payloadType) || 0) + 1;
+        payloadOrdinals.set(payloadType, ordinal);
+        const extension = block.summary.format === "json" ? "json" : "md";
         const path = `papers/${logicalId}/payloads/${artifactName}-${String(ordinal).padStart(3, "0")}.${extension}`;
-        entries.push({ name: path, text: workbenchPayloadText(block) });
+        entries.push({ name: path, text: workbenchPayloadText({
+          format: block.summary.format,
+          payload: block.value,
+          markdown: typeof block.value === "string" ? block.value : "",
+        }) });
         payloads.push({
           id: `p${payloads.length + 1}`,
-          payload_type: block.payloadType,
-          note_kind: block.noteKind,
-          format: block.format,
+          payload_type: payloadType,
+          note_kind: block.summary.noteKind,
+          format: block.summary.format,
           path,
           source_note_id: noteRecord.id,
-          source_image_id: sourceImageId,
-          payload_hash: block.payloadHash || "",
-          anchor_status: block.anchorStatus,
+          source_image_id: block.sourceImageId,
+          payload_hash: "",
+          anchor_status:
+            block.summary.state === "stale"
+              ? "stale"
+              : block.summary.state === "available"
+                ? "present"
+                : "missing",
         });
       }
     }
@@ -741,7 +740,7 @@ export async function buildLiteratureProduct(args) {
     }
     papers.push({
       logical_id: logicalId,
-      title: normalizeText(parent.getField?.("title") || item.itemJson?.title),
+      title: normalizeText(parent.title || item.itemJson?.title),
       metadata_path: metadataPath,
       attachments,
       notes,
@@ -762,7 +761,7 @@ export async function buildLiteratureProduct(args) {
 
   const bibliographyExport = await exportBundleBibliography({
     host,
-    items: parents,
+    itemRefs: parents.map(portableItemRef),
     warnings,
   });
   const bibliography = bibliographyExport.bibliography;
@@ -777,7 +776,7 @@ export async function buildLiteratureProduct(args) {
     schema_version: LITERATURE_PRODUCT_SCHEMA_VERSION,
     created_at: new Date().toISOString(),
     source: {
-      zotero_version: normalizeText(globalThis.Zotero?.version),
+      zotero_version: normalizeText(host.environment.getInfo().zoteroVersion),
       addon_version: normalizeText(host.addon?.getConfig?.()?.addonVersion),
     },
     bibliography,
@@ -790,7 +789,11 @@ export async function buildLiteratureProduct(args) {
 
 export async function buildLiteratureBundleSourceOnlyExport(args) {
   const { host, parents } = args;
-  const warnings = [];
+  const materialized = await host.researchBundles.materializePapers({
+    paperRefs: parents.map(portableItemRef),
+    missingFilePolicy: "record_missing",
+  });
+  const warnings = [...(materialized.issues || [])];
   const payloadEntries = [];
   const itemRecords = [];
   const usedNames = new Set();
@@ -814,16 +817,15 @@ export async function buildLiteratureBundleSourceOnlyExport(args) {
 
   for (let index = 0; index < parents.length; index += 1) {
     const parent = parents[index];
+    const paper = materialized.papers[index];
     const bundleLocalId = `i${index + 1}`;
-    const rawTitle = normalizeText(parent.getField?.("title"));
+    const rawTitle = normalizeText(parent.title || paper?.item?.fields?.title);
     const titleBase = rawTitle ? sanitizeFileNameSegment(rawTitle) : bundleLocalId;
     let chosenAttachment = null;
-    for (const attachmentRef of parent.getAttachments?.() || []) {
-      const attachment = host.items.get(attachmentRef);
-      if (!attachment) continue;
-      const metadata = attachmentMetadata(attachment);
-      const sourcePath = await readableAttachmentPath(attachment, host);
-      if (!sourcePath) continue;
+    for (const attachment of paper?.attachments || []) {
+      if (attachment.file.state !== "available") continue;
+      const metadata = attachment.metadata;
+      const sourcePath = (await host.resources.get(attachment.file.resourceRef)).path;
       const baseName = getBaseName(sourcePath);
       const isMarkdown =
         /(?:markdown|text\/plain)/i.test(metadata.contentType) ||
@@ -860,7 +862,7 @@ export async function buildLiteratureBundleSourceOnlyExport(args) {
     kind: LITERATURE_BUNDLE_SOURCE_ONLY_KIND,
     createdAt: new Date().toISOString(),
     source: {
-      zoteroVersion: normalizeText(globalThis.Zotero?.version),
+      zoteroVersion: normalizeText(host.environment.getInfo().zoteroVersion),
       addonVersion: normalizeText(host.addon?.getConfig?.()?.addonVersion),
     },
     warnings,
@@ -870,10 +872,13 @@ export async function buildLiteratureBundleSourceOnlyExport(args) {
   return { manifest, entries: payloadEntries, warnings };
 }
 
-function parentIdsFromSelection(selection) {
+function parentRefsFromSelection(selection) {
   return (selection?.items?.parents || [])
-    .map((entry) => Number(entry?.item?.id || 0))
-    .filter((id) => Number.isFinite(id) && id > 0);
+    .map((entry) => {
+      try { return portableItemRef(entry?.item?.ref || entry?.item); }
+      catch { return null; }
+    })
+    .filter(Boolean);
 }
 
 function exportValidationError(code, message) {
@@ -889,17 +894,7 @@ function exportValidationError(code, message) {
 }
 
 function isTopLevelRegularSummary(item) {
-  const itemType = normalizeText(item?.itemType ?? item?.item_type).toLowerCase();
-  return Boolean(itemType)
-    && !EXCLUDED_ITEM_TYPES.has(itemType)
-    && !item?.parent
-    && Number(item?.parentItemID ?? item?.parentID ?? 0) === 0;
-}
-
-function paperRefFromSummary(item, fallbackLibraryId) {
-  const libraryId = Number(item?.libraryId ?? item?.libraryID ?? fallbackLibraryId);
-  const key = normalizeText(item?.key ?? item?.itemKey ?? item?.item_key);
-  return libraryId > 0 && key ? `${libraryId}:${key}` : "";
+  return item?.kind === "regular" && item.parentRef === null;
 }
 
 async function listTopLevelRegularParents(host, args) {
@@ -907,16 +902,17 @@ async function listTopLevelRegularParents(host, args) {
   let cursor;
   for (let pageIndex = 0; pageIndex < LIST_PAGE_GUARD; pageIndex += 1) {
     const input = { libraryId: args.libraryId, limit: LIST_PAGE_LIMIT };
-    if (args.collectionKey) input.collectionKey = args.collectionKey;
+    if (args.collectionKey) {
+      input.collectionRef = { libraryId: args.libraryId, key: args.collectionKey };
+    }
     if (cursor !== undefined) input.cursor = cursor;
     const page = await host.library.listItems(input);
     for (const summary of Array.isArray(page?.items) ? page.items : []) {
       if (!isTopLevelRegularSummary(summary)) continue;
-      const paperRef = paperRefFromSummary(summary, args.libraryId);
-      if (!paperRef || byRef.has(paperRef)) continue;
-      const [libraryId, key] = paperRef.split(":");
-      const item = host.items.getByLibraryAndKey(Number(libraryId), key);
-      if (item?.isRegularItem?.()) byRef.set(paperRef, item);
+      const paperRef = `${summary.ref.libraryId}:${summary.ref.key}`;
+      if (byRef.has(paperRef)) continue;
+      const detail = await host.library.getItemDetail(summary.ref);
+      if (detail.kind === "regular") byRef.set(paperRef, detail.item);
     }
     if (page?.hasMore !== true) {
       return [...byRef.entries()]
@@ -941,12 +937,12 @@ export async function resolveLiteratureBundleParents(args) {
   if (mode === "selection") {
     const seen = new Set();
     const parents = [];
-    for (const id of parentIdsFromSelection(args.selectionContext)) {
-      const item = host.items.get(id);
-      const ref = item ? `${Number(item.libraryID ?? item.libraryId)}:${normalizeText(item.key)}` : "";
-      if (item?.isRegularItem?.() && ref && !seen.has(ref)) {
+    for (const itemRef of parentRefsFromSelection(args.selectionContext)) {
+      const detail = await host.library.getItemDetail(itemRef);
+      const ref = `${itemRef.libraryId}:${itemRef.key}`;
+      if (detail.kind === "regular" && !seen.has(ref)) {
         seen.add(ref);
-        parents.push(item);
+        parents.push(detail.item);
       }
     }
     if (!parents.length) {
@@ -1153,6 +1149,9 @@ export async function importLiteratureBundleArchive(args) {
           slot: imageRecord.id,
           resourceRef: resource.ref,
           altText: imageRecord.metadata?.title || imageRecord.id,
+          ...(imageRecord.preserveSourceBytes
+            ? { preserveSourceBytes: true }
+            : {}),
         });
       }
       notes.push({
@@ -1188,17 +1187,6 @@ export async function importLiteratureBundleArchive(args) {
     .map((paper) => ({
       bundleItemId: paper.graphId,
       itemRef: paper.itemRef,
-      ...(host.items?.getByLibraryAndKey
-        ? (() => {
-            const item = host.items.getByLibraryAndKey(
-              paper.itemRef.libraryId,
-              paper.itemRef.key,
-            );
-            return item
-              ? { itemId: item.id, itemKey: item.key }
-              : { itemKey: paper.itemRef.key };
-          })()
-        : { itemKey: paper.itemRef.key }),
     }));
   const failedItems = imported.papers
     .filter((paper) => paper.outcome !== "committed" && paper.outcome !== "reused")
@@ -1221,12 +1209,25 @@ export async function importLiteratureBundleArchive(args) {
 export async function importLiteratureProductArchive(args) {
   const items = [];
   for (const paper of args.manifest.papers || []) {
+    const payloadImages = new Set(
+      (paper.payloads || []).map(
+        (payload) => `${payload.source_note_id}:${payload.source_image_id}`,
+      ),
+    );
     items.push({
       id: paper.logical_id,
       itemJson: JSON.parse(await args.archive.readText(paper.metadata_path)),
       relatedItemIds: paper.related_paper_ids || [],
       attachments: paper.attachments || [],
-      notes: paper.notes || [],
+      notes: (paper.notes || []).map((note) => ({
+        ...note,
+        images: (note.images || []).map((image) => ({
+          ...image,
+          ...(payloadImages.has(`${note.id}:${image.id}`)
+            ? { preserveSourceBytes: true }
+            : {}),
+        })),
+      })),
     });
   }
   return importLiteratureBundleArchive({
@@ -1443,14 +1444,15 @@ function appendLiteratureBundleImportLog(host, args) {
   try {
     host.logging?.appendRuntimeLog?.({
       level: "error",
-      scope: "workflow",
-      workflowId: "import-literature-bundle",
-      component: "literature-bundle",
       operation: args.operation,
       stage: args.stage,
       message: args.message || "literature bundle import failed",
-      details: args.details,
-      error: args.error,
+      details: {
+        workflowId: "import-literature-bundle",
+        component: "literature-bundle",
+        ...(args.details || {}),
+        errorMessage: normalizeText(args.error?.message || args.error),
+      },
     });
   } catch {
     // Diagnostics must not replace the workflow's structured result.

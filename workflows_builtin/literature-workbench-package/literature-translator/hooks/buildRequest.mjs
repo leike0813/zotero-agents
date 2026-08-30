@@ -10,9 +10,9 @@ function collectAttachments(selectionContext) {
 }
 
 function resolveAttachmentPath(entry, runtime) {
-  const fromHelper = runtime?.helpers?.getAttachmentFilePath?.(entry);
+  void runtime;
   const direct = entry?.filePath || entry?.path || entry?.item?.filePath;
-  const path = normalizeString(fromHelper || direct);
+  const path = normalizeString(direct);
   if (!path) {
     throw new Error(
       "literature-translator buildRequest cannot resolve source attachment path",
@@ -32,18 +32,10 @@ function resolveSourceAttachmentPath(selectionContext, runtime) {
 }
 
 function resolveParentItemFromSelection(selectionContext, runtime) {
-  const parentFromSelection = Number(
-    selectionContext?.items?.parents?.[0]?.item?.id || 0,
-  );
-  if (Number.isFinite(parentFromSelection) && parentFromSelection > 0) {
-    return runtime.helpers.resolveItemRef(parentFromSelection);
-  }
-  const parentFromAttachment = Number(
-    selectionContext?.items?.attachments?.[0]?.parent?.id || 0,
-  );
-  if (Number.isFinite(parentFromAttachment) && parentFromAttachment > 0) {
-    return runtime.helpers.resolveItemRef(parentFromAttachment);
-  }
+  void runtime;
+  const parent = selectionContext?.items?.parents?.[0]?.item ||
+    selectionContext?.items?.attachments?.[0]?.parent;
+  if (Number(parent?.id) > 0) return parent;
   throw new Error(
     "literature-translator buildRequest cannot resolve parent item",
   );

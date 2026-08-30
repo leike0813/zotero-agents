@@ -77,7 +77,6 @@ import { ZipBundleReader } from "../workflows/zipBundleReader";
 import { projectWorkflowManifestContract } from "../workflows/manifestContract";
 import {
   createHostBridgeWorkflowResourceApi,
-  createNonInteractiveWorkflowHostApi,
   createWorkflowInteractionRequiredError,
   parseWorkflowResourceBindings,
   supportsHostBridgeNonInteractive,
@@ -89,6 +88,7 @@ import {
 } from "./hostBridgeFileRegistry";
 import {
   createBoundWorkflowResearchBundleApi,
+  createWorkflowHostLeafScope,
   createWorkflowHostApi,
 } from "../workflows/hostApi";
 import {
@@ -2117,6 +2117,7 @@ export async function submitHostBridgeWorkflow(args: {
     | Awaited<ReturnType<typeof createHostBridgeWorkflowResourceApi>>
     | undefined;
   let resourceCleanupDeferred = false;
+  let hostLeafScope: ReturnType<typeof createWorkflowHostLeafScope> | undefined;
   try {
     const validatedResources = await validateWorkflowResourceBindings({
       manifest: workflow.manifest,
@@ -2128,20 +2129,32 @@ export async function submitHostBridgeWorkflow(args: {
       inputs: validatedResources.inputs,
       outputBindings: validatedResources.bindings?.outputs || {},
     });
-    const baseHostApi = createWorkflowHostApi();
+    const ownerId = `host-bridge-workflow:${workflow.manifest.id}`;
+    hostLeafScope = createWorkflowHostLeafScope({
+      interactionMode: "non_interactive",
+      runScopeId: ownerId,
+      logBinding: {
+        workflowId: workflow.manifest.id,
+        packageId: workflow.packageId || "unknown",
+        runId: ownerId,
+      },
+      resources: resourceApi,
+    });
     const researchBundles = createBoundWorkflowResearchBundleApi({
-      base: baseHostApi,
-      ownerId: `host-bridge-workflow:${workflow.manifest.id}`,
+      ownerId,
+      images: hostLeafScope.owners.images,
+      preparedImages: hostLeafScope.preparedImages,
       resources: resourceApi,
     });
     const runtime = {
       invocationMode: "non-interactive" as const,
-      hostApi: createNonInteractiveWorkflowHostApi({
-        base: {
-          ...baseHostApi,
-          researchBundles,
-        },
+      hostApi: createWorkflowHostApi({
+        interactionMode: "non_interactive",
+        ownerId,
+        owners: hostLeafScope.owners,
+        preparedImages: hostLeafScope.preparedImages,
         resources: resourceApi,
+        researchBundles,
       }),
     };
     const selectedItems = resolveSelectedItemsForPlan(plan);
@@ -2189,6 +2202,7 @@ export async function submitHostBridgeWorkflow(args: {
       skippedByGuard: duplicateGuard.skippedByDuplicate,
       messageFormatter,
       onTerminal: () => {
+        hostLeafScope?.dispose();
         void resourceApi?.cleanup();
         if (lease) {
           releaseHostBridgeUploadedFileLease(lease.leaseId);
@@ -2240,6 +2254,9 @@ export async function submitHostBridgeWorkflow(args: {
   } finally {
     if (resourceApi && !resourceCleanupDeferred) {
       await resourceApi.cleanup();
+    }
+    if (!resourceCleanupDeferred) {
+      hostLeafScope?.dispose();
     }
     if (lease && releaseLeaseOnExit) {
       releaseHostBridgeUploadedFileLease(lease.leaseId);

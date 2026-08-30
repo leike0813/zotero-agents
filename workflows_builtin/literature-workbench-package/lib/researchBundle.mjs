@@ -1,6 +1,7 @@
 import { workbenchPayloadArtifactName } from "./embeddedPayloadAttachments.mjs";
 import { exportBundleBibliography } from "./bundleBibliography.mjs";
 import { renderResearchBundleIndex, renderResearchBundleReadme } from "./researchBundleReadme.mjs";
+import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
 
 export const RESEARCH_SELECTION_SCHEMA = "research_bundle.selection";
 export const RESEARCH_PRODUCT_SCHEMA = "research_bundle.product";
@@ -120,7 +121,7 @@ export function normalizeResearchSelection(value) {
 function parsePaperRef(paperRef) {
   const match = /^(\d+):(.+)$/.exec(text(paperRef));
   if (!match) throw new Error(`invalid paper_ref: ${paperRef}`);
-  return { libraryID: Number(match[1]), key: match[2] };
+  return { libraryId: Number(match[1]), key: match[2] };
 }
 
 function topicReportBody(report) {
@@ -154,22 +155,89 @@ export async function buildResearchProduct(args) {
     assets.push({ assetId, productAssetPath: path, contentType, source: { kind: "local-file", path: sourcePath } });
     entries.push({ name: path, sourcePath });
   };
-  if (typeof host.researchBundles?.materializePapers !== "function") {
-    throw new Error("Research Bundle workflow requires Workflow Host API v11 materialization");
-  }
   const sharedMaterialization = await host.researchBundles.materializePapers({
-    papers: selection.papers.map((paper) => ({ paperRef: paper.paper_ref })),
-    sourcePaperRefs: selection.papers
-      .filter((paper) => paper.role === "core")
-      .map((paper) => paper.paper_ref),
+    paperRefs: selection.papers.map((paper) => parsePaperRef(paper.paper_ref)),
+    missingFilePolicy: "record_missing",
   });
-  warnings.push(...array(sharedMaterialization.warnings));
-  const sharedPapers = new Map(
-    array(sharedMaterialization.papers).map((paper) => [text(paper.paper_ref), paper]),
-  );
-  const sharedEntries = new Map(
-    array(sharedMaterialization.entries).map((entry) => [text(entry.path), entry]),
-  );
+  warnings.push(...array(sharedMaterialization.issues));
+  const sharedPapers = new Map();
+  const sharedEntries = new Map();
+  for (const paper of sharedMaterialization.papers) {
+    const paperRef = `${paper.source.ref.libraryId}:${paper.source.ref.key}`;
+    const metadataPath = `materialized/${paperRef}/metadata.json`;
+    sharedEntries.set(metadataPath, {
+      path: metadataPath,
+      text: `${JSON.stringify({
+        itemType: paper.item.itemType,
+        ...paper.item.fields,
+        creators: paper.item.creators,
+        tags: paper.item.tags,
+      }, null, 2)}\n`,
+    });
+    const artifacts = [];
+    for (const note of paper.notes) {
+      for (const payload of note.payloads) {
+        const kind = workbenchPayloadArtifactName(payload.summary.payloadType);
+        if (!kind) continue;
+        const extension = payload.summary.format === "json" ? "json" : "md";
+        const path = `materialized/${paperRef}/${kind}.${extension}`;
+        const content = payload.summary.format === "json"
+          ? `${JSON.stringify(payload.value, null, 2)}\n`
+          : String(payload.value || "");
+        sharedEntries.set(path, { path, text: content });
+        artifacts.push({ artifact_type: kind.replaceAll("-", "_"), path });
+      }
+    }
+    let source = null;
+    for (const attachment of paper.attachments) {
+      if (attachment.file.state !== "available") continue;
+      const resource = await host.resources.get(attachment.file.resourceRef);
+      const metadataSourcePath = attachment.metadata.file?.state === "available"
+        ? attachment.metadata.file.path
+        : "";
+      const sourcePath = metadataSourcePath && (await host.file.exists(metadataSourcePath))
+        ? metadataSourcePath
+        : resource.path;
+      const isMarkdown = /(?:markdown|text\/plain)/i.test(attachment.metadata.contentType || "") || /\.md$/i.test(sourcePath);
+      const isPdf = /pdf/i.test(attachment.metadata.contentType || "") || /\.pdf$/i.test(sourcePath);
+      if (!isMarkdown && !isPdf) continue;
+      const path = `materialized/${paperRef}/source.${isMarkdown ? "md" : "pdf"}`;
+      const assets = [];
+      if (isMarkdown) {
+        const rewritten = await rewriteMarkdownLocalImages({
+          markdown: await host.file.readText(resource.path),
+          sourcePath,
+          assetPolicy: { kind: "preserve-source-tree" },
+          resolveLocalPath: async (candidate) =>
+            (await host.file.exists(candidate)) ? candidate : null,
+        });
+        sharedEntries.set(path, { path, text: rewritten.markdown });
+        for (const asset of rewritten.assets) {
+          const assetPath = `materialized/${paperRef}/${asset.relativePath}`;
+          sharedEntries.set(assetPath, {
+            path: assetPath,
+            sourcePath: asset.sourcePath,
+            contentType: "image/*",
+          });
+          assets.push(assetPath);
+        }
+        warnings.push(
+          ...rewritten.warnings.map((warning) => ({ ...warning, paper_ref: paperRef })),
+        );
+      } else {
+        sharedEntries.set(path, { path, sourcePath: resource.path });
+      }
+      source = { kind: isMarkdown ? "markdown" : "pdf", path, assets };
+      if (isMarkdown) break;
+    }
+    sharedPapers.set(paperRef, {
+      paper_ref: paperRef,
+      metadata_path: metadataPath,
+      artifacts,
+      source,
+      item: paper.item,
+    });
+  }
 
   const topicManifest = [];
   for (let index = 0; index < selection.topics.length; index += 1) {
@@ -177,7 +245,7 @@ export async function buildResearchProduct(args) {
     const logicalId = `topic-${String(index + 1).padStart(3, "0")}`;
     let reportPath = null;
     try {
-      const report = await host.synthesis?.getTopicReport?.({ topicId: topic.topic_id });
+      const report = await host.synthesis?.topics?.getReport?.({ topicId: topic.topic_id });
       const body = topicReportBody(report);
       if (body) {
         reportPath = `topics/${logicalId}/report.md`;
@@ -196,19 +264,14 @@ export async function buildResearchProduct(args) {
     const selected = selection.papers[index];
     const logicalId = `paper-${String(index + 1).padStart(3, "0")}`;
     const ref = parsePaperRef(selected.paper_ref);
-    const item = host.items.getByLibraryAndKey(ref.libraryID, ref.key);
-    if (!item) {
+    const sharedPaper = sharedPapers.get(selected.paper_ref);
+    if (!sharedPaper) {
       if (!warnings.some((warning) => warning?.code === "paper_missing" && warning?.paper_ref === selected.paper_ref)) {
         warnings.push({ code: "paper_missing", paper_ref: selected.paper_ref });
       }
       continue;
     }
-    const sharedPaper = sharedPapers.get(selected.paper_ref);
-    if (!sharedPaper) {
-      warnings.push({ code: "paper_materialization_missing", paper_ref: selected.paper_ref });
-      continue;
-    }
-    materializedItems.push(item);
+    materializedItems.push(ref);
     const paperDir = `papers/${logicalId}`;
     const metadataPath = `${paperDir}/metadata.json`;
     const sharedMetadata = sharedEntries.get(text(sharedPaper.metadata_path));
@@ -258,12 +321,15 @@ export async function buildResearchProduct(args) {
         source = { kind: "pdf", path: sourcePath, assets: [] };
       }
     }
-    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryID, title: text(item.getField?.("title")), role: selected.role, selection_score: selected.selection_score, literature_quality: selected.literature_quality, artifact_manifest: selected.artifact_manifest, selection_components: selected.selection_components, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
+    if (selected.role === "core" && !source) {
+      warnings.push({ code: "core_source_missing", paper_ref: selected.paper_ref });
+    }
+    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryId, title: text(sharedPaper.item.fields.title), role: selected.role, selection_score: selected.selection_score, literature_quality: selected.literature_quality, artifact_manifest: selected.artifact_manifest, selection_components: selected.selection_components, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
   }
 
   const bibliographyExport = await exportBundleBibliography({
     host,
-    items: materializedItems,
+    itemRefs: materializedItems,
     warnings,
   });
   const bibliography = bibliographyExport.bibliography;

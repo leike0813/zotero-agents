@@ -2,6 +2,7 @@ import type { SkillRunnerProviderState } from "../modules/skillRunnerProviderSta
 
 export type ProviderExecutionRequestMeta = {
   targetParentID?: number;
+  targetParentRef?: { libraryId: number; key: string };
   taskName?: string;
   sourceAttachmentPaths?: string[];
 };

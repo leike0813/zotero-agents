@@ -4,34 +4,31 @@ import os from "node:os";
 import path from "node:path";
 import { buildRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import {
-  createLiteratureAnalysisFixtureHelpers,
-  workflowsPath,
-} from "./workflow-test-utils";
+import { workflowsPath } from "./workflow-test-utils";
+import { handlers } from "../../src/handlers";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 
 describe("workflow: literature-analysis sequence step apply", function () {
   it("declares per-step apply for digest and tag-regulator steps", async function () {
     const tempDir = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-literature-analysis-apply-"),
     );
-    const parent = {
-      id: 10,
-      key: "PARENT10",
+    const parent = await handlers.item.create({
       itemType: "journalArticle",
-      libraryID: 1,
-      getField: (field: string) => (field === "title" ? "Paper" : ""),
-      getCreators: () => [],
-      getTags: () => [],
-    };
+      fields: { title: "Paper" },
+    });
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
       (entry) => entry.manifest.id === "literature-analysis",
     );
     assert.isOk(workflow, "missing literature-analysis workflow");
+    const baseHostApi = createWorkflowHostApi();
     const runtime = {
-      hostApiVersion: 6,
+      hostApiVersion: 12,
       hostApi: {
+        ...baseHostApi,
         file: {
+          ...baseHostApi.file,
           materializeWorkflowInputFile: async (args: {
             workflowId?: string;
             key?: string;
@@ -61,21 +58,34 @@ describe("workflow: literature-analysis sequence step apply", function () {
           },
         },
         synthesis: {
-          exportTagVocabularyForRegulator: async () => ["segmentation"],
+          ...baseHostApi.synthesis,
+          tags: {
+            ...baseHostApi.synthesis.tags,
+            exportVocabularyForRegulator: async () => ({
+              allowedTags: ["segmentation"],
+            }),
+          },
         },
       },
-      helpers: createLiteratureAnalysisFixtureHelpers(Zotero),
     };
 
     try {
       const request = (await buildRequest({
         selectionContext: {
           items: {
-            parents: [{ item: { id: parent.id } }],
+            parents: [
+              {
+                item: {
+                  ref: { libraryId: parent.libraryID, key: parent.key },
+                },
+              },
+            ],
             attachments: [
               {
                 filePath: "D:/papers/paper.md",
-                parent: { id: parent.id },
+                parent: {
+                  ref: { libraryId: parent.libraryID, key: parent.key },
+                },
               },
             ],
           },
@@ -109,7 +119,9 @@ describe("workflow: literature-analysis sequence step apply", function () {
       });
       assert.match(
         String((request.steps[1] as any).input?.valid_tags || ""),
-        /runtime[\\/]tmp[\\/]workflow-inputs[\\/]tag-regulator[\\/]valid_tags[\\/]valid_tags-parent-10\.yaml$/,
+        new RegExp(
+          `runtime[\\\\/]tmp[\\\\/]workflow-inputs[\\\\/]tag-regulator[\\\\/]valid_tags[\\\\/]valid_tags-parent-${parent.key}\\.yaml$`,
+        ),
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });

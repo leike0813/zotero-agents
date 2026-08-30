@@ -4,7 +4,11 @@ import {
   collectSkillOutputDiagnostics,
   formatSkillDiagnosticsForError,
 } from "../../lib/resultOutput.mjs";
-import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 import {
   materializeTranslatorArtifacts,
   materializeTranslatorArtifactTexts,
@@ -94,7 +98,10 @@ async function applyResultImpl({
   let stage = "resolve-result";
   let skillOutputDiagnostics = { warnings: [] };
   try {
-    const parentItem = runtime.helpers.resolveItemRef(parent);
+    const parentRef = portableItemRef(parent);
+    const parentDetail = await requireHostApi(runtime).library.getItemDetail(parentRef);
+    if (!parentDetail || parentDetail.kind !== "regular") throw new Error("translator parent is unavailable");
+    const parentItem = parentDetail.item;
     const result = await readResultJson({
       bundleReader,
       resultContext,
@@ -155,9 +162,8 @@ async function applyResultImpl({
         markdown_path: materialized.markdownPath,
         materialized_alignment_path: materialized.alignmentPath,
         target_language: targetLanguage,
-        attached_to_parent_id: parentItem.id,
-        attachment_id: materialized.attachment?.id || null,
-        attachment_key: normalizeString(materialized.attachment?.key),
+        attached_to_parent_ref: parentItem.ref,
+        attachment_ref: materialized.attachment?.ref || null,
       },
       skillOutputDiagnostics,
     );

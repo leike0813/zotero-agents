@@ -523,9 +523,11 @@ describe("Synthesize topic workflow contract", function () {
       runtime: {
         hostApi: {
           synthesis: {
-            async applyTopicPlan(value: unknown) {
-              received = value;
-              return { status: "no_change", graph_hash: "graph-v1" };
+            workflowApply: {
+              async applyTopicPlan(value: unknown) {
+                received = value;
+                return { status: "no_change", graph_hash: "graph-v1" };
+              },
             },
           },
         },

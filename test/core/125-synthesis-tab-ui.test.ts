@@ -3241,7 +3241,7 @@ describe("Synthesis tab UI model", function () {
       /runWorkbenchCommandOnce\(runtime, "exportTagVocabulary", \{\}/,
     );
     assert.include(exportRegion, "runtime.hostWindow.navigator?.clipboard");
-    assert.include(exportRegion, '`${tags.join("\\n")}\\n`');
+    assert.include(exportRegion, '`${allowedTags.join("\\n")}\\n`');
     assert.notInclude(exportRegion, "deferStart");
     assert.notInclude(exportRegion, "failOnDiagnostic");
 

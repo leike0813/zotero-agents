@@ -388,6 +388,9 @@ function buildStepRequest(args: {
     ...(typeof args.sequence.targetParentID !== "undefined"
       ? { targetParentID: args.sequence.targetParentID }
       : {}),
+    ...(args.sequence.targetParentRef
+      ? { targetParentRef: { ...args.sequence.targetParentRef } }
+      : {}),
     ...(Object.keys(input).length > 0 ? { input } : {}),
     ...(Object.keys(parameter).length > 0 ? { parameter } : {}),
     runtime_options: runtimeOptions,

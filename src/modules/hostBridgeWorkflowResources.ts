@@ -22,7 +22,6 @@ import type {
   WorkflowResourceFile,
   WorkflowResourceOutputDescriptor,
   WorkflowResourceRequirement,
-  WorkflowHostApi,
   ResourceRef,
   WorkflowResourceMaterializeFileRequestDto,
 } from "../workflows/types";
@@ -63,10 +62,10 @@ export function createWorkflowRunResourceStore(args: {
       requireActive();
       const source = await inspectRuntimeFileSource(stageArgs.sourcePath);
       const sourceDigest = await digestRuntimeFileSource(source);
-      sequence += 1;
+      const resourceSequence = ++sequence;
       const targetPath = joinPath(
         rootPath,
-        `${String(sequence).padStart(4, "0")}-${safeName(
+        `${String(resourceSequence).padStart(4, "0")}-${safeName(
           stageArgs.displayName,
           "resource.bin",
         )}`,
@@ -91,7 +90,7 @@ export function createWorkflowRunResourceStore(args: {
       }
       const ref: ResourceRef = {
         kind: "workflow_resource",
-        id: `${runId}:materialized:${sequence}`,
+        id: `${runId}:materialized:${resourceSequence}`,
       };
       const resource = Object.freeze({
         ref,
@@ -832,35 +831,4 @@ export function createWorkflowInteractionRequiredError(operation: string) {
   error.code = "workflow_interaction_required";
   error.details = { operation };
   return error;
-}
-
-export function createNonInteractiveWorkflowHostApi(args: {
-  base: WorkflowHostApi;
-  resources: WorkflowResourceApi;
-}): WorkflowHostApi {
-  return {
-    ...args.base,
-    resources: args.resources,
-    editor: {
-      ...args.base.editor,
-      openSession() {
-        throw createWorkflowInteractionRequiredError("editor.openSession");
-      },
-    },
-    file: {
-      ...args.base.file,
-      async pickDirectory() {
-        throw createWorkflowInteractionRequiredError("file.pickDirectory");
-      },
-      async pickFile() {
-        throw createWorkflowInteractionRequiredError("file.pickFile");
-      },
-      async pickSaveFile() {
-        throw createWorkflowInteractionRequiredError("file.pickSaveFile");
-      },
-      async pickFiles() {
-        throw createWorkflowInteractionRequiredError("file.pickFiles");
-      },
-    },
-  };
 }

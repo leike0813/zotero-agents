@@ -148,128 +148,139 @@ function installSynthesisTagVocabularyHostApiGlobals() {
     hostApi: {
       ...baseHostApi,
       synthesis: {
-        ...(baseHostApi as any).synthesis,
-        async loadTagVocabulary() {
-          return {
-            protocol: {
-              schema_version: 1,
-            },
-            aliases: {},
-            abbrev: {},
-            entries: synthesisVocabularyEntries.map((entry) => ({ ...entry })),
-          };
-        },
-        async saveTagVocabulary(args: { entries?: PersistedTagEntry[] }) {
-          saveTagVocabularyState(
-            (Array.isArray(args?.entries) ? args.entries : []).map((entry) => ({
-              ...entry,
-            })),
-          );
-          return {
-            entries: synthesisVocabularyEntries.map((entry) => ({ ...entry })),
-          };
-        },
-        async exportTagVocabularyForRegulator() {
-          return {
-            entries: synthesisVocabularyEntries
-              .filter((entry) => !entry.deprecated)
-              .map((entry) => ({ ...entry })),
-          };
-        },
-        async listStagedTagSuggestions() {
-          return synthesisStagedEntries.map((entry) => ({
-            tag: entry.tag,
-            facet: entry.facet,
-            note: entry.note,
-            source_flow: entry.source,
-            parent_bindings: (entry.parentBindings || []).map((binding) => ({
-              ...binding,
-            })),
-          }));
-        },
-        async stageTagSuggestions(args: { entries?: any[] }) {
-          for (const incoming of Array.isArray(args?.entries)
-            ? args.entries
-            : []) {
-            const tag = String(incoming?.tag || "").trim();
-            if (!tag) continue;
-            const next: PersistedTagEntry = {
-              tag,
-              facet: String(incoming?.facet || "topic"),
-              source: String(incoming?.source_flow || "tag-regulator-suggest"),
-              note: String(incoming?.note || ""),
-              deprecated: false,
-              parentBindings: Array.isArray(incoming?.parent_bindings)
-                ? incoming.parent_bindings.map((binding: any) => ({
-                    libraryId: Number(binding.libraryId),
-                    itemKey: String(binding.itemKey || ""),
-                  }))
-                : [],
+        ...baseHostApi.synthesis,
+        tags: {
+          ...baseHostApi.synthesis.tags,
+          async loadVocabulary() {
+            return {
+              protocol: {
+                schema_version: 1,
+              },
+              aliases: {},
+              abbrev: {},
+              entries: synthesisVocabularyEntries.map((entry) => ({
+                ...entry,
+              })),
             };
-            const index = synthesisStagedEntries.findIndex(
-              (entry) => entry.tag.toLowerCase() === tag.toLowerCase(),
+          },
+          async saveVocabulary(args: { entries?: PersistedTagEntry[] }) {
+            saveTagVocabularyState(
+              (Array.isArray(args?.entries) ? args.entries : []).map(
+                (entry) => ({
+                  ...entry,
+                }),
+              ),
             );
-            if (index >= 0) synthesisStagedEntries[index] = next;
-            else synthesisStagedEntries.push(next);
-          }
-          return { staged: synthesisStagedEntries };
-        },
-        async promoteStagedTagSuggestions(args: { tags?: string[] }) {
-          const requested = new Set(
-            (Array.isArray(args?.tags) ? args.tags : []).map((tag) =>
-              String(tag || "")
-                .trim()
-                .toLowerCase(),
-            ),
-          );
-          const promoted: string[] = [];
-          const appliedParentTags: any[] = [];
-          for (const staged of synthesisStagedEntries) {
-            if (!requested.has(staged.tag.toLowerCase())) continue;
-            if (
-              !synthesisVocabularyEntries.some(
-                (entry) => entry.tag.toLowerCase() === staged.tag.toLowerCase(),
-              )
-            ) {
-              synthesisVocabularyEntries.push({
-                ...staged,
-                parentBindings: undefined,
-              });
-              promoted.push(staged.tag);
-            }
-            for (const parentRef of staged.parentBindings || []) {
-              const item = await Zotero.Items.getByLibraryAndKey(
-                parentRef.libraryId,
-                parentRef.itemKey,
+            return {
+              entries: synthesisVocabularyEntries.map((entry) => ({
+                ...entry,
+              })),
+            };
+          },
+          async exportVocabularyForRegulator() {
+            return {
+              vocabularyHash: "test-vocabulary",
+              allowedTags: synthesisVocabularyEntries
+                .filter((entry) => !entry.deprecated)
+                .map((entry) => entry.tag),
+            };
+          },
+          async listStagedSuggestions() {
+            return synthesisStagedEntries.map((entry) => ({
+              tag: entry.tag,
+              facet: entry.facet,
+              note: entry.note,
+              source_flow: entry.source,
+              parent_bindings: (entry.parentBindings || []).map((binding) => ({
+                ...binding,
+              })),
+            }));
+          },
+          async stageSuggestions(args: { entries?: any[] }) {
+            for (const incoming of Array.isArray(args?.entries)
+              ? args.entries
+              : []) {
+              const tag = String(incoming?.tag || "").trim();
+              if (!tag) continue;
+              const next: PersistedTagEntry = {
+                tag,
+                facet: String(incoming?.facet || "topic"),
+                source: String(
+                  incoming?.source_flow || "tag-regulator-suggest",
+                ),
+                note: String(incoming?.note || ""),
+                deprecated: false,
+                parentBindings: Array.isArray(incoming?.parent_bindings)
+                  ? incoming.parent_bindings.map((binding: any) => ({
+                      libraryId: Number(binding.libraryId),
+                      itemKey: String(binding.itemKey || ""),
+                    }))
+                  : [],
+              };
+              const index = synthesisStagedEntries.findIndex(
+                (entry) => entry.tag.toLowerCase() === tag.toLowerCase(),
               );
-              if (!item) continue;
-              await handlers.tag.add(item, [staged.tag]);
-              appliedParentTags.push({
-                tag: staged.tag,
-                parent_ref: { ...parentRef },
-              });
+              if (index >= 0) synthesisStagedEntries[index] = next;
+              else synthesisStagedEntries.push(next);
             }
-          }
-          synthesisStagedEntries = synthesisStagedEntries.filter(
-            (entry) => !promoted.includes(entry.tag),
-          );
-          saveTagVocabularyState(synthesisVocabularyEntries);
-          return {
-            promoted,
-            applied_parent_tags: appliedParentTags,
-            diagnostics: [],
-          };
+            return { staged: synthesisStagedEntries };
+          },
+          async promoteStagedSuggestions(args: { tags?: string[] }) {
+            const requested = new Set(
+              (Array.isArray(args?.tags) ? args.tags : []).map((tag) =>
+                String(tag || "")
+                  .trim()
+                  .toLowerCase(),
+              ),
+            );
+            const promoted: string[] = [];
+            const appliedParentTags: any[] = [];
+            for (const staged of synthesisStagedEntries) {
+              if (!requested.has(staged.tag.toLowerCase())) continue;
+              if (
+                !synthesisVocabularyEntries.some(
+                  (entry) =>
+                    entry.tag.toLowerCase() === staged.tag.toLowerCase(),
+                )
+              ) {
+                synthesisVocabularyEntries.push({
+                  ...staged,
+                  parentBindings: undefined,
+                });
+                promoted.push(staged.tag);
+              }
+              for (const parentRef of staged.parentBindings || []) {
+                const item = await Zotero.Items.getByLibraryAndKey(
+                  parentRef.libraryId,
+                  parentRef.itemKey,
+                );
+                if (!item) continue;
+                await handlers.tag.add(item, [staged.tag]);
+                appliedParentTags.push({
+                  tag: staged.tag,
+                  parent_ref: { ...parentRef },
+                });
+              }
+            }
+            synthesisStagedEntries = synthesisStagedEntries.filter(
+              (entry) => !promoted.includes(entry.tag),
+            );
+            saveTagVocabularyState(synthesisVocabularyEntries);
+            return {
+              promoted,
+              skipped: [],
+              applied_parent_tags: appliedParentTags,
+              diagnostics: [],
+            };
+          },
+          async acknowledgeRegulation() {
+            return {
+              outcome: "acknowledged" as const,
+              snapshotRevision: "test-snapshot",
+              remainingNeedsRegulation: 0,
+            };
+          },
         },
-        async replaceTagAuditRecords(args: {
-          libraryId: number;
-          entries?: unknown[];
-        }) {
-          return {
-            libraryId: args.libraryId,
-            audited: Array.isArray(args.entries) ? args.entries.length : 0,
-          };
-        },
-        async clearTagAuditRecord() {},
       },
     },
   });

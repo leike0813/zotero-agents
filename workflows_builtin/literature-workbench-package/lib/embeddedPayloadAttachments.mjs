@@ -552,44 +552,44 @@ async function readAttachmentBytes(runtime, attachment) {
   return host.file.readBytes(filePath);
 }
 
-function resolveChildAttachment(runtime, ref) {
-  try {
-    if (runtime?.helpers?.resolveItemRef) {
-      return runtime.helpers.resolveItemRef(ref);
-    }
-  } catch {
-    return null;
+function portableNoteRef(note) {
+  const ref = note?.ref || {
+    libraryId: Number(note?.libraryId || note?.libraryID),
+    key: normalizeText(note?.key),
+  };
+  if (!Number.isSafeInteger(ref.libraryId) || ref.libraryId <= 0 || !ref.key) {
+    throw new Error("workbench payload requires a portable note ref");
   }
-  try {
-    return globalThis?.Zotero?.Items?.get?.(Number(ref)) || null;
-  } catch {
-    return null;
-  }
+  return ref;
 }
 
 export async function listWorkbenchEmbeddedPayloadBlocksForNote(args) {
   const runtime = args?.runtime;
   const note = args?.noteItem || args?.note;
-  const attachmentIds =
-    typeof note?.getAttachments === "function" ? note.getAttachments() || [] : [];
-  const anchors = collectPayloadAnchors(note);
-  const blocks = [];
-  for (const attachmentRef of attachmentIds) {
-    const attachment = resolveChildAttachment(runtime, attachmentRef);
-    if (!attachment) {
-      continue;
-    }
-    try {
-      const bytes = await readAttachmentBytes(runtime, attachment);
-      const parsed = parseWorkbenchEmbeddedPayloadBytes(bytes, runtime);
-      if (parsed) {
-        blocks.push(projectPayloadBlock(parsed, attachment, anchors));
-      }
-    } catch {
-      // Ignore non-payload images and unreadable optional payload candidates here.
-    }
-  }
-  return blocks;
+  const host = requireHostApi(runtime);
+  const noteRef = portableNoteRef(note);
+  const summaries = await host.library.listNotePayloads(noteRef);
+  const available = summaries.filter((summary) => summary.state === "available");
+  return Promise.all(available.map(async (summary) => {
+    const payload = await host.library.getNotePayload(noteRef, {
+      payloadType: summary.payloadType,
+    });
+    return {
+      source: summary.source.kind === "inline" ? "inline" : "embedded-image-attachment",
+      payloadType: summary.payloadType,
+      noteKind: summary.noteKind,
+      version: summary.version,
+      encoding: summary.encoding,
+      estimatedSize: summary.estimatedBytes,
+      payload: payload.value,
+      format: summary.format,
+      markdown: summary.format === "markdown"
+        ? String(payload.value?.content || payload.value || "")
+        : undefined,
+      anchorStatus: "present",
+      errors: summary.issues,
+    };
+  }));
 }
 
 function stripPayloadAnchorForType(noteContent, payloadType) {
@@ -628,72 +628,30 @@ export async function attachWorkbenchPayloadToNote(args) {
   const note = args?.note;
   const payloadType = normalizeText(args?.payloadType);
   const noteKind = normalizeText(args?.noteKind);
-  if (!note || typeof note.getNote !== "function") {
+  if (!note) {
     throw new Error("workbench payload note is missing");
   }
   if (!payloadType) {
     throw new Error("workbench payload type is missing");
   }
-  if (typeof host.notes?.importEmbeddedImage !== "function") {
-    throw new Error("host notes.importEmbeddedImage is unavailable");
-  }
-  const previous = (await listWorkbenchEmbeddedPayloadBlocksForNote({
-    runtime,
-    noteItem: note,
-  })).filter((entry) => entry.payloadType === payloadType);
-  const envelope = buildPayloadEnvelope({
-    noteId: note.id || null,
-    noteKey: note.key,
-    parentId: note.parentID || note.parentItemID || null,
-    noteKind,
+  const noteRef = portableNoteRef(note);
+  const mutation = await host.notes.upsertPayload({
+    operationId: `note-payload:${noteRef.libraryId}:${noteRef.key}:${payloadType}:${Date.now().toString(36)}`,
+    noteRef,
     payloadType,
+    noteKind,
     payload: args?.payload,
-  }, runtime);
-  const bytes = await buildPayloadImageBytes(envelope, runtime);
-  const imported = await host.notes.importEmbeddedImage(note, {
-    bytes,
-    mimeType: "image/png",
-    width: 32,
-    height: 32,
-    originalBytes: bytes.length,
-    compressedBytes: bytes.length,
-    fileName: `zs-workbench-payload-${payloadType}.png`,
-    diagnostics: {
-      workbenchPayload: true,
-      marker: WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
-      payloadType,
-    },
   });
-  const attachmentKey = normalizeText(imported?.attachmentKey);
-  if (attachmentKey && typeof host.notes?.update === "function") {
-    await host.notes.update(note, {
-      content: appendPayloadAnchor(note.getNote?.() || "", payloadType, attachmentKey),
-    });
-  }
-  for (const old of previous) {
-    if (!old.attachmentKey || old.attachmentKey === attachmentKey) {
-      continue;
-    }
-    try {
-      const attachment = host.items?.getByLibraryAndKey?.(
-        note.libraryID,
-        old.attachmentKey,
-      );
-      if (attachment && attachment.parentID === note.id) {
-        await host.attachments?.remove?.(attachment);
-      }
-    } catch {
-      // Best-effort cleanup only.
-    }
+  if (mutation.outcome !== "committed" && mutation.outcome !== "unchanged") {
+    throw new Error(mutation.attempt?.error?.message || "workbench payload upsert failed");
   }
   return {
     status: "attached",
     payloadType,
     noteKind,
-    attachmentKey,
     payloadStorageVersion: 2,
-    payloadHash: envelope.payloadHash,
-    anchorStatus: attachmentKey ? "present" : "missing",
-    bytes: bytes.length,
+    payloadHash: mutation.result.payloadHash,
+    anchorStatus: "present",
+    bytes: 0,
   };
 }

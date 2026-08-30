@@ -41,11 +41,13 @@ async function createPassThroughWorkflowRoot() {
   await writeUtf8(
     joinPath(workflowRoot, "hooks", "applyResult.js"),
     [
-      "export async function applyResult({ parent, runResult, runtime }) {",
-      "  const target = runtime.helpers.resolveItemRef(parent);",
+      "export async function applyResult({ request, runResult, runtime }) {",
+      "  const target = request.targetParentRef;",
       "  const selection = runResult?.resultJson?.selectionContext;",
-      "  await runtime.handlers.parent.addNote(target, {",
-      "    content: `<p data-zs-pass-through='ok'>${String(selection?.selectionType || '')}</p>`,",
+      "  await runtime.hostApi.notes.create({",
+      "    operationId: `pass-through:${target.libraryId}:${target.key}`,",
+      "    parentRef: target,",
+      "    content: { format: 'html', value: `<p data-zs-pass-through='ok'>${String(selection?.selectionType || '')}</p>` },",
       "  });",
       "  return { ok: true };",
       "}",

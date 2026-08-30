@@ -110,7 +110,7 @@ Export manuscript-oriented research materials, analyzed literature artifacts, an
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
-- External resource requirements: `[]`.
+- External resource requirements: `[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -152,7 +152,7 @@ Import a literature bundle and reconcile its supported Zotero literature artifac
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
-- External resource requirements: `[{"id":"bundle","direction":"input","kind":"archive","cardinality":"one","required":true,"accept":{"extensions":[".zip"]}}]`.
+- External resource requirements: `[{"id":"bundle","direction":"input","kind":"archive","cardinality":"one","required":true,"accept":{"extensions":[".zip"]}},{"id":"research-import-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.

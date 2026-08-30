@@ -73,11 +73,6 @@ const literatureScoreArtifact = {
   },
 };
 
-const basePngBytes = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
-  "base64",
-);
-
 function withLiteratureScoreBundleReader(bundleReader: {
   readText(entryPath: string): Promise<string>;
 }) {
@@ -276,18 +271,6 @@ async function assertStoredPayloadExists(
   assert.isOk(await parseStoredPayload(note, payloadType));
 }
 
-async function importEmbeddedImageForRepresentativeTest(
-  baseHostApi: ReturnType<typeof createWorkflowHostApi>,
-  note: Zotero.Item,
-  image: any,
-  visibleImageHandler: (note: Zotero.Item, image: any) => Promise<any>,
-) {
-  if (image?.mimeType === "image/png") {
-    return baseHostApi.notes.importEmbeddedImage(note, image);
-  }
-  return visibleImageHandler(note, image);
-}
-
 function createRepresentativeImageBundleReader(args: {
   representativeImage?: Record<string, unknown>;
 }) {
@@ -318,6 +301,51 @@ function createRepresentativeImageBundleReader(args: {
       throw new Error(`missing bundle entry: ${entryPath}`);
     },
   };
+}
+
+let preparedImageTestSequence = 0;
+
+function createPreparedImageTestHost(
+  args: {
+    bytes?: number;
+    width?: number;
+    height?: number;
+    onPrepare?: (input: any) => void;
+  } = {},
+) {
+  const ref = {
+    kind: "prepared_note_image" as const,
+    id: `test:${++preparedImageTestSequence}`,
+  };
+  const bytes = args.bytes || 120 * 1024;
+  const dto = {
+    ref,
+    mimeType: "image/jpeg" as const,
+    width: args.width || 720,
+    height: args.height || 405,
+    bytes,
+    sha256: "0".repeat(64),
+  };
+  return createWorkflowHostApi({
+    ownerId: `prepared-image-test-${preparedImageTestSequence}`,
+    owners: {
+      images: {
+        async prepareForNoteEmbedding(input) {
+          args.onPrepare?.(input);
+          return dto;
+        },
+      },
+    },
+    preparedImages: {
+      resolve(candidate) {
+        assert.deepEqual(candidate, ref);
+        return {
+          dto,
+          blob: new Blob([new Uint8Array(bytes)], { type: dto.mimeType }),
+        };
+      },
+    },
+  });
 }
 
 async function mkTempRoot() {
@@ -695,7 +723,12 @@ describe("workflow: literature-analysis", function () {
         '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1><p>Keep citation analysis</p></div>',
     });
     const originalNotes = parent.getNotes();
-    const baseHostApi = createWorkflowHostApi();
+    const preparedHostApi = createPreparedImageTestHost({
+      onPrepare(input) {
+        assert.equal(input.source.kind, "base64");
+        assert.equal(input.options.outputFormat, "png");
+      },
+    });
 
     const applied = (await executeApplyResult({
       workflow,
@@ -717,16 +750,7 @@ describe("workflow: literature-analysis", function () {
         steps: [{ id: "digest", parameter: { score_only: true } }],
       },
       runtime: {
-        hostApi: {
-          ...baseHostApi,
-          images: {
-            ...baseHostApi.images,
-            prepareForNoteEmbedding: async () => ({
-              bytes: new Uint8Array(basePngBytes),
-              mimeType: "image/png",
-            }),
-          },
-        } as any,
+        hostApi: preparedHostApi,
       },
     })) as { notes: Zotero.Item[]; mode?: string };
 
@@ -1610,9 +1634,12 @@ describe("workflow: literature-analysis", function () {
             ...baseHostApi,
             synthesis: {
               ...(baseHostApi as any).synthesis,
-              async applyLiteratureDigestSidecar(args: any) {
-                capturedSidecarInput = args;
-                return { status: "sidecar_applied" };
+              workflowApply: {
+                ...(baseHostApi as any).synthesis.workflowApply,
+                async applyLiteratureDigest(args: any) {
+                  capturedSidecarInput = args;
+                  return { status: "persisted" };
+                },
               },
             },
           } as any,
@@ -1902,10 +1929,16 @@ describe("workflow: literature-analysis", function () {
           fields: { title: "Workflow Representative Image Parent" },
         });
         const workflow = await getLiteratureDigestWorkflow();
-        const baseHostApi = createWorkflowHostApi();
         const representativeLogs: any[] = [];
         let preparedPath = "";
-        let importedForNoteID = 0;
+        const preparedHostApi = createPreparedImageTestHost({
+          onPrepare(input) {
+            if (input.source.kind !== "file") return;
+            preparedPath = input.source.path;
+            assert.equal(input.options.maxLongEdge, 720);
+            assert.equal(input.options.hardMaxBytes, 320 * 1024);
+          },
+        });
 
         const applied = (await executeApplyResult({
           workflow,
@@ -1929,46 +1962,9 @@ describe("workflow: literature-analysis", function () {
           },
           runtime: {
             hostApi: {
-              ...baseHostApi,
-              images: {
-                async prepareForNoteEmbedding(source: unknown, options: any) {
-                  if (typeof source === "string") {
-                    preparedPath = source;
-                  }
-                  assert.equal(options.maxLongEdge, 720);
-                  assert.equal(options.hardMaxBytes, 320 * 1024);
-                  return {
-                    bytes: new Uint8Array([1, 2, 3]),
-                    mimeType: "image/jpeg",
-                    width: 720,
-                    height: 405,
-                    originalBytes: 2048,
-                    compressedBytes: 120 * 1024,
-                  };
-                },
-              },
-              notes: {
-                ...baseHostApi.notes,
-                async importEmbeddedImage(note: Zotero.Item, image: any) {
-                  return importEmbeddedImageForRepresentativeTest(
-                    baseHostApi,
-                    note,
-                    image,
-                    async () => {
-                      importedForNoteID = note.id;
-                      assert.equal(image.mimeType, "image/jpeg");
-                      return {
-                        attachmentKey: "IMGREP1",
-                        attachmentItem: {} as Zotero.Item,
-                        mimeType: "image/jpeg",
-                        bytes: image.compressedBytes,
-                      };
-                    },
-                  );
-                },
-              },
+              ...preparedHostApi,
               logging: {
-                ...baseHostApi.logging,
+                ...preparedHostApi.logging,
                 appendRuntimeLog(entry: any) {
                   representativeLogs.push(entry);
                 },
@@ -1979,19 +1975,20 @@ describe("workflow: literature-analysis", function () {
           notes: Zotero.Item[];
           representative_image?: {
             status?: string;
-            attachmentKey?: string;
             compressedBytes?: number;
           };
         };
 
         const digestNote = Zotero.Items.get(applied.notes[0].id)!;
-        assert.equal(importedForNoteID, digestNote.id);
+        assert.equal(
+          applied.representative_image?.status,
+          "embedded",
+          JSON.stringify(applied.representative_image),
+        );
         assert.equal(
           preparedPath.replace(/\\/g, "/"),
           imagePath.replace(/\\/g, "/"),
         );
-        assert.equal(applied.representative_image?.status, "embedded");
-        assert.equal(applied.representative_image?.attachmentKey, "IMGREP1");
         assert.equal(applied.representative_image?.compressedBytes, 120 * 1024);
         assert.notInclude(
           digestNote.getNote(),
@@ -2001,12 +1998,11 @@ describe("workflow: literature-analysis", function () {
           digestNote.getNote(),
           'data-zs-payload="digest-markdown"',
         );
-        assert.include(digestNote.getNote(), 'data-attachment-key="IMGREP1"');
+        assert.match(digestNote.getNote(), /data-attachment-key="[A-Z0-9]+"/);
         await assertStoredPayloadExists(digestNote, "digest-markdown");
         const logEntry = representativeLogs.find(
           (entry) => entry?.stage === "representative-image-embedded",
         );
-        assert.equal(logEntry?.details?.attachmentKey, "IMGREP1");
         assert.equal(logEntry?.details?.status, "embedded");
       } finally {
         await fs.rm(root, { recursive: true, force: true });
@@ -2041,9 +2037,7 @@ describe("workflow: literature-analysis", function () {
           fields: { title: "Workflow Representative Stale Note Parent" },
         });
         const workflow = await getLiteratureDigestWorkflow();
-        const baseHostApi = createWorkflowHostApi();
-        let realDigestNote: Zotero.Item | null = null;
-        let staleDigestNote: Zotero.Item | null = null;
+        const preparedHostApi = createPreparedImageTestHost();
 
         const applied = (await executeApplyResult({
           workflow,
@@ -2065,89 +2059,20 @@ describe("workflow: literature-analysis", function () {
             },
           },
           runtime: {
-            hostApi: {
-              ...baseHostApi,
-              parents: {
-                ...baseHostApi.parents,
-                async addNote(
-                  parentItem: Zotero.Item,
-                  note: { content: string },
-                ) {
-                  const created = await baseHostApi.parents.addNote(
-                    parentItem,
-                    note,
-                  );
-                  if (/<h1[^>]*>\s*Digest\s*<\/h1>/i.test(note.content)) {
-                    realDigestNote = created;
-                    staleDigestNote = Object.create(created) as Zotero.Item;
-                    Object.defineProperty(staleDigestNote, "getNote", {
-                      value: () => "",
-                      configurable: true,
-                    });
-                    return staleDigestNote;
-                  }
-                  return created;
-                },
-              },
-              images: {
-                async prepareForNoteEmbedding() {
-                  return {
-                    bytes: new Uint8Array([1, 2, 3]),
-                    mimeType: "image/jpeg",
-                    width: 720,
-                    height: 405,
-                    originalBytes: 2048,
-                    compressedBytes: 120 * 1024,
-                  };
-                },
-              },
-              notes: {
-                ...baseHostApi.notes,
-                async update(note: Zotero.Item, patch: { content: string }) {
-                  if (realDigestNote && note.id === realDigestNote.id) {
-                    assert.notInclude(
-                      patch.content,
-                      'data-zs-payload="digest-markdown"',
-                    );
-                    assert.notInclude(
-                      patch.content,
-                      'data-zs-block="representative-image"',
-                    );
-                    return baseHostApi.notes.update(realDigestNote, patch);
-                  }
-                  return baseHostApi.notes.update(note, patch);
-                },
-                async importEmbeddedImage(note: Zotero.Item, image: any) {
-                  return importEmbeddedImageForRepresentativeTest(
-                    baseHostApi,
-                    note,
-                    image,
-                    async () => ({
-                      attachmentKey: "IMGSTALE1",
-                      attachmentItem: {} as Zotero.Item,
-                      mimeType: "image/jpeg",
-                      bytes: 120 * 1024,
-                    }),
-                  );
-                },
-              },
-            } as any,
+            hostApi: preparedHostApi,
           },
         })) as {
           notes: Zotero.Item[];
-          representative_image?: { status?: string; attachmentKey?: string };
+          representative_image?: { status?: string };
         };
 
         assert.equal(applied.representative_image?.status, "embedded");
-        assert.equal(applied.representative_image?.attachmentKey, "IMGSTALE1");
-        assert.isOk(realDigestNote);
-        const digestNote = Zotero.Items.get(realDigestNote!.id)!;
+        const digestNote = Zotero.Items.get(applied.notes[0].id)!;
         await assertStoredPayloadExists(digestNote, "digest-markdown");
         assert.notInclude(
           digestNote.getNote(),
           'data-zs-block="representative-image"',
         );
-        assert.equal(applied.notes[0].id, digestNote.id);
       } finally {
         await fs.rm(root, { recursive: true, force: true });
       }
@@ -2382,8 +2307,15 @@ describe("workflow: literature-analysis", function () {
           fields: { title: "Workflow Representative Caption Parent" },
         });
         const workflow = await getLiteratureDigestWorkflow();
-        const baseHostApi = createWorkflowHostApi();
         let preparedPath = "";
+        const preparedHostApi = createPreparedImageTestHost({
+          bytes: 100 * 1024,
+          width: 640,
+          height: 360,
+          onPrepare(input) {
+            if (input.source.kind === "file") preparedPath = input.source.path;
+          },
+        });
 
         const applied = (await executeApplyResult({
           workflow,
@@ -2405,45 +2337,21 @@ describe("workflow: literature-analysis", function () {
             },
           },
           runtime: {
-            hostApi: {
-              ...baseHostApi,
-              images: {
-                async prepareForNoteEmbedding(source: unknown) {
-                  if (typeof source === "string") {
-                    preparedPath = source;
-                  }
-                  return {
-                    bytes: new Uint8Array([1, 2, 3]),
-                    mimeType: "image/jpeg",
-                    width: 640,
-                    height: 360,
-                    originalBytes: 2048,
-                    compressedBytes: 100 * 1024,
-                  };
-                },
-              },
-              notes: {
-                ...baseHostApi.notes,
-                async importEmbeddedImage() {
-                  return {
-                    attachmentKey: "IMGREP2",
-                    attachmentItem: {} as Zotero.Item,
-                    mimeType: "image/jpeg",
-                    bytes: 100 * 1024,
-                  };
-                },
-              },
-            } as any,
+            hostApi: preparedHostApi,
           },
         })) as {
           representative_image?: { status?: string; strategy?: string };
         };
 
         assert.equal(
+          applied.representative_image?.status,
+          "embedded",
+          JSON.stringify(applied.representative_image),
+        );
+        assert.equal(
           preparedPath.replace(/\\/g, "/"),
           selectedImagePath.replace(/\\/g, "/"),
         );
-        assert.equal(applied.representative_image?.status, "embedded");
         assert.equal(applied.representative_image?.strategy, "near_caption");
       } finally {
         await fs.rm(root, { recursive: true, force: true });
@@ -2546,10 +2454,14 @@ describe("workflow: literature-analysis", function () {
         fields: { title: "Workflow Representative Windows Path Parent" },
       });
       const workflow = await getLiteratureDigestWorkflow();
-      const baseHostApi = createWorkflowHostApi();
       const mdPath = "C:\\papers\\paper.md";
       const expectedImagePath = "C:\\papers\\figures\\overview.png";
       let preparedPath = "";
+      const preparedHostApi = createPreparedImageTestHost({
+        onPrepare(input) {
+          if (input.source.kind === "file") preparedPath = input.source.path;
+        },
+      });
 
       const applied = (await executeApplyResult({
         workflow,
@@ -2573,9 +2485,9 @@ describe("workflow: literature-analysis", function () {
         },
         runtime: {
           hostApi: {
-            ...baseHostApi,
+            ...preparedHostApi,
             file: {
-              ...baseHostApi.file,
+              ...preparedHostApi.file,
               async readText(targetPath: string) {
                 assert.equal(targetPath, mdPath);
                 return [
@@ -2590,40 +2502,18 @@ describe("workflow: literature-analysis", function () {
                 return targetPath === expectedImagePath;
               },
             },
-            images: {
-              async prepareForNoteEmbedding(source: unknown) {
-                if (typeof source === "string") {
-                  preparedPath = source;
-                }
-                return {
-                  bytes: new Uint8Array([1, 2, 3]),
-                  mimeType: "image/jpeg",
-                  width: 720,
-                  height: 405,
-                  originalBytes: 2048,
-                  compressedBytes: 120 * 1024,
-                };
-              },
-            },
-            notes: {
-              ...baseHostApi.notes,
-              async importEmbeddedImage() {
-                return {
-                  attachmentKey: "IMGREPWIN",
-                  attachmentItem: {} as Zotero.Item,
-                  mimeType: "image/jpeg",
-                  bytes: 120 * 1024,
-                };
-              },
-            },
           } as any,
         },
       })) as {
         representative_image?: { status?: string; strategy?: string };
       };
 
+      assert.equal(
+        applied.representative_image?.status,
+        "embedded",
+        JSON.stringify(applied.representative_image),
+      );
       assert.equal(preparedPath, expectedImagePath);
-      assert.equal(applied.representative_image?.status, "embedded");
       assert.equal(applied.representative_image?.strategy, "markdown_src_hint");
     },
   );

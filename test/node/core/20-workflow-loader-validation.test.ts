@@ -758,7 +758,7 @@ describe("workflow loader validation", function () {
       assert.isOk(bundleLog, JSON.stringify(listRuntimeLogs(), null, 2));
       const summary = ((bundleLog?.details as Record<string, any>) || {})
         .hostApiSummary;
-      assert.equal(summary?.items, true);
+      assert.equal(summary?.library, true);
       assert.equal(summary?.editor, true);
     });
   });

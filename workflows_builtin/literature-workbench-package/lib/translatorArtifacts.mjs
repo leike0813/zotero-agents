@@ -6,7 +6,11 @@ import {
   toNativePath,
 } from "./deepReadingResultTarget.mjs";
 import { sanitizeFileNameSegment } from "./path.mjs";
-import { requireHostApi } from "./runtime.mjs";
+import {
+  portableItemRef,
+  requireCommittedMutation,
+  requireHostApi,
+} from "./runtime.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -130,25 +134,11 @@ export async function findLinkedAttachmentForPath(
   if (!normalizedTargetPath) {
     return null;
   }
-  for (const attachmentId of parentItem.getAttachments?.() || []) {
-    let attachment = null;
-    try {
-      attachment = runtime.helpers.resolveItemRef(attachmentId);
-    } catch {
-      attachment = null;
-    }
-    if (!attachment) {
-      continue;
-    }
-    let attachmentPath = "";
-    try {
-      attachmentPath = normalizeString(await attachment.getFilePathAsync?.());
-    } catch {
-      attachmentPath = "";
-    }
-    if (!attachmentPath) {
-      attachmentPath = normalizeString(attachment.getField?.("path"));
-    }
+  const host = requireHostApi(runtime);
+  for (const attachment of await host.library.getItemAttachments(portableItemRef(parentItem))) {
+    const attachmentPath = attachment.file?.state === "available"
+      ? attachment.file.path
+      : "";
     if (normalizePathForCompare(attachmentPath) === normalizedTargetPath) {
       return attachment;
     }
@@ -222,12 +212,15 @@ export async function materializeTranslatorArtifactTexts({
     runtime,
   );
   if (!attachment) {
-    attachment = await hostApi.attachments.createFromPath({
-      parent: parentItem,
-      path: paths.markdownPath,
-      title: sanitizeFileNameSegment(basenamePath(paths.markdownPath)),
-      mimeType: "text/markdown",
-    });
+    attachment = requireCommittedMutation(await hostApi.attachments.create({
+      operationId: `translator:attachment:${Date.now().toString(36)}`,
+      placement: { kind: "child", parentRef: portableItemRef(parentItem) },
+      source: { kind: "linked_file", path: paths.markdownPath },
+      metadata: {
+        title: sanitizeFileNameSegment(basenamePath(paths.markdownPath)),
+        contentType: "text/markdown",
+      },
+    })).attachment;
   }
 
   return {

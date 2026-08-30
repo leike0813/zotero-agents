@@ -8,7 +8,7 @@ The stable layering is:
 
 1. Zotero native APIs are the raw host runtime.
 2. `ZoteroHostCapabilityBroker` is the canonical, process-local owner of portable host capability semantics.
-3. `WorkflowHostApi` v11 is the larger workflow compatibility surface. It explicitly projects selected broker members and adds trusted local workflow services.
+3. `WorkflowHostApi` v12 is the closed workflow surface. It explicitly projects selected broker members and adds trusted local workflow services.
 4. Host Bridge v2 is the remote locality, exposure, permission, and file-handle adapter over the canonical broker.
 5. MCP is an exact public projection of the Host Bridge registry and reuses its handlers.
 6. `handlers` remain internal mutation primitives used behind trusted workflow and broker seams.
@@ -36,16 +36,6 @@ separate policies owned by their respective adapters.
 
 `handlers` is not a complete Zotero API facade. It does not cover search, reader state, annotations, PDF content, full-text, import/export, sync, group/library administration, citation APIs, or broader Zotero UI surfaces.
 
-`hostApi` includes legacy workflow-facing domains:
-
-- `items`: item lookup and broad item listing
-- `prefs`: preference get/set/clear
-- `file`: file conversion, text/binary I/O, file copy, directory creation, temp path, and file pickers
-- `editor`: workflow editor sessions and renderer registration
-- `notifications`: toast feedback
-- `logging`: runtime and diagnostic instrumentation
-- handler aliases: `parents`, `notes`, `attachments`, `tags`, `collections`, `command`
-
 `WorkflowHostApi` explicitly projects a subset of the broker for workflow packages:
 
 - `context`: current Zotero view and selected items as DTOs
@@ -53,7 +43,9 @@ separate policies owned by their respective adapters.
 - `metadata`: controlled read-only metadata translation facade as DTOs
 - `mutations`: preview/execute command API for controlled Zotero writes
 
-It does not expose broker `navigation`, `library.readinessAudit`, `library.listAnnotations`, or `library.exportAnnotations`. These exclusions are deliberate member-level projections, not accidental type omissions.
+It projects navigation, bounded library reads, canonical mutations, notes,
+attachments, status tags, and the other members declared by the single runtime
+manifest. Broker-only members remain private unless named by that manifest.
 
 The canonical broker has five domains:
 
@@ -63,20 +55,22 @@ The canonical broker has five domains:
 - `metadata`: identifier translation
 - `mutations`: preview and execute
 
-Workflow runtime currently exposes both `runtime.handlers` and `runtime.hostApi`.
-
-The interactive Workflow Host Contract Variant may omit `resources`. The
-Host Bridge non-interactive variant must provide `resources`; it keeps picker
-and editor members structurally available while interaction attempts fail with
-`workflow_interaction_required`.
+Workflow hooks receive `runtime.hostApi`; raw handlers and Zotero runtime
+objects are not hook capabilities. Interactive and non-interactive variants
+have the same complete shape. Interaction-dependent members remain present and
+fail with `interaction_required` when invoked non-interactively.
 
 ## Ownership Rules
 
-`handlers` remains available to trusted workflow hooks. It should continue to focus on safe, tested mutation primitives and should not grow into an unbounded mirror of Zotero native APIs.
+`handlers` remains an internal primitive behind trusted owners. It must not grow
+into an unbounded mirror of Zotero native APIs or enter workflow hook scope.
 
 `ZoteroHostCapabilityBroker` owns only JSON-safe capability semantics and effects. It is stateless: `createZoteroHostCapabilityBroker()` creates an implementation and `resolveZoteroHostCapabilityBroker()` resolves the default implementation without singleton identity, caching, reset state, or a runtime version number. Its public refs are portable JSON refs; raw `Zotero.Item` and `Zotero.Collection` inputs are rejected.
 
-`WorkflowHostApi` owns trusted workflow compatibility. Its adapter accepts raw Zotero item and collection refs where v11 already promises them, normalizes those refs before calling the broker, and returns workflow-specific local services unchanged. The projection uses explicit object literals and member-level types; whole broker domains, spreads, proxies, and capability catalogs are forbidden.
+`WorkflowHostApi` owns trusted workflow composition. Public inputs use portable
+refs and closed DTOs. The projection uses explicit object literals and
+member-level types; whole broker domains, spreads, proxies, and capability
+catalogs are forbidden.
 
 Workflow Host conformance is strict at test and build seams: a current variant
 may not omit a required declared capability or expose an undeclared top-level
@@ -103,13 +97,11 @@ The workflow-local terms have narrow meanings:
   paper refs, resolves portable paper DTOs through an injected resolver, and
   materializes portable metadata, preferred sources, the standard analysis
   artifacts, and canonical per-paper warnings. The Workflow Host projection
-  owns the raw Zotero-to-portable resolver adapter and maps
-  `source_missing` to the workflow-compatible `core_source_missing` code.
+  owns its broker-to-portable resolver adapter.
 
-The cached Workflow Host projection may bind the Research Bundle materializer
-once, but its resolver and artifact reader resolve the current Zotero broker and
-Synthesis runtime on every invocation. Research Bundle filesystem operations
-continue to select their runtime adapter through `runtimePersistence.ts`.
+Each Workflow Host composition binds its run-scoped Research Bundle resources
+and prepared-image owner. Runtime globals, filesystem adapters, and Synthesis
+clients remain late-bound by their owning modules.
 
 Host Bridge and MCP own authorization, approval, exposure, noninteractive behavior, transport concerns, and remote locality. They must not expose `Zotero.Item`, `Zotero.Collection`, `nsIFile`, DOM windows, local paths, or other host runtime objects.
 
@@ -224,9 +216,9 @@ The Host Bridge v2 output schemas explicitly reject attachment objects containin
 
 
 
-## Workflow Host API v11 Portable Archive Boundary
+## Workflow Host API v12 Portable Archive Boundary
 
-Workflow Host API v11 provides generic local migration primitives without
+Workflow Host API v12 provides generic local migration primitives without
 embedding concrete workflow semantics in core modules:
 
 - `file.pickSaveFile` uses Zotero's native save picker, including suggested
@@ -239,12 +231,11 @@ embedding concrete workflow semantics in core modules:
 - An extracted archive exposes `measureEntries(entryNames)` so package code
   can verify enumerated files entirely in the Host without receiving host
   paths or transferring file bytes across the package boundary.
-- `items.exportPortableJson`, `items.createFromJson`, and `items.remove`
-  transfer complete item JSON without reusing source identity fields.
-- `attachments.importStoredFile` imports content into Zotero storage and can
-  copy safe companion paths into the same storage directory;
-  `createFromUrl({ deduplicate: false })` permits intentional duplicate URL
-  attachments.
+- `researchBundles.materializePapers` and `researchBundles.importPapers`
+  transfer the complete portable paper graph through the canonical owner.
+- `attachments.create` accepts canonical stored-file, linked-file, linked-URL,
+  and stored-URL source DTOs; companion staging and rollback remain private to
+  the attachment owner.
 - `context.getCurrentView()` includes `currentCollection` only when the active
   library-tree row is a real Zotero collection.
 

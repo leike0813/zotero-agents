@@ -21,13 +21,16 @@ function resolveWorkflowParams(executionOptions) {
 async function createTestParent({ manifest, runtime, runKey }) {
   const workflowId = normalizeString(manifest?.id) || "debug-apply-contract";
   const title = `${workflowId} ${runKey}`;
-  if (!runtime?.handlers?.item?.create) {
-    throw new Error("debug apply contract buildRequest requires item handler");
-  }
-  const parent = await runtime.handlers.item.create({
+  const mutation = await runtime.hostApi.mutations.execute({
+    operation: "item.create",
+    operationId: `debug-apply:create:${runKey}`,
     itemType: "journalArticle",
     fields: { title },
   });
+  if (mutation.outcome !== "committed" && mutation.outcome !== "unchanged") {
+    throw new Error(mutation.attempt?.error?.message || "debug parent creation failed");
+  }
+  const parent = mutation.result.item;
   return {
     parent,
     title,
@@ -62,6 +65,7 @@ export function buildSingleRequest({
     skill_id: resolvedSkillId,
     mode: "auto",
     targetParentID: parent.id,
+    targetParentRef: parent.ref,
     taskName: parentTitle,
     input: {},
     parameter: buildStepParameter({ workflowId, stepId, runKey, applyMode }),
@@ -115,6 +119,7 @@ function buildSequenceRequest({
   return {
     kind: "skillrunner.sequence.v1",
     targetParentID: parent.id,
+    targetParentRef: parent.ref,
     taskName: parentTitle,
     steps,
     final_step_id: steps[steps.length - 1].id,

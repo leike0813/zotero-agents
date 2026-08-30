@@ -653,33 +653,22 @@ Hook 接收的 `runtime` 对象包含：
 
 ## Host API（Hook 可调用）
 
-`runtime.hostApi` 提供以下能力（详见 `src/workflows/types.ts`）：
+`runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
+`src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：23 个顶层
+key、21 个模块、87 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
-### 文件操作
+- `addon`、`environment`、`context`、`navigation`
+- `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
+- `bibliography`、`researchBundles`、`statusTags`
+- `file`、`archive`、`resources`、`clipboard`
+- `editor`、`notifications`、`logging`
+- `synthesis.workflowApply`、`synthesis.topics`、`synthesis.artifacts`、`synthesis.tags`
 
-- `hostApi.file.pathToFile(path)`：将路径转换为 File 对象
-- `hostApi.file.readText(path)`：读取文本文件
-- `hostApi.file.writeText(path, content)`：写入文本文件
-- `hostApi.file.exists(path)`：检查文件是否存在
-- `hostApi.file.makeDirectory(path)`：创建目录
-- `hostApi.file.materializeWorkflowInputFile(args)`：将 workflow 生成的 provider 输入文件写入插件管理的 runtime tmp，并返回本机绝对路径
-- `hostApi.file.getTempDirectoryPath()`：获取短生命周期 scratch 临时目录；不得用于 provider 请求输入文件
-- `hostApi.file.pickDirectory(args?)`：选择目录（返回路径或 null）
-- `hostApi.file.pickFile(args?)`：选择单个文件（返回路径或 null）
-- `hostApi.file.pickFiles(args?)`：选择多个文件（返回路径数组或 null；优先使用 Zotero 原生多选，运行时不支持时回退到 toolkit）
-
-文件运行时适配统一由 `src/modules/runtimePersistence.ts` 持有并在每次调用时解析。`hostApi.file.readText/writeText/makeDirectory` 使用严格失败语义；输入文件的安全命名、唯一性和 text/bytes 互斥由 Workflow Input Materialization 模块负责。
-
-### 其他操作
-
-- `hostApi.items.get/resolve/getByLibraryAndKey/getAll`：条目操作
-- `hostApi.prefs.get/set/clear`：偏好设置操作
-- `hostApi.parents/notes/attachments/tags/collections/command`：Handler 快捷访问
-- `hostApi.images.prepareForNoteEmbedding(source, options?)`：准备有界图片数据，不修改 Zotero note
-- `hostApi.attachments.importStoredFile(args)`：导入 stored attachment；companion 文件先校验并暂存，后续失败时回滚新建 attachment
-- `hostApi.editor.openSession/registerRenderer/unregisterRenderer`：编辑器会话
-- `hostApi.notifications.toast`：通知提示
-- `hostApi.logging.appendRuntimeLog`：运行日志
+交互与非交互投影具有相同结构；非交互调用 UI 成员时返回稳定的
+`interaction_required`。Hook scope 不提供 `runtime.zotero`、
+`runtime.handlers`、`runtime.helpers`、`IOUtils`、`Components` 或 addon 对象。
+文件系统 adapter 由 `src/modules/runtimePersistence.ts` 在每次调用时晚绑定；
+包内纯逻辑应放在 package-local module 中并通过相对路径导入。
 
 ## Workflow Package Schema
 

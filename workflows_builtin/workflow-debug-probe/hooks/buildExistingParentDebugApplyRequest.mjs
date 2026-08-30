@@ -16,36 +16,23 @@ async function resolveSelectedParent({ selectionContext, runtime }) {
       "debug existing-parent bundle buildRequest requires exactly one scoped parent",
     );
   }
-  const parentId = Number(parents[0]?.item?.id || 0);
-  if (!Number.isSafeInteger(parentId) || parentId <= 0) {
+  const parentRef = {
+    libraryId: Number(parents[0]?.item?.libraryId || parents[0]?.item?.libraryID),
+    key: normalizeString(parents[0]?.item?.key),
+  };
+  if (!Number.isSafeInteger(parentRef.libraryId) || parentRef.libraryId <= 0 || !parentRef.key) {
     throw new Error(
       "debug existing-parent bundle buildRequest requires a valid parent id",
     );
   }
-  if (!runtime?.helpers?.resolveItemRef) {
-    throw new Error(
-      "debug existing-parent bundle buildRequest requires item resolver",
-    );
-  }
-  let parent;
-  try {
-    parent = await runtime.helpers.resolveItemRef(parentId);
-  } catch (_error) {
-    throw new Error(
-      `debug existing-parent bundle parent does not exist: ${parentId}`,
-    );
-  }
-  if (!parent || Number(parent.id) !== parentId) {
-    throw new Error(
-      `debug existing-parent bundle parent does not exist: ${parentId}`,
-    );
-  }
+  const detail = await runtime.hostApi.library.getItemDetail(parentRef);
+  if (!detail || detail.kind !== "regular") throw new Error("debug existing-parent bundle parent does not exist");
   return {
-    parent,
+    parent: detail.item,
     title:
-      normalizeString(parent.getField?.("title")) ||
+      normalizeString(detail.item.title) ||
       normalizeString(parents[0]?.item?.title) ||
-      `Parent ${parentId}`,
+      `Parent ${parentRef.key}`,
   };
 }
 

@@ -1,12 +1,12 @@
-import type { WorkflowHostApi } from "./types";
-
-export const WORKFLOW_HOST_API_VERSION = 11;
+import type { WorkflowHostApi, WorkflowHostApiV12 } from "./types";
 
 export type WorkflowHostContractVariant = "interactive" | "non-interactive";
 
 export type WorkflowHostCandidateManifestEntry =
   | "value"
   | "function"
+  | readonly ["value", unknown]
+  | readonly ["oneOf", ...unknown[]]
   | WorkflowHostCandidateManifest;
 
 export type WorkflowHostCandidateManifest = Readonly<{
@@ -19,6 +19,7 @@ export type WorkflowHostCandidateInspection = {
   unexpectedPaths: string[];
   nonFunctionPaths: string[];
   nonObjectPaths: string[];
+  invalidValuePaths: string[];
 };
 
 export type WorkflowHostContractFromManifest<
@@ -26,6 +27,10 @@ export type WorkflowHostContractFromManifest<
 > = {
   readonly [Member in keyof Manifest]: Manifest[Member] extends "function"
     ? (...args: never[]) => unknown
+    : Manifest[Member] extends readonly ["value", infer Value]
+      ? Value
+      : Manifest[Member] extends readonly ["oneOf", ...infer Values]
+        ? Values[number]
     : Manifest[Member] extends "value"
       ? unknown
       : Manifest[Member] extends WorkflowHostCandidateManifest
@@ -46,6 +51,166 @@ export function defineWorkflowHostCandidateManifest<
   return manifest;
 }
 
+export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
+  version: ["value", 12],
+  interactionMode: ["oneOf", "interactive", "non_interactive"],
+  addon: { getConfig: "function" },
+  environment: { getInfo: "function" },
+  context: {
+    getCurrentView: "function",
+    getSelectedItems: "function",
+  },
+  navigation: {
+    openItem: "function",
+    openNote: "function",
+    openCollection: "function",
+    openSelection: "function",
+  },
+  library: {
+    listItems: "function",
+    traverseItems: "function",
+    withItemSnapshot: "function",
+    listCollections: "function",
+    getItemDetail: "function",
+    getItemNotes: "function",
+    getNoteDetail: "function",
+    listNotePayloads: "function",
+    getNotePayload: "function",
+    getItemAttachments: "function",
+    listAnnotations: "function",
+    exportPortableItems: "function",
+  },
+  metadata: { translateIdentifier: "function" },
+  mutations: { preview: "function", execute: "function" },
+  notes: {
+    create: "function",
+    updateContent: "function",
+    remove: "function",
+    upsertPayload: "function",
+  },
+  images: { prepareForNoteEmbedding: "function" },
+  attachments: {
+    create: "function",
+    updateMetadata: "function",
+    replaceFile: "function",
+    move: "function",
+    remove: "function",
+  },
+  bibliography: { listFormats: "function", render: "function" },
+  researchBundles: {
+    materializePapers: "function",
+    importPapers: "function",
+  },
+  statusTags: { getPolicy: "function", transition: "function" },
+  file: {
+    readText: "function",
+    writeText: "function",
+    readBytes: "function",
+    writeBytes: "function",
+    copy: "function",
+    exists: "function",
+    makeDirectory: "function",
+    materializeWorkflowInputFile: "function",
+    getTempDirectoryPath: "function",
+    pickDirectory: "function",
+    pickFile: "function",
+    pickSaveFile: "function",
+    pickFiles: "function",
+    stat: "function",
+    list: "function",
+    move: "function",
+    remove: "function",
+  },
+  archive: {
+    measureEntries: "function",
+    writeZipAtomic: "function",
+    withExtractedZip: "function",
+  },
+  resources: {
+    getInput: "function",
+    getInputs: "function",
+    get: "function",
+    materializeFile: "function",
+    allocateOutput: "function",
+    publishOutput: "function",
+    listOutputs: "function",
+  },
+  clipboard: {
+    readText: "function",
+    writeText: "function",
+    hasText: "function",
+    clear: "function",
+  },
+  editor: { openSession: "function" },
+  notifications: { toast: "function" },
+  logging: { appendRuntimeLog: "function" },
+  synthesis: {
+    workflowApply: {
+      applyLiteratureDigest: "function",
+      applyTopicPlan: "function",
+      applyTopicSynthesisResult: "function",
+    },
+    topics: { getReport: "function" },
+    artifacts: { readPaperArtifacts: "function" },
+    tags: {
+      loadVocabulary: "function",
+      saveVocabulary: "function",
+      exportVocabularyForRegulator: "function",
+      listStagedSuggestions: "function",
+      stageSuggestions: "function",
+      promoteStagedSuggestions: "function",
+      discardStagedSuggestions: "function",
+      withAuditRun: "function",
+      acknowledgeRegulation: "function",
+    },
+  },
+} as const);
+
+export const WORKFLOW_HOST_API_VERSION = WORKFLOW_HOST_API_MANIFEST.version[1];
+
+type WorkflowHostManifestOf<Contract> = {
+  readonly [Member in keyof Contract]: Member extends "version"
+    ? readonly ["value", Contract[Member]]
+    : Member extends "interactionMode"
+      ? readonly ["oneOf", "interactive", "non_interactive"]
+      : Contract[Member] extends (...args: infer _Args) => infer _Result
+        ? "function"
+        : Contract[Member] extends object
+          ? WorkflowHostManifestOf<Contract[Member]>
+          : never;
+};
+
+type WorkflowHostTypesEqual<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends <Value>() =>
+    Value extends Right ? 1 : 2
+    ? (<Value>() => Value extends Right ? 1 : 2) extends <Value>() =>
+        Value extends Left ? 1 : 2
+      ? true
+      : false
+    : false;
+type AssertWorkflowHostType<Condition extends true> = Condition;
+type _WorkflowHostManifestMatchesApi = AssertWorkflowHostType<
+  WorkflowHostTypesEqual<
+    WorkflowHostManifestOf<WorkflowHostApiV12>,
+    typeof WORKFLOW_HOST_API_MANIFEST
+  >
+>;
+
+function isManifestValueEntry(
+  entry: WorkflowHostCandidateManifestEntry,
+): entry is readonly ["value", unknown] | readonly ["oneOf", ...unknown[]] {
+  return Array.isArray(entry);
+}
+
+function manifestValueMatches(
+  value: unknown,
+  entry: readonly ["value", unknown] | readonly ["oneOf", ...unknown[]],
+) {
+  return entry[0] === "value"
+    ? Object.is(value, entry[1])
+    : entry.slice(1).some((candidate) => Object.is(value, candidate));
+}
+
 function isContractObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -61,7 +226,7 @@ function collectManifestLeafPaths(
   const paths: string[] = [];
   for (const [member, entry] of Object.entries(manifest)) {
     const path = memberPath(prefix, member);
-    if (entry === "function" || entry === "value") {
+    if (entry === "function" || entry === "value" || isManifestValueEntry(entry)) {
       paths.push(path);
     } else {
       paths.push(...collectManifestLeafPaths(entry, path));
@@ -78,6 +243,7 @@ export function inspectWorkflowHostCandidate(
   const unexpectedPaths: string[] = [];
   const nonFunctionPaths: string[] = [];
   const nonObjectPaths: string[] = [];
+  const invalidValuePaths: string[] = [];
 
   const visit = (
     value: unknown,
@@ -94,7 +260,7 @@ export function inspectWorkflowHostCandidate(
       const path = memberPath(prefix, member);
       if (!actualKeys.has(member)) {
         missingPaths.push(
-          ...(entry === "function" || entry === "value"
+          ...(entry === "function" || entry === "value" || isManifestValueEntry(entry)
             ? [path]
             : collectManifestLeafPaths(entry, path)),
         );
@@ -104,6 +270,8 @@ export function inspectWorkflowHostCandidate(
       const memberValue = value[member];
       if (entry === "function") {
         if (typeof memberValue !== "function") nonFunctionPaths.push(path);
+      } else if (isManifestValueEntry(entry)) {
+        if (!manifestValueMatches(memberValue, entry)) invalidValuePaths.push(path);
       } else if (entry !== "value") {
         if (!isContractObject(memberValue)) nonObjectPaths.push(path);
         else visit(memberValue, entry, path);
@@ -119,16 +287,19 @@ export function inspectWorkflowHostCandidate(
   unexpectedPaths.sort();
   nonFunctionPaths.sort();
   nonObjectPaths.sort();
+  invalidValuePaths.sort();
   return {
     ok:
       missingPaths.length === 0 &&
       unexpectedPaths.length === 0 &&
       nonFunctionPaths.length === 0 &&
-      nonObjectPaths.length === 0,
+      nonObjectPaths.length === 0 &&
+      invalidValuePaths.length === 0,
     missingPaths,
     unexpectedPaths,
     nonFunctionPaths,
     nonObjectPaths,
+    invalidValuePaths,
   };
 }
 
@@ -185,36 +356,10 @@ export function inspectWorkflowHostContractVariants(
   };
 }
 
-type WorkflowHostCapabilityIdentity = Exclude<keyof WorkflowHostApi, "version">;
-
-const WORKFLOW_HOST_CAPABILITY_IDENTITIES = [
-  "addon",
-  "items",
-  "context",
-  "library",
-  "mutations",
-  "metadata",
-  "researchBundles",
-  "prefs",
-  "parents",
-  "notes",
-  "images",
-  "attachments",
-  "tags",
-  "statusTags",
-  "collections",
-  "command",
-  "editor",
-  "notifications",
-  "logging",
-  "file",
-  "archive",
-  "resources",
-  "synthesis",
-] as const satisfies readonly WorkflowHostCapabilityIdentity[];
-
-type DeclaredWorkflowHostCapability =
-  (typeof WORKFLOW_HOST_CAPABILITY_IDENTITIES)[number];
+type DeclaredWorkflowHostCapability = Exclude<
+  keyof typeof WORKFLOW_HOST_API_MANIFEST,
+  "version" | "interactionMode"
+>;
 
 export type WorkflowHostCapabilitySummary = Record<
   DeclaredWorkflowHostCapability,
@@ -258,7 +403,10 @@ export function summarizeWorkflowHostApiCapabilities(
 ): WorkflowHostCapabilitySummary {
   const hostRecord = (hostApi || {}) as Record<string, unknown>;
   const summary = {} as Record<DeclaredWorkflowHostCapability, boolean>;
-  for (const capability of WORKFLOW_HOST_CAPABILITY_IDENTITIES) {
+  for (const capability of Object.keys(
+    WORKFLOW_HOST_API_MANIFEST,
+  ) as Array<keyof typeof WORKFLOW_HOST_API_MANIFEST>) {
+    if (capability === "version" || capability === "interactionMode") continue;
     summary[capability] = Boolean(hostRecord[capability]);
   }
   return {
@@ -269,24 +417,29 @@ export function summarizeWorkflowHostApiCapabilities(
 
 export function inspectWorkflowHostContract(
   hostApi: WorkflowHostApi,
-  variant: WorkflowHostContractVariant,
+  _variant: WorkflowHostContractVariant,
 ): {
   summary: WorkflowHostCapabilitySummary;
   conformance: WorkflowHostContractConformance;
 } {
   const summary = summarizeWorkflowHostApiCapabilities(hostApi);
-  const missingCapabilities = WORKFLOW_HOST_CAPABILITY_IDENTITIES.filter(
-    (capability) =>
-      !summary[capability] &&
-      (capability !== "resources" || variant === "non-interactive"),
+  const inspection = inspectWorkflowHostCandidate(
+    hostApi,
+    WORKFLOW_HOST_API_MANIFEST,
   );
-  const declaredKeys = new Set<string>([
-    "version",
-    ...WORKFLOW_HOST_CAPABILITY_IDENTITIES,
-  ]);
-  const unexpectedCapabilities = Object.keys(hostApi)
-    .filter((key) => !declaredKeys.has(key))
-    .sort();
+  const missingCapabilities = [
+    ...new Set(
+      inspection.missingPaths
+        .map((path) => path.split(".")[0])
+        .filter(
+          (capability): capability is DeclaredWorkflowHostCapability =>
+            capability !== "version" && capability !== "interactionMode",
+        ),
+    ),
+  ].sort();
+  const unexpectedCapabilities = [
+    ...new Set(inspection.unexpectedPaths.map((path) => path.split(".")[0])),
+  ].sort();
   const actualVersion =
     typeof hostApi.version === "number" && Number.isFinite(hostApi.version)
       ? hostApi.version
@@ -302,8 +455,7 @@ export function inspectWorkflowHostContract(
     summary,
     conformance: {
       ok:
-        missingCapabilities.length === 0 &&
-        unexpectedCapabilities.length === 0 &&
+        inspection.ok &&
         versionMismatch === null,
       missingCapabilities,
       unexpectedCapabilities,

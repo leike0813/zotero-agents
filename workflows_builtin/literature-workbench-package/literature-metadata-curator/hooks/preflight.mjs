@@ -27,7 +27,6 @@ async function translateIdentifier({ runtime, identifier }) {
       const translated = await translateIdentifierHostApi({
         type: identifier.type,
         value: identifier.value,
-        normalized: identifier.normalized,
       });
       const translators = summarizeTranslators(translated?.translators);
       const itemCount = Number(translated?.itemCount || 0);
@@ -95,92 +94,16 @@ async function translateIdentifier({ runtime, identifier }) {
     }
   }
 
-  const Translate = runtime?.zotero?.Translate;
-  if (!Translate?.Search) {
-    return {
-      ok: false,
-      reason: "translate_search_unavailable",
-      diagnostics: [
-        {
-          code: "translate_search_unavailable",
-          message: "Zotero Translate.Search is unavailable.",
-        },
-      ],
-    };
-  }
-
-  try {
-    const translate = new Translate.Search();
-    if (identifier.type === "DOI") {
-      translate.setIdentifier?.({ DOI: identifier.value });
-    } else if (identifier.type === "arXiv") {
-      translate.setIdentifier?.({ arXiv: identifier.value });
-    } else if (identifier.type === "PMID") {
-      translate.setIdentifier?.({ PMID: identifier.value });
-    } else if (identifier.type === "ISBN") {
-      translate.setSearch?.({ itemType: "book", ISBN: identifier.value });
-    }
-    const translators = (await translate.getTranslators?.()) || [];
-    if (!Array.isArray(translators) || translators.length === 0) {
-      return {
-        ok: false,
-        reason: "no_translators",
-        diagnostics: [
-          {
-            code: "no_translators",
-            message: `No Zotero translator found for ${identifier.type}.`,
-          },
-        ],
-      };
-    }
-    translate.setTranslator?.(translators);
-    const items =
-      (await translate.translate?.({
-        libraryID: false,
-        saveAttachments: false,
-      })) || [];
-    const itemList = Array.isArray(items) ? items : [];
-    const candidate = itemList.find(
-      (item) =>
-        candidateMatchesIdentifier(item, identifier) &&
-        hasCoreBibliographicMetadata(item),
-    );
-    if (!candidate) {
-      return {
-        ok: false,
-        reason: itemList.length ? "candidate_not_trustworthy" : "no_items",
-        diagnostics: [
-          {
-            code: itemList.length ? "candidate_not_trustworthy" : "no_items",
-            message: itemList.length
-              ? "Zotero Translate.Search returned candidates, but none matched the selected identifier with enough metadata."
-              : "No items returned from any translator.",
-            details: {
-              itemCount: itemList.length,
-              translators: summarizeTranslators(translators),
-            },
-          },
-        ],
-      };
-    }
-    return {
-      ok: true,
-      item: candidate,
-      translators: summarizeTranslators(translators),
-      itemCount: itemList.length,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: "translate_search_failed",
-      diagnostics: [
-        {
-          code: "translate_search_failed",
-          message: error instanceof Error ? error.message : String(error),
-        },
-      ],
-    };
-  }
+  return {
+    ok: false,
+    reason: "translate_search_unavailable",
+    diagnostics: [
+      {
+        code: "translate_search_unavailable",
+        message: "Workflow Host metadata translation is unavailable.",
+      },
+    ],
+  };
 }
 
 async function preflightImpl({ selectionContext, executionOptions, runtime }) {

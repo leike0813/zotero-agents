@@ -25,43 +25,119 @@ function metadataOnlyResearchBundles(
 ) {
   return {
     async materializePapers(args: {
-      papers: Array<{ paperRef: string }>;
-      sourcePaperRefs?: string[];
+      paperRefs: Array<{ libraryId: number; key: string }>;
     }) {
       if (options.missing) {
         return {
-          entries: [],
           papers: [],
-          warnings: args.papers.map((paper) => ({
-            code: "paper_missing",
-            paper_ref: paper.paperRef,
-          })),
+          completeness: "incomplete",
+          issues: [],
         };
       }
-      const entries: any[] = [];
-      const papers = args.papers.map((paper) => {
-        const [libraryId, itemKey] = paper.paperRef.split(":");
-        const root = `papers/${libraryId}/${itemKey}`;
-        entries.push({
-          path: `${root}/metadata.json`,
-          contentType: "application/json",
-          text: `${JSON.stringify({ itemType: "journalArticle", key: itemKey })}\n`,
-        });
+      const papers = args.paperRefs.map((ref) => {
         return {
-          paper_ref: paper.paperRef,
-          metadata_path: `${root}/metadata.json`,
-          source: null,
-          artifacts: [],
+          source: { ref, revision: `revision:${ref.key}` },
+          item: {
+            schema: "zotero-agents.portable-regular-item.v1",
+            itemType: "journalArticle",
+            fields: { title: ref.key },
+            creators: [],
+            tags: [],
+          },
+          collectionRefs: [],
+          relatedRefs: [],
+          notes: [],
+          attachments: [],
+          annotations: [],
+          issues: [],
         };
       });
       return {
-        entries,
         papers,
-        warnings: options.coreSourceMissing
-          ? (args.sourcePaperRefs || []).map((paperRef) => ({
-              code: "core_source_missing",
-              paper_ref: paperRef,
-            }))
+        completeness: "complete",
+        issues: [],
+      };
+    },
+  };
+}
+
+function materializedPaper(
+  ref: { libraryId: number; key: string },
+  title: string,
+  attachments: any[] = [],
+) {
+  return {
+    source: { ref, revision: `revision:${ref.key}` },
+    item: {
+      schema: "zotero-agents.portable-regular-item.v1",
+      itemType: "journalArticle",
+      fields: { title },
+      creators: [],
+      tags: [],
+    },
+    collectionRefs: [],
+    relatedRefs: [],
+    notes: [],
+    attachments,
+    annotations: [],
+    issues: [],
+  };
+}
+
+function materializedAttachment(
+  parentRef: { libraryId: number; key: string },
+  key: string,
+  resourceId: string,
+  filename: string,
+  contentType: string,
+) {
+  const ref = { libraryId: parentRef.libraryId, key };
+  return {
+    sourceRef: ref,
+    metadata: {
+      ref,
+      parentRef,
+      revision: `revision:${key}`,
+      title: filename,
+      filename,
+      contentType,
+      charset: null,
+      url: null,
+      linkMode: "linked_file",
+      role: "ordinary",
+      file: { state: "available", path: "managed-by-resource" },
+    },
+    file: {
+      state: "available",
+      resourceRef: { kind: "workflow_resource", id: resourceId },
+      filename,
+      contentType,
+      sizeBytes: 1,
+      sha256: "fixture",
+    },
+  };
+}
+
+function bibliographyFixture(readResult: () => any) {
+  return {
+    async render(args: any) {
+      const result = readResult();
+      if (!result?.ok) throw new Error("export failed");
+      const formatId = result.fallbackUsed ? "bibtex" : "better-bibtex";
+      return {
+        content: result.content,
+        requestedFormats: args.formatPreference,
+        usedFormat: {
+          ref: { id: formatId },
+          label: result.translator.label,
+          fileExtension: "bib",
+          contentType: "application/x-bibtex",
+          availability: "available",
+          optionsSchema: null,
+        },
+        fallbackUsed: result.fallbackUsed,
+        issues: result.fallbackUsed
+          ? [{ code: result.attempts?.[0]?.errorCode || "unavailable" }]
           : [],
       };
     },
@@ -505,97 +581,80 @@ describe("export research bundle workflow", function () {
           },
           researchBundles: {
             async materializePapers() {
-              const paperOne = "papers/1/AAAA1111";
-              const paperTwo = "papers/1/BBBB2222";
-              const paperThree = "papers/1/CCCC3333";
               return {
-                entries: [
-                  {
-                    path: `${paperOne}/metadata.json`,
-                    contentType: "application/json",
-                    text: '{"itemType":"journalArticle","key":"AAAA1111"}\n',
-                  },
-                  {
-                    path: `${paperOne}/source.md`,
-                    contentType: "text/markdown",
-                    text: await fs.readFile(markdownPath, "utf8"),
-                  },
-                  {
-                    path: `${paperOne}/figures/a b.png`,
-                    contentType: "image/png",
-                    sourcePath: nestedImagePath,
-                  },
-                  {
-                    path: `${paperOne}/figure.png`,
-                    contentType: "image/png",
-                    sourcePath: imagePath,
-                  },
-                  {
-                    path: `${paperTwo}/metadata.json`,
-                    contentType: "application/json",
-                    text: '{"itemType":"journalArticle","key":"BBBB2222"}\n',
-                  },
-                  {
-                    path: `${paperTwo}/source.pdf`,
-                    contentType: "application/pdf",
-                    sourcePath: pdfPath,
-                  },
-                  {
-                    path: `${paperThree}/metadata.json`,
-                    contentType: "application/json",
-                    text: '{"itemType":"journalArticle","key":"CCCC3333"}\n',
-                  },
-                ],
                 papers: [
-                  {
-                    paper_ref: "1:AAAA1111",
-                    metadata_path: `${paperOne}/metadata.json`,
-                    source: {
-                      kind: "markdown",
-                      path: `${paperOne}/source.md`,
-                      assets: [
-                        `${paperOne}/figures/a b.png`,
-                        `${paperOne}/figure.png`,
-                      ],
-                    },
-                    artifacts: [],
-                  },
-                  {
-                    paper_ref: "1:BBBB2222",
-                    metadata_path: `${paperTwo}/metadata.json`,
-                    source: {
-                      kind: "pdf",
-                      path: `${paperTwo}/source.pdf`,
-                      assets: [],
-                    },
-                    artifacts: [],
-                  },
-                  {
-                    paper_ref: "1:CCCC3333",
-                    metadata_path: `${paperThree}/metadata.json`,
-                    source: null,
-                    artifacts: [],
-                  },
+                  materializedPaper({ libraryId: 1, key: "AAAA1111" }, "A", [
+                    materializedAttachment(
+                      { libraryId: 1, key: "AAAA1111" },
+                      "MD",
+                      "markdown",
+                      "paper.md",
+                      "text/markdown",
+                    ),
+                  ]),
+                  materializedPaper({ libraryId: 1, key: "BBBB2222" }, "B", [
+                    materializedAttachment(
+                      { libraryId: 1, key: "BBBB2222" },
+                      "PDF",
+                      "pdf",
+                      "second.pdf",
+                      "application/pdf",
+                    ),
+                  ]),
+                  materializedPaper({ libraryId: 1, key: "CCCC3333" }, "C"),
                 ],
-                warnings: [
-                  {
-                    code: "markdown_image_outside_source_tree",
-                    path: outsideImagePath,
-                    paper_ref: "1:AAAA1111",
-                  },
-                  {
-                    code: "markdown_image_missing",
-                    path: path.join(root, "missing.png"),
-                    reason: "probe_failed",
-                    paper_ref: "1:AAAA1111",
-                  },
-                ],
+                completeness: "complete",
+                issues: [],
               };
             },
           },
           synthesis: {
-            async getTopicReport() {
-              return { markdown: "# Topic report" };
+            topics: {
+              async getReport() {
+                return { markdown: "# Topic report" };
+              },
+            },
+          },
+          resources: {
+            async get(ref: { id: string }) {
+              const resource = {
+                markdown: {
+                  path: markdownPath,
+                  displayName: "paper.md",
+                  contentType: "text/markdown",
+                },
+                pdf: {
+                  path: pdfPath,
+                  displayName: "second.pdf",
+                  contentType: "application/pdf",
+                },
+              }[ref.id as "markdown" | "pdf"];
+              return {
+                ref: { kind: "workflow_resource", id: ref.id },
+                ...resource,
+              };
+            },
+          },
+          bibliography: {
+            async render(args: any) {
+              exportedItemKeys.push(
+                ...args.itemRefs.map((ref: any) => ref.key),
+              );
+              return {
+                content:
+                  "@article{a, title={A}}\n@article{b, title={B}}\n@article{c, title={C}}\n",
+                requestedFormats: args.formatPreference,
+                usedFormat: {
+                  ref: { id: "better-bibtex" },
+                  label: "Better BibTeX",
+                  fileExtension: "bib",
+                  contentType: "application/x-bibtex",
+                  availability: "available",
+                  optionsSchema: null,
+                },
+                fallbackUsed: false,
+                issues: [],
+              };
             },
           },
           library: {
@@ -778,6 +837,7 @@ describe("export research bundle workflow", function () {
               exportText: async () => exportResult,
             },
             researchBundles: metadataOnlyResearchBundles(),
+            bibliography: bibliographyFixture(() => exportResult),
             archive: createWorkflowArchiveApi(),
           },
         },
@@ -974,6 +1034,13 @@ describe("export research bundle workflow", function () {
           researchBundles: metadataOnlyResearchBundles({
             coreSourceMissing: true,
           }),
+          bibliography: bibliographyFixture(() => ({
+            ok: true,
+            content: "@article{a, title={A}}\n",
+            translator: { label: "Better BibTeX" },
+            fallbackUsed: false,
+            attempts: [],
+          })),
           library: { getItemAttachments: async () => [] },
           file: {
             exists: async () => false,

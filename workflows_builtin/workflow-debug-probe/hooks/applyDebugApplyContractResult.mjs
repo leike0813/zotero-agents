@@ -57,31 +57,37 @@ function getCanonicalResult(args) {
 
 function resolveParentRef(args, result) {
   return (
-    args?.parent ||
-    args?.request?.targetParentID ||
-    result.parent_item_id ||
-    result.target_parent_id ||
+    args?.request?.targetParentRef ||
+    result.parent_ref ||
+    result.target_parent_ref ||
+    (isRecord(args?.parent) ? args.parent.ref || args.parent : null) ||
     null
   );
 }
 
+function confirmed(mutation) {
+  if (mutation?.outcome === "committed" || mutation?.outcome === "unchanged") return mutation.result;
+  throw new Error(mutation?.attempt?.error?.message || "debug apply mutation failed");
+}
+
 async function resolveParent(args, result) {
   const ref = resolveParentRef(args, result);
-  if (ref && args?.runtime?.helpers?.resolveItemRef) {
-    return args.runtime.helpers.resolveItemRef(ref);
-  }
   if (ref) {
-    return ref;
+    const detail = await args.runtime.hostApi.library.getItemDetail(ref);
+    if (detail?.kind === "regular") return detail.item;
+    throw new Error("debug apply parent does not exist");
   }
   const workflowId =
     normalizeString(result.workflow_id) ||
     normalizeString(args?.manifest?.id) ||
     "debug-apply-contract";
   const runKey = normalizeString(result.run_key) || Math.random().toString(36).slice(2, 8);
-  return args.runtime.handlers.item.create({
+  return confirmed(await args.runtime.hostApi.mutations.execute({
+    operation: "item.create",
+    operationId: `debug-apply:create:${runKey}`,
     itemType: "journalArticle",
     fields: { title: `${workflowId} ${runKey}` },
-  });
+  })).item;
 }
 
 async function readBundleArtifact(args, result) {
@@ -172,17 +178,18 @@ async function writeAttachmentSource(args, result, text) {
 async function applyBundle(args, parent, result) {
   const artifact = await readBundleArtifact(args, result);
   const filePath = await writeAttachmentSource(args, result, artifact.text);
-  const attachment = await args.runtime.handlers.attachment.createFromPath({
-    parent: parent.id || parent,
-    path: filePath,
-    title: `${normalizeString(result.step_id) || "bundle"} debug bundle artifact`,
-    mimeType: "text/plain",
-  });
+  const parentRef = parent.ref || parent;
+  const attachment = confirmed(await args.runtime.hostApi.attachments.create({
+    operationId: `debug-apply:attachment:${normalizeString(result.run_key) || "run"}:${normalizeString(result.step_id) || "bundle"}`,
+    placement: { kind: "child", parentRef },
+    source: { kind: "stored_file", main: { source: { kind: "local_path", path: filePath } }, companions: [] },
+    metadata: { title: `${normalizeString(result.step_id) || "bundle"} debug bundle artifact`, contentType: "text/plain" },
+  })).attachment;
   return {
     applied: true,
     mode: "bundle",
-    parentItemId: parent.id || null,
-    attachmentId: attachment?.id || null,
+    parentRef,
+    attachmentRef: attachment?.ref || null,
     artifactEntryPath: artifact.entryPath,
     artifactText: artifact.text,
   };
@@ -202,19 +209,23 @@ async function applyResultMode(args, parent, result) {
     `debug-step:${stepId}`,
     tag,
   ];
-  await args.runtime.handlers.tag.add(parent.id || parent, tags);
+  const parentRef = parent.ref || parent;
+  confirmed(await args.runtime.hostApi.mutations.execute({
+    operation: "item.updateTags",
+    operationId: `debug-apply:tags:${runKey}:${stepId}`,
+    itemRef: parentRef,
+    add: tags,
+    remove: [],
+  }));
   return {
     applied: true,
     mode: "result",
-    parentItemId: parent.id || null,
+    parentRef,
     tags,
   };
 }
 
 export async function applyResult(args) {
-  if (!args?.runtime?.handlers?.item || !args?.runtime?.handlers?.tag) {
-    throw new Error("debug apply contract applyResult requires runtime handlers");
-  }
   const result = getCanonicalResult(args);
   const parent = await resolveParent(args, result);
   const mode = normalizeString(result.apply_mode);

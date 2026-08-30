@@ -8,7 +8,12 @@ import {
   parseReferencesPayload,
 } from "./referencesNote.mjs";
 import { escapeAttribute } from "./htmlCodec.mjs";
-import { measureWorkflowTestSpan, requireHostApi } from "./runtime.mjs";
+import {
+  measureWorkflowTestSpan,
+  portableItemRef,
+  requireCommittedMutation,
+  requireHostApi,
+} from "./runtime.mjs";
 import { getBaseName, sanitizeFileNameSegment } from "./path.mjs";
 import {
   attachWorkbenchPayloadToNote,
@@ -39,6 +44,7 @@ import {
   toNativeLiteratureScoreArtifact,
   upsertLiteratureScoreNote,
 } from "./literatureScoreNote.mjs";
+import { renderReferencesTable } from "./referenceModel.mjs";
 
 export const LITERATURE_MATCHING_METADATA_PAYLOAD_TYPE =
   "literature-matching-metadata-json";
@@ -71,8 +77,18 @@ async function resolveGeneratedPayloadForNote(args) {
     payloadType: args.payloadType,
   });
   if (embedded && !embedded.errors?.length) {
+    const payload =
+      args.payloadType === "digest-markdown" &&
+      typeof embedded.payload === "string"
+        ? {
+            version: 1,
+            entry: "artifacts/digest.md",
+            format: "markdown",
+            content: embedded.payload,
+          }
+        : embedded.payload;
     return {
-      payload: embedded.payload,
+      payload,
       payloadTag: "",
       source: "embedded-image-attachment",
       sourceStorage: embedded.sourceStorage,
@@ -154,25 +170,19 @@ function toNativeCitationArtifact(payload) {
   return cloneSerializable(payload);
 }
 
-export function collectGeneratedNotesByKind(parentItem, runtime) {
+export async function collectGeneratedNotesByKind(parentItem, runtime) {
   const byKind = new Map([
     ["digest", []],
     ["references", []],
     ["citation-analysis", []],
     ["literature-score", []],
   ]);
-  const noteIds = parentItem.getNotes?.() || [];
-  for (const noteRef of noteIds) {
-    let noteItem = null;
-    try {
-      noteItem = runtime.helpers.resolveItemRef(noteRef);
-    } catch {
-      noteItem = null;
-    }
-    if (!noteItem) {
-      continue;
-    }
-    const kind = parseGeneratedNoteKind(noteItem.getNote?.() || "");
+  const host = requireHostApi(runtime);
+  const summaries = await host.library.getItemNotes(portableItemRef(parentItem));
+  for (const summary of summaries) {
+    const detail = await host.library.getNoteDetail(summary.ref, { format: "html" });
+    const noteItem = { ...summary, content: detail.content };
+    const kind = parseGeneratedNoteKind(detail.content);
     if (!byKind.has(kind)) {
       continue;
     }
@@ -191,24 +201,38 @@ async function upsertUniqueGeneratedNote(args) {
         noteKind,
         existingCount: 0,
       },
-      () =>
-        requireHostApi(args.runtime).parents.addNote(args.parentItem, {
-          content: args.content,
+      async () => requireCommittedMutation(
+        await requireHostApi(args.runtime).notes.create({
+          operationId: `generated-note:create:${noteKind}:${Date.now().toString(36)}`,
+          parentRef: portableItemRef(args.parentItem),
+          content: {
+            format: "html",
+            value: args.content,
+            ...(args.embeddedImages?.length ? { embeddedImages: args.embeddedImages } : {}),
+          },
         }),
+      ).note,
     );
   }
 
   const primary = existingNotes[0];
-  await measureWorkflowTestSpan(
+  const updated = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:updateNote",
     {
       noteKind,
       existingCount: existingNotes.length,
     },
-    () =>
-      requireHostApi(args.runtime).notes.update(primary, {
-        content: args.content,
+    async () => requireCommittedMutation(
+      await requireHostApi(args.runtime).notes.updateContent({
+        operationId: `generated-note:update:${noteKind}:${Date.now().toString(36)}`,
+        noteRef: portableItemRef(primary),
+        content: {
+          format: "html",
+          value: args.content,
+          ...(args.embeddedImages?.length ? { embeddedImages: args.embeddedImages } : {}),
+        },
       }),
+    ).note,
   );
   for (let index = 1; index < existingNotes.length; index += 1) {
     await measureWorkflowTestSpan(
@@ -217,10 +241,16 @@ async function upsertUniqueGeneratedNote(args) {
         noteKind,
         duplicateIndex: index,
       },
-      () => requireHostApi(args.runtime).notes.remove(existingNotes[index]),
+      async () => requireCommittedMutation(
+        await requireHostApi(args.runtime).notes.remove({
+          operationId: `generated-note:remove:${noteKind}:${Date.now().toString(36)}:${index}`,
+          noteRef: portableItemRef(existingNotes[index]),
+          disposition: "trash",
+        }),
+      ),
     );
   }
-  return primary;
+  return updated;
 }
 
 async function removeDuplicateGeneratedNotes(args) {
@@ -233,7 +263,13 @@ async function removeDuplicateGeneratedNotes(args) {
         noteKind,
         duplicateIndex: index,
       },
-      () => requireHostApi(args.runtime).notes.remove(existingNotes[index]),
+      async () => requireCommittedMutation(
+        await requireHostApi(args.runtime).notes.remove({
+          operationId: `generated-note:remove:${noteKind}:${Date.now().toString(36)}:${index}`,
+          noteRef: portableItemRef(existingNotes[index]),
+          disposition: "trash",
+        }),
+      ),
     );
   }
 }
@@ -388,10 +424,13 @@ async function ensureDigestNoteForRepresentativeImage(args) {
       noteKind,
       existingCount: 0,
     },
-    () =>
-      requireHostApi(args.runtime).parents.addNote(args.parentItem, {
-        content: args.initialContent,
+    async () => requireCommittedMutation(
+      await requireHostApi(args.runtime).notes.create({
+        operationId: `generated-note:create:digest:${Date.now().toString(36)}`,
+        parentRef: portableItemRef(args.parentItem),
+        content: { format: "html", value: args.initialContent },
       }),
+    ).note,
   );
 }
 
@@ -432,7 +471,7 @@ async function upsertDigestGeneratedNote(args) {
 
   const previousNoteContent =
     existingNotes.length > 0
-      ? String(existingNotes[0].getNote?.() || "")
+      ? String(existingNotes[0].content || "")
       : baseContent;
   const digestNote = await ensureDigestNoteForRepresentativeImage({
     runtime: args.runtime,
@@ -459,10 +498,19 @@ async function upsertDigestGeneratedNote(args) {
       noteKind: "digest",
       existingCount: existingNotes.length,
     },
-    () =>
-      requireHostApi(args.runtime).notes.update(digestNote, {
-        content: finalContent,
+    async () => requireCommittedMutation(
+      await requireHostApi(args.runtime).notes.updateContent({
+        operationId: `generated-note:update:digest:${Date.now().toString(36)}`,
+        noteRef: portableItemRef(digestNote),
+        content: {
+          format: "html",
+          value: finalContent,
+          ...(representativeImage?.embeddedImages?.length
+            ? { embeddedImages: representativeImage.embeddedImages }
+            : {}),
+        },
       }),
+    ),
   );
   await attachWorkbenchPayloadToNote({
     runtime: args.runtime,
@@ -492,7 +540,14 @@ async function upsertDigestGeneratedNote(args) {
 
 export async function resolveDigestMarkdownPayloadForNote(args) {
   const noteItem = args.noteItem;
-  const noteContent = String(noteItem?.getNote?.() || "");
+  const noteContent = String(
+    noteItem?.content ||
+      (await requireHostApi(args.runtime).library.getNoteDetail(
+        portableItemRef(noteItem),
+        { format: "html" },
+      )).content ||
+      "",
+  );
   try {
     const parsed = await resolveGeneratedPayloadForNote({
       runtime: args.runtime,
@@ -520,7 +575,14 @@ export async function updateDigestNoteRepresentativeImage(args) {
     args.payload,
     args.sourceAttachmentItemKey,
   );
-  const previousNoteContent = String(digestNote?.getNote?.() || "");
+  const previousNoteContent = String(
+    digestNote?.content ||
+      (await requireHostApi(args.runtime).library.getNoteDetail(
+        portableItemRef(digestNote),
+        { format: "html" },
+      )).content ||
+      "",
+  );
   const representativeImage = await prepareDigestRepresentativeImage({
     runtime: args.runtime,
     digestNote,
@@ -539,10 +601,19 @@ export async function updateDigestNoteRepresentativeImage(args) {
     {
       noteKind: "digest",
     },
-    () =>
-      requireHostApi(args.runtime).notes.update(digestNote, {
-        content: finalContent,
+    async () => requireCommittedMutation(
+      await requireHostApi(args.runtime).notes.updateContent({
+        operationId: `generated-note:update:digest-image:${Date.now().toString(36)}`,
+        noteRef: portableItemRef(digestNote),
+        content: {
+          format: "html",
+          value: finalContent,
+          ...(representativeImage?.embeddedImages?.length
+            ? { embeddedImages: representativeImage.embeddedImages }
+            : {}),
+        },
       }),
+    ),
   );
   await attachWorkbenchPayloadToNote({
     runtime: args.runtime,
@@ -575,7 +646,7 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
       hasLiteratureScore: !!args.literatureScore,
     },
     async () => {
-      const existingByKind = collectGeneratedNotesByKind(
+      const existingByKind = await collectGeneratedNotesByKind(
         args.parentItem,
         args.runtime,
       );
@@ -609,8 +680,7 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
       if (args.references) {
         const referencesNoteContent = buildLegalGeneratedNoteContent({
           title: "References",
-          bodyHtml: args.runtime.helpers
-            .renderReferencesTable(args.references.payload.references || [])
+          bodyHtml: renderReferencesTable(args.references.payload.references || [])
             .replace(/\sdata-zs-view=(["'])references-table\1/i, ""),
         });
         const referencesNote = await upsertUniqueGeneratedNote({
@@ -700,7 +770,7 @@ export async function resolveLiteratureMatchingMetadataForDigestNote(args) {
 }
 
 export async function resolveLiteratureMatchingMetadataForParentItem(args) {
-  const existingByKind = collectGeneratedNotesByKind(
+  const existingByKind = await collectGeneratedNotesByKind(
     args.parentItem,
     args.runtime,
   );
@@ -724,8 +794,13 @@ export async function resolveLiteratureMatchingMetadataForParentItem(args) {
 }
 
 export async function exportGeneratedNoteCandidate(args) {
-  const noteItem = args.runtime.helpers.resolveItemRef(args.noteItemID);
-  const noteContent = String(noteItem.getNote?.() || "");
+  const host = requireHostApi(args.runtime);
+  const noteRef = portableItemRef(args.noteRef || args.noteItemRef || {
+    libraryId: args.libraryId,
+    key: args.noteItemKey,
+  });
+  const noteItem = await host.library.getNoteDetail(noteRef, { format: "html" });
+  const noteContent = String(noteItem.content || "");
   const kind = String(args.kind || "").trim();
   if (kind === "digest") {
     const parsed = await resolveGeneratedPayloadForNote({
@@ -847,21 +922,13 @@ async function resolveRepresentativeImageExportFile(args) {
   }
   try {
     const hostApi = requireHostApi(args.runtime);
-    const attachment = hostApi.items?.getByLibraryAndKey?.(
-      args.noteItem.libraryID,
-      descriptor.attachmentKey,
-    );
-    const allowedParentIds = new Set(
-      [args.noteItem.id, args.noteItem.parentItemID].filter(
-        (value) => typeof value === "number" && value > 0,
-      ),
-    );
-    if (!attachment || !allowedParentIds.has(attachment.parentID)) {
+    const attachment = (await hostApi.library.getItemAttachments(
+      portableItemRef(args.noteItem),
+    )).find((entry) => entry.ref.key === descriptor.attachmentKey);
+    if (!attachment || attachment.file.state !== "available") {
       return null;
     }
-    const sourcePath = String(
-      (await attachment.getFilePathAsync?.()) || "",
-    ).trim();
+    const sourcePath = String(attachment.file.path || "").trim();
     if (!sourcePath) {
       return null;
     }
@@ -907,13 +974,13 @@ function deriveNoteTitleFromContent(noteContent) {
 }
 
 function resolveExportNoteTitle(noteItem, noteContent) {
-  const directTitle = String(noteItem.getField?.("title") || "").trim();
-  if (directTitle) {
-    return directTitle;
-  }
   const derivedTitle = deriveNoteTitleFromContent(noteContent);
   if (derivedTitle) {
     return derivedTitle;
+  }
+  const directTitle = String(noteItem?.title || "").trim();
+  if (directTitle) {
+    return directTitle;
   }
   return "untitled";
 }
@@ -975,7 +1042,10 @@ export async function exportConversationNote(args) {
     payloadType: "conversation-note-markdown",
   });
   if (embedded && !embedded.errors?.length) {
-    payload = embedded.payload;
+    payload =
+      typeof embedded.payload === "string"
+        ? { format: "markdown", content: embedded.payload }
+        : embedded.payload;
   } else {
     payload = parsePayloadBlock(
       args.noteContent,
@@ -1022,10 +1092,13 @@ export async function importCustomNotes(args) {
       markdown: markdownContent,
       runtime,
     });
-    const noteItem = await requireHostApi(runtime).parents.addNote(parentItem, {
-      content: noteContent,
-      title: fileName,
-    });
+    const noteItem = requireCommittedMutation(
+      await requireHostApi(runtime).notes.create({
+        operationId: `custom-note:create:${Date.now().toString(36)}:${createdNotes.length}`,
+        parentRef: portableItemRef(parentItem),
+        content: { format: "html", value: noteContent },
+      }),
+    ).note;
     createdNotes.push(noteItem);
   }
 

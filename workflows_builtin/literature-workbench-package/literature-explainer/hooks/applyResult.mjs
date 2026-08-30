@@ -228,6 +228,16 @@ function resolveHostApi(runtime) {
   throw new Error("workflow hostApi is unavailable in runtime");
 }
 
+function portableRef(value) {
+  const source = value?.ref || value || {};
+  const libraryId = Number(source.libraryId || source.libraryID);
+  const key = String(source.key || "").trim();
+  if (!Number.isSafeInteger(libraryId) || libraryId <= 0 || !key) {
+    throw new Error("literature-explainer requires a portable parent ref");
+  }
+  return { libraryId, key };
+}
+
 export async function applyResult({
   parent,
   bundleReader,
@@ -239,10 +249,12 @@ export async function applyResult({
   let skillOutputDiagnostics = { warnings: [] };
   try {
     const hostApi = resolveHostApi(runtime);
-    if (!hostApi.items || typeof hostApi.items.resolve !== "function") {
-      throw new Error("workflow hostApi.items.resolve is unavailable");
+    const parentRef = portableRef(parent);
+    const parentDetail = await hostApi.library.getItemDetail(parentRef);
+    if (!parentDetail || parentDetail.kind !== "regular") {
+      throw new Error("literature-explainer parent is unavailable");
     }
-    const parentItem = hostApi.items.resolve(parent);
+    const parentItem = parentDetail.item;
     stage = "resolve-result-diagnostics";
     const resultJson = await readResultJsonForDiagnostics({
       bundleReader,
@@ -322,8 +334,8 @@ export async function applyResult({
         requested_note_path: notePath,
         note_path: resolvedNote.noteEntry,
         bundle_candidates: resolvedNote.candidates,
-        parent_item_id: parentItem.id,
-        created_note_id: note?.id,
+        parent_ref: parentItem.ref,
+        created_note_ref: note?.ref,
         title,
       },
       skillOutputDiagnostics,

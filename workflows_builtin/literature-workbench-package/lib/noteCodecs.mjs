@@ -7,7 +7,11 @@ import {
   readTagAttribute,
 } from "./htmlCodec.mjs";
 import { attachWorkbenchPayloadToNote } from "./embeddedPayloadAttachments.mjs";
-import { requireHostApi } from "./runtime.mjs";
+import {
+  portableItemRef,
+  requireCommittedMutation,
+  requireHostApi,
+} from "./runtime.mjs";
 
 function renderInlineMarkdown(text) {
   let html = escapeHtml(text);
@@ -317,12 +321,13 @@ export function buildConversationNoteContent(args) {
 }
 
 export async function createConversationNote(args) {
-  const note = await requireHostApi(args.runtime).parents.addNote(
-    args.parentItem,
-    {
-      content: buildConversationNoteContent(args),
-    },
-  );
+  const note = requireCommittedMutation(
+    await requireHostApi(args.runtime).notes.create({
+      operationId: `conversation-note:${Date.now().toString(36)}`,
+      parentRef: portableItemRef(args.parentItem),
+      content: { format: "html", value: buildConversationNoteContent(args) },
+    }),
+  ).note;
   await attachWorkbenchPayloadToNote({
     runtime: args.runtime,
     note,

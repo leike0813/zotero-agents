@@ -250,6 +250,7 @@ function normalizePreparedImageOptions(
     maxLongEdge,
     targetBytes,
     hardMaxBytes,
+    preserveSourceBytes: input?.preserveSourceBytes === true,
     outputMimeType:
       outputFormat === "png" ? ("image/png" as const) : ("image/jpeg" as const),
   };
@@ -672,10 +673,39 @@ export function createWorkflowPreparedImageScope(
         );
       }
       requireNotCanceled(control);
-      const prepared = await legacyPrepare(
-        { blob: sourceBlob, mimeType: detectedMimeType },
-        options,
-      );
+      let prepared: WorkflowPreparedNoteImage;
+      if (options.preserveSourceBytes) {
+        if (
+          detectedMimeType !== "image/jpeg" &&
+          detectedMimeType !== "image/png"
+        ) {
+          throw invalidImageRequest(
+            "Preserved image format is unsupported",
+            "source",
+          );
+        }
+        if (sourceBlob.size > options.hardMaxBytes) {
+          throw imageResourceLimit(options.hardMaxBytes, sourceBlob.size);
+        }
+        const decoded = await adapter.decode(sourceBlob);
+        try {
+          prepared = {
+            blob: sourceBlob,
+            mimeType: detectedMimeType,
+            width: decoded.width,
+            height: decoded.height,
+            originalBytes: sourceBlob.size,
+            compressedBytes: sourceBlob.size,
+          };
+        } finally {
+          decoded.close();
+        }
+      } else {
+        prepared = await legacyPrepare(
+          { blob: sourceBlob, mimeType: detectedMimeType },
+          options,
+        );
+      }
       requireNotCanceled(control);
       if (!prepared.blob) {
         throw imageError("execution_failed", "Image encoder returned no blob", {

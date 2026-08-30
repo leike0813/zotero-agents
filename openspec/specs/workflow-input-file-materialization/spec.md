@@ -10,7 +10,7 @@ Defines the workflow host API contract for materializing generated provider inpu
 The Workflow Input Materialization module SHALL implement the workflow host file
 operation for files that workflow hooks generate as provider inputs. It SHALL
 write under the plugin-managed runtime tmp root through strict runtime filesystem
-operations while preserving the Workflow Host API v11 interface.
+operations through the exact Workflow Host API v12 `file` group.
 
 #### Scenario: Text input file is materialized
 

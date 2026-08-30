@@ -163,6 +163,7 @@ function serializeItemBase(item: Zotero.Item) {
   return {
     id: item.id,
     key: item.key,
+    ref: { libraryId: item.libraryID, key: item.key },
     itemType: item.itemType,
     title: item.getField?.("title") || "",
     libraryID: item.libraryID,

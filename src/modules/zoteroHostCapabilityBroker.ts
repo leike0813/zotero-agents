@@ -5627,9 +5627,39 @@ async function executeCanonicalMutation(
             "item revision no longer matches expectedRevision",
           );
         }
-        const fields = normalized.patch.fields
-          ? validateFieldPatch(item, normalized.patch.fields)
-          : undefined;
+        let fields: ReturnType<typeof validateFieldPatch> | undefined;
+        if (normalized.patch.fields) {
+          try {
+            fields = validateFieldPatch(item, normalized.patch.fields);
+          } catch (error) {
+            const invalidField = Object.entries(normalized.patch.fields).find(
+              ([field, value]) => {
+                try {
+                  validateFieldPatch(item, { [field]: value });
+                  return false;
+                } catch {
+                  return true;
+                }
+              },
+            )?.[0];
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "invalid_request",
+              "validation",
+              "refresh_and_retry_new_operation",
+              {
+                reason: "invalid_value",
+                field: invalidField
+                  ? `patch.fields.${invalidField}`
+                  : "patch.fields",
+                operation: "item.updateMetadata",
+              },
+              error instanceof Error
+                ? error.message
+                : "metadata field is invalid",
+            );
+          }
+        }
         const currentCreators = (() => {
           try {
             return (
@@ -6985,6 +7015,16 @@ function buildItemChangeTypePreview(request: {
   const targetItemType = trimText(request.targetItemType, 128);
   try {
     resolveZotero().ItemTypes.getID(targetItemType);
+    const target = new (resolveZotero().Item as typeof Zotero.Item)(
+      targetItemType as any,
+    );
+    if (
+      target.isNote?.() ||
+      target.isAttachment?.() ||
+      target.isAnnotation?.()
+    ) {
+      throw new Error("not a regular item type");
+    }
   } catch {
     throw capabilityError("invalid_request", "target item type is invalid", {
       reason: "unsupported_value",
@@ -9391,7 +9431,7 @@ async function getCanonicalNoteDetail(
     title: canonicalTitle(note) || content.text.slice(0, 80),
     format: options.format,
     content: options.format === "html" ? content.html : content.text,
-    revision: canonicalRevision(note),
+    revision: canonicalNoteVersion(note).revision,
   };
   throwIfWorkflowCallCanceled(control);
   return detail;

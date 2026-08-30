@@ -196,7 +196,12 @@ export function selectIdentifierFromUrl(value, options = {}) {
 
 function readField(item, field) {
   try {
-    return normalizeString(item?.getField?.(field));
+    return normalizeString(
+      item?.getField?.(field) ??
+      item?.fields?.[field] ??
+      item?.data?.[field] ??
+      item?.[field],
+    );
   } catch {
     return "";
   }
@@ -204,7 +209,7 @@ function readField(item, field) {
 
 function getCreators(item) {
   try {
-    const creators = item?.getCreators?.() || [];
+    const creators = item?.getCreators?.() || item?.creators || item?.data?.creators || [];
     return Array.isArray(creators)
       ? creators.map((creator) => ({ ...(creator || {}) }))
       : [];
@@ -214,56 +219,22 @@ function getCreators(item) {
 }
 
 export function resolveParentEntry(selectionContext) {
-  const parents = selectionContext?.items?.parents;
-  return Array.isArray(parents) && parents.length > 0 ? parents[0] : null;
+  const items = selectionContext?.items || {};
+  const parent = Array.isArray(items.parents) ? items.parents[0] : null;
+  if (parent) return parent;
+  for (const group of [items.attachments, items.children, items.notes]) {
+    const nested = Array.isArray(group) ? group[0]?.parent : null;
+    if (nested) return { item: nested };
+  }
+  return null;
 }
 
 export function resolveParentItem(selectionContext, runtime) {
+  void runtime;
   const entry = resolveParentEntry(selectionContext);
   const item = entry?.item || null;
-  if (item && typeof item.getField === "function") {
+  if (item?.ref?.libraryId && item?.ref?.key) {
     return item;
-  }
-  const id = Number(item?.id || entry?.id || 0);
-  const hostItems = runtime?.hostApi?.items;
-  if (id && typeof hostItems?.get === "function") {
-    const resolved = hostItems.get(id);
-    if (resolved) {
-      return resolved;
-    }
-  }
-  if (id && typeof hostItems?.resolve === "function") {
-    try {
-      const resolved = hostItems.resolve(id);
-      if (resolved) {
-        return resolved;
-      }
-    } catch {
-      // Fall through to key-based and legacy runtime resolution.
-    }
-  }
-  const key = normalizeString(item?.key || entry?.key);
-  const libraryID = Number(item?.libraryID || entry?.libraryID || 0);
-  if (key && typeof hostItems?.getByLibraryAndKey === "function") {
-    const resolved = hostItems.getByLibraryAndKey(libraryID, key);
-    if (resolved) {
-      return resolved;
-    }
-  }
-  if (id && runtime?.zotero?.Items?.get) {
-    const resolved = runtime.zotero.Items.get(id);
-    if (resolved) {
-      return resolved;
-    }
-  }
-  if (key && runtime?.zotero?.Items?.getByLibraryAndKey) {
-    const resolved = runtime.zotero.Items.getByLibraryAndKey(
-      libraryID || runtime.zotero.Libraries?.userLibraryID,
-      key,
-    );
-    if (resolved) {
-      return resolved;
-    }
   }
   throw new Error("literature-metadata-curator requires one selected parent item");
 }
@@ -278,8 +249,8 @@ export function buildParentSnapshot(parent) {
   }
   return {
     id: parent?.id || null,
-    key: normalizeString(parent?.key),
-    libraryID: parent?.libraryID || null,
+    key: normalizeString(parent?.ref?.key || parent?.key),
+    libraryID: parent?.ref?.libraryId || parent?.libraryID || null,
     itemType: normalizeString(parent?.itemType),
     title: fields.title || "",
     DOI: fields.DOI || "",
@@ -336,8 +307,7 @@ export function normalizeMetadataFields(source) {
       typeof value === "number" ||
       typeof value === "boolean"
     ) {
-      const normalized =
-        typeof value === "string" ? normalizeString(value) : value;
+      const normalized = normalizeString(value);
       if (normalized !== "") {
         fields[field] = normalized;
       }

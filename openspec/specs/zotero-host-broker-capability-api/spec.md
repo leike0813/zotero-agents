@@ -61,14 +61,16 @@ The canonical broker SHALL expose limited Zotero write operations through mutati
 - **THEN** the broker SHALL reject it with a structured JSON-safe error
 - **AND** Zotero data SHALL NOT be changed.
 
-### Requirement: Legacy compatibility
+### Requirement: Workflow projection is explicit and closed
 
-The system SHALL preserve existing workflow compatibility while adding the broker API.
+The Workflow Host API SHALL project approved Broker capabilities through named
+v12 members and SHALL NOT expose handler objects or raw Broker domains.
 
-#### Scenario: Legacy handlers remain available
+#### Scenario: Workflow needs a Broker capability
 
-- **WHEN** existing workflow code calls `runtime.handlers` or raw `hostApi.items.*`
-- **THEN** behavior SHALL remain compatible with the pre-change implementation.
+- **WHEN** current workflow code needs a Zotero read or mutation
+- **THEN** it SHALL call the applicable named v12 module
+- **AND** removed handler-shaped aliases SHALL be rejected rather than adapted.
 
 #### Scenario: MCP tools use broker boundary
 

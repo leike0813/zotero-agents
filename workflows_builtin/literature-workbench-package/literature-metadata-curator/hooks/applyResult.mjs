@@ -20,6 +20,58 @@ const BLOCKED_FIELD_KEYS = new Set([
   "relatedItems",
 ]);
 
+function portableRef(item) {
+  const libraryId = Number(item?.libraryId || item?.libraryID);
+  const key = normalizeString(item?.key);
+  if (!Number.isSafeInteger(libraryId) || libraryId <= 0 || !key) {
+    throw new Error("metadata curator requires a portable parent ref");
+  }
+  return { libraryId, key };
+}
+
+function operationId(member, ref) {
+  return `metadata-curator:${member}:${ref.libraryId}:${ref.key}:${Date.now().toString(36)}`;
+}
+
+function confirmed(result) {
+  if (result?.outcome === "committed" || result?.outcome === "unchanged") {
+    return result.result;
+  }
+  const error = new Error(result?.attempt?.error?.message || "metadata mutation failed");
+  error.attempt = result?.attempt;
+  throw error;
+}
+
+async function updateMetadata(host, itemRef, fields, creators) {
+  const remaining = { ...fields };
+  let attempt = 0;
+  for (;;) {
+    if (!Object.keys(remaining).length && !creators.length) {
+      return { ref: itemRef };
+    }
+    const execution = await host.mutations.execute({
+      operation: "item.updateMetadata",
+      operationId: operationId(`update-${++attempt}`, itemRef),
+      itemRef,
+      patch: {
+        fields: remaining,
+        ...(creators.length ? { creators } : {}),
+      },
+    });
+    if (execution?.outcome === "committed" || execution?.outcome === "unchanged") {
+      return execution.result.item;
+    }
+    const field = normalizeString(execution?.attempt?.error?.details?.field);
+    const name = field.startsWith("patch.fields.")
+      ? field.slice("patch.fields.".length)
+      : "";
+    if (execution?.attempt?.error?.code !== "invalid_request" || !(name in remaining)) {
+      confirmed(execution);
+    }
+    delete remaining[name];
+  }
+}
+
 function normalizeApplyPayload(output, parent) {
   if (!isObject(output) || output.kind !== METADATA_CURATION_KIND) {
     return {
@@ -103,9 +155,10 @@ async function removeCurationTag(runtime, parent) {
   if (typeof transition !== "function") {
     throw new Error("statusTags.transition is unavailable");
   }
-  const itemRef = Number(parent?.id || 0) || parent;
+  const itemRef = portableRef(parent);
   return transition({
-    item: itemRef,
+    operationId: operationId("status", itemRef),
+    itemRef,
     remove: ["need-metadata-curation"],
   });
 }
@@ -158,28 +211,47 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       ...cleanup,
     };
   }
-  if (!runtime?.handlers?.parent?.updateMetadata) {
-    throw new Error("handlers.parent.updateMetadata is unavailable");
-  }
+  const host = requireHostApi(runtime);
+  const itemRef = portableRef(parent);
   const originalItemType = normalizeString(parent?.itemType);
-  const updated = await runtime.handlers.parent.updateMetadata(parent, {
-    itemType: normalized.itemType,
-    fields: normalized.fields,
-    creators: normalized.creators,
-  });
+  let itemTypeChanged = false;
+  if (normalized.itemType && normalized.itemType !== originalItemType) {
+    try {
+      const preview = await host.mutations.preview({
+        operation: "item.changeType",
+        itemRef,
+        targetItemType: normalized.itemType,
+        incompatibleData: "move_to_extra",
+      });
+      confirmed(await host.mutations.execute({
+        operation: "item.changeType",
+        operationId: operationId("change-type", itemRef),
+        itemRef,
+        expectedRevision: preview.plan.sourceRevision,
+        targetItemType: normalized.itemType,
+        incompatibleData: "move_to_extra",
+        previewToken: preview.token.value,
+      }));
+      itemTypeChanged = true;
+    } catch (error) {
+      if (error?.code !== "invalid_request") throw error;
+    }
+  }
+  const updated = await updateMetadata(
+    host,
+    itemRef,
+    normalized.fields,
+    normalized.creators,
+  );
   const cleanup = await cleanupResult(runtime, parent);
   return {
     applied: true,
     skipped: false,
     item: {
-      id: updated?.id || null,
-      key: updated?.key || "",
-      libraryID: updated?.libraryID || null,
+      key: updated?.ref?.key || "",
+      libraryID: updated?.ref?.libraryId || null,
     },
-    itemTypeChanged:
-      !!normalized.itemType &&
-      originalItemType !== normalizeString(updated?.itemType) &&
-      normalizeString(updated?.itemType) === normalized.itemType,
+    itemTypeChanged,
     fieldCount: Object.keys(normalized.fields).length,
     creatorCount: normalized.creators.length,
     warnings: normalized.warnings,

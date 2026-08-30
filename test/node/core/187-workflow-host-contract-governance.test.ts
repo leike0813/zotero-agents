@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { assert } from "chai";
 import ts from "typescript";
@@ -6,12 +6,14 @@ import {
   defineWorkflowHostCandidateManifest,
   inspectWorkflowHostCandidate,
   inspectWorkflowHostContractVariants,
+  WORKFLOW_HOST_API_MANIFEST,
   WORKFLOW_HOST_API_VERSION,
 } from "../../../src/workflows/workflowHostContract";
 import { requireHostApi } from "../../../workflows_builtin/literature-workbench-package/lib/runtime.mjs";
 import {
   createWorkflowAddonOwner,
   createWorkflowEnvironmentOwner,
+  createWorkflowHostApi,
   createWorkflowHostLeafScope,
 } from "../../../src/workflows/hostApi";
 import {
@@ -19,13 +21,217 @@ import {
   resetRuntimeBridgeOverrideForTests,
 } from "../../../src/utils/runtimeBridge";
 
+const V12_CALLABLE_PATHS = [
+  "addon.getConfig",
+  "environment.getInfo",
+  "context.getCurrentView",
+  "context.getSelectedItems",
+  "navigation.openItem",
+  "navigation.openNote",
+  "navigation.openCollection",
+  "navigation.openSelection",
+  "library.listItems",
+  "library.traverseItems",
+  "library.withItemSnapshot",
+  "library.listCollections",
+  "library.getItemDetail",
+  "library.getItemNotes",
+  "library.getNoteDetail",
+  "library.listNotePayloads",
+  "library.getNotePayload",
+  "library.getItemAttachments",
+  "library.listAnnotations",
+  "library.exportPortableItems",
+  "metadata.translateIdentifier",
+  "mutations.preview",
+  "mutations.execute",
+  "notes.create",
+  "notes.updateContent",
+  "notes.remove",
+  "notes.upsertPayload",
+  "images.prepareForNoteEmbedding",
+  "attachments.create",
+  "attachments.updateMetadata",
+  "attachments.replaceFile",
+  "attachments.move",
+  "attachments.remove",
+  "bibliography.listFormats",
+  "bibliography.render",
+  "researchBundles.materializePapers",
+  "researchBundles.importPapers",
+  "statusTags.getPolicy",
+  "statusTags.transition",
+  "file.readText",
+  "file.writeText",
+  "file.readBytes",
+  "file.writeBytes",
+  "file.copy",
+  "file.exists",
+  "file.makeDirectory",
+  "file.materializeWorkflowInputFile",
+  "file.getTempDirectoryPath",
+  "file.pickDirectory",
+  "file.pickFile",
+  "file.pickSaveFile",
+  "file.pickFiles",
+  "file.stat",
+  "file.list",
+  "file.move",
+  "file.remove",
+  "archive.measureEntries",
+  "archive.writeZipAtomic",
+  "archive.withExtractedZip",
+  "resources.getInput",
+  "resources.getInputs",
+  "resources.get",
+  "resources.materializeFile",
+  "resources.allocateOutput",
+  "resources.publishOutput",
+  "resources.listOutputs",
+  "clipboard.readText",
+  "clipboard.writeText",
+  "clipboard.hasText",
+  "clipboard.clear",
+  "editor.openSession",
+  "notifications.toast",
+  "logging.appendRuntimeLog",
+  "synthesis.workflowApply.applyLiteratureDigest",
+  "synthesis.workflowApply.applyTopicPlan",
+  "synthesis.workflowApply.applyTopicSynthesisResult",
+  "synthesis.topics.getReport",
+  "synthesis.artifacts.readPaperArtifacts",
+  "synthesis.tags.loadVocabulary",
+  "synthesis.tags.saveVocabulary",
+  "synthesis.tags.exportVocabularyForRegulator",
+  "synthesis.tags.listStagedSuggestions",
+  "synthesis.tags.stageSuggestions",
+  "synthesis.tags.promoteStagedSuggestions",
+  "synthesis.tags.discardStagedSuggestions",
+  "synthesis.tags.withAuditRun",
+  "synthesis.tags.acknowledgeRegulation",
+] as const;
+
+function collectCallablePaths(value: unknown, prefix = ""): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value).flatMap(([member, entry]) => {
+    const path = prefix ? `${prefix}.${member}` : member;
+    return entry === "function" ? [path] : collectCallablePaths(entry, path);
+  });
+}
+
 describe("Workflow Host contract governance", function () {
   this.timeout(10_000);
+
+  it("publishes the exact v12 manifest and metadata identity", function () {
+    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 12);
+    assert.strictEqual(WORKFLOW_HOST_API_MANIFEST.version[1], 12);
+    assert.deepEqual(WORKFLOW_HOST_API_MANIFEST.interactionMode.slice(1), [
+      "interactive",
+      "non_interactive",
+    ]);
+    assert.lengthOf(Object.keys(WORKFLOW_HOST_API_MANIFEST), 23);
+    assert.lengthOf(
+      Object.keys(WORKFLOW_HOST_API_MANIFEST).filter(
+        (key) => key !== "version" && key !== "interactionMode",
+      ),
+      21,
+    );
+    const callablePaths = collectCallablePaths(WORKFLOW_HOST_API_MANIFEST);
+    assert.lengthOf(callablePaths, 87);
+    assert.sameMembers(callablePaths, V12_CALLABLE_PATHS);
+  });
+
+  it("keeps one code-native Workflow Host manifest", async function () {
+    const path = "src/workflows/workflowHostContract.ts";
+    const source = ts.createSourceFile(
+      path,
+      await readFile(resolve(path), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const manifests = source.statements.filter(
+      (statement) =>
+        ts.isVariableStatement(statement) &&
+        statement.declarationList.declarations.some(
+          (declaration) =>
+            ts.isIdentifier(declaration.name) &&
+            declaration.name.text === "WORKFLOW_HOST_API_MANIFEST",
+        ),
+    );
+    assert.lengthOf(manifests, 1);
+  });
+
+  it("keeps interactive and non-interactive v12 projections shape-identical", async function () {
+    const interactive = createWorkflowHostApi({
+      interactionMode: "interactive",
+    });
+    const nonInteractive = createWorkflowHostApi({
+      interactionMode: "non_interactive",
+    });
+    const result = inspectWorkflowHostContractVariants(
+      WORKFLOW_HOST_API_MANIFEST,
+      { interactive, "non-interactive": nonInteractive },
+    );
+    assert.isTrue(result.ok);
+    assert.deepEqual(result.variantShapeMismatchPaths, []);
+    assert.strictEqual(interactive.interactionMode, "interactive");
+    assert.strictEqual(nonInteractive.interactionMode, "non_interactive");
+    try {
+      await nonInteractive.file.pickFile();
+      assert.fail("expected non-interactive picker denial");
+    } catch (error) {
+      assert.strictEqual(
+        (error as { code?: string }).code,
+        "interaction_required",
+      );
+      assert.strictEqual(
+        (error as { details?: { member?: string } }).details?.member,
+        "file.pickFile",
+      );
+    }
+  });
+
+  it("keeps official built-ins on exact v12 without native escape hatches", async function () {
+    const root = resolve("workflows_builtin");
+    const files = (
+      await readdir(root, { recursive: true, withFileTypes: true })
+    )
+      .filter((entry) => entry.isFile() && /\.(?:mjs|js)$/.test(entry.name))
+      .map((entry) => resolve(entry.parentPath, entry.name));
+    const forbidden = [
+      /(?:hostApi|host)\??\.(?:items|prefs|parents|tags|collections|command|literature)\b/,
+      /runtime\??\.(?:zotero|handlers|helpers)\b/,
+      /\bIOUtils\b/,
+      /navigator\??\.clipboard/,
+      /globalThis\??\.Zotero/,
+      /\bComponents\b/,
+      /from\s+["'](?:node:)?fs(?:\/promises)?["']/,
+      /zoteroHostCapabilityBroker/,
+      /runtimePersistence/,
+      /\.synthesis\??\.(?:applyLiteratureDigestSidecar|applyTopicSynthesisResult|getTopicReport|getTopicPlanningContext|applyTopicPlan|readPaperArtifacts|loadTagVocabulary|saveTagVocabulary|exportTagVocabularyForRegulator|listStagedTagSuggestions|stageTagSuggestions|discardStagedTagSuggestions|replaceTagAuditRecords|clearTagAuditRecord)\b/,
+    ];
+    const findings: string[] = [];
+    for (const file of files) {
+      const source = await readFile(file, "utf8");
+      if (forbidden.some((pattern) => pattern.test(source))) {
+        findings.push(file.slice(root.length + 1));
+      }
+    }
+    assert.deepEqual(findings.sort(), []);
+
+    const packageRuntime = await readFile(
+      resolve("workflows_builtin/literature-workbench-package/lib/runtime.mjs"),
+      "utf8",
+    );
+    assert.match(packageRuntime, /hostApiVersion\s*!==\s*12/);
+    assert.notMatch(packageRuntime, /hostApiVersion\s*[<>]=?/);
+  });
 
   it("keeps the built-in package compatibility policy aligned with the current identity", function () {
     const cases = [
       { version: 1, accepted: false },
-      { version: 2, accepted: true },
+      { version: 2, accepted: false },
       { version: WORKFLOW_HOST_API_VERSION, accepted: true },
       { version: WORKFLOW_HOST_API_VERSION + 1, accepted: false },
     ];
@@ -100,6 +306,7 @@ describe("Workflow Host contract governance", function () {
       unexpectedPaths: [],
       nonFunctionPaths: [],
       nonObjectPaths: [],
+      invalidValuePaths: [],
     });
 
     const drifted = {
@@ -116,7 +323,28 @@ describe("Workflow Host contract governance", function () {
       unexpectedPaths: ["library.internalSearch"],
       nonFunctionPaths: ["library.getItemDetail"],
       nonObjectPaths: [],
+      invalidValuePaths: [],
     });
+  });
+
+  it("rejects drifted Workflow Host metadata values", function () {
+    const result = inspectWorkflowHostCandidate(
+      {
+        ...Object.fromEntries(
+          Object.keys(WORKFLOW_HOST_API_MANIFEST).map((key) => [key, null]),
+        ),
+        version: 11,
+        interactionMode: "batch",
+      },
+      defineWorkflowHostCandidateManifest({
+        version: ["value", 12],
+        interactionMode: ["oneOf", "interactive", "non_interactive"],
+      }),
+    );
+    assert.sameMembers(result.invalidValuePaths, [
+      "interactionMode",
+      "version",
+    ]);
   });
 
   it("requires interactive and non-interactive candidates to have one exact shape", function () {
@@ -371,13 +599,13 @@ describe("Workflow Host contract governance", function () {
         "platform",
         "zoteroVersion",
       ]);
-      assert.strictEqual(WORKFLOW_HOST_API_VERSION, 11);
+      assert.strictEqual(WORKFLOW_HOST_API_VERSION, 12);
     } finally {
       resetRuntimeBridgeOverrideForTests();
     }
   });
 
-  it("composes the eight staged leaf owners explicitly without activating v12", function () {
+  it("composes the eight v12 leaf owners explicitly", function () {
     const interactive = createWorkflowHostLeafScope({
       interactionMode: "interactive",
       runScopeId: "leaf-interactive",
@@ -412,7 +640,7 @@ describe("Workflow Host contract governance", function () {
           key,
         );
       }
-      assert.strictEqual(WORKFLOW_HOST_API_VERSION, 11);
+      assert.strictEqual(WORKFLOW_HOST_API_VERSION, 12);
     } finally {
       interactive.dispose();
       nonInteractive.dispose();

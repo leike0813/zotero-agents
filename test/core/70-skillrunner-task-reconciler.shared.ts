@@ -48,6 +48,7 @@ import {
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
+import { resetZoteroHostMutationRuntimeForTests } from "../../src/modules/zoteroHostCapabilityBroker";
 import {
   joinPath,
   workflowsPath,
@@ -294,6 +295,7 @@ function setupSkillRunnerTaskReconcilerSuite() {
     resetSkillRunnerBackendHealthRegistryForTests();
     resetSkillRunnerForegroundContinuationForTests();
     resetSkillRunnerAutoReplyObserverForTests();
+    resetZoteroHostMutationRuntimeForTests();
     setSkillRunnerInteractiveAutoReplyEnabledForTests();
     await resetSkillRunnerSessionSyncForTests();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();
@@ -313,6 +315,7 @@ function setupSkillRunnerTaskReconcilerSuite() {
     resetSkillRunnerBackendHealthRegistryForTests();
     resetSkillRunnerForegroundContinuationForTests();
     resetSkillRunnerAutoReplyObserverForTests();
+    resetZoteroHostMutationRuntimeForTests();
     setSkillRunnerInteractiveAutoReplyEnabledForTests();
     await resetSkillRunnerSessionSyncForTests();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();

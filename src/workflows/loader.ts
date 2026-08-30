@@ -47,6 +47,7 @@ import {
   statRuntimePathStrict,
   writeRuntimeTextFileStrict,
 } from "../modules/runtimePersistence";
+import { sha256Hex } from "../utils/sha256";
 
 type WorkflowModuleResourceKind = "official" | "dev-local" | "user";
 
@@ -203,7 +204,6 @@ function createHostHookScope() {
     TextEncoder: hostCapabilities.TextEncoder,
     TextDecoder: hostCapabilities.TextDecoder,
     FileReader: hostCapabilities.FileReader,
-    navigator: hostCapabilities.navigator,
     console: resolveRuntimeConsole(),
   } as Record<string, unknown>;
 }
@@ -222,7 +222,6 @@ function summarizeHostHookScope(scope: Record<string, unknown>) {
     TextEncoder: scope.TextEncoder,
     TextDecoder: scope.TextDecoder,
     FileReader: scope.FileReader,
-    navigator: scope.navigator,
   });
   return {
     runtimeCapabilitySummary,
@@ -449,6 +448,34 @@ type WorkflowLoadCandidate = {
   localization?: WorkflowLocalizationResources;
   manifest: WorkflowManifest;
 };
+
+async function computeWorkflowContentDigest(rootDir: string) {
+  const files: string[] = [];
+  const visit = async (dir: string) => {
+    for (const child of await listRuntimeChildrenStrict(dir)) {
+      const stat = await statRuntimePathStrict(child);
+      if (stat.isDir) {
+        await visit(child);
+      } else if (/\.(?:json|mjs|js)$/i.test(child)) {
+        files.push(child);
+      }
+    }
+  };
+  await visit(rootDir);
+  files.sort();
+  const content = (
+    await Promise.all(
+      files.map(async (file) =>
+        `${file.slice(rootDir.length).replace(/\\/g, "/")}\0${await readTextFile(file)}`,
+      ),
+    )
+  ).join("\0");
+  const digest = await sha256Hex(new TextEncoder().encode(content));
+  if (!digest) {
+    throw new Error("SHA-256 is unavailable for workflow content identity");
+  }
+  return digest;
+}
 
 function normalizePackageRelativePath(value: string) {
   const normalized = String(value || "")
@@ -951,6 +978,7 @@ export async function loadWorkflowManifests(
 ): Promise<LoadedWorkflows> {
   const diagnostics: LoaderDiagnostic[] = [];
   const workflowsById = new Map<string, LoadedWorkflow>();
+  const contentDigests = new Map<string, Promise<string>>();
 
   let entries: string[] = [];
   try {
@@ -1035,6 +1063,13 @@ export async function loadWorkflowManifests(
           if (hiddenByDebugMode) {
             continue;
           }
+          const contentRoot = candidate.declaredFromPackage
+            ? candidate.packageRootDir
+            : candidate.workflowRoot;
+          const contentDigest =
+            contentDigests.get(contentRoot) ||
+            computeWorkflowContentDigest(contentRoot);
+          contentDigests.set(contentRoot, contentDigest);
           workflowsById.set(candidate.manifest.id, {
             manifest: candidate.manifest,
             rootDir: candidate.workflowRoot,
@@ -1046,6 +1081,7 @@ export async function loadWorkflowManifests(
             hooks: hookResult.hooks,
             buildStrategy,
             hookExecutionMode: hookResult.executionMode,
+            contentDigest: await contentDigest,
           });
         } catch (error) {
           const normalized = toDiagnosticFromUnknown({

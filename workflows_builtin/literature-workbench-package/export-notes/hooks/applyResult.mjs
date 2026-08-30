@@ -13,7 +13,7 @@ async function writeExportedFile(host, targetPath, file) {
   }
   if (file.sourcePath) {
     if (typeof host.file.copy === "function") {
-      await host.file.copy(file.sourcePath, targetPath);
+      await host.file.copy({ sourcePath: file.sourcePath, targetPath });
       return;
     }
     await host.file.writeBytes(
@@ -62,8 +62,9 @@ async function applyResultImpl({ request, runtime }) {
   const archiveEntries = [];
   const touchedParents = new Set();
   for (const candidate of exportCandidates) {
-    const folderName = `${sanitizeFileNameSegment(candidate.parentTitle)} [${candidate.parentItemKey}]`;
-    touchedParents.add(candidate.parentItemKey);
+    const parentKey = candidate.parentRef.key;
+    const folderName = `${sanitizeFileNameSegment(candidate.parentTitle)} [${parentKey}]`;
+    touchedParents.add(parentKey);
     const targetDir = remoteOutput ? exportRoot : joinPath(exportRoot, folderName);
     const exported = await exportGeneratedNoteCandidate({
       ...candidate,
@@ -81,7 +82,7 @@ async function applyResultImpl({ request, runtime }) {
                 : { sourcePath: file.sourcePath }),
           });
         } else {
-          await host.file.makeDirectory(targetDir);
+          await host.file.makeDirectory({ path: targetDir });
           await writeExportedFile(host, joinPath(targetDir, file.fileName), file);
         }
       } catch (error) {

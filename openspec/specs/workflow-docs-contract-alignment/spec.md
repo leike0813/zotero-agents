@@ -18,28 +18,26 @@ Define and maintain implementation-aligned workflow documentation contracts, cov
 - **WHEN** workflow protocol docs describe shared reference table rendering
 - **THEN** documented column order and source/locator semantics match runtime helper implementation
 
-### Requirement: Hook helper documentation SHALL provide complete API reference
+### Requirement: Hook runtime documentation SHALL describe the closed v12 boundary
 
-`doc/components/workflow-hook-helpers.md` MUST enumerate the full currently supported `runtime.helpers` surface with API-level behavior guidance.
+`doc/components/workflow-hook-helpers.md` MUST describe the current
+`WorkflowRuntimeContext`, the exact v12 Host projection, and package-local pure
+helper ownership without documenting removed runtime injections.
 
-#### Scenario: Full helper inventory
+#### Scenario: Workflow author reads runtime documentation
 
-- **WHEN** a workflow author reads helper docs
-- **THEN** each supported helper function is listed with signature, input/return expectations, and notable edge/error behavior
+- **WHEN** a workflow author reads the hook runtime reference
+- **THEN** the documented runtime fields match `WorkflowRuntimeContext`
+- **AND** `runtime.helpers`, `runtime.handlers`, and `runtime.zotero` are absent from the supported surface
 
-#### Scenario: Practical usage coverage
-
-- **WHEN** helper docs provide examples
-- **THEN** examples cover attachment-selection helpers and reference payload/table helpers
-
-### Requirement: Hook-facing dialog/editor bridge APIs SHALL be documented
+### Requirement: Hook-facing editor ownership SHALL be documented
 
 Workflow docs MUST explain hook-facing dialog/editor bridge usage, including ownership boundary and lifecycle semantics.
 
 #### Scenario: Bridge boundary clarity
 
 - **WHEN** docs describe dialog/editor integration
-- **THEN** they clearly distinguish `runtime.helpers` APIs from bridge APIs exposed outside helpers
+- **THEN** they identify `hostApi.editor.openSession` as the hook entry point and keep renderer registration and global bridge details private
 
 #### Scenario: Multi-input sequencing and cancel semantics
 
@@ -48,11 +46,12 @@ Workflow docs MUST explain hook-facing dialog/editor bridge usage, including own
 
 ### Requirement: Documentation changes SHALL include drift-prevention guidance
 
-Updated docs MUST include a maintenance checklist that ties helper/runtime contract changes to required documentation updates.
+Updated docs MUST include a maintenance checklist that ties runtime/Host
+contract changes to required documentation updates.
 
-#### Scenario: Future helper addition
+#### Scenario: Future runtime member change
 
-- **WHEN** a new helper or hook-facing bridge function is added
+- **WHEN** a runtime field or Workflow Host member changes
 - **THEN** checklist requires corresponding documentation update before change completion
 
 ### Requirement: Workflow docs SHALL distinguish consumption from production
@@ -93,3 +92,42 @@ those site sources.
 - **AND** the corresponding embedded help was generated from the localized site
   source
 
+### Requirement: Current Workflow documentation SHALL describe only v12 host behavior
+
+Current Workflow Host, hook helper, Broker ownership, package compatibility,
+and execution documentation SHALL describe the exact v12 interface and hard
+cut. Historical v11 behavior MAY remain only in archived changes and MUST NOT
+appear as current guidance.
+
+#### Scenario: Current documentation is scanned
+
+- **WHEN** documentation governance scans explicit Workflow Host version
+  declarations
+- **THEN** every active declaration identifies v12 and no current page
+  recommends a removed member or fallback
+
+### Requirement: Documentation SHALL preserve owner and projection distinctions
+
+Documentation SHALL state that Broker owns Zotero semantics, Workflow Host owns
+trusted in-process composition, runtime persistence owns ordinary filesystem
+selection, runtime bridge and picker own their separate seams, platform
+subprocess owns one-shot execution, Synthesis sidecar owns durable application
+state, and Host Bridge/MCP own remote policy.
+
+#### Scenario: Developer looks up attachment locality
+
+- **WHEN** the docs describe attachment results
+- **THEN** they distinguish trusted Workflow local paths from Host Bridge/MCP
+  remote locality projection
+
+### Requirement: Generated help SHALL remain source-derived
+
+Embedded help documentation SHALL be regenerated only through its owner pipeline
+after current source documentation is updated. Generated help targets MUST NOT
+be edited directly during v12 activation.
+
+#### Scenario: Help content needs v12 wording
+
+- **WHEN** a source document changes
+- **THEN** the documentation pipeline produces the generated target and drift
+  checks verify it

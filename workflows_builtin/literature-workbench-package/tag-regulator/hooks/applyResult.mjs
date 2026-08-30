@@ -5,15 +5,10 @@ import {
   normalizeStagedEntryWithBindings,
   normalizeStagedPublishState,
 } from "../../lib/bindings.mjs";
-import { publishRemoteVocabulary as publishRemoteVocabularyCore } from "../../lib/remote.mjs";
 import {
   appendWorkflowRuntimeLog,
-  decodeRuntimeBase64Utf8,
-  encodeRuntimeBase64Utf8,
   requireHostEditor,
   requireHostApi,
-  requireHostPrefs,
-  resolveRuntimeFetch,
   measureWorkflowTestSpan,
   showWorkflowToast,
   withPackageRuntimeScope,
@@ -23,26 +18,6 @@ import {
   collectSkillOutputDiagnostics,
 } from "../../lib/resultOutput.mjs";
 import {
-  loadLocalCommittedState as loadLocalCommittedStateCore,
-  loadRemoteCommittedState as loadRemoteCommittedStateCore,
-  loadPersistedStagedState as loadPersistedStagedStateCore,
-  loadPersistedState as loadPersistedStateCore,
-  persistEntries as persistEntriesCore,
-  persistLocalCommittedEntries as persistLocalCommittedEntriesCore,
-  persistRemoteCommittedEntries as persistRemoteCommittedEntriesCore,
-  persistStagedEntries as persistStagedEntriesCore,
-  readWorkflowSettingsParams,
-  resolveActiveCommittedPrefsKey,
-  resolveGitHubSyncConfig,
-  resolveLocalCommittedPrefsKey,
-  resolvePrefsKey,
-  resolveRemoteCommittedPrefsKey,
-  resolveStagedPrefsKey,
-  resolveTagVocabularyMode,
-  resolveWorkflowSettingsPrefsKey,
-  syncActiveCommittedProjection as syncActiveCommittedProjectionCore,
-} from "../../lib/state.mjs";
-import {
   FACETS,
   getTagPrefix,
   nowIsoTimestamp,
@@ -50,10 +25,7 @@ import {
   toIsoTimestamp,
 } from "../../lib/model.mjs";
 
-const SUGGEST_TAGS_RENDERER_ID = "tag-regulator.suggest-tags.v1";
-const TAG_MANAGER_WORKFLOW_ID = "tag-manager";
 const SUGGEST_TAGS_SOURCE = "agent-suggest";
-const TAG_VOCAB_STAGED_PREF_SUFFIX = "tagVocabularyStagedJson";
 const STAGED_SOURCE_FLOW = "tag-regulator-suggest";
 const SUGGEST_DIALOG_TIMEOUT_SECONDS = 10;
 
@@ -197,7 +169,6 @@ function resolveEditorHostBridge() {
   const host = requireHostEditor();
   return {
     open: host.openSession,
-    registerRenderer: host.registerRenderer,
   };
 }
 
@@ -269,167 +240,6 @@ function normalizePersistedEntries(entries) {
   );
 }
 
-function loadValidatedEntriesStateFromRaw(raw) {
-  if (typeof raw !== "string" || !raw.trim()) {
-    return {
-      corrupted: false,
-      entries: [],
-      issues: [],
-    };
-  }
-  let parsed = null;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return {
-      corrupted: true,
-      entries: [],
-      issues: [
-        {
-          code: "INVALID_JSON",
-          message: "persisted payload is invalid JSON",
-        },
-      ],
-    };
-  }
-  const entries = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray(parsed?.entries)
-      ? parsed.entries
-      : null;
-  if (!entries) {
-    return {
-      corrupted: true,
-      entries: [],
-      issues: [
-        {
-          code: "INVALID_PAYLOAD",
-          message: "persisted payload shape is invalid",
-        },
-      ],
-    };
-  }
-  const normalized = normalizePersistedEntries(entries);
-  const issues = collectValidationIssuesFallback(normalized);
-  if (issues.length > 0) {
-    return {
-      corrupted: true,
-      entries: [],
-      issues,
-    };
-  }
-  return {
-    corrupted: false,
-    entries: normalized,
-    issues: [],
-  };
-}
-
-function buildCommittedPayload(entries) {
-  const normalized = normalizePersistedEntries(entries);
-  const issues = collectValidationIssuesFallback(normalized);
-  if (issues.length > 0) {
-    throw new Error(
-      asString(issues[0]?.message || "tag vocabulary validation failed"),
-    );
-  }
-  return {
-    version: 1,
-    entries: normalized,
-  };
-}
-
-function buildProjectionPayload(entries) {
-  return {
-    version: 1,
-    entries: normalizePersistedEntries(entries),
-  };
-}
-
-function seedCommittedPrefFromLegacyIfMissing(targetKey) {
-  const prefs = requireHostPrefs();
-  const normalizedTargetKey = asString(targetKey);
-  if (!normalizedTargetKey) {
-    return;
-  }
-  const existing = prefs.get(normalizedTargetKey, true);
-  if (typeof existing === "string" && existing.trim()) {
-    return;
-  }
-  const legacyLoaded = loadValidatedEntriesStateFromRaw(
-    prefs.get(resolvePrefsKey(), true),
-  );
-  if (legacyLoaded.corrupted || legacyLoaded.entries.length === 0) {
-    return;
-  }
-  prefs.set(
-    normalizedTargetKey,
-    JSON.stringify({
-      version: 1,
-      entries: legacyLoaded.entries,
-    }),
-    true,
-  );
-}
-
-function syncActiveCommittedProjection(entries) {
-  return syncActiveCommittedProjectionCore(normalizePersistedEntries(entries));
-}
-
-function persistLocalCommittedEntries(entries) {
-  const normalized = normalizePersistedEntries(entries);
-  const issues = collectValidationIssuesFallback(normalized);
-  if (issues.length > 0) {
-    throw new Error(
-      asString(issues[0]?.message || "tag vocabulary validation failed"),
-    );
-  }
-  return persistLocalCommittedEntriesCore(normalized);
-}
-
-function persistRemoteCommittedEntries(entries) {
-  const normalized = normalizePersistedEntries(entries);
-  const issues = collectValidationIssuesFallback(normalized);
-  if (issues.length > 0) {
-    throw new Error(
-      asString(issues[0]?.message || "tag vocabulary validation failed"),
-    );
-  }
-  return persistRemoteCommittedEntriesCore(normalized);
-}
-
-function loadLocalCommittedState() {
-  return loadLocalCommittedStateCore({
-    loadValidatedEntriesStateFromRaw,
-  });
-}
-
-function loadRemoteCommittedState() {
-  return loadRemoteCommittedStateCore({
-    loadValidatedEntriesStateFromRaw,
-  });
-}
-
-function fallbackLoadPersistedState() {
-  return loadPersistedStateCore({
-    workflowId: TAG_MANAGER_WORKFLOW_ID,
-    loadValidatedEntriesStateFromRaw,
-  });
-}
-
-function fallbackPersistEntries(entries) {
-  const normalized = normalizePersistedEntries(entries);
-  const issues = collectValidationIssuesFallback(normalized);
-  if (issues.length > 0) {
-    throw new Error(
-      asString(issues[0]?.message || "tag vocabulary validation failed"),
-    );
-  }
-  return persistEntriesCore(normalized, {
-    workflowId: TAG_MANAGER_WORKFLOW_ID,
-  });
-}
-
 function tagEntryFromSynthesis(entry) {
   const tag = asString(entry?.tag);
   const facet =
@@ -468,19 +278,19 @@ function stagedEntryFromSynthesis(entry) {
 }
 
 function resolveSynthesisVocabularyApi() {
-  const synthesis = requireHostApi().synthesis;
-  if (!synthesis) {
+  const tags = requireHostApi().synthesis?.tags;
+  if (!tags) {
     throw new Error("tag-regulator requires hostApi.synthesis");
   }
-  return synthesis;
+  return tags;
 }
 
 async function loadSynthesisControlledState() {
   const synthesis = resolveSynthesisVocabularyApi();
-  if (typeof synthesis.loadTagVocabulary !== "function") {
+  if (typeof synthesis.loadVocabulary !== "function") {
     throw new Error("Synthesis tag vocabulary load API is unavailable");
   }
-  const snapshot = await synthesis.loadTagVocabulary();
+  const snapshot = await synthesis.loadVocabulary();
   const entries = normalizePersistedEntries(
     (Array.isArray(snapshot?.entries) ? snapshot.entries : [])
       .map(tagEntryFromSynthesis)
@@ -496,14 +306,14 @@ async function loadSynthesisControlledState() {
 
 async function loadSynthesisStagedState() {
   const synthesis = resolveSynthesisVocabularyApi();
-  if (typeof synthesis.listStagedTagSuggestions !== "function") {
+  if (typeof synthesis.listStagedSuggestions !== "function") {
     return {
       corrupted: false,
       entries: [],
       issues: [],
     };
   }
-  const entries = (await synthesis.listStagedTagSuggestions()).map(
+  const entries = (await synthesis.listStagedSuggestions()).map(
     stagedEntryFromSynthesis,
   );
   return {
@@ -515,11 +325,11 @@ async function loadSynthesisStagedState() {
 
 async function persistSynthesisStagedEntries(entries) {
   const synthesis = resolveSynthesisVocabularyApi();
-  if (typeof synthesis.stageTagSuggestions !== "function") {
+  if (typeof synthesis.stageSuggestions !== "function") {
     throw new Error("Synthesis staged tag API is unavailable");
   }
   const normalized = normalizePersistedStagedEntries(entries);
-  await synthesis.stageTagSuggestions({
+  await synthesis.stageSuggestions({
     entries: normalized.map((entry) => ({
       tag: entry.tag,
       facet: entry.facet,
@@ -533,12 +343,12 @@ async function persistSynthesisStagedEntries(entries) {
 
 async function commitSynthesisControlledEntries(args) {
   const synthesis = resolveSynthesisVocabularyApi();
-  if (typeof synthesis.saveTagVocabulary !== "function") {
+  if (typeof synthesis.saveVocabulary !== "function") {
     throw new Error("Synthesis tag vocabulary save API is unavailable");
   }
   const current =
-    typeof synthesis.loadTagVocabulary === "function"
-      ? await synthesis.loadTagVocabulary()
+    typeof synthesis.loadVocabulary === "function"
+      ? await synthesis.loadVocabulary()
       : {};
   const entries = normalizePersistedEntries(args?.entries).map((entry) => ({
     tag: entry.tag,
@@ -547,7 +357,7 @@ async function commitSynthesisControlledEntries(args) {
     source: entry.source || SUGGEST_TAGS_SOURCE,
     deprecated: Boolean(entry.deprecated),
   }));
-  await synthesis.saveTagVocabulary({
+  await synthesis.saveVocabulary({
     entries,
     aliases: current?.aliases || {},
     abbrev: current?.abbrev || {},
@@ -595,314 +405,6 @@ function normalizePersistedStagedEntries(entries) {
   );
 }
 
-function fallbackLoadPersistedStagedState() {
-  return (
-    loadPersistedStagedStateCore({
-      loadStagedEntriesStateFromRaw(raw) {
-        if (typeof raw !== "string" || !raw.trim()) {
-          return {
-            corrupted: false,
-            entries: [],
-            issues: [],
-          };
-        }
-        let parsed = null;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          return {
-            corrupted: true,
-            entries: [],
-            issues: [
-              {
-                code: "INVALID_JSON",
-                message: "persisted staged payload is invalid JSON",
-              },
-            ],
-          };
-        }
-        const entries = Array.isArray(parsed)
-          ? parsed
-          : Array.isArray(parsed?.entries)
-            ? parsed.entries
-            : null;
-        if (!entries) {
-          return {
-            corrupted: true,
-            entries: [],
-            issues: [
-              {
-                code: "INVALID_PAYLOAD",
-                message: "persisted staged payload shape is invalid",
-              },
-            ],
-          };
-        }
-        return {
-          corrupted: false,
-          entries: normalizePersistedStagedEntries(entries),
-          issues: [],
-        };
-      },
-    }) || {
-      corrupted: false,
-      entries: [],
-      issues: [],
-    }
-  );
-}
-
-function fallbackPersistStagedEntries(entries) {
-  const normalized = normalizePersistedStagedEntries(entries);
-  return persistStagedEntriesCore(normalized);
-}
-
-function removeStagedEntriesByTags(tags) {
-  const lowered = new Set(
-    (Array.isArray(tags) ? tags : [])
-      .map((entry) => asString(entry).toLowerCase())
-      .filter(Boolean),
-  );
-  const loaded = fallbackLoadPersistedStagedState();
-  const kept = normalizePersistedStagedEntries(loaded.entries).filter(
-    (entry) => !lowered.has(asString(entry.tag).toLowerCase()),
-  );
-  return fallbackPersistStagedEntries(kept);
-}
-
-function buildGitHubContentsApiUrl(config) {
-  return `https://api.github.com/repos/${encodeURIComponent(
-    config.githubOwner,
-  )}/${encodeURIComponent(config.githubRepo)}/contents/${config.filePath
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/")}`;
-}
-
-function buildGitHubHeaders(config, extraHeaders) {
-  const headers = {
-    Accept: "application/json",
-    Authorization: `Bearer ${asString(config.githubToken)}`,
-    ...extraHeaders,
-  };
-  if (asString(config.githubToken)) {
-    headers["X-GitHub-Api-Version"] = GITHUB_API_VERSION;
-  }
-  return headers;
-}
-
-function encodeBase64Utf8(text) {
-  return encodeRuntimeBase64Utf8(text);
-}
-
-function decodeBase64Utf8(text) {
-  return decodeRuntimeBase64Utf8(text);
-}
-
-function sanitizeRemoteTags(tags) {
-  const normalized = normalizePersistedEntries(Array.isArray(tags) ? tags : []);
-  const issues = collectValidationIssuesFallback(normalized);
-  if (issues.length > 0) {
-    throw new Error(
-      `remote vocabulary validation failed: ${issues
-        .slice(0, 3)
-        .map((issue) => `${issue.code}: ${issue.message}`)
-        .join("; ")}`,
-    );
-  }
-  return normalized;
-}
-
-function normalizeRemoteAbbrevs(input) {
-  if (!isObject(input)) {
-    return {};
-  }
-  const next = {};
-  for (const [key, value] of Object.entries(input)) {
-    const normalizedKey = asString(key);
-    const normalizedValue = asString(value);
-    if (!normalizedKey || !normalizedValue) {
-      continue;
-    }
-    next[normalizedKey] = normalizedValue;
-  }
-  return next;
-}
-
-function normalizeRemoteVocabularyPayload(payload) {
-  if (!isObject(payload)) {
-    throw new Error("remote vocabulary payload is not an object");
-  }
-  const tags = sanitizeRemoteTags(payload.tags);
-  const remoteFacets = Array.isArray(payload.facets)
-    ? payload.facets.map((entry) => asString(entry)).filter(Boolean)
-    : [];
-  const tagFacetSet = new Set(tags.map((entry) => asString(entry.facet)));
-  const facets = [];
-  for (const facet of FACETS) {
-    if (remoteFacets.includes(facet) || tagFacetSet.has(facet)) {
-      facets.push(facet);
-    }
-  }
-  for (const facet of remoteFacets) {
-    if (!facets.includes(facet)) {
-      facets.push(facet);
-    }
-  }
-  for (const facet of tagFacetSet) {
-    if (!facets.includes(facet)) {
-      facets.push(facet);
-    }
-  }
-  return {
-    version: asString(payload.version || "1.0.0") || "1.0.0",
-    updated_at: asString(payload.updated_at),
-    facets,
-    tags,
-    abbrevs: normalizeRemoteAbbrevs(payload.abbrevs),
-    tag_count: tags.length,
-  };
-}
-
-async function fetchJsonOrThrow(url, options) {
-  const response = await resolveRuntimeFetch()(url, options);
-  if (!response || response.ok !== true) {
-    const status = Number(response?.status || 0);
-    throw new Error(
-      `HTTP ${status || "request-failed"} while requesting ${url}`,
-    );
-  }
-  try {
-    return await response.json();
-  } catch {
-    throw new Error(`invalid JSON response from ${url}`);
-  }
-}
-
-async function fetchPublishBaseline(config) {
-  const contentsUrl = buildGitHubContentsApiUrl(config);
-  const payload = await fetchJsonOrThrow(contentsUrl, {
-    method: "GET",
-    headers: buildGitHubHeaders(config, {
-      Accept: "application/vnd.github+json",
-    }),
-  });
-  const sha = asString(payload?.sha);
-  const encodedContent = asString(payload?.content);
-  if (!sha || !encodedContent) {
-    throw new Error("GitHub contents payload missing sha/content");
-  }
-  let remoteJson = null;
-  try {
-    remoteJson = JSON.parse(decodeBase64Utf8(encodedContent));
-  } catch {
-    throw new Error("GitHub contents payload is not valid vocabulary JSON");
-  }
-  return {
-    sha,
-    contentsUrl,
-    remotePayload: normalizeRemoteVocabularyPayload(remoteJson),
-  };
-}
-
-function buildPublishedVocabularyPayload(args) {
-  const remotePayload = normalizeRemoteVocabularyPayload(
-    args?.remotePayload || {},
-  );
-  const localTags = sanitizeRemoteTags(args?.localTags);
-  const tagFacetSet = new Set(localTags.map((entry) => asString(entry.facet)));
-  const facets = [];
-  for (const facet of FACETS) {
-    if (remotePayload.facets.includes(facet) || tagFacetSet.has(facet)) {
-      facets.push(facet);
-    }
-  }
-  for (const facet of remotePayload.facets) {
-    if (!facets.includes(facet)) {
-      facets.push(facet);
-    }
-  }
-  for (const facet of tagFacetSet) {
-    if (!facets.includes(facet)) {
-      facets.push(facet);
-    }
-  }
-  return {
-    version: asString(remotePayload.version || "1.0.0") || "1.0.0",
-    updated_at: new Date().toISOString(),
-    facets,
-    tags: localTags,
-    abbrevs: normalizeRemoteAbbrevs(remotePayload.abbrevs),
-    tag_count: localTags.length,
-  };
-}
-
-async function putPublishedVocabulary(args) {
-  const config = args?.config || {};
-  const contentsUrl = asString(args?.contentsUrl);
-  const sha = asString(args?.sha);
-  const payload = args?.payload;
-  if (!contentsUrl || !sha || !payload) {
-    throw new Error("publish request is missing contentsUrl, sha, or payload");
-  }
-  return resolveRuntimeFetch()(contentsUrl, {
-    method: "PUT",
-    headers: buildGitHubHeaders(config, {
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({
-      message: `Update ${config.filePath} via Zotero Agents Tag Regulator`,
-      content: encodeBase64Utf8(JSON.stringify(payload, null, 2)),
-      sha,
-    }),
-  });
-}
-
-async function publishRemoteVocabulary(args) {
-  const config = args?.config || {};
-  const localTags = sanitizeRemoteTags(args?.entries);
-  return publishRemoteVocabularyCore({
-    workflowId: asString(args?.workflowId || "tag-regulator"),
-    config,
-    entries: localTags,
-    log: (event) =>
-      appendTagRegulatorSuggestLog({
-        stage: String(event?.stage || "publish").trim() || "publish",
-        level: String(event?.level || "info").trim() || "info",
-        message: `tag-regulator remote vocabulary ${String(event?.stage || "publish").trim()}`,
-        details: event?.details || {},
-        error: event?.error,
-      }),
-  });
-}
-
-async function commitControlledEntries(args) {
-  const syncConfig =
-    args?.config || resolveGitHubSyncConfig(TAG_MANAGER_WORKFLOW_ID);
-  const mode = args?.mode || resolveTagVocabularyMode(syncConfig);
-  const nextEntries = normalizePersistedEntries(args?.entries);
-  if (mode !== "subscription") {
-    const committed = persistLocalCommittedEntries(nextEntries);
-    syncActiveCommittedProjection(committed.entries);
-    return {
-      mode,
-      entries: committed.entries,
-    };
-  }
-  const published = await publishRemoteVocabulary({
-    workflowId: asString(args?.workflowId || "tag-regulator"),
-    config: syncConfig,
-    entries: nextEntries,
-  });
-  const committed = persistRemoteCommittedEntries(published.tags);
-  syncActiveCommittedProjection(committed.entries);
-  return {
-    mode,
-    entries: committed.entries,
-  };
-}
-
 function resolveTagVocabularyBridge() {
   return {
     loadPersistedState: loadSynthesisControlledState,
@@ -914,15 +416,15 @@ function resolveTagVocabularyBridge() {
     commitControlledEntries: commitSynthesisControlledEntries,
     async promoteStagedSuggestions(tags) {
       const synthesis = resolveSynthesisVocabularyApi();
-      if (typeof synthesis.promoteStagedTagSuggestions !== "function") {
+      if (typeof synthesis.promoteStagedSuggestions !== "function") {
         throw new Error("Synthesis staged Tag promotion API is unavailable");
       }
-      return synthesis.promoteStagedTagSuggestions({ tags });
+      return synthesis.promoteStagedSuggestions({ tags });
     },
     async removeStagedEntriesByTags(tags) {
       const synthesis = resolveSynthesisVocabularyApi();
-      if (typeof synthesis.discardStagedTagSuggestions === "function") {
-        await synthesis.discardStagedTagSuggestions({ tags });
+      if (typeof synthesis.discardStagedSuggestions === "function") {
+        await synthesis.discardStagedSuggestions({ tags });
       }
     },
   };
@@ -932,9 +434,6 @@ function appendTagRegulatorRuntimeLog(args) {
   try {
     appendWorkflowRuntimeLog({
       level: "info",
-      scope: "hook",
-      workflowId: "tag-regulator",
-      component: "tag-regulator-apply-result",
       operation: "suggest-live-reconcile",
       stage: "suggest-live-reconcile",
       message:
@@ -959,16 +458,12 @@ function showTagRegulatorToast(args) {
 function appendTagRegulatorSuggestLog(args) {
   appendWorkflowRuntimeLog({
     level: String(args?.level || "info").trim() || "info",
-    scope: "hook",
-    workflowId: "tag-regulator",
-    component: "tag-regulator-suggest-intake",
     operation:
       String(args?.stage || "suggest-intake").trim() || "suggest-intake",
     stage: String(args?.stage || "suggest-intake").trim() || "suggest-intake",
     message:
       String(args?.message || "").trim() || "tag-regulator suggest intake",
     details: args?.details || {},
-    error: args?.error,
   });
 }
 
@@ -1604,13 +1099,6 @@ async function openSuggestTagsDialog(args) {
     };
   }
 
-  if (typeof bridge.registerRenderer === "function") {
-    bridge.registerRenderer(
-      SUGGEST_TAGS_RENDERER_ID,
-      createSuggestTagsRenderer(args.rendererOptions || {}),
-    );
-  }
-
   const initialState = {
     suggestTagEntries,
     rowErrors: {},
@@ -1636,9 +1124,9 @@ async function openSuggestTagsDialog(args) {
     args?.autoClose?.actionId || closeActionId,
   );
   const openResult = await bridge.open({
-    rendererId: SUGGEST_TAGS_RENDERER_ID,
     title: String(args.title || "Suggest Tags Intake"),
     initialState,
+    renderer: createSuggestTagsRenderer(args.rendererOptions || {}),
     layout: {
       width: 860,
       height: 560,
@@ -2276,11 +1764,11 @@ function resolveTagRegulatorOutput(args) {
 }
 
 function collectCurrentTags(item) {
-  const tags = Array.isArray(item.getTags?.()) ? item.getTags() : [];
+  const tags = Array.isArray(item?.tags) ? item.tags : [];
   const seen = new Set();
   const values = [];
   for (const entry of tags) {
-    const text = asString(entry?.tag);
+    const text = asString(typeof entry === "string" ? entry : entry?.tag);
     if (!text || seen.has(text)) {
       continue;
     }
@@ -2290,7 +1778,7 @@ function collectCurrentTags(item) {
   return values;
 }
 
-async function applyTagMutations(item, removeTags, addTags) {
+async function applyTagMutations(host, item, removeTags, addTags) {
   const current = collectCurrentTags(item);
   const currentSet = new Set(current);
 
@@ -2322,42 +1810,51 @@ async function applyTagMutations(item, removeTags, addTags) {
     };
   }
 
-  await measureWorkflowTestSpan(
-    "executeApplyResult:tagRegulator:mutateTagsInMemory",
-    {
-      removeCount: removed.length,
-      addCount: added.length,
-    },
-    async () => {
-      for (const tag of removed) {
-        item.removeTag(tag);
-      }
-      for (const tag of added) {
-        item.addTag(tag);
-      }
-    },
-  );
-  await measureWorkflowTestSpan(
+  const execution = await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:saveTagMutation",
     {
       removeCount: removed.length,
       addCount: added.length,
     },
-    () => item.saveTx(),
+    () => host.mutations.execute({
+      operation: "item.updateTags",
+      operationId: `tag-regulator:${item.ref.libraryId}:${item.ref.key}:${Date.now().toString(36)}`,
+      itemRef: item.ref,
+      add: added,
+      remove: removed,
+    }),
   );
+  if (execution.outcome !== "committed" && execution.outcome !== "unchanged") {
+    throw new Error(execution.attempt?.error?.message || "tag mutation failed");
+  }
 
   return {
     changed: true,
     removed,
     added,
     current,
-    next: collectCurrentTags(item),
+    next: [...currentSet],
+    receipt: execution.receipt,
   };
 }
 
 async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
-  const parentItem = runtime.helpers.resolveItemRef(parent);
-  const statusPolicy = requireHostApi(runtime)?.statusTags?.getPolicy?.();
+  const host = requireHostApi(runtime);
+  const parentRef = parent?.ref || {
+    libraryId: Number(parent?.libraryId || parent?.libraryID),
+    key: asString(parent?.key),
+  };
+  const detail = await host.library.getItemDetail(parentRef);
+  if (!detail || detail.kind !== "regular") throw new Error("tag-regulator parent is unavailable");
+  const parentItem = {
+    ref: detail.item.ref,
+    libraryId: detail.item.ref.libraryId,
+    key: detail.item.ref.key,
+    itemKey: detail.item.ref.key,
+    title: detail.item.title,
+    tags: detail.item.tags,
+  };
+  const statusPolicy = host.statusTags.getPolicy();
   if (!statusPolicy || typeof statusPolicy !== "object") {
     throw new Error("tag-regulator builtin status policy API is unavailable");
   }
@@ -2522,7 +2019,7 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       removeCount: effectiveRemoveTags.length,
       addCount: effectiveAddTags.length,
     },
-    () => applyTagMutations(parentItem, effectiveRemoveTags, effectiveAddTags),
+    () => applyTagMutations(host, parentItem, effectiveRemoveTags, effectiveAddTags),
   );
 
   const suggestIntake = await measureWorkflowTestSpan(
@@ -2533,14 +2030,17 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     () =>
       collectSuggestTagsIntake({
         suggestTagEntries: remainingSuggest,
-        title: `Tag Regulator Suggest Tags - ${asString(parentItem?.getField?.("title") || "") || "Parent Item"}`,
+        title: `Tag Regulator Suggest Tags - ${asString(parentItem.title) || "Parent Item"}`,
         parentItem,
       }),
   );
   const finalAfterTags = await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:collectFinalTags",
     {},
-    async () => collectCurrentTags(parentItem),
+    async () => {
+      const refreshed = await host.library.getItemDetail(parentItem.ref);
+      return refreshed?.kind === "regular" ? refreshed.item.tags : mutation.next;
+    },
   );
   const finalAdded = mergeUniqueStringArrays(
     mutation.added,
@@ -2549,12 +2049,11 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       : [],
   );
 
-  const libraryId = Math.max(0, Math.floor(Number(parentItem?.libraryID) || 0));
-  const itemKey = asString(parentItem?.key);
-  const clearTagAuditRecord = requireHostApi(runtime)?.synthesis
-    ?.clearTagAuditRecord;
-  if (libraryId && itemKey && typeof clearTagAuditRecord === "function") {
-    await clearTagAuditRecord({ libraryId, itemKey });
+  if (mutation.receipt) {
+    await host.synthesis.tags.acknowledgeRegulation({
+      target: parentItem.ref,
+      mutationReceipt: mutation.receipt,
+    });
   }
 
   return appendSkillDiagnosticsToResult(

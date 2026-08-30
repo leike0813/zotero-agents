@@ -1006,22 +1006,22 @@ async function ensureRuntimeDirectoryInternal(
   }
   const file = runtime.Zotero?.File?.pathToFile?.(path);
   if (file) {
-    const ensureOne = (entry: any) => {
+    const ensureOne = (entry: any): boolean => {
       if (!entry) {
-        return;
+        return false;
       }
       if (typeof entry.exists === "function" && entry.exists()) {
-        return;
+        return true;
       }
-      ensureOne(entry.parent);
-      if (typeof entry.create === "function") {
-        const directoryType =
-          runtime.Components?.interfaces?.nsIFile?.DIRECTORY_TYPE ?? 1;
-        entry.create(directoryType, 0o755);
+      if (typeof entry.create !== "function" || !ensureOne(entry.parent)) {
+        return false;
       }
+      const directoryType =
+        runtime.Components?.interfaces?.nsIFile?.DIRECTORY_TYPE ?? 1;
+      entry.create(directoryType, 0o755);
+      return true;
     };
-    ensureOne(file);
-    return;
+    if (ensureOne(file)) return;
   }
   const nodeFs = await tryNodeFs();
   if (nodeFs) {

@@ -32,10 +32,48 @@ import {
   parsePseudoEmbeddedPayloadBytesForDebug,
 } from "../../workflows_builtin/literature-workbench-package/debug-note-artifact-inspector/hooks/applyResult.mjs";
 import { parseEmbeddedNotePayloadBlock } from "../../src/modules/notePayloadCodec";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowPreparedImageScope } from "../../src/workflows/workflowNoteImagePreparation";
 
 type LoadedWorkflow = Awaited<
   ReturnType<typeof loadWorkflowManifests>
 >["workflows"][number];
+
+const preparedImageScopes = new Set<
+  ReturnType<typeof createWorkflowPreparedImageScope>
+>();
+
+function createPreparedImageTestHost(onReadPath?: (path: string) => void) {
+  const scope = createWorkflowPreparedImageScope({
+    runScopeId: `note-import-export:${preparedImageScopes.size + 1}`,
+    adapter: {
+      async readPathBlob(path, mimeType) {
+        onReadPath?.(path);
+        const signature =
+          mimeType === "image/png"
+            ? new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+            : new Uint8Array([255, 216, 255, 224]);
+        return new Blob([signature], { type: mimeType });
+      },
+      async decode() {
+        return { image: {}, width: 640, height: 360, close() {} };
+      },
+      createEncoder() {
+        return {
+          async encode(mimeType) {
+            return new Blob([new Uint8Array([9, 8, 7])], { type: mimeType });
+          },
+        };
+      },
+    },
+  });
+  preparedImageScopes.add(scope);
+  return createWorkflowHostApi({
+    ownerId: `note-import-export-host:${preparedImageScopes.size}`,
+    owners: { images: scope.owner },
+    preparedImages: { resolve: scope.resolve },
+  });
+}
 
 function renderPayloadBlock(payloadType: string, payload: unknown) {
   return `<span data-zs-block="payload" data-zs-payload="${payloadType}" data-zs-version="1" data-zs-encoding="base64" data-zs-value="${encodeBase64Utf8(JSON.stringify(payload))}"></span>`;
@@ -306,6 +344,8 @@ describe("workflow: literature-workbench import/export notes", function () {
   });
 
   afterEach(function () {
+    for (const scope of preparedImageScopes) scope.dispose();
+    preparedImageScopes.clear();
     const processEnv = (
       globalThis as { process?: { env?: Record<string, string | undefined> } }
     ).process?.env;
@@ -544,44 +584,16 @@ describe("workflow: literature-workbench import/export notes", function () {
     });
     assert.lengthOf(requests, 1);
 
-    const hostModule = await import("../../src/workflows/hostApi");
-    const baseHostApi = hostModule.createWorkflowHostApi();
+    const hostApi = createPreparedImageTestHost((source) => {
+      assert.equal(source, imagePath);
+    });
     const applied = (await executeApplyResult({
       workflow,
       parent,
       request: requests[0],
       bundleReader: { readText: async () => "" },
       runtime: {
-        hostApi: {
-          ...baseHostApi,
-          images: {
-            ...baseHostApi.images,
-            async prepareForNoteEmbedding(source: unknown) {
-              assert.equal(String(source), imagePath);
-              return {
-                mimeType: "image/jpeg",
-                bytes: new Uint8Array([9, 8, 7]),
-                width: 640,
-                height: 360,
-                originalBytes: 4,
-                compressedBytes: 3,
-              };
-            },
-          },
-          notes: {
-            ...baseHostApi.notes,
-            async importEmbeddedImage(note: Zotero.Item, image: any) {
-              if (image?.diagnostics?.workbenchPayload === true) {
-                return baseHostApi.notes.importEmbeddedImage(note, image);
-              }
-              return {
-                attachmentKey: "IMGADD1",
-                attachmentItem: {} as Zotero.Item,
-              };
-            },
-          },
-        } as any,
-        hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+        hostApi,
       },
     })) as {
       status?: string;
@@ -590,8 +602,11 @@ describe("workflow: literature-workbench import/export notes", function () {
 
     const updatedDigest = Zotero.Items.get(digestNote.id)!;
     assert.equal(applied.status, "embedded");
-    assert.equal(applied.representative_image?.attachmentKey, "IMGADD1");
-    assert.include(updatedDigest.getNote(), 'data-attachment-key="IMGADD1"');
+    const image = Zotero.Items.get(updatedDigest.getAttachments()[0])!;
+    assert.include(
+      updatedDigest.getNote(),
+      `data-attachment-key="${image.key}"`,
+    );
     assert.include(updatedDigest.getNote(), "Existing digest body.");
     assert.equal(
       (await parseStoredPayload(updatedDigest, "digest-markdown")).content,
@@ -691,50 +706,26 @@ describe("workflow: literature-workbench import/export notes", function () {
     });
     assert.lengthOf(requests, 1);
 
-    const hostModule = await import("../../src/workflows/hostApi");
-    const baseHostApi = hostModule.createWorkflowHostApi();
+    const hostApi = createPreparedImageTestHost((source) => {
+      assert.equal(source, imagePath);
+    });
     const applied = (await executeApplyResult({
       workflow,
       parent,
       request: requests[0],
       bundleReader: { readText: async () => "" },
       runtime: {
-        hostApi: {
-          ...baseHostApi,
-          images: {
-            ...baseHostApi.images,
-            async prepareForNoteEmbedding(source: unknown) {
-              assert.equal(String(source), imagePath);
-              return {
-                mimeType: "image/jpeg",
-                bytes: new Uint8Array([7, 6, 5]),
-                width: 500,
-                height: 200,
-                originalBytes: 3,
-                compressedBytes: 3,
-              };
-            },
-          },
-          notes: {
-            ...baseHostApi.notes,
-            async importEmbeddedImage(note: Zotero.Item, image: any) {
-              if (image?.diagnostics?.workbenchPayload === true) {
-                return baseHostApi.notes.importEmbeddedImage(note, image);
-              }
-              return {
-                attachmentKey: "IMGREC1",
-                attachmentItem: {} as Zotero.Item,
-              };
-            },
-          },
-        } as any,
-        hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+        hostApi,
       },
     })) as { status?: string };
 
     const updatedDigest = Zotero.Items.get(digestNote.id)!;
     assert.equal(applied.status, "embedded");
-    assert.include(updatedDigest.getNote(), 'data-attachment-key="IMGREC1"');
+    const image = Zotero.Items.get(updatedDigest.getAttachments()[0])!;
+    assert.include(
+      updatedDigest.getNote(),
+      `data-attachment-key="${image.key}"`,
+    );
     assert.equal(
       (await parseStoredPayload(updatedDigest, "digest-markdown")).content,
       "## TL;DR\n\nRecovered visible body.",
@@ -1010,7 +1001,10 @@ describe("workflow: literature-workbench import/export notes", function () {
         selectionContext: selection,
       })) as Array<{
         kind: string;
-        exportCandidates?: Array<{ kind?: string; parentItemID?: number }>;
+        exportCandidates?: Array<{
+          kind?: string;
+          parentRef?: { libraryId: number; key: string };
+        }>;
       }>;
 
       assert.lengthOf(requests, 1);
@@ -1018,11 +1012,17 @@ describe("workflow: literature-workbench import/export notes", function () {
       assert.deepEqual(
         (requests[0].exportCandidates || []).map((entry) => ({
           kind: entry.kind,
-          parentItemID: entry.parentItemID,
+          parentRef: entry.parentRef,
         })),
         [
-          { kind: "digest", parentItemID: parentA.id },
-          { kind: "references", parentItemID: parentB.id },
+          {
+            kind: "digest",
+            parentRef: { libraryId: parentA.libraryID, key: parentA.key },
+          },
+          {
+            kind: "references",
+            parentRef: { libraryId: parentB.libraryID, key: parentB.key },
+          },
         ],
       );
     },
@@ -1183,15 +1183,10 @@ describe("workflow: literature-workbench import/export notes", function () {
     const digestNote = await handlers.parent.addNote(parent, {
       content: buildDigestNoteContent("# Digest Export\n\nBody"),
     });
-    const imageRoot = await mkTempDir("literature-workbench-rep-export-image");
-    const sourceImagePath = joinPath(imageRoot, "source.jpg");
     const imageBytes = new Uint8Array([1, 2, 3, 4, 5]);
-    await writeBytes(sourceImagePath, imageBytes);
-    const attachment = await handlers.attachment.createFromPath({
-      parent,
-      path: sourceImagePath,
-      title: "representative_image.jpg",
-      mimeType: "image/jpeg",
+    const attachment = await Zotero.Attachments.importEmbeddedImage({
+      blob: new Blob([imageBytes], { type: "image/jpeg" }),
+      parentItemID: digestNote.id,
     });
     await handlers.note.update(digestNote, {
       content: buildDigestNoteContentWithRepresentativeImage(
@@ -1690,13 +1685,16 @@ describe("workflow: literature-workbench import/export notes", function () {
             },
             synthesis: {
               ...baseHostApi.synthesis,
-              async applyLiteratureDigestSidecar(args: any) {
-                sidecarCalls.push(args);
-                return {
-                  ok: true,
-                  status: "sidecar_applied",
-                  source_ref: "1:IMPORT",
-                };
+              workflowApply: {
+                ...baseHostApi.synthesis.workflowApply,
+                async applyLiteratureDigest(args: any) {
+                  sidecarCalls.push(args);
+                  return {
+                    ok: true,
+                    status: "sidecar_applied",
+                    source_ref: "1:IMPORT",
+                  };
+                },
               },
             },
           } as any,
@@ -1790,13 +1788,16 @@ describe("workflow: literature-workbench import/export notes", function () {
             },
             synthesis: {
               ...baseHostApi.synthesis,
-              async applyLiteratureDigestSidecar(args: any) {
-                sidecarCalls.push(args);
-                return {
-                  ok: true,
-                  status: "sidecar_applied",
-                  source_ref: "1:IMPORTREFS",
-                };
+              workflowApply: {
+                ...baseHostApi.synthesis.workflowApply,
+                async applyLiteratureDigest(args: any) {
+                  sidecarCalls.push(args);
+                  return {
+                    ok: true,
+                    status: "sidecar_applied",
+                    source_ref: "1:IMPORTREFS",
+                  };
+                },
               },
             },
           } as any,
@@ -1906,18 +1907,18 @@ describe("workflow: literature-workbench import/export notes", function () {
       );
       await writeBytes(imagePath, new Uint8Array([9, 8, 7]));
 
-      const hostModule = await import("../../src/workflows/hostApi");
-      const baseHostApi = hostModule.createWorkflowHostApi();
+      let preparedPath = "";
+      const baseHostApi = createPreparedImageTestHost((source) => {
+        preparedPath = source;
+      });
       const resolved = await resolveRepresentativeImageMarkdownImportCandidate({
         runtime: {
           hostApi: baseHostApi,
-          hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+          hostApiVersion: baseHostApi.version,
         },
         digestPath,
         markdown: await readUtf8(digestPath),
       });
-      let preparedPath = "";
-
       const editorResult = {
         saved: true,
         result: {
@@ -1936,37 +1937,10 @@ describe("workflow: literature-workbench import/export notes", function () {
         runtime: {
           hostApi: {
             ...baseHostApi,
-            images: {
-              async prepareForNoteEmbedding(source: unknown) {
-                preparedPath = String(source || "");
-                return {
-                  bytes: new Uint8Array([1, 2, 3]),
-                  mimeType: "image/jpeg",
-                  width: 720,
-                  height: 405,
-                  originalBytes: 1024,
-                  compressedBytes: 100 * 1024,
-                };
-              },
-            },
             editor: {
               ...baseHostApi.editor,
               async openSession() {
                 return editorResult;
-              },
-            },
-            notes: {
-              ...baseHostApi.notes,
-              async importEmbeddedImage(note: Zotero.Item, image: any) {
-                if (image?.mimeType === "image/png") {
-                  return baseHostApi.notes.importEmbeddedImage(note, image);
-                }
-                return {
-                  attachmentKey: "IMGIMPORT1",
-                  attachmentItem: {} as Zotero.Item,
-                  mimeType: "image/jpeg",
-                  bytes: 100 * 1024,
-                };
               },
             },
           } as any,
@@ -1979,13 +1953,12 @@ describe("workflow: literature-workbench import/export notes", function () {
       assert.equal(preparedPath, imagePath);
       assert.equal(applied.imported, 1);
       assert.equal(applied.representative_image?.status, "embedded");
-      assert.equal(applied.representative_image?.attachmentKey, "IMGIMPORT1");
       const digest = parent
         .getNotes()
         .map((id) => Zotero.Items.get(id)!)
         .find((entry) => hasGeneratedHeading(entry, "Digest"));
       assert.isOk(digest);
-      assert.include(digest!.getNote(), 'data-attachment-key="IMGIMPORT1"');
+      assert.match(digest!.getNote(), /data-attachment-key="[^"]+"/);
       assert.notInclude(
         (await parseStoredPayload(digest!, "digest-markdown")).content,
         "zs:representative-image",
@@ -2082,9 +2055,10 @@ describe("workflow: literature-workbench import/export notes", function () {
         itemType: "journalArticle",
         fields: { title: "Import Manual Representative Parent" },
       });
-      const hostModule = await import("../../src/workflows/hostApi");
-      const baseHostApi = hostModule.createWorkflowHostApi();
       let preparedPath = "";
+      const baseHostApi = createPreparedImageTestHost((source) => {
+        preparedPath = source;
+      });
 
       const editorResult = {
         saved: true,
@@ -2109,37 +2083,10 @@ describe("workflow: literature-workbench import/export notes", function () {
         runtime: {
           hostApi: {
             ...baseHostApi,
-            images: {
-              async prepareForNoteEmbedding(source: unknown) {
-                preparedPath = String(source || "");
-                return {
-                  bytes: new Uint8Array([1, 2, 3]),
-                  mimeType: "image/jpeg",
-                  width: 640,
-                  height: 360,
-                  originalBytes: 1024,
-                  compressedBytes: 90 * 1024,
-                };
-              },
-            },
             editor: {
               ...baseHostApi.editor,
               async openSession() {
                 return editorResult;
-              },
-            },
-            notes: {
-              ...baseHostApi.notes,
-              async importEmbeddedImage(note: Zotero.Item, image: any) {
-                if (image?.mimeType === "image/png") {
-                  return baseHostApi.notes.importEmbeddedImage(note, image);
-                }
-                return {
-                  attachmentKey: "IMGMANUAL",
-                  attachmentItem: {} as Zotero.Item,
-                  mimeType: "image/jpeg",
-                  bytes: 90 * 1024,
-                };
               },
             },
           } as any,

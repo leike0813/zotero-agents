@@ -31,25 +31,16 @@ The system SHALL treat `ZoteroHostCapabilityBroker` as the canonical owner of JS
 - **AND** the workflow projection SHALL delegate to the canonical broker capability
 - **AND** it SHALL NOT require raw `runtime.zotero` access under the package host-api contract.
 
-### Requirement: Handlers remain available for legacy workflow hooks
+### Requirement: Workflow hooks use the explicit v12 projection
 
-The system SHALL preserve `runtime.handlers` for legacy workflow hook compatibility.
-
-#### Scenario: Existing workflow hook uses runtime handlers
-
-- **WHEN** an existing workflow hook calls `runtime.handlers`
-- **THEN** the runtime MUST continue to provide the handlers object
-- **AND** this SSOT MUST NOT be interpreted as requiring handler removal or renaming.
-
-### Requirement: New workflow package code prefers hostApi
-
-The system SHALL document `runtime.hostApi` as the preferred entry point for new workflow package development.
+The system SHALL expose host capabilities to workflow hooks only through the
+exact `runtime.hostApi` v12 projection.
 
 #### Scenario: Developer chooses a host capability entry point
 
-- **WHEN** new workflow package code needs host capabilities
-- **THEN** documentation SHOULD direct authors toward `runtime.hostApi`
-- **AND** direct use of `runtime.zotero` SHOULD NOT be required for package-host-api workflows.
+- **WHEN** workflow package code needs host capabilities
+- **THEN** documentation SHALL direct authors to a named `runtime.hostApi` v12 member
+- **AND** `runtime.handlers`, `runtime.zotero`, and host-capable `runtime.helpers` SHALL be absent from hook scope.
 
 ### Requirement: MCP tools use JSON-safe broker adapters
 
@@ -207,7 +198,7 @@ The Host SHALL expose generic operations to export complete Zotero item JSON, cr
 - **WHEN** a workflow asks the Host to remove a parent created during the current operation
 - **THEN** the Host SHALL erase that parent and its newly created children through Zotero's transactional item APIs.
 
-### Requirement: Workflow Host API v11 current view SHALL identify selected library-tree sources
+### Requirement: Workflow Host API v12 current view SHALL identify selected library-tree sources
 
 The current-view DTO SHALL include ordered JSON-safe source refs for the selected library-tree rows and all distinct selected library ids. It SHALL include the scalar library id only when exactly one library is represented, and the optional normalized current collection only when the entire selection represents one real Zotero collection. Zotero host-version differences SHALL be contained inside the broker.
 
@@ -234,14 +225,14 @@ The current-view DTO SHALL include ordered JSON-safe source refs for the selecte
 - **AND** the current-view DTO SHALL omit the current collection
 - **AND** it SHALL still report unique library identity when available
 
-### Requirement: Workflow Host API version consumers SHALL recognize v11
+### Requirement: Workflow Host API version consumers SHALL recognize v12
 
-The current Workflow Host Contract Identity SHALL declare version 11 once. Internally created workflow projections, loader globals, runtime contexts, capability summaries, debug probes, tests, and current SSOT documentation SHALL resolve that version from the identity owner rather than maintaining independent current-version declarations.
+The current Workflow Host Contract Identity SHALL declare version 12 once. Internally created workflow projections, loader globals, runtime contexts, capability summaries, debug probes, tests, and current SSOT documentation SHALL resolve that version from the identity owner rather than maintaining independent current-version declarations.
 
 #### Scenario: Current projection is carried into a workflow runtime
 
 - **WHEN** the system creates or injects the current Workflow Host projection without an explicit compatibility override
-- **THEN** the runtime, loader global, and diagnostics SHALL report version 11
+- **THEN** the runtime, loader global, and diagnostics SHALL report version 12
 - **AND** the reported version SHALL agree with the projection's own version.
 
 #### Scenario: Explicit legacy version is supplied
@@ -319,7 +310,7 @@ directory, single-file, save-file, and multi-file picker modes.
 
 ### Requirement: Workflow broker projection is explicit and closed
 
-`WorkflowHostApi` SHALL expose only the broker members declared by its public v11 contract. Adding a canonical broker member SHALL NOT implicitly add it to the workflow interface.
+`WorkflowHostApi` SHALL expose only the broker members declared by its public v12 contract. Adding a canonical broker member SHALL NOT implicitly add it to the workflow interface.
 
 #### Scenario: Broker gains a new member
 
@@ -329,7 +320,7 @@ directory, single-file, save-file, and multi-file picker modes.
 
 ### Requirement: Workflow Host runtime adaptation uses owned deep modules
 
-Workflow Host API v11 SHALL compose workflow-local filesystem, input
+Workflow Host API v12 SHALL compose workflow-local filesystem, input
 materialization, picker, note-image preparation, stored-attachment import, and
 archive behavior through explicitly owned modules. Runtime adapter selection and
 workflow-local policy SHALL NOT be implemented inline in the projection
@@ -337,14 +328,14 @@ composition root or exposed as new public host members.
 
 #### Scenario: Workflow Host API is constructed
 
-- **WHEN** `createWorkflowHostApi()` constructs the v11 projection
+- **WHEN** `createWorkflowHostApi()` constructs the v12 projection
 - **THEN** it SHALL bind each workflow-local interface explicitly
 - **AND** it SHALL NOT expose internal filesystem, picker, media, or attachment
   adapters.
 
-#### Scenario: Cached host projection performs a runtime operation
+#### Scenario: Host projection performs a runtime operation
 
-- **WHEN** a cached Workflow Host API invokes a runtime-sensitive operation
+- **WHEN** a Workflow Host API invokes a runtime-sensitive operation
 - **THEN** the owning module SHALL resolve the current runtime adapter for that
   invocation
 - **AND** it SHALL NOT retain a stale picker window or runtime global captured
@@ -373,12 +364,12 @@ managed staging data.
 
 ### Requirement: Workflow note-image preparation remains behavior compatible
 
-Moving note-image preparation behind its owned module SHALL retain the established resize, encoding, quality-candidate, MIME verification, and hard-cap policy as internal conversion behavior while adding portable sources, opaque managed results, per-run accounting, and automatic cleanup. The active v11 adapter MAY continue normalizing its legacy path, Blob, and byte inputs until atomic v12 activation, but those forms MUST NOT enter the new owner contract.
+Moving note-image preparation behind its owned module SHALL retain the established resize, encoding, quality-candidate, MIME verification, and hard-cap policy as internal conversion behavior while exposing only portable sources, opaque managed results, per-run accounting, and automatic cleanup. Native Blob and typed-array inputs MUST NOT enter the owner contract.
 
 #### Scenario: Workflow prepares a note image
 
-- **WHEN** an active v11 caller supplies a supported legacy source before v12 activation
-- **THEN** the adapter normalizes it through the owned conversion path and preserves its existing caller-observable result
+- **WHEN** an active v12 caller supplies a portable image source
+- **THEN** the owner normalizes it through the owned conversion path and returns an opaque prepared-image ref
 - **AND** the owner itself remains portable and does not accept a native Blob or typed array
 
 ### Requirement: Broker public references SHALL be portable and fail closed

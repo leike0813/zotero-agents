@@ -15,13 +15,12 @@ import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { resolveRepresentativeImageMarkdownImportCandidate } from "../../lib/representativeImage.mjs";
 import { buildLiteratureScorePayload } from "../../lib/literatureScoreNote.mjs";
 import {
+  portableItemRef,
   requireHostApi,
   requireHostEditor,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 
-const IMPORT_RENDERER_ID = "literature-workbench.import-notes.v1";
-const CONFLICT_RENDERER_ID = "literature-workbench.import-notes-conflict.v1";
 const ROW_KIND_ORDER = [
   "digest",
   "references",
@@ -623,19 +622,13 @@ function createConflictRenderer() {
 
 async function openImportEditor(args) {
   const editor = requireHostEditor(args.runtime);
-  if (typeof editor.registerRenderer === "function") {
-    editor.registerRenderer(
-      IMPORT_RENDERER_ID,
-      createImportRenderer({
-        runtime: args.runtime,
-        host: requireHostApi(args.runtime),
-      }),
-    );
-  }
   return editor.openSession({
-    rendererId: IMPORT_RENDERER_ID,
     title: "Import Notes",
     initialState: cloneSerializable(args.initialState),
+    renderer: createImportRenderer({
+      runtime: args.runtime,
+      host: requireHostApi(args.runtime),
+    }),
     context: {
       parentTitle: args.parentTitle,
       existing: args.existing,
@@ -655,13 +648,10 @@ async function openImportEditor(args) {
 
 async function openConflictDialog(args) {
   const editor = requireHostEditor(args.runtime);
-  if (typeof editor.registerRenderer === "function") {
-    editor.registerRenderer(CONFLICT_RENDERER_ID, createConflictRenderer());
-  }
   return editor.openSession({
-    rendererId: CONFLICT_RENDERER_ID,
     title: "Overwrite Existing Notes",
     initialState: {},
+    renderer: createConflictRenderer(),
     context: {
       conflictedKinds: args.conflictedKinds,
     },
@@ -694,25 +684,17 @@ async function openConflictDialog(args) {
   });
 }
 
-function resolveExistingGeneratedKinds(parentItem, runtime) {
+async function resolveExistingGeneratedKinds(parentItem, runtime) {
   const existing = {
     digest: false,
     references: false,
     "citation-analysis": false,
     "literature-score": false,
   };
-  const noteIds = parentItem.getNotes?.() || [];
-  for (const noteRef of noteIds) {
-    let noteItem = null;
-    try {
-      noteItem = runtime.helpers.resolveItemRef(noteRef);
-    } catch {
-      noteItem = null;
-    }
-    if (!noteItem) {
-      continue;
-    }
-    const kind = parseGeneratedNoteKind(String(noteItem.getNote?.() || ""));
+  const host = requireHostApi(runtime);
+  for (const note of await host.library.getItemNotes(portableItemRef(parentItem))) {
+    const noteItem = await host.library.getNoteDetail(note.ref, { format: "html" });
+    const kind = parseGeneratedNoteKind(noteItem.content);
     if (kind === "digest") {
       existing.digest = true;
     }
@@ -804,10 +786,12 @@ function buildImportedRepresentativeImageRequest(digest) {
   };
 }
 
-function findAppliedGeneratedNote(notes, kind) {
-  return (notes || []).find(
-    (note) => parseGeneratedNoteKind(String(note?.getNote?.() || "")) === kind,
-  );
+async function findAppliedGeneratedNote(host, notes, kind) {
+  for (const note of notes || []) {
+    const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
+    if (parseGeneratedNoteKind(detail.content) === kind) return detail;
+  }
+  return null;
 }
 
 async function applyImportedStandardSidecar(args) {
@@ -819,14 +803,19 @@ async function applyImportedStandardSidecar(args) {
     return undefined;
   }
   const selected = args.selected || {};
+  const host = requireHostApi(args.runtime);
   const digestNote = selected.digest
-    ? findAppliedGeneratedNote(args.applied?.notes, "digest")
+    ? await findAppliedGeneratedNote(host, args.applied?.notes, "digest")
     : null;
   const referencesNote = selected.references
-    ? findAppliedGeneratedNote(args.applied?.notes, "references")
+    ? await findAppliedGeneratedNote(host, args.applied?.notes, "references")
     : null;
   const citationAnalysisNote = selected.citationAnalysis
-    ? findAppliedGeneratedNote(args.applied?.notes, "citation-analysis")
+    ? await findAppliedGeneratedNote(
+        host,
+        args.applied?.notes,
+        "citation-analysis",
+      )
     : null;
 
   return applyLiteratureDigestSidecar({
@@ -984,12 +973,12 @@ async function applyNonInteractiveImport(args) {
 }
 
 async function applyResultImpl({ parent, runtime, executionOptions }) {
-  const parentItem = runtime.helpers.resolveItemRef(parent);
-  const existing = resolveExistingGeneratedKinds(parentItem, runtime);
   const host = requireHostApi(runtime);
+  const parentItem = (await host.library.getItemDetail(portableItemRef(parent))).item;
+  const existing = await resolveExistingGeneratedKinds(parentItem, runtime);
   if (
     runtime.invocationMode === "non-interactive" ||
-    host.resources?.mode === "non-interactive"
+    host.interactionMode === "non_interactive"
   ) {
     return applyNonInteractiveImport({
       runtime,
@@ -998,7 +987,7 @@ async function applyResultImpl({ parent, runtime, executionOptions }) {
       existing,
     });
   }
-  const parentTitle = String(parentItem.getField?.("title") || "").trim();
+  const parentTitle = String(parentItem.title || "").trim();
   let selectionState = {
     digest: null,
     references: null,
