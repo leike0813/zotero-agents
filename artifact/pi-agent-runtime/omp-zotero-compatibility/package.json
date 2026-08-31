@@ -1,0 +1,20 @@
+{
+  "name": "omp-zotero-compatibility-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node test/probe.test.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.4",
+    "@earendil-works/pi-ai": "0.84.4",
+    "@oh-my-pi/pi-ai": "18.0.11",
+    "@oh-my-pi/pi-catalog": "18.0.11",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-agent-core": "18.0.11",
+    "esbuild": "0.25.12"
+  }
+}

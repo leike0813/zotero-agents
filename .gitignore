@@ -79,3 +79,6 @@ artifact/acp-probe/
 
 **/__pycache__/
 .pytest_cache/
+
+# Local reference repositories
+/reference/pi/

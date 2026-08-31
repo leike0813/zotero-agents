@@ -124,6 +124,16 @@
 └── README.md                 # 项目说明
 ```
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+This is a single-context repository using a root `CONTEXT.md` and root `docs/adr/`. See `docs/agents/domain.md`.
+
 # 注意事项
 
 - **如无必要，勿增实体！**
