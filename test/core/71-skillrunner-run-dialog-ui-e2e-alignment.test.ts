@@ -18,8 +18,6 @@
 //   - 旧 B 层（assistantPanelModel.js legacy 分支消费契约 + 字段消耗追踪）：
 //     legacy model 分支由 65 锁定，字段消耗清单随 push plane 在 Stage 4 一并
 //     删除，不再迁移。
-//   - 旧 C 层（run-dialog.html 静态 mount 联动）：run-dialog 页面已不再服
-//     务，文件本体在 Stage 4 删除，不再迁移。
 //   - reply-run / resolve-permission / cancel-run 等动作的 host 侧路由：现
 //     由 assistantWorkspaceSidebar 的 typed registry 处理，registry 条目由
 //     184 锁定；本文件锁定 dispatcher 核心路径（select-task / archive-run /

@@ -221,6 +221,7 @@ describe("assistant wire contract shared registry", function () {
         `message type must carry the assistant-workspace prefix: ${type}`,
       );
     }
+    assert.notProperty(ASSISTANT_WORKSPACE_MESSAGE_TYPES, "CHILD_SNAPSHOT");
     assert.equal(
       ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
       "__zsAssistantWorkspaceBridge",
