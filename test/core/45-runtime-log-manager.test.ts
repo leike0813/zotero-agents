@@ -4,6 +4,7 @@ import path from "node:path";
 import { config } from "../../package.json";
 import {
   appendRuntimeLog,
+  createWorkflowLoggingOwner,
   buildRuntimeDiagnosticBundle,
   buildRuntimeIssueDiagnosticBundle,
   buildRuntimeIssueSummary,
@@ -130,6 +131,78 @@ describe("runtime log manager", function () {
       "ok",
     );
     assert.equal(entry!.error?.message, "boom");
+  });
+
+  it("binds workflow log identity and rejects unsafe input before storage", function () {
+    const logging = createWorkflowLoggingOwner({
+      workflowId: "workflow-a",
+      packageId: "package-a",
+      runId: "run-a",
+      requestId: "request-a",
+      jobId: "job-a",
+      backendId: "backend-a",
+    });
+    assert.deepEqual(Object.keys(logging), ["appendRuntimeLog"]);
+    logging.appendRuntimeLog({
+      level: "warn",
+      stage: "apply",
+      message: "Bearer secret-token failed at /home/alice/private.txt",
+      operation: "note.update",
+      phase: "commit",
+      details: {
+        token: "secret-token",
+        sourcePath: "/home/alice/private.txt",
+        visible: "ok",
+      },
+    });
+    const entry = listRuntimeLogs().at(-1)!;
+    assert.include(entry, {
+      workflowId: "workflow-a",
+      packageId: "package-a",
+      runId: "run-a",
+      requestId: "request-a",
+      jobId: "job-a",
+      backendId: "backend-a",
+      stage: "apply",
+      operation: "note.update",
+      phase: "commit",
+    });
+    assert.notInclude(entry.message, "secret-token");
+    assert.notInclude(entry.message, "/home/alice");
+    assert.deepEqual(entry.details, {
+      token: "<redacted>",
+      sourcePath: "<redacted>",
+      visible: "ok",
+    });
+
+    const before = listRuntimeLogs().length;
+    for (const input of [
+      {
+        level: "info",
+        stage: "x".repeat(129),
+        message: "oversized stage",
+      },
+      {
+        level: "info",
+        stage: "apply",
+        message: "x".repeat(16 * 1024 + 1),
+      },
+      {
+        level: "info",
+        stage: "apply",
+        message: "native error",
+        details: { error: new Error("native") },
+      },
+      {
+        level: "info",
+        stage: "apply",
+        message: "identity injection",
+        runId: "caller-run",
+      },
+    ]) {
+      assert.throws(() => logging.appendRuntimeLog(input as never));
+    }
+    assert.lengthOf(listRuntimeLogs(), before);
   });
 
   it("skips debug logs by default and keeps error logs", function () {
@@ -267,6 +340,53 @@ describe("runtime log manager", function () {
     assert.equal(rawCleared, "");
     const parsedCleared = readPersistedRuntimeLogDocument();
     assert.equal(parsedCleared.entries?.length || 0, 0);
+  });
+
+  it("persists mixed log levels in their original append order", async function () {
+    let persisted = "";
+    setRuntimeLogPersistenceWriterForTests(async ({ fragments }) => {
+      persisted = Array.from(fragments).join("");
+    });
+
+    appendRuntimeLog({
+      level: "info",
+      scope: "system",
+      stage: "ordered-info-first",
+      message: "first",
+    });
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      stage: "ordered-warn-second",
+      message: "second",
+    });
+    appendRuntimeLog({
+      level: "error",
+      scope: "system",
+      stage: "ordered-error-third",
+      message: "third",
+    });
+    appendRuntimeLog({
+      level: "info",
+      scope: "system",
+      stage: "ordered-info-fourth",
+      message: "fourth",
+    });
+
+    await flushRuntimeLogsPersistence();
+
+    const parsed = JSON.parse(persisted) as {
+      entries: Array<{ stage: string }>;
+    };
+    assert.deepEqual(
+      parsed.entries.map((entry) => entry.stage),
+      [
+        "ordered-info-first",
+        "ordered-warn-second",
+        "ordered-error-third",
+        "ordered-info-fourth",
+      ],
+    );
   });
 
   it("hydrates legacy prefs payload into runtime log storage", async function () {
@@ -789,5 +909,152 @@ describe("runtime log manager", function () {
     const entries = listRuntimeLogs();
     assert.lengthOf(entries, 0);
     assert.isAtLeast(snapshotRuntimeLogs().droppedEntries, 1);
+  });
+
+  it("routes warn/error entries to the dedicated important queue", function () {
+    appendRuntimeLog({
+      level: "info",
+      scope: "system",
+      stage: "info-stage",
+      message: "info",
+    });
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      stage: "warn-stage",
+      message: "warn",
+    });
+    appendRuntimeLog({
+      level: "error",
+      scope: "system",
+      stage: "error-stage",
+      message: "error",
+    });
+
+    const summary = getRuntimeLogSummary();
+    assert.equal(summary.entryCount, 3);
+    assert.equal(summary.importantEntryCount, 2);
+    assert.equal(summary.maxImportantEntries, 500);
+  });
+
+  it("keeps warn/error entries when info overflows the total budget", function () {
+    for (let i = 0; i < 200; i += 1) {
+      appendRuntimeLog({
+        level: "warn",
+        scope: "system",
+        stage: `warn-${i}`,
+        message: `warn-${i}`,
+      });
+    }
+    for (let i = 0; i < 2000; i += 1) {
+      appendRuntimeLog({
+        level: "info",
+        scope: "system",
+        stage: `info-${i}`,
+        message: `info-${i}`,
+      });
+    }
+
+    const summary = getRuntimeLogSummary();
+    assert.equal(summary.importantEntryCount, 200);
+    assert.equal(summary.entryCount, summary.maxEntries);
+    const warnStages = listRuntimeLogs({ levels: ["warn"] }).map(
+      (entry) => entry.stage,
+    );
+    assert.lengthOf(warnStages, 200);
+    assert.include(warnStages, "warn-0");
+    assert.include(warnStages, "warn-199");
+  });
+
+  it("caps the important queue independently of the total entry budget", function () {
+    const before = getRuntimeLogRetentionConfig();
+    setRuntimeLogDiagnosticMode(true);
+    for (let i = 0; i < 1500; i += 1) {
+      appendRuntimeLog({
+        level: "warn",
+        scope: "system",
+        stage: `warn-${i}`,
+        message: `warn-${i}`,
+      });
+    }
+    const summary = getRuntimeLogSummary();
+    assert.equal(summary.importantEntryCount, 1000);
+    assert.equal(summary.maxImportantEntries, 1000);
+    setRuntimeLogDiagnosticMode(false);
+    const normalSummary = getRuntimeLogSummary();
+    assert.equal(normalSummary.importantEntryCount, 500);
+    assert.equal(
+      getRuntimeLogRetentionConfig().maxImportantEntries,
+      before.normal.maxImportantEntries,
+    );
+  });
+
+  it("drops info entries before warn/error when the byte budget is exceeded", function () {
+    setRuntimeLogDiagnosticMode(true);
+    const largeDetails = Array.from(
+      { length: 90 },
+      (_, index) => `inflated-${index}-${"x".repeat(4000)}`,
+    );
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      stage: "important-warn",
+      message: "important-warn",
+    });
+    for (let i = 0; i < 80; i += 1) {
+      appendRuntimeLog({
+        level: "info",
+        scope: "system",
+        stage: `info-${i}`,
+        message: `info-${i}`,
+        details: { largeDetails },
+      });
+    }
+    const summary = getRuntimeLogSummary();
+    assert.equal(summary.importantEntryCount, 1);
+    assert.isAtLeast(summary.droppedByReason.byte_budget, 1);
+    assert.equal(summary.estimatedBytes <= 20 * 1024 * 1024, true);
+  });
+
+  it("falls back to evicting important entries when they alone exceed the byte budget", function () {
+    setRuntimeLogDiagnosticMode(true);
+    const largeDetails = Array.from(
+      { length: 90 },
+      (_, index) => `important-${index}-${"x".repeat(4000)}`,
+    );
+    for (let i = 0; i < 80; i += 1) {
+      appendRuntimeLog({
+        level: "warn",
+        scope: "system",
+        stage: `important-only-${i}`,
+        message: `important-only-${i}`,
+        details: { largeDetails },
+      });
+    }
+
+    const summary = getRuntimeLogSummary();
+    assert.isBelow(summary.importantEntryCount, 80);
+    assert.isAtLeast(summary.droppedByReason.byte_budget, 1);
+    assert.isAtMost(summary.estimatedBytes, 20 * 1024 * 1024);
+    assert.lengthOf(
+      listRuntimeLogs({ levels: ["warn"] }),
+      summary.importantEntryCount,
+    );
+  });
+
+  it("exposes important queue budget on the diagnostic bundle retention metadata", function () {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      stage: "warn-bundle",
+      message: "warn",
+    });
+    const diagnostic = buildRuntimeDiagnosticBundle().meta.retentionBudget;
+    assert.equal(diagnostic.maxImportantEntries, 500);
+    assert.equal(diagnostic.importantEntryCount, 1);
+    const issue =
+      buildRuntimeIssueDiagnosticBundle().environment.retentionBudget;
+    assert.equal(issue.maxImportantEntries, 500);
+    assert.equal(issue.importantEntryCount, 1);
   });
 });

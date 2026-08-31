@@ -19,6 +19,10 @@ export type WorkflowResultEvidence = {
 
 export type WorkflowManifestContract = {
   executionModes: Array<"auto" | "interactive">;
+  supportedInvocationModes: NonNullable<
+    WorkflowManifest["supportedInvocationModes"]
+  >;
+  resourceRequirements: NonNullable<WorkflowManifest["resourceRequirements"]>;
   providerRequirements: WorkflowProviderRequirements;
   requiredWorkflowOptions: string[];
   resultEvidence: WorkflowResultEvidence;
@@ -60,6 +64,30 @@ export function projectWorkflowManifestContract(
   const requestKind = String(manifest.request?.kind || "").trim();
   return {
     executionModes: [...(manifest.executionModes || ["auto"])],
+    supportedInvocationModes: [
+      ...(manifest.supportedInvocationModes || [
+        "interactive",
+        "non-interactive",
+      ]),
+    ],
+    resourceRequirements: (manifest.resourceRequirements || []).map(
+      (requirement) => ({
+        ...requirement,
+        ...(requirement.accept
+          ? {
+              accept: {
+                ...requirement.accept,
+                ...(requirement.accept.contentTypes
+                  ? { contentTypes: [...requirement.accept.contentTypes] }
+                  : {}),
+                ...(requirement.accept.extensions
+                  ? { extensions: [...requirement.accept.extensions] }
+                  : {}),
+              },
+            }
+          : {}),
+      }),
+    ),
     providerRequirements: {
       requestKind,
       acceptedProviderTypes: compatibleBackendTypesForManifest(manifest),

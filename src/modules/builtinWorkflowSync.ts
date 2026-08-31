@@ -1,6 +1,14 @@
 import { joinPath } from "../utils/path";
 import { resolveAddonRef } from "../utils/runtimeBridge";
-import { getRuntimePersistencePaths } from "./runtimePersistence";
+import {
+  ensureRuntimeDirectoryStrict,
+  getRuntimePersistencePaths,
+  moveRuntimePath,
+  readRuntimeTextFileStrict,
+  removeRuntimePath,
+  runtimePathExists,
+  writeRuntimeTextFileStrict,
+} from "./runtimePersistence";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -57,13 +65,9 @@ function normalizeString(value: unknown) {
 
 function detectZoteroRuntime() {
   const runtime = globalThis as {
-    IOUtils?: unknown;
     Zotero?: { DataDirectory?: { dir?: string } };
   };
-  return (
-    typeof runtime.IOUtils !== "undefined" &&
-    typeof runtime.Zotero?.DataDirectory?.dir === "string"
-  );
+  return typeof runtime.Zotero?.DataDirectory?.dir === "string";
 }
 
 function compactError(error: unknown) {
@@ -170,136 +174,55 @@ export function getBuiltinWorkflowTargetDir() {
 }
 
 async function readTextFileNode(filePath: string) {
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(filePath, "utf8") as Promise<string>;
+  return readRuntimeTextFileStrict(filePath);
 }
 
 async function writeTextFileNode(filePath: string, content: string) {
-  const fs = await dynamicImport("fs/promises");
-  const path = await dynamicImport("path");
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, content, "utf8");
+  await writeRuntimeTextFileStrict(filePath, content);
 }
 
 async function removeDirectoryNode(targetDir: string) {
-  const fs = await dynamicImport("fs/promises");
-  await fs.rm(targetDir, { recursive: true, force: true });
+  await removeRuntimePath(targetDir);
 }
 
 async function removeDirectoryZotero(targetDir: string) {
-  const runtime = globalThis as {
-    IOUtils?: {
-      remove?: (
-        path: string,
-        options?: { recursive?: boolean; ignoreAbsent?: boolean },
-      ) => Promise<void>;
-      makeDirectory?: (
-        path: string,
-        options?: { createAncestors?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  const remove = runtime.IOUtils?.remove;
-  if (typeof remove === "function") {
-    await remove(targetDir, { recursive: true, ignoreAbsent: true });
-  }
+  await removeRuntimePath(targetDir);
 }
 
 async function removeDirectory(targetDir: string) {
-  if (detectZoteroRuntime()) {
-    await removeDirectoryZotero(targetDir);
-    return;
-  }
-  await removeDirectoryNode(targetDir);
+  await removeRuntimePath(targetDir);
 }
 
 async function makeDirectoryZotero(targetDir: string) {
-  const runtime = globalThis as {
-    IOUtils?: {
-      makeDirectory?: (
-        path: string,
-        options?: { createAncestors?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  const makeDirectory = runtime.IOUtils?.makeDirectory;
-  if (typeof makeDirectory === "function") {
-    await makeDirectory(targetDir, { createAncestors: true });
-  }
+  await ensureRuntimeDirectoryStrict(targetDir);
 }
 
 async function pathExistsNode(targetPath: string) {
-  const fs = await dynamicImport("fs/promises");
-  try {
-    await fs.stat(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
+  return runtimePathExists(targetPath);
 }
 
 async function pathExistsZotero(targetPath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { exists?: (path: string) => Promise<boolean> };
-  };
-  if (typeof runtime.IOUtils?.exists === "function") {
-    try {
-      return runtime.IOUtils.exists(targetPath);
-    } catch {
-      return false;
-    }
-  }
-  return false;
+  return runtimePathExists(targetPath);
 }
 
 async function pathExists(targetPath: string) {
-  if (detectZoteroRuntime()) {
-    return pathExistsZotero(targetPath);
-  }
-  return pathExistsNode(targetPath);
+  return runtimePathExists(targetPath);
 }
 
 async function movePathNode(sourcePath: string, targetPath: string) {
-  const fs = await dynamicImport("fs/promises");
-  try {
-    await fs.rename(sourcePath, targetPath);
-  } catch (error) {
-    await fs.rm(targetPath, { recursive: true, force: true });
-    await fs.cp(sourcePath, targetPath, { recursive: true, force: true });
-    await fs.rm(sourcePath, { recursive: true, force: true });
-  }
+  await moveRuntimePath({ sourcePath, targetPath, overwrite: true });
 }
 
 async function movePathZotero(sourcePath: string, targetPath: string) {
-  const runtime = globalThis as {
-    IOUtils?: {
-      move?: (sourcePath: string, targetPath: string) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.move !== "function") {
-    throw new Error("IOUtils.move is unavailable");
-  }
-  await runtime.IOUtils.move(sourcePath, targetPath);
+  await moveRuntimePath({ sourcePath, targetPath, overwrite: true });
 }
 
 async function movePath(sourcePath: string, targetPath: string) {
-  if (detectZoteroRuntime()) {
-    return movePathZotero(sourcePath, targetPath);
-  }
-  return movePathNode(sourcePath, targetPath);
+  return moveRuntimePath({ sourcePath, targetPath, overwrite: true });
 }
 
 async function writeTextFileZotero(filePath: string, content: string) {
-  const runtime = globalThis as unknown as {
-    IOUtils?: {
-      writeUTF8?: (path: string, data: string) => Promise<unknown>;
-    };
-  };
-  const writeUTF8 = runtime.IOUtils?.writeUTF8;
-  if (typeof writeUTF8 !== "function") {
-    throw new Error("IOUtils.writeUTF8 is unavailable");
-  }
-  await writeUTF8(filePath, content);
+  await writeRuntimeTextFileStrict(filePath, content);
 }
 
 async function readPackagedTextFromNode(relativePath: string, cwdRaw?: string) {
@@ -398,16 +321,12 @@ function getZoteroCurrentWorkingDir() {
 }
 
 async function readPackagedTextFromZoteroWorkingDir(relativePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  const readUTF8 = runtime.IOUtils?.readUTF8;
   const cwd = getZoteroCurrentWorkingDir();
-  if (typeof readUTF8 !== "function" || !cwd) {
+  if (!cwd) {
     throw new Error("zotero working directory fallback is unavailable");
   }
   const sourcePath = joinPath(cwd, BUILTIN_WORKFLOW_ROOT, relativePath);
-  return readUTF8(sourcePath);
+  return readRuntimeTextFileStrict(sourcePath);
 }
 
 async function readPackagedTextWithDiagnostics(args: {
@@ -570,12 +489,7 @@ function toLocalPath(rootDir: string, posixRelativePath: string) {
 
 async function clearAndPrepareTargetDirectory(targetDir: string) {
   await removeDirectory(targetDir);
-  if (detectZoteroRuntime()) {
-    await makeDirectoryZotero(targetDir);
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(targetDir, { recursive: true });
+  await ensureRuntimeDirectoryStrict(targetDir);
 }
 
 async function replaceTargetDirectory(args: {

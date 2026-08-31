@@ -10,8 +10,8 @@ import {
   executeBuildRequests,
 } from "../../src/workflows/runtime";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
+import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 import { renderPayloadBlock } from "../../workflows_builtin/literature-workbench-package/lib/noteCodecs.mjs";
-import { createStoreZipBytes } from "../../workflows_builtin/literature-workbench-package/lib/zipStore.mjs";
 import {
   ensureDir,
   joinPath,
@@ -106,13 +106,22 @@ describe("workflow: literature-deep-reading", function () {
     const tempDir = await mkTempDir("zs-deep-reading-zip");
     const zipPath = joinPath(tempDir, "bundle.zip");
     const source = new Uint8Array([1, 2, 3, 4, 5]);
-    await writeBytes(
-      zipPath,
-      createStoreZipBytes([
-        { name: "array-buffer.bin", bytes: source.buffer },
-        { name: "data-view.bin", bytes: new DataView(source.buffer, 1, 3) },
-      ]),
-    );
+    await createWorkflowArchiveApi().writeZipAtomic({
+      targetPath: zipPath,
+      entries: [
+        {
+          name: "array-buffer.bin",
+          content: { kind: "bytes", bytes: source.buffer },
+        },
+        {
+          name: "data-view.bin",
+          content: {
+            kind: "bytes",
+            bytes: new DataView(source.buffer, 1, 3),
+          },
+        },
+      ],
+    });
 
     const bundle = new ZipBundleReader(zipPath);
     const extracted = await bundle.getExtractedDir();
@@ -176,7 +185,10 @@ describe("workflow: literature-deep-reading", function () {
   it("validates translator handoff fields without requiring uploaded files", async function () {
     const tempDir = await mkTempDir("zs-deep-reading-schema");
     const sourceBundlePath = joinPath(tempDir, "source_bundle.zip");
-    await writeBytes(sourceBundlePath, createStoreZipBytes([]));
+    await createWorkflowArchiveApi().writeZipAtomic({
+      targetPath: sourceBundlePath,
+      entries: [],
+    });
     const skillDir = joinPath(
       process.cwd(),
       "skills_builtin",
@@ -337,7 +349,7 @@ describe("workflow: literature-deep-reading", function () {
     });
     assert.match(
       request.steps[1].input?.source_bundle_path || "",
-      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]literature-deep-reading[\\/]source_bundle_path[\\/].+\.zip$/,
+      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]literature-deep-reading-[^\\/]+[\\/]source_bundle_path[\\/].+\.zip$/,
     );
 
     const bundle = new ZipBundleReader(
@@ -432,36 +444,39 @@ describe("workflow: literature-deep-reading", function () {
     };
     hostApi.synthesis = {
       ...hostApi.synthesis,
-      async readPaperArtifacts(args: Record<string, unknown>) {
-        assert.deepEqual(args.paper_refs, [`1:${parent.key}`]);
-        return {
-          artifacts: [
-            {
-              paper_ref: `1:${parent.key}`,
-              artifact_type: "digest",
-              payload_type: "digest-markdown",
-              status: "available",
-              markdown: "# Host Digest\n\nRead from Host.",
-            },
-            {
-              paper_ref: `1:${parent.key}`,
-              artifact_type: "references",
-              payload_type: "references-json",
-              status: "available",
-              payload: {
-                references: [{ id: "ref-host", title: "Host Reference" }],
+      artifacts: {
+        ...hostApi.synthesis.artifacts,
+        async readPaperArtifacts(args: Record<string, unknown>) {
+          assert.deepEqual(args.paper_refs, [`1:${parent.key}`]);
+          return {
+            artifacts: [
+              {
+                paper_ref: `1:${parent.key}`,
+                artifact_type: "digest",
+                payload_type: "digest-markdown",
+                status: "available",
+                markdown: "# Host Digest\n\nRead from Host.",
               },
-            },
-            {
-              paper_ref: `1:${parent.key}`,
-              artifact_type: "citation_analysis",
-              payload_type: "citation-analysis-markdown",
-              status: "available",
-              decoded_text: "# Host Citation Analysis",
-            },
-          ],
-          diagnostics: [],
-        };
+              {
+                paper_ref: `1:${parent.key}`,
+                artifact_type: "references",
+                payload_type: "references-json",
+                status: "available",
+                payload: {
+                  references: [{ id: "ref-host", title: "Host Reference" }],
+                },
+              },
+              {
+                paper_ref: `1:${parent.key}`,
+                artifact_type: "citation_analysis",
+                payload_type: "citation-analysis-markdown",
+                status: "available",
+                decoded_text: "# Host Citation Analysis",
+              },
+            ],
+            diagnostics: [],
+          };
+        },
       },
     };
 
@@ -748,14 +763,17 @@ describe("workflow: literature-deep-reading", function () {
             getPolicy: () => ({}),
             transition: async (args: unknown) => {
               statusTransitions.push(args);
-              return { added: [], removed: [], warnings: [] };
+              return {
+                outcome: "committed",
+                result: { added: [], removed: [], unchanged: [] },
+              };
             },
           },
         } as any,
       },
     })) as {
       ok: boolean;
-      attachmentId: number;
+      attachmentId: null;
       attachmentKey: string;
       htmlPath: string;
       partial?: boolean;
@@ -763,17 +781,25 @@ describe("workflow: literature-deep-reading", function () {
 
     const expectedHtmlPath = joinPath(tempDir, "paper.html");
     assert.isTrue(applied.ok);
-    assert.isAbove(applied.attachmentId, 0);
+    assert.isNull(applied.attachmentId);
     assert.isNotEmpty(applied.attachmentKey);
     assert.equal(applied.htmlPath, expectedHtmlPath);
     assert.equal(await readUtf8(applied.htmlPath), html);
 
-    const attached = Zotero.Items.get(applied.attachmentId)!;
+    const attached = await Zotero.Items.getByLibraryAndKey(
+      parent.libraryID,
+      applied.attachmentKey,
+    );
+    assert.isOk(attached);
     assert.equal(attached.parentID, parent.id);
     assert.equal(attached.getField("title"), "paper.html");
     assert.equal(await countAttachmentsByPath(parent, expectedHtmlPath), 1);
     assert.deepEqual(statusTransitions, [
-      { item: parent, remove: ["need-deep-reading"] },
+      {
+        operationId: statusTransitions[0]?.operationId,
+        itemRef: { libraryId: parent.libraryID, key: parent.key },
+        remove: ["need-deep-reading"],
+      },
     ]);
     assert.isFalse(applied.partial);
   });

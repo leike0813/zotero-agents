@@ -1,7 +1,7 @@
 # acp-startup-prompt-preambles Specification
 
 ## Purpose
-TBD
+Defines how ACP Chat and ACP Skills inject startup preambles from packaged runtime prompt templates into the first prompt of a conversation or run.
 ## Requirements
 ### Requirement: ACP startup preambles are template-backed
 

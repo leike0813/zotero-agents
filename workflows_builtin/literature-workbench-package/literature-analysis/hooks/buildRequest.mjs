@@ -1,9 +1,19 @@
-import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 import {
   buildTagRegulatorInputFromParent,
   resolveParentItemFromSelection,
   resolveRequestParameters as resolveTagRegulatorParameters,
 } from "../../lib/tagRegulatorRequest.mjs";
+import {
+  buildParentSnapshot,
+  selectIdentifier,
+} from "../../lib/metadataCurator.mjs";
+import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
+import { normalizeLiteratureScoreArtifact } from "../../lib/literatureScoreNote.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -15,9 +25,9 @@ function collectAttachments(selectionContext) {
 }
 
 function resolveAttachmentPath(entry, runtime) {
-  const fromHelper = runtime?.helpers?.getAttachmentFilePath?.(entry);
+  void runtime;
   const direct = entry?.filePath || entry?.path || entry?.item?.filePath;
-  const path = normalizeString(fromHelper || direct);
+  const path = normalizeString(direct);
   if (!path) {
     throw new Error("literature-analysis buildRequest cannot resolve source attachment path");
   }
@@ -42,10 +52,109 @@ function resolveWorkflowParams(executionOptions) {
   };
 }
 
-async function buildRequestImpl({ selectionContext, executionOptions, runtime }) {
+function resolveSupportedIdentifier(parentItem) {
+  const identifier = selectIdentifier(
+    parentItem?.fields ? {
+      fields: parentItem.fields,
+      DOI: parentItem.fields.DOI,
+      ISBN: parentItem.fields.ISBN,
+      url: parentItem.fields.url,
+    } : buildParentSnapshot(parentItem), {
+    allowedTypes: ["DOI", "arXiv"],
+  });
+  return normalizeString(identifier?.normalized);
+}
+
+function resolveReadinessSpec(manifest) {
+  const filters = manifest?.validateSelection?.filters;
+  const spec = Array.isArray(filters)
+    ? filters.find((entry) => entry?.kind === "generated-note-readiness")
+    : null;
+  if (!spec) {
+    throw new Error("literature-analysis readiness declaration is missing");
+  }
+  return spec;
+}
+
+async function inspectReadiness(parentItem, manifest, runtime) {
+  const spec = resolveReadinessSpec(manifest);
+  const host = requireHostApi(runtime);
+  const notes = await Promise.all(
+    (await host.library.getItemNotes(portableItemRef(parentItem))).map(async (note) => {
+      const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
+      return { note, kind: parseGeneratedNoteKind(detail.content) };
+    }),
+  );
+  const artifacts = {};
+  for (const artifactSpec of spec.artifacts) {
+    const candidates = notes.filter((entry) => artifactSpec.noteKinds.includes(entry.kind));
+    let status = candidates.length ? "available" : "missing";
+    if (candidates.length && artifactSpec.payload) {
+      status = "invalid";
+      for (const candidate of candidates) {
+        try {
+          const payload = (await host.library.getNotePayload(candidate.note.ref, {
+            payloadType: artifactSpec.payload.type,
+          })).value;
+          if (artifactSpec.payload.type === "literature-score-json") {
+            normalizeLiteratureScoreArtifact(payload);
+          }
+          if ((artifactSpec.payload.requirements || []).every((rule) => {
+            const value = rule.pointer.split("/").slice(1).reduce(
+              (current, segment) => current?.[segment.replaceAll("~1", "/").replaceAll("~0", "~")],
+              payload,
+            );
+            if (Object.hasOwn(rule, "const") && value !== rule.const) return false;
+            if (rule.type === "array" && !Array.isArray(value)) return false;
+            if (rule.type && rule.type !== "array" && typeof value !== rule.type) return false;
+            if (rule.length !== undefined && value?.length !== rule.length) return false;
+            if (rule.minimum !== undefined && value < rule.minimum) return false;
+            if (rule.maximum !== undefined && value > rule.maximum) return false;
+            return true;
+          })) {
+            status = "available";
+            break;
+          }
+        } catch {
+          // Try the next note candidate.
+        }
+      }
+    }
+    artifacts[artifactSpec.id] = {
+      status,
+      noteRefs: candidates.map((entry) => entry.note.ref),
+    };
+  }
+  const mode = spec.modes.find((candidate) => !candidate.default &&
+    (candidate.allAvailable || []).every((id) => artifacts[id]?.status === "available") &&
+    (candidate.allUnavailable || []).every((id) => artifacts[id]?.status !== "available"))?.id ||
+    spec.modes.find((candidate) => candidate.default)?.id || "";
+  const readiness = {
+    mode,
+    accepted: spec.acceptModes.includes(mode),
+    evidenceHash: JSON.stringify(spec.artifacts.map(({ id }) => [id, artifacts[id]])),
+    artifacts,
+  };
+  if (!readiness?.accepted) {
+    throw new Error("literature-analysis input already has all generated artifacts");
+  }
+  return readiness;
+}
+
+async function buildRequestImpl({
+  selectionContext,
+  executionOptions,
+  manifest,
+  runtime,
+}) {
   const sourcePath = resolveSourceAttachmentPath(selectionContext, runtime);
-  const parentItem = resolveParentItemFromSelection(selectionContext, runtime);
+  const parentCandidate = resolveParentItemFromSelection(selectionContext, runtime);
+  const parentRef = portableItemRef(parentCandidate);
+  const parentItem = (await requireHostApi(runtime).library.getItemDetail(parentRef)).item;
   const params = resolveWorkflowParams(executionOptions);
+  const identifier = resolveSupportedIdentifier(parentItem);
+  const readiness = await inspectReadiness(parentItem, manifest, runtime);
+  const scoreOnly = readiness.mode === "score-only";
   const digestStep = {
     id: "digest",
     skill_id: "literature-analysis",
@@ -61,12 +170,14 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
     },
     parameter: {
       language: params.language,
+      score_only: scoreOnly,
+      ...(identifier ? { identifier } : {}),
     },
   };
   const steps = [digestStep];
   let finalStepId = "digest";
 
-  if (params.autoTagRegulator) {
+  if (params.autoTagRegulator && !scoreOnly) {
     const tagInput = await buildTagRegulatorInputFromParent({
       parentItem,
       runtime,
@@ -102,10 +213,20 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
     finalStepId = "tag-regulator";
   }
 
+  const confirmedReadiness = await inspectReadiness(parentItem, manifest, runtime);
+  if (
+    confirmedReadiness.mode !== readiness.mode ||
+    confirmedReadiness.evidenceHash !== readiness.evidenceHash
+  ) {
+    throw new Error(
+      "literature-analysis generated-note readiness changed while building the request; retry",
+    );
+  }
+
   return {
     kind: "skillrunner.sequence.v1",
     sourceAttachmentPaths: [sourcePath],
-    targetParentID: parentItem.id,
+    targetParentRef: parentRef,
     steps,
     final_step_id: finalStepId,
     poll: {
@@ -121,4 +242,6 @@ export async function buildRequest(args) {
 
 export const __literatureAnalysisBuildRequestTestOnly = {
   resolveWorkflowParams,
+  resolveReadinessSpec,
+  resolveSupportedIdentifier,
 };

@@ -122,6 +122,14 @@ export function parseAssistantWorkspaceTranscriptPageRequest(
     const requestId = String(owner.requestId || "").trim();
     if (!requestId || ownerKey !== requestId) return null;
     canonicalOwner = { source: "acp-skills", ownerKey, requestId };
+  } else if (owner.source === "skillrunner") {
+    if (!hasExactKeys(owner, ["source", "ownerKey", "requestId", "runKey"])) {
+      return null;
+    }
+    const requestId = String(owner.requestId || "").trim() || null;
+    const runKey = String(owner.runKey || "").trim();
+    if (!runKey || ownerKey !== (requestId || runKey)) return null;
+    canonicalOwner = { source: "skillrunner", ownerKey, requestId, runKey };
   } else {
     return null;
   }

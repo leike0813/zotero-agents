@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadHostBridgeSurfaceDefinitions } from "./host-bridge-surface-model";
 
 const FORBIDDEN_AGENT_PROSE = [
   /\bHost Bridge\b/g,
@@ -17,20 +18,6 @@ const TEXT_EXTENSIONS = new Set([
   ".yaml",
   ".yml",
 ]);
-
-const AGENT_LANGUAGE_ROOTS = [
-  "skills_src/zotero-bridge-cli",
-  "skills_src/zotero-library-agent",
-  "profiles_src/hermes/zotero-librarian",
-  "skills_builtin/zotero-bridge-cli",
-  "skills_builtin/zotero-library-agent",
-  "skills_builtin/zotero-library-query",
-  "skills_builtin/zotero-literature-acquisition",
-  "skills_builtin/zotero-literature-analysis",
-  "skills_builtin/zotero-research-synthesis",
-  "skills_builtin/zotero-library-curation",
-  "profiles/hermes/zotero-librarian",
-] as const;
 
 const AGENT_LANGUAGE_FILES = [
   "cli/zotero-bridge/src/args.rs",
@@ -91,8 +78,15 @@ function textFiles(root: string): string[] {
 
 export function validateHostBridgeAgentLanguage(root: string): string[] {
   const repositoryRoot = resolve(root);
+  const definitions = loadHostBridgeSurfaceDefinitions(
+    join(repositoryRoot, "host-bridge/surfaces.json"),
+  );
+  const agentLanguageRoots = definitions.surfaces.flatMap((surface) => [
+    surface.sourceRoot,
+    surface.generatedRoot,
+  ]);
   const paths = new Set([
-    ...AGENT_LANGUAGE_ROOTS.flatMap((entry) =>
+    ...agentLanguageRoots.flatMap((entry) =>
       textFiles(join(repositoryRoot, entry)),
     ),
     ...AGENT_LANGUAGE_FILES.map((entry) => join(repositoryRoot, entry)).filter(

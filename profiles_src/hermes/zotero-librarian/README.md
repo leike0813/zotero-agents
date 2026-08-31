@@ -18,6 +18,8 @@ Verify the installed executable offline with `zotero-bridge surface identity --j
 
 Resident state defaults to `$HERMES_HOME/zotero-librarian/state.sqlite`. Set `ZOTERO_LIBRARIAN_STATE_DIR` to place it elsewhere. The state database is a local cache and journal, not a replacement for live Zotero facts.
 
+Library refreshes use a fixed snapshot captured by the Zotero capability Broker and a profile-local staging generation. The resident service promotes that generation only after the exact terminal completion evidence validates; interrupted or restarted snapshots leave the prior generation current, while a complete empty snapshot may atomically promote an empty index.
+
 `scripts/zotero_librarian_service.py` is the only resident entrypoint and the only owner of the database schema. Interactive requests and cron jobs invoke one bounded subcommand and receive `zotero-librarian.operation-receipt.v1`. The shipped cron jobs may index, inspect, monitor, synchronize notification metadata, and produce review candidates; they never submit workflows or mutate Zotero.
 
 Workflow submission is interactive and uses the bundled Generic and CLI Skills. Read the live workflow contract, validate selection and workflow options, validate the provider profile independently, and obtain current authority before the submission call. Pass an explicitly bounded concurrency value only for that authorized request. When Zotero returns host-queue admission, retain `submissionId`, inspect its immutable unit projection, and correlate admitted tasks with their real run handles; use `queueId` cancellation only while a unit is pending. Zotero owns pending ordering, admission, and slot lifetime through terminal execution and apply-back. The resident service does not persist a second plan-entry queue, reserve units, replay uncertain submissions, or submit from cron. Provider-profile decisions, unsupported selection/options, and self-owned agent handoffs continue to use the inherited Generic workflow contract.
@@ -33,3 +35,9 @@ Read `SOUL.md` for librarian posture and `skills/zotero-librarian/SKILL.md` for 
 - `state-and-recovery.md` for cache freshness, atomic updates, typed handles, uncertain outcomes, installation, and state rebuild.
 
 The bundled Generic and CLI Skills are part of the effective profile. Do not copy their task playbooks or command facts into the resident documentation.
+
+## Connection-profile workspaces
+
+Agents do not need to calculate or pass a workspace path. The service and cron jobs follow `--profile`, then `ZOTERO_BRIDGE_PROFILE`, then the platform well-known profile automatically. The well-known profile is the default workspace and continues to own `$HERMES_HOME/zotero-librarian/state.sqlite`; every explicit profile gets its own content-addressed `workspaces/<sha256>/` directory for SQLite state, runs, notifications, catalog, and `.zotero-bridge/bin`.
+
+`--db` is a diagnostic override only when its resolved path remains inside the active workspace. Profile identity uses only the normalized profile path, never profile JSON, tokens, endpoints, or other secrets. Missing profiles, path normalization failures, unavailable workspace roots, connection failures, and database escapes fail closed with a structured receipt; they never fall back to shared state. Workspace caches remain discovery aids, not current Zotero facts, and do not change approval, queue, receipt, or live-state rules.

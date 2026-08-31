@@ -13,7 +13,7 @@ async function writeExportedFile(host, targetPath, file) {
   }
   if (file.sourcePath) {
     if (typeof host.file.copy === "function") {
-      await host.file.copy(file.sourcePath, targetPath);
+      await host.file.copy({ sourcePath: file.sourcePath, targetPath });
       return;
     }
     await host.file.writeBytes(
@@ -39,9 +39,17 @@ async function applyResultImpl({ request, runtime }) {
     };
   }
 
-  const exportRoot = await host.file.pickDirectory({
-    title: "Export Notes",
-  });
+  const remoteOutput = host.interactionMode === "non_interactive";
+  const allocatedOutput = remoteOutput
+    ? await host.resources.allocateOutput({
+        slotId: "notes",
+        suggestedName: "notes-export.zip",
+        contentType: "application/zip",
+      })
+    : null;
+  const exportRoot = remoteOutput
+    ? allocatedOutput?.path || null
+    : await host.file.pickDirectory({ title: "Export Notes" });
   if (!exportRoot) {
     return {
       exportedParents: 0,
@@ -51,20 +59,33 @@ async function applyResultImpl({ request, runtime }) {
   }
 
   let exportedFiles = 0;
+  const archiveEntries = [];
   const touchedParents = new Set();
   for (const candidate of exportCandidates) {
-    const folderName = `${sanitizeFileNameSegment(candidate.parentTitle)} [${candidate.parentItemKey}]`;
-    const targetDir = joinPath(exportRoot, folderName);
-    await host.file.makeDirectory(targetDir);
-    touchedParents.add(targetDir);
-
+    const parentKey = candidate.parentRef.key;
+    const folderName = `${sanitizeFileNameSegment(candidate.parentTitle)} [${parentKey}]`;
+    touchedParents.add(parentKey);
+    const targetDir = remoteOutput ? exportRoot : joinPath(exportRoot, folderName);
     const exported = await exportGeneratedNoteCandidate({
       ...candidate,
       runtime,
     });
     for (const file of exported.files) {
       try {
-        await writeExportedFile(host, joinPath(targetDir, file.fileName), file);
+        if (remoteOutput) {
+          archiveEntries.push({
+            name: `${folderName}/${file.fileName}`,
+            content:
+              typeof file.content === "string"
+                ? { kind: "text", text: file.content }
+                : file.bytes
+                  ? { kind: "bytes", bytes: file.bytes }
+                  : { kind: "file", sourcePath: file.sourcePath },
+          });
+        } else {
+          await host.file.makeDirectory({ path: targetDir });
+          await writeExportedFile(host, joinPath(targetDir, file.fileName), file);
+        }
       } catch (error) {
         if (file.optional === true) {
           continue;
@@ -81,6 +102,23 @@ async function applyResultImpl({ request, runtime }) {
     }
   }
 
+  if (remoteOutput) {
+    await host.archive.writeZipAtomic({
+      targetPath: exportRoot,
+      entries: archiveEntries,
+    });
+    const output = await host.resources.publishOutput({
+      slotId: "notes",
+      path: exportRoot,
+      displayName: "notes-export.zip",
+      contentType: "application/zip",
+    });
+    return {
+      exportedParents: touchedParents.size,
+      exportedFiles,
+      resourceOutputs: [output],
+    };
+  }
   return {
     exportedParents: touchedParents.size,
     exportedFiles,

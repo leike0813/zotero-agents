@@ -421,7 +421,7 @@ research report 的 `candidateId`、`candidatePath`、`title`、
     {
       "title": "隧道衬砌病害智能识别研究",
       "ingestStatus": "created",
-      "itemRef": { "id": 101 },
+      "itemRef": { "libraryId": 1, "key": "ABCD1234" },
       "pdfStatus": "attached",
       "needsCuration": false
     },

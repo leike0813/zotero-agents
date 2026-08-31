@@ -91,6 +91,8 @@ export async function buildRequest({ selectionContext, preflight, manifest }) {
         context.source_attachment_item_id || source?.itemId || null,
       source_attachment_item_key:
         context.source_attachment_item_key || source?.itemKey || "",
+      source_attachment_ref:
+        context.source_attachment_ref || source?.itemRef || null,
       workflow_id: manifest?.id || "mineru",
       workflow_label: manifest?.label || "MinerU",
       ...context,

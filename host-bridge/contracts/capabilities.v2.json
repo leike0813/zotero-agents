@@ -1544,6 +1544,92 @@
         "responseSizing": "paged"
       }
     },
+    "items.export_research_bundle": {
+      "category": "items",
+      "summary": "Export one or more resolved Zotero papers as a portable research bundle with source content, metadata, and available analysis artifacts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": { "id": { "type": ["integer", "string"] } },
+                  "required": ["id"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "key": { "type": "string", "minLength": 1 },
+                    "libraryId": { "type": ["integer", "string"] }
+                  },
+                  "required": ["key"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "output_dir": { "type": "string", "minLength": 1 },
+          "outputDir": { "type": "string", "minLength": 1 }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "manifest_file": { "const": "manifest.json" },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "papers" },
+              "paper_count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500
+              },
+              "topic_count": { "const": 0 },
+              "warning_count": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["kind", "paper_count", "topic_count", "warning_count"],
+            "additionalProperties": false
+          },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "mode": { "enum": ["local", "bridge-download"] },
+              "outputName": { "type": "string" },
+              "manifestFile": { "type": "string" },
+              "fileCount": { "type": "integer", "minimum": 1, "maximum": 5000 },
+              "bytesWritten": { "type": "integer", "minimum": 0 },
+              "bundle": { "type": "object" },
+              "downloadCommand": { "type": "string" },
+              "unpackHint": { "type": "string" }
+            },
+            "required": ["mode"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["manifest_file", "summary", "delivery"],
+        "additionalProperties": false
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
     "library.export_annotations": {
       "category": "library",
       "summary": "Export reader annotations for one Zotero item as markdown or JSON.",
@@ -1659,7 +1745,15 @@
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
         "properties": {
           "attachments": {
-            "type": "array"
+            "type": "array",
+            "items": {
+              "type": "object",
+              "not": {
+                "required": ["path"]
+              },
+              "additionalProperties": true,
+              "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+            }
           },
           "nextCursor": {
             "type": ["string", "null"]
@@ -2246,50 +2340,207 @@
     },
     "library.sync_snapshot": {
       "category": "library",
-      "summary": "Return a paginated Zotero library metadata snapshot for local librarian indexes.",
+      "summary": "Read one fixed, process-local full-library snapshot through opaque continuation state.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": ["number", "string"]
-          },
-          "collection": {},
-          "collectionId": {
-            "type": ["number", "string"]
-          },
-          "collectionKey": {
-            "type": "string"
-          },
-          "collectionLibraryId": {
-            "type": ["number", "string"]
-          },
-          "tag": {
-            "type": "string"
-          },
-          "itemType": {
-            "type": "string"
-          },
-          "query": {
-            "type": "string"
-          },
-          "limit": {
-            "type": ["number", "string"],
+            "type": "integer",
             "minimum": 1
           },
+          "batchSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "snapshotId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
           "cursor": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           }
+        },
+        "required": ["libraryId"],
+        "dependentRequired": {
+          "snapshotId": ["cursor"],
+          "cursor": ["snapshotId"]
         },
         "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
-        "description": "Result data owned by library.sync_snapshot.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
         "properties": {
+          "schema": {
+            "const": "zotero-agents.library-full-index.v1"
+          },
+          "snapshotId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "libraryId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "scope": {
+            "const": "top-level-regular"
+          },
+          "order": {
+            "const": "stable_identity"
+          },
+          "batchSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "batchIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
           "items": {
-            "type": "array"
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "object",
+                  "properties": {
+                    "libraryId": { "type": "integer", "minimum": 1 },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "required": ["libraryId", "key"],
+                  "additionalProperties": false
+                },
+                "kind": { "const": "regular" },
+                "itemType": { "type": "string" },
+                "title": { "type": "string" },
+                "parentRef": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "libraryId": { "type": "integer", "minimum": 1 },
+                        "key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "required": ["libraryId", "key"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "state": { "const": "active" },
+                "revision": { "type": "string", "minLength": 1 },
+                "tags": { "type": "array", "items": { "type": "string" } },
+                "collectionRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "libraryId": { "type": "integer", "minimum": 1 },
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "required": ["libraryId", "key"],
+                    "additionalProperties": false
+                  }
+                },
+                "creators": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "representation": { "const": "two_field" },
+                          "creatorType": { "type": "string" },
+                          "firstName": { "type": "string" },
+                          "lastName": { "type": "string" }
+                        },
+                        "required": [
+                          "representation",
+                          "creatorType",
+                          "firstName",
+                          "lastName"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "representation": { "const": "single_field" },
+                          "creatorType": { "type": "string" },
+                          "name": { "type": "string", "minLength": 1 }
+                        },
+                        "required": [
+                          "representation",
+                          "creatorType",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "date": { "type": "string" },
+                "year": { "type": ["string", "null"] },
+                "publicationTitle": { "type": "string" },
+                "identifiers": {
+                  "type": "object",
+                  "properties": {
+                    "doi": { "type": ["string", "null"] },
+                    "isbn": { "type": ["string", "null"] },
+                    "issn": { "type": ["string", "null"] },
+                    "arxiv": { "type": ["string", "null"] },
+                    "pmid": { "type": ["string", "null"] }
+                  },
+                  "required": ["doi", "isbn", "issn", "arxiv", "pmid"],
+                  "additionalProperties": false
+                },
+                "url": { "type": ["string", "null"] },
+                "noteCount": { "type": "integer", "minimum": 0 },
+                "attachmentCount": { "type": "integer", "minimum": 0 },
+                "annotationCount": { "type": "integer", "minimum": 0 },
+                "modifiedAt": { "type": "string" }
+              },
+              "required": [
+                "ref",
+                "kind",
+                "itemType",
+                "title",
+                "parentRef",
+                "state",
+                "revision",
+                "tags",
+                "collectionRefs",
+                "creators",
+                "date",
+                "year",
+                "publicationTitle",
+                "identifiers",
+                "url",
+                "noteCount",
+                "attachmentCount",
+                "annotationCount",
+                "modifiedAt"
+              ],
+              "additionalProperties": false
+            }
           },
           "nextCursor": {
             "type": ["string", "null"]
@@ -2301,15 +2552,90 @@
             "type": "integer",
             "minimum": 0
           },
-          "total": {
+          "deliveredItems": {
             "type": "integer",
             "minimum": 0
           },
-          "limit": {
+          "deliveredBatches": {
             "type": "integer",
             "minimum": 0
+          },
+          "outcome": {
+            "enum": ["active", "completed"]
+          },
+          "completionEvidence": {
+            "type": "object",
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "schema": { "const": "zotero-agents.library-full-index.v1" },
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "scope": { "const": "top-level-regular" },
+              "totalItems": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "totalBatches": { "type": "integer", "minimum": 1 },
+              "order": { "const": "stable_identity" },
+              "contentDigest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "completedAt": { "type": "string" }
+            },
+            "required": [
+              "snapshotId",
+              "schema",
+              "libraryId",
+              "scope",
+              "totalItems",
+              "totalBatches",
+              "order",
+              "contentDigest",
+              "completedAt"
+            ],
+            "additionalProperties": false
           }
-        }
+        },
+        "required": [
+          "schema",
+          "snapshotId",
+          "libraryId",
+          "scope",
+          "order",
+          "batchSize",
+          "batchIndex",
+          "items",
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "deliveredItems",
+          "deliveredBatches",
+          "outcome"
+        ],
+        "oneOf": [
+          {
+            "properties": {
+              "outcome": { "const": "active" },
+              "nextCursor": { "type": "string", "minLength": 1 },
+              "hasMore": { "const": true }
+            },
+            "not": { "required": ["completionEvidence"] }
+          },
+          {
+            "properties": {
+              "outcome": { "const": "completed" },
+              "nextCursor": { "type": "null" },
+              "hasMore": { "const": false }
+            },
+            "required": ["completionEvidence"]
+          }
+        ],
+        "additionalProperties": false
       },
       "effect": "read",
       "approval": "none",
@@ -2749,7 +3075,27 @@
         "type": "object",
         "description": "Result data owned by mutation.execute.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "result": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "Mutation operations own result fields, while attachment file access is exposed through issued transfer descriptors.",
+            "properties": {
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "not": {
+                    "required": ["path"]
+                  },
+                  "additionalProperties": true,
+                  "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+                }
+              }
+            }
+          }
+        }
       },
       "effect": "state-change",
       "approval": "zotero-ui-required",
@@ -2791,11 +3137,27 @@
     },
     "paper_artifacts.export_filtered": {
       "category": "paper_artifacts",
-      "summary": "Export bounded filtered paper artifacts into the ACP run workspace.",
+      "summary": "Export bounded decoded digest, references, citation-analysis, and literature-score artifacts; omitting artifact_types exports the complete four-artifact set.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object.",
+        "properties": {
+          "paper_refs": { "type": "array", "items": { "type": "string" } },
+          "paper_ref": { "type": "string" },
+          "artifact_types": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score"
+              ]
+            }
+          },
+          "run_root": { "type": "string" }
+        }
       },
       "outputSchema": {
         "type": "object",
@@ -2874,11 +3236,32 @@
     },
     "paper_artifacts.get_manifest": {
       "category": "paper_artifacts",
-      "summary": "Return available Synthesis paper artifact descriptors for selected paper references.",
+      "summary": "Return per-paper availability for digest, references, citation-analysis, and literature-score, including compact literature-quality snapshots.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object.",
+        "properties": {
+          "paper_refs": { "type": "array", "items": { "type": "string" } },
+          "paper_ref": { "type": "string" },
+          "artifact_types": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score"
+              ]
+            }
+          },
+          "cursor": { "type": ["string", "number"] },
+          "limit": {
+            "type": ["integer", "string"],
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
       },
       "outputSchema": {
         "type": "object",
@@ -2923,11 +3306,26 @@
     },
     "paper_artifacts.read": {
       "category": "paper_artifacts",
-      "summary": "Read bounded Synthesis paper artifacts for selected paper references.",
+      "summary": "Read bounded decoded digest, references, citation-analysis, and literature-score payloads; omitting artifact_types reads the complete four-artifact set.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object.",
+        "properties": {
+          "paper_refs": { "type": "array", "items": { "type": "string" } },
+          "paper_ref": { "type": "string" },
+          "artifact_types": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score"
+              ]
+            }
+          }
+        }
       },
       "outputSchema": {
         "type": "object",
@@ -3256,6 +3654,80 @@
         "responseSizing": "unclassified"
       }
     },
+    "topics.export_research_bundle": {
+      "category": "topics",
+      "summary": "Export one or more Topic reports with one globally deduplicated digest per canonical Zotero paper ref.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "topic_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "topicIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "output_dir": { "type": "string", "minLength": 1 },
+          "outputDir": { "type": "string", "minLength": 1 }
+        },
+        "anyOf": [{ "required": ["topic_ids"] }, { "required": ["topicIds"] }],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "manifest_file": { "const": "manifest.json" },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "topics" },
+              "paper_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "topic_count": { "type": "integer", "minimum": 1, "maximum": 20 },
+              "warning_count": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["kind", "paper_count", "topic_count", "warning_count"],
+            "additionalProperties": false
+          },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "mode": { "enum": ["local", "bridge-download"] },
+              "outputName": { "type": "string" },
+              "manifestFile": { "type": "string" },
+              "fileCount": { "type": "integer", "minimum": 1, "maximum": 5000 },
+              "bytesWritten": { "type": "integer", "minimum": 0 },
+              "bundle": { "type": "object" },
+              "downloadCommand": { "type": "string" },
+              "unpackHint": { "type": "string" }
+            },
+            "required": ["mode"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["manifest_file", "summary", "delivery"],
+        "additionalProperties": false
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
     "topics.find_by_paper_ref": {
       "category": "topics",
       "summary": "Return active Synthesis topics associated with selected paper references from artifact dependency state.",
@@ -3427,6 +3899,67 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
+    "topics.get_planning_context": {
+      "category": "topics",
+      "summary": "Return one complete library-wide topic planning snapshot through registered file delivery.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5000
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Planning snapshot summary and registered file delivery owned by topics.get_planning_context.",
+        "required": ["delivery"],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The planning application owns bounded summary counters while the command envelope remains closed."
+          },
+          "diagnostics": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The planning application owns diagnostic fields while the command envelope remains closed."
+          },
+          "delivery": {
+            "type": "object",
+            "required": ["mode", "bundle", "downloadCommand"],
+            "properties": {
+              "mode": {
+                "enum": ["bridge-download"]
+              },
+              "bundle": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "downloadCommand": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
       },
       "effect": "read",
       "approval": "none",

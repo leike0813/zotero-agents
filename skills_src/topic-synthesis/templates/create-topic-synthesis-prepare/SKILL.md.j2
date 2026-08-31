@@ -8,6 +8,13 @@
 
 {{ product_goals }}
 
+## Planned Topic 与 ad-hoc 输入
+
+- `usePlannedTopic=true` 时，Stage 00 从 `plannedTopicId` 读取 active Planned Topic 的定义、scope 和 resolver；runtime 使用同一 topic id 重新执行 resolver，并自动推进到 Stage 30。不要重写定义，不要执行 duplicate check，也不要手写 resolver result。
+- `usePlannedTopic=false` 时，从 `topicSeed` 开始；Stage 10 必须先解析完整 topic inventory。已有 materialized identity 时取消，存在同一 identity 的 active Planned Topic 时自动复用其 id/definition/resolver，仅在两者都不存在时进入 Stage 20 从零创建。
+- 自动匹配只接受 definition/scope 可直接承接 seed 的同一 topic identity；相关、上位、下位或需要改写 scope 的 topic 不算匹配。多个合适 Planned Topic 时选择最佳 definition/scope 匹配，aliases/title 只作次级依据。
+- Planned Topic 缺失、stale 或缺少 resolver 时，使用 runtime 返回的 canceled output；不要回退为同名 ad-hoc create。
+
 ## 必需运行输入
 
 {{ required_inputs }}

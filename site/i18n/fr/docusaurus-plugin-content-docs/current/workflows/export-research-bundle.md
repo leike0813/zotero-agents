@@ -11,16 +11,16 @@ Assembler automatiquement un bundle de recherche en lecture seule dans Dashboard
 | `paperTitle` | Oui | Titre de travail du manuscrit utilisé pour trouver des matériaux de recherche. |
 | `researchContent` | Oui | Problème de recherche, méthodes, portée et contribution prévue. |
 | `articleType` | Non | Type de manuscrit (par défaut : `original research`). |
-| `maxTopics` | Non | Nombre maximum de sujets pertinents à inclure, plage 0–5 (par défaut : 5). |
-| `maxCorePapers` | Non | Nombre maximum d'articles principaux, plage 1–20 (par défaut : 20). |
-| `maxRelatedPapers` | Non | Nombre total maximum d'articles connexes incluant les principaux, plage 1–80 (par défaut : 80). |
+| `maxTopics` | Non | Nombre maximum de sujets pertinents à inclure, plage 0–10 (par défaut : 5). |
+| `maxCorePapers` | Non | Nombre maximum d'articles principaux, plage 1–50 (par défaut : 20). |
+| `maxRelatedPapers` | Non | Nombre maximum d'articles supplémentaires hors Topics, plage 1–200 (par défaut : 80). Les articles issus des Topics sélectionnés sont conservés au-delà de cette limite. |
 
 Aucune sélection d'élément Zotero n'est requise.
 
 ## Comportement
 
 1. Recevoir les paramètres d'intention de papier de l'utilisateur.
-2. Découvrir les matériaux candidats à partir des Synthesis Topics existants, des éléments de la bibliothèque Zotero et du contexte de graphe de citation disponible.
+2. Découvrir les matériaux candidats à partir des Synthesis Topics existants et d'ancres bornées de métadonnées Zotero. La recherche compare les métadonnées indexées telles que titres, auteurs, années, publications et tags ; ce n'est pas une recherche sémantique en texte intégral.
 3. Effectuer une évaluation bornée pour distinguer les articles principaux des articles connexes.
 4. Assembler le Research Bundle avec des rapports de sujet, des métadonnées bibliographiques et des artefacts d'analyse v2 disponibles (résumés, références, analyses de citation, contenu de conversation).
 5. Pour les articles principaux, préférer la source Markdown avec des images locales ; revenir au PDF ; enregistrer un avertissement si aucun n'est disponible.

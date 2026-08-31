@@ -10,7 +10,6 @@ import {
 import { createBackendsPrefsDocument } from "../../src/backends/registry";
 import {
   authenticateAcpConversation,
-  activateSyntheticAcpChatReplay,
   archiveAcpConversation,
   buildAcpDiagnosticsBundle,
   cancelAcpConversationPrompt,
@@ -25,7 +24,6 @@ import {
   refreshAcpConversationBackends,
   readAcpConversationTranscriptMirrorPage,
   readAcpConversationTranscriptPage,
-  prepareSyntheticAcpChatReplay,
   pruneAcpChatSessionRuntimesForBackends,
   reconnectAcpConversation,
   renameAcpConversation,
@@ -48,6 +46,7 @@ import {
   toggleAcpConversationStatusDetails,
   type AcpChatWorkspaceChange,
 } from "../../src/modules/acpSessionManager";
+import { clearHostBridgePluginSkillBundleMaterializationForTests } from "../../src/modules/hostBridgePluginSkillBundle";
 import {
   listAcpChatSessions,
   loadAcpConversationState,
@@ -417,7 +416,6 @@ export {
   ACP_PROMPT_REQUEST_KIND,
   createBackendsPrefsDocument,
   authenticateAcpConversation,
-  activateSyntheticAcpChatReplay,
   archiveAcpConversation,
   buildAcpDiagnosticsBundle,
   cancelAcpConversationPrompt,
@@ -430,7 +428,6 @@ export {
   getAcpFrontendSnapshot,
   refreshAcpConversationBackends,
   readAcpConversationTranscriptPage,
-  prepareSyntheticAcpChatReplay,
   pruneAcpChatSessionRuntimesForBackends,
   reconnectAcpConversation,
   renameAcpConversation,
@@ -1195,6 +1192,7 @@ export function installAcpSessionManagerTestHooks() {
   let previousDataDirectory: unknown;
 
   beforeEach(function () {
+    clearHostBridgePluginSkillBundleMaterializationForTests();
     harness.lastAdapter = null;
     harness.lastFactoryArgs = null;
     harness.adapters.clear();
@@ -1220,6 +1218,7 @@ export function installAcpSessionManagerTestHooks() {
   });
 
   afterEach(function () {
+    clearHostBridgePluginSkillBundleMaterializationForTests();
     for (const adapter of harness.adapters) {
       adapter.releaseHolds();
     }

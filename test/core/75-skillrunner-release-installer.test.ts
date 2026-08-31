@@ -52,7 +52,6 @@ describe("skillrunner release installer", function () {
   it("downloads, verifies, extracts and returns install proofs", async function () {
     const files = new Map<string, Uint8Array>();
     const dirs = new Set<string>();
-    const removedPaths: string[] = [];
     const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
       .Zotero;
     if (!zoteroRuntime) {
@@ -63,12 +62,17 @@ describe("skillrunner release installer", function () {
       makeDirectory: async (path: string) => {
         dirs.add(path);
       },
+      stat: async (path: string) =>
+        dirs.has(path)
+          ? { type: "directory" }
+          : Promise.reject(new Error("missing")),
       write: async (path: string, data: Uint8Array) => {
         files.set(path, data);
       },
       exists: async (path: string) => dirs.has(path) || files.has(path),
       remove: async (path: string) => {
-        removedPaths.push(path);
+        files.delete(path);
+        dirs.delete(path);
       },
     };
     const artifactBytes = new TextEncoder().encode("abc");
@@ -118,11 +122,11 @@ describe("skillrunner release installer", function () {
     assert.equal(commands.length, 1);
     assert.equal(commands[0].command, "tar");
     assert.include(commands[0].args.join(" "), "-xzf");
-    assert.isAtLeast(removedPaths.length, 1);
   });
 
   it("fails when checksum does not match artifact hash", async function () {
     const dirs = new Set<string>();
+    const installDir = `C:\\Users\\tester\\AppData\\Local\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`;
     const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
       .Zotero;
     if (!zoteroRuntime) {
@@ -133,6 +137,10 @@ describe("skillrunner release installer", function () {
       makeDirectory: async (path: string) => {
         dirs.add(path);
       },
+      stat: async (path: string) =>
+        dirs.has(path)
+          ? { type: "directory" }
+          : Promise.reject(new Error("missing")),
       write: async () => {},
       exists: async (path: string) => dirs.has(path),
       remove: async () => {},
@@ -170,10 +178,14 @@ describe("skillrunner release installer", function () {
 
     assert.isFalse(result.ok);
     assert.equal(result.stage, "deploy-release-checksum");
+    assert.isFalse(dirs.has(installDir));
     assert.isFalse(tarCalled);
   });
 
   it("fails when tar extraction exits non-zero", async function () {
+    const dirs = new Set<string>();
+    const removeCalls: string[] = [];
+    const installDir = `C:\\Users\\tester\\AppData\\Local\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`;
     const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
       .Zotero;
     if (!zoteroRuntime) {
@@ -181,10 +193,19 @@ describe("skillrunner release installer", function () {
     }
     zoteroRuntime.isWin = true;
     (globalThis as { IOUtils?: unknown }).IOUtils = {
-      makeDirectory: async () => {},
+      makeDirectory: async (path: string) => {
+        dirs.add(path);
+      },
+      stat: async (path: string) =>
+        dirs.has(path)
+          ? { type: "directory" }
+          : Promise.reject(new Error("missing")),
       write: async () => {},
-      exists: async () => true,
-      remove: async () => {},
+      exists: async (path: string) => dirs.has(path),
+      remove: async (path: string) => {
+        removeCalls.push(path);
+        dirs.delete(path);
+      },
     };
     const artifactBytes = new TextEncoder().encode("abc");
     const checksumBytes = new TextEncoder().encode(
@@ -219,5 +240,7 @@ describe("skillrunner release installer", function () {
     assert.include(String(result.message || ""), "extract failed");
     assert.isString(result.tempDir);
     assert.isNotEmpty(result.tempDir || "");
+    assert.include(removeCalls, installDir);
+    assert.include(removeCalls, result.tempDir || "");
   });
 });

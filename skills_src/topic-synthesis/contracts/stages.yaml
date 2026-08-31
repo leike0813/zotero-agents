@@ -13,11 +13,11 @@ skills:
     stages:
       - id: stage_00_runtime_setup
         kind: command
-        task: 初始化或校验新建运行的本地 SQLite 状态。
+        task: 初始化新建运行；Planned Topic 模式读取其定义并重新执行保存的 resolver，ad-hoc 模式进入 Stage 10。
         required_reads: []
       - id: stage_10_create_topic_context
         kind: payload
-        task: 编写新建主题意图和重复检查判断。
+        task: 编写新建主题意图并解析 materialized、Planned Topic 或新建目标。
         schema: stage-10-create-topic-context.schema.json
         payload_path: runtime/payloads/create-topic-context.json
         required_reads:

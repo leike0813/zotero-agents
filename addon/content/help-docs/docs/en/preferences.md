@@ -100,7 +100,7 @@ Manage all backend profiles:
 
 ## WebDAV Sync
 
-Cross-device synchronization solution for the Synthesis Workbench, replacing the deprecated Git Sync. See [WebDAV Sync](#doc/synthesis%2Fwebdav-sync) for details.
+Cross-device durable synchronization for Synthesis Workbench. See [WebDAV Sync](#doc/synthesis%2Fwebdav-sync) for details.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|

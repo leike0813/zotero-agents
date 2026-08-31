@@ -130,3 +130,70 @@ Every canonical CLI leaf SHALL declare exactly one output boundary and result Sc
 #### Scenario: Command lacks a boundary
 - **WHEN** contract validation finds a missing, duplicate, or incompatible output boundary
 - **THEN** command-contract and surface generation SHALL fail.
+
+### Requirement: Workflow resource paths remain Host-owned
+Host Bridge SHALL resolve workflow input handles only beneath the managed upload root and SHALL finalize workflow outputs only beneath a run-scoped managed output root. External workflow contracts, queue records, receipts, diagnostics, and task projections SHALL omit absolute paths and path-like client data.
+
+#### Scenario: Input handle resolves inside the managed root
+- **WHEN** a valid bridge-upload handle is bound to a workflow input
+- **THEN** the workflow runtime SHALL receive a Host-managed temporary path
+- **AND** the path SHALL not be returned through the Host Bridge response
+
+#### Scenario: Output path escapes the run root
+- **WHEN** output finalization targets a path outside the current run-scoped root
+- **THEN** Host Bridge SHALL reject finalization with a structured boundary error
+- **AND** it SHALL not register the file for download
+
+### Requirement: Direct research bundles SHALL use safe file-delivery boundaries
+
+Direct research-bundle commands SHALL stage all files beneath a controlled root, reject unsafe or colliding relative paths, avoid overwriting local content, and publish remote bytes only through an opaque broker-issued file Handle. Large source files and archive downloads SHALL be processed incrementally in the Zotero runtime rather than requiring the complete aggregate archive in memory.
+
+#### Scenario: Remote archive is registered
+- **WHEN** a direct bundle ZIP passes final size and integrity checks
+- **THEN** the Host registers its temporary file path with the existing file registry
+- **AND** subsequent download streams the registered file through the existing bounded transfer path.
+
+#### Scenario: Archive runtime is unavailable
+- **WHEN** production direct export cannot access the supported Zotero archive writer
+- **THEN** it fails with structured `archive_runtime_unavailable`
+- **AND** it does not silently fall back to an unbounded in-memory archive.
+
+### Requirement: Handle creation and byte delivery SHALL remain distinct evidence
+
+A bridge-download descriptor SHALL prove only that the requested archive was prepared and registered. A caller SHALL claim downloaded delivery only after obtaining the Handle bytes and validating the declared size and SHA-256 when present.
+
+#### Scenario: Handle expires before download
+- **WHEN** a direct-bundle Handle is no longer valid
+- **THEN** the caller can repeat the same stable source scope to obtain a new bundle
+- **AND** no host path or expired Handle is reused as recovery state.
+
+### Requirement: Host Bridge attachment outputs omit host-local paths
+
+Host Bridge capability and MCP results SHALL NOT expose host-local attachment paths. Attachment reads and mutation results SHALL use the same remote projection and SHALL return an opaque broker-issued file descriptor when download access is available.
+
+#### Scenario: Caller reads item attachments
+
+- **WHEN** a Host Bridge or MCP caller reads item attachment metadata
+- **THEN** each attachment result SHALL omit its host-local path
+- **AND** available content SHALL be represented by an opaque file descriptor
+- **AND** unavailable content SHALL use a structured unavailable state.
+
+#### Scenario: Mutation creates an attachment
+
+- **WHEN** `mutation.execute` successfully performs `item.attachFile`
+- **THEN** every attachment summary in the result SHALL omit its host-local path
+- **AND** the uploaded file and created Zotero attachment SHALL be represented only through remote-safe descriptors.
+
+### Requirement: Host Bridge snapshot output SHALL expose only opaque remote state
+The Host Bridge snapshot projection SHALL expose bounded portable item pages, opaque snapshot and cursor identities, normalized terminal status, and completion evidence suitable for the remote contract. It MUST NOT expose local paths, native handles, process objects, repository records, or internal session storage.
+
+#### Scenario: Remote snapshot page is encoded
+- **WHEN** Host Bridge returns a snapshot page
+- **THEN** every output value is strict JSON and remote-safe while retaining the canonical snapshot ordering and bounds
+
+### Requirement: Snapshot surface guidance SHALL preserve semantic parity
+Any governed agent-facing guidance changed for snapshot behavior SHALL preserve all baseline instructions except entries named in the approved deletion inventory. The approved deletion inventory for this change SHALL be empty.
+
+#### Scenario: Semantic review completes
+- **WHEN** the snapshot source guidance and materialized packages are reviewed against baseline `4dbddc24e884921262c559428bf851db5eadf2d7`
+- **THEN** unmapped, downgraded, unauthorized-dropped, and intra-package-duplicate counts are all zero and every instruction-depth warning has an explicit disposition

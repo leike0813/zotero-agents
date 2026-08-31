@@ -18,6 +18,9 @@ describe("runtime diagnostics release elision", function () {
       assert.isAbove(result.debugBytes[name], 0);
     }
     assert.equal(result.releaseExclusiveBytes, 0);
+    assert.deepEqual(result.retainedProductionContractMarkers, [
+      "synthesis-sidecar-observation.v2",
+    ]);
     assert.include(result.retainedStaticMarkers, "acp-trace-replay");
     assert.isTrue(result.releaseReplayOutputEqual);
   });
@@ -41,6 +44,8 @@ describe("runtime diagnostics release elision", function () {
   it("keeps production timer scheduling independent from replay context", async function () {
     const sources = await Promise.all(
       [
+        "src/modules/acpSkillRunPersistence.ts",
+        "src/modules/acpSkillRunWorkspaceDataPlane.ts",
         "src/modules/acpSkillRunStore.ts",
         "src/modules/acpSessionManager.ts",
         "src/modules/assistantWorkspacePublicationRuntime.ts",
@@ -50,16 +55,16 @@ describe("runtime diagnostics release elision", function () {
       /function scheduleSoftRunPersist[\s\S]*?function flushSoftRunPersists/.exec(
         sources[0],
       )?.[0],
-      /function scheduleWorkspaceChangedEmit[\s\S]*?export function inspectSyntheticAcpSkillRunReplayTimers/.exec(
-        sources[0],
+      /function scheduleWorkspaceChangedEmit[\s\S]*?export function inspectAcpSkillRunTimers/.exec(
+        sources[1],
       )?.[0],
       /function schedulePersistenceFlush[\s\S]*?function scheduleWorkspaceChange/.exec(
-        sources[1],
+        sources[3],
       )?.[0],
-      /function scheduleWorkspaceChange[\s\S]*?export function inspectSyntheticAcpChatReplayTimers/.exec(
-        sources[1],
+      /function scheduleWorkspaceChange[\s\S]*?export function inspectAcpChatSessionTimers/.exec(
+        sources[3],
       )?.[0],
-      /private queue[\s\S]*?private async flushPending/.exec(sources[2])?.[0],
+      /private queue[\s\S]*?private async flushPending/.exec(sources[4])?.[0],
     ];
     for (const body of scheduleBodies) {
       assert.isString(body);

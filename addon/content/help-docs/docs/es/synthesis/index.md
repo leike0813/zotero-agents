@@ -90,7 +90,7 @@ Biblioteca de Zotero
     │                   ├──→ Grafo de temas (Relaciones entre temas)
     │                   └──→ Asociaciones de conceptos (Base de conocimiento de conceptos)
     │
-    └──→ Git Sync ←→ Repositorio remoto (Control de versiones y respaldo)
+    └──→ WebDAV Sync ←→ Instantáneas remotas
 ```
 
 ## Requisitos previos
@@ -108,4 +108,4 @@ El uso de Synthesis Workbench requiere:
 - [Crear síntesis de temas](#doc/synthesis%2Ftopic-synthesis) — Crear análisis temáticos
 - [Centro de revisión](#doc/synthesis%2Freview) — Revisar coincidencias de citas, conceptos y propuestas del grafo de temas
 - [Base de conocimiento de conceptos](#doc/synthesis%2Fconcepts) — Gestionar los conceptos fundamentales
-- [Git Sync](#doc/synthesis%2Fgit-sync) — Configurar sincronización y respaldo de datos
+- [WebDAV Sync](#doc/synthesis%2Fwebdav-sync) — Configurar sincronización duradera

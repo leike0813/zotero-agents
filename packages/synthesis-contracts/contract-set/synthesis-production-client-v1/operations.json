@@ -1,0 +1,299 @@
+{
+  "schema": "synthesis-production-client-operations.v2",
+  "requestCodec": "synthesis-client-args.v1",
+  "resultCodec": "synthesis-client-result.v1",
+  "requestBytes": 1048576,
+  "responseBytes": 1048576,
+  "controlTargetBytes": 786432,
+  "deadlineMs": 10000,
+  "deadlineOverridesMs": {},
+  "workDeadlineMs": {
+    "client.startReferenceSidecarRefresh": 1800000,
+    "client.refreshReferenceSidecarNow": 1800000,
+    "client.retryReferenceSidecarRefresh": 1800000,
+    "client.runAdvancedReferenceMatchingNow": 1800000,
+    "client.retryAdvancedReferenceMatching": 1800000,
+    "client.startCitationGraphUpdate": 600000,
+    "client.rebuildCitationGraphCacheNow": 600000,
+    "client.refreshCitationGraphCacheIncrementalNow": 600000,
+    "client.retryCitationGraphCacheRebuild": 600000,
+    "client.refreshCitationGraphMetricsNow": 120000,
+    "client.recomputeCitationGraphLayout": 120000,
+    "client.rebuildTagVocabularyIndex": 600000,
+    "client.rebuildConceptKbIndex": 600000,
+    "client.rebuildTopicGraphIndex": 600000,
+    "client.syncWebDavNow": 1800000,
+    "client.retryWebDavSync": 1800000
+  },
+  "receiptQueryCapability": "client.getPublicMaintenanceOperation",
+  "policyDefaults": {
+    "requestPlane": "control",
+    "resultPlane": "control",
+    "workModel": "bounded",
+    "receipt": "inline"
+  },
+  "policyOverrides": {
+    "client.applyTopicSynthesisResult": {
+      "requestPlane": "transfer"
+    },
+    "client.applyTopicPlan": {
+      "requestPlane": "transfer",
+      "resultPlane": "locator"
+    },
+    "client.appendTagAuditRun": {
+      "requestPlane": "transfer"
+    },
+    "client.readPaperArtifacts": {
+      "resultPlane": "locator"
+    },
+    "client.getReviewInput": {
+      "resultPlane": "locator"
+    },
+    "client.exportTagVocabularyForRegulator": {
+      "resultPlane": "locator"
+    },
+    "client.exportFilteredPaperArtifacts": {
+      "resultPlane": "delivery"
+    },
+    "client.startReferenceSidecarRefresh": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.refreshReferenceSidecarNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.retryReferenceSidecarRefresh": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.runAdvancedReferenceMatchingNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.retryAdvancedReferenceMatching": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.startCitationGraphUpdate": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildCitationGraphCacheNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.refreshCitationGraphCacheIncrementalNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.retryCitationGraphCacheRebuild": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.refreshCitationGraphMetricsNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.recomputeCitationGraphLayout": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildTagVocabularyIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildConceptKbIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildTopicGraphIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.syncWebDavNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.retryWebDavSync": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    }
+  },
+  "access": {
+    "client.listTopics": "read",
+    "client.findTopicsByPaperRef": "read",
+    "client.getTopicContext": "read",
+    "client.resolveResolver": "read",
+    "client.queryCitationGraphCluster": "read",
+    "client.queryCitationGraph": "read",
+    "client.getCitationGraphSlice": "read",
+    "client.getCitationGraphLayout": "read",
+    "client.getCitationGraphMetrics": "read",
+    "client.rankLibraryPapers": "read",
+    "client.refreshCitationGraphMetricsNow": "mutation",
+    "client.startCitationGraphUpdate": "mutation",
+    "client.getReferenceSidecarIndex": "read",
+    "client.rankExternalReferences": "read",
+    "client.getAttentionQueue": "read",
+    "client.startReferenceSidecarRefresh": "mutation",
+    "client.getPaperArtifactManifest": "read",
+    "client.exportFilteredPaperArtifacts": "mutation",
+    "client.queryConceptKb": "read",
+    "client.getSchemas": "read",
+    "client.getPublicMaintenanceOperation": "read",
+    "client.controlPublicMaintenanceOperation": "mutation",
+    "client.getLibraryIndex": "read",
+    "client.getReviewInput": "read",
+    "client.debugSynthesisSnapshot": "read",
+    "client.debugSynthesisCacheList": "read",
+    "client.debugSynthesisOperationsList": "read",
+    "client.debugSynthesisProfilerList": "read",
+    "client.debugSynthesisPaperInspect": "read",
+    "client.debugSynthesisTopicInspect": "read",
+    "client.debugSynthesisDiff": "read",
+    "client.debugSynthesisCleanInstallReset": "mutation",
+    "client.listWorkflowTopicOptions": "read",
+    "client.getTopicPlanningContext": "read",
+    "client.applyTopicPlan": "mutation",
+    "client.reconcileSynthesisRuntimeWorkStateOnStartup": "mutation",
+    "client.resetSynthesisDatabase": "mutation",
+    "client.consumeRelatedItemsSyncEcho": "mutation",
+    "client.applyLiteratureDigestSidecar": "mutation",
+    "client.applyTopicSynthesisResult": "mutation",
+    "client.getTopicReport": "read",
+    "client.deleteTopicArtifact": "mutation",
+    "client.purgeDeletedTopicArtifacts": "mutation",
+    "client.rejectTopicDiscoveryHint": "mutation",
+    "client.restoreTopicDiscoveryHint": "mutation",
+    "client.rebuildTopicGraphIndex": "mutation",
+    "client.acceptTopicGraphRelation": "mutation",
+    "client.rejectTopicGraphRelation": "mutation",
+    "client.applyTopicGraphReviewAction": "mutation",
+    "client.readPaperArtifacts": "read",
+    "client.initializeBuiltinTagPolicy": "mutation",
+    "client.isBuiltinTagPolicyInitialized": "read",
+    "client.loadTagVocabulary": "read",
+    "client.saveTagVocabulary": "mutation",
+    "client.validateTagVocabulary": "read",
+    "client.rebuildTagVocabularyIndex": "mutation",
+    "client.exportTagVocabularyForRegulator": "read",
+    "client.listStagedTagSuggestions": "read",
+    "client.stageTagSuggestions": "mutation",
+    "client.updateStagedTagSuggestion": "mutation",
+    "client.updateTagVocabularyEntry": "mutation",
+    "client.deleteTagVocabularyEntry": "mutation",
+    "client.promoteStagedTagSuggestions": "mutation",
+    "client.discardStagedTagSuggestions": "mutation",
+    "client.clearStagedTagSuggestions": "mutation",
+    "client.previewTagVocabularyImport": "read",
+    "client.applyTagVocabularyImport": "mutation",
+    "client.replaceTagAuditRecords": "mutation",
+    "client.clearTagAuditRecord": "mutation",
+    "client.beginTagAuditRun": "mutation",
+    "client.appendTagAuditRun": "mutation",
+    "client.promoteTagAuditRun": "mutation",
+    "client.abortTagAuditRun": "mutation",
+    "client.prepareTagRegulationAcknowledgement": "read",
+    "client.commitTagRegulationAcknowledgement": "mutation",
+    "client.getSynthesisWorkbenchChromeInput": "read",
+    "client.getSynthesisWorkbenchSurfaceInput": "read",
+    "client.getSynthesisBackgroundJobRows": "read",
+    "client.readTopicDetail": "read",
+    "client.resolveTopicPaperDigest": "read",
+    "client.recomputeCitationGraphLayout": "mutation",
+    "client.rebuildCitationGraphCacheNow": "mutation",
+    "client.refreshCitationGraphCacheIncrementalNow": "mutation",
+    "client.retryCitationGraphCacheRebuild": "mutation",
+    "client.refreshReferenceSidecarNow": "mutation",
+    "client.retryReferenceSidecarRefresh": "mutation",
+    "client.runAdvancedReferenceMatchingNow": "mutation",
+    "client.retryAdvancedReferenceMatching": "mutation",
+    "client.applyCanonicalRevisionReviewAction": "mutation",
+    "client.applyReferenceMatchProposalAction": "mutation",
+    "client.applyReferenceMatchProposalActions": "mutation",
+    "client.mergeEffectiveCanonicalReference": "mutation",
+    "client.applyCanonicalRevisionMergeRequests": "mutation",
+    "client.updateCanonicalReferenceMetadata": "mutation",
+    "client.archiveCanonicalReference": "mutation",
+    "client.rebuildConceptKbIndex": "mutation",
+    "client.updateConceptDisplayText": "mutation",
+    "client.applyConceptReviewAction": "mutation",
+    "client.deleteConceptEntries": "mutation",
+    "client.syncWebDavNow": "mutation",
+    "client.pauseWebDavSync": "mutation",
+    "client.resumeWebDavSync": "mutation",
+    "client.retryWebDavSync": "mutation",
+    "client.resolveWebDavSyncConflict": "mutation"
+  },
+  "semanticSuccess": {
+    "client.applyTopicSynthesisResult": {
+      "field": "status",
+      "values": ["persisted"]
+    },
+    "client.startReferenceSidecarRefresh": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.refreshReferenceSidecarNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.retryReferenceSidecarRefresh": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.runAdvancedReferenceMatchingNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.retryAdvancedReferenceMatching": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.startCitationGraphUpdate": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.rebuildCitationGraphCacheNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.refreshCitationGraphCacheIncrementalNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.retryCitationGraphCacheRebuild": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.refreshCitationGraphMetricsNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.recomputeCitationGraphLayout": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.rebuildTagVocabularyIndex": {
+      "field": "status",
+      "values": ["committed", "unchanged"]
+    },
+    "client.rebuildConceptKbIndex": {
+      "field": "status",
+      "values": ["committed", "unchanged"]
+    },
+    "client.rebuildTopicGraphIndex": {
+      "field": "status",
+      "values": ["committed", "unchanged"]
+    },
+    "client.syncWebDavNow": {
+      "field": "queue_state",
+      "values": ["idle", "disabled"]
+    },
+    "client.retryWebDavSync": {
+      "field": "queue_state",
+      "values": ["idle", "disabled"]
+    }
+  }
+}

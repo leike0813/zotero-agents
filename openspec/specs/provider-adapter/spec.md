@@ -111,7 +111,7 @@ SkillRunner provider/client/reconciler 全链路 SHALL 复用同一个插件侧�
 - **THEN** 插件 SHALL 立即对该托管后端执行一次后台对账
 - **AND** 插件启动阶段 SHALL NOT 对托管本地后端执行该一次性启动对账
 
-### Requirement: SkillRunner provider dispatch MUST not fabricate terminal failed after request creation
+### Requirement: SkillRunner post-create local failures MUST remain recoverable
 
 SkillRunner provider/queue integration MUST treat post-create local failure as a
 recoverable plugin-side diagnostic instead of terminal backend failure.
@@ -152,7 +152,7 @@ launched by `skillrunner.sequence.v1`.
   foreground ACP path
 - **AND** ACP apply state SHALL be written only for ACP skill-run request ids
 
-### Requirement: SkillRunner provider dispatch MUST not fabricate terminal failed after request creation
+### Requirement: SkillRunner provider dispatch MUST classify post-create failures by request scope
 
 SkillRunner provider/queue integration MUST treat post-create transport or backend availability failures as recoverable plugin-side diagnostics, but MUST NOT recover terminal run-level client errors for a known request.
 
@@ -467,7 +467,7 @@ settlement after `request-ready`.
 - **AND** the deferred result SHALL NOT include a separate `frontendStatus`
   request-ready marker.
 
-### Requirement: Pre-ready failures are terminal local failures
+### Requirement: Pre-ready create and upload failures are terminal local failures
 
 Failures before `request-ready` SHALL fail the local workflow job instead of
 creating background reconciler ownership.
@@ -620,7 +620,7 @@ A SkillRunner step inside a sequence workflow MUST use the same provider executi
 - **THEN** the provider adapter MUST NOT delete or replace the SkillRunner run
   projection through a synthetic step job.
 
-### Requirement: Pre-ready failures are terminal local failures
+### Requirement: Pre-ready failure settlement MUST close run-store and observation ownership
 
 Failures before `request-ready` SHALL fail the local workflow job instead of creating background reconciler ownership.
 
@@ -684,3 +684,49 @@ When initialize cannot complete, the adapter SHALL choose its error cause in thi
 - **WHEN** initialize closes without a receive-loop error or stderr
 - **AND** the process exit code is nonzero
 - **THEN** adapter initialization SHALL report the nonzero exit code before falling back to a generic close message
+
+### Requirement: SkillRunner run store SHALL use one event write seam
+
+SkillRunner run state writers SHALL submit `SkillRunnerRunEvent` values to
+`applySkillRunnerRunEvent`. The store reducer SHALL atomically update the
+materialized run record, append one audit event, and notify subscribers.
+Callers SHALL NOT append audit events directly or mutate run records through
+per-field write functions.
+
+#### Scenario: One event produces one record transition and one audit event
+
+- **WHEN** a run event is applied
+- **THEN** the run record SHALL transition exactly once
+- **AND** one audit event SHALL be appended with the same event type and payload
+- **AND** subscribers SHALL be notified once
+
+#### Scenario: Missing run events preserve null behavior
+
+- **WHEN** a non-create run event references a missing runKey
+- **THEN** `applySkillRunnerRunEvent` SHALL return null
+- **AND** SHALL NOT fabricate a run record or audit event
+
+#### Scenario: Terminal guard remains authoritative
+
+- **WHEN** a run reached a terminal status
+- **THEN** a later non-terminal event SHALL NOT move the record backwards
+- **AND** the audit event SHALL still be appended
+
+### Requirement: SkillRunner run lifecycle events SHALL use the event seam
+
+Archive and delete SHALL be submitted as `run.archived` and `run.deleted`
+events. Archive SHALL keep the run record with archival timestamps. Delete
+SHALL remove the run record and its event history.
+
+#### Scenario: Archive event preserves runKey and request identity
+
+- **WHEN** a run is archived through the event seam
+- **THEN** the run record SHALL remain readable with its original runKey and
+  request identity
+- **AND** `archivedAt` SHALL be set
+
+#### Scenario: Delete event removes the run and its audit history
+
+- **WHEN** a run is deleted through the event seam
+- **THEN** the run record SHALL be removed
+- **AND** its event history SHALL be removed with it

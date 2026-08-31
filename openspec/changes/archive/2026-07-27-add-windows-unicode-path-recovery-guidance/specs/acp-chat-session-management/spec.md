@@ -8,4 +8,3 @@ The packaged ACP Chat startup preamble SHALL instruct the agent that a Windows p
 - **WHEN** ACP Chat builds its startup preamble
 - **THEN** the rendered preamble SHALL contain the Windows Unicode-path recovery guidance
 - **AND** it SHALL preserve the existing ACP Chat startup placeholders and Host Bridge guidance.
-

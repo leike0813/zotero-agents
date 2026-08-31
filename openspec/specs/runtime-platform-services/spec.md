@@ -1,7 +1,6 @@
 # runtime-platform-services Specification
 
 ## Purpose
-
 Runtime platform services provide shared platform-sensitive primitives for runtime platform detection, native path handling, environment/PATH handling, command resolution, and subprocess execution.
 
 ## Requirements
@@ -368,6 +367,52 @@ Runtime process control SHALL represent a launch-owned process group as a valida
 - **THEN** it SHALL pass the complete validated PGID through the direct process signal API
 - **AND** it MUST NOT accept an arbitrary unvalidated numeric target
 
+### Requirement: Runtime platform services expose normalized architecture
+
+
+Runtime platform services SHALL resolve the current CPU architecture separately
+from the operating-system platform and SHALL expose a stable supported runtime
+target.
+
+#### Scenario: Known platform and architecture are detected
+
+- **WHEN** runtime metadata identifies x64 or arm64 on Windows, macOS, or Linux
+- **THEN** platform services SHALL return the exact normalized target supported
+  by the Synthesis runtime matrix.
+
+#### Scenario: Architecture cannot be proven
+
+- **WHEN** runtime metadata is missing, conflicting, or unsupported
+- **THEN** platform services SHALL return an unknown or unsupported target
+- **AND** SHALL NOT guess from paths or perform command discovery.
+
+### Requirement: Synthesis runtime assets bypass command resolution
+
+
+Product-owned Synthesis runtime installation SHALL use packaged asset reads and
+verified managed absolute paths only.
+
+#### Scenario: Installer resolves the Node executable
+
+- **WHEN** a supported Synthesis runtime bundle is installed
+- **THEN** the resulting Node path SHALL be derived from the verified managed
+  installation
+- **AND** runtime command registry, PATH search, system Node, npm, npx, and user
+  shells SHALL not participate.
+
+### Requirement: Product-owned sidecar launch uses a sealed environment
+
+
+Runtime platform services SHALL support direct Mozilla Subprocess launch of the
+verified Synthesis runtime with an explicit environment and open stdin.
+
+#### Scenario: Sidecar subprocess is launched
+- **WHEN** the supervisor starts the verified runtime
+- **THEN** `environmentAppend` SHALL be false
+- **AND** only documented OS-required variables SHALL be copied
+- **AND** stdin, stdout, stderr, wait, and direct kill handles SHALL remain
+  available to the supervisor.
+
 ### Requirement: Mozilla subprocess transports SHALL drain pipes from process creation
 
 The Mozilla ACP subprocess transport SHALL start stdout and stderr consumers immediately after subprocess creation and before asynchronous process identity discovery.
@@ -417,6 +462,12 @@ Shared runtime file boundaries SHALL convert supported native paths, Windows dri
 - **WHEN** a workflow passes a local path such as `E:/research/image.jpg` to the Host file surface
 - **THEN** the system SHALL pass a native Windows-shaped path to Zotero IOUtils.
 
+#### Scenario: Research Bundle materializes a Windows Markdown source
+
+- **WHEN** the Host-owned Research Bundle materializer reads a Markdown source or eligible image expressed as a Windows drive-slash path or standard local `file:` URL
+- **THEN** every filesystem probe, read, and copy SHALL receive a Host-native path
+- **AND** portable containment and output paths SHALL remain independent of the native path syntax.
+
 #### Scenario: Local file URL reaches Product storage
 
 - **WHEN** a workflow registers a Product local-file source using a local `file:` URL
@@ -427,3 +478,46 @@ Shared runtime file boundaries SHALL convert supported native paths, Windows dri
 - **WHEN** path normalization fails or the platform existence primitive rejects the input
 - **THEN** the Host file existence probe SHALL return `false`
 - **AND** strict read, write, and copy operations SHALL continue to reject invalid inputs.
+
+### Requirement: Platform-sensitive callers SHALL consume owned runtime seams
+
+Production modules that need ordinary filesystem or general runtime/Window resolution SHALL consume `runtimePersistence` or `runtimeBridge`. Command policy, environment policy, and approved native workloads SHALL remain with their named owners and MUST NOT form a new generic runtime facade.
+
+#### Scenario: Provider reads a managed file
+
+- **WHEN** a production provider reads or writes ordinary managed content
+- **THEN** it delegates filesystem adapter selection to runtime persistence
+
+#### Scenario: Native workload needs a native object
+
+- **WHEN** ZIP, SQLite, script loading, streaming transfer, picker, attachment creation, or an approved diagnostic requires native semantics
+- **THEN** the named owner keeps a private internal seam and does not widen runtime persistence or Workflow Host with a native object
+
+### Requirement: Platform subprocess SHALL normalize one-shot execution
+The platform subprocess interface SHALL resolve the current host subprocess capability, execute one bounded command, and return normalized stdout, stderr, exit status, availability, timeout, and termination evidence across Node and Mozilla adapters. It MUST NOT expose the native process object to callers.
+
+#### Scenario: Command exits normally
+- **WHEN** a one-shot command writes stdout and stderr and exits
+- **THEN** the caller receives both captured streams and the normalized exit result independent of the selected adapter
+
+#### Scenario: No host adapter is available
+- **WHEN** neither a supported Node nor Mozilla subprocess capability is available
+- **THEN** the call returns the normalized unavailable outcome without attempting a caller-local fallback
+
+#### Scenario: Command exceeds its bounded timeout
+- **WHEN** a one-shot command does not finish before its caller-owned timeout
+- **THEN** the platform seam performs bounded termination and returns timeout and termination evidence without claiming a normal exit
+
+### Requirement: Windows one-shot execution SHALL remain hidden
+One-shot execution on Windows SHALL avoid opening a visible console window when the selected host adapter supports hidden execution. Adapter selection SHALL use capability shape rather than an operating-system or Zotero-version string alone.
+
+#### Scenario: Windows hidden adapter is available
+- **WHEN** a one-shot command is launched in a Windows Zotero runtime with a compatible hidden-execution capability
+- **THEN** the platform seam requests hidden execution and returns the same normalized result contract
+
+### Requirement: Domain process lifecycle SHALL remain outside the one-shot seam
+Command discovery, login environment parsing, ACP streaming and process-group lifecycle, WebSocket bridge supervision, installer/SkillRunner outcomes, and raw diagnostic enumeration SHALL remain owned by their existing modules. The one-shot seam SHALL accept resolved execution input and return process evidence only. Retired Synthesis Git Sync SHALL NOT be restored as a subprocess caller; WebDAV sync remains outside this seam.
+
+#### Scenario: ACP transport starts a streaming process
+- **WHEN** ACP requires pipe pumping, framing, process identity, or graceful close
+- **THEN** ACP retains those behaviors and uses the platform seam only for any genuinely one-shot internal operation

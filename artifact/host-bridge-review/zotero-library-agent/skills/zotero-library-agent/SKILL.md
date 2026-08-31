@@ -42,6 +42,8 @@ Interpret common requests as follows:
 | “Find papers and summarize them” | Acquisition → analysis | Verify the acquired or selected source set before analysis |
 | “Compare these methods” | Analysis | Resolve sources, comparison dimensions, and acceptable evidence depth |
 | “What does the literature say overall?” | Synthesis | Bound the source set, research question, model, and freshness |
+| “把这些论文下载成研究包” | Synthesis 直接交付 | 要求稳定的 Zotero 条目引用；如果措辞只给出标题或含糊的当前选择，先由 Query 解析身份 |
+| “把这些 Topic 下载成一个研究包” | Synthesis 直接交付 | 要求一个或多个稳定 Topic ID，并在交付前验证每份当前报告 |
 | “Put this report into Zotero” | Curation | Verify the artifact and target; stop at the write authority boundary |
 | “Clean up duplicates and tags” | Curation | Convert “clean up” into a reviewable proposal and separate destructive choices |
 | “Use the deep-reading workflow” | Analysis with workflow candidate | Confirm live availability, selection input, options, provider, and submission authority |
@@ -59,6 +61,8 @@ For a read-only task, begin after material identity and scope are known. For acq
 2. Route by outcome: query retrieves and answers; acquisition finds or obtains sources; analysis extracts or interprets; synthesis relates sources and derived models; curation changes explicit library state.
 3. Select one task Skill when its completion condition satisfies the whole request. Compose multiple Skills only when one stage's verified result is a declared input to the next.
 
+论文研究包和 Topic 研究包的直接交付是独立的只读 Synthesis 分支。稳定条目引用或 Topic ID 已知时，直接路由至 Synthesis；不要插入 acquisition、文献分析、Topic 维护或生成 Product 的 Research Bundle 工作流。身份含糊时，由 Query 解析有界候选项，并只把验证过的 Zotero 引用或 Topic ID 交给 Synthesis。来源正文、digest 或分析工件缺失时保留为研究包诊断，除非用户另行要求生成或修复。
+
 ### Compose and execute stages
 
 4. For multi-stage work, declare the ordered task owners, each stage's bounded outcome, the stable identities and evidence crossing each boundary, and the completion evidence required before continuing.
@@ -72,6 +76,8 @@ For a read-only task, begin after material identity and scope are known. For acq
 8. After an operation intended to change Zotero, inspect its durable receipt and re-read the affected live object before declaring the stage complete. A terminal run is not output verification.
 9. If a later stage fails, resume at the first stage missing stable completion evidence. Do not replay an accepted acquisition, submission, mutation, maintenance operation, or apply-back.
 10. Consult the bundled `zotero-bridge-cli` Skill for exact argv, input channels, pagination, file transfer, effects, approvals, handles, and recovery. Never reconstruct its command catalog here.
+
+直接交付研究包时，本地完成需要请求的目标目录、`manifest.json` 和声明的论文/Topic 清单都实际存在。远程完成需要获得 bridge 文件 handle、成功下载，并按交付描述符验证字节；只有 handle 不代表研究包已经交付。任一条目或 Topic 选择器无法解析时，在该选择器边界停止整个请求。若 manifest 报告可选内容缺失，连同诊断返回研究包，不得静默启动修复工作流。
 
 ### Present a visible multi-stage plan
 
@@ -143,6 +149,7 @@ Do not dispatch both analysis and synthesis over an unresolved candidate set mer
 - Do not monitor a self-owned `agentRunId` through the Zotero-managed run plane or use a `workflowRunId` for agent apply-back.
 - Do not model `submissionId`, `queueId`, and `workflowRunId` as aliases. A native queued submission is monitored through its submission projection; only an admitted unit with a real run handle enters the Zotero-managed run plane.
 - Do not create a coordinator-owned workflow queue, reservation table, replay loop, or unattended batch scheduler. The coordinator may choose an explicitly bounded concurrency value for the current authorized submission, while Zotero owns pending-unit ordering, admission, and pending cancellation.
+- Host 签发的 full-snapshot completion evidence 只证明一次捕获的完整集合。active、中断、过期或重启后的 snapshot 不能证明全库中不存在某对象，也不能授权替换缓存 generation；即使 snapshot 已完成，当答案或写入取决于当前状态时，仍需执行后续 live read。
 
 ## LLM And Tool Responsibilities
 

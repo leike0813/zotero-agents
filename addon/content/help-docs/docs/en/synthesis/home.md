@@ -14,13 +14,13 @@ The top of the page displays a set of statistics cards showing the current state
 | **Topic Count** | Number of topic syntheses created |
 | **Graph Nodes** | Total number of nodes in the citation graph (library papers + external references) |
 | **Graph Edges** | Total number of citation relationships in the citation graph |
-| **Sync Status** | Running status of WebDAV/Git sync |
+| **Sync Status** | Running status of WebDAV Sync |
 
 These metrics help you quickly understand the structuring level and synthesis progress of your library.
 
 ## Sync Panel
 
-If [WebDAV Sync](#doc/synthesis%2Fwebdav-sync) (recommended) or [Git Sync](#doc/synthesis%2Fgit-sync) (deprecated) is configured, the Home page displays a sync status panel:
+If [WebDAV Sync](#doc/synthesis%2Fwebdav-sync) is configured, the Home page displays a sync status panel:
 
 ### WebDAV Sync
 
@@ -33,13 +33,7 @@ When conflicts occur, the panel displays conflict details and action options (`k
 
 For detailed configuration and usage of WebDAV sync, see [WebDAV Sync](#doc/synthesis%2Fwebdav-sync).
 
-:::warning Auto-Sync Notice
-The auto-sync feature of WebDAV sync has not been thoroughly tested. It is recommended to **use manual sync only** at this stage, and enable auto-sync after it is improved in a future release.
-:::
-
-### Git Sync (Deprecated)
-
-See [Git Sync](#doc/synthesis%2Fgit-sync) for historical reference.
+Auto Sync and Auto Retry are disabled by default. When enabled, canonical writes are coalesced before synchronization and transient failures use the bounded retry schedule documented on the WebDAV Sync page.
 
 ## Review Items Panel
 

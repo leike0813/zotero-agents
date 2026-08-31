@@ -1,7 +1,10 @@
-## Purpose
+# topic-synthesis-runtime-contract Specification
 
+## Purpose
 The topic synthesis runtime validates fixed-path final artifacts and required sidecar proposals before formal output.
+
 ## Requirements
+
 ### Requirement: Final artifacts are file-authored and validated
 
 
@@ -19,6 +22,7 @@ files and then indexed by runtime-generated manifests.
   `topic_graph_relation_proposals`
 - **AND** each sidecar entry SHALL include `path`, `hash`, `content_type`, and
   `schema_id` from the registered artifact.
+
 ### Requirement: Runtime validates KG proposal sidecars before final render
 
 
@@ -43,6 +47,7 @@ before final artifact validation.
   and any required sidecar is missing or hash-mismatched
 - **THEN** runtime SHALL reject final validation before writing
   `result/result.json`.
+
 ### Requirement: Runtime prepares cross-paper context deterministically
 
 
@@ -73,6 +78,7 @@ without requiring an agent-authored cross-paper evidence map.
 - **THEN** it SHALL also write a source paper evidence/provenance index
 - **AND** it SHALL NOT label the runtime-only index as an agent-authored
   semantic evidence map.
+
 ### Requirement: Runtime derives final evidence structures from source paper refs
 
 
@@ -92,6 +98,7 @@ evidence maps from validated section `source_paper_refs`.
 - **THEN** runtime SHALL compile `semantic_evidence_map` from Stage 7/8/10
   section contents
 - **AND** it SHALL NOT use a Stage 6 placeholder as the semantic map source.
+
 ### Requirement: Runtime derives timeline markers
 
 
@@ -112,6 +119,7 @@ events, and paper metadata.
   a timeline event
 - **THEN** runtime MAY derive a paper marker
 - **AND** it SHALL deduplicate markers by paper evidence id.
+
 ### Requirement: Runtime materializes KG sidecars
 
 
@@ -127,6 +135,7 @@ main-path sidecar artifacts.
   `topic-interest-metadata.json`
 - **AND** it SHALL derive sidecar wrapper fields, ids, seed literature item ids,
   topic ids, and schema metadata.
+
 ### Requirement: Runtime materializes statistics and synthesis report
 
 
@@ -141,6 +150,7 @@ runtime-owned artifacts.
   from the resolved workset or paper artifact metadata
 - **AND** `statistics.time_span` SHALL contain the earliest and latest
   available source paper years.
+
 ### Requirement: Runtime writes a candidate final output
 
 
@@ -156,6 +166,7 @@ The skill runtime SHALL not directly write the accepted final
   `__SKILL_DONE__: true`
 - **AND** the orchestrator SHALL be responsible for validating stdout and
   writing accepted `result/result.json`.
+
 ### Requirement: Split finalize materializes complete topic synthesis output
 
 
@@ -177,3 +188,14 @@ from the complete structured section set.
 - **AND** each bibliography item SHALL define a stable `ref-n` anchor before its
   plain bracketed number
 - **AND** the body SHALL NOT be a JSON envelope or runtime diagnostic text.
+
+### Requirement: Split runtime structured output SHALL remain compatible with the Host engine
+
+The Python split runtime SHALL continue producing manifests and sections whose
+assembled artifact satisfies the current Host Topic Structured Artifact engine.
+
+#### Scenario: Final runtime output is produced
+
+- **WHEN** the finalize stage creates a complete topic-analysis manifest and sections
+- **THEN** the Host engine SHALL accept the manifest and assembled artifact
+- **AND** the runtime SHALL NOT require a Node or plugin import.

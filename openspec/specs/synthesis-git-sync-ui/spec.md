@@ -1,15 +1,15 @@
 # synthesis-git-sync-ui Specification
 
 ## Purpose
-TBD - created by archiving change deprecate-git-sync-ui-and-consolidate-sync-panel. Update Purpose after archive.
+Documents the retired Synthesis Git Sync Workbench UI. All Git Sync Workbench actions, status projections, and configuration UI have been removed. WebDAV Sync UI is the only sync projection in Workbench.
 
 ## Requirements
 
-### Requirement: Dashboard does not expose Git Sync UI
+### Requirement: Git Sync Workbench UI is retired
 
-Dashboard and Workspace shell UI SHALL NOT expose Git Sync status or actions.
+Synthesis Workbench SHALL NOT render Git Sync status, actions, or configuration UI. All Git Sync Workbench projections have been removed without compatibility shims.
 
-#### Scenario: Dashboard Home renders
-
-- **WHEN** Dashboard Home renders
-- **THEN** it SHALL NOT show Git Sync setup, Git Sync status, or Git Sync action controls.
+#### Scenario: Workbench shows no Git Sync surface
+- **WHEN** Workbench builds its snapshot
+- **THEN** it SHALL NOT include Git Sync status, actions, or configuration rows
+- **AND** WebDAV Sync UI SHALL be the only sync projection.

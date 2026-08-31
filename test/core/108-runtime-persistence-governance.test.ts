@@ -9,13 +9,24 @@ import {
   appendRuntimeTextFile,
   cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
+  ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
+  getSynthesisSidecarLifecyclePaths,
+  replacePrivateRuntimeTextFileAtomically,
+  readRuntimeTextFile,
+  readRuntimeTextFileStrict,
+  listRuntimeChildrenStrict,
+  moveRuntimePath,
+  removeRuntimePathStrict,
   registerRuntimeLogClearer,
   replaceRuntimeTextFileAtomically,
+  resolveRuntimeTemporaryDirectory,
   scanRuntimePersistenceUsage,
   validateManagedAbsolutePath,
   validateManagedRelativePath,
   validateManagedRelativePathSet,
+  writeRuntimeTextFileStrict,
+  statRuntimePathStrict,
 } from "../../src/modules/runtimePersistence";
 import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
 import { RuntimeFileIoError } from "../../src/modules/runtimeFileRangeReader";
@@ -34,6 +45,10 @@ import {
   buildSynthesisKnowledgeGraphPaths,
   buildSynthesisStoragePaths,
 } from "../../src/modules/synthesis/foundation";
+import {
+  cleanupRetiredSynthesisGitSyncRuntime,
+  RETIRED_SYNTHESIS_GIT_SYNC_PREFS,
+} from "../../src/modules/synthesis/syncRuntimeCleanup";
 import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   PLUGIN_TASK_DOMAIN_ACP,
@@ -106,6 +121,131 @@ describe("runtime persistence governance", function () {
       process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
     }
     await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("keeps missing tolerant reads distinct from strict empty-file reads", async function () {
+    const missingPath = path.join(tempRoot, "missing.txt");
+    const emptyPath = path.join(tempRoot, "empty.txt");
+    await fs.writeFile(emptyPath, "", "utf8");
+
+    assert.equal(await readRuntimeTextFile(missingPath), "");
+    assert.equal(await readRuntimeTextFileStrict(emptyPath), "");
+
+    let missingError: unknown;
+    try {
+      await readRuntimeTextFileStrict(missingPath);
+    } catch (error) {
+      missingError = error;
+    }
+    assert.instanceOf(missingError, Error);
+  });
+
+  it("rejects strict writes when no runtime filesystem adapter is available", async function () {
+    const runtime = globalThis as Record<string, unknown>;
+    const names = ["process", "IOUtils", "OS", "Zotero", "Components"];
+    const descriptors = new Map(
+      names.map((name) => [
+        name,
+        Object.getOwnPropertyDescriptor(runtime, name),
+      ]),
+    );
+    for (const name of names) {
+      Object.defineProperty(runtime, name, {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+    }
+    try {
+      for (const operation of [
+        () =>
+          writeRuntimeTextFileStrict(
+            path.join(tempRoot, "unavailable", "file.txt"),
+            "content",
+          ),
+        () =>
+          ensureRuntimeDirectoryStrict(
+            path.join(tempRoot, "unavailable", "directory"),
+          ),
+      ]) {
+        let operationError: unknown;
+        try {
+          await operation();
+        } catch (error) {
+          operationError = error;
+        }
+        assert.instanceOf(operationError, Error);
+      }
+    } finally {
+      for (const [name, descriptor] of descriptors) {
+        if (descriptor) {
+          Object.defineProperty(runtime, name, descriptor);
+        } else {
+          delete runtime[name];
+        }
+      }
+    }
+  });
+
+  it("resolves the current temporary directory on every invocation", function () {
+    const runtime = globalThis as Record<string, unknown>;
+    const previousPathUtils = Object.getOwnPropertyDescriptor(
+      runtime,
+      "PathUtils",
+    );
+    try {
+      Object.defineProperty(runtime, "PathUtils", {
+        configurable: true,
+        writable: true,
+        value: { tempDir: "/runtime/first-temp" },
+      });
+      assert.equal(resolveRuntimeTemporaryDirectory(), "/runtime/first-temp");
+
+      Object.defineProperty(runtime, "PathUtils", {
+        configurable: true,
+        writable: true,
+        value: { tempDir: "/runtime/second-temp" },
+      });
+      assert.equal(resolveRuntimeTemporaryDirectory(), "/runtime/second-temp");
+    } finally {
+      if (previousPathUtils) {
+        Object.defineProperty(runtime, "PathUtils", previousPathUtils);
+      } else {
+        delete runtime.PathUtils;
+      }
+    }
+  });
+
+  it("provides strict stat, list, move, and remove semantics", async function () {
+    const sourceDir = path.join(tempRoot, "strict-owner");
+    const sourcePath = path.join(sourceDir, "source.txt");
+    const targetPath = path.join(sourceDir, "target.txt");
+    await writeRuntimeTextFileStrict(sourcePath, "严格语义");
+
+    assert.deepInclude(await statRuntimePathStrict(sourcePath), {
+      exists: true,
+      isDir: false,
+    });
+    assert.deepEqual(await listRuntimeChildrenStrict(sourceDir), [sourcePath]);
+    await moveRuntimePath({ sourcePath, targetPath });
+    assert.isFalse(await pathExists(sourcePath));
+    assert.isTrue(await pathExists(targetPath));
+    await removeRuntimePathStrict(targetPath);
+    assert.isFalse(await pathExists(targetPath));
+
+    for (const operation of [
+      () => statRuntimePathStrict(targetPath),
+      () => listRuntimeChildrenStrict(targetPath),
+      () => removeRuntimePathStrict(targetPath),
+    ]) {
+      let failure: unknown;
+      try {
+        await operation();
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, Error);
+    }
   });
 
   it("serializes chunked Zotero IOUtils appends without splitting Unicode", async function () {
@@ -441,6 +581,31 @@ describe("runtime persistence governance", function () {
     assert.include(
       paths.workflowProductsDir.replace(/\\/g, "/"),
       "/workflow-products",
+    );
+  });
+
+  it("keeps sidecar lifecycle sessions profile-scoped and private", async function () {
+    const runtimeRoot = getRuntimePersistencePaths().runtimeRoot;
+    const lifecycle = getSynthesisSidecarLifecyclePaths({
+      runtimeRoot,
+      profileId: "a".repeat(64),
+      supervisorInstanceId: "sup-test",
+    });
+    assert.equal(
+      path.relative(runtimeRoot, lifecycle.configPath).replace(/\\/g, "/"),
+      `synthesis/service-runtime/profiles/${"a".repeat(64)}/sessions/sup-test/config.json`,
+    );
+    await replacePrivateRuntimeTextFileAtomically(lifecycle.configPath, "{}\n");
+    assert.equal(await fs.readFile(lifecycle.configPath, "utf8"), "{}\n");
+    if (process.platform !== "win32") {
+      assert.equal((await fs.stat(lifecycle.configPath)).mode & 0o777, 0o600);
+    }
+    assert.throws(() =>
+      getSynthesisSidecarLifecyclePaths({
+        runtimeRoot,
+        profileId: "../outside",
+        supervisorInstanceId: "sup-test",
+      }),
     );
   });
 
@@ -1650,16 +1815,9 @@ describe("runtime persistence governance", function () {
     assert.equal(await fs.readFile(runtimeSynthesisFile, "utf8"), "legacy");
   });
 
-  it("does not report Synthesis sync workspaces as misplaced durable assets", async function () {
+  it("does not report the WebDAV Sync workspace as a misplaced durable asset", async function () {
     const paths = getRuntimePersistencePaths();
     const syncFiles = [
-      path.join(paths.runtimeRoot, "synthesis", "git-sync", "state.json"),
-      path.join(
-        paths.runtimeRoot,
-        "synthesis",
-        "git-sync-worktree",
-        "manifest.json",
-      ),
       path.join(
         paths.runtimeRoot,
         "synthesis",
@@ -1678,6 +1836,52 @@ describe("runtime persistence governance", function () {
       report.issues.map((issue) => issue.type),
       "forbidden_durable_asset_in_runtime",
     );
+  });
+
+  it("cleans only the two retired Git runtime roots and nine prefs idempotently", async function () {
+    const paths = getRuntimePersistencePaths();
+    const retiredRoots = [
+      path.join(paths.runtimeRoot, "synthesis", "git-sync"),
+      path.join(paths.runtimeRoot, "synthesis", "git-sync-worktree"),
+    ];
+    const externalRoot = path.join(tempRoot, "external-git-repository");
+    const webDavRoot = path.join(paths.runtimeRoot, "synthesis", "webdav-sync");
+    for (const root of [...retiredRoots, externalRoot, webDavRoot]) {
+      await fs.mkdir(root, { recursive: true });
+      await fs.writeFile(path.join(root, "sentinel.txt"), root, "utf8");
+    }
+    for (const key of RETIRED_SYNTHESIS_GIT_SYNC_PREFS) {
+      (globalThis as any).Zotero.Prefs.set(
+        `extensions.zotero.zotero-skills.${key}`,
+        key === "synthesisGitSyncRemoteUrl"
+          ? `file://${externalRoot}`
+          : "retired",
+        true,
+      );
+    }
+
+    const first = await cleanupRetiredSynthesisGitSyncRuntime(
+      paths.runtimeRoot,
+    );
+    const second = await cleanupRetiredSynthesisGitSyncRuntime(
+      paths.runtimeRoot,
+    );
+
+    assert.sameMembers(first.removedPaths, retiredRoots);
+    assert.deepEqual(second.removedPaths, []);
+    for (const root of retiredRoots) {
+      assert.isFalse(await pathExists(root));
+    }
+    assert.isTrue(await pathExists(path.join(externalRoot, "sentinel.txt")));
+    assert.isTrue(await pathExists(path.join(webDavRoot, "sentinel.txt")));
+    for (const key of RETIRED_SYNTHESIS_GIT_SYNC_PREFS) {
+      assert.isUndefined(
+        (globalThis as any).Zotero.Prefs.get(
+          `extensions.zotero.zotero-skills.${key}`,
+          true,
+        ),
+      );
+    }
   });
 
   it("reports managed path policy issues without making canonical data cleanable", async function () {

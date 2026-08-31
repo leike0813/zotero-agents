@@ -1,7 +1,8 @@
 # host-bridge-cli-interface Specification
 
 ## Purpose
-TBD - created by syncing changes upgrade-host-bridge-cli-machine-readable-contracts and unify-host-bridge-cli-contracts-and-parameter-errors. Update Purpose after archive.
+
+Define the mechanism-only Host Bridge CLI contract, including agent-surface metadata, structured-input discovery, examples, and continuation controls.
 
 ## Requirements
 
@@ -152,3 +153,42 @@ Broker-issued file upload and download operations SHALL use `/bridge/v2` and ret
 #### Scenario: Client uses the removed v1 route
 - **WHEN** a client requests the corresponding `/bridge/v1/files` route
 - **THEN** Host Bridge SHALL NOT serve it as a supported v2 file operation.
+
+### Requirement: CLI workflow commands expose resource bindings
+The canonical `workflow validate` and `workflow submit` commands SHALL expose repeatable input-resource bindings in the form `<slot>=<fileId>` and output-resource delivery bindings in the form `<slot>=bridge-download`. Their offline schemas, help, command cards, payload composition, and result schemas SHALL use the same field names and SHALL not expose file-picker or client-path parameters.
+
+#### Scenario: CLI binds an uploaded input
+- **WHEN** an agent invokes `workflow submit --input-resource source=file-123`
+- **THEN** the CLI SHALL send `resourceBindings.inputs.source.fileIds = ["file-123"]`
+- **AND** it SHALL not send the local path used by the preceding upload command
+
+#### Scenario: Multiple files bind to one slot
+- **WHEN** an agent repeats `--input-resource notes=file-1 --input-resource notes=file-2`
+- **THEN** the CLI SHALL preserve both opaque handles in binding order
+
+### Requirement: CLI exposes resource delivery results
+The CLI workflow result contract SHALL expose resource output descriptors and safe continuation guidance through the existing `file download` command. It SHALL not print Host-local paths or silently open GUI interaction.
+
+#### Scenario: Workflow returns a downloadable output
+- **WHEN** a remote workflow completes with an output resource
+- **THEN** the CLI SHALL return its `fileId`, integrity metadata, expiry, and download command in the structured result
+
+#### Scenario: Workflow requires interaction
+- **WHEN** a non-interactive workflow would require a picker, editor, or confirmation dialog
+- **THEN** the CLI SHALL return a stable interaction-required error and a safe next action
+
+### Requirement: CLI SHALL expose direct paper and Topic bundle commands
+
+The CLI SHALL expose `library items export-research-bundle` with canonical item-ref array input and `synthesis topic export-research-bundle` with one or more Topic ids. Each leaf SHALL declare exact argv bindings, strict input and result schemas, file output boundary, read-only Zotero effect, local filesystem effect, no-approval status, typed delivery, completion evidence, intent aliases, and recovery commands in the executable command contract.
+
+#### Scenario: Paper bundle schema is requested
+- **WHEN** an agent invokes `zotero-bridge library items export-research-bundle --schema`
+- **THEN** schema mode exposes the item-ref array, connection-dependent output directory, bounds, and discriminated delivery result without loading a profile or contacting Zotero.
+
+#### Scenario: Topic command uses repeated ids
+- **WHEN** an agent invokes `zotero-bridge synthesis topic export-research-bundle --topic-id <id>` one or more times
+- **THEN** the CLI preserves first-occurrence order, rejects an empty selection, and sends the normalized Topic id array to the canonical capability.
+
+#### Scenario: Connection mode and output directory disagree
+- **WHEN** local mode omits `--output-dir` or remote mode supplies it
+- **THEN** the CLI fails before capability execution with a structured usage error.

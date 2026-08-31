@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { config } from "../../package.json";
 import { execFile } from "child_process";
 import { createHash } from "crypto";
 import * as fs from "fs/promises";
@@ -218,7 +219,7 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.strictEqual(
       await fs.readFile(
-        "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
+        "addon/content/host-bridge-skills/zotero-bridge-cli/assets/profile.template.json",
         "utf8",
       ),
       profileTemplate,
@@ -981,13 +982,13 @@ describe("host bridge cli packaging and install", function () {
   it("renders exhaustive disjoint mechanism command references from the runtime descriptor", async function () {
     const descriptor = buildHostBridgeAgentSurfaceDescriptor();
     const references = await readCommandReferences(
-      "skills_builtin/zotero-bridge-cli",
+      "addon/content/host-bridge-skills/zotero-bridge-cli",
     );
     const hermesReferences = await readCommandReferences(
       "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli",
     );
     const renderedCommands: string[] = [];
-    assert.strictEqual(references.size, 125);
+    assert.strictEqual(references.size, 130);
     for (const [referencePath, reference] of references) {
       assert.strictEqual(reference, hermesReferences.get(referencePath));
       const commands = [
@@ -1005,7 +1006,7 @@ describe("host bridge cli packaging and install", function () {
     assert.strictEqual(new Set(renderedCommands).size, renderedCommands.length);
     assert.isFalse(
       await pathExists(
-        "skills_builtin/zotero-bridge-cli/references/command-reference.md",
+        "addon/content/host-bridge-skills/zotero-bridge-cli/references/command-reference.md",
       ),
     );
     assert.notProperty(descriptor, "workflowCatalog");
@@ -1046,7 +1047,7 @@ describe("host bridge cli packaging and install", function () {
     assert.deepEqual(tokens("mutation preview"), ["--input"]);
 
     const statusCard = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/commands/bridge/status.md",
+      "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/status.md",
       "utf8",
     );
     assert.include(statusCard, "command_input_schema_unavailable");
@@ -1057,7 +1058,10 @@ describe("host bridge cli packaging and install", function () {
       commands: Array<{ command: string; summary: string }>;
     };
     const catalog = await fs.readFile(
-      path.join("skills_builtin/zotero-bridge-cli", COMMAND_CATALOG_PATH),
+      path.join(
+        "addon/content/host-bridge-skills/zotero-bridge-cli",
+        COMMAND_CATALOG_PATH,
+      ),
       "utf8",
     );
     const hermesCatalog = await fs.readFile(
@@ -1095,9 +1099,10 @@ describe("host bridge cli packaging and install", function () {
   });
 
   it("keeps every materialized minimum reference above the hard depth floor", async function () {
-    const referenceRoot = "skills_builtin/zotero-bridge-cli/references";
+    const referenceRoot =
+      "addon/content/host-bridge-skills/zotero-bridge-cli/references";
     const references = await readCommandReferences(
-      "skills_builtin/zotero-bridge-cli",
+      "addon/content/host-bridge-skills/zotero-bridge-cli",
     );
     const files = [
       [
@@ -1135,7 +1140,7 @@ describe("host bridge cli packaging and install", function () {
       ],
     ]) {
       const wrapperReference = await fs.readFile(
-        `skills_builtin/zotero-bridge-cli/references/commands/${file}`,
+        `addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/${file}`,
         "utf8",
       );
       assert.include(wrapperReference, command);
@@ -1155,7 +1160,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperReference = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
+      "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
       "utf8",
     );
 
@@ -1483,6 +1488,71 @@ describe("host bridge cli packaging and install", function () {
         (globalThis as { rootPath?: string }).rootPath = previousRootPath;
       } else {
         delete (globalThis as { rootPath?: string }).rootPath;
+      }
+    }
+  });
+
+  it("uses the installed plugin asset roots outside the plugin script context", function () {
+    const runtime = globalThis as typeof globalThis & {
+      rootURI?: string;
+      resourceURI?: string;
+      rootPath?: string;
+      Zotero: Record<string, any>;
+    };
+    const previousRoots = {
+      rootURI: runtime.rootURI,
+      resourceURI: runtime.resourceURI,
+      rootPath: runtime.rootPath,
+    };
+    const addonData = runtime.Zotero[config.addonInstance].data;
+    const previousPackagedAssets = addonData.packagedAssets;
+    delete runtime.rootURI;
+    delete runtime.resourceURI;
+    delete runtime.rootPath;
+    addonData.packagedAssets = {
+      rootURI: "https://installed.example/addon/",
+      resourceURI: "resource://installed-zotero-skills/",
+      rootPath: "D:\\Profiles\\extensions\\zotero-skills",
+    };
+    try {
+      const candidates =
+        packagedAssetResolverInternalsForTests.buildPackagedAssetCandidates(
+          "bin/win32-x64/zotero-acp-bridge.exe",
+        );
+      assert.equal(candidates.rootURI, addonData.packagedAssets.rootURI);
+      assert.equal(
+        candidates.resourceURI,
+        addonData.packagedAssets.resourceURI,
+      );
+      assert.equal(candidates.rootPath, addonData.packagedAssets.rootPath);
+      assert.include(
+        candidates.checkedUris,
+        "https://installed.example/addon/bin/win32-x64/zotero-acp-bridge.exe",
+      );
+      assert.include(
+        candidates.checkedPaths,
+        "D:\\Profiles\\extensions\\zotero-skills\\bin\\win32-x64\\zotero-acp-bridge.exe",
+      );
+    } finally {
+      if (typeof previousRoots.rootURI === "string") {
+        runtime.rootURI = previousRoots.rootURI;
+      } else {
+        delete runtime.rootURI;
+      }
+      if (typeof previousRoots.resourceURI === "string") {
+        runtime.resourceURI = previousRoots.resourceURI;
+      } else {
+        delete runtime.resourceURI;
+      }
+      if (typeof previousRoots.rootPath === "string") {
+        runtime.rootPath = previousRoots.rootPath;
+      } else {
+        delete runtime.rootPath;
+      }
+      if (previousPackagedAssets) {
+        addonData.packagedAssets = previousPackagedAssets;
+      } else {
+        delete addonData.packagedAssets;
       }
     }
   });
@@ -2115,7 +2185,7 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.isFalse(
       governance.isHostBridgeCliBuildInputPath(
-        "skills_builtin/zotero-bridge-cli/SKILL.md",
+        "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
       ),
     );
     assert.isFalse(
@@ -2758,7 +2828,7 @@ describe("host bridge cli packaging and install", function () {
     );
     const profileTemplate = JSON.parse(
       await fs.readFile(
-        "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
+        "addon/content/host-bridge-skills/zotero-bridge-cli/assets/profile.template.json",
         "utf8",
       ),
     );
@@ -2843,7 +2913,7 @@ describe("host bridge cli packaging and install", function () {
       await fs.readFile("host-bridge/surfaces.json", "utf8"),
     );
     const skill = await fs.readFile(
-      "skills_builtin/zotero-library-agent/SKILL.md",
+      "addon/content/host-bridge-skills/zotero-library-agent/SKILL.md",
       "utf8",
     );
     const genericSurface = surfaces.surfaces.find(
@@ -2863,7 +2933,7 @@ describe("host bridge cli packaging and install", function () {
     assert.notMatch(publisher, /profiles\/hermes|zotero_librarian_index/);
     assert.strictEqual(
       packageJson.scripts["check:zotero-library-agent-bundle"],
-      "tsx scripts/check-host-bridge-skill-packages.ts skills_builtin/zotero-library-agent skills_builtin/zotero-library-query skills_builtin/zotero-literature-acquisition skills_builtin/zotero-literature-analysis skills_builtin/zotero-research-synthesis skills_builtin/zotero-library-curation",
+      "tsx scripts/check-host-bridge-skill-packages.ts addon/content/host-bridge-skills/zotero-library-agent addon/content/host-bridge-skills/zotero-library-query addon/content/host-bridge-skills/zotero-literature-acquisition addon/content/host-bridge-skills/zotero-literature-analysis addon/content/host-bridge-skills/zotero-research-synthesis addon/content/host-bridge-skills/zotero-library-curation",
     );
     assert.strictEqual(
       packageJson.scripts["inspect:zotero-library-agent-bundle-version"],
@@ -2881,7 +2951,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperSkill = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/SKILL.md",
+      "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
       "utf8",
     );
 
@@ -2921,17 +2991,17 @@ describe("host bridge cli packaging and install", function () {
   it("renders every public Agent Surface command field into the offline command references", async function () {
     const descriptor = JSON.parse(
       await fs.readFile(
-        "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
+        "addon/content/host-bridge-skills/zotero-bridge-cli/assets/agent-surface.json",
         "utf8",
       ),
     );
     const references = await readCommandReferences(
-      "skills_builtin/zotero-bridge-cli",
+      "addon/content/host-bridge-skills/zotero-bridge-cli",
     );
     const reference = [...references.values()].join("\n");
     const count = (label: string) => reference.split(label).length - 1;
 
-    assert.lengthOf(descriptor.commands, 125);
+    assert.lengthOf(descriptor.commands, 130);
     for (const label of [
       "## Global parameters",
       "## Local options and positionals",

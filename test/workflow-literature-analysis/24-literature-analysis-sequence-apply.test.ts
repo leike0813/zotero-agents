@@ -3,61 +3,72 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { workflowsPath } from "./workflow-test-utils";
+import { handlers } from "../../src/handlers";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 
 describe("workflow: literature-analysis sequence step apply", function () {
   it("declares per-step apply for digest and tag-regulator steps", async function () {
     const tempDir = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-literature-analysis-apply-"),
     );
-    const parent = {
-      id: 10,
-      key: "PARENT10",
+    const parent = await handlers.item.create({
       itemType: "journalArticle",
-      libraryID: 1,
-      getField: (field: string) => (field === "title" ? "Paper" : ""),
-      getCreators: () => [],
-      getTags: () => [],
-    };
+      fields: { title: "Paper" },
+    });
+    const loaded = await loadWorkflowManifests(workflowsPath());
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-analysis",
+    );
+    assert.isOk(workflow, "missing literature-analysis workflow");
+    const baseHostApi = createWorkflowHostApi();
     const runtime = {
-      hostApiVersion: 6,
+      hostApiVersion: 12,
       hostApi: {
+        ...baseHostApi,
         file: {
+          ...baseHostApi.file,
           materializeWorkflowInputFile: async (args: {
-            workflowId?: string;
             key?: string;
             fileName?: string;
-            content?: string;
-            bytes?: Uint8Array | ArrayBuffer;
+            content?:
+              | { kind: "text"; text: string }
+              | { kind: "bytes"; bytes: Uint8Array | ArrayBuffer };
           }) => {
             const filePath = path.join(
               tempDir,
               "runtime",
               "tmp",
               "workflow-inputs",
-              String(args.workflowId || "workflow"),
+              "tag-regulator",
               String(args.key || "input"),
               String(args.fileName || "input.dat"),
             );
             await fs.mkdir(path.dirname(filePath), { recursive: true });
-            if (typeof args.content === "string") {
-              await fs.writeFile(filePath, args.content, "utf8");
+            if (args.content?.kind === "text") {
+              await fs.writeFile(filePath, args.content.text, "utf8");
             } else {
               await fs.writeFile(
                 filePath,
-                Buffer.from(args.bytes || new Uint8Array()),
+                Buffer.from(
+                  (args.content as { bytes?: Uint8Array | ArrayBuffer })
+                    ?.bytes || new Uint8Array(),
+                ),
               );
             }
             return { path: filePath };
           },
         },
         synthesis: {
-          exportTagVocabularyForRegulator: async () => ["segmentation"],
+          ...baseHostApi.synthesis,
+          tags: {
+            ...baseHostApi.synthesis.tags,
+            exportVocabularyForRegulator: async () => ({
+              allowedTags: ["segmentation"],
+            }),
+          },
         },
-      },
-      helpers: {
-        resolveItemRef: () => parent,
-        getAttachmentFilePath: (entry: { filePath?: string }) =>
-          entry.filePath || "",
       },
     };
 
@@ -65,11 +76,19 @@ describe("workflow: literature-analysis sequence step apply", function () {
       const request = (await buildRequest({
         selectionContext: {
           items: {
-            parents: [{ item: { id: parent.id } }],
+            parents: [
+              {
+                item: {
+                  ref: { libraryId: parent.libraryID, key: parent.key },
+                },
+              },
+            ],
             attachments: [
               {
                 filePath: "D:/papers/paper.md",
-                parent: { id: parent.id },
+                parent: {
+                  ref: { libraryId: parent.libraryID, key: parent.key },
+                },
               },
             ],
           },
@@ -80,6 +99,7 @@ describe("workflow: literature-analysis sequence step apply", function () {
             auto_tag_regulator: true,
           },
         },
+        manifest: workflow!.manifest,
         runtime,
       })) as {
         steps: Array<{
@@ -102,7 +122,9 @@ describe("workflow: literature-analysis sequence step apply", function () {
       });
       assert.match(
         String((request.steps[1] as any).input?.valid_tags || ""),
-        /runtime[\\/]tmp[\\/]workflow-inputs[\\/]tag-regulator[\\/]valid_tags[\\/]valid_tags-parent-10\.yaml$/,
+        new RegExp(
+          `runtime[\\\\/]tmp[\\\\/]workflow-inputs[\\\\/]tag-regulator[\\\\/]valid_tags[\\\\/]valid_tags-parent-${parent.key}\\.yaml$`,
+        ),
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });

@@ -1,4 +1,6 @@
-import { getDefaultSynthesisService, type SynthesisService } from "./service";
+import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
+import { getDefaultSynthesisClient } from "../synthesisClient/defaultClient";
+import { parseNoteKind } from "../notePayloadCodec";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -72,6 +74,45 @@ function isChildItemType(value: unknown) {
   return normalized === "attachment" || normalized === "note";
 }
 
+function isLiteratureScoreNote(item: any) {
+  try {
+    return (
+      typeof item?.isNote === "function" &&
+      item.isNote() &&
+      parseNoteKind(item.getNote?.()) === "literature-score"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isLiteratureScoreChildChange(
+  id: string | number,
+  extraRow: Record<string, unknown>,
+) {
+  const item = resolveItem(id);
+  if (isLiteratureScoreNote(item)) {
+    return true;
+  }
+  const parentID =
+    Number(item?.parentID || item?.parentItemID || 0) ||
+    Number(extraRow.parentID || extraRow.parentItemID || 0);
+  return parentID > 0 && isLiteratureScoreNote(resolveItem(parentID));
+}
+
+export function isSynthesisLiteratureScoreInvalidationEvent(args: {
+  type: string;
+  ids?: Array<string | number>;
+  extraData?: Record<string, unknown>;
+}) {
+  if (cleanString(args.type) !== "item") {
+    return false;
+  }
+  return (args.ids || []).some((id) =>
+    isLiteratureScoreChildChange(id, extraRowForId(args.extraData, id)),
+  );
+}
+
 export function isSynthesisLibraryReadModelInvalidationEvent(args: {
   event: string;
   type: string;
@@ -92,7 +133,9 @@ export function isSynthesisLibraryReadModelInvalidationEvent(args: {
     const extraRow = extraRowForId(args.extraData, id);
     const itemType =
       extraRow.itemType || extraRow.item_type || extraRow.type || "";
-    return !isChildItemType(itemType);
+    return (
+      !isChildItemType(itemType) || isLiteratureScoreChildChange(id, extraRow)
+    );
   });
 }
 
@@ -101,7 +144,7 @@ export async function recordSynthesisZoteroItemNotifications(args: {
   type: string;
   ids: Array<string | number>;
   extraData?: Record<string, unknown>;
-  service?: SynthesisService;
+  client?: Pick<SynthesisClient, "notifications">;
 }) {
   if (cleanString(args.type) !== "item") {
     return { recorded: 0 };
@@ -109,7 +152,7 @@ export async function recordSynthesisZoteroItemNotifications(args: {
   if (!shouldInspectNotifierEcho(args.event)) {
     return { recorded: 0 };
   }
-  const service = args.service || getDefaultSynthesisService();
+  const client = args.client || (await getDefaultSynthesisClient());
   const recorded = 0;
   for (const id of args.ids || []) {
     const item = resolveItem(id);
@@ -123,12 +166,12 @@ export async function recordSynthesisZoteroItemNotifications(args: {
       normalizeLibraryId(item?.libraryID) ||
       normalizeLibraryId(extraRow.libraryID);
     if (libraryId) {
-      const echo = await service.consumeRelatedItemsSyncEcho({
+      const echo = await client.notifications.consumeRelatedItemsSyncEcho({
         libraryId,
         itemKey,
         relatedItemKey: relatedItemKeyFromExtra(extraRow) || undefined,
       });
-      if (echo) {
+      if (echo.consumed) {
         continue;
       }
     }

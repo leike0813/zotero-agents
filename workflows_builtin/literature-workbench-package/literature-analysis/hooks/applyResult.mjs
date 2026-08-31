@@ -3,15 +3,19 @@ import { applyLiteratureDigestSidecar } from "../../lib/literatureDigestSidecar.
 import { extractRepresentativeImageLocator } from "../../lib/representativeImage.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { filterReferencesForDigestApply } from "../../lib/referenceQualityGate.mjs";
+import { buildLiteratureScorePayload } from "../../lib/literatureScoreNote.mjs";
 import {
   appendSkillDiagnosticsToResult,
   collectSkillOutputDiagnostics,
 } from "../../lib/resultOutput.mjs";
 import {
   measureWorkflowTestSpan,
+  portableItemRef,
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
+import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
+import { normalizeReferencesPayload } from "../../lib/referenceModel.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -93,9 +97,17 @@ function getResultArtifactPath(result, key) {
 }
 
 function resolveWorkflowParameter(args) {
+  const requestSteps = Array.isArray(args?.request?.steps)
+    ? args.request.steps
+    : [];
+  const nestedRequestSteps = Array.isArray(args?.request?.request?.json?.steps)
+    ? args.request.request.json.steps
+    : [];
   const candidates = [
     args?.request?.parameter,
+    requestSteps.find((step) => step?.id === "digest")?.parameter,
     args?.request?.request?.json?.parameter,
+    nestedRequestSteps.find((step) => step?.id === "digest")?.parameter,
     args?.runResult?.resultJson?.parameter,
   ];
   for (const candidate of candidates) {
@@ -133,6 +145,10 @@ function findDigestNote(notes) {
 
 function findCitationAnalysisNote(notes) {
   return findGeneratedNote(notes, "citation-analysis");
+}
+
+function findLiteratureScoreNote(notes) {
+  return findGeneratedNote(notes, "literature-score");
 }
 
 const LITERATURE_MATCHING_METADATA_SCHEMA = "literature_matching_metadata.v1";
@@ -269,9 +285,6 @@ function appendRepresentativeImageApplyLog(args) {
     const failed = requested && status !== "embedded" && status !== "none";
     appendRuntimeLog({
       level: failed ? "warn" : "info",
-      scope: "job",
-      workflowId: "literature-analysis",
-      component: "literature-analysis-apply",
       operation: "representative-image",
       stage: `representative-image-${status || "unknown"}`,
       message:
@@ -380,35 +393,18 @@ async function resolveSourceAttachmentItemKey({
   );
 
   const basenameMatchKeys = new Set();
-  const attachmentRefs = parentItem.getAttachments?.() || [];
-  for (const attachmentRef of attachmentRefs) {
-    let attachment = null;
-    try {
-      attachment = runtime.helpers.resolveItemRef(attachmentRef);
-    } catch {
-      attachment = null;
-    }
-    if (!attachment) {
-      continue;
-    }
-
-    const attachmentKey = String(attachment.key || "").trim();
+  const host = requireHostApi(runtime);
+  for (const attachment of await host.library.getItemAttachments(
+    portableItemRef(parentItem),
+  )) {
+    const attachmentKey = String(attachment.ref.key || "").trim();
     if (!attachmentKey) {
       continue;
     }
 
-    let attachmentPath = "";
-    try {
-      attachmentPath = String(
-        (await attachment.getFilePathAsync?.()) || "",
-      ).trim();
-    } catch {
-      attachmentPath = "";
-    }
-
-    if (!attachmentPath) {
-      attachmentPath = String(attachment.getField?.("path") || "").trim();
-    }
+    const attachmentPath = attachment.file.state === "available"
+      ? attachment.file.path
+      : "";
 
     const normalizedAttachmentPath = normalizePathForCompare(attachmentPath);
     if (
@@ -421,7 +417,7 @@ async function resolveSourceAttachmentItemKey({
 
     const attachmentBasename =
       getBaseNameFromPath(attachmentPath) ||
-      getBaseNameFromPath(String(attachment.getField?.("title") || ""));
+      getBaseNameFromPath(attachment.title);
     if (attachmentBasename && sourceBasenames.has(attachmentBasename)) {
       basenameMatchKeys.add(attachmentKey);
     }
@@ -441,7 +437,9 @@ async function applyResultImpl({
   runResult,
   runtime,
 }) {
-  const parentItem = runtime.helpers.resolveItemRef(parent);
+  const parentItem = (
+    await requireHostApi(runtime).library.getItemDetail(portableItemRef(parent))
+  ).item;
   const workflowParameter = resolveWorkflowParameter({ request, runResult });
   const result = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:readResultJson",
@@ -449,9 +447,68 @@ async function applyResultImpl({
     () => readResultJson({ resultContext, bundleReader }),
   );
   const skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
+  const scoreOnly = workflowParameter.score_only === true;
   const sourceAttachmentPaths =
     collectSourceAttachmentPathsFromRequest(request);
   const representativeImageLocator = extractRepresentativeImageLocator(result);
+
+  const literatureScoreResolved = await measureWorkflowTestSpan(
+    "executeApplyResult:literatureDigest:readLiteratureScoreArtifact",
+    {},
+    () =>
+      readArtifactText({
+        resultContext,
+        bundleReader,
+        fieldName: "literature_score_path",
+        rawPath: getResultArtifactPath(result, "literature_score_path"),
+        fallbackPath: "artifacts/literature_score.json",
+      }),
+  );
+  const literatureScorePayload = buildLiteratureScorePayload(
+    JSON.parse(literatureScoreResolved.text),
+    literatureScoreResolved.entryPath,
+  );
+
+  if (scoreOnly) {
+    const applied = await upsertLiteratureDigestGeneratedNotes({
+      runtime,
+      parentItem,
+      literatureScore: { payload: literatureScorePayload },
+    });
+    const statusWarnings = [];
+    let statusTransition;
+    try {
+      const transition = requireHostApi(runtime)?.statusTags?.transition;
+      if (typeof transition !== "function") {
+        throw new Error("literature-analysis statusTags API is unavailable");
+      }
+      statusTransition = await transition({
+        item: parentItem,
+        remove: ["need-analysis"],
+      });
+      statusWarnings.push(
+        ...collectStatusTransitionDiagnostics(
+          statusTransition,
+          "literature_analysis_status_transition_failed",
+        ),
+      );
+    } catch (error) {
+      statusWarnings.push({
+        code: "literature_analysis_status_transition_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return appendSkillDiagnosticsToResult(
+      {
+        ...applied,
+        mode: "score-only",
+        partial: statusWarnings.length > 0,
+        status_transition: statusTransition,
+        status_warnings: statusWarnings,
+      },
+      skillOutputDiagnostics,
+    );
+  }
 
   const digestResolved = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:readDigestArtifact",
@@ -504,7 +561,7 @@ async function applyResultImpl({
     "executeApplyResult:literatureDigest:normalizeReferencesPayload",
     {},
     async () => {
-      const normalizedReferences = runtime.helpers.normalizeReferencesPayload(
+      const normalizedReferences = normalizeReferencesPayload(
         JSON.parse(referencesResolved.text),
       );
       const referenceQuality =
@@ -573,11 +630,15 @@ async function applyResultImpl({
         citationAnalysis: {
           payload: citationPayload,
         },
+        literatureScore: {
+          payload: literatureScorePayload,
+        },
       }),
   );
   const digestNote = findDigestNote(applied?.notes);
   const referencesNote = findReferencesNote(applied?.notes);
   const citationAnalysisNote = findCitationAnalysisNote(applied?.notes);
+  const literatureScoreNote = findLiteratureScoreNote(applied?.notes);
   const sidecarApply = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:applySidecar",
     {},
@@ -588,12 +649,14 @@ async function applyResultImpl({
         digestNote,
         referencesNote,
         citationAnalysisNote,
+        literatureScoreNote,
         digestText: digestResolved.text,
         digestEntryPath: digestResolved.entryPath,
         referencesEntryPath: referencesResolved.entryPath,
         citationAnalysisEntryPath: citationAnalysisResolved.entryPath,
         referencesPayload: referencesPayload.payload,
         citationAnalysisPayload: citationPayload,
+        literatureScorePayload,
         literatureMatchingMetadata: literatureMatchingMetadataResolved.payload,
       }),
   );
@@ -624,10 +687,10 @@ async function applyResultImpl({
       remove: ["need-analysis"],
     });
     statusWarnings.push(
-      ...(statusTransition?.warnings || []).map((warning) => ({
-        code: "literature_analysis_status_transition_failed",
-        ...warning,
-      })),
+      ...collectStatusTransitionDiagnostics(
+        statusTransition,
+        "literature_analysis_status_transition_failed",
+      ),
     );
   } catch (error) {
     statusWarnings.push({

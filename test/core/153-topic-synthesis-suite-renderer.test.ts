@@ -862,7 +862,12 @@ describe("Topic synthesis suite renderer", function () {
       assert.include(skillText, "硬性约束");
       assert.include(skillText, "逐篇阅读 runtime 导出的 paper artifacts");
       assert.include(skillText, "不得编写或运行脚本");
-      assert.include(skillText, "relevance、quality、core_digest 和 caveats");
+      assert.include(skillText, "relevance、core_digest 和 caveats");
+      assert.match(
+        skillText,
+        /文献内在质量只(?:读取|使用) manifest 固化的 `?literature_quality`?/,
+      );
+      assert.notInclude(skillText, "paper_quality_level");
       assert.include(skillText, "Subagent 委派建议");
       assert.include(skillText, "推荐把 paper triage 按 paper_ref 分批委派");
       assert.include(skillText, "委派 prompt 模板");
@@ -886,7 +891,6 @@ describe("Topic synthesis suite renderer", function () {
     assert.include(updateSkill, "saved triage refs 的覆盖缺口");
     assert.include(updateSkill, "不只是 resolver diff 中的 added refs");
     assert.include(updateSkill, "resolve_diff.added_refs");
-    assert.include(updateSkill, "没有新增 resolved papers 就取消本次 update");
   });
 
   it("renders executable Host read commands instead of opaque Host labels", async function () {
@@ -918,28 +922,37 @@ describe("Topic synthesis suite renderer", function () {
     );
   });
 
-  it("renders prepare hard-gate cancellation instructions", async function () {
-    const createSkill = await fs.readFile(
-      path.join("skills_builtin", "create-topic-synthesis-prepare", "SKILL.md"),
-      "utf8",
+  it("renders target-resolution and cancellation schemas", async function () {
+    const createContextSchema = JSON.parse(
+      await fs.readFile(
+        path.join(
+          "skills_builtin",
+          "create-topic-synthesis-prepare",
+          "assets/schemas/stage-10-create-topic-context.schema.json",
+        ),
+        "utf8",
+      ),
     );
-    const updateSkill = await fs.readFile(
-      path.join("skills_builtin", "update-topic-synthesis-prepare", "SKILL.md"),
-      "utf8",
+    assert.sameMembers(
+      createContextSchema.properties.target_decision.properties.action.enum,
+      ["create_new", "use_planned_topic", "cancel_materialized_duplicate"],
     );
 
-    assert.include(createSkill, "duplicate_status");
-    assert.include(createSkill, "硬门禁失败");
-    assert.include(createSkill, 'reason: "duplicate_topic"');
-    assert.include(createSkill, "不进入 Stage 20");
-    assert.include(createSkill, "topic_synthesis_canceled");
-    assert.include(createSkill, "短路后续 steps");
-
-    assert.include(updateSkill, "Stage 00 已生成 canceled output");
-    assert.include(updateSkill, "update_decision.action");
-    assert.include(updateSkill, "resolver proposal 删除或改写");
-    assert.include(updateSkill, "topic_synthesis_canceled");
-    assert.include(updateSkill, "停止后续 steps");
+    const outputSchema = JSON.parse(
+      await fs.readFile(
+        path.join(
+          "skills_builtin",
+          "create-topic-synthesis-prepare",
+          "assets/output.schema.json",
+        ),
+        "utf8",
+      ),
+    );
+    const canceled = outputSchema.oneOf.find(
+      (branch: any) =>
+        branch.properties?.kind?.const === "topic_synthesis_canceled",
+    );
+    assert.property(canceled.properties, "retryable");
   });
 
   it("renders schema-valid inline payload examples from stage guidance", async function () {

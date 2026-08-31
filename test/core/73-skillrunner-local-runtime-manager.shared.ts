@@ -1775,10 +1775,18 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
       true,
     );
     let removeCalled = false;
+    const uninstallTargets = new Set([
+      "C:\\SkillRunner\\releases",
+      "C:\\SkillRunner\\agent-cache\\npm",
+      "C:\\SkillRunner\\agent-cache\\uv_cache",
+      "C:\\SkillRunner\\agent-cache\\uv_venv",
+    ]);
     (globalThis as { IOUtils?: unknown }).IOUtils = {
-      exists: async () => true,
-      remove: async () => {
-        removeCalled = true;
+      exists: async (path: string) => uninstallTargets.has(path),
+      remove: async (path: string) => {
+        if (uninstallTargets.has(path)) {
+          removeCalled = true;
+        }
       },
     };
     setSkillRunnerCtlBridgeFactoryForTests(

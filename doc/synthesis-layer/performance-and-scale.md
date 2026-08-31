@@ -48,6 +48,26 @@ ids only.
 
 ## SQLite Policy
 
+The production repository foundation v2 contains 53 tables and 46 indexes. Rust
+serializes all mutation transactions through one writer and provides at most
+four read-only connections for bounded UI/status reads. Startup validates the
+schema and reconciles orphaned running operations before readiness; health and
+handshake use maintained snapshots rather than table scans.
+
+Citation Graph public mutations are admitted by the public maintenance controller; each dispatched graph build prepares one private application attempt before Host collection. Graph reads use basis-bound application views and short pooled-reader transactions with query and DTO bounds independent of unrelated graph state. Structure, complex metrics, and layout compute remain outside the writer transaction. Graph promotion keeps the writer section to graph replacement plus ready-cache/private-terminal commit, while metrics and layout promotion recheck the active graph through the single writer.
+
+Reference Refresh captures Host item and artifact identity once per operation,
+determines the changed source set, and processes source-keyed batches. At most
+two ordered artifact reads are active; no batch reloads the full source,
+artifact, raw-reference, or binding state. Completed batches remain durable and
+retry converges from current descriptor hashes.
+
+Topic list pages use compact joined repository queries whose count is constant
+between the 2k and 25k fixtures. Detail, resolver, resolved-set, canonical body,
+and projection payloads load only on targeted reads. Large Topic assets are
+staged through authenticated transfer and applied from a bounded control
+manifest.
+
 Write transactions should be short:
 
 - target: <= 100 ms;
@@ -98,12 +118,16 @@ strategy.
 | Digest apply sidecar sync | one Zotero item / artifact bundle | 1000 ms soft | Artifact hashes, changed references, raw references, canonical matches. |
 | Reference sidecar refresh stage 1 | selected source scope | 2000 ms per slice | Scanned source items/artifacts. |
 | Reference sidecar refresh stage 2 | changed references artifacts | 3000 ms per slice | Changed artifacts, extracted raw references, canonical matches, binding candidates. |
-| Advanced reference matching | unbound active references by default | 3000 ms per slice | Indexed papers, processed references, auto-accepted matches, proposals created, rejected proposals preserved. |
+| Advanced reference matching | <= 25,000 indexed papers and <= 750,000 binding/dedupe records; three candidates per binding; cluster blocks <= 30 and pair budget <= 3,000 | 3000 ms per slice; 15 minutes per worker phase; 30 minutes per accepted operation | Indexed papers, processed references, auto-accepted matches, proposals created, rejected proposals preserved. Both engine passes compute outside the write lock and promote atomically after Host/repository basis recapture. |
 | Reference binding review candidate generation | selected canonical references or source refs | 3000 ms per slice | Candidate blocks or references. |
 | Citation graph cache incremental refresh | affected source refs | 1500 ms per slice | Source refs, rebuilt outgoing edges, affected nodes, and light metrics. |
-| Citation graph cache rebuild | selected cache scope | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, and light metrics. |
-| Citation graph complex metrics | phase bounded | 3000 ms | Fixed phases or metric rows. |
-| Citation graph layout rebuild | cached read fast path; compute in bounded slices | 3000 ms per explicit operation tick | Layout nodes or fixed phases for an existing graph hash. Target/stress tiers may use stale or partial coordinates while rebuild continues. |
+| Citation graph cache rebuild | full or source slice; build contract capped at 25,000 sources / 1,250,000 references / 750,000 external targets | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, ownership, incoming groups, and light metrics. Durable facts are captured under a short lock; Host reads and build-engine compute run outside it; promotion recaptures the basis. |
+| Citation graph complex metrics | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 30 seconds per worker phase; 120 seconds per accepted operation | Fixed phases or metric rows. Authenticated sidecar PageRank/component/role computation runs outside the write lock; promotion rechecks the graph hash under a short lock. |
+| Citation graph layout rebuild | one deterministic default projection capped at 20,000 nodes / 80,000 endpoint-closed edges | 2000 ms pre-start soft check; 90 seconds per worker phase; 120 seconds per accepted operation | Library nodes precede shared external nodes; single-source supplemental external nodes are excluded. Valid self-loops remain graph facts and part of the graph hash but are omitted from coordinate calculation after validation. Authenticated sidecar compute runs outside the write lock; promotion rechecks the full graph hash under a short lock. Target/stress tiers may continue showing stale coordinates. |
+| Tag vocabulary validation/index | <= 25,000 entries, <= 50,000 global aliases, <= 10,000 abbreviations, <= 256 facets; per-entry alias/abbrev lists <= 256 | 2000 ms explicit-operation budget | Validation rows or search rows. The synchronous engine is checkpoint-capable and performs no persistence or Host I/O; canonical mutation validation remains transaction-local. |
+| Concept KB index/query | <= 25,000 concepts, <= 100,000 senses, <= 250,000 aliases, <= 256 aliases per concept, <= 100 query labels | 2000 ms explicit-operation budget | Search rows, unambiguous overlay entries, or exact concept/alias matches. The asynchronous engine is checkpoint-capable and performs no persistence; projection promotion and public DTO assembly remain application-owned. |
+| Topic Graph index | <= 25,000 nodes, <= 100,000 edges | 2000 ms explicit-operation budget | Sorted root and unplaced topic identifiers. The asynchronous engine is checkpoint-capable and performs no persistence; complete projection assembly, diagnostics, and promotion remain Rust-application-owned. |
+| Topic structured artifact assembly/validation | JSON depth <= 32, arrays <= 25,000, object properties <= 1,024, total nodes <= 1,000,000, each string <= 1 MiB, aggregate string content <= 32 MiB | 2000 ms explicit-operation budget | Complete/patch manifest validation, artifact assembly/validation, or section read-set patch computation. The asynchronous engine checkpoints every 256 traversed nodes and performs no IO or persistence; canonical writes execute through the Rust application's serialized promotion boundary. |
 | Zotero related-items sync | scoped source refs or batched full accepted edges | 2000 ms per 100 accepted library edges | Accepted library-to-library citation edges resolved from ready graph cache or sidecar fallback. |
 | Topic discovery apply-time match | active topics for one literature | 2000 ms | Active topic count. |
 | Topic discovery repair | 500 topic-literature pairs | 2000 ms | Bounded pairs. |
@@ -111,6 +135,33 @@ strategy.
 | Import preview/apply | 1000 rows/files | 3000 ms | Input rows or files. |
 
 Default explicit operation slice budget is 2000 ms. Long operations should stop at budget boundaries, commit bounded progress, and let the user continue, retry, or cancel rather than blocking the Zotero UI.
+
+Ordinary control and page DTOs target 768 KiB and have a 1 MiB hard limit.
+Large Topic assets, artifact/review content, and exports use the authenticated
+transfer, locator, or delivery path. Large Citation Graph builds use bounded
+canonical pages and atomic attempt output; the Rust application owns basis
+recapture and repository promotion. Full-library and worker-backed mutations
+return `SynthesisPublicMaintenanceOperation` promptly, then expose bounded
+phase progress, explicit cancel/continue/retry controls, and one terminal.
+
+The governed production-route checker executes TypeScript native composition,
+HTTP, Rust dispatch, SQLite, workers, and reverse Host over 2k, 10k, and 25k
+fixtures. Its deterministic gates require:
+
+- Topic page SQL query count to remain constant from 2k to 25k.
+- Graph slice and metrics reads to stay within 20 SQL queries, 768 KiB, and the requested result window.
+- The 10k Reference refresh to scan Host item/artifact identity once, read only the 50 changed papers' bounded artifacts, and keep artifact-read concurrency at two or less.
+- Tag effects to use Host batches of at most 100.
+- At 10k, chrome p95 <= 1 second; Topic page, Graph slice, and Graph metrics p95 <= 1.5 seconds; Index, a 50-paper Reference refresh, and Tag effects p95 <= 2.5 seconds; incremental UI-read RSS < 128 MiB.
+- At 25k, each UI read to return a bounded result or explicit degraded state within 2.5 seconds, with no full-library DTO materialization.
+
+Every formal operation records request/response bytes, SQL query/write counts,
+Host calls, p50/p95 latency, receipt latency where applicable, and RSS. The
+2026-08-08 local run passed every governed 2k/10k/25k performance gate for the
+recorded executable source identity. This remains candidate evidence: the
+repository-wide strict OpenSpec, format, lint, TypeScript, Rust, and production
+build gates also passed, while the local run does not authorize seven-platform
+prebuilds, final packaging, signing, or release.
 
 ## External Source Drift Policy
 

@@ -2,9 +2,7 @@
 
 ## Overview
 
-WebDAV Sync is the cross-device synchronization mechanism for the Synthesis Workbench, replacing the deprecated Git Sync. It exchanges deterministic durable-state bundle snapshots via the WebDAV protocol.
-
-Works with any WebDAV-compliant server (Nextcloud, ownCloud, Synology, etc.). No Git required.
+WebDAV Sync is the cross-device durable-sync mechanism for Synthesis Workbench. It exchanges deterministic durable-state bundle snapshots through any WebDAV-compliant server, including Nextcloud, ownCloud, and Synology.
 
 ## Prerequisites
 
@@ -75,6 +73,8 @@ idle → queued → syncing → idle
 | 7. Upload | Upload manifest + bundles |
 | 8. HEAD Update | Update HEAD.json last (ETag/If-Match for concurrency safety) |
 
+Canonical writes can trigger one coalesced sync after a five-second debounce when **Auto Sync** is enabled. Auto Sync is off by default. When **Auto Retry** is enabled, each manual or automatic trigger can retry transient failures after 60 seconds, 5 minutes, 15 minutes, and 30 minutes. Pause, disablement, conflict, terminal failure, or runtime invalidation cancels pending timers; timers are not restored at startup.
+
 ## Conflict Handling
 
 Conflict detection is based on entity-level hash comparison. A conflict is raised when the same entity changed both locally and remotely.
@@ -116,4 +116,3 @@ The Workbench Home page sync panel shows conflict details and action buttons.
 
 - [Home dashboard](#doc/synthesis%2Fhome) — view sync status
 - [Preferences](#doc/preferences) — configure WebDAV sync
-- [Git Sync](#doc/synthesis%2Fgit-sync) (deprecated) — historical reference

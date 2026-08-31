@@ -32,7 +32,7 @@ function completedPayload() {
         ingestStatus: "created",
         pdfStatus: "missing",
         needsCuration: true,
-        itemRef: { id: 101 },
+        itemRef: { libraryId: 1, key: "SEARCH01" },
       },
     ],
     searchLedgerPath: "result/search-ledger.json",
@@ -180,7 +180,7 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.equal(resolved.diagnostics[0]?.code, "unsupported_options_source");
   });
 
-  it("resolves synthesis topic options through the bounded service facade", async function () {
+  it("resolves synthesis topic options through the grouped client", async function () {
     let requestedFilter = "";
     const resolved = await resolveWorkflowParameterOptionsSource(
       {
@@ -188,23 +188,25 @@ describe("Literature Search Ingest workflow contract", function () {
         filter: "updatable",
       },
       {
-        synthesisService: {
-          async listWorkflowTopicOptions(args) {
-            requestedFilter = String(args?.filter || "");
-            return {
-              options: [
-                {
-                  value: "topic-alpha",
-                  label: "Alpha",
-                  description: "Update · freshness stale · topic-alpha",
-                  meta: {
-                    kind: "synthesis.topic",
-                    topicId: "topic-alpha",
+        synthesisClient: {
+          topics: {
+            async listWorkflowOptions(args) {
+              requestedFilter = String(args?.filter || "");
+              return {
+                options: [
+                  {
+                    value: "topic-alpha",
+                    label: "Alpha",
+                    description: "Update · freshness stale · topic-alpha",
+                    meta: {
+                      kind: "synthesis.topic",
+                      topicId: "topic-alpha",
+                    },
                   },
-                },
-              ],
-              diagnostics: [],
-            };
+                ],
+                diagnostics: [],
+              };
+            },
           },
         },
       },
@@ -679,12 +681,15 @@ describe("Literature Search Ingest workflow contract", function () {
     const result = (await applyResult({
       runResult: { resultJson: completedPayload() },
       runtime: {
-        hostApiVersion: 9,
+        hostApiVersion: 12,
         hostApi: {
           statusTags: {
             async transition(value: unknown) {
               transitions.push(value);
-              return { added: [], removed: [], warnings: [] };
+              return {
+                outcome: "committed",
+                result: { added: [], removed: [], unchanged: [] },
+              };
             },
           },
         },
@@ -693,7 +698,8 @@ describe("Literature Search Ingest workflow contract", function () {
 
     assert.deepEqual(transitions, [
       {
-        item: 101,
+        operationId: "literature-search-ingest:status:1:SEARCH01",
+        itemRef: { libraryId: 1, key: "SEARCH01" },
         add: [
           "need-markdown",
           "need-analysis",
@@ -704,7 +710,9 @@ describe("Literature Search Ingest workflow contract", function () {
       },
     ]);
     assert.isTrue(result.applied);
-    assert.deepEqual(result.taggedItemIds, [101]);
+    assert.deepEqual(result.taggedItemRefs, [
+      { libraryId: 1, key: "SEARCH01" },
+    ]);
   });
 
   it("does not requeue existing items and omits fulltext when this search attached a PDF", async function () {
@@ -716,12 +724,15 @@ describe("Literature Search Ingest workflow contract", function () {
 
     const calls: unknown[] = [];
     const runtime = {
-      hostApiVersion: 9,
+      hostApiVersion: 12,
       hostApi: {
         statusTags: {
           async transition(value: unknown) {
             calls.push(value);
-            return { added: [], removed: [], warnings: [] };
+            return {
+              outcome: "committed",
+              result: { added: [], removed: [], unchanged: [] },
+            };
           },
         },
       },
@@ -734,11 +745,13 @@ describe("Literature Search Ingest workflow contract", function () {
 
     assert.deepEqual(calls, [
       {
-        item: 101,
+        operationId: "literature-search-ingest:status:1:SEARCH01",
+        itemRef: { libraryId: 1, key: "SEARCH01" },
         add: ["need-metadata-curation", "need-fulltext"],
       },
       {
-        item: 101,
+        operationId: "literature-search-ingest:status:1:SEARCH01",
+        itemRef: { libraryId: 1, key: "SEARCH01" },
         add: ["need-markdown", "need-analysis", "need-deep-reading"],
       },
     ]);

@@ -1,4 +1,5 @@
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
 
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -32,19 +33,23 @@ function eligibleTransitions(output) {
   ) {
     return [];
   }
-  const byItemId = new Map();
+  const byItemRef = new Map();
   for (const outcome of output.outcomes) {
-    const itemId = Number(outcome?.itemRef?.id || 0);
+    const itemRef = outcome?.itemRef;
+    const libraryId = Number(itemRef?.libraryId || 0);
+    const key = String(itemRef?.key || "").trim();
     const ingestStatus = String(outcome?.ingestStatus || "").trim();
     if (
       !isObject(outcome) ||
-      !Number.isInteger(itemId) ||
-      itemId <= 0 ||
+      !Number.isSafeInteger(libraryId) ||
+      libraryId <= 0 ||
+      !key ||
       (ingestStatus !== "created" && ingestStatus !== "existing")
     ) {
       continue;
     }
-    const add = new Set(byItemId.get(itemId)?.add || []);
+    const identity = `${libraryId}:${key}`;
+    const add = new Set(byItemRef.get(identity)?.add || []);
     if (ingestStatus === "created") {
       add.add("need-markdown");
       add.add("need-analysis");
@@ -56,15 +61,18 @@ function eligibleTransitions(output) {
     if (String(outcome.pdfStatus || "").trim() !== "attached") {
       add.add("need-fulltext");
     }
-    byItemId.set(itemId, { itemId, add: Array.from(add) });
+    byItemRef.set(identity, {
+      itemRef: { libraryId, key },
+      add: Array.from(add),
+    });
   }
-  return Array.from(byItemId.values()).sort(
-    (left, right) => left.itemId - right.itemId,
-  );
+  return Array.from(byItemRef.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, transition]) => transition);
 }
 
-function eligibleItemIds(output) {
-  return eligibleTransitions(output).map((entry) => entry.itemId);
+function eligibleItemRefs(output) {
+  return eligibleTransitions(output).map((entry) => entry.itemRef);
 }
 
 async function applyResultImpl(args) {
@@ -76,14 +84,14 @@ async function applyResultImpl(args) {
       applied: false,
       skipped: true,
       partial: false,
-      taggedItemIds: [],
+      taggedItemRefs: [],
       tagFailures: [],
       statusWarnings: [],
     };
   }
 
   const statusTags = requireHostApi(args.runtime)?.statusTags;
-  const taggedItemIds = [];
+  const taggedItemRefs = [];
   const statusWarnings = [];
   for (const transition of transitions) {
     try {
@@ -91,31 +99,32 @@ async function applyResultImpl(args) {
         throw new Error("literature-search-ingest statusTags API is unavailable");
       }
       const result = await statusTags.transition({
-        item: transition.itemId,
+        operationId: `literature-search-ingest:status:${transition.itemRef.libraryId}:${transition.itemRef.key}`,
+        itemRef: transition.itemRef,
         add: transition.add,
       });
-      taggedItemIds.push(transition.itemId);
-      for (const warning of result?.warnings || []) {
-        statusWarnings.push({
-          code: "search_status_transition_failed",
-          itemId: transition.itemId,
-          ...warning,
-        });
-      }
+      taggedItemRefs.push(transition.itemRef);
+      statusWarnings.push(
+        ...collectStatusTransitionDiagnostics(
+          result,
+          "search_status_transition_failed",
+          { itemRef: transition.itemRef },
+        ),
+      );
     } catch (error) {
       statusWarnings.push({
         code: "search_status_transition_failed",
-        itemId: transition.itemId,
+        itemRef: transition.itemRef,
         message: error instanceof Error ? error.message : String(error),
       });
     }
   }
   return {
     ok: true,
-    applied: taggedItemIds.length > 0,
+    applied: taggedItemRefs.length > 0,
     skipped: false,
     partial: statusWarnings.length > 0,
-    taggedItemIds,
+    taggedItemRefs,
     tagFailures: statusWarnings,
     statusWarnings,
   };
@@ -129,7 +138,7 @@ export async function applyResult(args) {
 
 export const __literatureSearchIngestApplyResultTestOnly = {
   applyResultImpl,
-  eligibleItemIds,
+  eligibleItemRefs,
   eligibleTransitions,
   resolveOutput,
 };

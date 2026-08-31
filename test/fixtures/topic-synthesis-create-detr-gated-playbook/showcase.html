@@ -3316,8 +3316,6 @@
       ],
       &quot;core_digest&quot;: &quot;DETR 把目标检测重构为集合预测问题，用 Transformer decoder object queries 和 Hungarian matching 避免手工 NMS/anchor 后处理，是本 topic 的方法原点。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;high&quot;,
-      &quot;paper_quality_reason&quot;: &quot;作为 baseline 和概念源头质量高；后续变体几乎都以其训练速度和小目标表现为问题起点。&quot;,
       &quot;paper_ref&quot;: &quot;1:EIMSDEU3&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;DETR 原始论文，直接定义了 set prediction、object queries 和 bipartite matching 的端到端检测范式。&quot;
@@ -3328,8 +3326,6 @@
       ],
       &quot;core_digest&quot;: &quot;Deformable DETR 用稀疏 deformable attention 让 query 只关注少量关键采样点，显著改善训练效率和小目标检测。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;high&quot;,
-      &quot;paper_quality_reason&quot;: &quot;围绕 attention sparsity 和 multi-scale feature sampling 给出明确机制，是理解 DETR-family 工程化改进的核心文献。&quot;,
       &quot;paper_ref&quot;: &quot;1:5HBHAWIV&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;Deformable DETR 是解决 DETR 收敛慢和多尺度特征利用不足的代表性改进。&quot;
@@ -3340,8 +3336,6 @@
       ],
       &quot;core_digest&quot;: &quot;DINO 通过 denoising anchor boxes 改善 query 学习和 matching 稳定性，展示 DETR-family 从概念验证走向强检测器的训练技术路线。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;high&quot;,
-      &quot;paper_quality_reason&quot;: &quot;将 query denoising、anchor 设计和端到端检测性能结合，适合支撑训练稳定性和 high-performing variants 的分析。&quot;,
       &quot;paper_ref&quot;: &quot;1:HPLZ65Z2&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;DINO 代表 denoising training 与 improved anchor boxes 路线，是 DETR 收敛和性能提升的重要节点。&quot;
@@ -3352,8 +3346,6 @@
       ],
       &quot;core_digest&quot;: &quot;DETR3D 使用 3D-to-2D queries 把多视角图像信息组织到 3D 检测中，说明 DETR 的 query/set prediction 思路可跨越 2D COCO 场景。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;medium&quot;,
-      &quot;paper_quality_reason&quot;: &quot;论文展示 query-based detection transformer 在自动驾驶 3D 场景中的迁移价值，是 topic 外延的重要证据。&quot;,
       &quot;paper_ref&quot;: &quot;1:3JUY9GBQ&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;DETR3D 将 DETR 查询范式扩展到多视角 3D object detection，代表 detection paradigm extension。&quot;
@@ -3364,8 +3356,6 @@
       ],
       &quot;core_digest&quot;: &quot;RF-DETR 把 DETR-family 推向实时检测和架构搜索/部署约束，显示该主题从收敛改进继续演化到效率、迁移和工程约束。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;medium&quot;,
-      &quot;paper_quality_reason&quot;: &quot;其标签覆盖 real-time、pretraining、fine-tuning、edge-deployment，适合暴露当前 collection 的近期发展面向。&quot;,
       &quot;paper_ref&quot;: &quot;1:SZ3GNWT9&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;RF-DETR 是近期 real-time detection transformers 方向的高相关变体，反映 DETR-family 与实时部署需求的结合。&quot;
@@ -3974,7 +3964,7 @@ No external network literature was fetched by the split runtime.
       &quot;path&quot;: &quot;runtime/payloads/core-synthesis.json&quot;
     },
     &quot;stage_50_kg_enrichment_payload&quot;: {
-      &quot;hash&quot;: &quot;sha256:c9510936d396616eb32a24df8b100e934ddd3566353a3a66a116c9531f3908f9&quot;,
+      &quot;hash&quot;: &quot;sha256:e0c0b7678ac236f69b21f3aff32018a6cf66742016743cdd461ec5334d599f43&quot;,
       &quot;path&quot;: &quot;runtime/payloads/kg-enrichment.json&quot;
     },
     &quot;topic_graph_relation_proposals&quot;: {
@@ -4502,7 +4492,7 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
       {
         &quot;action&quot;: &quot;submit&quot;,
         &quot;created_at&quot;: &quot;2026-06-06T08:11:54+00:00&quot;,
-        &quot;payload_hash&quot;: &quot;sha256:c9510936d396616eb32a24df8b100e934ddd3566353a3a66a116c9531f3908f9&quot;,
+        &quot;payload_hash&quot;: &quot;sha256:e0c0b7678ac236f69b21f3aff32018a6cf66742016743cdd461ec5334d599f43&quot;,
         &quot;payload_path&quot;: &quot;runtime/payloads/kg-enrichment.json&quot;,
         &quot;skill_id&quot;: &quot;topic-synthesis-core-enrichment&quot;,
         &quot;stage_id&quot;: &quot;stage_50_kg_enrichment&quot;
@@ -5829,7 +5819,7 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
     &quot;1:HPLZ65Z2:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json&quot;,
     &quot;1:SZ3GNWT9:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json&quot;
   ]
-}</code></pre></details></article><article class="mini-card"><h3>prepare-analysis-context.json</h3><p class="muted">agent 手写后 submit · 3,853 bytes</p><details ><summary>workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/prepare-analysis-context.json</summary><pre class="code json"><code>{
+}</code></pre></details></article><article class="mini-card"><h3>prepare-analysis-context.json</h3><p class="muted">agent 手写后 submit · 2,661 bytes</p><details ><summary>workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/prepare-analysis-context.json</summary><pre class="code json"><code>{
   &quot;assessments&quot;: [
     {
       &quot;caveats&quot;: [
@@ -5837,8 +5827,6 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
       ],
       &quot;core_digest&quot;: &quot;DETR 把目标检测重构为集合预测问题，用 Transformer decoder object queries 和 Hungarian matching 避免手工 NMS/anchor 后处理，是本 topic 的方法原点。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;high&quot;,
-      &quot;paper_quality_reason&quot;: &quot;作为 baseline 和概念源头质量高；后续变体几乎都以其训练速度和小目标表现为问题起点。&quot;,
       &quot;paper_ref&quot;: &quot;1:EIMSDEU3&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;DETR 原始论文，直接定义了 set prediction、object queries 和 bipartite matching 的端到端检测范式。&quot;
@@ -5849,8 +5837,6 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
       ],
       &quot;core_digest&quot;: &quot;Deformable DETR 用稀疏 deformable attention 让 query 只关注少量关键采样点，显著改善训练效率和小目标检测。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;high&quot;,
-      &quot;paper_quality_reason&quot;: &quot;围绕 attention sparsity 和 multi-scale feature sampling 给出明确机制，是理解 DETR-family 工程化改进的核心文献。&quot;,
       &quot;paper_ref&quot;: &quot;1:5HBHAWIV&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;Deformable DETR 是解决 DETR 收敛慢和多尺度特征利用不足的代表性改进。&quot;
@@ -5861,8 +5847,6 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
       ],
       &quot;core_digest&quot;: &quot;DINO 通过 denoising anchor boxes 改善 query 学习和 matching 稳定性，展示 DETR-family 从概念验证走向强检测器的训练技术路线。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;high&quot;,
-      &quot;paper_quality_reason&quot;: &quot;将 query denoising、anchor 设计和端到端检测性能结合，适合支撑训练稳定性和 high-performing variants 的分析。&quot;,
       &quot;paper_ref&quot;: &quot;1:HPLZ65Z2&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;DINO 代表 denoising training 与 improved anchor boxes 路线，是 DETR 收敛和性能提升的重要节点。&quot;
@@ -5873,8 +5857,6 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
       ],
       &quot;core_digest&quot;: &quot;DETR3D 使用 3D-to-2D queries 把多视角图像信息组织到 3D 检测中，说明 DETR 的 query/set prediction 思路可跨越 2D COCO 场景。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;medium&quot;,
-      &quot;paper_quality_reason&quot;: &quot;论文展示 query-based detection transformer 在自动驾驶 3D 场景中的迁移价值，是 topic 外延的重要证据。&quot;,
       &quot;paper_ref&quot;: &quot;1:3JUY9GBQ&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;DETR3D 将 DETR 查询范式扩展到多视角 3D object detection，代表 detection paradigm extension。&quot;
@@ -5885,8 +5867,6 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
       ],
       &quot;core_digest&quot;: &quot;RF-DETR 把 DETR-family 推向实时检测和架构搜索/部署约束，显示该主题从收敛改进继续演化到效率、迁移和工程约束。&quot;,
       &quot;diagnostics&quot;: [],
-      &quot;paper_quality_level&quot;: &quot;medium&quot;,
-      &quot;paper_quality_reason&quot;: &quot;其标签覆盖 real-time、pretraining、fine-tuning、edge-deployment，适合暴露当前 collection 的近期发展面向。&quot;,
       &quot;paper_ref&quot;: &quot;1:SZ3GNWT9&quot;,
       &quot;relevance_level&quot;: &quot;core&quot;,
       &quot;relevance_reason&quot;: &quot;RF-DETR 是近期 real-time detection transformers 方向的高相关变体，反映 DETR-family 与实时部署需求的结合。&quot;
@@ -6139,7 +6119,7 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
       &quot;path&quot;: &quot;runtime/payloads/core-synthesis.json&quot;
     },
     &quot;stage_50_kg_enrichment_payload&quot;: {
-      &quot;hash&quot;: &quot;sha256:c9510936d396616eb32a24df8b100e934ddd3566353a3a66a116c9531f3908f9&quot;,
+      &quot;hash&quot;: &quot;sha256:e0c0b7678ac236f69b21f3aff32018a6cf66742016743cdd461ec5334d599f43&quot;,
       &quot;path&quot;: &quot;runtime/payloads/kg-enrichment.json&quot;
     },
     &quot;topic_graph_relation_proposals&quot;: {
@@ -6863,7 +6843,7 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
       {
         &quot;action&quot;: &quot;submit&quot;,
         &quot;created_at&quot;: &quot;2026-06-06T08:11:54+00:00&quot;,
-        &quot;payload_hash&quot;: &quot;sha256:c9510936d396616eb32a24df8b100e934ddd3566353a3a66a116c9531f3908f9&quot;,
+        &quot;payload_hash&quot;: &quot;sha256:e0c0b7678ac236f69b21f3aff32018a6cf66742016743cdd461ec5334d599f43&quot;,
         &quot;payload_path&quot;: &quot;runtime/payloads/kg-enrichment.json&quot;,
         &quot;skill_id&quot;: &quot;topic-synthesis-core-enrichment&quot;,
         &quot;stage_id&quot;: &quot;stage_50_kg_enrichment&quot;

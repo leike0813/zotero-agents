@@ -162,20 +162,22 @@ describe("collection collector workflow", function () {
       },
       resultContext: { resultJson: result },
       runtime: {
-        hostApiVersion: 8,
+        hostApiVersion: 12,
         hostApi: {
           library: {
             async listItems() {
               return {
-                items: [{ libraryId: 1, key: "EXIST123" }],
+                items: [{ ref: { libraryId: 1, key: "EXIST123" } }],
                 hasMore: false,
               };
             },
-            async getItemDetail(ref: string) {
+            async getItemDetail(ref: { libraryId: number; key: string }) {
               return {
-                libraryId: 1,
-                key: ref.split(":")[1],
-                itemType: "journalArticle",
+                kind: "regular",
+                item: {
+                  ref,
+                  itemType: "journalArticle",
+                },
               };
             },
           },
@@ -192,13 +194,13 @@ describe("collection collector workflow", function () {
     assert.equal(applied.status, "added");
     assert.equal(applied.addedCount, 1);
     assert.equal(applied.alreadyPresentCount, 1);
-    assert.deepEqual(mutations, [
-      {
-        operation: "collection.addItems",
-        collection: "1:COLL1234",
-        items: ["1:ITEM1234"],
-      },
-    ]);
+    assert.lengthOf(mutations, 1);
+    assert.deepInclude(mutations[0], {
+      operation: "collection.updateMembership",
+      collectionRef: { libraryId: 1, key: "COLL1234" },
+      add: [{ libraryId: 1, key: "ITEM1234" }],
+      remove: [],
+    });
   });
 
   it("omits the first cursor and passes through opaque membership cursors", async function () {
@@ -215,7 +217,7 @@ describe("collection collector workflow", function () {
         resultJson: successResult([selectedItem("1:EXIST123")]),
       },
       runtime: {
-        hostApiVersion: 8,
+        hostApiVersion: 12,
         hostApi: {
           library: {
             async listItems(args: unknown) {
@@ -223,7 +225,7 @@ describe("collection collector workflow", function () {
               return calls.length === 1
                 ? { items: [], hasMore: true, nextCursor: opaqueCursor }
                 : {
-                    items: [{ libraryId: 1, key: "EXIST123" }],
+                    items: [{ ref: { libraryId: 1, key: "EXIST123" } }],
                     hasMore: false,
                     nextCursor: "",
                   };
@@ -261,7 +263,7 @@ describe("collection collector workflow", function () {
           resultJson: successResult([selectedItem("2:ITEM1234")]),
         },
         runtime: {
-          hostApiVersion: 8,
+          hostApiVersion: 12,
           hostApi: {
             library: {
               async listItems() {

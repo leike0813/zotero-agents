@@ -2,10 +2,10 @@
 
 ## 状态所有权与 schema
 
-`scripts/zotero_librarian_service.py`独家创建并更新`state.sqlite`。当前 schema 标记是`zotero-librarian.state.v3`。其拥有的数据包括：
+`scripts/zotero_librarian_service.py`独家创建并更新`state.sqlite`。当前 schema 标记是`zotero-librarian.state.v4`。其拥有的数据包括：
 
 - 包括最后一次成功 index refresh 在内的元数据；
-- 以 library ID 和 item key 为键的文献库条目 projection；
+- current 与 staging library-index generation，以及以 generation、library ID 和 item key 为键的 item row；
 - 以 workflow ID 为键的缓存工作流定义；
 - 以 `workflowRunId` 为键的 watched Zotero 托管 run；
 - 以 event ID 为键的轻量通知；
@@ -14,11 +14,20 @@
 
 该数据库是可重建的缓存和 journal。UI 上下文、文献库内容、工作流定义、执行模式、run、permission、通知、Product、文件、operation 和写入仍以实时 Zotero 为权威。
 
+## Profile-local state 边界
+
+active connection profile 由 service `--profile`、`ZOTERO_BRIDGE_PROFILE` 或平台 well-known profile 选择。well-known profile 是现有 state path 的默认 owner。每个显式规范化 profile 路径拥有独立的 `workspaces/<sha256>/` root，包括 SQLite database、workflow catalog、watched run、notification 和 `.zotero-bridge/bin`；identity 不包含 profile 内容或 token。Agent 无需手动计算该 root。
+
+`--db` 只能指定当前 root 内的诊断 database。profile/path/root/connection 错误和 `workspace_path_outside_profile` 会在创建 database 前停止 pass，且不回退到共享目录。该路由不改变 `state.v4` schema，也不改变要求 live Zotero facts、current approval、native queue ownership 和 durable receipt 的规则。
+
+
 ## 新鲜度与原子更新
 
 每项缓存结论都附带相关刷新或更新时间。缓存用于发现与变化检测；对外可见的当前事实，以及所有可能导致写入或交互的决策，都使用实时读取。
 
-Index refresh 在一个事务中接受所有 snapshot 页面，upsert 已变更行，删除完整 snapshot 中缺失的行，并且仅在成功时记录刷新时间。页面、解析或事务失败会回滚新 projection。Catalog refresh 同样只提交每项成功取得的变更描述，不虚构定义。
+Index refresh 把每个已接受 snapshot page 写入 staging generation，先前 generation 仍保持 current。service 会校验一个不可变 Host basis：snapshot identity、library、scope、稳定顺序、batch 序列、已交付 counter 与 terminal evidence。只有匹配的 `outcome: completed` evidence 才允许 promotion transaction 将 staged generation 标记为 current、移除 prior-generation row，并记录刷新时间。
+
+active page、中断、过期、cursor 不匹配、资源上限、Host 重启、解析失败、写入失败或 evidence 不匹配均不能 promote。未完成 generation 保持非 authoritative，先前 current generation 仍可读取。后续 refresh 会打开新的进程内 snapshot；它不会复用缓存的 snapshot identity，也不会从 staged row count 推断完成。完整的空 snapshot 可以 promote 为空 generation，从而移除所有先前 item row。Catalog refresh 同样只提交每项成功取得的变更描述，不虚构定义。
 
 Run watch 与 notification sync 只更新已接受的实时结果。连接失败时保留最后已知状态以供后续比较。不得抹除旧状态、依据被拒数据推进 cursor，或在刷新失败后把缓存 terminal/run/event 值描述为当前值。
 
@@ -65,17 +74,30 @@ profile 初始化期间运行 `scripts/install_zotero_bridge_cli.py`。它安装
 
 它不存储用户权限、当前 Zotero 连接真相、workflow 批准或任务结论。
 
-### `library_items`
+### `library_index_generations`
+
+存储：
+
+- generation 与 Host snapshot identity；
+- 已解析 library identity；
+- `staging` 或 `current` status；
+- Host content digest、item 与 batch 总数；
+- 创建与 promotion 时间。
+
+staging generation 是可恢复的本地工作，并非 current index，也不能证明缺失行已被删除。Promotion 需要当前 Host 的准确 completion evidence；旧 receipt 或本地重建 evidence 不能把 generation 设为 current。
+
+### `library_generation_items`
 
 商店：
 
+- 所属 generation identity；
 - 文献库 ID 和单册密钥；
 - 数字项目 ID；
 - 项目类型和标题；
 - 序列化快照负载；
 - 内容摘要和本地更新时间。
 
-该投影支持发现和变更比较。它不证明当前项目状态、附件访问、选择或权限。
+只有 `meta.current_library_generation` 指定 generation 的行支持发现与变化比较。Staging row 不会出现在 resident search、item read、stats 或 hygiene candidate 中。current 与 staging row 都不能证明当前 item state、attachment access、selection 或 permission。
 
 ### `workflow_catalog`
 
@@ -285,11 +307,12 @@ Active submission 与 queue projections 是 process-local。Host restart 使先�
 ### 文献库投影
 
 1. 保留失败的刷新receipt和最后可用的数据库。
-2. 确定在完成快照接受之前是否发生故障。
-3. 保留之前的刷新时间戳。
-4. 通过服务运行新的有界完全刷新。
-5. 比较计数。
-6. 使用实时项目读取来得出当前结论。
+2. 如存在 staging generation identity，保留它，但保持非 authoritative。
+3. 确认是否收到匹配的 Host completion evidence，且 promotion 已提交。
+4. 任一条件缺失时，保留先前 current generation 与刷新时间戳。
+5. 通过 service 运行新的有界完整 refresh；中断、过期或 Host 重启后不得 resume 旧的进程内 snapshot。
+6. 比较 promoted count、generation identity 与 snapshot identity。
+7. 使用 live item read 得出当前结论。
 
 切勿手动修补缺失的行。
 

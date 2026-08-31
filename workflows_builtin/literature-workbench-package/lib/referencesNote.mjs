@@ -10,7 +10,7 @@ import {
   resolveWorkbenchEmbeddedPayloadBlock,
 } from "./embeddedPayloadAttachments.mjs";
 import { parseWorkbenchNoteKind } from "./noteCodecs.mjs";
-import { requireHostItems } from "./runtime.mjs";
+import { normalizeReferencesPayload } from "./referenceModel.mjs";
 
 export function cloneSelectionContext(selectionContext) {
   return JSON.parse(JSON.stringify(selectionContext || {}));
@@ -87,42 +87,6 @@ export function parseGeneratedNoteKind(noteContent) {
   return "";
 }
 
-export function resolveNoteReference(noteEntry) {
-  if (typeof noteEntry?.item?.id === "number") {
-    return noteEntry.item.id;
-  }
-  if (typeof noteEntry?.id === "number") {
-    return noteEntry.id;
-  }
-  const key = String(noteEntry?.item?.key || noteEntry?.key || "").trim();
-  return key || null;
-}
-
-export function normalizeNoteSelectionEntry(noteItem, runtime) {
-  const parentRef = noteItem.parentItemID || null;
-  const parentItem = parentRef ? requireHostItems(runtime).get(parentRef) : null;
-  return {
-    item: {
-      id: noteItem.id,
-      key: noteItem.key,
-      itemType: noteItem.itemType,
-      title: String(noteItem.getField?.("title") || ""),
-      libraryID: noteItem.libraryID,
-      parentItemID:
-        noteItem.parentItemID === false ? null : noteItem.parentItemID || null,
-      data: noteItem.toJSON?.() || null,
-    },
-    parent: parentRef
-      ? {
-          id: parentRef,
-          title: String(parentItem?.getField?.("title") || ""),
-        }
-      : null,
-    tags: noteItem.getTags?.() || [],
-    collections: noteItem.getCollections?.() || [],
-  };
-}
-
 export function collectCandidateNotesFromParents(selectionContext) {
   const parents = Array.isArray(selectionContext?.items?.parents)
     ? selectionContext.items.parents
@@ -142,61 +106,6 @@ export function collectCandidateNotes(selectionContext) {
     ? selectionContext.items.notes
     : [];
   return [...directNotes, ...collectCandidateNotesFromParents(selectionContext)];
-}
-
-export function filterReferenceNotesSelection({ selectionContext, runtime }) {
-  const notes = collectCandidateNotes(selectionContext);
-  const validNotes = [];
-  const seen = new Set();
-
-  for (const noteEntry of notes) {
-    const noteRef = resolveNoteReference(noteEntry);
-    if (!noteRef) {
-      continue;
-    }
-    let noteItem = null;
-    try {
-      noteItem = runtime.helpers.resolveItemRef(noteRef);
-    } catch {
-      noteItem = null;
-    }
-    if (!noteItem) {
-      continue;
-    }
-    const dedupeKey =
-      typeof noteItem.id === "number" ? `id:${noteItem.id}` : `key:${noteItem.key}`;
-    if (seen.has(dedupeKey)) {
-      continue;
-    }
-    const noteContent = String(noteItem.getNote?.() || "");
-    if (parseNoteKind(noteContent) !== "references") {
-      continue;
-    }
-    seen.add(dedupeKey);
-    validNotes.push(normalizeNoteSelectionEntry(noteItem, runtime));
-  }
-
-  if (validNotes.length === 0) {
-    return null;
-  }
-
-  const cloned = cloneSelectionContext(selectionContext);
-  if (!cloned.items) {
-    cloned.items = {};
-  }
-  cloned.items.notes = validNotes;
-  cloned.items.attachments = [];
-  cloned.items.parents = [];
-  cloned.items.children = [];
-  if (!cloned.summary) {
-    cloned.summary = {};
-  }
-  cloned.summary.noteCount = validNotes.length;
-  cloned.summary.attachmentCount = 0;
-  cloned.summary.parentCount = 0;
-  cloned.summary.childCount = 0;
-  cloned.selectionType = "note";
-  return cloned;
 }
 
 export function parseReferencesPayload(noteContent, runtime) {
@@ -228,13 +137,6 @@ export function parseReferencesPayload(noteContent, runtime) {
   } catch {
     throw new Error("references payload JSON is malformed");
   }
-  const normalizeReferencesPayload =
-    typeof runtime?.helpers?.normalizeReferencesPayload === "function"
-      ? runtime.helpers.normalizeReferencesPayload.bind(runtime.helpers)
-      : (input) => {
-          const references = Array.isArray(input?.references) ? input.references : [];
-          return references;
-        };
   const references = normalizeReferencesPayload(payload);
   return {
     payload,
@@ -245,13 +147,7 @@ export function parseReferencesPayload(noteContent, runtime) {
 }
 
 function normalizeReferencesFromPayload(payload, runtime) {
-  const normalizeReferencesPayload =
-    typeof runtime?.helpers?.normalizeReferencesPayload === "function"
-      ? runtime.helpers.normalizeReferencesPayload.bind(runtime.helpers)
-      : (input) => {
-          const references = Array.isArray(input?.references) ? input.references : [];
-          return references;
-        };
+  void runtime;
   return normalizeReferencesPayload(payload);
 }
 
@@ -327,33 +223,4 @@ export async function persistReferencesPayloadForNote(args) {
 
 export function parseReferencesNoteKind(noteContent) {
   return parseNoteKind(noteContent);
-}
-
-export function resolveSelectedReferenceNote({ runResult, runtime, workflowId }) {
-  const normalizedWorkflowId = String(workflowId || "references-note-workflow").trim();
-  const selectionContext = runResult?.resultJson?.selectionContext;
-  const notes = Array.isArray(selectionContext?.items?.notes)
-    ? selectionContext.items.notes
-    : [];
-  if (notes.length !== 1) {
-    throw new Error(
-      `${normalizedWorkflowId} expects exactly one selected references note, got ${notes.length}`,
-    );
-  }
-  const noteRef =
-    typeof notes[0]?.item?.id === "number"
-      ? notes[0].item.id
-      : String(notes[0]?.item?.key || "").trim();
-  if (!noteRef) {
-    throw new Error(`${normalizedWorkflowId} cannot resolve selected note reference`);
-  }
-  const noteItem = runtime.helpers.resolveItemRef(noteRef);
-  const noteContent = String(noteItem.getNote?.() || "");
-  if (parseReferencesNoteKind(noteContent) !== "references") {
-    throw new Error("selected note is not a references note");
-  }
-  return {
-    noteItem,
-    noteContent,
-  };
 }

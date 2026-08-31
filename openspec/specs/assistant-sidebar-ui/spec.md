@@ -255,7 +255,10 @@ workflow result content.
 
 ### Requirement: SkillRunner managed runtime
 
-SkillRunner SHALL continue to load `run-dialog.html`, but the visible layout and controls SHALL be rendered through the managed Assistant runtime.
+SkillRunner SHALL load the shared assistant child page (`skillrunner.html`
+with `data-source="skillrunner"`) and SHALL be refreshed only through the v1
+publication plane; the visible layout and controls SHALL be rendered through
+the managed Assistant runtime.
 
 SkillRunner SHALL preserve backend protocol, output convergence, run history, waiting_user/auth/cancel semantics, and assistant revision/replacement audit semantics.
 
@@ -272,10 +275,11 @@ related task states, disabled task states, and the Completed-section collapse
 action. It SHALL NOT flatten SkillRunner tasks into a generic context-entry
 list.
 
-SkillRunner `assistant_process` items with `processType` or
+SkillRunner `assistant_process` entries with `processType` or
 `correlation.process_type` equal to `tool_call` or `command_execution` SHALL be
-projected as shared `tool` transcript rows. Reasoning-like or unknown
-`assistant_process` items SHALL remain shared `process` rows.
+projected as canonical `tool-call` transcript items. Reasoning-like or unknown
+`assistant_process` entries SHALL be projected as canonical `thought`
+transcript items.
 
 #### Scenario: SkillRunner native semantics remain intact
 
@@ -283,22 +287,6 @@ projected as shared `tool` transcript rows. Reasoning-like or unknown
 - **When** the SkillRunner tab renders inside the Assistant shell
 - **Then** the SkillRunner adapter preserves it as SkillRunner-owned revision metadata and details diagnostics
 - **And** ACP Chat does not inherit SkillRunner-specific revision semantics.
-
-#### Scenario: SkillRunner Sessions drawer keeps workspace/task grouping
-
-- **Given** SkillRunner receives a workspace snapshot with drawer sections and backend groups
-- **When** the Sessions drawer is opened in the Assistant shell
-- **Then** Running and Completed sections are rendered with backend groups and task cards
-- **And** selecting a task emits `select-task` with the task key
-- **And** toggling the Completed section emits `toggle-drawer-section` with `sectionId=completed`.
-
-#### Scenario: SkillRunner tool-like process rows use shared tool styling
-
-- **Given** SkillRunner emits `assistant_process` data with `processType=tool_call`
-- **Or** SkillRunner emits `assistant_process` data with `processType=command_execution`
-- **When** the SkillRunner transcript is projected into `AssistantConversationView`
-- **Then** those rows are rendered as shared `tool` rows
-- **And** they are not concatenated into the reasoning/process text block.
 
 ### Requirement: Managed drawer run lifecycle actions
 
@@ -1243,3 +1231,133 @@ After an incremental transcript effect restores the viewport anchor or the prese
 - **WHEN** an incremental effect restores the viewport
 - **THEN** the last-scroll-top marker SHALL equal the restored `scrollTop`
 - **AND** the tail-follow state SHALL NOT be cleared unless a real user scroll moves upward.
+
+### Requirement: Terminal ACP Skills controls preserve terminal navigation
+
+Assistant Workspace SHALL show Connect for an eligible detached terminal ACP
+Skills run and enable the composer only after explicit connection. Prompting
+SHALL show turn activity and Interrupt while the run remains in its completed or
+failed navigation group.
+
+#### Scenario: Connected succeeded run remains completed
+
+- **GIVEN** a succeeded ACP Skills run is explicitly connected for conversation
+- **WHEN** the user sends and settles a prompt
+- **THEN** the run SHALL remain in the completed/history group
+- **AND** the composer and activity controls SHALL reflect only conversation
+  state without projecting an active workflow task.
+
+### Requirement: Owner navigation explicitly projects archive availability
+
+Every Assistant Workspace owner-navigation entry SHALL include a required
+`canArchive` boolean supplied by its source. ACP Chat, ACP Skills, and
+SkillRunner sources SHALL project the field explicitly.
+
+#### Scenario: Busy terminal conversation cannot be archived
+
+- **GIVEN** a terminal ACP Skills conversation is connecting, connected, or has
+  an active prompt
+- **WHEN** navigation actions are rendered
+- **THEN** Archive SHALL remain visible but disabled with `canArchive=false`
+- **AND** Disconnect SHALL be required before archive can become available.
+
+#### Scenario: Detached terminal run can be archived
+
+- **GIVEN** a terminal run is disconnected and has no active prompt
+- **WHEN** navigation actions are rendered
+- **THEN** its entry SHALL project `canArchive=true` subject to the source's
+  existing archive rules.
+
+### Requirement: Terminal transcript streaming preserves managed region identity
+
+Terminal conversation transcript and loading updates SHALL be scoped to the
+selected transcript owner and SHALL update only `TranscriptRegion`. Toolbar,
+banner, plan, hint, reply, context drawer, details drawer, and permission drawer
+SHALL remain isolated by their own visible-content signatures.
+
+#### Scenario: Terminal stream updates transcript only
+
+- **GIVEN** an eligible terminal ACP Skills conversation is selected and its
+  non-transcript managed regions are mounted
+- **WHEN** transcript chunks arrive without changing any region-owned visible
+  state
+- **THEN** transcript rows SHALL update
+- **AND** every non-transcript managed region SHALL preserve DOM identity.
+
+### Requirement: Chrome regions collapse under limited viewport height
+
+The shell toolbar, banner, and reply zone of every Assistant Workspace child
+panel (ACP Chat, ACP Skills, SkillRunner) SHALL be collapsible so the
+conversation window keeps vertical space when the panel viewport height is
+small.
+
+Region collapse SHALL be a pure chrome presentation state: it is expressed by
+an `is-region-collapsed` class on the region container and a
+`data-collapse-stage` attribute on the panel root, applied by the child panel
+runtime outside the region render pipeline. Collapse state SHALL NOT enter any
+region signature selection, any region render key, or the panel DTO, and a
+collapse toggle SHALL NOT re-render the transcript or any managed region.
+Collapse toggle buttons SHALL be appended to the region containers outside
+the Preact managed mounts and SHALL use shared localized labels.
+
+The trigger model SHALL be manual-first with an automatic fallback: an auto
+stage derived from the panel viewport height with hysteresis collapses the
+banner at stage 1, additionally compacts the reply zone at stage 2, and
+additionally collapses the shell toolbar at stage 3. A manual toggle SHALL
+pin a per-region override that wins over the auto stage, and toggling back to
+the auto-suggested value SHALL clear the override. Collapse state SHALL be
+session-scoped and SHALL NOT persist.
+
+The collapsed forms SHALL be:
+
+- `shell toolbar`: action groups hidden; only a slim strip with the expand
+  toggle remains.
+- `banner`: only the title row remains; subtitle, metadata pills, status row,
+  indicators, selectors, and context actions are hidden, except that
+  warning/danger notices and the new-conversation `+` action stay visible.
+- `reply zone`: the textarea compacts to a single line and the footer becomes
+  a single row holding the runtime selectors and the Send button; the hint
+  text and usage gauge are hidden. The textarea element SHALL be restyled,
+  never replaced, so draft, focus, and caret survive collapse transitions.
+
+#### Scenario: Banner auto-collapses first and recovers with hysteresis
+
+- **WHEN** the panel viewport height drops to or below the banner enter
+  threshold
+- **THEN** the banner collapses to its title row while the reply zone and
+  shell toolbar stay expanded
+- **AND** the banner remains collapsed until the height climbs past the exit
+  threshold above the enter threshold.
+
+#### Scenario: Deeper stages compact reply zone then toolbar
+
+- **WHEN** the panel viewport height drops to or below the reply zone enter
+  threshold
+- **THEN** the reply zone renders its compact single-line form in addition to
+  the collapsed banner
+- **AND** when the height drops to or below the toolbar enter threshold the
+  shell toolbar collapses to its slim strip as well.
+
+#### Scenario: Manual override wins over the auto stage
+
+- **GIVEN** the banner is collapsed by the auto stage
+- **WHEN** the user clicks the banner toggle
+- **THEN** the banner expands and stays expanded across further auto stage
+  changes
+- **AND** clicking the toggle again returns the banner to the auto stage
+  because the toggled value matches the auto suggestion.
+
+#### Scenario: Collapse toggles preserve region DOM identity
+
+- **WHEN** any region is collapsed or expanded by manual toggle or auto stage
+- **THEN** the managed mounts and subtree nodes of every region, including
+  the transcript, remain the same DOM nodes
+- **AND** no region re-render is triggered.
+
+#### Scenario: Composer compaction preserves the reply draft
+
+- **GIVEN** the user has typed a draft into the reply textarea
+- **WHEN** the reply zone switches between expanded and compact forms
+- **THEN** the same textarea element keeps its value, and focus and caret are
+  not reset by the transition.
+

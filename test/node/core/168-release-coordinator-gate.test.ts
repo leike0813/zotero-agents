@@ -158,6 +158,29 @@ describe("release coordinator gate", function () {
     });
   });
 
+  it("does not classify the XPI Host Bridge Skill bundle as content-package content", async function () {
+    await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.5.5",
+        changedFiles: [
+          "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
+        ],
+        commandRunner: commandRunner(),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        contentPackageReleaseVerified: false,
+      });
+
+      assert.isTrue(report.host_bridge.required);
+      assert.isFalse(report.content_package.candidate);
+      assert.notInclude(
+        blockerCodes(report),
+        "content_package_release_not_verified",
+      );
+    });
+  });
+
   it("routes the unified Host Bridge release workflow to its pipeline", async function () {
     await withPackageVersion("0.5.4", async (packageJsonPath) => {
       const report = await analyzeReleaseGate({

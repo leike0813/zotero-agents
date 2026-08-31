@@ -4,15 +4,8 @@ import {
   formatRuntimeLogsAsNDJSON,
   listRuntimeLogs,
 } from "./runtimeLogManager";
-import {
-  appendRuntimeTextFile as appendRuntimeTextFilePrimitive,
-  writeRuntimeTextFile,
-} from "./runtimePersistence";
-import {
-  discardBufferedWriteKey,
-  enqueueBufferedWrite,
-  flushBufferedWriteKey,
-} from "./bufferedWriteCoordinator";
+import { writeRuntimeTextFile } from "./runtimePersistence";
+import { createAcpAuditAppendCore } from "./acpAuditAppendCore";
 import type { SessionNotification } from "./acpProtocol";
 import type { AcpSkillRunEvent, AcpSkillRunRecord } from "./acpSkillRunStore";
 import type { AcpDiagnosticEvidenceRecord } from "./acpDiagnostics";
@@ -33,11 +26,28 @@ const MAX_STDERR_LENGTH = 64 * 1024;
 const MAX_DEPTH = 6;
 const MAX_ARRAY_ITEMS = 100;
 const MAX_OBJECT_KEYS = 200;
-const AUDIT_MAX_PENDING_ENTRIES = 2048;
-const AUDIT_MAX_PENDING_BYTES = 2 * 1024 * 1024;
 const SENSITIVE_KEY_PATTERN =
   /(authorization|token|secret|password|api[-_]?key|cookie|bearer)/i;
-const auditWriteKeys = new Map<string, string>();
+
+const auditCore = createAcpAuditAppendCore({
+  log: (event) => {
+    if (event.kind === "overflow") {
+      recordAuditOverflow({
+        requestId: event.requestId || "",
+        path: event.path,
+        droppedEntries: event.droppedEntries,
+        droppedBytes: event.droppedBytes,
+        overflowEpisode: event.overflowEpisode,
+      });
+      return;
+    }
+    recordAuditFailure({
+      requestId: event.requestId || "",
+      stage: "audit-batch-append-failed",
+      error: event.error,
+    });
+  },
+});
 
 type AuditTrailFiles = Record<
   | "readme"
@@ -185,70 +195,28 @@ function appendRuntimeTextFile(args: {
   requestId: string;
   line: string;
 }) {
-  const key = auditWriteKey(args.path);
-  auditWriteKeys.set(key, args.owner);
-  enqueueBufferedWrite({
-    key,
+  auditCore.append({
+    key: auditWriteKey(args.path),
+    coordinatorOwner: args.owner,
     owner: args.owner,
-    entry: args.line,
-    bytes: new TextEncoder().encode(args.line).length,
-    performanceProfileRequestId: args.requestId,
-    performanceChannel: "audit",
-    hardPendingLimit: {
-      maxEntries: AUDIT_MAX_PENDING_ENTRIES,
-      maxBytes: AUDIT_MAX_PENDING_BYTES,
-      overflow: "drop-oldest",
-      onOverflow: (event) => {
-        recordAuditOverflow({
-          requestId: args.requestId,
-          path: args.path,
-          ...event,
-        });
-      },
-    },
-    sink: async (lines) => {
-      try {
-        await appendRuntimeTextFilePrimitive(args.path, lines.join(""));
-      } catch (error) {
-        recordAuditFailure({
-          requestId: args.requestId,
-          stage: "audit-batch-append-failed",
-          error,
-        });
-        throw error;
-      }
-    },
+    path: args.path,
+    requestId: args.requestId,
+    line: args.line,
   });
 }
 
 export async function flushAcpSkillRunAuditTrailWrites(runtimeDir?: string) {
   const owner = normalizeString(runtimeDir);
-  const keys = Array.from(auditWriteKeys.entries())
-    .filter(([, entryOwner]) => !owner || entryOwner === owner)
-    .map(([key]) => key);
-  await Promise.all(keys.map((key) => flushBufferedWriteKey(key)));
+  await auditCore.flush(owner || undefined);
 }
 
 export async function releaseAcpSkillRunAuditTrailWrites(runtimeDir?: string) {
   const owner = normalizeString(runtimeDir);
-  const keys = Array.from(auditWriteKeys.entries())
-    .filter(([, entryOwner]) => !owner || entryOwner === owner)
-    .map(([key]) => key);
-  await Promise.allSettled(keys.map((key) => flushBufferedWriteKey(key)));
-  for (const key of keys) {
-    discardBufferedWriteKey(key);
-    auditWriteKeys.delete(key);
-  }
+  await auditCore.release(owner || undefined);
 }
 
 export async function flushAcpSkillRunAuditTrailWritesForTests() {
-  await Promise.allSettled(
-    Array.from(auditWriteKeys.keys()).map((key) => flushBufferedWriteKey(key)),
-  );
-  for (const key of auditWriteKeys.keys()) {
-    discardBufferedWriteKey(key);
-  }
-  auditWriteKeys.clear();
+  await auditCore.flushAndDiscardAll();
 }
 
 function toAuditError(error: unknown) {

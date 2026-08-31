@@ -1,6 +1,7 @@
-import { rewriteMarkdownLocalImages } from "./literatureBundle.mjs";
-import { listWorkbenchEmbeddedPayloadBlocksForNote } from "./embeddedPayloadAttachments.mjs";
-import { renderResearchBundleReadme } from "./researchBundleReadme.mjs";
+import { workbenchPayloadArtifactName } from "./embeddedPayloadAttachments.mjs";
+import { exportBundleBibliography } from "./bundleBibliography.mjs";
+import { renderResearchBundleIndex, renderResearchBundleReadme } from "./researchBundleReadme.mjs";
+import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
 
 export const RESEARCH_SELECTION_SCHEMA = "research_bundle.selection";
 export const RESEARCH_PRODUCT_SCHEMA = "research_bundle.product";
@@ -8,7 +9,7 @@ const PAYLOAD_TYPES = new Set([
   "digest-markdown",
   "references-json",
   "citation-analysis-json",
-  "conversation-note-markdown",
+  "literature-score-json",
 ]);
 
 export function isResearchPayloadType(value) {
@@ -28,12 +29,18 @@ function boundedInteger(value, fallback, minimum, maximum) {
 }
 export function computeResearchPaperScore(args = {}) {
   const semantic = number(args.semantic);
+  const quality = number(args.quality, 0.5);
   const topic = number(args.topic);
   const readiness = number(args.readiness);
   if (args.graphAvailable === false) {
-    return semantic * 0.8 + topic * 0.15 + readiness * 0.05;
+    return semantic * 0.65 + quality * 0.15 + topic * 0.15 + readiness * 0.05;
   }
-  return semantic * 0.6 + number(args.graph) * 0.2 + topic * 0.15 + readiness * 0.05;
+  return semantic * 0.5 + quality * 0.15 + number(args.graph) * 0.15 + topic * 0.15 + readiness * 0.05;
+}
+
+function isTopicMandatoryPaper(entry) {
+  return array(entry?.matched_topic_ids).length > 0
+    || array(entry?.candidate_sources).some((source) => text(source).startsWith("topic:"));
 }
 
 export function normalizeResearchSelection(value) {
@@ -45,9 +52,9 @@ export function normalizeResearchSelection(value) {
     throw new Error("research selection intent is incomplete");
   }
   const limits = {
-    max_topics: boundedInteger(value?.limits?.max_topics, 5, 0, 5),
-    max_core_papers: boundedInteger(value?.limits?.max_core_papers, 20, 1, 20),
-    max_related_papers: boundedInteger(value?.limits?.max_related_papers, 80, 1, 80),
+    max_topics: boundedInteger(value?.limits?.max_topics, 5, 0, 10),
+    max_core_papers: boundedInteger(value?.limits?.max_core_papers, 20, 1, 50),
+    max_related_papers: boundedInteger(value?.limits?.max_related_papers, 80, 1, 200),
   };
   const topicIds = new Set();
   const topics = array(value.topics).slice(0, limits.max_topics).map((entry) => ({
@@ -65,16 +72,18 @@ export function normalizeResearchSelection(value) {
     const paperRef = text(entry?.paper_ref);
     const semantic = number(entry?.semantic_relevance);
     if (!paperRef || seen.has(paperRef)) throw new Error("research paper refs must be unique");
-    if (semantic < 0.45) throw new Error(`research paper relevance is below threshold: ${paperRef}`);
+    const mandatory = isTopicMandatoryPaper(entry);
+    if (semantic < 0.45 && !mandatory) throw new Error(`research paper relevance is below threshold: ${paperRef}`);
     seen.add(paperRef);
     const computedScore = computeResearchPaperScore({
       semantic,
+      quality: entry?.literature_quality?.quality_prior,
       graph: entry?.graph_importance,
       topic: entry?.topic_coverage,
       readiness: entry?.material_readiness,
       graphAvailable: entry?.graph_available !== false,
     });
-    if (entry?.score !== undefined && (!Number.isFinite(Number(entry.score)) || Math.abs(Number(entry.score) - computedScore) > 0.000001)) {
+    if (entry?.selection_score !== undefined && (!Number.isFinite(Number(entry.selection_score)) || Math.abs(Number(entry.selection_score) - computedScore) > 0.000001)) {
       throw new Error(`research paper score does not match policy: ${paperRef}`);
     }
     return {
@@ -82,11 +91,12 @@ export function normalizeResearchSelection(value) {
       paper_ref: paperRef,
       role: entry?.role === "core" ? "core" : "related",
       semantic_relevance: semantic,
-      score: computedScore,
+      selection_score: computedScore,
     };
-  }).sort((left, right) => right.score - left.score || left.paper_ref.localeCompare(right.paper_ref));
+  }).sort((left, right) => right.selection_score - left.selection_score || left.paper_ref.localeCompare(right.paper_ref));
   const coreCount = papers.filter((entry) => entry.role === "core").length;
-  if (papers.length > limits.max_related_papers || coreCount > limits.max_core_papers) {
+  const optionalCount = papers.filter((entry) => !isTopicMandatoryPaper(entry)).length;
+  if (optionalCount > limits.max_related_papers || coreCount > limits.max_core_papers) {
     throw new Error("research selection exceeds workflow limits");
   }
   if (papers.some((entry, index) => (index < coreCount) !== (entry.role === "core"))) {
@@ -94,7 +104,7 @@ export function normalizeResearchSelection(value) {
   }
   return {
     schema_id: RESEARCH_SELECTION_SCHEMA,
-    schema_version: "1.0.0",
+    schema_version: "2.0.0",
     intent: {
       paper_title: text(intent.paper_title),
       article_type: text(intent.article_type) || "original research",
@@ -111,13 +121,7 @@ export function normalizeResearchSelection(value) {
 function parsePaperRef(paperRef) {
   const match = /^(\d+):(.+)$/.exec(text(paperRef));
   if (!match) throw new Error(`invalid paper_ref: ${paperRef}`);
-  return { libraryID: Number(match[1]), key: match[2] };
-}
-
-function payloadText(block) {
-  if (block.format === "markdown") return String(block.markdown || block.payload?.content || "");
-  if (block.format === "json") return `${JSON.stringify(block.payload, null, 2)}\n`;
-  return String(block.decodedText || block.payload?.content || "");
+  return { libraryId: Number(match[1]), key: match[2] };
 }
 
 function topicReportBody(report) {
@@ -126,41 +130,114 @@ function topicReportBody(report) {
   );
 }
 
-function payloadArtifactName(payloadType) {
-  return payloadType === "digest-markdown"
-    ? "digest"
-    : payloadType === "references-json"
-      ? "references"
-      : payloadType === "citation-analysis-json"
-        ? "citation-analysis"
-        : "conversation";
-}
-
 export function researchPayloadArtifactPath(args = {}) {
   const logicalId = text(args.logicalId);
   const ordinal = Math.max(1, Number.parseInt(args.ordinal, 10) || 1);
   const extension = args.format === "json" ? "json" : "md";
-  return `papers/${logicalId}/${payloadArtifactName(args.payloadType)}-${String(ordinal).padStart(3, "0")}.${extension}`;
+  const artifactName = workbenchPayloadArtifactName(args.payloadType);
+  if (!artifactName) throw new Error("unsupported research payload type");
+  return `papers/${logicalId}/${artifactName}-${String(ordinal).padStart(3, "0")}.${extension}`;
 }
 
-const BETTER_BIBTEX_TRANSLATOR_ID = "ca65189f-8815-4afe-8c8b-8c7c15f0edca";
-const NATIVE_BIBTEX_TRANSLATOR_ID = "9cb70025-a888-4a29-a210-93ec52da40d4";
-
-export async function materializeResearchProduct(args) {
-  const selection = normalizeResearchSelection(args.selection);
+export async function buildResearchProduct(args) {
+  const selection = args.normalizedSelection === true
+    ? args.selection
+    : normalizeResearchSelection(args.selection);
   const host = args.runtime.hostApi;
-  const productStorage = args.productStorage;
   const assets = [];
   const warnings = [...selection.diagnostics];
   const entries = [];
   const addText = (assetId, path, content, contentType = "text/plain") => {
     assets.push({ assetId, productAssetPath: path, contentType, source: { kind: "inline-text", text: content } });
-    entries.push({ name: path, text: content });
+    entries.push({ name: path, content: { kind: "text", text: content } });
   };
   const addFile = (assetId, path, sourcePath, contentType) => {
     assets.push({ assetId, productAssetPath: path, contentType, source: { kind: "local-file", path: sourcePath } });
-    entries.push({ name: path, sourcePath });
+    entries.push({ name: path, content: { kind: "file", sourcePath } });
   };
+  const sharedMaterialization = await host.researchBundles.materializePapers({
+    paperRefs: selection.papers.map((paper) => parsePaperRef(paper.paper_ref)),
+    missingFilePolicy: "record_missing",
+  });
+  warnings.push(...array(sharedMaterialization.issues));
+  const sharedPapers = new Map();
+  const sharedEntries = new Map();
+  for (const paper of sharedMaterialization.papers) {
+    const paperRef = `${paper.source.ref.libraryId}:${paper.source.ref.key}`;
+    const metadataPath = `materialized/${paperRef}/metadata.json`;
+    sharedEntries.set(metadataPath, {
+      path: metadataPath,
+      text: `${JSON.stringify({
+        itemType: paper.item.itemType,
+        ...paper.item.fields,
+        creators: paper.item.creators,
+        tags: paper.item.tags,
+      }, null, 2)}\n`,
+    });
+    const artifacts = [];
+    for (const note of paper.notes) {
+      for (const payload of note.payloads) {
+        const kind = workbenchPayloadArtifactName(payload.summary.payloadType);
+        if (!kind) continue;
+        const extension = payload.summary.format === "json" ? "json" : "md";
+        const path = `materialized/${paperRef}/${kind}.${extension}`;
+        const content = payload.summary.format === "json"
+          ? `${JSON.stringify(payload.value, null, 2)}\n`
+          : String(payload.value || "");
+        sharedEntries.set(path, { path, text: content });
+        artifacts.push({ artifact_type: kind.replaceAll("-", "_"), path });
+      }
+    }
+    let source = null;
+    for (const attachment of paper.attachments) {
+      if (attachment.file.state !== "available") continue;
+      const resource = await host.resources.get(attachment.file.resourceRef);
+      const metadataSourcePath = attachment.metadata.file?.state === "available"
+        ? attachment.metadata.file.path
+        : "";
+      const sourcePath = metadataSourcePath && (await host.file.exists(metadataSourcePath))
+        ? metadataSourcePath
+        : resource.path;
+      const isMarkdown = /(?:markdown|text\/plain)/i.test(attachment.metadata.contentType || "") || /\.md$/i.test(sourcePath);
+      const isPdf = /pdf/i.test(attachment.metadata.contentType || "") || /\.pdf$/i.test(sourcePath);
+      if (!isMarkdown && !isPdf) continue;
+      const path = `materialized/${paperRef}/source.${isMarkdown ? "md" : "pdf"}`;
+      const assets = [];
+      if (isMarkdown) {
+        const rewritten = await rewriteMarkdownLocalImages({
+          markdown: await host.file.readText(resource.path),
+          sourcePath,
+          assetPolicy: { kind: "preserve-source-tree" },
+          resolveLocalPath: async (candidate) =>
+            (await host.file.exists(candidate)) ? candidate : null,
+        });
+        sharedEntries.set(path, { path, text: rewritten.markdown });
+        for (const asset of rewritten.assets) {
+          const assetPath = `materialized/${paperRef}/${asset.relativePath}`;
+          sharedEntries.set(assetPath, {
+            path: assetPath,
+            sourcePath: asset.sourcePath,
+            contentType: "image/*",
+          });
+          assets.push(assetPath);
+        }
+        warnings.push(
+          ...rewritten.warnings.map((warning) => ({ ...warning, paper_ref: paperRef })),
+        );
+      } else {
+        sharedEntries.set(path, { path, sourcePath: resource.path });
+      }
+      source = { kind: isMarkdown ? "markdown" : "pdf", path, assets };
+      if (isMarkdown) break;
+    }
+    sharedPapers.set(paperRef, {
+      paper_ref: paperRef,
+      metadata_path: metadataPath,
+      artifacts,
+      source,
+      item: paper.item,
+    });
+  }
 
   const topicManifest = [];
   for (let index = 0; index < selection.topics.length; index += 1) {
@@ -168,7 +245,7 @@ export async function materializeResearchProduct(args) {
     const logicalId = `topic-${String(index + 1).padStart(3, "0")}`;
     let reportPath = null;
     try {
-      const report = await host.synthesis?.getTopicReport?.({ topicId: topic.topic_id });
+      const report = await host.synthesis?.topics?.getReport?.({ topicId: topic.topic_id });
       const body = topicReportBody(report);
       if (body) {
         reportPath = `topics/${logicalId}/report.md`;
@@ -187,127 +264,80 @@ export async function materializeResearchProduct(args) {
     const selected = selection.papers[index];
     const logicalId = `paper-${String(index + 1).padStart(3, "0")}`;
     const ref = parsePaperRef(selected.paper_ref);
-    const item = host.items.getByLibraryAndKey(ref.libraryID, ref.key);
-    if (!item) {
-      warnings.push({ code: "paper_missing", paper_ref: selected.paper_ref });
+    const sharedPaper = sharedPapers.get(selected.paper_ref);
+    if (!sharedPaper) {
+      if (!warnings.some((warning) => warning?.code === "paper_missing" && warning?.paper_ref === selected.paper_ref)) {
+        warnings.push({ code: "paper_missing", paper_ref: selected.paper_ref });
+      }
       continue;
     }
-    materializedItems.push(item);
+    materializedItems.push(ref);
     const paperDir = `papers/${logicalId}`;
     const metadataPath = `${paperDir}/metadata.json`;
-    addText(`${logicalId}-metadata`, metadataPath, `${JSON.stringify(host.items.exportPortableJson(item), null, 2)}\n`, "application/json");
+    const sharedMetadata = sharedEntries.get(text(sharedPaper.metadata_path));
+    if (!sharedMetadata || typeof sharedMetadata.text !== "string") {
+      throw new Error(`shared research metadata is unavailable: ${selected.paper_ref}`);
+    }
+    addText(`${logicalId}-metadata`, metadataPath, sharedMetadata.text, "application/json");
     const payloads = [];
-    for (const noteRef of item.getNotes?.() || []) {
-      const note = host.items.get(noteRef);
-      if (!note) continue;
-      const blocks = await listWorkbenchEmbeddedPayloadBlocksForNote({ noteItem: note, runtime: args.runtime });
-      for (const block of blocks.filter((entry) => isResearchPayloadType(entry.payloadType))) {
-        const ordinal = payloads.filter((entry) => entry.payload_type === block.payloadType).length + 1;
-        const extension = block.format === "json" ? "json" : "md";
-        const group = payloadArtifactName(block.payloadType);
-        const path = researchPayloadArtifactPath({ logicalId, payloadType: block.payloadType, ordinal, format: block.format });
-        addText(`${logicalId}-${group}-${ordinal}`, path, payloadText(block), extension === "json" ? "application/json" : "text/markdown");
-        payloads.push({ path, payload_type: block.payloadType, note_key: text(note.key), attachment_key: block.attachmentKey, payload_hash: block.payloadHash || "", format: block.format });
-      }
+    const payloadTypeByArtifact = {
+      digest: "digest-markdown",
+      references: "references-json",
+      citation_analysis: "citation-analysis-json",
+      literature_score: "literature-score-json",
+    };
+    for (const artifact of array(sharedPaper.artifacts)) {
+      const payloadType = payloadTypeByArtifact[text(artifact.artifact_type)];
+      const sharedPath = text(artifact.path);
+      const sharedEntry = sharedEntries.get(sharedPath);
+      if (!payloadType || !sharedPath || !sharedEntry || typeof sharedEntry.text !== "string") continue;
+      const format = sharedPath.endsWith(".json") ? "json" : "markdown";
+      const path = researchPayloadArtifactPath({ logicalId, payloadType, ordinal: 1, format });
+      const group = workbenchPayloadArtifactName(payloadType);
+      addText(`${logicalId}-${group}-1`, path, sharedEntry.text, format === "json" ? "application/json" : "text/markdown");
+      payloads.push({ path, payload_type: payloadType, payload_hash: "", format });
     }
     let source = null;
-    if (selected.role === "core") {
-      const attachments = await host.library.getItemAttachments({ key: ref.key, libraryId: ref.libraryID });
-      const markdown = attachments.find((entry) => args.runtime.helpers?.isMarkdownAttachment?.(entry) || /(?:markdown|\.md$)/i.test(`${entry.contentType} ${entry.filename}`));
-      const pdf = attachments.find((entry) => args.runtime.helpers?.isPdfAttachment?.(entry) || /(?:application\/pdf|\.pdf$)/i.test(`${entry.contentType} ${entry.filename}`));
-      if (markdown?.path && await host.file.exists(markdown.path)) {
-        const rewritten = await rewriteMarkdownLocalImages({
-          markdown: await host.file.readText(markdown.path),
-          sourcePath: markdown.path,
-          assetPolicy: { kind: "preserve-source-tree" },
-          resolveLocalPath: async (path) => await host.file.exists(path) ? path : null,
-        });
+    if (selected.role === "core" && sharedPaper.source?.path) {
+      const canonicalSourcePath = text(sharedPaper.source.path);
+      const canonicalPaperDir = canonicalSourcePath.replace(/\/source\.(?:md|pdf)$/, "");
+      const sharedSource = sharedEntries.get(canonicalSourcePath);
+      if (sharedPaper.source.kind === "markdown" && sharedSource && typeof sharedSource.text === "string") {
         const sourcePath = `${paperDir}/source.md`;
         const sourceAssets = [];
-        for (const image of rewritten.assets) {
-          const imagePath = `${paperDir}/${image.relativePath}`;
-          addFile(`${logicalId}-image-${image.id}`, imagePath, image.sourcePath, "image/*");
-          sourceAssets.push({ path: imagePath, source_relative_path: image.relativePath });
+        for (const canonicalAssetPath of array(sharedPaper.source.assets)) {
+          const sharedAsset = sharedEntries.get(text(canonicalAssetPath));
+          const relativePath = text(canonicalAssetPath).slice(canonicalPaperDir.length + 1);
+          if (!sharedAsset?.sourcePath || !relativePath) continue;
+          const imagePath = `${paperDir}/${relativePath}`;
+          addFile(`${logicalId}-image-${sourceAssets.length + 1}`, imagePath, sharedAsset.sourcePath, sharedAsset.contentType || "image/*");
+          sourceAssets.push({ path: imagePath, source_relative_path: relativePath });
         }
-        addText(`${logicalId}-source`, sourcePath, rewritten.markdown, "text/markdown");
-        warnings.push(...rewritten.warnings.map((warning) => ({ ...warning, paper_ref: selected.paper_ref })));
+        addText(`${logicalId}-source`, sourcePath, sharedSource.text, "text/markdown");
         source = { kind: "markdown", path: sourcePath, assets: sourceAssets };
-      } else if (pdf?.path && await host.file.exists(pdf.path)) {
+      } else if (sharedPaper.source.kind === "pdf" && sharedSource?.sourcePath) {
         const sourcePath = `${paperDir}/source.pdf`;
-        addFile(`${logicalId}-source`, sourcePath, pdf.path, "application/pdf");
+        addFile(`${logicalId}-source`, sourcePath, sharedSource.sourcePath, "application/pdf");
         source = { kind: "pdf", path: sourcePath, assets: [] };
-      } else warnings.push({ code: "core_source_missing", paper_ref: selected.paper_ref });
+      }
     }
-    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryID, role: selected.role, score: selected.score, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
+    if (selected.role === "core" && !source) {
+      warnings.push({ code: "core_source_missing", paper_ref: selected.paper_ref });
+    }
+    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryId, title: text(sharedPaper.item.fields.title), role: selected.role, selection_score: selected.selection_score, literature_quality: selected.literature_quality, artifact_manifest: selected.artifact_manifest, selection_components: selected.selection_components, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
   }
 
-  let bibliography;
-  if (materializedItems.length === 0) {
-    bibliography = {
-      status: "not_generated",
-      reason: "no_materialized_items",
-      requested_format: "better-bibtex",
-      item_count: 0,
-    };
-  } else {
-    if (typeof host.items.exportText !== "function") {
-      throw new Error("workflow host does not provide items.exportText");
-    }
-    const exported = await host.items.exportText({
-      items: materializedItems,
-      translatorCandidates: [
-        {
-          translatorID: BETTER_BIBTEX_TRANSLATOR_ID,
-          label: "Better BibTeX",
-        },
-        {
-          translatorID: NATIVE_BIBTEX_TRANSLATOR_ID,
-          label: "BibTeX",
-        },
-      ],
-      displayOptions: {
-        exportNotes: false,
-        exportFileData: false,
-        keepUpdated: false,
-        useJournalAbbreviation: false,
-      },
-    });
-    if (!exported?.ok) {
-      const error = new Error("unable to export research bundle bibliography");
-      error.code = "bibliography_export_failed";
-      error.attempts = exported?.attempts || [];
-      throw error;
-    }
-    const actualFormat = exported.translator.translatorID === BETTER_BIBTEX_TRANSLATOR_ID
-      ? "better-bibtex"
-      : "bibtex";
-    bibliography = {
-      status: "generated",
-      path: "references.bib",
-      requested_format: "better-bibtex",
-      actual_format: actualFormat,
-      translator: {
-        translator_id: exported.translator.translatorID,
-        label: exported.translator.label,
-      },
-      fallback_used: Boolean(exported.fallbackUsed),
-      item_count: materializedItems.length,
-    };
-    if (exported.fallbackUsed) {
-      const primaryAttempt = exported.attempts?.[0] || {};
-      const primaryMessage = text(primaryAttempt.message);
-      warnings.push({
-        code: "bibliography_export_fallback",
-        requested_format: "better-bibtex",
-        actual_format: actualFormat,
-        reason_code: primaryAttempt.errorCode || primaryAttempt.status || "unknown",
-        ...(primaryMessage ? { message: primaryMessage } : {}),
-      });
-    }
+  const bibliographyExport = await exportBundleBibliography({
+    host,
+    itemRefs: materializedItems,
+    warnings,
+  });
+  const bibliography = bibliographyExport.bibliography;
+  if (bibliography.status === "generated") {
     addText(
       "references",
       "references.bib",
-      exported.content,
+      bibliographyExport.content,
       "application/x-bibtex",
     );
   }
@@ -320,8 +350,10 @@ export async function materializeResearchProduct(args) {
     bibliography,
     warningCount: warnings.length,
   });
+  const index = renderResearchBundleIndex({ topics: topicManifest, papers: paperManifest });
+  addText("index", "index.md", index, "text/markdown");
   addText("readme", "README.md", readme, "text/markdown");
-  const measured = await host.archive.measureEntries(entries);
+  const measured = await host.archive.measureEntries({ entries });
   const manifest = {
     schema_id: RESEARCH_PRODUCT_SCHEMA,
     schema_version: "2.0.0",
@@ -329,17 +361,32 @@ export async function materializeResearchProduct(args) {
     topics: topicManifest,
     papers: paperManifest,
     bibliography,
-    files: measured.files,
+    files: Object.fromEntries(
+      Object.entries(measured.files || {}).map(([path, integrity]) => [
+        path,
+        { size: integrity?.sizeBytes ?? 0, sha256: integrity?.sha256 || "" },
+      ]),
+    ),
     warnings,
   };
   assets.push({ assetId: "manifest", productAssetPath: "manifest.json", contentType: "application/json", source: { kind: "inline-text", text: `${JSON.stringify(manifest, null, 2)}\n` } });
-  const product = await productStorage.registerProduct({
+  return { selection, manifest, assets, entries };
+}
+
+export async function materializeResearchProduct(args) {
+  const built = await buildResearchProduct(args);
+  const product = await args.productStorage.registerProduct({
     productKey: "export-research-bundle",
     kind: "research_bundle",
-    title: selection.intent.paper_title,
+    title: built.selection.intent.paper_title,
     failurePolicy: "atomic",
-    metadata: { articleType: selection.intent.article_type, topicCount: selection.topics.length, corePaperCount: paperManifest.filter((paper) => paper.role === "core").length, relatedPaperCount: paperManifest.length },
-    assets,
+    metadata: {
+      articleType: built.selection.intent.article_type,
+      topicCount: built.selection.topics.length,
+      corePaperCount: built.manifest.papers.filter((paper) => paper.role === "core").length,
+      relatedPaperCount: built.manifest.papers.length,
+    },
+    assets: built.assets,
   });
-  return { selection, manifest, product };
+  return { selection: built.selection, manifest: built.manifest, product };
 }

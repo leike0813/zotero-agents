@@ -54,6 +54,14 @@ type SynthesisWorkbenchRuntime = {
   lastCompletedCommand?: SynthesisUiActionOperation;
   lastFailedCommand?: SynthesisUiActionOperation;
   actionWarnings: SynthesisUiActionOperation[];
+  graphLayoutFailure?: {
+    graphHash: string;
+    layoutAlgorithm: string;
+    code: string;
+    mutationStatus?: string;
+    message: string;
+    occurredAt: string;
+  };
 };
 ```
 
@@ -203,10 +211,31 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 | Citation Graph | 4 | `rebuildCitationGraphCacheNow`, `refreshCitationGraphCacheIncrementalNow`, `retryCitationGraphCacheRebuild`, `manualRecomputeLayout` |
 | Tag Vocabulary | 10+ | `rebuildTagVocabularyIndex`, `validateTagVocabulary`, `exportTagVocabulary`, `importTagVocabulary`, `previewTagVocabularyImport`, `updateStagedTagSuggestion`, `updateTagVocabularyEntry`, `deleteTagVocabularyEntry`, `promoteStagedTagSuggestions`, `discardStagedTagSuggestions`, `clearStagedTagSuggestions`, `applyTagVocabularyImport` |
 | Concept KB | 4 | `rebuildConceptKbIndex`, `deleteConceptEntry`, `updateConceptDisplayText`, `applyConceptReviewAction` |
-| Topic Graph | 4 | `acceptTopicGraphRelation`, `rejectTopicGraphRelation`, `applyTopicGraphReviewAction`, `rejectTopicDiscoveryHint`, `restoreTopicDiscoveryHint` |
-| Git Sync | 5 | `syncNow`, `pauseGitSync`, `resumeGitSync`, `retryGitSync`, `resolveGitSyncConflict` |
-| Topic Artifact | 4 | `openTopicArtifact`, `exportTopicSynthesisReport`, `resolveTopicPaperDigest`, `deleteTopicArtifact`, `purgeDeletedTopicArtifacts` |
+| Topic Graph | 4 | `rebuildTopicGraphIndex`, `acceptTopicGraphRelation`, `rejectTopicGraphRelation`, `applyTopicGraphReviewAction` |
+| Topic Discovery | 2 | `rejectTopicDiscoveryHint`, `restoreTopicDiscoveryHint` |
+| WebDAV Sync | 5 | `syncWebDavNow`, `pauseWebDavSync`, `resumeWebDavSync`, `retryWebDavSync`, `resolveWebDavSyncConflict` |
+| Topic Artifact | 5 | `openTopicArtifact`, `exportTopicSynthesisReport`, `resolveTopicPaperDigest`, `deleteTopicArtifact`, `purgeDeletedTopicArtifacts` |
 | 其他 | 2 | `openPreferences`, `manualRecomputeLayout` |
+
+四个 Citation Graph host 命令动态解析默认 `SynthesisClient` 并调用 `client.graph`。手动 layout 请求传入 `force: true`；Graph surface 的自动 layout refresh 复用同一个 client 完成 surface read 和非强制 recompute。Full rebuild、incremental refresh 和 retry 均使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract。所有四个命令都通过 `classifySynthesisWorkbenchGraphMutationResult()` 判定终态，Promise 正常 resolve 本身不代表命令成功：原生 `promoted` / `unchanged` 才是成功终态，其余原生 mutation status 转成带稳定 code 和原始 status detail 的 `SynthesisClientError`。保留实现中，`ok: true` 搭配 `completed`、`bootstrapped`、`skipped` 或 `superseded` 继续成功；无 status 的计数结果在 `failed > 0` 时失败，`ok: false` 同样失败。
+
+Layout 请求在发出前捕获当前 `graph_hash + layoutAlgorithm`。失败记录同时保存稳定 code、原生 mutation status（若有）、清理并限长后的 message 与时间。runtime 先发送一次不读取服务的 Graph surface 快照，再进入常规刷新；若刷新也失败，surface error 恢复的仍是带失败信息的快照。只有同一 basis 的非 ready 布局投影成 `failed`；graph hash 或算法变化时沿用新 basis 的服务状态，不继承旧失败。`ready` 坐标继续优先显示，同时保留“最近重绘失败”的非阻塞警告。成功请求清除失败记录。当前 basis 没有坐标时，前端显示失败原因和现有“重绘布局”动作，不再显示“正在计算布局”；失败 basis 不触发自动重试。普通模式展示清理后的原因，debug 模式额外展开 code、mutation status、算法和 graph hash。
+
+Native Graph surface 与 layout worker 共享同一个确定性默认图投影：library 节点优先于 shared external，同层按稳定 ID 排序，single external 只进入 hover 层，默认布局最多包含 20,000 节点和 80,000 条端点闭合边。Workbench 只对 surface 返回的默认节点要求 ready 坐标；被投影排除或 hover-only 的节点不会把完整布局误判为缺失。
+
+四个 Reference Sidecar/advanced matching 维护命令动态解析默认 `SynthesisClient` 并调用 `client.references`。它们使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract；refresh 与 advanced matching 保留确认，三个长命令保留 deferred start，而 Reference Sidecar retry 保持立即启动。
+
+Canonical revision review、单个/批量 Reference match proposal action、单个/批量 canonical merge、metadata update 与 archive 同样在命令执行闭包内动态解析默认 `SynthesisClient`，并调用对应的 `client.references` 方法。Workbench 负责 snake/camel alias、trim、默认 action、batch 普通对象过滤与 canonical 映射、manual-target 映射、布尔确认字段归一化以及 metadata patch alias 归一化；client adapter 只接受 canonical 严格 DTO。命令保留原有 single-flight key 与 `.then(failOnDiagnostic)`；merge 类命令失效 Index/Review/Graph，metadata/archive 失效 Index/Review。仅 batch canonical merge 保留 deferred start，不增加确认对话框或 progress callback。
+
+Concept KB rebuild、display-text update、review action 与批量删除也在命令执行闭包内解析默认 `SynthesisClient`，并调用 `client.concepts`。Workbench 保留 concept/review id trim、review action allowlist、可选 merge target、单个/批量删除 aliases 和 single-flight 参数；client adapter 只接受四个显示字段、严格 review action 与非空删除列表。Rebuild 保留 protected confirmation 和 deferred start，但不再把 `onProgress` callback 带入 contract，进度继续来自 `workbench.readProgress()`。仅 review action 使用 singular `failOnDiagnostic`，四路仍失效 Concepts/Review。Concept queries/checkpoint export 与其它 command domains 保持当前边界。
+
+Topic artifact delete/purge 与 discovery-hint reject/restore 在各自命令闭包内解析默认 `SynthesisClient`，并调用 `client.topics`。Delete 与 hint 请求只跨越 trim 后的 canonical `topicId` / `hintId`，purge 为无参数命令；四路都不携带 progress callback、streaming state 或 deferred start。Delete/purge 保留原确认、single-flight 和 Home/Topics 失效，delete 的 `ok: false` 继续以领域 `reason` 失败；hint actions 保留空 ID 跳过、singular `failOnDiagnostic` 与 selected-surface 默认失效。Topic queries、mirror、Sync、Host Bridge 和 MCP 保持当前边界。
+
+Topic Graph projection rebuild、edge accept/reject 与 review action 使用独立的 `client.topicGraph`，不并入 Citation Graph 的 `client.graph`。Rebuild 保留 protected confirmation、deferred start 与 Home-only 默认失效，但调用无参数 client method，进度只来自 `workbench.readProgress()`；edge/review 请求只传递 trim 后的 canonical ID 和严格 review action。三个 mutation 保留原 single-flight、singular `failOnDiagnostic`、立即启动及 Home/Topics/Graph/Review 失效。Topic Graph query/checkpoint export、Host Bridge 和 MCP 保持当前边界。
+
+Tag Vocabulary validation、projection rebuild、regulator export、canonical/staged mutations 与 import preview/apply 在各自命令闭包内解析默认 `SynthesisClient`，并调用 `client.tags`。它们保留既有 single-flight、确认、启动时机、失效范围、clipboard ownership 与严格 DTO；重建进度继续只来自 `workbench.readProgress()`。
+
+五个 WebDAV Sync host commands 都在原 single-flight 执行闭包内调用 `getFreshDefaultSynthesisClient()`，并路由到 `client.sync.webDav` 的 `runNow`、`pause`、`resume`、`retry`、`resolveConflict`。Fresh acquisition 只失效并重建当前 native client composition，使后续 reverse-Host 调用读取最新 preferences、credentials 和 adapter 状态。Conflict command 保留 action trim 与 `keep_local` 默认值；run/retry 保留 `failOnSyncFailureState`，pause/resume/conflict 保留原结果处理。`syncWebDavNow` 使用 deferred start，其余命令立即启动。Sync state、diagnostics、configuration、credentials、connection tests、Host Bridge 和 MCP 不在此次 command boundary 内。Production Workbench 不导入或构造 Synthesis application service。
 
 ### 受保护命令
 
@@ -224,7 +253,9 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 - `reportWorkbenchError(error, win)` — 调用 `alertWindow()` 向用户展示错误信息
 - `confirmWorkbenchAction(message, win)` — 调用 `window.confirm()` 弹确认框
 - `confirmProtectedRebuildCommand(command, win)` — 根据命令类型选不同的确认文案
-- `failOnDiagnostic(result)` — 检查返回值是否包含 `diagnostic` 字段，有则抛出异常
+- `failOnDiagnostic(result)` — 只检查返回值的单数 `diagnostic` 字段，有则抛出异常；复数 `diagnostics` 保持为普通 domain result 数据
+- `classifySynthesisWorkbenchGraphMutationResult(result)` — 对四个 Graph mutation 的 resolved result 做终态分类，避免非成功原生状态被 `runWorkbenchCommandOnce()` 记为完成
+- `resolveSynthesisWorkbenchGraphLayoutStatus(args)` — 将服务布局状态与 basis-scoped failure 合成展示状态；`ready` 始终优先
 
 ## Command 执行管理
 
@@ -255,7 +286,7 @@ runtime.commandProgressTimer = setInterval(() => {
 }, SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS);
 ```
 
-`refreshWorkbenchCommandProgress()` 读取 synthesis service 的 background job rows，合并到 snapshotInput 后发送 chrome 更新。带 `commandProgressSnapshotRunning` 锁防并发。
+`refreshWorkbenchCommandProgress()` 动态解析默认 `SynthesisClient`，通过无参数 `client.workbench.readProgress()` 读取 opaque maintenance projection，经共享 UI adapter 转换后使用现有 runtime merge 合并到 `snapshotInput`，再发送 chrome 更新。该查询不修改 operation lifecycle；显式 startup reconciliation 将 public maintenance `pending` 转为 `continuation_required`，将 external-effect outcome 不明的 public maintenance `running` 标记失败，并取消其它 stale `running` operation，且不会自动 dispatch。Citation Graph cache 与 Reference maintenance command 不再主动回调 UI，进度完全由这条持久化状态轮询路径发布。轮询保留 `commandProgressSnapshotRunning` 并发锁、`snapshotInputLocked` 保护、Git/WebDAV Sync chrome fast path、错误 fallback 和 500ms cadence。
 
 ### surfacesInvalidatedByCommand
 
@@ -287,9 +318,10 @@ runtime.commandProgressTimer = setInterval(() => {
 
 ### 数据发送
 
-- **`snapshotForRuntime(runtime)`** — 从 `runtime.snapshotInput` + `actionStatusInput()` 构建 `SynthesisUiSnapshot`
-- **`sendChrome(runtime, options)`** — 刷新 chrome：从 service 获取 ChromeInput（含 maintenance summary、background jobs 等），merge 到 snapshotInput，发送 `synthesis:chrome` 消息
-- **`sendSurface(runtime, surface, options)`** — 刷新 surface：从 service 获取 surface 输入数据，merge 到 snapshotInput，标记 surface loaded，发送 `synthesis:surface` 消息。失败时发送 `synthesis:surface-error`
+- **`snapshotForRuntime(runtime)`** — 从 `runtime.snapshotInput` + `actionStatusInput()` 构建 `SynthesisUiSnapshot`，并只在输出投影中合成 basis-scoped layout failure；服务返回的原始 layout status 保留在 snapshot input 中
+- **`sendChrome(runtime, options)`** — 刷新 chrome：通过 `SynthesisClient.workbench.readChrome()` 获取 ChromeInput（含 maintenance summary、background jobs 等），merge 到 snapshotInput，发送 `synthesis:chrome` 消息
+- **`refreshWorkbenchCommandProgress(runtime)`** — 通过 `SynthesisClient.workbench.readProgress()` 获取仅包含 maintenance progress 的 projection，merge 到现有 snapshotInput，只发送 `synthesis:chrome`
+- **`sendSurface(runtime, surface, options)`** — 刷新 surface：通过 `SynthesisClient.workbench.readSurface()` 获取 surface 输入数据，merge 到 snapshotInput，标记 surface loaded，发送 `synthesis:surface` 消息。失败时发送 `synthesis:surface-error`
 - **`sendSnapshot(runtime, messageType)`** — 发送完整 snapshot（用于 init）
 
 ### Surface 请求代际
@@ -297,7 +329,7 @@ runtime.commandProgressTimer = setInterval(() => {
 Surface refresh 是异步且可能乱序返回的。SQLite busy retry 会扩大慢响应窗口，因此 host 和 child frame 都必须把 surface 数据当成带代际的响应处理，而不是“最后到达者覆盖 UI”。
 
 - Host 每次 `sendSurface()` 创建递增 `requestId`，记录到 `latestSurfaceRequestBySurface[surface]`，并把 `{ requestId, surface, selectedTabAtRequest, refreshFromService, startedAt }` 随 `synthesis:surface` / `synthesis:surface-error` 一起发送。
-- Host 在读取 service 后、postMessage 前再次校验该请求仍是目标 surface 的最新请求，且目标 surface 仍是当前活跃 surface。过期或非活跃 surface 的响应只能更新 host 内部 cache，不得覆盖 iframe。
+- Host 在 client read 返回后、postMessage 前再次校验该请求仍是目标 surface 的最新请求，且目标 surface 仍是当前活跃 surface。过期或非活跃 surface 的响应只能更新 host 内部 cache，不得覆盖 iframe。
 - `scheduleActiveSurfaceRefresh()` 调度时捕获目标 surface。定时器执行时如果用户已经切到其他 tab，调度直接丢弃，不重新读取“当前 tab”后误发另一个 surface。
 - Child frame 按 surface 保存 latest accepted request id 与 last-known-good snapshot。旧 request id 的 `synthesis:surface` / `synthesis:surface-error` 必须丢弃。
 
@@ -317,10 +349,10 @@ Child frame 收到 transient error 时不得清空当前 surface 内容；如果
 `prewarmSynthesisWorkbenchSurfaces(args)` 在 tab 实际打开之前预加载 surface 数据：
 
 - 单次运行保护：`prewarmSynthesisSurfacesPromise` 防止重复预热
-- 调用 `synthesisService.warmSynthesisWorkbenchSurfaces()` 分阶段加载
-- `onPhase` callback：每个 phase 产生输入数据时：
-  - 更新 `prewarmedSynthesisSnapshotInput` 全局缓存
-  - 如果有已打开的 runtime，实时 merge 并发送 chrome/surface 更新
+- 启动时只捕获并转换一次 Workbench state；通过现有 `SynthesisClient.workbench.readChrome()` / `readSurface()` 分阶段加载，不使用 callback、streaming 或 full-snapshot client API
+- 默认顺序为 `index → review → graph → tags → concepts → topics`；显式 `surfaces: []` 只预热 chrome；每次 surface read 前先让出事件循环
+- chrome 失败终止本轮并由外层 fallback 返回 `undefined`；单个 surface 失败只跳过该 surface
+- 每个成功 phase 先更新 `prewarmedSynthesisSnapshotInput` 全局缓存，再动态读取当前 runtime 并 merge：chrome 发布 cached chrome；surface 先标记 loaded，且仅在当前 active 时发布 cached surface
 - 完成后：`prewarmedSynthesisSnapshotInput` 供后续 `openSynthesisWorkbenchTab()` / `mountSynthesisWorkbenchRuntime()` 复用
 
 ## 库变更通知
@@ -353,7 +385,7 @@ Child frame 收到 transient error 时不得清空当前 surface 内容；如果
 
 ### Topic Report 导出
 
-`exportTopicSynthesisReport(runtime, topicId)` 使用 Zotero FilePicker（`toolkit.FilePicker`）让用户选择保存路径，然后通过 `writeRuntimeTextFile()` 写入 Markdown 文件。
+`exportTopicSynthesisReport(runtime, topicId)` 通过现有 `SynthesisClient.topics.getTopicReport()` 读取报告，使用 Zotero FilePicker（`toolkit.FilePicker`）让用户选择保存路径，然后通过 `writeRuntimeTextFile()` 写入 Markdown 文件。
 
 文件名通过 `safeTopicReportExportFileName()` 规范化（替换非法字符，截断至 120 字符）。
 

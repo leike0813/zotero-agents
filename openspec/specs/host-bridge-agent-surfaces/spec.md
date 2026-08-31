@@ -1,7 +1,8 @@
 # host-bridge-agent-surfaces Specification
 
 ## Purpose
-TBD - created by syncing changes introduce-host-bridge-cli-interface and unify-host-bridge-cli-contracts-and-parameter-errors. Update Purpose after archive.
+
+Define how Host Bridge agent surfaces preserve complete, reachable, intent-oriented command guidance across governed references.
 
 ## Requirements
 
@@ -176,3 +177,91 @@ match reasons. It SHALL default to 10 matches and reject or clamp limits above 2
 - **WHEN** a search matches a command
 - **THEN** the result does not embed the complete command descriptor
 - **AND** directs full contract inspection to `surface describe`.
+
+### Requirement: CLI Agent Surface SHALL disclose provider-profile selection gates
+The generated mechanism surface, command cards, and `zotero-bridge-cli` Skill SHALL state the provider-profile resolution precedence, the special handling of `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`, the explicit empty-object override, and the no-environment user-confirmation gate. They SHALL instruct the Agent to present the exact candidate/profile fields and wait for user confirmation when required, and SHALL prohibit guessing or shape-copying a provider, model, or reasoning value.
+
+#### Scenario: Agent uses an environment default
+- **WHEN** the environment default is available and the Agent has no explicit profile argument
+- **THEN** the published guidance directs the Agent to invoke describe/validate and submit using the environment-resolved profile without asking the user to reconfirm it
+- **AND** it does not tell the Agent to synthesize another profile.
+
+#### Scenario: Agent must confirm a non-environment candidate
+- **WHEN** no environment default exists and discovery returns a Host-saved default or catalog candidate
+- **THEN** the published guidance requires the Agent to show the candidate's backend/provider/model/reasoning fields and obtain a clear user confirmation before submit
+- **AND** it distinguishes that confirmation from workflow approval and ACP permission approval.
+
+#### Scenario: Agent cannot infer a profile
+- **WHEN** no explicit profile or environment default exists and the user has not selected a profile
+- **THEN** the Agent is instructed to ask the user which valid profile to use
+- **AND** it MUST NOT choose by catalog order, backend popularity, or matching JSON shape.
+
+### Requirement: CLI Agent Surface SHALL expose profile refresh and structured recovery
+The public command contract SHALL include backend-scoped profile refresh, describe, validate, and submit relationships, including readiness diagnostics and stable recovery guidance for stale, missing, contradictory, or unavailable catalogs. Generated references SHALL preserve the existing agent-facing semantic depth and SHALL be materialized from governed sources.
+
+#### Scenario: Agent repairs a stale catalog
+- **WHEN** describe or validate reports a stale/non-ready catalog
+- **THEN** the command surface directs the Agent to refresh that backend and re-run describe/validate before submission
+- **AND** it does not recommend submitting the stale profile.
+
+#### Scenario: Surface contract is incomplete
+- **WHEN** a generated card omits profile confirmation, environment-default precedence, refresh, or structured error/recovery facts
+- **THEN** surface validation fails and the release gate reports the missing semantic unit.
+
+### Requirement: Plugin SHALL bundle the exact Host Bridge Skill closure
+
+The generated minimum-core and Generic Host Bridge surfaces SHALL be materialized as one plugin-owned bundle containing exactly the seven Skills resolved by surface inheritance. The bundle SHALL contain a machine-readable manifest that binds the CLI version, build fingerprint, command-catalog checksum, surface identities, runner contracts, every file's safe relative path, byte length, SHA-256 digest, and one aggregate digest.
+
+#### Scenario: Renderer produces the plugin bundle
+
+- **WHEN** maintainers render Host Bridge agent-facing surfaces
+- **THEN** the plugin bundle contains one manifest and exactly the seven resolved Skill trees
+- **AND** the old generated Host Bridge Skill directories under the Content Package source root are absent
+
+#### Scenario: Bundle inventory is not exact
+
+- **WHEN** a generated bundle contains a missing, additional, duplicate, traversal, or digest-mismatched entry
+- **THEN** validation fails before the plugin can be built or released
+
+### Requirement: Surface relocation SHALL preserve semantic parity
+
+Relocating generated Skills SHALL preserve every source instruction, direct reference, asset, runner contract, and externally published surface byte. Relative baseline checks SHALL map the new plugin bundle root to the fixed baseline's former generated root and SHALL report zero unmapped, downgraded, unauthorized-dropped, and intra-package-duplicate semantic units.
+
+#### Scenario: Relocated package is compared with baseline
+
+- **WHEN** the materialized Skill validator compares the new bundle with the fixed pre-relocation commit
+- **THEN** every governed file is compared against its former path
+- **AND** the substantive-line, normalized-prose, reachability, and semantic-parity gates remain satisfied
+
+### Requirement: Agent surfaces SHALL assign direct bundle semantics to one owner per layer
+
+The generated Minimum surface SHALL own exact direct-bundle command syntax, schemas, effects, delivery Handles, evidence, and mechanism recovery. The Generic surface SHALL own task selection, identity-resolution handoff, bundle content policy, completion meaning, and research-stage recovery. Hermes SHALL inherit the bounded Generic task without adding unattended export authority or duplicate instructions.
+
+#### Scenario: Stable direct scope is available
+- **WHEN** a Generic agent receives stable item refs or Topic ids and the user requests existing research materials
+- **THEN** it routes the request to the Generic Synthesis task's direct-delivery branch
+- **AND** it does not require workflow discovery, provider selection, submission, or Product lookup.
+
+#### Scenario: Scope identity is ambiguous
+- **WHEN** papers are identified only by titles, a vague selection, or an ambiguous Topic name
+- **THEN** Generic Query resolves stable identities and hands them to Generic Synthesis
+- **AND** Query does not duplicate export or Handle policy.
+
+#### Scenario: Material is missing
+- **WHEN** a direct bundle reports missing source or analysis material
+- **THEN** Generic reports the warnings
+- **AND** it does not silently start acquisition, analysis, maintenance, or Topic mutation.
+
+### Requirement: Agent surfaces explain topic planning operations
+The minimum-core CLI surface SHALL document how to obtain planning context and reconcile a `topic_plan` result, while the research-task surface SHALL explain when to run planning before parallel topic synthesis.
+
+#### Scenario: Agent discovers planning command
+- **WHEN** an agent searches the Host Bridge command catalog for topic planning
+- **THEN** it can find the exact planning-context command, output handling, apply contract, concurrency behavior, and recovery path
+
+### Requirement: Surface changes preserve existing semantics
+Adding topic planning instructions SHALL NOT remove, compress, merge, reorder, or weaken existing Host Bridge agent-facing instructions.
+
+#### Scenario: Semantic parity review
+- **WHEN** governed surfaces are rendered and compared with baseline `23dc0857aed77e4c242c2a0a9f3a5518064e9d22`
+- **THEN** unmapped, downgraded, unauthorized dropped, and intra-package duplicate counts are all zero, with no authorized deletions

@@ -574,8 +574,8 @@ pub enum LibraryCommand {
     Annotation(AnnotationArgs),
 
     #[command(
-        about = "Sync a Zotero library metadata snapshot page",
-        long_about = "Call Zotero capability library.sync_snapshot. Use --query for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query. The output includes schema, generatedAt, snapshotId, items, nextCursor, hasMore, returned, and totalScanned."
+        about = "Read a fixed Zotero full-library snapshot page",
+        long_about = "Call Zotero capability library.sync_snapshot. The first query requires libraryId and may set batchSize (default 500, maximum 1000). Continue only with the returned snapshotId and cursor under the same libraryId and batchSize. A completed terminal page includes Host-issued completionEvidence; active, interrupted, expired, or restarted sessions do not authorize index replacement. Snapshot and cursor values are opaque process-local state, not change cursors."
     )]
     Snapshot(BridgeQueryArgs),
 
@@ -596,6 +596,29 @@ pub enum LibraryItemsCommand {
         long_about = "Call Zotero capability library.list_items. Use --query for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query."
     )]
     List(BridgeQueryArgs),
+
+    #[command(
+        about = "Export one or more papers as a research bundle",
+        long_about = "Call Zotero capability items.export_research_bundle. --items accepts a JSON array or JSON file containing {id} or {key,libraryId?} refs. Local profiles require --output-dir and write the bundle directory atomically; remote profiles omit --output-dir and return a downloadable ZIP handle."
+    )]
+    ExportResearchBundle(DirectPaperResearchBundleArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DirectPaperResearchBundleArgs {
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "One to 100 Zotero item refs as a JSON array, file path, @file, or '-' for stdin"
+    )]
+    pub items: String,
+
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Absent or empty destination directory for local profiles; omit for remote profiles"
+    )]
+    pub output_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -817,6 +840,12 @@ pub enum TopicsCommand {
     GetContext(BridgeQueryArgs),
 
     #[command(
+        about = "Read the library-wide topic planning context",
+        long_about = "Call Zotero capability topics.get_planning_context. Use --query with an optional limit. The complete JSON snapshot is returned through delivery.mode=\"bridge-download\" for the existing file download flow."
+    )]
+    GetPlanningContext(BridgeQueryArgs),
+
+    #[command(
         about = "Read one topic synthesis report markdown body",
         long_about = "Call Zotero capability topics.get_report. The report markdown is read from runtime synthesis_report.body."
     )]
@@ -827,6 +856,30 @@ pub enum TopicsCommand {
         long_about = "Call Zotero capability topics.get_review_input."
     )]
     GetReviewInput(BridgeQueryArgs),
+
+    #[command(
+        about = "Export one or more Topic research bundles",
+        long_about = "Call Zotero capability topics.export_research_bundle. Repeat --topic-id for up to 20 Topics. Local profiles require --output-dir and write the bundle directory atomically; remote profiles omit --output-dir and return a downloadable ZIP handle."
+    )]
+    ExportResearchBundle(DirectTopicResearchBundleArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DirectTopicResearchBundleArgs {
+    #[arg(
+        long = "topic-id",
+        required = true,
+        action = clap::ArgAction::Append,
+        help = "Stable Topic id; repeat to aggregate multiple Topics"
+    )]
+    pub topic_ids: Vec<String>,
+
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Absent or empty destination directory for local profiles; omit for remote profiles"
+    )]
+    pub output_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1264,6 +1317,13 @@ pub enum WorkflowCommand {
     Profile(WorkflowProfileArgs),
 
     #[command(
+        name = "defaults",
+        about = "Show the saved workflow provider profile candidate",
+        long_about = "Call POST /bridge/v2/workflows/defaults. This read-only command discloses a Host-saved provider profile candidate; it does not authorize submission."
+    )]
+    Defaults(WorkflowDefaultsArgs),
+
+    #[command(
         about = "Prepare a self-owned agent workflow handoff bundle",
         long_about = "Call POST /bridge/v2/workflows/agent-run. This read-only command returns a downloadable workflow context bundle for the calling agent. Requires --workflow and either --selection or --none. It does not accept workflow options or provider profiles and does not start a backend task."
     )]
@@ -1341,6 +1401,20 @@ pub struct WorkflowSubmitArgs {
         help = "Provider profile JSON object with backendId and providerOptions"
     )]
     pub provider_profile: Option<String>,
+
+    #[arg(
+        long = "input-resource",
+        value_name = "SLOT=FILE_ID",
+        help = "Bind an uploaded opaque file handle to a workflow input resource slot; repeat for multiple files"
+    )]
+    pub input_resource: Vec<String>,
+
+    #[arg(
+        long = "output-resource",
+        value_name = "SLOT=bridge-download",
+        help = "Request bridge-download delivery for a workflow output resource slot"
+    )]
+    pub output_resource: Vec<String>,
 
     #[arg(
         long,
@@ -1465,6 +1539,20 @@ pub struct WorkflowValidateArgs {
         help = "Workflow options JSON object, file path, @file, or '-' for stdin"
     )]
     pub workflow_options: Option<String>,
+
+    #[arg(
+        long = "input-resource",
+        value_name = "SLOT=FILE_ID",
+        help = "Validate an uploaded opaque file handle binding; repeat for multiple files"
+    )]
+    pub input_resource: Vec<String>,
+
+    #[arg(
+        long = "output-resource",
+        value_name = "SLOT=bridge-download",
+        help = "Validate bridge-download delivery for a workflow output resource slot"
+    )]
+    pub output_resource: Vec<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1481,6 +1569,8 @@ pub enum WorkflowProfileCommand {
     Describe(WorkflowProfileDescribeArgs),
     #[command(about = "Validate and normalize one backend provider profile")]
     Validate(WorkflowProfileValidateArgs),
+    #[command(about = "Refresh an ACP backend provider catalog")]
+    Refresh(WorkflowProfileRefreshArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1490,6 +1580,18 @@ pub struct WorkflowProfileDescribeArgs {
         help = "Configured backend id whose provider profile is described"
     )]
     pub backend: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowProfileRefreshArgs {
+    #[arg(long, help = "Configured ACP backend id to probe and refresh")]
+    pub backend: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowDefaultsArgs {
+    #[arg(long, help = "Workflow id whose saved provider profile candidate is disclosed")]
+    pub workflow: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2385,6 +2487,7 @@ mod tests {
                 "list",
                 "find-by-paper-ref",
                 "get-context",
+                "get-planning-context",
                 "get-report",
                 "get-review-input",
             ] {
@@ -2434,6 +2537,30 @@ mod tests {
             .render_long_help()
             .to_string()
             .contains("attention-queue"));
+    }
+
+    #[test]
+    fn parses_topic_planning_context_query() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "topic",
+            "get-planning-context",
+            "--query",
+            r#"{"limit":400}"#,
+        ]);
+        match cli.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Topic(args) => match args.command {
+                    TopicsCommand::GetPlanningContext(input) => {
+                        assert_eq!(input.query.as_deref(), Some(r#"{"limit":400}"#));
+                    }
+                    _ => panic!("expected topic planning context"),
+                },
+                _ => panic!("expected synthesis topic"),
+            },
+            _ => panic!("expected synthesis command"),
+        }
     }
 
     #[test]
@@ -2824,6 +2951,7 @@ mod tests {
                     LibraryItemsCommand::List(input) => {
                         assert_eq!(input.query.as_deref(), Some("{\"limit\":50}"));
                     }
+                    _ => panic!("expected library items list"),
                 },
                 _ => panic!("expected library items"),
             },
@@ -2863,7 +2991,7 @@ mod tests {
             "library",
             "snapshot",
             "--query",
-            "{\"limit\":200,\"collectionKey\":\"COLL\"}",
+            "{\"libraryId\":1,\"batchSize\":500,\"snapshotId\":\"opaque-snapshot\",\"cursor\":\"opaque-cursor\"}",
         ]);
 
         match cli.command {
@@ -2871,7 +2999,7 @@ mod tests {
                 LibraryCommand::Snapshot(input) => {
                     assert_eq!(
                         input.query.as_deref(),
-                        Some("{\"limit\":200,\"collectionKey\":\"COLL\"}")
+                        Some("{\"libraryId\":1,\"batchSize\":500,\"snapshotId\":\"opaque-snapshot\",\"cursor\":\"opaque-cursor\"}")
                     );
                 }
                 _ => panic!("expected library snapshot"),
@@ -3079,6 +3207,47 @@ mod tests {
     }
 
     #[test]
+    fn parses_workflow_defaults_and_profile_refresh_commands() {
+        let defaults = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "defaults",
+            "--workflow",
+            "literature-analysis",
+        ]);
+        match defaults.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Defaults(input) => {
+                    assert_eq!(input.workflow, "literature-analysis");
+                }
+                _ => panic!("expected workflow defaults"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+
+        let refresh = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "profile",
+            "refresh",
+            "--backend",
+            "acp-opencode",
+        ]);
+        match refresh.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Profile(args) => match args.command {
+                    WorkflowProfileCommand::Refresh(input) => {
+                        assert_eq!(input.backend, "acp-opencode");
+                    }
+                    _ => panic!("expected workflow profile refresh"),
+                },
+                _ => panic!("expected workflow profile"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
     fn workflow_describe_rejects_provider_profile_flag() {
         let result = Cli::try_parse_from([
             "zotero-bridge",
@@ -3102,6 +3271,12 @@ mod tests {
             "literature-analysis",
             "--selection",
             "[{\"key\":\"ABC\",\"libraryId\":1}]",
+            "--input-resource",
+            "source=file-upload-1",
+            "--input-resource",
+            "source=file-upload-2",
+            "--output-resource",
+            "result=bridge-download",
             "--max-concurrency",
             "2",
         ]);
@@ -3115,6 +3290,13 @@ mod tests {
                         Some("[{\"key\":\"ABC\",\"libraryId\":1}]")
                     );
                     assert!(!input.none);
+                    assert_eq!(input.input_resource, vec![
+                        "source=file-upload-1".to_string(),
+                        "source=file-upload-2".to_string(),
+                    ]);
+                    assert_eq!(input.output_resource, vec![
+                        "result=bridge-download".to_string(),
+                    ]);
                     assert_eq!(input.max_concurrency, Some(2));
                 }
                 _ => panic!("expected workflow submit"),
@@ -3224,6 +3406,8 @@ mod tests {
             "--none",
             "--workflow-options",
             "{\"language\":\"zh-CN\"}",
+            "--input-resource",
+            "notes=file-notes-1",
         ]);
         match cli.command {
             Command::Workflow(args) => match args.command {
@@ -3234,6 +3418,7 @@ mod tests {
                         input.workflow_options.as_deref(),
                         Some("{\"language\":\"zh-CN\"}")
                     );
+                    assert_eq!(input.input_resource, vec!["notes=file-notes-1"]);
                 }
                 _ => panic!("expected workflow validate"),
             },
@@ -3769,6 +3954,60 @@ mod tests {
                 _ => panic!("expected product download"),
             },
             _ => panic!("expected product command"),
+        }
+    }
+
+    #[test]
+    fn parses_direct_paper_research_bundle_export() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "library",
+            "items",
+            "export-research-bundle",
+            "--items",
+            "[{\"key\":\"ABC\",\"libraryId\":1}]",
+            "--output-dir",
+            "paper-bundle",
+        ]);
+        match cli.command {
+            Command::Library(args) => match args.command {
+                LibraryCommand::Items(args) => match args.command {
+                    LibraryItemsCommand::ExportResearchBundle(args) => {
+                        assert_eq!(args.items, "[{\"key\":\"ABC\",\"libraryId\":1}]");
+                        assert_eq!(args.output_dir, Some(PathBuf::from("paper-bundle")));
+                    }
+                    _ => panic!("expected paper research bundle export"),
+                },
+                _ => panic!("expected library items"),
+            },
+            _ => panic!("expected library command"),
+        }
+    }
+
+    #[test]
+    fn parses_direct_topic_research_bundle_export() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "topic",
+            "export-research-bundle",
+            "--topic-id",
+            "topic-one",
+            "--topic-id",
+            "topic-two",
+        ]);
+        match cli.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Topic(args) => match args.command {
+                    TopicsCommand::ExportResearchBundle(args) => {
+                        assert_eq!(args.topic_ids, vec!["topic-one", "topic-two"]);
+                        assert_eq!(args.output_dir, None);
+                    }
+                    _ => panic!("expected Topic research bundle export"),
+                },
+                _ => panic!("expected synthesis Topic command"),
+            },
+            _ => panic!("expected synthesis command"),
         }
     }
 }

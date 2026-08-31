@@ -1,3 +1,5 @@
+import { selectAcpToolCallDisplay } from "../shared/acpToolCallDisplay.js";
+
 const transcriptNodeMaps = new WeakMap();
 
 function transcriptNodeMap(container, provided) {
@@ -1542,32 +1544,21 @@ function scheduleAssistantTranscriptBottomStick(container, state) {
   });
 }
 
-function isGenericToolText(value) {
-  const text = String(value || "").trim();
-  const normalized = text.toLowerCase().replace(/[\s_-]+/g, " ");
-  return (
-    !normalized ||
-    normalized === "tool" ||
-    normalized === "tool call" ||
-    normalized === "other" ||
-    text === "[]" ||
-    text === "{}" ||
-    /^call[_-]?[a-z0-9_-]+$/i.test(text) ||
-    /^toolu_[a-z0-9_-]+$/i.test(text)
-  );
+function assistantToolDisplaySelection(tool) {
+  return selectAcpToolCallDisplay({
+    toolName: tool && tool.toolName,
+    title: tool && tool.title,
+    kind: tool && tool.toolKind,
+    inputSummary: tool && tool.inputSummary,
+    resultSummary: tool && tool.resultSummary,
+    summary: tool && tool.summary,
+  });
 }
 
-function compactAssistantToolName(tool) {
-  const candidates = [
-    tool && tool.toolName,
-    tool && tool.toolKind,
-    tool && tool.title,
-  ];
-  for (let index = 0; index < candidates.length; index += 1) {
-    const value = String(candidates[index] || "").trim();
-    if (!isGenericToolText(value)) return value;
-  }
-  return "Tool";
+function compactAssistantToolName(tool, fallback) {
+  return (
+    assistantToolDisplaySelection(tool).primary || String(fallback || "Tool")
+  );
 }
 
 function transcriptLabels(options) {
@@ -1590,19 +1581,7 @@ function transcriptText(labels, key) {
 }
 
 function compactAssistantToolSummary(tool) {
-  const candidates = [
-    tool && tool.inputSummary,
-    tool && tool.title,
-    tool && tool.summary,
-    tool && tool.resultSummary,
-  ];
-  for (let index = 0; index < candidates.length; index += 1) {
-    const value = String(candidates[index] || "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!isGenericToolText(value)) return value;
-  }
-  return "";
+  return assistantToolDisplaySelection(tool).secondary || "";
 }
 
 function assistantTooltipText(value) {
@@ -1617,23 +1596,12 @@ function assistantTooltipText(value) {
     .trim();
 }
 
-function assistantToolCommandTooltip(tool) {
-  const name = compactAssistantToolName(tool);
-  const candidates = [
-    tool && tool.inputSummary,
-    tool && tool.summary,
-    tool && tool.resultSummary,
-    tool && tool.title,
-    tool && tool.toolName,
-    tool && tool.toolKind,
-  ];
-  for (let index = 0; index < candidates.length; index += 1) {
-    const value = assistantTooltipText(candidates[index]);
-    if (!isGenericToolText(value)) {
-      return value === name ? value : name + ": " + value;
-    }
-  }
-  return name;
+function assistantToolCommandTooltip(tool, fallback) {
+  const selection = assistantToolDisplaySelection(tool);
+  const name =
+    assistantTooltipText(selection.primary) || String(fallback || "Tool");
+  const detail = assistantTooltipText(selection.secondary);
+  return detail && detail !== name ? name + ": " + detail : name;
 }
 
 function setAssistantTooltip(node, text) {
@@ -1658,41 +1626,6 @@ function toolToneClass(status) {
     default:
       return "is-pending";
   }
-}
-
-function adaptLegacyTranscriptItem(item) {
-  const source = item && typeof item === "object" ? item : {};
-  if (source.itemId && source.itemKind) return source;
-  const itemId = String(source.id || "").trim();
-  const legacyKind = String(source.kind || "").trim();
-  const itemKind =
-    legacyKind === "tool" || legacyKind === "tool_call"
-      ? "tool-call"
-      : legacyKind === "process"
-        ? "thought"
-        : legacyKind;
-  if (!itemId || !itemKind) return null;
-  const adapted = {};
-  Object.keys(source).forEach(function (key) {
-    if (key !== "id" && key !== "kind" && key !== "state") {
-      adapted[key] = source[key];
-    }
-  });
-  adapted.itemId = itemId;
-  adapted.itemKind = itemKind;
-  adapted.status =
-    source.state === "in_progress" ? "in-progress" : source.state;
-  if (source.revision && typeof source.revision === "object") {
-    adapted.revision = {
-      count: Number(source.revision.count) || 0,
-      status: source.revision.status || source.revision.latestStatus || "",
-      repairRound:
-        Number(
-          source.revision.repairRound || source.revision.latestRepairRound,
-        ) || 0,
-    };
-  }
-  return adapted;
 }
 
 function createItemPresentationRow(item) {
@@ -1860,12 +1793,13 @@ function updateTranscriptClasses(row, item, options) {
   }
 }
 
-function appendToolDisplay(parent, tool) {
-  const tooltip = assistantToolCommandTooltip(tool);
+function appendToolDisplay(parent, tool, options) {
+  const fallback = transcriptLabel(options, "tool", "Tool");
+  const tooltip = assistantToolCommandTooltip(tool, fallback);
   const badge = el(
     "span",
     "assistant-transcript-tool-badge",
-    compactAssistantToolName(tool),
+    compactAssistantToolName(tool, fallback),
   );
   setAssistantTooltip(badge, tooltip);
   parent.appendChild(badge);
@@ -2029,7 +1963,7 @@ function renderPresentationRow(row, item, options) {
     );
     led.setAttribute("aria-hidden", "true");
     body.appendChild(led);
-    appendToolDisplay(body, item);
+    appendToolDisplay(body, item, options);
     return;
   }
   if (item.rowKind === "tool-activity-group") {
@@ -2071,7 +2005,7 @@ function renderPresentationRow(row, item, options) {
     );
     summary.appendChild(chevron);
     summary.appendChild(led);
-    const activityTooltip = toolActivityTooltipText(item.items);
+    const activityTooltip = toolActivityTooltipText(item.items, options);
     setAssistantTooltip(summary, activityTooltip);
     const summaryText = el(
       "span",
@@ -2095,14 +2029,20 @@ function renderPresentationRow(row, item, options) {
           "assistant-transcript-tool-activity-item " +
             toolToneClass(tool.status),
         );
-        setAssistantTooltip(entry, assistantToolCommandTooltip(tool));
+        setAssistantTooltip(
+          entry,
+          assistantToolCommandTooltip(
+            tool,
+            transcriptLabel(options, "tool", "Tool"),
+          ),
+        );
         const toolLed = el(
           "span",
           "assistant-transcript-tool-led " + toolToneClass(tool.status),
         );
         toolLed.setAttribute("aria-hidden", "true");
         entry.appendChild(toolLed);
-        appendToolDisplay(entry, tool);
+        appendToolDisplay(entry, tool, options);
         list.appendChild(entry);
       });
       row.appendChild(list);
@@ -2164,9 +2104,12 @@ function toolGroupSummaryText(items, options) {
     .join(" • ");
 }
 
-function toolActivityTooltipText(items) {
+function toolActivityTooltipText(items, options) {
+  const fallback = transcriptLabel(options, "tool", "Tool");
   return (Array.isArray(items) ? items : [])
-    .map(assistantToolCommandTooltip)
+    .map(function (tool) {
+      return assistantToolCommandTooltip(tool, fallback);
+    })
     .filter(Boolean)
     .join("\n");
 }
@@ -2754,7 +2697,6 @@ function renderAssistantTranscript(options) {
 }
 
 export {
-  adaptLegacyTranscriptItem,
   applyAssistantTranscriptEffects,
   applyAssistantTranscriptEffectsExact,
   buildTranscriptRenderItems,

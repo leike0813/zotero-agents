@@ -1,0 +1,73 @@
+{
+  "schema": "synthesis-artifact-library-debug-surface-parity.v1",
+  "requestCodec": "synthesis-client-args.v1",
+  "resultCodec": "synthesis-client-result.v1",
+  "baselineFixture": "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
+  "bounds": {
+    "requestBytes": 1048576,
+    "responseBytes": 1048576,
+    "deadlineMs": 10000
+  },
+  "operations": [
+    {
+      "id": "client.debugSynthesisCacheList",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.debugSynthesisDiff",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.debugSynthesisOperationsList",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.debugSynthesisPaperInspect",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.debugSynthesisProfilerList",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.debugSynthesisSnapshot",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.debugSynthesisTopicInspect",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.exportFilteredPaperArtifacts",
+      "access": "mutation",
+      "cases": ["valid", "reopen", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.getLibraryIndex",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.getPaperArtifactManifest",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.getSchemas",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.readPaperArtifacts",
+      "access": "read",
+      "cases": ["empty", "invalid_args", "oversized", "expired"]
+    }
+  ]
+}

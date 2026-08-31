@@ -1,0 +1,199 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "workflow-review-recursive-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputResult",
+      "valid": true,
+      "value": {
+        "kind": "synthesis.review_workflow_input",
+        "schema_version": "1.0.0",
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "topic": {
+          "topic_id": "topic:1",
+          "title": "Topic One",
+          "markdown": "# Topic One",
+          "metadata": {
+            "runtime": "split-skill",
+            "depends_on": {
+              "papers": ["1:ITEM1"],
+              "artifacts": ["digest-markdown"]
+            }
+          },
+          "topic_definition": { "id": "topic:1", "title": "Topic One" },
+          "resolver": {
+            "paper_refs": ["1:ITEM1"],
+            "collection_key": [],
+            "combine": "union"
+          }
+        },
+        "topic_timeline": {
+          "content": {
+            "summary": { "text": "Milestones" },
+            "events": [
+              {
+                "id": "event:1",
+                "year": 2024,
+                "description": "Published",
+                "source_paper_refs": ["1:ITEM1"]
+              }
+            ]
+          }
+        },
+        "structured_topic": {
+          "artifact": {
+            "schema_id": "synthesis.topic_synthesis_artifact",
+            "schema_version": "4.0.0",
+            "language": "en",
+            "claims": [
+              {
+                "id": "claim:1",
+                "text": "Claim",
+                "source_paper_refs": ["1:ITEM1"]
+              }
+            ],
+            "source_papers": [{ "paper_ref": "1:ITEM1", "title": "Paper" }]
+          },
+          "manifest": {
+            "schema_id": "synthesis.topic_analysis_manifest",
+            "schema_version": "4.0.0",
+            "topic_id": "topic:1",
+            "sections": {}
+          },
+          "metadata": {
+            "topic_id": "topic:1",
+            "title": "Topic One",
+            "mode": "create",
+            "bundle_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "timeline": { "summary": {}, "events": [] },
+            "artifact_metadata": { "runtime": "split-skill" },
+            "updated_at": "2026-08-12T00:00:00Z"
+          },
+          "claims": [
+            {
+              "id": "claim:1",
+              "text": "Claim",
+              "source_paper_refs": ["1:ITEM1"]
+            }
+          ],
+          "timeline_events": { "summary": {}, "events": [] },
+          "source_papers": [{ "paper_ref": "1:ITEM1", "title": "Paper" }],
+          "taxonomy": {},
+          "improvement_dimensions": { "summary": {}, "dimensions": [] },
+          "debates": [],
+          "coverage": { "verdict": "partial" },
+          "future_directions": [],
+          "review_outline": {},
+          "incomplete_sections": ["taxonomy"]
+        },
+        "resolved_paper_set": {
+          "papers": [{ "paper_ref": "1:ITEM1", "match_reasons": ["resolver"] }],
+          "snapshot": {
+            "papers": [
+              { "paper_ref": "1:ITEM1", "match_reasons": ["resolver"] }
+            ]
+          }
+        },
+        "registry_artifact_coverage": {
+          "rows": [
+            {
+              "paper_ref": "1:ITEM1",
+              "title": "Paper",
+              "artifactCoverage": "partial",
+              "missing_artifacts": ["references"]
+            }
+          ]
+        },
+        "citation_graph_slice": {
+          "graph_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "nodes": [
+            {
+              "node_id": "1:ITEM1",
+              "kind": "library_paper",
+              "target_state": "library",
+              "item_key": "ITEM1",
+              "library_id": 1,
+              "aliases": ["1:ITEM1"],
+              "title": "Paper"
+            }
+          ],
+          "edges": []
+        },
+        "missing_artifact_diagnostics": [
+          {
+            "paper_ref": "1:ITEM1",
+            "artifact_type": "references",
+            "severity": "warning",
+            "message": "references is missing for 1:ITEM1"
+          }
+        ],
+        "diagnostics": {
+          "blocking": [],
+          "warnings": ["references is missing for 1:ITEM1"]
+        }
+      }
+    },
+    {
+      "id": "workflow-review-request-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "topicId": "topic:1",
+            "maxGraphNodes": 500,
+            "maxGraphEdges": 1000,
+            "maxChars": 50000,
+            "includePaperArtifacts": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "workflow-review-nested-open-negative",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputResult",
+      "valid": false,
+      "value": {
+        "kind": "synthesis.review_workflow_input",
+        "schema_version": "1.0.0",
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "topic": {
+          "topic_id": "topic:1",
+          "title": "Topic One",
+          "markdown": "# Topic",
+          "metadata": {},
+          "topic_definition": { "id": "topic:1", "title": "Topic One" },
+          "resolver": {
+            "paper_refs": [],
+            "collection_key": [],
+            "combine": "union"
+          }
+        },
+        "topic_timeline": { "content": "" },
+        "resolved_paper_set": { "papers": [], "snapshot": { "papers": [] } },
+        "registry_artifact_coverage": { "rows": [] },
+        "citation_graph_slice": {
+          "graph_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "nodes": [
+            {
+              "node_id": "1:ITEM1",
+              "kind": "library_paper",
+              "target_state": "library",
+              "aliases": [],
+              "legacy": true
+            }
+          ],
+          "edges": []
+        },
+        "missing_artifact_diagnostics": [],
+        "diagnostics": { "blocking": [], "warnings": [] }
+      }
+    },
+    {
+      "id": "workflow-review-request-alias-negative",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputRequest",
+      "valid": false,
+      "value": { "args": [{ "topic_id": "topic:1" }] }
+    }
+  ]
+}

@@ -6,9 +6,7 @@ import { config } from "../../package.json";
 import {
   scanPluginSkillRegistry,
   resolvePluginSkillRoots,
-  setPluginSkillRegistryRuntimeRootURI,
 } from "../../src/modules/pluginSkillRegistry";
-import { getOfficialSkillDir } from "../../src/modules/contentPackageSubscription";
 import { buildSkillRunnerSkillPackageBundle } from "../../src/providers/skillrunner/skillPackageBundler";
 import {
   collectRuntimeFiles,
@@ -109,7 +107,6 @@ describe("plugin skill registry", function () {
 
   afterEach(async function () {
     setDebugModeOverrideForTests();
-    setPluginSkillRegistryRuntimeRootURI("");
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -158,52 +155,6 @@ describe("plugin skill registry", function () {
     }
   });
 
-  it("ignores addon runtime file URI when resolving official skill root", function () {
-    const zoteroRuntime = Zotero as unknown as {
-      DataDirectory?: { dir?: string };
-    };
-    const previousDataDirectory = zoteroRuntime.DataDirectory;
-    zoteroRuntime.DataDirectory = { dir: path.join(tempRoot, "zotero-data") };
-    setPluginSkillRegistryRuntimeRootURI(
-      "file:///D:/Workspace/Plugin/.scaffold/build/addon/",
-    );
-
-    try {
-      const roots = resolvePluginSkillRoots();
-
-      assert.equal(roots.builtinRoot, getOfficialSkillDir());
-      assert.match(
-        roots.builtinRoot.replace(/\\/g, "/"),
-        /zotero-data\/zotero-agents\/content\/official\/skills$/,
-      );
-    } finally {
-      zoteroRuntime.DataDirectory = previousDataDirectory;
-    }
-  });
-
-  it("prefers official content skill root inside Zotero", function () {
-    const zoteroRuntime = Zotero as unknown as {
-      DataDirectory?: { dir?: string };
-    };
-    const previousDataDirectory = zoteroRuntime.DataDirectory;
-    zoteroRuntime.DataDirectory = { dir: path.join(tempRoot, "zotero-data") };
-    setPluginSkillRegistryRuntimeRootURI(
-      "file:///D:/Workspace/Plugin/.scaffold/build/addon/",
-    );
-
-    try {
-      const roots = resolvePluginSkillRoots();
-
-      assert.equal(roots.builtinRoot, getOfficialSkillDir());
-      assert.match(
-        roots.builtinRoot.replace(/\\/g, "/"),
-        /zotero-data\/zotero-agents\/content\/official\/skills$/,
-      );
-    } finally {
-      zoteroRuntime.DataDirectory = previousDataDirectory;
-    }
-  });
-
   it("discovers valid official and user skills", async function () {
     const builtinRoot = path.join(tempRoot, "skills_builtin");
     const userRoot = path.join(tempRoot, "skills");
@@ -244,14 +195,20 @@ describe("plugin skill registry", function () {
   });
 
   it("discovers the Zotero Bridge CLI access skill with task-oriented triggers", async function () {
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const registry = await scanPluginSkillRegistry({
+      cwd: process.cwd(),
+      xpiBundledRoot: path.join(
+        process.cwd(),
+        "addon/content/host-bridge-skills",
+      ),
+    });
     const entry = registry.entriesById["zotero-bridge-cli"];
 
     assert.isOk(entry);
-    assert.equal(entry.sourceKind, "official");
+    assert.equal(entry.sourceKind, "xpi-bundled");
     assert.include(
       entry.sourceDir.replace(/\\/g, "/"),
-      "skills_builtin/zotero-bridge-cli",
+      "addon/content/host-bridge-skills/zotero-bridge-cli",
     );
     assert.include(entry.description, "Zotero Bridge CLI");
     assert.include(entry.description, "Zotero library");
@@ -341,6 +298,76 @@ describe("plugin skill registry", function () {
           entry.category === "skill_shadowed" &&
           entry.skillId === "shared-skill",
       ),
+    );
+  });
+
+  it("reserves Host Bridge Skill IDs for the validated XPI source", async function () {
+    const xpiBundledRoot = path.join(tempRoot, "xpi");
+    const builtinRoot = path.join(tempRoot, "official");
+    const devLocalRoot = path.join(tempRoot, "dev-local");
+    const userRoot = path.join(tempRoot, "user");
+    for (const root of [xpiBundledRoot, builtinRoot, devLocalRoot, userRoot]) {
+      await writeSkill({
+        root,
+        dirName: "zotero-bridge-cli",
+        skillId: "zotero-bridge-cli",
+      });
+    }
+
+    const registry = await scanPluginSkillRegistry({
+      xpiBundledRoot,
+      builtinRoot,
+      devLocalRoot,
+      userRoot,
+      reservedSkillIds: ["zotero-bridge-cli"],
+      hostBridgePluginSkillBundleIdentity: {
+        cli: {
+          version: "1.2.3",
+          buildFingerprint: "b".repeat(64),
+          commandCatalogChecksum: "c".repeat(64),
+        },
+        aggregateSha256: "a".repeat(64),
+      },
+    });
+
+    assert.equal(
+      registry.entriesById["zotero-bridge-cli"].sourceKind,
+      "xpi-bundled",
+    );
+    assert.lengthOf(
+      registry.diagnostics.filter(
+        (entry) => entry.category === "skill_reserved_source_rejected",
+      ),
+      3,
+    );
+    assert.deepEqual(registry.hostBridgePluginSkillBundle?.reservedSkillIds, [
+      "zotero-bridge-cli",
+    ]);
+  });
+
+  it("does not fall back when a reserved XPI Skill is unavailable", async function () {
+    const builtinRoot = path.join(tempRoot, "official");
+    const userRoot = path.join(tempRoot, "user");
+    for (const root of [builtinRoot, userRoot]) {
+      await writeSkill({
+        root,
+        dirName: "zotero-bridge-cli",
+        skillId: "zotero-bridge-cli",
+      });
+    }
+
+    const registry = await scanPluginSkillRegistry({
+      builtinRoot,
+      userRoot,
+      reservedSkillIds: ["zotero-bridge-cli"],
+    });
+
+    assert.notProperty(registry.entriesById, "zotero-bridge-cli");
+    assert.lengthOf(
+      registry.diagnostics.filter(
+        (entry) => entry.category === "skill_reserved_source_rejected",
+      ),
+      2,
     );
   });
 

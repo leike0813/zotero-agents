@@ -2,8 +2,12 @@ import type {
   WorkflowParameterOption,
   WorkflowParameterOptionsSource,
 } from "../workflows/types";
-import type { SynthesisWorkflowTopicOptionsResult } from "./synthesis/service";
-import { listZoteroCollections } from "./zoteroHostCapabilityBroker";
+import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
+import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
+import {
+  createZoteroHostCapabilityBroker,
+  type ZoteroHostCapabilityBroker,
+} from "./zoteroHostCapabilityBroker";
 
 export type WorkflowParameterOptionsResult = {
   options: WorkflowParameterOption[];
@@ -31,23 +35,12 @@ function compactKeySuffix(key: string) {
   return value.length > 6 ? value.slice(-6) : value;
 }
 
-type SynthesisTopicOptionsService = {
-  listWorkflowTopicOptions: (args?: {
-    filter?: unknown;
-  }) => Promise<SynthesisWorkflowTopicOptionsResult>;
-};
-
-async function getDefaultSynthesisTopicOptionsService(): Promise<SynthesisTopicOptionsService> {
-  const { getDefaultSynthesisService } = await import("./synthesis/service");
-  return getDefaultSynthesisService();
-}
-
 async function resolveSynthesisTopicOptions(
   source: WorkflowParameterOptionsSource,
-  service: SynthesisTopicOptionsService,
+  client: Pick<SynthesisClient, "topics">,
 ): Promise<WorkflowParameterOptionsResult> {
-  const result = await service.listWorkflowTopicOptions({
-    filter: source.filter,
+  const result = await client.topics.listWorkflowOptions({
+    filter: source.filter === "updatable" ? "updatable" : "all",
   });
   return {
     options: result.options as WorkflowParameterOption[],
@@ -58,7 +51,8 @@ async function resolveSynthesisTopicOptions(
 export async function resolveWorkflowParameterOptionsSource(
   source: WorkflowParameterOptionsSource | undefined,
   deps?: {
-    synthesisService?: SynthesisTopicOptionsService;
+    synthesisClient?: Pick<SynthesisClient, "topics">;
+    library?: Pick<ZoteroHostCapabilityBroker["library"], "listCollections">;
   },
 ): Promise<WorkflowParameterOptionsResult> {
   if (!source || typeof source !== "object") {
@@ -68,8 +62,7 @@ export async function resolveWorkflowParameterOptionsSource(
     try {
       return await resolveSynthesisTopicOptions(
         source,
-        deps?.synthesisService ||
-          (await getDefaultSynthesisTopicOptionsService()),
+        deps?.synthesisClient || (await getDefaultSynthesisClient()),
       );
     } catch (error) {
       return {
@@ -103,9 +96,19 @@ export async function resolveWorkflowParameterOptionsSource(
       source.library == null
         ? undefined
         : normalizeLibraryId(source.library);
-    const collections = await listZoteroCollections({
-      libraryId: requestedLibrary || undefined,
-    });
+    const library = deps?.library || createZoteroHostCapabilityBroker().library;
+    const collections = [];
+    let cursor: string | undefined;
+    do {
+      const page = await library.listCollections({
+        libraryId: requestedLibrary || undefined,
+        limit: 500,
+        cursor,
+      });
+      collections.push(...page.collections);
+      cursor = page.nextCursor || undefined;
+      if (!page.hasMore) break;
+    } while (cursor);
     const options: WorkflowParameterOption[] = [];
     if (source.includeEmpty === true) {
       options.push({
@@ -118,8 +121,8 @@ export async function resolveWorkflowParameterOptionsSource(
       });
     }
     for (const collection of collections) {
-      const key = normalizeString(collection.key);
-      const libraryId = normalizeLibraryId(collection.libraryId);
+      const key = normalizeString(collection.ref.key);
+      const libraryId = normalizeLibraryId(collection.ref.libraryId);
       if (!key || !libraryId) {
         continue;
       }
@@ -136,7 +139,6 @@ export async function resolveWorkflowParameterOptionsSource(
           kind: "zotero.collection",
           libraryId,
           collectionKey: key,
-          collectionId: collection.id,
           name: normalizeString(collection.name),
           path,
         },

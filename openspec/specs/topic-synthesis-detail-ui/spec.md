@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change align-topic-synthesis-detail-ui-with-structured-artifact. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Topic Detail Exposes Review-Oriented Sections
 
 Topic Detail SHALL expose six top-level tabs: Overview, Taxonomy, Claims,
@@ -30,17 +32,27 @@ digest modal through the existing digest resolver.
 
 ### Requirement: Digest Modal SHALL Render Representative Image When Available
 
-The topic detail source digest modal SHALL render a digest representative image from Zotero-legal note image markup.
+
+The topic detail source digest modal SHALL render a digest representative image from Zotero-legal note image markup when optional Host image enrichment returns a valid available result, and digest resolution SHALL remain successful when that enrichment is absent, unavailable, malformed, unconfigured, or fails.
 
 #### Scenario: Representative image is available after normalization
+
 - **WHEN** a user opens a source digest modal from topic evidence
-- **AND** the digest note contains a valid `<img data-attachment-key="...">` backed by a note-child embedded-image attachment
+- **AND** representative-image inclusion is requested and the digest note contains a valid `<img data-attachment-key="...">` backed by a note-child embedded-image attachment
 - **THEN** the Workbench SHALL request representative image data from `resolveTopicPaperDigest`
-- **AND** the modal SHALL render the image above the digest markdown body.
+- **AND** the modal SHALL render the image above the digest markdown body using the existing data-URL and snake_case projection.
 
 #### Scenario: Representative image wrapper is legacy
+
 - **WHEN** a digest note still contains the old custom representative-image block
-- **THEN** the resolver SHALL continue to read it for compatibility.
+- **THEN** the Host resolver SHALL continue to read it for compatibility.
+
+#### Scenario: Representative image enrichment is not usable
+
+- **WHEN** representative-image inclusion is disabled, the digest has no note key, the Host port is absent, the Host result is `absent`, or the Host read throws or returns a malformed or unavailable result
+- **THEN** digest resolution SHALL NOT fail
+- **AND** `representative_image` SHALL be omitted
+- **AND** transport, malformed, and unavailable failures SHALL use stable diagnostics without exposing raw Host errors.
 
 ### Requirement: Topic Detail renders timeline from artifact markers
 
@@ -78,3 +90,21 @@ matrix rendering.
   `improvement_dimensions[]`
 - **THEN** Topic Detail SHALL keep the legacy Compare fallback.
 
+### Requirement: Topic digest SHALL project an optional representative image
+
+When requested, a resolved Topic paper digest SHALL include the fixed-baseline `representative_image` projection only when the reverse Host returns a valid available image. Image lookup SHALL use the digest locator's library ID, note key, and paper ref and SHALL not delay or fail the digest when image data is absent or unavailable.
+
+#### Scenario: Representative image is available
+- **WHEN** a digest is resolved with representative-image inclusion enabled and a note key is present
+- **THEN** the result contains the existing snake-case `representative_image` object with a data URL
+- **AND** its item identity, MIME, dimensions, paper ref, and bounded diagnostics match the validated Host result
+
+#### Scenario: Representative image is not requested or absent
+- **WHEN** inclusion is disabled, the digest has no note key, or Host reports `absent`
+- **THEN** the digest succeeds and omits `representative_image`
+- **AND** no unnecessary Host call is made when inclusion is disabled or the note key is absent
+
+#### Scenario: Representative image cannot be read
+- **WHEN** Host transport fails, reports `unavailable`, or returns malformed image data
+- **THEN** the digest succeeds with `representative_image.status` equal to `unavailable`
+- **AND** diagnostics are stable and do not expose raw Host errors

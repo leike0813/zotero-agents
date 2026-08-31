@@ -1,6 +1,11 @@
 # Library SSOT and Sidecar Cache
 
-This document defines the target Synthesis data boundary after the index model reset. It supersedes designs that tried to keep a continuously synchronized paper index inside the Zotero plugin.
+This document defines the current Synthesis data boundary after the index model
+reset. Zotero Library remains the SSOT for Zotero-owned facts. The XPI-bundled
+Rust runtime owns production Synthesis application state, SQLite projections,
+durable decisions, canonical Topic files, and workers. The plugin owns UI
+orchestration and bounded reverse-Host authority for Zotero, credentials,
+network, files, and export delivery.
 
 ## Decision
 
@@ -10,7 +15,7 @@ Synthesis persistence is a sidecar cache and a store for user-approved derived d
 
 ## Why
 
-Zotero plugins run in one process on one JavaScript event loop. A background event model inside that runtime is still foreground work from the UI's perspective. Long index rebuilds, startup reconcile, dirty queues, and graph maintenance caused UI stalls and conflicting status projections; this hard cut removes that model.
+The current Zotero plugin implementation runs in one process on one JavaScript event loop. A background event model inside that runtime is still foreground work from the UI's perspective. Long index rebuilds, startup reconcile, dirty queues, and graph maintenance caused UI stalls and conflicting status projections; this hard cut removes that model. The sidecar migration is tracked separately and must preserve the same explicit-operation and stale-tolerant semantics.
 
 The core product workflows do not require a fully synchronized library index:
 
@@ -25,9 +30,12 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 
 | Data | SSOT | Synthesis Sidecar Role |
 | --- | --- | --- |
-| Zotero item metadata, existence, tags, collections, relations | Zotero Library | Read on demand through Host Library APIs. Do not persist an independent item metadata or library-membership copy in Synthesis sidecar tables. |
+| Zotero item metadata, existence, tags, collections, relations | Zotero Library | Read on demand through bounded, JSON-safe Host library pages or stable-ref lookup. Do not persist an independent item metadata or library-membership copy in Synthesis sidecar tables. |
 | Literature digest artifact, reference notes, embedded payload attachments | Zotero notes/attachments | Read on demand; cache only parseable embedded-payload existence, locator, fingerprint/hash, and diagnostics keyed by `source_ref`. Note existence and legacy hidden payload blocks are migration diagnostics only, not artifact availability. |
-| Topic artifacts and source manifests | Topic artifact notes / workflow output | Store summaries, source-check diagnostics, and UI projection. |
+| Topic digest representative image | Zotero digest note and its child image attachment | Resolve on demand through the independent representative-image Host read port. The application receives only canonical metadata plus at most 2 MiB of base64 content; Zotero objects, note HTML, local paths, and callbacks remain Host-owned. Image absence or failure does not change digest markdown availability. |
+| Remote Topic Context and filtered artifact archive | Application-projected bounded text entries | Publish through `SynthesisHostExportDeliveryPort`; the Host owns ZIP bytes, temporary paths, integrity metadata, opaque download registration, TTL, and cleanup. Remote responses never contain the Host-local path. |
+| Topic canonical current files and source manifests | `data/synthesis/topics/<topicId>/current/**` | Canonical source for applied Topic content; store/read the complete current artifact, manifest, metadata, sections, and managed assets. |
+| Legacy Zotero Topic anchor/shard items | Historical data only | Normal runtime does not discover, read, update, delete, or recover from these items. Any future one-shot import requires a separately specified, explicitly confirmed migration. |
 | Raw reference entries extracted by digest/apply | Source references artifact payload | Store rows keyed by `source_ref`, `references_artifact_hash`, and reference index/hash for graph/query speed. Old rows become `stale` when their artifact hash is replaced. |
 | Canonical reference dedupe and redirects | Synthesis sidecar facts plus user-approved decisions | Store canonical representatives and redirects between canonical references. Ambiguous merges require review. |
 | Reference binding decisions | User-approved or deterministic Synthesis sidecar facts | Store canonical-reference-to-Zotero binding status, provenance, confidence, and evidence. |
@@ -40,7 +48,7 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 - No startup reconcile that fans out Zotero library changes into sidecar work.
 - No dirty-event queue whose purpose is to keep Synthesis in lockstep with Zotero.
 - No full Registry rebuild on normal startup, snapshot read, or topic workflow read.
-- No external process requirement just to keep a local index current.
+- Production Citation Graph layout requires the Rust worker and fails closed when it is unavailable; the Rust application/repository owns basis checks and previous-layout retention.
 
 ## Allowed Update Paths
 

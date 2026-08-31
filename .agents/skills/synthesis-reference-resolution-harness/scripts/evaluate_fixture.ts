@@ -5,7 +5,7 @@ import {
   type ReferenceMatcherPolicyId,
   type ReferenceResolutionEvaluationResult,
   type ReferenceResolutionFixture,
-} from "../../../../src/modules/synthesis/referenceMatcher.ts";
+} from "../../../../packages/synthesis-engine/src/referenceMatcher.ts";
 
 function argValue(name: string, fallback = "") {
   const index = process.argv.indexOf(name);

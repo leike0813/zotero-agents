@@ -31,14 +31,9 @@ import {
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
+  applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
   listSkillRunnerRunRecords,
-  recordSkillRunnerObserverFailure,
-  updateSkillRunnerRunApplyState,
-  updateSkillRunnerRunStateByRequest,
-  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import { resetSkillRunnerSessionSyncForTests } from "../../src/modules/skillRunnerSessionSyncManager";
 import { resetSkillRunnerForegroundContinuationForTests } from "../../src/modules/skillRunnerForegroundContinuation";
@@ -48,11 +43,12 @@ import {
 } from "../../src/modules/skillRunnerAutoReplyObserver";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
 import {
+  applySequenceRunEvent,
   initializeSequenceRunState,
-  recordSequenceStepRequestCreated,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
+import { resetZoteroHostMutationRuntimeForTests } from "../../src/modules/zoteroHostCapabilityBroker";
 import {
   joinPath,
   workflowsPath,
@@ -172,55 +168,68 @@ function persistRun(args: {
       : typeof args.requestPayload === "undefined"
         ? job.request
         : args.requestPayload;
-  const run = createSkillRunnerRun({
+  const run = applySkillRunnerRunEvent({
+    type: "submit.local_created",
     backendId: TEST_SKILLRUNNER_BACKEND_ID,
-    workflowId: job.workflowId,
-    workflowRunId:
-      args.sequenceRunId || String(job.meta.runId || `run-${args.requestId}`),
-    jobId: job.id,
-    taskName: String(job.meta.taskName || job.id),
-    skillId: String(job.meta.skillId || "") || undefined,
-    sequenceRunId: args.sequenceRunId,
-    sequenceJobId: args.sequenceRunId,
-    sequenceStepId: args.sequenceStepId,
-    requestPayload,
-    fetchType: "result",
-    executionMode:
-      args.executionMode === "interactive" ? "interactive" : "auto",
-    createdAt: job.createdAt,
-    updatedAt: job.updatedAt,
+    init: {
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      workflowId: job.workflowId,
+      workflowRunId:
+        args.sequenceRunId || String(job.meta.runId || `run-${args.requestId}`),
+      jobId: job.id,
+      taskName: String(job.meta.taskName || job.id),
+      skillId: String(job.meta.skillId || "") || undefined,
+      sequenceRunId: args.sequenceRunId,
+      sequenceJobId: args.sequenceRunId,
+      sequenceStepId: args.sequenceStepId,
+      requestPayload,
+      fetchType: "result",
+      executionMode:
+        args.executionMode === "interactive" ? "interactive" : "auto",
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    },
   });
   if (!run) {
     return;
   }
   const attached =
-    attachSkillRunnerRequestId({
+    applySkillRunnerRunEvent({
+      type: "request.created",
       runKey: run.runKey,
       requestId: args.requestId,
       updatedAt: job.updatedAt,
     }) || run;
-  updateSkillRunnerRunStateByRunKey({
+  applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     runKey: attached.runKey,
     state: "request_ready",
     backendStatus: "running",
     updatedAt: job.updatedAt,
   });
-  updateSkillRunnerRunStateByRequest({
+  applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     backendId: TEST_SKILLRUNNER_BACKEND_ID,
     requestId: args.requestId,
     state: args.state,
     updatedAt: "2026-06-20T00:00:01.500Z",
-    eventType: "backend.snapshot",
   });
   if (args.applyState && args.applyState !== "idle") {
-    updateSkillRunnerRunApplyState({
+    applySkillRunnerRunEvent({
+      type:
+        args.applyState === "running"
+          ? "apply.started"
+          : args.applyState === "succeeded"
+            ? "apply.succeeded"
+            : args.applyState === "failed"
+              ? "apply.failed"
+              : "apply.skipped",
       backendId: TEST_SKILLRUNNER_BACKEND_ID,
       requestId: args.requestId,
-      state: args.applyState,
       attempt: 0,
       maxAttempt: 5,
       updatedAt: "2026-06-20T00:00:01.600Z",
-    });
+    } as any);
   }
 }
 
@@ -286,6 +295,7 @@ function setupSkillRunnerTaskReconcilerSuite() {
     resetSkillRunnerBackendHealthRegistryForTests();
     resetSkillRunnerForegroundContinuationForTests();
     resetSkillRunnerAutoReplyObserverForTests();
+    resetZoteroHostMutationRuntimeForTests();
     setSkillRunnerInteractiveAutoReplyEnabledForTests();
     await resetSkillRunnerSessionSyncForTests();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();
@@ -305,6 +315,7 @@ function setupSkillRunnerTaskReconcilerSuite() {
     resetSkillRunnerBackendHealthRegistryForTests();
     resetSkillRunnerForegroundContinuationForTests();
     resetSkillRunnerAutoReplyObserverForTests();
+    resetZoteroHostMutationRuntimeForTests();
     setSkillRunnerInteractiveAutoReplyEnabledForTests();
     await resetSkillRunnerSessionSyncForTests();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();
@@ -438,7 +449,8 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
         requestId: "req-detached-running",
       });
       assert.isOk(before);
-      recordSkillRunnerObserverFailure({
+      applySkillRunnerRunEvent({
+        type: "run.observer_detached",
         runKey: before!.runKey,
         error: new Error("network detached"),
         source: "test",
@@ -479,7 +491,8 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
         requestId: "req-detached-retry",
       });
       assert.isOk(before);
-      recordSkillRunnerObserverFailure({
+      applySkillRunnerRunEvent({
+        type: "run.observer_detached",
         runKey: before!.runKey,
         error: new Error("network detached"),
         source: "test",
@@ -733,7 +746,8 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
         requestId: "req-detached-waiting",
       });
       assert.isOk(before);
-      recordSkillRunnerObserverFailure({
+      applySkillRunnerRunEvent({
+        type: "run.observer_detached",
         runKey: before!.runKey,
         error: new Error("network detached"),
         source: "test",
@@ -892,31 +906,35 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
         requestId,
         state: "running",
       });
-      const run = createSkillRunnerRun({
+      const run = applySkillRunnerRunEvent({
+        type: "submit.local_created",
         backendId: "local-skillrunner-backend",
-        workflowId: job.workflowId,
-        workflowRunId: `run-${requestId}`,
-        jobId: job.id,
-        taskName: "debug task",
-        skillId: "debug-apply-contract",
-        requestPayload: job.request,
-        fetchType: "result",
-        executionMode: "auto",
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt,
+        init: {
+          backendId: "local-skillrunner-backend",
+          workflowId: job.workflowId,
+          workflowRunId: `run-${requestId}`,
+          jobId: job.id,
+          taskName: "debug task",
+          skillId: "debug-apply-contract",
+          requestPayload: job.request,
+          fetchType: "result",
+          executionMode: "auto",
+          createdAt: job.createdAt,
+          updatedAt: job.updatedAt,
+        },
       });
       assert.isOk(run);
-      attachSkillRunnerRequestId({
+      applySkillRunnerRunEvent({
+        type: "request.created",
         runKey: run!.runKey,
         requestId,
-        backendRequestId: requestId,
       });
-      updateSkillRunnerRunStateByRequest({
+      applySkillRunnerRunEvent({
+        type: "backend.snapshot",
         backendId: "local-skillrunner-backend",
         requestId,
         state: "running",
         updatedAt: "2026-06-20T00:00:01.500Z",
-        eventType: "backend.snapshot",
       });
       installFetchRouter({
         [`/v1/jobs/${requestId}`]: () => {
@@ -1031,7 +1049,8 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
         workflowRunId: "sequence-existing-state",
         jobId: "sequence-existing-state",
       });
-      recordSequenceStepRequestCreated({
+      applySequenceRunEvent({
+        type: "sequence.step.request_created",
         sequenceRunId: "sequence-existing-state",
         stepIndex: 0,
         requestId: "req-sequence-waiting",

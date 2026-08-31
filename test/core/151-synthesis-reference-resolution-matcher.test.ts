@@ -9,7 +9,7 @@ import {
   normalizeReferenceIdentifier,
   resolveReferenceWithPolicy,
   type ReferenceResolutionFixture,
-} from "../../src/modules/synthesis/referenceMatcher";
+} from "../../packages/synthesis-engine/src/referenceMatcher";
 import {
   buildReviewSeedData,
   emptyReviewState,

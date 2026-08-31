@@ -1,0 +1,9 @@
+- [x] 1. Add delta specs and validate the OpenSpec change.
+- [x] 2. Add failing tests for readiness routing, strict score results, score note writing, chart/payload isolation, and bundle portability.
+- [x] 3. Implement generic generated-note readiness, internal score-only request routing, score note apply, PNG chart preparation, and import/export support.
+- [x] 4. Add failing tests and implement the shared score model plus the Zotero library Rating column with shared scanning and invalidation.
+- [x] 5. Add failing tests and implement the bounded Synthesis Index score projection, rating column, action availability, and score-note refresh invalidation.
+- [x] 6. Update workflow/Synthesis documentation, localization, and the stale Synthesis invariant test script.
+- [x] 7. Run focused tests, both TypeScript type checks, lint/format checks, manifest/localization checks, and strict OpenSpec validation.
+- [x] 8. Make rating and literature-analysis mode changes invalidate the Synthesis Index row content signature, with a focused regression guard.
+- [x] 9. Derive a supported DOI/arXiv identifier from the selected parent item and pass it to full and score-only literature-analysis requests, with focused request-building coverage.

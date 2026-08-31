@@ -5,10 +5,8 @@ import {
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
+  applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
-  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 
 function createMessageFormatter() {
@@ -61,27 +59,32 @@ function persistSkillRunnerRequestReadyRun(args: {
   backendId?: string;
 }) {
   const now = "2026-06-20T00:00:00.000Z";
-  const run = createSkillRunnerRun({
-    backendId: args.backendId || "",
-    workflowId: "hr-02-apply-seam",
-    workflowRunId: "run-hr-02",
-    jobId: args.jobId,
-    taskName: "auto.md",
-    fetchType: "result",
-    executionMode: "auto",
-    createdAt: now,
-    updatedAt: now,
+  const run = applySkillRunnerRunEvent({
+    type: "submit.local_created",
+    init: {
+      backendId: args.backendId || "",
+      workflowId: "hr-02-apply-seam",
+      workflowRunId: "run-hr-02",
+      jobId: args.jobId,
+      taskName: "auto.md",
+      fetchType: "result",
+      executionMode: "auto",
+      createdAt: now,
+      updatedAt: now,
+    },
   });
   if (!run) {
     return;
   }
   const attached =
-    attachSkillRunnerRequestId({
+    applySkillRunnerRunEvent({
+      type: "request.created",
       runKey: run.runKey,
       requestId: args.requestId,
       updatedAt: now,
     }) || run;
-  updateSkillRunnerRunStateByRunKey({
+  applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     runKey: attached.runKey,
     state: "request_ready",
     backendStatus: "running",

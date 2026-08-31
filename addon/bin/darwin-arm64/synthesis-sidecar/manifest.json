@@ -1,0 +1,56 @@
+{
+  "schema": "synthesis-sidecar-runtime-bundle.v3",
+  "bundleId": "84e6dc1be7a14c08741f337bc9919c3e38692a229538592c557ddb6f75bba803",
+  "implementation": "rust-native",
+  "serviceVersion": "0.1.0",
+  "protocolVersion": "synthesis-sidecar.v1",
+  "target": "darwin-arm64",
+  "targetTriple": "aarch64-apple-darwin",
+  "executable": "synthesis-sidecar",
+  "buildFingerprint": "b0552934d1db34183085d8d3b32bfbcf6e3bddbdfa98a1f74e342567b7c63b73",
+  "capabilities": [
+    "system.handshake",
+    "system.shutdown",
+    "workbench.chrome.read",
+    "topics.canonical.inspect",
+    "transfer.content",
+    "compute.citation_graph_layout",
+    "compute.citation_graph_metrics",
+    "compute.citation_graph_build",
+    "compute.citation_graph_build_transfer"
+  ],
+  "createdAt": "2026-08-29T03:08:41.000Z",
+  "expiresAt": null,
+  "provenance": {
+    "sourceFingerprint": "19da1c7fdbe240ffa920d1dd75ea8483236058e8dfa1e80f877cae8dc4424da6",
+    "toolchain": "nightly-2026-07-25",
+    "cargoLockSha256": "5c891779150a6771ddb9eeca779411b50a43dd3ab7c8e669cd0ffc6e0745fa5f",
+    "licenseInventory": "licenses.json"
+  },
+  "files": [
+    {
+      "path": "LICENSE-AGPL-3.0.txt",
+      "bytes": 34520,
+      "sha256": "76a97c878c9c7a8321bb395c2b44d3fe2f8d81314d219b20138ed0e2dddd5182",
+      "executable": false
+    },
+    {
+      "path": "licenses.json",
+      "bytes": 7210,
+      "sha256": "fbcf1981d66700145476ed20bcca4d2569742809349ead76f528099e7bdeb718",
+      "executable": false
+    },
+    {
+      "path": "provenance.json",
+      "bytes": 381,
+      "sha256": "3851622666ccc2cffee10cf038d5b9fb34fe36b054ce0bdf5a5b806eb50bae69",
+      "executable": false
+    },
+    {
+      "path": "synthesis-sidecar",
+      "bytes": 5039424,
+      "sha256": "b7235d2f0adf84999df0d6010c3b16698c08cd09e4aa77cb001c737b047e0a7b",
+      "executable": true
+    }
+  ]
+}

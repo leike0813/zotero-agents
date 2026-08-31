@@ -100,7 +100,7 @@ Zotero Agentsの設定は**Zotero → 設定 → Zotero Agents**（Windows/Linux
 
 ## WebDAV同期
 
-Synthesis Workbenchのデバイス間同期ソリューション。非推奨となったGit Syncに代わるものである。詳細は[WebDAV同期](synthesis/webdav-sync)を参照。
+Synthesis Workbenchのデバイス間で永続データを同期する機能。詳細は[WebDAV同期](synthesis/webdav-sync)を参照。
 
 | 設定 | タイプ | デフォルト | 説明 |
 |---------|------|---------|-------------|

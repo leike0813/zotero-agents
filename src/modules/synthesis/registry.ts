@@ -1,11 +1,19 @@
 import { listNotePayloadBlocks } from "../notePayloadCodec";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
+import {
+  parseLiteratureScore,
+  type LiteratureScoreSummary,
+} from "../../shared/literatureScore";
+import {
+  SYNTHESIS_PAPER_ARTIFACT_PAYLOAD_TYPES,
+  SYNTHESIS_PAPER_ARTIFACT_TYPES,
+  type SynthesisPaperArtifactType,
+} from "../../../packages/synthesis-contracts/src/literatureArtifacts";
 import { hashCanonicalJson, hashMarkdown } from "./foundation";
 
-export type ReferenceSidecarArtifactType =
-  | "digest"
-  | "references"
-  | "citation_analysis";
+export const PAPER_ARTIFACT_TYPES = SYNTHESIS_PAPER_ARTIFACT_TYPES;
+
+export type PaperArtifactType = SynthesisPaperArtifactType;
 
 export type ReferenceSidecarArtifactStatus = "available" | "missing" | "error";
 
@@ -15,12 +23,12 @@ export type ReferenceSidecarDiagnostic = {
     | "payload_decode_failed"
     | "unsupported_payload_version"
     | "duplicate_payload_candidates";
-  artifact_type: ReferenceSidecarArtifactType;
+  artifact_type: PaperArtifactType;
   message: string;
 };
 
 export type ReferenceSidecarArtifact = {
-  type: ReferenceSidecarArtifactType;
+  type: PaperArtifactType;
   payload_type: string;
   status: ReferenceSidecarArtifactStatus;
   note_key?: string;
@@ -89,6 +97,13 @@ export type ReferenceSidecarInput = {
   url?: string;
   citekey?: string;
   dateAdded?: string;
+  literatureAnalysisArtifacts?: {
+    digest: boolean;
+    references: boolean;
+    citationAnalysis: boolean;
+    literatureScore: "available" | "missing" | "invalid";
+  };
+  literatureScore?: LiteratureScoreSummary;
 };
 
 export type ReferenceSidecarIndexRow = {
@@ -100,19 +115,15 @@ export type ReferenceSidecarIndexRow = {
   item_type: string;
   tags: string[];
   collections: string[];
-  artifacts: Record<ReferenceSidecarArtifactType, ReferenceSidecarArtifact> & {
-    citation_analysis: ReferenceSidecarArtifact;
-  };
+  artifacts: Record<PaperArtifactType, ReferenceSidecarArtifact>;
   artifactCoverage: "complete" | "partial" | "missing";
   diagnostics: ReferenceSidecarDiagnostic[];
   facets: ReferenceSidecarFacets;
   row_hash: string;
 };
 
-const ARTIFACT_PAYLOAD_TYPES: Record<ReferenceSidecarArtifactType, string> = {
-  digest: "digest-markdown",
-  references: "references-json",
-  citation_analysis: "citation-analysis-json",
+export const PAPER_ARTIFACT_PAYLOAD_TYPES: Record<PaperArtifactType, string> = {
+  ...SYNTHESIS_PAPER_ARTIFACT_PAYLOAD_TYPES,
 };
 
 function normalizeString(value: unknown) {
@@ -204,15 +215,18 @@ export function buildReferenceSidecarMetadataFingerprintPayload(input: {
   };
 }
 
-function artifactLabel(type: ReferenceSidecarArtifactType) {
+function artifactLabel(type: PaperArtifactType) {
   if (type === "citation_analysis") {
     return "citation analysis";
+  }
+  if (type === "literature_score") {
+    return "literature score";
   }
   return type;
 }
 
 function missingDiagnostic(
-  type: ReferenceSidecarArtifactType,
+  type: PaperArtifactType,
 ): ReferenceSidecarDiagnostic {
   return {
     code: "payload_missing",
@@ -222,7 +236,7 @@ function missingDiagnostic(
 }
 
 function decodeFailedDiagnostic(
-  type: ReferenceSidecarArtifactType,
+  type: PaperArtifactType,
   message: string,
 ): ReferenceSidecarDiagnostic {
   return {
@@ -233,7 +247,7 @@ function decodeFailedDiagnostic(
 }
 
 function unsupportedVersionDiagnostic(
-  type: ReferenceSidecarArtifactType,
+  type: PaperArtifactType,
   version: string,
 ): ReferenceSidecarDiagnostic {
   return {
@@ -244,7 +258,7 @@ function unsupportedVersionDiagnostic(
 }
 
 function duplicateDiagnostic(
-  type: ReferenceSidecarArtifactType,
+  type: PaperArtifactType,
   count: number,
 ): ReferenceSidecarDiagnostic {
   return {
@@ -265,22 +279,22 @@ function hashPayload(block: ReturnType<typeof listNotePayloadBlocks>[number]) {
 }
 
 function buildMissingArtifact(
-  type: ReferenceSidecarArtifactType,
+  type: PaperArtifactType,
 ): ReferenceSidecarArtifact {
   const diagnostic = missingDiagnostic(type);
   return {
     type,
-    payload_type: ARTIFACT_PAYLOAD_TYPES[type],
+    payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
     status: "missing",
     diagnostics: [diagnostic],
   };
 }
 
 function discoverArtifact(
-  type: ReferenceSidecarArtifactType,
+  type: PaperArtifactType,
   notes: ReferenceSidecarInputNote[],
 ): ReferenceSidecarArtifact {
-  const payloadType = ARTIFACT_PAYLOAD_TYPES[type];
+  const payloadType = PAPER_ARTIFACT_PAYLOAD_TYPES[type];
   const sortedNotes = [...notes].sort((left, right) =>
     normalizeString(left.key).localeCompare(normalizeString(right.key)),
   );
@@ -288,7 +302,14 @@ function discoverArtifact(
     note: ReferenceSidecarInputNote;
     block: ReturnType<typeof listNotePayloadBlocks>[number];
   }> = [];
+  let invalidCandidate:
+    | {
+        note: ReferenceSidecarInputNote;
+        block: ReturnType<typeof listNotePayloadBlocks>[number];
+      }
+    | undefined;
   const diagnostics: ReferenceSidecarDiagnostic[] = [];
+  let sawCandidate = false;
 
   for (const note of sortedNotes) {
     const blocks = (
@@ -299,6 +320,8 @@ function discoverArtifact(
         entry.source === "embedded-image-attachment",
     );
     for (const block of blocks) {
+      sawCandidate = true;
+      invalidCandidate ||= { note, block };
       if (block.version !== "1") {
         diagnostics.push(unsupportedVersionDiagnostic(type, block.version));
         continue;
@@ -307,11 +330,34 @@ function discoverArtifact(
         diagnostics.push(decodeFailedDiagnostic(type, block.errors.join("; ")));
         continue;
       }
+      if (type === "literature_score" && !parseLiteratureScore(block.payload)) {
+        diagnostics.push(
+          decodeFailedDiagnostic(
+            type,
+            "literature score payload failed literature_score.v1 validation",
+          ),
+        );
+        continue;
+      }
       validCandidates.push({ note, block });
     }
   }
 
   if (validCandidates.length === 0) {
+    if (sawCandidate) {
+      return {
+        type,
+        payload_type: payloadType,
+        status: "error",
+        note_key: normalizeString(invalidCandidate?.note.key),
+        note_title: normalizeString(invalidCandidate?.note.title),
+        hash: invalidCandidate
+          ? hashPayload(invalidCandidate.block)
+          : undefined,
+        updated_at: normalizeString(invalidCandidate?.note.updatedAt),
+        diagnostics,
+      };
+    }
     const missing = buildMissingArtifact(type);
     return {
       ...missing,
@@ -337,7 +383,7 @@ function discoverArtifact(
 }
 
 function artifactCoverageForArtifacts(
-  artifacts: Record<ReferenceSidecarArtifactType, ReferenceSidecarArtifact>,
+  artifacts: Record<PaperArtifactType, ReferenceSidecarArtifact>,
 ) {
   const statuses = Object.values(artifacts).map((entry) => entry.status);
   const available = statuses.filter((entry) => entry === "available").length;
@@ -378,7 +424,7 @@ function facetStatusFromCoverage(
 
 function buildRegistryFacets(args: {
   input: ReferenceSidecarInput;
-  artifacts: Record<ReferenceSidecarArtifactType, ReferenceSidecarArtifact>;
+  artifacts: Record<PaperArtifactType, ReferenceSidecarArtifact>;
   artifactCoverage: ReferenceSidecarIndexRow["artifactCoverage"];
 }) {
   const identity = {
@@ -443,11 +489,9 @@ export function buildReferenceSidecarIndexRow(
     throw new Error("itemKey must be non-empty");
   }
   const notes = input.notes || [];
-  const artifacts = {
-    digest: discoverArtifact("digest", notes),
-    references: discoverArtifact("references", notes),
-    citation_analysis: discoverArtifact("citation_analysis", notes),
-  };
+  const artifacts = Object.fromEntries(
+    PAPER_ARTIFACT_TYPES.map((type) => [type, discoverArtifact(type, notes)]),
+  ) as Record<PaperArtifactType, ReferenceSidecarArtifact>;
   const diagnostics = Object.values(artifacts).flatMap(
     (artifact) => artifact.diagnostics,
   );

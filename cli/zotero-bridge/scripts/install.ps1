@@ -193,8 +193,8 @@ if (-not (Test-Path -LiteralPath $binRoot) -and (Test-Path -LiteralPath (Join-Pa
     $binRoot = Join-Path $bundleRoot 'addon/bin'
 }
 $profileTemplatePath = Join-Path $bundleRoot 'assets/profile.template.json'
-if (-not (Test-Path -LiteralPath $profileTemplatePath) -and (Test-Path -LiteralPath (Join-Path $bundleRoot 'skills_builtin/zotero-bridge-cli/assets/profile.template.json'))) {
-    $profileTemplatePath = Join-Path $bundleRoot 'skills_builtin/zotero-bridge-cli/assets/profile.template.json'
+if (-not (Test-Path -LiteralPath $profileTemplatePath) -and (Test-Path -LiteralPath (Join-Path $bundleRoot 'addon/content/host-bridge-skills/zotero-bridge-cli/assets/profile.template.json'))) {
+    $profileTemplatePath = Join-Path $bundleRoot 'addon/content/host-bridge-skills/zotero-bridge-cli/assets/profile.template.json'
 }
 $platform = Resolve-Platform
 $binaryName = Get-BinaryName $platform

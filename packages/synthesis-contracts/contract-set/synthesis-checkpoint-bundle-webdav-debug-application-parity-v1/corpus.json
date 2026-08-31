@@ -1,0 +1,52 @@
+{
+  "schema": "synthesis-checkpoint-bundle-webdav-debug-application-parity.v1",
+  "reportSchema": "synthesis-checkpoint-bundle-webdav-debug-application-parity-report.v1",
+  "profileId": "8888888888888888888888888888888888888888888888888888888888888888",
+  "dataRootId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "clock": "2026-07-26T08:00:00.000Z",
+  "receiptIds": ["receipt:checkpoint-final-r7", "durable-import:final-r7"],
+  "runIds": ["webdav-sync-2026-07-26T08-00-00-000Z"],
+  "faultPhases": [
+    "knowledge-row-write",
+    "durable-repository-cas",
+    "canonical-import-stage",
+    "canonical-import-commit",
+    "webdav-manifest-write",
+    "webdav-head-write",
+    "debug-second-capture"
+  ],
+  "coverage": {
+    "knowledgeCheckpoint": [
+      "deterministic_build_preview_apply",
+      "single_use_acknowledgement_basis",
+      "atomic_rollback_reopen"
+    ],
+    "durableBundle": [
+      "all_23_kinds_strict_limits",
+      "v1_read_v2_manifest_last",
+      "cross_storage_recovery_reopen"
+    ],
+    "webDavSync": [
+      "empty_remote_asset_manifest_head",
+      "conflict_pause_retry_resolution",
+      "four_attempt_abort_drain_reopen"
+    ],
+    "debugMaintenance": [
+      "bounded_json_safe_pages",
+      "readonly_superseded_drain",
+      "profiler_and_delegated_maintenance"
+    ],
+    "crossApplication": [
+      "checkpoint_bundle_webdav_debug",
+      "no_automatic_downstream_trigger"
+    ]
+  },
+  "expected": {
+    "tables": 53,
+    "indexes": 42,
+    "applicationFamilies": 4,
+    "retryLimit": 4,
+    "bundleTextLimit": 4194304,
+    "productionCapabilityRegistered": false
+  }
+}

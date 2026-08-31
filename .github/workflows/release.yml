@@ -24,7 +24,7 @@ jobs:
         uses: zotero-plugin-dev/workflows/setup-js@main
 
       - name: Initialize content submodules
-        run: git submodule update --init --recursive
+        run: git submodule update --init
 
       - name: Restore exact Host Bridge CLI prebuild set
         run: |
@@ -65,14 +65,40 @@ jobs:
       - name: Check Host Bridge CLI prebuild freshness
         run: npm run check:host-bridge-cli-prebuild-freshness
 
+      - name: Verify committed Synthesis sidecar release evidence
+        run: |
+          set -euo pipefail
+          npm run release:synthesis-sidecar:plan -- --output=.synthesis-sidecar-release-plan.json
+          jq -e '.completeReceipt == true' .synthesis-sidecar-release-plan.json
+
+      - name: Check Synthesis sidecar runtime freshness
+        run: npm run check:synthesis-sidecar-runtime-freshness
+
+      - name: Require the current Host Bridge complete receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="$(jq -r .releaseSetId host-bridge/release-set.json)"
+          test "$(jq -r .status host-bridge/latest-complete-release-receipt.json)" = "complete"
+          test "$(jq -r .releaseSetId host-bridge/latest-complete-release-receipt.json)" = "$release_id"
+
       - name: Run release gate
         run: npm run test:gate:release
 
       - name: Verify content package release
         run: npm run check:content-package-release
 
+      - name: Build help docs
+        run: npm run build:help-docs
+
       - name: Build plugin
         run: npm run build
+
+      - name: Check packaged Synthesis sidecar runtimes in XPI
+        run: npm run check:synthesis-sidecar-runtime-xpi
+
+      - name: Verify packaged Host Bridge assets
+        run: npx tsx scripts/check-plugin-host-bridge-assets.ts .scaffold/build/zotero-skills.xpi
 
       - name: Release plugin
         run: npm run release

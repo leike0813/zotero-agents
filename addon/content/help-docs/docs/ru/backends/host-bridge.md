@@ -12,7 +12,7 @@ Host Bridge — это встроенный HTTP-сервер плагина, к
 ├── HTTP-сервер Host Bridge (loopback: 127.0.0.1:<port>)
 │     ├── Аутентификация Bearer Token (каждый запрос)
 │     ├── Шлюз подтверждения записи (по операции)
-│     └── Маршрутизатор возможностей (30+ возможностей)
+│     └── Маршрутизатор возможностей (60+ возможностей)
 │
 └── CLI zotero-bridge (сопутствующий бинарный файл)
       ├── Семантические команды (context, library, mutation, synthesis)
@@ -20,7 +20,7 @@ Host Bridge — это встроенный HTTP-сервер плагина, к
       └── Режим stdin/pipe (для интеграции с агентами ACP)
 ```
 
-Версия протокола: `host-bridge.v1`. Все конечные точки, кроме `GET /bridge/v1/health`, требуют аутентификации Bearer Token.
+Версия протокола: `host-bridge.v2`. Все конечные точки, кроме `GET /bridge/v1/health`, требуют аутентификации Bearer Token. Контракты возможностей используют `host-bridge.capabilities.v2`.
 
 ## Конфигурация
 
@@ -89,51 +89,179 @@ Zotero → Настройки → Zotero Agents → Host Bridge
 
 ### Семантические команды
 
+<details>
+<summary>Все 125 канонических команд</summary>
+
+#### surface — Поверхность агента
 ```
-zotero-bridge status                           # Проверка работоспособности (без аутентификации)
-zotero-bridge manifest                         # Полный манифест возможностей
-zotero-bridge call <capability> [--input]      # Сырой вызов возможности
-zotero-bridge item search --query <text>
-zotero-bridge item get --key <key>
-zotero-bridge item notes --key <key>
-zotero-bridge item attachments --key <key>
-zotero-bridge note get --key <key>
-zotero-bridge note payloads --key <key>
-zotero-bridge note payload --key <key>
-zotero-bridge library list --input '{"limit":50}'
-zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
-zotero-bridge topics list
-zotero-bridge topics get-context --input <JSON>
-zotero-bridge topics get-report --input <JSON>
-zotero-bridge schemas get
-zotero-bridge concepts query --input <JSON>
-zotero-bridge citation-graph query-cluster --input <JSON>
-zotero-bridge citation-graph get-overview
-zotero-bridge library-index get
-zotero-bridge resolvers resolve --input <JSON>
-zotero-bridge reference-index get
-zotero-bridge paper-artifacts get-manifest --input <JSON>
-zotero-bridge paper-artifacts read --input <JSON>
-zotero-bridge insights get-attention-queue
-zotero-bridge literature ingest --input <JSON>
-zotero-bridge workflow list
-zotero-bridge workflow describe --workflow <id>
-zotero-bridge workflow submit --workflow <id> (--input <JSON> | --none)
-zotero-bridge workflow agent-run --workflow <id> (--input <JSON> | --none) --output-dir <DIR>
-zotero-bridge workflow run <runId>
-zotero-bridge task list [--workflow <id>] [--active-only]
-zotero-bridge file download <fileId> --output <path>
+zotero-bridge surface identity --json
+zotero-bridge surface describe <command...> --json
+zotero-bridge surface search --intent <text>
 ```
 
+#### bridge — Состояние сервера и профиль
+```
+zotero-bridge bridge status
+zotero-bridge bridge manifest
+zotero-bridge bridge profile inspect
+zotero-bridge bridge profile diagnose
+zotero-bridge bridge backend list
+zotero-bridge bridge backend status
+zotero-bridge call <capability> [--input <json>]
+```
+
+#### library — Чтение библиотеки
+```
+zotero-bridge library items list [--cursor <c>]
+zotero-bridge library item search --query <text>
+zotero-bridge library item get --key <key>
+zotero-bridge library item notes --key <key>
+zotero-bridge library item attachments --key <key>
+zotero-bridge library note get --key <key>
+zotero-bridge library note payloads --key <key>
+zotero-bridge library note payload --key <key> --payload-id <id>
+zotero-bridge library annotation list --key <key>
+zotero-bridge library annotation export --key <key> --format json|markdown
+zotero-bridge library snapshot --input <json>
+zotero-bridge library readiness audit --input <json>
+zotero-bridge library readiness missing-pdf --input <json>
+zotero-bridge library readiness missing-markdown --input <json>
+zotero-bridge library readiness missing-analysis --input <json>
+```
+
+#### context — Контекст UI и навигация
+```
+zotero-bridge context current
+zotero-bridge context selection get
+zotero-bridge context selection open
+zotero-bridge context item open --key <key>
+zotero-bridge context note open --key <key>
+zotero-bridge context collection open --key <key>
+```
+
+#### synthesis — Слой синтеза
+```
+zotero-bridge synthesis topic list --input <json>
+zotero-bridge synthesis topic find-by-paper-ref --input <json>
+zotero-bridge synthesis topic get-context --input <json>
+zotero-bridge synthesis topic get-report --input <json>
+zotero-bridge synthesis topic get-review-input --input <json>
+zotero-bridge synthesis schema get
+zotero-bridge synthesis concept query --input <json>
+zotero-bridge synthesis graph overview --input <json>
+zotero-bridge synthesis graph query-cluster --input <json>
+zotero-bridge synthesis graph get-slice --input <json>
+zotero-bridge synthesis graph get-layout --input <json>
+zotero-bridge synthesis graph get-metrics --input <json>
+zotero-bridge synthesis graph rank-external-references --input <json>
+zotero-bridge synthesis graph rank-library-papers --input <json>
+zotero-bridge synthesis graph refresh-metrics --input <json>
+zotero-bridge synthesis graph update --input <json>
+zotero-bridge synthesis index status
+zotero-bridge synthesis index library get --input <json>
+zotero-bridge synthesis index reference get --input <json>
+zotero-bridge synthesis cache status
+zotero-bridge synthesis cache refresh-reference-sidecar --input <json>
+zotero-bridge synthesis cache invalidate --input <json>
+zotero-bridge synthesis resolver resolve --input <json>
+zotero-bridge synthesis artifact manifest --input <json>
+zotero-bridge synthesis artifact read --input <json>
+zotero-bridge synthesis artifact export-filtered --input <json>
+zotero-bridge synthesis artifact resolve-topic-digest --input <json>
+zotero-bridge synthesis insight attention-queue
+```
+
+#### mutation — Операции записи
+```
+zotero-bridge mutation preview --input <json>
+zotero-bridge mutation apply --input <json>
+zotero-bridge mutation literature-ingest --input <json>
+zotero-bridge mutation tag add --input <json>
+zotero-bridge mutation tag remove --input <json>
+zotero-bridge mutation collection create --input <json>
+zotero-bridge mutation collection add-items --input <json>
+zotero-bridge mutation collection remove-items --input <json>
+zotero-bridge mutation item update --input <json>
+zotero-bridge mutation item attach-file --input <json>
+zotero-bridge mutation note create --input <json>
+zotero-bridge mutation note update --input <json>
+zotero-bridge mutation note upsert-payload --input <json>
+```
+
+#### workflow — Управление workflow
+```
+zotero-bridge workflow list
+zotero-bridge workflow submit --workflow <id> (--input <json> | --none)
+zotero-bridge workflow queue list [--workflow <id>]
+zotero-bridge workflow queue cancel --submission-id <id>
+zotero-bridge workflow submission get --submission-id <id>
+zotero-bridge workflow describe --workflow <id> [--json]
+zotero-bridge workflow validate --input <json>
+zotero-bridge workflow requirements --workflow <id> --input <json>
+zotero-bridge workflow profile list
+zotero-bridge workflow profile describe --profile <id>
+zotero-bridge workflow profile validate --profile <id>
+zotero-bridge workflow agent-run --workflow <id> (--input <json> | --none) --output-dir <dir>
+zotero-bridge workflow agent-bundle inspect --path <path>
+zotero-bridge workflow agent-result validate --input <json>
+zotero-bridge workflow agent-apply --run-id <id> --input <json>
+zotero-bridge workflow agent-apply-status --run-id <id>
+zotero-bridge workflow agent-renew --run-id <id>
+zotero-bridge workflow agent-abandon --run-id <id>
+```
+
+#### run — Наблюдение за выполнением
+```
+zotero-bridge run get --run-id <id>
+zotero-bridge run cancel --run-id <id>
+zotero-bridge run list [--workflow <id>]
+zotero-bridge run active
+zotero-bridge run recent
+zotero-bridge run workflow recent
+zotero-bridge run skill get --run-id <id>
+zotero-bridge run skill reply --run-id <id> --input <json>
+zotero-bridge run skill connect --run-id <id>
+zotero-bridge run skill recent
+zotero-bridge run skill events --run-id <id>
+zotero-bridge run notification list [--limit <n>]
+zotero-bridge run notification wait [--timeout-ms <ms>]
+zotero-bridge run notification ack --notification-id <id>
+zotero-bridge run permission pending
+zotero-bridge run permission get --request-id <id>
+```
+
+#### file — Передача файлов
+```
+zotero-bridge file download <fileId> --output <path>
+zotero-bridge file upload --path <path>
+```
+
+#### product — Продукты Dashboard
+```
+zotero-bridge product list [--limit <n>]
+zotero-bridge product get --product-id <id>
+zotero-bridge product download --product-id <id> --output <path>
+zotero-bridge product remove --product-id <id>
+```
+
+#### operation — Постоянные операции
+```
+zotero-bridge operation get --operation-id <id>
+```
+
+</details>
+
 Ввод принимает: встроенный JSON, путь к файлу JSON, синтаксис `@file`, `-` (stdin).
+
+Для получения полного актуального каталога команд выполните `zotero-bridge surface identity --json`, чтобы увидеть текущий `commandCatalogChecksum`, затем `zotero-bridge surface describe <command...>` для контракта любой конкретной команды.
 
 ### Контракт вывода
 
 stdout всегда выдаёт ровно один JSON-объект:
 
 ```json
-{ "ok": true, "data": {...}, "meta": { "cli": "zotero-bridge", "schema": "zotero-bridge.cli.v1" } }
-{ "ok": false, "error": {...}, "meta": { "cli": "zotero-bridge", "schema": "zotero-bridge.cli.v1" } }
+{ "ok": true, "data": {...}, "meta": { "cliSchema": "zotero-bridge.cli.v5" } }
+{ "ok": false, "error": {...}, "meta": { "cliSchema": "zotero-bridge.cli.v5" } }
 ```
 
 Коды выхода ошибок:
@@ -165,7 +293,7 @@ stdout всегда выдаёт ровно один JSON-объект:
 ```json
 {
   "schema": "zotero-bridge.profile.v1",
-  "protocol": "host-bridge.v1",
+  "protocol": "host-bridge.v2",
   "endpoint": "http://127.0.0.1:26570/bridge/v1",
   "connectionMode": "local",
   "auth": { "type": "bearer", "tokenEnv": "ZOTERO_BRIDGE_TOKEN" }
@@ -193,7 +321,7 @@ stdout всегда выдаёт ровно один JSON-объект:
 ## Доступные возможности
 
 <details>
-<summary>Все 30+ возможностей</summary>
+<summary>Все 60+ возможностей</summary>
 
 ### Контекст
 
@@ -215,6 +343,9 @@ stdout всегда выдаёт ровно один JSON-объект:
 | `library.list_note_payloads` | Список полезных нагрузок заметок |
 | `library.get_note_payload` | Получение конкретной полезной нагрузки |
 | `library.get_item_attachments` | Список вложений |
+| `library.list_annotations` | Список аннотаций читалки |
+| `library.export_annotations` | Экспорт аннотаций читалки в markdown или JSON |
+| `library.readiness_audit` | Постраничный аудит готовности библиотеки (только чтение) |
 
 ### Мутация
 
@@ -223,36 +354,91 @@ stdout всегда выдаёт ровно один JSON-объект:
 | `mutation.preview` | Предпросмотр операции записи (без выполнения) |
 | `mutation.execute` | Выполнение операции записи (требует подтверждения) |
 
-### Synthesis
+### Продукты Workflow
+
+| Возможность | Описание |
+|-----------|-------------|
+| `workflow_products.list` | Список обычных продуктов Dashboard |
+| `workflow_products.get` | Получение публичных метаданных одного продукта |
+| `workflow_products.read_asset` | Регистрация одного актива продукта для загрузки |
+| `workflow_products.export` | Экспорт одного или всех активов продукта |
+| `workflow_products.remove` | Удаление одной записи продукта |
+
+### Synthesis — Темы
 
 | Возможность | Описание |
 |-----------|-------------|
 | `topics.list` | Список всех тем |
+| `topics.find_by_paper_ref` | Поиск тем по ссылке на работу |
 | `topics.get_context` | Получение контекста темы |
 | `topics.get_report` | Получение отчёта по теме |
 | `topics.get_review_input` | Сборка пакета рецензирования темы |
-| `schemas.get` | Получение определений схемы |
-| `concepts.query` | Запрос базы знаний концепций |
+
+### Synthesis — Граф цитирований
+
+| Возможность | Описание |
+|-----------|-------------|
 | `citation_graph.query_cluster` | Запрос кластера цитирований |
 | `citation_graph.get_overview` | Получение обзора графа |
 | `citation_graph.get_slice` | Извлечение среза подграфа |
 | `citation_graph.get_metrics` | Вычисление метрик графа |
+| `citation_graph.get_layout` | Получение сохранённых координат макета |
 | `citation_graph.rank_external_references` | Ранжирование внешних ссылок |
 | `citation_graph.rank_library_papers` | Ранжирование статей библиотеки |
+| `citation_graph.refresh_metrics` | Диагностика: обновить сохранённые метрики |
+| `citation_graph.update` | Запуск атомарного обновления графа цитирований |
+
+### Synthesis — Концепции, Схемы, Резолверы
+
+| Возможность | Описание |
+|-----------|-------------|
+| `concepts.query` | Запрос базы знаний концепций |
+| `schemas.get` | Получение определений схемы |
+| `resolvers.resolve` | Разрешение резолверов ссылок/тем |
+
+### Synthesis — Артефакты статей
+
+| Возможность | Описание |
+|-----------|-------------|
 | `paper_artifacts.get_manifest` | Получение манифеста артефактов |
 | `paper_artifacts.read` | Чтение содержимого артефактов |
 | `paper_artifacts.export_filtered` | Экспорт отфильтрованных артефактов |
 | `paper_artifacts.resolve_topic_digest` | Разрешение дайджеста темы |
-| `insights.get_attention_queue` | Получение очереди внимания |
-| `resolvers.resolve` | Разрешение резолверов ссылок/тем |
+
+### Synthesis — Индексы и аналитика
+
+| Возможность | Описание |
+|-----------|-------------|
 | `reference_index.get` | Получение индекса ссылок |
+| `reference_sidecar.refresh` | Запуск обновления sidecar ссылок |
 | `library_index.get` | Получение индекса библиотеки |
+| `insights.get_attention_queue` | Получение очереди внимания |
+| `synthesis.operation.get` | Чтение квитанции постоянной операции синтеза |
 
 ### Диагностика
 
 | Возможность | Описание |
 |-----------|-------------|
 | `diagnostic.get_status` | Получение статуса сервиса |
+
+### Отладка (только в режиме отладки)
+
+| Возможность | Описание |
+|-----------|-------------|
+| `debug.status` | Снимок статуса отладки Host Bridge |
+| `debug.persistence.snapshot` | Снимок runtime-персистентности |
+| `debug.tasks.snapshot` | Диагностика задач workflow и запусков ACP |
+| `debug.zotero.eval` | Выполнение одобренного JavaScript в контексте Zotero |
+| `debug.acpSkillRun.reapplyResult` | Повторный запуск applyResult для запуска навыка ACP |
+| `debug.skillrunner.connections.snapshot` | Диагностика управляющего соединения SkillRunner |
+| `debug.synthesis.snapshot` | Снимок операций и кэша синтеза |
+| `debug.synthesis.diff` | Сравнение полезных нагрузок Zotero и кэшей репозитория |
+| `debug.synthesis.cache.list` | Список строк кэша sidecar синтеза |
+| `debug.synthesis.operations.list` | Список операций синтеза |
+| `debug.synthesis.paper.inspect` | Инспекция одной статьи across кэшей |
+| `debug.synthesis.topic.inspect` | Инспекция одной темы across артефактов |
+| `debug.synthesis.profiler.list` | Запуски профилировщика синтеза |
+| `debug.synthesis.cleanInstallReset` | Опасно: сброс состояния БД синтеза |
 
 </details>
 

@@ -1,4 +1,9 @@
 import { resolveToolkitMember } from "../utils/runtimeBridge";
+import {
+  assertWorkflowHostStrictJsonValue,
+  createWorkflowHostError,
+} from "../workflows/workflowHostErrorContract";
+import type { WorkflowEditorOwner } from "../workflows/types";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 const ROOT_ID = "zs-workflow-editor-root";
@@ -53,7 +58,7 @@ export type WorkflowEditorRenderer<TState = unknown, TContext = unknown> = {
 };
 
 export type WorkflowEditorOpenArgs<TState = unknown, TContext = unknown> = {
-  rendererId: string;
+  rendererId?: string;
   title: string;
   initialState: TState;
   context?: TContext;
@@ -97,6 +102,7 @@ type DialogCtor = new (
 
 const rendererRegistry = new Map<string, WorkflowEditorRenderer>();
 let sessionQueue: Promise<void> = Promise.resolve();
+const callerSessionQueues = new WeakMap<object, Promise<void>>();
 let workflowEditorSessionOverrideForTests:
   | ((
       args: WorkflowEditorOpenArgs,
@@ -362,12 +368,12 @@ function applyFooterVisibility(args: {
 }
 
 function resolveRenderer(args: WorkflowEditorOpenArgs) {
+  if (args.renderer) {
+    return args.renderer as WorkflowEditorRenderer;
+  }
   const rendererId = String(args.rendererId || "").trim();
   if (!rendererId) {
-    throw new Error("workflow editor requires rendererId");
-  }
-  if (args.renderer) {
-    rendererRegistry.set(rendererId, args.renderer as WorkflowEditorRenderer);
+    throw new Error("workflow editor requires an inline renderer");
   }
   const renderer = rendererRegistry.get(rendererId);
   if (!renderer) {
@@ -585,13 +591,16 @@ async function openDialogSession(
     (dialog as { window?: _ZoteroTypes.MainWindow }).window || null;
 
   addon.data.dialog = dialog as typeof addon.data.dialog;
-  await (dialogData as { unloadLock?: { promise?: Promise<void> } }).unloadLock
-    ?.promise;
-  if (autoCloseHandle) {
-    clearTimeout(autoCloseHandle);
-    autoCloseHandle = null;
+  try {
+    await (dialogData as { unloadLock?: { promise?: Promise<void> } })
+      .unloadLock?.promise;
+  } finally {
+    if (autoCloseHandle) {
+      clearTimeout(autoCloseHandle);
+      autoCloseHandle = null;
+    }
+    addon.data.dialog = undefined;
   }
-  addon.data.dialog = undefined;
 
   let clicked = String(
     (dialogData as { _lastButtonId?: string })._lastButtonId || "",
@@ -655,6 +664,78 @@ function enqueueSession<T>(task: () => Promise<T>) {
     () => undefined,
   );
   return run;
+}
+
+function enqueueCallerSession<T>(callerScope: object, task: () => Promise<T>) {
+  const queue = callerSessionQueues.get(callerScope) || Promise.resolve();
+  const run = queue.then(task, task);
+  callerSessionQueues.set(
+    callerScope,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return run;
+}
+
+function assertBoundedEditorValue(value: unknown, field: string) {
+  try {
+    assertWorkflowHostStrictJsonValue(value, {
+      maxDepth: 16,
+      maxCollectionEntries: 10_000,
+      maxStringCharacters: 256_000,
+    });
+  } catch {
+    throw createWorkflowHostError(
+      "invalid_request",
+      `Workflow editor ${field} must be bounded strict JSON`,
+      { reason: "invalid_schema", field },
+    );
+  }
+}
+
+async function openBoundedWorkflowEditorSession(
+  args: WorkflowEditorOpenArgs,
+  callerScope: object,
+) {
+  assertBoundedEditorValue(args.initialState, "initialState");
+  if (args.context !== undefined) {
+    assertBoundedEditorValue(args.context, "context");
+  }
+  const openSession = () =>
+    workflowEditorSessionOverrideForTests
+      ? Promise.resolve(workflowEditorSessionOverrideForTests(args))
+      : openDialogSession(args);
+  const result =
+    args.detached === true
+      ? await openSession()
+      : await enqueueCallerSession(callerScope, openSession);
+  if (result.result !== undefined) {
+    assertBoundedEditorValue(result.result, "result");
+  }
+  return result;
+}
+
+export function createWorkflowEditorOwner(args: {
+  interactionMode: "interactive" | "non_interactive";
+  callerScope?: object;
+}): WorkflowEditorOwner {
+  const callerScope = args.callerScope || {};
+  return {
+    openSession(input) {
+      if (args.interactionMode !== "interactive") {
+        return Promise.reject(
+          createWorkflowHostError(
+            "interaction_required",
+            "editor.openSession requires an interactive Workflow Host",
+            { member: "editor.openSession" },
+          ),
+        );
+      }
+      return openBoundedWorkflowEditorSession(input, callerScope);
+    },
+  };
 }
 
 export async function openWorkflowEditorSession(args: WorkflowEditorOpenArgs) {

@@ -20,31 +20,32 @@ use crate::{
         ContextCollectionCommand, ContextCollectionOpenArgs, ContextCommand, ContextItemCommand,
         ContextNoteCommand, ContextObjectRefArgs, ContextSelectionCommand,
         ContextSelectionOpenArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
-        DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs,
-        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs,
-        ItemRefArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand,
-        MutationArgs, MutationCollectionArgs, MutationCollectionCommand, MutationCommand,
-        MutationItemArgs, MutationItemCommand, MutationNoteArgs, MutationNoteCommand,
-        MutationTagArgs, MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs,
-        NotePayloadArgs, NotificationAckArgs, NotificationCommand, NotificationListArgs,
-        NotificationWaitArgs, OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs,
-        PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs, ProductCommand,
-        ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
-        ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
-        RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
-        SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
-        SynthesisArgs, SynthesisCacheArgs, SynthesisCacheCommand, SynthesisCacheInvalidateArgs,
-        SynthesisCommand, SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs,
-        TaskRecentArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
-        WorkflowAgentApplyStatusArgs, WorkflowAgentBundleArgs, WorkflowAgentBundleCommand,
-        WorkflowAgentBundleInspectArgs, WorkflowAgentResultArgs, WorkflowAgentResultCommand,
-        WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
-        WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
-        WorkflowProfileArgs, WorkflowProfileCommand, WorkflowProfileDescribeArgs,
-        WorkflowProfileValidateArgs, WorkflowQueueArgs, WorkflowQueueCancelArgs,
-        WorkflowQueueCommand, WorkflowQueueListArgs, WorkflowRequirementsArgs, WorkflowRunArgs,
-        WorkflowSubmissionArgs, WorkflowSubmissionCommand, WorkflowSubmissionGetArgs,
-        WorkflowSubmitArgs, WorkflowValidateArgs,
+        DebugSynthesisCommand, DirectPaperResearchBundleArgs, DirectTopicResearchBundleArgs,
+        FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
+        ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs, LibraryArgs,
+        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, MutationArgs,
+        MutationCollectionArgs, MutationCollectionCommand, MutationCommand, MutationItemArgs,
+        MutationItemCommand, MutationNoteArgs, MutationNoteCommand, MutationTagArgs,
+        MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
+        NotificationAckArgs, NotificationCommand, NotificationListArgs, NotificationWaitArgs,
+        OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs, PaperArtifactsCommand,
+        PermissionRequestIdArgs, ProductArgs, ProductCommand, ProductDownloadArgs, ProductGetArgs,
+        ProductIdArgs, ProductListArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand,
+        RunPermissionArgs, RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand,
+        RunWorkflowRecentArgs, SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs,
+        SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
+        SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
+        SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
+        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs,
+        WorkflowAgentBundleArgs, WorkflowAgentBundleCommand, WorkflowAgentBundleInspectArgs,
+        WorkflowAgentResultArgs, WorkflowAgentResultCommand, WorkflowAgentResultValidateArgs,
+        WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs, WorkflowArgs, WorkflowCancelArgs,
+        WorkflowCommand, WorkflowDefaultsArgs, WorkflowDescribeArgs, WorkflowProfileArgs,
+        WorkflowProfileCommand, WorkflowProfileDescribeArgs, WorkflowProfileValidateArgs,
+        WorkflowQueueArgs, WorkflowQueueCancelArgs, WorkflowQueueCommand, WorkflowQueueListArgs,
+        WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmissionArgs,
+        WorkflowSubmissionCommand, WorkflowSubmissionGetArgs, WorkflowSubmitArgs,
+        WorkflowValidateArgs,
     },
     client,
     config::BridgeConfig,
@@ -153,6 +154,10 @@ pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliErr
             LibraryItemsCommand::List(input) => {
                 call_structured(config, "query", bridge_query(input)?)
             }
+            LibraryItemsCommand::ExportResearchBundle(input) => client::call_current(
+                config,
+                direct_paper_research_bundle_arguments(input, config.connection_mode.as_deref())?,
+            ),
         },
         LibraryCommand::Item(args) => item(config, args),
         LibraryCommand::Note(args) => note(config, args),
@@ -348,9 +353,103 @@ fn product_download_arguments(args: ProductDownloadArgs) -> Map<String, Value> {
     arguments
 }
 
+fn validate_direct_bundle_output_mode(
+    output_dir: Option<&Path>,
+    connection_mode: Option<&str>,
+) -> Result<(), CliError> {
+    if connection_mode == Some("remote") {
+        if output_dir.is_some() {
+            return Err(CliError::validation(
+                "remote_output_dir_forbidden",
+                "Remote research bundle export returns a download handle and cannot accept --output-dir",
+            ));
+        }
+        return Ok(());
+    }
+    if output_dir.is_none() {
+        return Err(CliError::validation(
+            "missing_output_dir",
+            "Local research bundle export requires --output-dir",
+        ));
+    }
+    Ok(())
+}
+
+fn direct_paper_research_bundle_arguments(
+    args: DirectPaperResearchBundleArgs,
+    connection_mode: Option<&str>,
+) -> Result<Map<String, Value>, CliError> {
+    validate_direct_bundle_output_mode(args.output_dir.as_deref(), connection_mode)?;
+    let items = read_json_arg(Some(&args.items))?;
+    let Some(items) = items.as_array() else {
+        return Err(CliError::validation(
+            "invalid_research_bundle_selector",
+            "--items must resolve to a JSON array",
+        ));
+    };
+    if items.is_empty() || items.len() > 100 {
+        return Err(CliError::validation(
+            if items.is_empty() {
+                "invalid_research_bundle_selector"
+            } else {
+                "research_bundle_limit_exceeded"
+            },
+            "--items must contain between one and 100 Zotero item refs",
+        ));
+    }
+    let mut arguments = Map::from_iter([("items".to_string(), Value::Array(items.clone()))]);
+    if let Some(output_dir) = args.output_dir {
+        arguments.insert(
+            "output_dir".to_string(),
+            Value::String(output_dir.display().to_string()),
+        );
+    }
+    Ok(arguments)
+}
+
+fn direct_topic_research_bundle_arguments(
+    args: DirectTopicResearchBundleArgs,
+    connection_mode: Option<&str>,
+) -> Result<Map<String, Value>, CliError> {
+    validate_direct_bundle_output_mode(args.output_dir.as_deref(), connection_mode)?;
+    let mut topic_ids = Vec::new();
+    for raw in args.topic_ids {
+        let topic_id = raw.trim();
+        if !topic_id.is_empty() && !topic_ids.iter().any(|entry| entry == topic_id) {
+            topic_ids.push(topic_id.to_string());
+        }
+    }
+    if topic_ids.is_empty() || topic_ids.len() > 20 {
+        return Err(CliError::validation(
+            if topic_ids.is_empty() {
+                "invalid_research_bundle_selector"
+            } else {
+                "research_bundle_limit_exceeded"
+            },
+            "--topic-id must provide between one and 20 distinct Topic ids",
+        ));
+    }
+    let mut arguments = Map::from_iter([("topic_ids".to_string(), json!(topic_ids))]);
+    if let Some(output_dir) = args.output_dir {
+        arguments.insert(
+            "output_dir".to_string(),
+            Value::String(output_dir.display().to_string()),
+        );
+    }
+    Ok(arguments)
+}
+
 pub fn topics(config: &BridgeConfig, args: TopicsArgs) -> Result<Value, CliError> {
-    let input = bridge_query(topics_input(args.command))?;
-    call_structured(config, "query", input)
+    match args.command {
+        TopicsCommand::ExportResearchBundle(input) => client::call_current(
+            config,
+            direct_topic_research_bundle_arguments(input, config.connection_mode.as_deref())?,
+        ),
+        command => {
+            let input = bridge_query(topics_input(command))?;
+            call_structured(config, "query", input)
+        }
+    }
 }
 
 pub fn schemas(config: &BridgeConfig, args: SchemasArgs) -> Result<Value, CliError> {
@@ -417,6 +516,7 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         WorkflowCommand::Queue(args) => workflow_queue(config, args),
         WorkflowCommand::Submission(args) => workflow_submission(config, args),
         WorkflowCommand::Profile(args) => workflow_profile(config, args),
+        WorkflowCommand::Defaults(args) => workflow_defaults(config, args),
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::AgentBundle(args) => workflow_agent_bundle(args),
         WorkflowCommand::AgentResult(args) => workflow_agent_result(args),
@@ -1068,7 +1168,26 @@ fn workflow_profile(config: &BridgeConfig, args: WorkflowProfileArgs) -> Result<
                     .as_deref(),
             )?,
         ),
+        WorkflowProfileCommand::Refresh(args) => {
+            let backend = args.backend.trim();
+            if backend.is_empty() {
+                return Err(CliError::validation(
+                    "missing_backend_id",
+                    "workflow profile refresh requires --backend",
+                ));
+            }
+            client::post(
+                config,
+                "/workflows/provider-profiles/refresh",
+                json!({ "backendId": backend }),
+            )
+        }
     }
+}
+
+fn workflow_defaults(config: &BridgeConfig, args: WorkflowDefaultsArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "defaults")?;
+    client::post(config, "/workflows/defaults", json!({ "workflowId": workflow }))
 }
 
 pub fn run(config: &BridgeConfig, args: RunArgs) -> Result<Value, CliError> {
@@ -1185,8 +1304,12 @@ fn topics_input(command: TopicsCommand) -> BridgeQueryArgs {
         TopicsCommand::List(args)
         | TopicsCommand::FindByPaperRef(args)
         | TopicsCommand::GetContext(args)
+        | TopicsCommand::GetPlanningContext(args)
         | TopicsCommand::GetReport(args)
         | TopicsCommand::GetReviewInput(args) => args,
+        TopicsCommand::ExportResearchBundle(_) => {
+            unreachable!("direct Topic bundle commands use argument binding")
+        }
     }
 }
 
@@ -1467,12 +1590,16 @@ fn workflow_profile_validate_input(
     args: WorkflowProfileValidateArgs,
     environment_default: Option<&str>,
 ) -> Result<Value, CliError> {
-    Ok(json!({
+    let mut input = json!({
         "providerProfile": resolved_provider_profile_arg(
             args.provider_profile.as_deref(),
             environment_default,
         )?
-    }))
+    });
+    if args.provider_profile.is_none() && environment_default.is_some() {
+        input["source"] = json!("environment-default");
+    }
+    Ok(input)
 }
 
 fn workflow_requirements_input(args: WorkflowRequirementsArgs) -> Result<Value, CliError> {
@@ -1512,9 +1639,85 @@ fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
     workflow_selection_from(args.selection.as_deref(), args.none, "submit")
 }
 
+fn workflow_resource_binding(raw: &str) -> Result<(&str, &str), CliError> {
+    let Some((slot, value)) = raw.split_once('=') else {
+        return Err(CliError::validation(
+            "invalid_workflow_resource_binding",
+            "Workflow resource bindings must use SLOT=VALUE",
+        ));
+    };
+    let slot = slot.trim();
+    let value = value.trim();
+    if slot.is_empty()
+        || slot.contains('/')
+        || slot.contains('\\')
+        || value.is_empty()
+        || value.contains('=')
+    {
+        return Err(CliError::validation(
+            "invalid_workflow_resource_binding",
+            "Workflow resource bindings require a stable slot id and one opaque value",
+        ));
+    }
+    Ok((slot, value))
+}
+
+fn is_opaque_file_id(value: &str) -> bool {
+    value
+        .strip_prefix("file-")
+        .is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        })
+}
+
+fn workflow_resource_bindings(
+    input_resources: &[String],
+    output_resources: &[String],
+) -> Result<Option<Value>, CliError> {
+    if input_resources.is_empty() && output_resources.is_empty() {
+        return Ok(None);
+    }
+    let mut inputs = Map::new();
+    for raw in input_resources {
+        let (slot, file_id) = workflow_resource_binding(raw)?;
+        if !is_opaque_file_id(file_id) {
+            return Err(CliError::validation(
+                "invalid_workflow_resource_binding",
+                "Workflow input resources require opaque file-* handles from file upload",
+            ));
+        }
+        let entry = inputs
+            .entry(slot.to_string())
+            .or_insert_with(|| json!({ "fileIds": [] }));
+        entry["fileIds"]
+            .as_array_mut()
+            .expect("workflow resource fileIds is initialized as an array")
+            .push(Value::String(file_id.to_string()));
+    }
+    let mut outputs = Map::new();
+    for raw in output_resources {
+        let (slot, delivery) = workflow_resource_binding(raw)?;
+        if delivery != "bridge-download" || outputs.contains_key(slot) {
+            return Err(CliError::validation(
+                "invalid_workflow_resource_binding",
+                "Workflow output resources require one SLOT=bridge-download binding per slot",
+            ));
+        }
+        outputs.insert(slot.to_string(), json!({ "delivery": "bridge-download" }));
+    }
+    Ok(Some(json!({
+        "schema": "zotero-bridge.workflow-resources.v1",
+        "inputs": inputs,
+        "outputs": outputs,
+    })))
+}
+
 fn workflow_validate_input(args: WorkflowValidateArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "validate")?;
-    Ok(json!({
+    let mut input = json!({
         "workflowId": workflow,
         "selection": workflow_selection_from(
             args.selection.as_deref(),
@@ -1522,7 +1725,14 @@ fn workflow_validate_input(args: WorkflowValidateArgs) -> Result<Value, CliError
             "validate",
         )?,
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?
-    }))
+    });
+    if let Some(resource_bindings) = workflow_resource_bindings(
+        &args.input_resource,
+        &args.output_resource,
+    )? {
+        input["resourceBindings"] = resource_bindings;
+    }
+    Ok(input)
 }
 
 fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
@@ -1531,19 +1741,26 @@ fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
         "workflowId": workflow,
         "selection": workflow_selection(&args)?,
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
-        "providerProfile": resolved_provider_profile_arg(
-            args.provider_profile.as_deref(),
-            std::env::var("ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE")
-                .ok()
-                .as_deref(),
-        )?
     });
+    let environment_default = std::env::var("ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE").ok();
+    if args.provider_profile.is_some() || environment_default.is_some() {
+        input["providerProfile"] = resolved_provider_profile_arg(
+            args.provider_profile.as_deref(),
+            environment_default.as_deref(),
+        )?;
+    }
     if let Some(max_concurrency) = args.max_concurrency {
         input["hostOptions"] = json!({
             "queue": {
                 "maxConcurrency": max_concurrency
             }
         });
+    }
+    if let Some(resource_bindings) = workflow_resource_bindings(
+        &args.input_resource,
+        &args.output_resource,
+    )? {
+        input["resourceBindings"] = resource_bindings;
     }
     Ok(input)
 }
@@ -2459,7 +2676,8 @@ fn read_contract_json_arg(argument_id: &str, input: Option<&str>) -> Result<Valu
 mod tests {
     use super::*;
     use crate::args::{
-        BridgeInputArgs, BridgeQueryArgs, ItemSearchArgs, LiteratureIngestArgs,
+        BridgeInputArgs, BridgeQueryArgs, DirectPaperResearchBundleArgs,
+        DirectTopicResearchBundleArgs, ItemSearchArgs, LiteratureIngestArgs,
         MutationCollectionItemsArgs, MutationItemAttachFileArgs, MutationItemUpdateArgs,
         MutationNoteCreateArgs, MutationTagsArgs,
     };
@@ -2664,6 +2882,10 @@ mod tests {
                 "topics.find_by_paper_ref",
             ),
             ("synthesis topic get-context", "topics.get_context"),
+            (
+                "synthesis topic get-planning-context",
+                "topics.get_planning_context",
+            ),
             ("synthesis topic get-report", "topics.get_report"),
             (
                 "synthesis topic get-review-input",
@@ -3044,6 +3266,11 @@ mod tests {
             provider_profile: Some(
                 "{\"schema\":\"zotero-bridge.provider-profile.v1\",\"backendId\":\"acp-opencode\",\"providerOptions\":{\"acpModelId\":\"gpt-5.2\",\"autoApproveAcpPermissions\":true}}".to_string(),
             ),
+            input_resource: vec![
+                "source=file-upload-1".to_string(),
+                "source=file-upload-2".to_string(),
+            ],
+            output_resource: vec!["result=bridge-download".to_string()],
             max_concurrency: Some(3),
         })
         .unwrap();
@@ -3062,6 +3289,17 @@ mod tests {
                 },
                 "workflowOptions": {
                     "language": "zh-CN"
+                },
+                "resourceBindings": {
+                    "schema": "zotero-bridge.workflow-resources.v1",
+                    "inputs": {
+                        "source": {
+                            "fileIds": ["file-upload-1", "file-upload-2"]
+                        }
+                    },
+                    "outputs": {
+                        "result": {"delivery": "bridge-download"}
+                    }
                 },
                 "providerProfile": {
                     "schema": "zotero-bridge.provider-profile.v1",
@@ -3089,6 +3327,8 @@ mod tests {
             none: true,
             workflow_options: None,
             provider_profile: None,
+            input_resource: vec![],
+            output_resource: vec![],
             max_concurrency: None,
         })
         .unwrap();
@@ -3099,8 +3339,31 @@ mod tests {
                 "selection": {
                     "kind": "none"
                 },
-                "workflowOptions": {},
-                "providerProfile": {}
+                "workflowOptions": {}
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_validate_resource_bindings() {
+        contract::set_current_command("workflow validate");
+        let input = workflow_validate_input(WorkflowValidateArgs {
+            workflow: "import-notes".to_string(),
+            selection: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
+            none: false,
+            workflow_options: Some("{\"conflictPolicy\":\"error\"}".to_string()),
+            input_resource: vec!["digest=file-upload-1".to_string()],
+            output_resource: vec![],
+        })
+        .unwrap();
+        assert_eq!(
+            input["resourceBindings"],
+            json!({
+                "schema": "zotero-bridge.workflow-resources.v1",
+                "inputs": {
+                    "digest": {"fileIds": ["file-upload-1"]}
+                },
+                "outputs": {}
             })
         );
     }
@@ -3724,6 +3987,60 @@ mod tests {
         assert_eq!(payload["retried"], true);
         assert!(payload.get("output").is_none());
         assert!(!payload.to_string().contains("C:\\\\Users"));
+    }
+
+    #[test]
+    fn builds_direct_paper_bundle_arguments_from_item_ref_array() {
+        let arguments = direct_paper_research_bundle_arguments(
+            DirectPaperResearchBundleArgs {
+                items: "[{\"key\":\"ABC\",\"libraryId\":1}]".to_string(),
+                output_dir: Some(PathBuf::from("bundle")),
+            },
+            Some("local"),
+        )
+        .unwrap();
+        assert_eq!(
+            arguments["items"],
+            json!([{ "key": "ABC", "libraryId": 1 }])
+        );
+        assert_eq!(arguments["output_dir"], "bundle");
+    }
+
+    #[test]
+    fn builds_remote_topic_bundle_arguments_without_output_path() {
+        let arguments = direct_topic_research_bundle_arguments(
+            DirectTopicResearchBundleArgs {
+                topic_ids: vec!["topic-one".to_string(), "topic-two".to_string()],
+                output_dir: None,
+            },
+            Some("remote"),
+        )
+        .unwrap();
+        assert_eq!(arguments["topic_ids"], json!(["topic-one", "topic-two"]));
+        assert!(arguments.get("output_dir").is_none());
+    }
+
+    #[test]
+    fn rejects_direct_bundle_output_mode_mismatches() {
+        let local_error = direct_topic_research_bundle_arguments(
+            DirectTopicResearchBundleArgs {
+                topic_ids: vec!["topic-one".to_string()],
+                output_dir: None,
+            },
+            Some("local"),
+        )
+        .unwrap_err();
+        assert_eq!(local_error.code, "missing_output_dir");
+
+        let remote_error = direct_paper_research_bundle_arguments(
+            DirectPaperResearchBundleArgs {
+                items: "[{\"id\":1}]".to_string(),
+                output_dir: Some(PathBuf::from("bundle")),
+            },
+            Some("remote"),
+        )
+        .unwrap_err();
+        assert_eq!(remote_error.code, "remote_output_dir_forbidden");
     }
 
     #[test]

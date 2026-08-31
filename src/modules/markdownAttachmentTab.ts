@@ -1,6 +1,7 @@
 import { config } from "../../package.json";
 import {
   getRuntimePersistencePaths,
+  readRuntimeTextFileStrict,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
 import {
@@ -320,14 +321,7 @@ async function dynamicImport(specifier: string) {
 }
 
 async function readUtf8TextFile(filePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(filePath, "utf8") as Promise<string>;
+  return readRuntimeTextFileStrict(filePath);
 }
 
 function filePathToFileUri(filePath: string) {

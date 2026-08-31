@@ -342,7 +342,7 @@ describe("skillrunner ctl bridge", function () {
     assert.include(commandScript, "10");
   });
 
-  it("prefers mozilla subprocess execution for windows powershell ctl commands", async function () {
+  it("preserves ctl status outcomes through resolved one-shot execution", async function () {
     const runtime = globalThis as {
       Zotero?: {
         isWin?: boolean;
@@ -382,23 +382,29 @@ describe("skillrunner ctl bridge", function () {
     const prevSubprocess = zoteroRuntime?.Utilities?.Internal?.subprocess;
     const prevChromeUtils = runtime.ChromeUtils;
     const prevIOUtils = runtime.IOUtils;
-    let zoteroCallCount = 0;
     let mozillaCallCount = 0;
     runtime.ChromeUtils = {
       import: () => ({
         Subprocess: {
+          pathSearch: async () =>
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
           call: async () => {
             mozillaCallCount += 1;
+            let stdoutRead = false;
             return {
               stdout: {
-                text: JSON.stringify({
-                  ok: true,
-                  exit_code: 0,
-                  message: "Local runtime status: running.",
-                  status: "running",
-                }),
+                readString: async () => {
+                  if (stdoutRead) return "";
+                  stdoutRead = true;
+                  return JSON.stringify({
+                    ok: true,
+                    exit_code: 0,
+                    message: "Local runtime status: running.",
+                    status: "running",
+                  });
+                },
               },
-              stderr: { text: "" },
+              stderr: { readString: async () => "" },
               wait: async () => 0,
             };
           },
@@ -407,7 +413,7 @@ describe("skillrunner ctl bridge", function () {
     };
     runtime.IOUtils = {
       exists: async (path: string) =>
-        /skill-runnerctl\.ps1$/i.test(String(path || "")),
+        /skill-runnerctl\.ps1$|powershell\.exe$/i.test(String(path || "")),
     };
     if (!zoteroRuntime) {
       throw new Error("zotero runtime unavailable");
@@ -416,7 +422,6 @@ describe("skillrunner ctl bridge", function () {
     zoteroRuntime.Utilities = zoteroRuntime.Utilities || {};
     zoteroRuntime.Utilities.Internal = zoteroRuntime.Utilities.Internal || {};
     zoteroRuntime.Utilities.Internal.subprocess = async () => {
-      zoteroCallCount += 1;
       throw new Error("zotero subprocess should not be used");
     };
     try {
@@ -430,7 +435,6 @@ describe("skillrunner ctl bridge", function () {
       assert.isTrue(result.ok);
       assert.equal(String(result.details?.status || ""), "running");
       assert.equal(mozillaCallCount, 1);
-      assert.equal(zoteroCallCount, 0);
     } finally {
       if (zoteroRuntime) {
         zoteroRuntime.isWin = prevIsWin;
@@ -639,313 +643,6 @@ describe("skillrunner ctl bridge", function () {
         delete runtime.ChromeUtils;
       } else {
         runtime.ChromeUtils = previousChromeUtils;
-      }
-    }
-  });
-
-  it("falls through to zotero subprocess when mozilla subprocess returns executable-not-found stderr", async function () {
-    const runtime = globalThis as {
-      Zotero?: {
-        isWin?: boolean;
-        Utilities?: {
-          Internal?: {
-            subprocess?: (command: string, args?: string[]) => Promise<string>;
-          };
-        };
-      };
-      ChromeUtils?: {
-        import?: (url: string) => {
-          Subprocess?: {
-            call?: (args: {
-              command: string;
-              arguments?: string[];
-            }) => Promise<{
-              stdout?: unknown;
-              stderr?: unknown;
-              wait?: () => Promise<number>;
-            }>;
-          };
-        };
-      };
-      IOUtils?: {
-        exists?: (path: string) => Promise<boolean>;
-      };
-    };
-    const zoteroRuntime = runtime.Zotero as {
-      isWin?: boolean;
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-    const prevIsWin = zoteroRuntime?.isWin;
-    const prevSubprocess = zoteroRuntime?.Utilities?.Internal?.subprocess;
-    const prevChromeUtils = runtime.ChromeUtils;
-    const prevIOUtils = runtime.IOUtils;
-    const calls: string[] = [];
-    runtime.IOUtils = {
-      exists: async () => false,
-    };
-    runtime.ChromeUtils = {
-      import: () => ({
-        Subprocess: {
-          call: async () => ({
-            stdout: { text: "" },
-            stderr: { text: "Executable not found: tar" },
-            wait: async () => 1,
-          }),
-        },
-      }),
-    };
-    if (!zoteroRuntime) {
-      throw new Error("zotero runtime unavailable");
-    }
-    zoteroRuntime.isWin = true;
-    zoteroRuntime.Utilities = zoteroRuntime.Utilities || {};
-    zoteroRuntime.Utilities.Internal = zoteroRuntime.Utilities.Internal || {};
-    zoteroRuntime.Utilities.Internal.subprocess = async (command: string) => {
-      calls.push(command);
-      if (command === "tar") {
-        throw new Error("Executable not found: tar");
-      }
-      if (/(^|[\\/])tar$/i.test(command)) {
-        throw new Error(
-          `File at path "${command}" does not exist, or is not executable`,
-        );
-      }
-      if (/(^|[\\/])tar\.exe$/i.test(command)) {
-        return "";
-      }
-      throw new Error(`Executable not found: ${command}`);
-    };
-    try {
-      const bridge = new SkillRunnerCtlBridge();
-      const result = await bridge.runSystemCommand({
-        command: "tar",
-        args: ["-xzf", "a.tar.gz", "-C", "C:\\tmp\\release"],
-      });
-      assert.isTrue(result.ok);
-      assert.isAtLeast(calls.length, 2);
-      assert.isTrue(calls.includes("tar"));
-      assert.isTrue(calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)));
-    } finally {
-      if (zoteroRuntime) {
-        zoteroRuntime.isWin = prevIsWin;
-        if (!zoteroRuntime.Utilities) {
-          zoteroRuntime.Utilities = {};
-        }
-        if (!zoteroRuntime.Utilities.Internal) {
-          zoteroRuntime.Utilities.Internal = {};
-        }
-        if (typeof prevSubprocess === "undefined") {
-          delete zoteroRuntime.Utilities.Internal.subprocess;
-        } else {
-          zoteroRuntime.Utilities.Internal.subprocess = prevSubprocess;
-        }
-      }
-      if (typeof prevChromeUtils === "undefined") {
-        delete runtime.ChromeUtils;
-      } else {
-        runtime.ChromeUtils = prevChromeUtils;
-      }
-      if (typeof prevIOUtils === "undefined") {
-        delete runtime.IOUtils;
-      } else {
-        runtime.IOUtils = prevIOUtils;
-      }
-    }
-  });
-
-  it("falls back to absolute windows tar path when bare tar is not found in zotero subprocess", async function () {
-    const runtime = globalThis as {
-      Zotero?: {
-        isWin?: boolean;
-        Utilities?: {
-          Internal?: {
-            subprocess?: (command: string, args?: string[]) => Promise<string>;
-          };
-        };
-      };
-      ChromeUtils?: {
-        import?: (url: string) => { Subprocess?: unknown };
-      };
-      IOUtils?: {
-        exists?: (path: string) => Promise<boolean>;
-      };
-    };
-    const zoteroRuntime = runtime.Zotero as {
-      isWin?: boolean;
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-    const prevIsWin = zoteroRuntime?.isWin;
-    const prevSubprocess = zoteroRuntime?.Utilities?.Internal?.subprocess;
-    const prevChromeUtils = runtime.ChromeUtils;
-    const prevIOUtils = runtime.IOUtils;
-    const calls: string[] = [];
-    runtime.IOUtils = {
-      exists: async () => false,
-    };
-    runtime.ChromeUtils = {
-      import: () => {
-        throw new Error("mozilla subprocess unavailable");
-      },
-    };
-    if (!zoteroRuntime) {
-      throw new Error("zotero runtime unavailable");
-    }
-    zoteroRuntime.isWin = true;
-    zoteroRuntime.Utilities = zoteroRuntime.Utilities || {};
-    zoteroRuntime.Utilities.Internal = zoteroRuntime.Utilities.Internal || {};
-    zoteroRuntime.Utilities.Internal.subprocess = async (command: string) => {
-      calls.push(command);
-      if (command === "tar") {
-        throw new Error("Executable not found: tar");
-      }
-      if (/(^|[\\/])tar\.exe$/i.test(command)) {
-        return "";
-      }
-      throw new Error(`Executable not found: ${command}`);
-    };
-    try {
-      const bridge = new SkillRunnerCtlBridge();
-      const result = await bridge.runSystemCommand({
-        command: "tar",
-        args: ["-xzf", "a.tar.gz", "-C", "C:\\tmp\\release"],
-      });
-      assert.isTrue(result.ok);
-      assert.isAtLeast(calls.length, 2);
-      assert.isTrue(calls.includes("tar"));
-      assert.isTrue(calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)));
-    } finally {
-      if (!zoteroRuntime) {
-        // no-op
-      } else {
-        zoteroRuntime.isWin = prevIsWin;
-        if (!zoteroRuntime.Utilities) {
-          zoteroRuntime.Utilities = {};
-        }
-        if (!zoteroRuntime.Utilities.Internal) {
-          zoteroRuntime.Utilities.Internal = {};
-        }
-        if (typeof prevSubprocess === "undefined") {
-          delete zoteroRuntime.Utilities.Internal.subprocess;
-        } else {
-          zoteroRuntime.Utilities.Internal.subprocess = prevSubprocess;
-        }
-      }
-      if (typeof prevChromeUtils === "undefined") {
-        delete runtime.ChromeUtils;
-      } else {
-        runtime.ChromeUtils = prevChromeUtils;
-      }
-      if (typeof prevIOUtils === "undefined") {
-        delete runtime.IOUtils;
-      } else {
-        runtime.IOUtils = prevIOUtils;
-      }
-    }
-  });
-
-  it("resolves command path via windows Get-Command before fallback candidates", async function () {
-    const runtime = globalThis as {
-      Zotero?: {
-        isWin?: boolean;
-        Utilities?: {
-          Internal?: {
-            subprocess?: (command: string, args?: string[]) => Promise<string>;
-          };
-        };
-      };
-      ChromeUtils?: {
-        import?: (url: string) => { Subprocess?: unknown };
-      };
-      IOUtils?: {
-        exists?: (path: string) => Promise<boolean>;
-      };
-    };
-    const zoteroRuntime = runtime.Zotero as {
-      isWin?: boolean;
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-    const prevIsWin = zoteroRuntime?.isWin;
-    const prevSubprocess = zoteroRuntime?.Utilities?.Internal?.subprocess;
-    const prevChromeUtils = runtime.ChromeUtils;
-    const prevIOUtils = runtime.IOUtils;
-    const calls: string[] = [];
-    runtime.IOUtils = {
-      exists: async () => false,
-    };
-    runtime.ChromeUtils = {
-      import: () => {
-        throw new Error("mozilla subprocess unavailable");
-      },
-    };
-    if (!zoteroRuntime) {
-      throw new Error("zotero runtime unavailable");
-    }
-    zoteroRuntime.isWin = true;
-    zoteroRuntime.Utilities = zoteroRuntime.Utilities || {};
-    zoteroRuntime.Utilities.Internal = zoteroRuntime.Utilities.Internal || {};
-    zoteroRuntime.Utilities.Internal.subprocess = async (
-      command: string,
-      args?: string[],
-    ) => {
-      calls.push(command);
-      if (command.toLowerCase().includes("powershell")) {
-        const joinedArgs = (args || []).join(" ");
-        if (joinedArgs.includes("Get-Command")) {
-          return "C:\\Windows\\System32\\tar.exe\n";
-        }
-      }
-      if (/(^|[\\/])tar\.exe$/i.test(command)) {
-        return "";
-      }
-      throw new Error(`Executable not found: ${command}`);
-    };
-    try {
-      const bridge = new SkillRunnerCtlBridge();
-      const result = await bridge.runSystemCommand({
-        command: "tar",
-        args: ["-xzf", "a.tar.gz", "-C", "C:\\tmp\\release"],
-      });
-      assert.isTrue(result.ok);
-      assert.isTrue(
-        calls.some((entry) => entry.toLowerCase().includes("powershell")),
-      );
-      assert.isTrue(calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)));
-    } finally {
-      if (zoteroRuntime) {
-        zoteroRuntime.isWin = prevIsWin;
-        if (!zoteroRuntime.Utilities) {
-          zoteroRuntime.Utilities = {};
-        }
-        if (!zoteroRuntime.Utilities.Internal) {
-          zoteroRuntime.Utilities.Internal = {};
-        }
-        if (typeof prevSubprocess === "undefined") {
-          delete zoteroRuntime.Utilities.Internal.subprocess;
-        } else {
-          zoteroRuntime.Utilities.Internal.subprocess = prevSubprocess;
-        }
-      }
-      if (typeof prevChromeUtils === "undefined") {
-        delete runtime.ChromeUtils;
-      } else {
-        runtime.ChromeUtils = prevChromeUtils;
-      }
-      if (typeof prevIOUtils === "undefined") {
-        delete runtime.IOUtils;
-      } else {
-        runtime.IOUtils = prevIOUtils;
       }
     }
   });

@@ -7,8 +7,8 @@ Workflow 通过声明 `request.kind` 来决定请求由哪个 Provider（执行�
 | `kind` | 适用 provider | 说明 |
 |--------|-------------|------|
 | `pass-through.run.v1` | pass-through | 纯本地执行，不涉及远程后端 |
-| `skillrunner.job.v1` | skillrunner / acp | 单步骤 SkillRunner 技能执行 |
-| `skillrunner.sequence.v1` | acp | 多步骤技能串联执行 |
+| `skillrunner.job.v1` | skillrunner | 单步骤 SkillRunner 技能执行 |
+| `skillrunner.sequence.v1` | acp / skillrunner | 多步骤技能串联执行 |
 | `acp.prompt.v1` | acp | 直接向 ACP 后端发送提示 |
 | `acp.skill.run.v1` | acp | 直接向 ACP 后端提交技能运行 |
 | `generic-http.request.v1` | generic-http | 单步骤 HTTP API 调用 |
@@ -79,7 +79,7 @@ export function buildRequest({ selectionContext, executionOptions }) {
 | `poll.interval_ms` | 轮询间隔（毫秒） |
 | `poll.timeout_ms` | 总超时时间（毫秒） |
 
-当工作流选择 ACP 后端时，`skillrunner.job.v1` 会自动适配为 `acp.skill.run.v1`，因此声明为 `skillrunner.job.v1` 的 workflow 也兼容 ACP 后端。
+`skillrunner.job.v1` 仅兼容 SkillRunner 后端。如需通过 ACP 进行单步骤技能执行，请声明 `provider: "acp"` 并使用请求种类 `acp.skill.run.v1`。
 
 ## skillrunner.sequence.v1 — 多步骤技能串联
 
@@ -256,8 +256,10 @@ Handoff 通过 `bindings` 数组在步骤之间传递数据。每个 binding 描
 |----------------------|-------------|-----------|
 | 纯本地操作，无远程调用 | `pass-through` | `pass-through.run.v1` |
 | 向 Skill-Runner 提交一个 skill | `skillrunner` | `skillrunner.job.v1` |
-| 多个 skill 串联执行 | `acp` | `skillrunner.sequence.v1` |
+| 多个 skill 串联执行 | `acp` 或 `skillrunner` | `skillrunner.sequence.v1` |
 | 调用一个 HTTP API | `generic-http` | `generic-http.request.v1` |
+| 启动 ACP 对话 | `acp` | `acp.prompt.v1` |
+| 向 ACP 后端提交单个 skill | `acp` | `acp.skill.run.v1` |
 
 注意：`provider` 是唯一决定 workflow 兼容哪些后端的字段。`request.kind` 仅用于路由到正确的执行器，不参与后端兼容性推断。
 

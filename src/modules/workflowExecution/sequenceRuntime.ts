@@ -3,7 +3,8 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
   DEFAULT_BACKEND_TYPE,
 } from "../../config/defaults";
-import { getBaseName, normalizeNativeLocalPath } from "../../utils/path";
+import { normalizeNativeLocalPath } from "../../utils/path";
+import { buildSkillRunnerUploadRelativePath } from "../../providers/skillrunner/uploadMapping";
 import type { BackendInstance } from "../../backends/types";
 import type {
   AcpSkillRunRequestV1,
@@ -17,21 +18,17 @@ import type { ProviderOrchestrationContext } from "../../providers/types";
 import type { appendRuntimeLog } from "../runtimeLogManager";
 import type { SkillRunnerSkillDisplayById } from "../skillRunnerSubmissionContext";
 import {
+  applySequenceRunEvent,
   getSequenceRunState,
   initializeSequenceRunState,
-  markSequenceRunContinuing,
-  markSequenceRunTerminal,
-  recordSequenceStepApplyResult,
-  recordSequenceStepWaiting,
-  recordSequenceStepRequestCreated,
-  recordSequenceStepStarted,
-  recordSequenceStepSucceeded,
-  recordSequenceStepTerminal,
+  resolveStepApplyFailureMode,
   type SequenceRunState,
 } from "./sequenceStateStore";
-import { updateSkillRunnerRunApplyState } from "../skillRunnerRunStore";
+import { getDotPath } from "./valuePath";
+import { applySkillRunnerRunEvent } from "../skillRunnerRunStore";
 import { isNonRecoverableSkillRunnerFailure } from "../skillRunnerRecoverableState";
 import { isDebugModeEnabled } from "../debugMode";
+import { getAcpSkillRunRecord } from "../acpSkillRunStore";
 
 export type ExecuteWithProvider = (args: {
   requestKind: string;
@@ -51,7 +48,14 @@ export type SequenceStepSucceededObserver = (args: {
   output: unknown;
 }) => void | Promise<void>;
 
-export type SequenceStepFinishedObserver = SequenceStepSucceededObserver;
+export type SequenceStepLifecycleAdapter = {
+  settleStep: (
+    args: Parameters<SequenceStepSucceededObserver>[0] & {
+      finalStep: boolean;
+      applyResultStatus?: "succeeded" | "failed" | "skipped";
+    },
+  ) => void | Promise<void>;
+};
 
 export type StepOutput = {
   stepId: string;
@@ -143,36 +147,6 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function primitiveEquals(left: unknown, right: unknown) {
-  if (
-    left === null ||
-    typeof left === "string" ||
-    typeof left === "number" ||
-    typeof left === "boolean"
-  ) {
-    return left === right;
-  }
-  return false;
-}
-
-function getDotPath(source: unknown, path: string) {
-  const normalized = normalizeString(path);
-  if (!normalized || normalized === "$") {
-    return source;
-  }
-  let current = source as unknown;
-  for (const part of normalized.split(".").filter(Boolean)) {
-    if (
-      !isRecord(current) ||
-      !Object.prototype.hasOwnProperty.call(current, part)
-    ) {
-      return undefined;
-    }
-    current = current[part];
-  }
-  return current;
-}
-
 function parseJsonPointer(pointer: string) {
   const normalized = normalizeString(pointer);
   if (!normalized || !normalized.startsWith("/")) {
@@ -249,7 +223,7 @@ function resolveHandoffTarget(target: string) {
   };
 }
 
-export function resolveStepOutput(result: ProviderExecutionResult) {
+function resolveStepOutput(result: ProviderExecutionResult) {
   if (typeof result.resultJson !== "undefined") {
     return result.resultJson;
   }
@@ -342,7 +316,10 @@ function applyHandoffBindings(args: {
           stepId: sourceStep,
           target: binding.target,
         });
-        const targetPath = buildUploadRelativePath(inputKey, sourcePath);
+        const targetPath = buildSkillRunnerUploadRelativePath(
+          inputKey,
+          sourcePath,
+        );
         value = targetPath;
         fileBindings.push({
           input_key: inputKey,
@@ -363,7 +340,7 @@ function applyHandoffBindings(args: {
   return fileBindings;
 }
 
-export function buildStepRequest(args: {
+function buildStepRequest(args: {
   sequence: SkillRunnerSequenceRequestV1;
   step: SkillRunnerSequenceStepV1;
   stepIndex: number;
@@ -410,6 +387,9 @@ export function buildStepRequest(args: {
       : {}),
     ...(typeof args.sequence.targetParentID !== "undefined"
       ? { targetParentID: args.sequence.targetParentID }
+      : {}),
+    ...(args.sequence.targetParentRef
+      ? { targetParentRef: { ...args.sequence.targetParentRef } }
       : {}),
     ...(Object.keys(input).length > 0 ? { input } : {}),
     ...(Object.keys(parameter).length > 0 ? { parameter } : {}),
@@ -460,26 +440,6 @@ export function buildStepRequest(args: {
 function isAbsoluteLocalPath(value: string) {
   const text = normalizeString(value).replace(/\\/g, "/");
   return /^[A-Za-z]:\//.test(text) || text.startsWith("/");
-}
-
-function sanitizeUploadPathSegment(value: string) {
-  const normalized = normalizeString(value).replace(/[^A-Za-z0-9._-]+/g, "-");
-  return normalized || "file";
-}
-
-function normalizeUploadRelativePath(value: string) {
-  return normalizeString(value)
-    .replace(/\\/g, "/")
-    .replace(/^\.\/+/, "")
-    .replace(/\/+/g, "/")
-    .replace(/^\/+/, "");
-}
-
-function buildUploadRelativePath(fileKey: string, localPath: string) {
-  const fileName = getBaseName(localPath) || "upload.bin";
-  return normalizeUploadRelativePath(
-    `inputs/${sanitizeUploadPathSegment(fileKey)}/${fileName}`,
-  );
 }
 
 function normalizePathForPrefix(value: string) {
@@ -570,7 +530,7 @@ function buildSkillRunnerUploadMapping(input: Record<string, unknown>) {
       continue;
     }
     const localPath = normalizeNativeLocalPath(value);
-    mappedInput[key] = buildUploadRelativePath(key, localPath);
+    mappedInput[key] = buildSkillRunnerUploadRelativePath(key, localPath);
     upload_files.push({ key, path: localPath });
   }
   return {
@@ -579,7 +539,7 @@ function buildSkillRunnerUploadMapping(input: Record<string, unknown>) {
   };
 }
 
-export function outputsByStepFromState(state: SequenceRunState) {
+function outputsByStepFromState(state: SequenceRunState) {
   const outputsByStep = new Map<string, StepOutput>();
   for (const step of state.steps) {
     if (
@@ -654,47 +614,6 @@ function resolveStepWorkspaceMode(request: SequenceStepRequest) {
   return normalizeString(workspace?.mode);
 }
 
-export function matchesShortCircuitRule(args: {
-  step: SkillRunnerSequenceStepV1;
-  output: unknown;
-}) {
-  const spec = args.step.short_circuit;
-  if (!spec || spec.result !== "step_output") {
-    return false;
-  }
-  const path = normalizeString(spec.when?.path);
-  if (!path) {
-    return false;
-  }
-  return primitiveEquals(getDotPath(args.output, path), spec.when.equals);
-}
-
-function findRecoveredShortCircuit(args: {
-  state: SequenceRunState;
-  startIndex: number;
-  outputsByStep: Map<string, StepOutput>;
-}) {
-  const previous = args.state.steps[args.startIndex - 1];
-  if (!previous || previous.status !== "succeeded") {
-    return null;
-  }
-  const step = args.state.request.steps[previous.index];
-  const output = args.outputsByStep.get(previous.stepId);
-  if (
-    !step ||
-    !output ||
-    output.result.status !== "succeeded" ||
-    !matchesShortCircuitRule({ step, output: output.output })
-  ) {
-    return null;
-  }
-  return {
-    step,
-    output,
-    result: output.result,
-  };
-}
-
 function sequenceStepsMetadata(outputsByStep: Map<string, StepOutput>) {
   return Array.from(outputsByStep.values()).map((entry) => ({
     step_id: entry.stepId,
@@ -750,17 +669,11 @@ function sequenceStepsWithOutputs(outputsByStep: Map<string, StepOutput>) {
   }));
 }
 
-export function resolveStepApplyWorkflowId(step: SkillRunnerSequenceStepV1) {
+function resolveStepApplyWorkflowId(step: SkillRunnerSequenceStepV1) {
   if (!step.apply_result) {
     return "";
   }
   return normalizeString(step.apply_result.workflow_id) || step.skill_id;
-}
-
-export function resolveStepApplyFailureMode(step: SkillRunnerSequenceStepV1) {
-  return step.apply_result?.on_failure === "fail_sequence"
-    ? "fail_sequence"
-    : "continue";
 }
 
 function stringifyUnknownError(error: unknown) {
@@ -817,14 +730,22 @@ function syncSkillRunnerSequenceStepApplyState(args: {
   if (!requestId) {
     return;
   }
-  updateSkillRunnerRunApplyState({
+  const eventType =
+    args.applyState === "running"
+      ? "apply.started"
+      : args.applyState === "succeeded"
+        ? "apply.succeeded"
+        : args.applyState === "failed"
+          ? "apply.failed"
+          : "apply.skipped";
+  applySkillRunnerRunEvent({
+    type: eventType,
     backendId: args.backend.id,
     requestId,
-    state: args.applyState,
     error: args.error,
     updatedAt: nowIso(),
-    eventType: sequenceStepApplyEventType(args.applyState),
-    eventPayload: {
+    source: args.source,
+    payload: {
       source: args.source,
       sequenceRunId: args.state.sequenceRunId,
       workflowRunId: args.state.workflowRunId,
@@ -833,7 +754,7 @@ function syncSkillRunnerSequenceStepApplyState(args: {
       applyWorkflowId: normalizeString(args.applyWorkflowId) || undefined,
       reason: normalizeString(args.reason) || undefined,
     },
-  });
+  } as any);
 }
 
 async function applySequenceStepIfNeeded(args: {
@@ -890,14 +811,15 @@ async function applySequenceStepIfNeeded(args: {
     return;
   }
   if (!args.applySequenceStepResult) {
-    const updated = recordSequenceStepApplyResult({
+    const updated = applySequenceRunEvent({
+      type: "sequence.step.apply_result",
       sequenceRunId: args.state.sequenceRunId,
       stepIndex: args.stepIndex,
       workflowId: applyWorkflowId,
       status: "skipped",
       error: "sequence step apply callback unavailable",
     });
-    const applyResult = updated?.steps[args.stepIndex]?.applyResult;
+    const applyResult = updated.steps[args.stepIndex]?.applyResult;
     const current = args.outputsByStep.get(args.step.id);
     if (current && applyResult) {
       args.outputsByStep.set(args.step.id, { ...current, applyResult });
@@ -961,14 +883,15 @@ async function applySequenceStepIfNeeded(args: {
       jobId: args.state.jobId,
       sequenceSteps: sequenceStepsWithOutputs(args.outputsByStep),
     });
-    const updated = recordSequenceStepApplyResult({
+    const updated = applySequenceRunEvent({
+      type: "sequence.step.apply_result",
       sequenceRunId: args.state.sequenceRunId,
       stepIndex: args.stepIndex,
       workflowId: applyWorkflowId,
       status: "succeeded",
       result,
     });
-    const applyResult = updated?.steps[args.stepIndex]?.applyResult;
+    const applyResult = updated.steps[args.stepIndex]?.applyResult;
     const current = args.outputsByStep.get(args.step.id);
     if (current && applyResult) {
       args.outputsByStep.set(args.step.id, { ...current, applyResult });
@@ -1002,14 +925,15 @@ async function applySequenceStepIfNeeded(args: {
     });
   } catch (error) {
     const message = stringifyUnknownError(error);
-    const updated = recordSequenceStepApplyResult({
+    const updated = applySequenceRunEvent({
+      type: "sequence.step.apply_result",
       sequenceRunId: args.state.sequenceRunId,
       stepIndex: args.stepIndex,
       workflowId: applyWorkflowId,
       status: "failed",
       error: message,
     });
-    const applyResult = updated?.steps[args.stepIndex]?.applyResult;
+    const applyResult = updated.steps[args.stepIndex]?.applyResult;
     const current = args.outputsByStep.get(args.step.id);
     if (current && applyResult) {
       args.outputsByStep.set(args.step.id, { ...current, applyResult });
@@ -1044,124 +968,157 @@ async function applySequenceStepIfNeeded(args: {
       },
     });
     if (resolveStepApplyFailureMode(args.step) === "fail_sequence") {
-      markSequenceRunTerminal({
-        sequenceRunId: args.state.sequenceRunId,
-        status: "failed",
-        error: message,
-      });
       throw error;
     }
   }
 }
 
-export async function applySequenceStepResultIfNeeded(args: {
+async function settleSequenceStepLifecycle(args: {
   state: SequenceRunState;
+  step: SkillRunnerSequenceStepV1;
+  stepIndex: number;
+  requestId: string;
+  stepResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
+  output: unknown;
+  lifecycle?: SequenceStepLifecycleAdapter;
+}) {
+  const latestState =
+    getSequenceRunState(args.state.sequenceRunId) || args.state;
+  if (latestState.steps[args.stepIndex]?.lifecycleSettledAt) {
+    return;
+  }
+  const event = {
+    state: latestState,
+    step: args.step,
+    stepIndex: args.stepIndex,
+    requestId: args.requestId,
+    stepResult: args.stepResult,
+    output: args.output,
+  };
+  await args.lifecycle?.settleStep({
+    ...event,
+    finalStep: args.step.id === latestState.request.final_step_id,
+    applyResultStatus: latestState.steps[args.stepIndex]?.applyResult?.status,
+  });
+  applySequenceRunEvent({
+    type: "sequence.step.lifecycle_settled",
+    sequenceRunId: latestState.sequenceRunId,
+    stepIndex: args.stepIndex,
+  });
+}
+
+async function applyAndSettleSuccessfulSequenceStep(args: {
+  state: SequenceRunState;
+  step: SkillRunnerSequenceStepV1;
   stepIndex: number;
   stepRequest: SequenceStepRequest;
   stepResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
   output: unknown;
-  backend: BackendInstance;
-  appendRuntimeLog: typeof appendRuntimeLog;
-  applySequenceStepResult: ApplySequenceStepResult;
-  syncSkillRunnerRunApplyState?: boolean;
-}) {
-  const step = args.state.request.steps[args.stepIndex];
-  if (!step) {
-    return false;
-  }
-  const outputsByStep = outputsByStepFromState(args.state);
-  if (!outputsByStep.has(step.id)) {
-    outputsByStep.set(step.id, {
-      stepId: step.id,
-      requestId: args.stepResult.requestId,
-      output: args.output,
-      result: args.stepResult,
-    });
-  }
-  await applySequenceStepIfNeeded({
-    state: args.state,
-    step,
-    stepIndex: args.stepIndex,
-    stepRequest: args.stepRequest,
-    stepResult: args.stepResult,
-    output: args.output,
-    outputsByStep,
-    backend: args.backend,
-    appendRuntimeLog: args.appendRuntimeLog,
-    applySequenceStepResult: args.applySequenceStepResult,
-    syncSkillRunnerRunApplyState: args.syncSkillRunnerRunApplyState,
-  });
-  return true;
-}
-
-async function applyPendingSucceededStepsBeforeStart(args: {
-  state: SequenceRunState;
-  startIndex: number;
   outputsByStep: Map<string, StepOutput>;
   backend: BackendInstance;
   appendRuntimeLog: typeof appendRuntimeLog;
   applySequenceStepResult?: ApplySequenceStepResult;
-  onSequenceStepFinished?: SequenceStepFinishedObserver;
+  lifecycle?: SequenceStepLifecycleAdapter;
+  syncSkillRunnerRunApplyState?: boolean;
 }) {
-  for (let index = 0; index < args.startIndex; index++) {
-    const stepState = args.state.steps[index];
-    const step = args.state.request.steps[index];
-    if (
-      !step ||
-      !stepState ||
-      stepState.status !== "succeeded" ||
-      stepState.result?.status !== "succeeded" ||
-      typeof stepState.output === "undefined"
-    ) {
-      continue;
-    }
-    const previousStepId = findPreviousStepId({
+  let applyError: unknown;
+  try {
+    await applySequenceStepIfNeeded({
       state: args.state,
-      startIndex: index,
+      step: args.step,
+      stepIndex: args.stepIndex,
+      stepRequest: args.stepRequest,
+      stepResult: args.stepResult,
+      output: args.output,
       outputsByStep: args.outputsByStep,
+      backend: args.backend,
+      appendRuntimeLog: args.appendRuntimeLog,
+      applySequenceStepResult: args.applySequenceStepResult,
+      syncSkillRunnerRunApplyState: args.syncSkillRunnerRunApplyState,
     });
-    const stepRequest = buildStepRequest({
-      sequence: args.state.request,
-      step,
-      stepIndex: index,
-      workflowRunId: args.state.workflowRunId,
-      previousStepId,
-      outputsByStep: args.outputsByStep,
-      backendType: normalizeString(args.backend.type),
-      workspaceRequestId: findReusableSkillRunnerRequestId({
-        state: args.state,
-        startIndex: index,
-        outputsByStep: args.outputsByStep,
-      }),
-    });
-    if (stepState.applyResult?.status !== "succeeded") {
-      await applySequenceStepIfNeeded({
-        state: args.state,
-        step,
-        stepIndex: index,
-        stepRequest,
-        stepResult: stepState.result,
-        output: stepState.output,
-        outputsByStep: args.outputsByStep,
-        backend: args.backend,
-        appendRuntimeLog: args.appendRuntimeLog,
-        applySequenceStepResult: args.applySequenceStepResult,
-      });
-    }
-    if (index === args.startIndex - 1) {
-      await args.onSequenceStepFinished?.({
-        state: args.state,
-        step,
-        stepIndex: index,
-        requestId: stepState.result.requestId,
-        stepResult: stepState.result,
-        output: stepState.output,
-      });
-    }
+  } catch (error) {
+    applyError = error;
+  }
+  await settleSequenceStepLifecycle({
+    state: args.state,
+    step: args.step,
+    stepIndex: args.stepIndex,
+    requestId: args.stepResult.requestId,
+    stepResult: args.stepResult,
+    output: args.output,
+    lifecycle: args.lifecycle,
+  });
+  if (applyError) {
+    throw applyError;
   }
 }
 
-export function buildSequenceResult(args: {
+async function advanceSuccessfulSequenceStep(args: {
+  state: SequenceRunState;
+  step: SkillRunnerSequenceStepV1;
+  stepIndex: number;
+  stepRequest: SequenceStepRequest;
+  stepResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
+  output: unknown;
+  outputsByStep: Map<string, StepOutput>;
+  backend: BackendInstance;
+  appendRuntimeLog: typeof appendRuntimeLog;
+  applySequenceStepResult?: ApplySequenceStepResult;
+  lifecycle?: SequenceStepLifecycleAdapter;
+}) {
+  await applyAndSettleSuccessfulSequenceStep(args);
+  args.appendRuntimeLog({
+    level: "info",
+    scope: "job",
+    workflowId: args.state.workflowId,
+    backendId: args.backend.id,
+    backendType: args.backend.type,
+    jobId: args.state.jobId,
+    requestId: args.stepResult.requestId,
+    stage: "sequence-step-finished",
+    message: "skillrunner sequence step finished",
+    details: {
+      stepId: args.step.id,
+      finalStep: args.step.id === args.state.request.final_step_id,
+    },
+  });
+  const latestState =
+    getSequenceRunState(args.state.sequenceRunId) || args.state;
+  const terminalStepId = latestState.terminalStepId;
+  if (latestState.status !== "completed" || !terminalStepId) {
+    return null;
+  }
+  const shortCircuited = terminalStepId !== args.state.request.final_step_id;
+  if (shortCircuited) {
+    args.appendRuntimeLog({
+      level: "info",
+      scope: "job",
+      workflowId: args.state.workflowId,
+      backendId: args.backend.id,
+      backendType: args.backend.type,
+      jobId: args.state.jobId,
+      requestId: args.stepResult.requestId,
+      stage: "sequence-short-circuit",
+      message: "skillrunner sequence short-circuited",
+      details: {
+        stepId: args.step.id,
+        declaredFinalStepId: args.state.request.final_step_id,
+      },
+    });
+  }
+  return buildSequenceResult({
+    finalResult: {
+      ...args.stepResult,
+      resultJson: args.output,
+    },
+    workflowRunId: args.state.workflowRunId,
+    finalStepId: args.state.request.final_step_id,
+    outputsByStep: args.outputsByStep,
+    shortCircuitStepId: shortCircuited ? args.step.id : undefined,
+  });
+}
+
+function buildSequenceResult(args: {
   finalResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
   workflowRunId: string;
   finalStepId: string;
@@ -1172,6 +1129,7 @@ export function buildSequenceResult(args: {
   const sequenceMetadata = {
     workflow_run_id: args.workflowRunId,
     final_step_id: args.finalStepId,
+    terminal_step_id: shortCircuitStepId || args.finalStepId,
     ...(shortCircuitStepId
       ? {
           short_circuited: true,
@@ -1198,6 +1156,234 @@ export function buildSequenceResult(args: {
   } satisfies ProviderExecutionResult;
 }
 
+export function sequenceTerminalStepOwnsApply(args: {
+  request: unknown;
+  result: {
+    sequence?: {
+      terminal_step_id?: string;
+      short_circuit_step_id?: string;
+      final_step_id?: string;
+    };
+  };
+}) {
+  if (
+    !isRecord(args.request) ||
+    normalizeString(args.request.kind) !== "skillrunner.sequence.v1"
+  ) {
+    return false;
+  }
+  const steps = Array.isArray(args.request.steps) ? args.request.steps : [];
+  const terminalStepId =
+    normalizeString(args.result.sequence?.terminal_step_id) ||
+    normalizeString(args.result.sequence?.short_circuit_step_id) ||
+    normalizeString(args.result.sequence?.final_step_id) ||
+    normalizeString(args.request.final_step_id);
+  const terminalStep = steps.find(
+    (step) => isRecord(step) && normalizeString(step.id) === terminalStepId,
+  );
+  return isRecord(terminalStep) && isRecord(terminalStep.apply_result);
+}
+
+function buildTerminalSequenceResultFromState(state: SequenceRunState) {
+  const outputsByStep = outputsByStepFromState(state);
+  const terminalStepId =
+    normalizeString(state.terminalStepId) || state.request.final_step_id;
+  const terminalOutput = outputsByStep.get(terminalStepId);
+  if (!terminalOutput || terminalOutput.result.status !== "succeeded") {
+    throw new Error(
+      `sequence terminal result is unavailable: sequenceRunId=${state.sequenceRunId}; terminalStepId=${terminalStepId}`,
+    );
+  }
+  const shortCircuited = terminalStepId !== state.request.final_step_id;
+  return buildSequenceResult({
+    finalResult: {
+      ...terminalOutput.result,
+      resultJson: terminalOutput.output,
+    },
+    workflowRunId: state.workflowRunId,
+    finalStepId: state.request.final_step_id,
+    outputsByStep,
+    shortCircuitStepId: shortCircuited ? terminalStepId : undefined,
+  });
+}
+
+type AcceptCompletedSequenceStepArgs = {
+  sequenceRunId: string;
+  stepIndex: number;
+  stepResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
+  backend: BackendInstance;
+  providerOptions?: Record<string, unknown>;
+  executeWithProvider: ExecuteWithProvider;
+  applySequenceStepResult?: ApplySequenceStepResult;
+  appendRuntimeLog: typeof appendRuntimeLog;
+  lifecycle?: SequenceStepLifecycleAdapter;
+  onProgress?: (event: ProviderProgressEvent) => void;
+  onSequenceStepSucceeded?: SequenceStepSucceededObserver;
+  submissionId?: string;
+  submissionUnitId?: string;
+};
+
+const completedSequenceStepAcceptanceInFlight = new Map<
+  string,
+  Promise<ProviderExecutionResult>
+>();
+
+async function acceptCompletedSequenceStepNow(
+  args: AcceptCompletedSequenceStepArgs,
+) {
+  let state = getSequenceRunState(args.sequenceRunId);
+  if (!state) {
+    throw new Error(`sequence run state not found: ${args.sequenceRunId}`);
+  }
+  const step = state.request.steps[args.stepIndex];
+  const stepState = state.steps[args.stepIndex];
+  if (!step || !stepState) {
+    throw new Error(
+      `sequence step not found: sequenceRunId=${state.sequenceRunId}; stepIndex=${args.stepIndex}`,
+    );
+  }
+  const requestId = normalizeString(args.stepResult.requestId);
+  const existingRequestId = normalizeString(stepState.requestId);
+  if (existingRequestId && existingRequestId !== requestId) {
+    throw new Error(
+      `sequence step request identity conflict: sequenceRunId=${state.sequenceRunId}; stepIndex=${args.stepIndex}; existingRequestId=${existingRequestId}; requestId=${requestId}`,
+    );
+  }
+  if (state.status === "completed") {
+    return buildTerminalSequenceResultFromState(state);
+  }
+  if (state.status === "failed" || state.status === "canceled") {
+    throw new Error(
+      `sequence run is already terminal: sequenceRunId=${state.sequenceRunId}; status=${state.status}`,
+    );
+  }
+  const output = resolveStepOutput(args.stepResult);
+  if (stepState.status !== "succeeded") {
+    applySequenceRunEvent({
+      type: "sequence.step.succeeded",
+      sequenceRunId: state.sequenceRunId,
+      stepIndex: args.stepIndex,
+      requestId,
+      output,
+      result: args.stepResult,
+    });
+    state = getSequenceRunState(state.sequenceRunId) || state;
+    await args.onSequenceStepSucceeded?.({
+      state,
+      step,
+      stepIndex: args.stepIndex,
+      requestId,
+      stepResult: args.stepResult,
+      output,
+    });
+  }
+  const outputsByStep = outputsByStepFromState(state);
+  const stepRequest = buildStepRequest({
+    sequence: state.request,
+    step,
+    stepIndex: args.stepIndex,
+    workflowRunId: state.workflowRunId,
+    previousStepId: findPreviousStepId({
+      state,
+      startIndex: args.stepIndex,
+      outputsByStep,
+    }),
+    outputsByStep,
+    backendType: normalizeString(args.backend.type),
+    workspaceRequestId: findReusableSkillRunnerRequestId({
+      state,
+      startIndex: args.stepIndex,
+      outputsByStep,
+    }),
+  });
+  args.onProgress?.({
+    type: "sequence-step-succeeded",
+    requestId,
+    ...buildSequenceStepProgressContext({
+      state,
+      step,
+      stepIndex: args.stepIndex,
+      stepRequest,
+    }),
+  });
+  const terminalResult = await advanceSuccessfulSequenceStep({
+    state,
+    step,
+    stepIndex: args.stepIndex,
+    stepRequest,
+    stepResult: args.stepResult,
+    output,
+    outputsByStep,
+    backend: args.backend,
+    appendRuntimeLog: args.appendRuntimeLog,
+    applySequenceStepResult: args.applySequenceStepResult,
+    lifecycle: args.lifecycle,
+  });
+  state = getSequenceRunState(state.sequenceRunId) || state;
+  if (terminalResult) {
+    return terminalResult;
+  }
+  const nextStepState = state.steps[args.stepIndex + 1];
+  const nextStep = state.request.steps[args.stepIndex + 1];
+  if (nextStepState?.requestId && nextStep) {
+    const deferredResult: Extract<
+      ProviderExecutionResult,
+      { status: "deferred" }
+    > =
+      nextStepState.result?.status === "deferred"
+        ? nextStepState.result
+        : {
+            status: "deferred",
+            requestId: nextStepState.requestId,
+            fetchType: "result",
+            backendStatus: "running",
+            continuationOwner: "recovery",
+          };
+    return buildSequenceDeferredResult({
+      state,
+      step: nextStep,
+      stepIndex: args.stepIndex + 1,
+      requestId: nextStepState.requestId,
+      stepResult: deferredResult,
+      outputsByStep,
+    });
+  }
+  return continueSequenceFromIndex({
+    sequenceRunId: state.sequenceRunId,
+    startIndex: args.stepIndex + 1,
+    backend: args.backend,
+    providerOptions: args.providerOptions || state.providerOptions,
+    executeWithProvider: args.executeWithProvider,
+    applySequenceStepResult: args.applySequenceStepResult,
+    appendRuntimeLog: args.appendRuntimeLog,
+    onProgress: args.onProgress,
+    lifecycle: args.lifecycle,
+    submissionId: args.submissionId,
+    submissionUnitId: args.submissionUnitId,
+  });
+}
+
+export function acceptCompletedSequenceStep(
+  args: AcceptCompletedSequenceStepArgs,
+) {
+  const sequenceRunId = normalizeString(args.sequenceRunId);
+  const previous = completedSequenceStepAcceptanceInFlight.get(sequenceRunId);
+  const accept = () =>
+    acceptCompletedSequenceStepNow({
+      ...args,
+      sequenceRunId,
+    });
+  const task = (
+    previous ? previous.catch(() => undefined).then(accept) : accept()
+  ).finally(() => {
+    if (completedSequenceStepAcceptanceInFlight.get(sequenceRunId) === task) {
+      completedSequenceStepAcceptanceInFlight.delete(sequenceRunId);
+    }
+  });
+  completedSequenceStepAcceptanceInFlight.set(sequenceRunId, task);
+  return task;
+}
+
 async function executeSequenceFromState(args: {
   state: SequenceRunState;
   startIndex: number;
@@ -1208,9 +1394,11 @@ async function executeSequenceFromState(args: {
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
-  onSequenceStepFinished?: SequenceStepFinishedObserver;
+  lifecycle?: SequenceStepLifecycleAdapter;
   parentWorkflowRunId?: string;
   semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
+  submissionId?: string;
+  submissionUnitId?: string;
 }) {
   const backendType = normalizeString(args.backend.type);
   if (
@@ -1221,57 +1409,8 @@ async function executeSequenceFromState(args: {
       `skillrunner.sequence.v1 is only supported on ACP or SkillRunner backends; got ${backendType || "unknown"}`,
     );
   }
-  const foregroundStepApply = true;
   const stepRequestKind = resolveStepRequestKind(backendType);
   const outputsByStep = outputsByStepFromState(args.state);
-  if (foregroundStepApply) {
-    await applyPendingSucceededStepsBeforeStart({
-      state: args.state,
-      startIndex: args.startIndex,
-      outputsByStep,
-      backend: args.backend,
-      appendRuntimeLog: args.appendRuntimeLog,
-      applySequenceStepResult: args.applySequenceStepResult,
-      onSequenceStepFinished: args.onSequenceStepFinished,
-    });
-  }
-  const recoveredShortCircuit = findRecoveredShortCircuit({
-    state: args.state,
-    startIndex: args.startIndex,
-    outputsByStep,
-  });
-  if (recoveredShortCircuit) {
-    markSequenceRunTerminal({
-      sequenceRunId: args.state.sequenceRunId,
-      status: "completed",
-    });
-    args.appendRuntimeLog({
-      level: "info",
-      scope: "job",
-      workflowId: args.state.workflowId,
-      backendId: args.backend.id,
-      backendType: args.backend.type,
-      jobId: args.state.jobId,
-      requestId: recoveredShortCircuit.result.requestId,
-      stage: "sequence-short-circuit",
-      message: "skillrunner sequence short-circuited",
-      details: {
-        stepId: recoveredShortCircuit.step.id,
-        declaredFinalStepId: args.state.request.final_step_id,
-        recovered: true,
-      },
-    });
-    return buildSequenceResult({
-      finalResult: {
-        ...recoveredShortCircuit.result,
-        resultJson: recoveredShortCircuit.output.output,
-      },
-      workflowRunId: args.state.workflowRunId,
-      finalStepId: args.state.request.final_step_id,
-      outputsByStep,
-      shortCircuitStepId: recoveredShortCircuit.step.id,
-    });
-  }
   let previousStepId = findPreviousStepId({
     state: args.state,
     startIndex: args.startIndex,
@@ -1282,17 +1421,14 @@ async function executeSequenceFromState(args: {
     startIndex: args.startIndex,
     outputsByStep,
   });
-  let finalResult: Extract<
-    ProviderExecutionResult,
-    { status: "succeeded" }
-  > | null = null;
   for (
     let index = args.startIndex;
     index < args.state.request.steps.length;
     index++
   ) {
     const step = args.state.request.steps[index];
-    recordSequenceStepStarted({
+    applySequenceRunEvent({
+      type: "sequence.step.started",
       sequenceRunId: args.state.sequenceRunId,
       stepIndex: index,
     });
@@ -1343,6 +1479,8 @@ async function executeSequenceFromState(args: {
         sequenceStepIndex: index,
         skillId: step.skill_id,
         finalStepId: args.state.request.final_step_id,
+        submissionId: args.submissionId,
+        submissionUnitId: args.submissionUnitId,
       };
       if (
         __acp_runtime_semantic_trace_recorder_enabled__ &&
@@ -1366,7 +1504,8 @@ async function executeSequenceFromState(args: {
         onProgress: (event) => {
           if (event.type === "request-created") {
             progressRequestId = normalizeString(event.requestId);
-            recordSequenceStepRequestCreated({
+            applySequenceRunEvent({
+              type: "sequence.step.request_created",
               sequenceRunId: args.state.sequenceRunId,
               stepIndex: index,
               requestId: progressRequestId,
@@ -1380,7 +1519,73 @@ async function executeSequenceFromState(args: {
       });
     } catch (error) {
       const message = stringifyUnknownError(error);
-      if (progressRequestId && !isNonRecoverableSkillRunnerFailure(error)) {
+      if (
+        normalizeString(args.backend.type) === ACP_BACKEND_TYPE &&
+        progressRequestId
+      ) {
+        const acpRecord = getAcpSkillRunRecord(progressRequestId);
+        if (
+          acpRecord?.status === "failed" ||
+          acpRecord?.status === "canceled"
+        ) {
+          applySequenceRunEvent({
+            type: "sequence.step.terminal",
+            sequenceRunId: args.state.sequenceRunId,
+            stepIndex: index,
+            requestId: progressRequestId,
+            status: acpRecord.status,
+            error: acpRecord.error || message,
+          });
+          args.onProgress?.({
+            type:
+              acpRecord.status === "canceled"
+                ? "sequence-step-canceled"
+                : "sequence-step-failed",
+            requestId: progressRequestId,
+            error: acpRecord.error || message,
+            ...stepProgressContext,
+          });
+          throw error;
+        }
+        if (acpRecord?.status === "failed_retriable") {
+          const recoveryResult = buildSequenceDeferredResult({
+            state: args.state,
+            step,
+            stepIndex: index,
+            requestId: progressRequestId,
+            stepResult: {
+              status: "deferred",
+              requestId: progressRequestId,
+              fetchType: "bundle",
+              backendStatus: "running",
+              detachReason: "waiting",
+              continuationOwner: "recovery",
+            },
+            outputsByStep,
+          });
+          applySequenceRunEvent({
+            type: "sequence.step.waiting",
+            sequenceRunId: args.state.sequenceRunId,
+            stepIndex: index,
+            requestId: progressRequestId,
+            result: recoveryResult,
+          });
+          args.onProgress?.({
+            type: "sequence-step-deferred",
+            requestId: progressRequestId,
+            backendStatus: "running",
+            detachReason: "waiting",
+            error: acpRecord.error || message,
+            ...stepProgressContext,
+          });
+          return recoveryResult;
+        }
+      }
+      if (
+        normalizeString(args.backend.type) === DEFAULT_BACKEND_TYPE &&
+        progressRequestId &&
+        !isNonRecoverableSkillRunnerFailure(error)
+      ) {
         const observerFailureResult = buildSequenceDeferredResult({
           state: args.state,
           step,
@@ -1396,7 +1601,8 @@ async function executeSequenceFromState(args: {
           },
           outputsByStep,
         });
-        recordSequenceStepWaiting({
+        applySequenceRunEvent({
+          type: "sequence.step.waiting",
           sequenceRunId: args.state.sequenceRunId,
           stepIndex: index,
           requestId: progressRequestId,
@@ -1412,7 +1618,8 @@ async function executeSequenceFromState(args: {
         });
         return observerFailureResult;
       }
-      recordSequenceStepTerminal({
+      applySequenceRunEvent({
+        type: "sequence.step.terminal",
         sequenceRunId: args.state.sequenceRunId,
         stepIndex: index,
         requestId: progressRequestId,
@@ -1438,7 +1645,8 @@ async function executeSequenceFromState(args: {
         stepResult,
         outputsByStep,
       });
-      recordSequenceStepWaiting({
+      applySequenceRunEvent({
+        type: "sequence.step.waiting",
         sequenceRunId: args.state.sequenceRunId,
         stepIndex: index,
         requestId: resultRequestId,
@@ -1457,7 +1665,8 @@ async function executeSequenceFromState(args: {
         stepResult.status === "failed"
           ? stepResult.error || `sequence step '${step.id}' failed`
           : `sequence step '${step.id}' canceled`;
-      recordSequenceStepTerminal({
+      applySequenceRunEvent({
+        type: "sequence.step.terminal",
         sequenceRunId: args.state.sequenceRunId,
         stepIndex: index,
         requestId: resultRequestId,
@@ -1484,7 +1693,8 @@ async function executeSequenceFromState(args: {
       output,
       result: stepResult,
     });
-    recordSequenceStepSucceeded({
+    applySequenceRunEvent({
+      type: "sequence.step.succeeded",
       sequenceRunId: args.state.sequenceRunId,
       stepIndex: index,
       requestId: stepResult.requestId,
@@ -1504,7 +1714,7 @@ async function executeSequenceFromState(args: {
       requestId: stepResult.requestId,
       ...stepProgressContext,
     });
-    await applySequenceStepIfNeeded({
+    const terminalResult = await advanceSuccessfulSequenceStep({
       state: args.state,
       step,
       stepIndex: index,
@@ -1515,89 +1725,24 @@ async function executeSequenceFromState(args: {
       backend: args.backend,
       appendRuntimeLog: args.appendRuntimeLog,
       applySequenceStepResult: args.applySequenceStepResult,
+      lifecycle: args.lifecycle,
     });
+    if (terminalResult) {
+      return terminalResult;
+    }
     previousStepId = step.id;
     workspaceRequestId =
       normalizeString(stepResult.requestId) || workspaceRequestId;
-    args.appendRuntimeLog({
-      level: "info",
-      scope: "job",
-      workflowId: args.state.workflowId,
-      backendId: args.backend.id,
-      backendType: args.backend.type,
-      jobId: args.state.jobId,
-      requestId: stepResult.requestId,
-      stage: "sequence-step-finished",
-      message: "skillrunner sequence step finished",
-      details: {
-        stepId: step.id,
-        finalStep: step.id === args.state.request.final_step_id,
-      },
-    });
-    await args.onSequenceStepFinished?.({
-      state: args.state,
-      step,
-      stepIndex: index,
-      requestId: stepResult.requestId,
-      stepResult,
-      output,
-    });
-    if (matchesShortCircuitRule({ step, output })) {
-      markSequenceRunTerminal({
-        sequenceRunId: args.state.sequenceRunId,
-        status: "completed",
-      });
-      args.appendRuntimeLog({
-        level: "info",
-        scope: "job",
-        workflowId: args.state.workflowId,
-        backendId: args.backend.id,
-        backendType: args.backend.type,
-        jobId: args.state.jobId,
-        requestId: stepResult.requestId,
-        stage: "sequence-short-circuit",
-        message: "skillrunner sequence short-circuited",
-        details: {
-          stepId: step.id,
-          declaredFinalStepId: args.state.request.final_step_id,
-        },
-      });
-      return buildSequenceResult({
-        finalResult: {
-          ...stepResult,
-          resultJson: output,
-        },
-        workflowRunId: args.state.workflowRunId,
-        finalStepId: args.state.request.final_step_id,
-        outputsByStep,
-        shortCircuitStepId: step.id,
-      });
-    }
-    if (step.id === args.state.request.final_step_id) {
-      finalResult = stepResult;
-      break;
-    }
   }
-  if (!finalResult) {
-    markSequenceRunTerminal({
-      sequenceRunId: args.state.sequenceRunId,
-      status: "failed",
-      error: `skillrunner.sequence.v1 final step '${args.state.request.final_step_id}' did not run`,
-    });
-    throw new Error(
-      `skillrunner.sequence.v1 final step '${args.state.request.final_step_id}' did not run`,
-    );
-  }
-  markSequenceRunTerminal({
+  applySequenceRunEvent({
+    type: "sequence.run.terminal",
     sequenceRunId: args.state.sequenceRunId,
-    status: "completed",
+    status: "failed",
+    error: `skillrunner.sequence.v1 final step '${args.state.request.final_step_id}' did not run`,
   });
-  return buildSequenceResult({
-    finalResult,
-    workflowRunId: args.state.workflowRunId,
-    finalStepId: args.state.request.final_step_id,
-    outputsByStep,
-  });
+  throw new Error(
+    `skillrunner.sequence.v1 final step '${args.state.request.final_step_id}' did not run`,
+  );
 }
 
 export async function executeSkillRunnerSequence(args: {
@@ -1609,12 +1754,14 @@ export async function executeSkillRunnerSequence(args: {
   workflowLabel?: string;
   workflowRunId: string;
   jobId: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   executeWithProvider: ExecuteWithProvider;
   applySequenceStepResult?: ApplySequenceStepResult;
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
-  onSequenceStepFinished?: SequenceStepFinishedObserver;
+  lifecycle?: SequenceStepLifecycleAdapter;
   parentWorkflowRunId?: string;
   semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
 }) {
@@ -1638,7 +1785,9 @@ export async function executeSkillRunnerSequence(args: {
     appendRuntimeLog: args.appendRuntimeLog,
     onProgress: args.onProgress,
     onSequenceStepSucceeded: args.onSequenceStepSucceeded,
-    onSequenceStepFinished: args.onSequenceStepFinished,
+    lifecycle: args.lifecycle,
+    submissionId: args.submissionId,
+    submissionUnitId: args.submissionUnitId,
   };
   if (
     __acp_runtime_semantic_trace_recorder_enabled__ &&
@@ -1653,7 +1802,7 @@ export async function executeSkillRunnerSequence(args: {
   return executeSequenceFromState(executionArgs);
 }
 
-export async function continueSkillRunnerSequence(args: {
+async function continueSequenceFromIndex(args: {
   sequenceRunId: string;
   startIndex: number;
   backend: BackendInstance;
@@ -1663,15 +1812,29 @@ export async function continueSkillRunnerSequence(args: {
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
-  onSequenceStepFinished?: SequenceStepFinishedObserver;
+  lifecycle?: SequenceStepLifecycleAdapter;
   parentWorkflowRunId?: string;
   semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
+  submissionId?: string;
+  submissionUnitId?: string;
 }) {
-  markSequenceRunContinuing(args.sequenceRunId);
-  const state = getSequenceRunState(args.sequenceRunId);
+  let state = getSequenceRunState(args.sequenceRunId);
   if (!state) {
     throw new Error(`sequence run state not found: ${args.sequenceRunId}`);
   }
+  if (state.status === "completed") {
+    return buildTerminalSequenceResultFromState(state);
+  }
+  if (state.status === "failed" || state.status === "canceled") {
+    throw new Error(
+      `sequence run is already terminal: sequenceRunId=${state.sequenceRunId}; status=${state.status}`,
+    );
+  }
+  applySequenceRunEvent({
+    type: "sequence.run.continuing",
+    sequenceRunId: args.sequenceRunId,
+  });
+  state = getSequenceRunState(args.sequenceRunId) || state;
   const executionArgs: Parameters<typeof executeSequenceFromState>[0] = {
     state,
     startIndex: args.startIndex,
@@ -1682,7 +1845,9 @@ export async function continueSkillRunnerSequence(args: {
     appendRuntimeLog: args.appendRuntimeLog,
     onProgress: args.onProgress,
     onSequenceStepSucceeded: args.onSequenceStepSucceeded,
-    onSequenceStepFinished: args.onSequenceStepFinished,
+    lifecycle: args.lifecycle,
+    submissionId: args.submissionId,
+    submissionUnitId: args.submissionUnitId,
   };
   if (
     __acp_runtime_semantic_trace_recorder_enabled__ &&

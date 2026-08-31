@@ -1,4 +1,4 @@
-import { requireHostApi } from "./runtime.mjs";
+import { portableItemRef, requireHostApi } from "./runtime.mjs";
 import { resolveDigestMarkdownForParent } from "./digestPayload.mjs";
 
 export const DEFAULT_TAG_NOTE_LANGUAGE = "zh-CN";
@@ -90,19 +90,13 @@ export async function loadSynthesisVocabularyTagsOrThrow(runtime) {
   const synthesis = requireHostApi(runtime)?.synthesis;
   if (
     !synthesis ||
-    typeof synthesis.exportTagVocabularyForRegulator !== "function"
+    typeof synthesis.tags?.exportVocabularyForRegulator !== "function"
   ) {
     throw new Error("tag-regulator synthesis vocabulary export is unavailable");
   }
   try {
-    const exported = await synthesis.exportTagVocabularyForRegulator();
-    let tags = [];
-    if (Array.isArray(exported)) {
-      tags = normalizeVocabularyTags(exported);
-    } else if (exported && typeof exported === "object") {
-      tags = normalizeVocabularyTags(exported.entries || exported.tags || []);
-    }
-    return tags;
+    const exported = await synthesis.tags.exportVocabularyForRegulator();
+    return normalizeVocabularyTags(exported?.allowedTags || []);
   } catch (error) {
     throw new Error(
       `tag-regulator synthesis vocabulary export failed: ${String(
@@ -129,27 +123,17 @@ export async function materializeValidTagsYaml(
   tags,
   parentId,
   runtime,
-  workflowId = "tag-regulator",
 ) {
   const result = await resolveWorkflowInputMaterializer(runtime)({
-    workflowId,
     key: "valid_tags",
     fileName: `valid_tags-parent-${String(parentId || "unknown")}.yaml`,
-    content: renderYamlTagList(tags),
+    content: { kind: "text", text: renderYamlTagList(tags) },
   });
   const filePath = String(result?.path || "").trim();
   if (!filePath) {
     throw new Error(
       "hostApi.file.materializeWorkflowInputFile returned empty path",
     );
-  }
-  try {
-    requireHostApi(runtime).logging?.recordLeakProbeTempArtifactForTests?.({
-      kind: "tag-regulator-valid-tags-yaml",
-      path: toNativePath(filePath),
-    });
-  } catch {
-    // keep probe registration best-effort
   }
   return toNativePath(filePath);
 }
@@ -162,17 +146,15 @@ export async function materializeDigestMarkdown(
   markdown,
   parentId,
   runtime,
-  workflowId = "tag-regulator",
 ) {
   const content = String(markdown || "");
   if (!content.trim()) {
     return null;
   }
   const result = await resolveWorkflowInputMaterializer(runtime)({
-    workflowId,
     key: "digest_markdown",
     fileName: `digest-markdown-parent-${String(parentId || "unknown")}.md`,
-    content,
+    content: { kind: "text", text: content },
   });
   const filePath = String(result?.path || "").trim();
   if (!filePath) {
@@ -188,24 +170,11 @@ export function buildDigestMarkdownUploadRelativePath() {
 }
 
 export function resolveParentItemFromSelection(selectionContext, runtime) {
-  const parentFromSelection = Number(
-    selectionContext?.items?.parents?.[0]?.item?.id || 0,
-  );
-  if (Number.isFinite(parentFromSelection) && parentFromSelection > 0) {
-    return runtime.helpers.resolveItemRef(parentFromSelection);
-  }
-  const parentFromAttachment = Number(
-    selectionContext?.items?.attachments?.[0]?.parent?.id || 0,
-  );
-  if (Number.isFinite(parentFromAttachment) && parentFromAttachment > 0) {
-    return runtime.helpers.resolveItemRef(parentFromAttachment);
-  }
-  const parentFromNote = Number(
-    selectionContext?.items?.notes?.[0]?.parent?.id || 0,
-  );
-  if (Number.isFinite(parentFromNote) && parentFromNote > 0) {
-    return runtime.helpers.resolveItemRef(parentFromNote);
-  }
+  void runtime;
+  const parent = selectionContext?.items?.parents?.[0]?.item ||
+    selectionContext?.items?.attachments?.[0]?.parent ||
+    selectionContext?.items?.notes?.[0]?.parent;
+  if (parent) return parent;
   throw new Error("tag-regulator buildRequest cannot resolve parent item");
 }
 
@@ -223,7 +192,9 @@ function normalizeCreatorName(entry) {
 export function collectMetadataFromParent(item) {
   const creators = Array.isArray(item.getCreators?.())
     ? item.getCreators()
-    : [];
+    : Array.isArray(item.creators)
+      ? item.creators
+      : [];
   const creatorNames = creators
     .map((entry) => normalizeCreatorName(entry))
     .filter(Boolean);
@@ -232,22 +203,26 @@ export function collectMetadataFromParent(item) {
     key: item.key,
     itemType: String(item.itemType || "").trim(),
     libraryID: item.libraryID,
-    title: String(item.getField?.("title") || "").trim(),
-    abstract: String(item.getField?.("abstractNote") || "").trim(),
-    publication_title: String(item.getField?.("publicationTitle") || "").trim(),
-    conference_name: String(item.getField?.("conferenceName") || "").trim(),
-    university: String(item.getField?.("university") || "").trim(),
-    date: String(item.getField?.("date") || "").trim(),
+    title: String(item.getField?.("title") || item.fields?.title || item.title || "").trim(),
+    abstract: String(item.getField?.("abstractNote") || item.fields?.abstractNote || "").trim(),
+    publication_title: String(item.getField?.("publicationTitle") || item.fields?.publicationTitle || item.publicationTitle || "").trim(),
+    conference_name: String(item.getField?.("conferenceName") || item.fields?.conferenceName || "").trim(),
+    university: String(item.getField?.("university") || item.fields?.university || "").trim(),
+    date: String(item.getField?.("date") || item.fields?.date || item.date || "").trim(),
     creators: creatorNames,
   };
 }
 
 export function collectInputTagsFromParent(item) {
-  const tags = Array.isArray(item.getTags?.()) ? item.getTags() : [];
+  const tags = Array.isArray(item.getTags?.())
+    ? item.getTags()
+    : Array.isArray(item.tags)
+      ? item.tags
+      : [];
   const seen = new Set();
   const normalized = [];
   for (const entry of tags) {
-    const text = String(entry?.tag || "").trim();
+    const text = String(typeof entry === "string" ? entry : entry?.tag || "").trim();
     if (!text || seen.has(text)) {
       continue;
     }
@@ -295,10 +270,21 @@ export function resolveRequestParameters(executionOptions, options = {}) {
 }
 
 export async function buildTagRegulatorInputFromParent(args) {
-  const parentItem = args.parentItem || resolveParentItemFromSelection(
+  const selectedParent = args.parentItem || resolveParentItemFromSelection(
     args.selectionContext,
     args.runtime,
   );
+  const detail = await requireHostApi(args.runtime).library.getItemDetail(
+    portableItemRef(selectedParent),
+  );
+  if (detail?.kind !== "regular") {
+    throw new Error("tag-regulator requires one regular parent item");
+  }
+  const parentItem = {
+    ...detail.item,
+    key: detail.item.ref.key,
+    libraryID: detail.item.ref.libraryId,
+  };
   const metadata = collectMetadataFromParent(parentItem);
   const inputTags = collectInputTagsFromParent(parentItem);
   const controlledTags = await loadSynthesisVocabularyTagsOrThrow(args.runtime);
@@ -306,7 +292,7 @@ export async function buildTagRegulatorInputFromParent(args) {
     controlledTags.length > 0
       ? await materializeValidTagsYaml(
           controlledTags,
-          parentItem.id,
+          parentItem.ref.key,
           args.runtime,
           args.workflowId || "tag-regulator",
         )
@@ -349,7 +335,7 @@ export async function buildTagRegulatorStandaloneRequest(args) {
   );
   const digestMarkdownPath = await materializeDigestMarkdown(
     digestMarkdown,
-    parentItem.id,
+    parentItem.ref.key,
     args.runtime,
     args?.manifest?.id || "tag-regulator",
   );

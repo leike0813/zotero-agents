@@ -83,4 +83,3 @@ snapshot without reading transcript pages.
 - **AND** the snapshot has `conversationAvailability: "selected"`
 - **AND** the selected transcript page request is scoped to the selected backend
   and conversation.
-

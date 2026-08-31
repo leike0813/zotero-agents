@@ -320,10 +320,10 @@ hostApi.editor = {
 ## Synthesis 操作（hostApi.synthesis）
 
 ```ts
-hostApi.synthesis?: SynthesisService
+hostApi.synthesis?: WorkflowSynthesisApi
 ```
 
-提供对 Synthesis Workbench 服务的访问（主题、概念、标签、引文图谱等）。仅在 Synthesis 系统已初始化时可用。
+提供面向工作流的窄接口，用于摘要与 Topic 写入、Topic 报告、论文产物、Tag Vocabulary 与暂存建议，以及标签审计更新。该接口仅暴露 `applyLiteratureDigestSidecar`、`applyTopicSynthesisResult`、`getTopicReport`、`readPaperArtifacts`、`loadTagVocabulary`、`saveTagVocabulary`、`exportTagVocabularyForRegulator`、`listStagedTagSuggestions`、`stageTagSuggestions`、`discardStagedTagSuggestions`、`replaceTagAuditRecords` 和 `clearTagAuditRecord`。Host 会先把 Zotero 实时条目和结果产物路径转换为有界的客户端载荷。
 
 ## 完整示例
 

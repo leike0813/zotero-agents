@@ -349,6 +349,10 @@ export function listMissingRequiredWorkflowParameters(
   const input = isObject(workflowParams) ? workflowParams : {};
   return Object.entries(manifest.parameters || {})
     .filter(([, schema]) => schema.required === true)
+    .filter(([, schema]) => {
+      const condition = schema.visible_if;
+      return !condition || input[condition.parameter] === condition.equals;
+    })
     .filter(
       ([key, schema]) =>
         !isRequiredWorkflowParameterPresent(schema.type, input[key]),

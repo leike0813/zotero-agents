@@ -1,7 +1,19 @@
 import { measureAsyncTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
+import {
+  ensureRuntimeDirectoryStrict,
+  resolveRuntimeTemporaryDirectory,
+  writeRuntimeTextFileStrict,
+} from "../modules/runtimePersistence";
+import { joinPath } from "../utils/path";
 
 type ItemRef = Zotero.Item | number | string;
-type NotePayload = { content: string };
+type NotePayload = {
+  content: string;
+  parent?: ItemRef | null;
+  libraryID?: number;
+  tags?: string[];
+  collections?: Array<number | string | Zotero.Collection>;
+};
 type FileSpec = { file: any } | { filePath: string };
 type FieldPatch = Record<string, string | number | boolean | null>;
 type CreatorPatch = Array<{
@@ -43,7 +55,7 @@ type AttachmentPathOptions = {
   allowMissing?: boolean;
 };
 type AttachmentUrlOptions = {
-  parent: ItemRef;
+  parent?: ItemRef | null;
   url: string;
   title?: string | null;
   mimeType?: string | null;
@@ -438,17 +450,18 @@ async function ensureFileFromPath(options: AttachmentPathOptions) {
       const missing = filePath || dataPath || "unknown";
       throw new Error(`Attachment file not found: ${missing}`);
     }
-    const tmpDir = Zotero.getTempDirectory();
-    tmpDir.append("zotero-skills-fixtures");
-    await Zotero.File.createDirectoryIfMissingAsync(tmpDir as any);
-    const tmpFile = Zotero.File.pathToFile(tmpDir.path);
     const name =
       extractFileNameFromPath(filePath) ||
       extractFileNameFromPath(dataPath) ||
       `${options.itemKey || "attachment"}.bin`;
-    tmpFile.append(name);
-    await Zotero.File.putContentsAsync(tmpFile, "");
-    file = tmpFile;
+    const tmpDirPath = joinPath(
+      resolveRuntimeTemporaryDirectory(),
+      "zotero-skills-fixtures",
+    );
+    await ensureRuntimeDirectoryStrict(tmpDirPath);
+    const tmpFilePath = joinPath(tmpDirPath, name);
+    await writeRuntimeTextFileStrict(tmpFilePath, "");
+    file = Zotero.File.pathToFile(tmpFilePath);
   }
   return file;
 }
@@ -509,6 +522,18 @@ export const handlers = {
     remove: async (itemRef: ItemRef) => {
       const item = resolveItem(itemRef);
       await eraseItemTx(item, "handlers:item.remove:eraseTx");
+    },
+    trash: async (itemRef: ItemRef) => {
+      const item = resolveItem(itemRef);
+      const trashTx = (
+        Zotero.Items as unknown as {
+          trashTx?: (ids: number[]) => Promise<void>;
+        }
+      ).trashTx;
+      if (typeof trashTx !== "function") {
+        throw new Error("Zotero.Items.trashTx is unavailable");
+      }
+      await trashTx([item.id]);
     },
   },
   parent: {
@@ -607,7 +632,18 @@ export const handlers = {
   note: {
     create: async (note: NotePayload) => {
       const newNote = new Zotero.Item("note");
+      const parent = note.parent ? resolveItem(note.parent) : null;
+      if (parent) {
+        newNote.parentID = parent.id;
+        newNote.libraryID = parent.libraryID;
+      } else if (note.libraryID) {
+        newNote.libraryID = note.libraryID;
+      }
       newNote.setNote(note.content);
+      for (const tag of note.tags || []) newNote.addTag(tag);
+      for (const collection of note.collections || []) {
+        newNote.addToCollection(resolveCollectionId(collection));
+      }
       await saveItemTx(newNote, "handlers:note.create:saveTx");
       return newNote;
     },
@@ -685,8 +721,8 @@ export const handlers = {
     createFromUrl: async (options: AttachmentUrlOptions) => {
       const url = String(options.url || "").trim();
       assertHttpUrl(url);
-      const parent = resolveItem(options.parent);
-      if (options.deduplicate !== false) {
+      const parent = options.parent ? resolveItem(options.parent) : null;
+      if (parent && options.deduplicate !== false) {
         const existing = findChildAttachmentByUrl(parent, url);
         if (existing) {
           return existing;
@@ -704,12 +740,31 @@ export const handlers = {
         () =>
           Zotero.Attachments.linkFromURL({
             url,
-            parentItemID: parent.id,
+            ...(parent ? { parentItemID: parent.id } : {}),
             title: options.title || url,
             contentType: options.mimeType || "text/html",
           }),
       );
       return attachment;
+    },
+    importStoredFromUrl: async (options: AttachmentUrlOptions) => {
+      const url = String(options.url || "").trim();
+      assertHttpUrl(url);
+      const parent = options.parent ? resolveItem(options.parent) : null;
+      if (typeof Zotero.Attachments?.importFromURL !== "function") {
+        throw new Error("Zotero.Attachments.importFromURL is unavailable");
+      }
+      return measureAsyncTestPerformanceSpan(
+        "handlers:attachment.importStoredFromUrl:importFromURL",
+        { hasParent: !!parent, hasUrl: true },
+        () =>
+          Zotero.Attachments.importFromURL({
+            url,
+            ...(parent ? { parentItemID: parent.id } : {}),
+            ...(options.title ? { title: options.title } : {}),
+            ...(options.mimeType ? { contentType: options.mimeType } : {}),
+          }),
+      );
     },
     update: async (attachmentRef: ItemRef, patch: FieldPatch) => {
       const attachment = resolveItem(attachmentRef);
@@ -727,6 +782,16 @@ export const handlers = {
     },
   },
   tag: {
+    update: async (itemRef: ItemRef, tags: string[]) => {
+      const item = resolveItem(itemRef);
+      const current = item.getTags().map((entry) => entry.tag);
+      current.forEach((tag) => item.removeTag(tag));
+      tags.forEach((tag) => item.addTag(tag));
+      await saveItemTx(item, "handlers:tag.update:saveTx", {
+        previousTagCount: current.length,
+        nextTagCount: tags.length,
+      });
+    },
     add: async (itemRef: ItemRef | ItemRef[], tags: string[]) => {
       assertNonEmptyTags(tags);
       const items = resolveItems(itemRef);
@@ -766,6 +831,25 @@ export const handlers = {
     },
   },
   collection: {
+    update: async (
+      collectionRef: number | string | Zotero.Collection,
+      patch: { name?: string; parentID?: number | null },
+    ) => {
+      const collectionId = resolveCollectionId(collectionRef);
+      const collection = getCollectionByIdOrKey(collectionId);
+      if (!collection) throw new Error(`Collection not found: ${collectionId}`);
+      if (patch.name !== undefined) collection.name = patch.name;
+      if (patch.parentID !== undefined) {
+        (collection as unknown as { parentID: number | null }).parentID =
+          patch.parentID;
+      }
+      await measureAsyncTestPerformanceSpan(
+        "handlers:collection.update:saveTx",
+        undefined,
+        () => collection.saveTx(),
+      );
+      return collection;
+    },
     create: async (options: CreateCollectionOptions) => {
       const collection = new Zotero.Collection();
       collection.name = options.name;
@@ -834,11 +918,6 @@ export const handlers = {
           nextCollectionCount: nextIds.length,
         });
       }
-    },
-  },
-  command: {
-    run: async (_commandId: string, _args?: unknown, _context?: unknown) => {
-      return;
     },
   },
 };

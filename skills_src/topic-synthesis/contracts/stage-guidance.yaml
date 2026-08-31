@@ -10,7 +10,7 @@ stages:
       - "不要把 prompt 里的历史状态当作真源；以 SQLite 和已登记文件为准。"
     common_pitfalls:
       - "不要在非 ACP run workspace 中尝试修补 Host Bridge artifact export。"
-      - "不要跳过 setup 直接写 Stage 10 payload。"
+      - "不要自行跳过 setup 或 gate 当前返回的 stage；Planned Topic 模式下 runtime 会自动完成定义与 resolver stages，并把 gate 推进到 Stage 30。"
 
   stage_00_runtime_state_check:
     semantic_goal: "校验上一 skill 产生的 DB、handoff 和必需 artifacts，确保当前 skill 只基于持久化状态继续。"
@@ -25,33 +25,36 @@ stages:
       - "只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断下一步。"
 
   stage_10_create_topic_context:
-    semantic_goal: "把 topic seed 转成稳定、可查重、可解析的创建意图。"
+    semantic_goal: "把 topic seed 转成稳定主题意图，并优先解析到已有 materialized 或 active Planned Topic identity。"
     execution_steps:
-      - "执行 topic list Host read command，读取现有 topic 的 title、description、aliases 和 id。"
+      - "完整分页执行 topic list Host read command，读取现有 topic 的 id、lifecycle、title、definition、aliases、scope 和 planning metadata。"
       - "用 topic title、aliases、definition 和 scope 明确主题边界。"
-      - "只根据已有 topic 的 title、description、aliases 判断重复风险。"
+      - "先判断是否存在同一身份的 materialized topic；若无，再判断 active Planned Topic 的 definition 和 scope 是否可直接承接该意图。相关、上位或下位 topic 不算同一身份。"
+      - "多个 active Planned Topic 满足同一身份时，按 definition/scope 匹配优先，aliases/title 次之，选择最佳候选。"
       - "把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。"
     host_read_commands:
       - command: "<zotero-bridge> synthesis topic list --query '{}'"
-        purpose: "获取现有 topic 列表，用于 create duplicate check。"
-        notes: "只根据返回 topic 的 title、description、aliases 和 id 判断是否同一主题；不要把相关主题直接判为 duplicate。"
+        purpose: "获取完整 topic inventory，用于解析 materialized duplicate、active Planned Topic 或新建目标。"
+        notes: "必须遍历全部分页。只有 definition/scope 可直接承接 seed 意图时才视为同一身份；不要把相关、上位或下位 topic 当成匹配。"
     required_read_notes:
-      - "topic list 只用于重复检查，不用于扩写最终综述。"
+      - "topic list 只用于创建目标解析，不用于扩写最终综述。"
     field_guidance:
       topic_title: "稳定、简短、适合作为 topic identity 的标题；不要写成问题句或临时搜索词。"
       aliases: "常见缩写、别名或同义主题名；没有时写空数组。"
       definition: "说明主题研究对象、核心问题和边界。"
       scope_include: "明确纳入的技术路线、任务、方法族或评价对象。"
       scope_exclude: "容易混淆但不属于本 topic 的邻近主题。"
-      duplicate_status: "`none` 表示未发现重复；`possible_duplicate` 表示需谨慎；`duplicate` 表示已有同一主题；`unknown` 表示材料不足。"
-      duplicate_candidate_ids: "只填写 Host topic list 中真实存在的候选 id。"
-      duplicate_reason: "说明重复判断依据，不能只写“相似”。"
+      target_decision: "`cancel_materialized_duplicate` 优先级最高；否则同一身份 active Planned Topic 使用 `use_planned_topic`；均不存在时使用 `create_new`。"
+      selected_topic_id: "use/cancel action 必填，并且必须出现在 candidate_topic_ids；create_new 不填写。"
+      candidate_topic_ids: "列出完整 topic inventory 中达到同一身份判断的候选 id；相关、上位、下位或 stale topic 不得列入。"
+      reason: "说明 identity 与 scope 判断依据；多个 Planned Topic 候选时说明为何所选项最佳。"
     hard_constraints:
-      - "如果 `duplicate_status` 为 `duplicate`，这是 create prepare 的硬门禁失败：不要提交 resolver/workset 或任何后续 payload，不进入 Stage 20。"
-      - '硬门禁失败时直接输出符合 `assets/output.schema.json` 的 `topic_synthesis_canceled` 最终业务对象，包含 `status: "canceled"`、`reason: "duplicate_topic"`、`message`、`topic_seed`，并在可确定时填 `duplicate_topic_id`；sequence runtime 会据此短路后续 steps。'
+      - "materialized duplicate 必须优先于 Planned Topic；不要为了继续运行而选择 Planned Topic 或 create_new。"
+      - "use_planned_topic 提交后由 runtime 重新读取 canonical semantic context 并执行保存的 resolver；不要再写 Stage 20 payload。"
+      - "若 selected Planned Topic 已失效，runtime 会取消并要求基于最新 Topic Graph 重跑；不要回退 create_new。"
     quality_checks:
       - "topic boundary 要能指导 resolver 设计。"
-      - "重复判断要保守，不能把宽泛相关主题误判为同一 topic。"
+      - "身份判断要保守，不能把宽泛相关、上下位或需要改写 scope 的 topic 判为同一 topic。"
     common_pitfalls:
       - "不要把 topic seed 原样复制成 definition。"
       - "不要引用尚未 resolver 的论文作为创建依据。"
@@ -62,9 +65,11 @@ stages:
       scope_include:
         ["目标检测中的集合预测", "object queries", "DETR 收敛与 query 设计变体"]
       scope_exclude: ["通用 NLP transformer", "非检测任务的 vision transformer"]
-      duplicate_status: "none"
-      duplicate_candidate_ids: []
-      duplicate_reason: "现有 topic 的标题和别名中没有表示同一 DETR-style object detection 方法族的条目。"
+      target_decision:
+        action: "use_planned_topic"
+        selected_topic_id: "planned-detr"
+        candidate_topic_ids: ["planned-detr"]
+        reason: "该 active Planned Topic 的 definition 和 scope 与 DETR-style object detection 意图一致。"
 
   stage_10_update_topic_context:
     semantic_goal: "读取 runtime update audit report，判断是否继续更新；继续时提交只增不改的 resolver proposal。"
@@ -93,13 +98,13 @@ stages:
       - "如果 `update_decision.action` 是 `cancel`，不要附带 resolver。"
       - "如果 `update_decision.action` 是 `continue`，必须附带 resolver 和 resolver_reasoning。"
       - "resolver proposal 删除或改写 current_resolver 既有简化 selector 内容时，gate 会拒绝提交。"
-      - "如果 continue 后 runtime 执行 updated resolver 得到的 `resolve_diff.added_refs` 为空，这是 update prepare 的 no-op 硬取消条件：直接输出 `topic_synthesis_canceled`，不进入 Stage 30。"
+      - "continue 后即使 `resolve_diff.added_refs` 为空，也要保留该 diff 并继续；artifact、score、dependency 或已有 triage 缺口可以独立构成稳定更新理由。"
     quality_checks:
       - "更新判断必须引用 audit report 中的 source_materials、discovery、current_linked_papers 或 saved_triage 信息。"
       - "不要把 create 的 duplicate check 逻辑套到 update。"
     common_pitfalls:
       - "不要手写旧基线或 updated resolve；旧基线来自 current_linked_papers，updated resolve 只由本 stage submit 后 runtime 调 Host Bridge 生成。"
-      - "不要在 `added_refs=0` 时为了补旧 triage 覆盖而继续 Stage 30；最新规则是没有新增 resolved papers 就取消本次 update。"
+      - "不要把 `added_refs` 当作唯一更新信号；是否 continue 以 audit report 中稳定的 artifact、score、dependency、discovery 和 triage 状态为准。"
       - "不要在本 stage 做 paper triage。"
     example:
       update_decision:
@@ -150,7 +155,7 @@ stages:
     semantic_goal: "为 resolver workset 中每篇文献写 paper-local triage，给后续 runtime context selection 提供可靠输入。"
     hard_constraints:
       - "paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 `assessments`。"
-      - "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、quality、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。"
+      - "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 `literature_quality`。"
     subagent_delegation:
       recommendation: "当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 `assessments[]` payload。"
       constraints:
@@ -176,13 +181,11 @@ stages:
         - paper_ref：必须使用分配给你的 paper_ref。
         - relevance_level：core / related / external / irrelevant / unknown。
         - relevance_reason：说明该 paper 与 topic 边界的关系。
-        - paper_quality_level：high / medium / low / unknown。
-        - paper_quality_reason：说明证据质量。
         - core_digest：一到三句 paper-local 贡献摘要。
         - caveats：数组，记录证据限制或适用边界。
     execution_steps:
       - "先读取 `runtime/payloads/paper-artifacts-manifest-batch-1.json`。"
-      - "按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。"
+      - "按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；文献评分使用同一 paper row 中的 `literature_quality`快照；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。"
       - "逐篇阅读 digest、references 和 citation-analysis；每次判断只面向当前 paper。"
       - "如果使用 subagent，先按 paper_ref 分配 artifacts，收回 assessment row 草案后由主 agent 统一检查并合并。"
       - "按 gate 指令和 runtime audit 判断需要 triage 的 paper refs；create 通常覆盖所有 resolved papers，update 使用 gate 暴露的 `triage_required_refs`。"
@@ -190,10 +193,10 @@ stages:
       - "如果 update 没有可复用 triage，gate 会要求对 updated resolve 中全部 papers 写 assessment。"
       - "每条 assessment 判断只限该 paper 与 topic 的关系。"
       - "用 `core_digest` 提炼该 paper 对 topic window 的贡献。"
-      - "提交后由 runtime 根据 triage、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。"
+      - "提交后由 runtime 根据 triage、四件套 artifact manifest、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。"
     required_read_notes:
       - "`runtime/payloads/paper-artifacts-manifest-batch-1.json` 是 artifact 索引真源；具体文件以每条 artifact 的 `content_file` 为准。"
-      - "`runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是判断依据；不要依赖大段附件路径。"
+      - "`runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是 relevance、core_digest 和 caveats 的判断依据；文献内在质量只使用 manifest 固化的 `literature_quality`；不要依赖大段附件路径。"
       - "LLM 不手写 cross-paper context 或 external-literature context；这些 view 必须由 runtime 从已校验输入生成。"
     runtime_reads:
       - path: "runtime/payloads/paper-artifacts-manifest-batch-1.json"
@@ -206,8 +209,6 @@ stages:
       assessments: "一篇 resolved paper 一条 assessment，`paper_ref` 必须来自当前 workset。"
       relevance_level: "`core` 是主题核心证据；`related` 是相关背景或变体；`external` 主要用于覆盖/补充判断；`irrelevant` 是误召回；`unknown` 是材料不足。"
       relevance_reason: "说明该 paper 与 topic 边界的关系。"
-      paper_quality_level: "评价可用证据质量，不等于引用量排序。"
-      paper_quality_reason: "说明实验、方法、综述、benchmark 或证据完整性。"
       core_digest: "一到三句说明该 paper 对 topic 的贡献，保持 paper-local。"
       caveats: "记录训练效率、实验范围、artifact 缺失、适用边界等限制。"
     quality_checks:
@@ -221,8 +222,6 @@ stages:
         - paper_ref: "1:DETR2020"
           relevance_level: "core"
           relevance_reason: "该论文把 object-query set prediction 建立为本 topic 的基线公式。"
-          paper_quality_level: "high"
-          paper_quality_reason: "该论文给出模型公式，并提供支撑该路线的 benchmark evidence。"
           core_digest: "提出面向目标检测的 transformer-based set prediction，使 object queries 与 bipartite matching 成为后续 DETR-family 工作的核心概念。"
           caveats: ["训练效率限制会影响后续改进工作的解释方式。"]
 
@@ -403,7 +402,8 @@ stages:
     execution_steps:
       - "读取 concept candidate context。"
       - "读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis topic list --query '{}'`；工作区没有 shim 时执行 `zotero-bridge synthesis topic list --query '{}'`。"
-      - "为关键概念写 definition、aliases、disambiguation 和 topic relevance。"
+      - "查询已有 Concept KB。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis concept query --query '{\"query\":\"<candidate label>\",\"limit\":10}'`；工作区没有 shim 时执行 `zotero-bridge synthesis concept query ...`。逐个候选核对 canonical label、alias owner 和 sense，不得把查询结果直接视为等价判断。"
+      - "为关键概念写 definition、aliases、disambiguation 和 topic relevance。alias 只收录同一 concept、同一 sense 下可互换的名称，例如缩写与全称、拼写变体、可靠翻译；没有这样的名称时写空数组。"
       - "以当前 synthesis topic 为出发点，判断每个 target topic 的方向关系：target 更宽、target 更窄、相关、交叉或对照。"
       - "判断关系时使用当前 topic 的语义全集，不使用 workset 最密集子域替代当前 topic。"
       - "把指向已有 topic 的关系写入 existing_topic_relation_proposals，把未来 topic seed 写入 prospective_topic_relation_proposals。"
@@ -411,12 +411,14 @@ stages:
     required_read_notes:
       - "`runtime/views/concept-candidate-context.json` 来自已校验 core synthesis，用它核对概念候选。"
       - "`synthesis topic list` 返回当前库中已有 topics，以及这些 topic metadata 中保存的 prospective_topic_relation_proposals。"
+      - "`synthesis concept query` 是只读身份上下文；canonical label 精确一致可作为同一 concept 的强证据，alias 命中只提示可能冲突，不能单独证明 concept 等价。"
     runtime_reads:
       - path: "runtime/views/concept-candidate-context.json"
         produced_by: "Stage 40 core synthesis submit 后的 runtime materialization"
         purpose: "读取待补全的概念候选、来源和上下文。"
     field_guidance:
-      concept_details: "解释 topic 边界、路线、机制、任务、benchmark、数据集、评价轴或训练信号相关概念。"
+      concept_details: "解释 topic 边界、路线、机制、任务、benchmark、数据集、评价轴或训练信号相关概念。每项必须写 label、aliases、concept_type、definition 和 topic_relevance；aliases 最多 8 个且不得重复。"
+      aliases: "仅写同一 concept 且同一 sense 中可互换的词形：缩写/全称、拼写变体或可靠翻译。相关概念、上位/下位概念、组成部分、任务、方法、数据集、benchmark、应用及仅共同出现的术语都不是 alias，应写为独立 concept 或 relation。"
       existing_topic_relation_proposals: "只引用 `synthesis topic list` 返回的已有 topic_id，写出 relation_type、confidence、rationale 和 source_paper_refs。"
       prospective_topic_relation_proposals: "只写未来可能 synthesis 的 target_topic_seed 和 relation_type。"
       relation_type: "`target_is_broader_topic_candidate` 表示 target 比当前 topic 更宽；`target_is_narrower_topic_candidate` 表示 target 比当前 topic 更窄；`related_topic_candidate` 表示相关但没有清晰包含或交叉；`overlap_topic_candidate` 表示两者部分交叉且互不包含；`contrast_topic_candidate` 表示同一问题空间中的替代路线或对立视角。"
@@ -428,9 +430,11 @@ stages:
       - "如果当前 topic 是 Computer Vision，Object Detection、DETR-style Object Detection 等应按下位或相关 target 判断；不能因为 workset 偏向 DETR 就把当前 topic 改写成 DETR-series。"
       - "如果一个 topic 明确包含另一个 topic，使用 broader/narrower 关系；overlap 只用于互不包含的部分交叉范围。"
       - "预备关系只保留可复用的 topic seed。"
+      - "逐项检查 aliases：把任一 alias 替换进 definition 后，指代对象和 sense 必须保持不变；不满足时删除该 alias。"
     common_pitfalls:
       - "不要写 canonical KG assets、SQLite rows 或 Git metadata。"
       - "不要把宽泛领域词都加入 must-have terms。"
+      - "不要为了增加召回率把相关概念塞进第一个 concept 的 aliases；alias 可以为空。"
     example:
       concept_details:
         - label: "Object detection"

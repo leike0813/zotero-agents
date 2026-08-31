@@ -1,7 +1,10 @@
-## Purpose
+# synthesis-reference-resolution-matcher Specification
 
+## Purpose
 Reference matcher output becomes graph-affecting state only through safe apply or explicit decisions.
+
 ## Requirements
+
 ### Requirement: Matcher output affects graph only through explicit decisions or safe apply
 Reference matcher output SHALL become graph-affecting state only through deterministic safe apply for the current item, deterministic/high-confidence explicit advanced matching, or explicit user-approved sidecar decisions.
 
@@ -91,3 +94,30 @@ Reference Sidecar refresh and workflow apply SHALL NOT run the advanced external
 - **THEN** it SHALL keep lightweight canonical assignment and binding behavior
 - **AND** it SHALL NOT create advanced fuzzy `canonical_merge` proposals.
 
+### Requirement: Advanced Reference Matching SHALL use the configured matcher engine
+
+
+Production Advanced Reference Matching SHALL route library binding and clustered canonical dedupe through the configured Reference Matcher engine while keeping lightweight sidecar binding separate.
+
+#### Scenario: Advanced matching runs
+
+- **WHEN** the explicit Advanced Reference Matching command processes current unbound canonicals
+- **THEN** the application SHALL invoke `matchBindings` once and `dedupeCanonicals` once for the captured basis
+- **AND** refresh, workflow apply, graph rebuild, and related-items sync SHALL NOT invoke either heavy matcher method.
+
+### Requirement: Matcher results SHALL promote as one validated unit
+
+
+Automatic binding facts, canonical redirects, and review proposals from one Advanced Reference Matching run SHALL be persisted only after both engine results are valid and the captured matcher basis remains current.
+
+#### Scenario: Both results are valid and current
+
+- **WHEN** binding and dedupe computation completes and basis recapture matches
+- **THEN** all matcher facts and proposals SHALL be applied in one repository transaction
+- **AND** existing rejected proposals SHALL remain rejected.
+
+#### Scenario: Compute or promotion cannot complete
+
+- **WHEN** either engine throws, is cancelled, rejects bounds, returns malformed output, the basis is superseded, or the repository transaction fails
+- **THEN** no matcher facts or proposals from the run SHALL be durably applied
+- **AND** prior binding, redirect, proposal, and rejection facts SHALL remain unchanged.

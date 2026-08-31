@@ -2,10 +2,10 @@
 
 ## State ownership and schema
 
-`scripts/zotero_librarian_service.py` exclusively creates and updates `state.sqlite`. The active schema marker is `zotero-librarian.state.v3`. Its owned data consists of:
+`scripts/zotero_librarian_service.py` exclusively creates and updates `state.sqlite`. The active schema marker is `zotero-librarian.state.v4`. Its owned data consists of:
 
 - metadata including last successful index refresh;
-- a library item projection keyed by library ID and item key;
+- current and staging library-index generations, with item rows keyed by generation, library ID, and item key;
 - cached workflow definitions keyed by workflow ID;
 - watched Zotero-managed runs keyed by `workflowRunId`;
 - lightweight notifications keyed by event ID;
@@ -14,11 +14,19 @@ No Skill, cron file, shell snippet, external helper, or manual SQL session may c
 
 The database is a rebuildable cache and journal. Live Zotero remains authoritative for UI context, library contents, workflow definitions, execution modes, runs, permissions, notifications, Products, files, operations, and writes.
 
+## Profile-local state boundary
+
+The active connection profile is selected by service `--profile`, `ZOTERO_BRIDGE_PROFILE`, or the platform well-known profile. The well-known profile is the default owner of the existing state path. Each explicit normalized profile path owns a separate `workspaces/<sha256>/` root, including its SQLite database, workflow catalog, watched runs, notifications, and `.zotero-bridge/bin`; no profile content or token contributes to the identity. Agents never need to hand-calculate this root.
+
+`--db` may name a diagnostic database only when its resolved path is inside the selected root. Profile/path/root/connection errors and `workspace_path_outside_profile` stop the pass before any database is created, with no shared-directory fallback. This routing changes neither the `state.v4` schema nor the rules that require live Zotero facts, current approval, native queue ownership, and durable receipts.
+
 ## Freshness and atomic updates
 
 Every cached conclusion carries the relevant refresh or update time. Use the cache for discovery and change detection; use a live read for externally visible current facts and every decision that can lead to a write or interaction.
 
-Index refresh accepts all snapshot pages inside one transaction, upserts changed rows, removes rows absent from the completed snapshot, and records refresh time only on success. A page, parse, or transaction failure rolls back the new projection. Catalog refresh similarly commits each successful changed description without inventing definitions.
+Index refresh writes each accepted snapshot page into a staging generation while the prior generation remains current. The service validates one immutable Host basis across snapshot identity, library, scope, stable order, batch sequence, delivered counters, and terminal evidence. Only matching `outcome: completed` evidence allows a promotion transaction to mark the staged generation current, remove prior-generation rows, and record refresh time.
+
+An active page, interruption, expiry, cursor mismatch, resource limit, Host restart, parse failure, write failure, or evidence mismatch cannot promote. The incomplete generation remains non-authoritative and the prior current generation stays readable. A later refresh opens a new process-local snapshot; it does not reuse a cached snapshot identity or infer completion from staged row counts. A completed empty snapshot may promote an empty generation and thereby remove every prior item row. Catalog refresh similarly commits each successful changed description without inventing definitions.
 
 Run watch and notification sync update only accepted live results. Connectivity failure retains the last known state for later comparison. Do not erase old state, advance cursors from rejected data, or describe cached terminal/run/event values as current after a failed refresh.
 
@@ -65,17 +73,30 @@ Stores:
 
 It does not store user authority, current Zotero connection truth, workflow approval, or task conclusions.
 
-### `library_items`
+### `library_index_generations`
 
 Stores:
 
+- generation and Host snapshot identities;
+- resolved library identity;
+- `staging` or `current` status;
+- Host content digest, total item and batch counts;
+- creation and promotion times.
+
+A staging generation is recoverable local work, not a current index and not proof that absent rows were deleted. Promotion requires the exact current Host completion evidence; an older receipt or locally reconstructed evidence cannot make a generation current.
+
+### `library_generation_items`
+
+Stores:
+
+- owning generation identity;
 - library ID and item key;
 - numeric item ID;
 - item type and title;
 - serialized snapshot payload;
 - content digest and local update time.
 
-This projection supports discovery and change comparison. It does not prove current item state, attachment access, selection, or permissions.
+Only rows belonging to the generation named by `meta.current_library_generation` support discovery and change comparison. Staging rows do not appear in resident searches, item reads, stats, or hygiene candidates. Neither current nor staging rows prove current item state, attachment access, selection, or permissions.
 
 ### `workflow_catalog`
 
@@ -285,11 +306,12 @@ Active submission and queue projections are process-local. When Host restart mak
 ### Library projection
 
 1. Preserve the failed refresh receipt and last usable database.
-2. Determine whether failure occurred before complete snapshot acceptance.
-3. Keep the prior refresh timestamp.
-4. Run a new bounded complete refresh through the service.
-5. Compare counts.
-6. Use live item reads for current conclusions.
+2. Preserve the staging generation identity when present, but keep it non-authoritative.
+3. Determine whether matching Host completion evidence was received and promotion committed.
+4. Keep the prior current generation and refresh timestamp when either condition is absent.
+5. Run a new bounded complete refresh through the service; do not resume the old process-local snapshot after interruption, expiry, or Host restart.
+6. Compare promoted counts, generation identity, and snapshot identity.
+7. Use live item reads for current conclusions.
 
 Never patch missing rows manually.
 

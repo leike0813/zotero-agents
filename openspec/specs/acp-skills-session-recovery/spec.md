@@ -160,3 +160,101 @@ ACP Skills SHALL reconstruct the run's Zotero host-access policy and prepare the
 - **THEN** ACP Skills SHALL mark conversation recovery as failed
 - **AND** it SHALL clear the connecting action state
 - **AND** it SHALL NOT create the recovered adapter.
+
+### Requirement: ACP recovery SHALL participate in Host priority resumption
+
+Recoverable ACP replies, reconnect-driven continuation, and recovered result apply associated with a live Host submission SHALL use that submission unit's priority slot coordinator. Remote autonomous progress MAY begin before local observation, but local continuation and Host apply MUST await admission.
+
+#### Scenario: Recovered run reaches apply while yielded
+
+- **WHEN** a recoverable ACP run produces a final result while its Host unit has no slot
+- **THEN** recovered apply SHALL request priority admission
+- **AND** SHALL not mutate Zotero before admission succeeds
+
+#### Scenario: Shutdown aborts queued recovery
+
+- **WHEN** plugin shutdown occurs while recovery input is resumption-pending
+- **THEN** the unsent input SHALL be discarded
+- **AND** later slot activity SHALL not send it
+
+### Requirement: Terminal recovery resumes only the original session
+
+ACP Skills SHALL require explicit Connect for eligible terminal conversation
+recovery. Connect SHALL resume or load the recorded session id, SHALL NOT create
+a replacement workflow session, and SHALL NOT send a prompt automatically.
+
+#### Scenario: Reply requires prior terminal Connect
+
+- **GIVEN** an eligible terminal run is detached with recovery available
+- **WHEN** the user attempts Reply without Connect
+- **THEN** ACP Skills SHALL reject the reply
+- **AND** it SHALL leave recovery and task state unchanged.
+
+#### Scenario: Failed recovery remains a candidate
+
+- **GIVEN** an eligible failed run has a session and its conversation is not
+  ended or unsupported
+- **WHEN** one Connect attempt fails without proving resume unsupported
+- **THEN** recovery SHALL remain available for a later explicit Connect
+- **AND** the task SHALL remain failed with its original business error.
+
+#### Scenario: Unsupported resume closes terminal recovery
+
+- **GIVEN** an eligible terminal run is detached
+- **WHEN** resume/load negotiation proves the session unsupported
+- **THEN** ACP Skills SHALL mark conversation recovery unsupported and detach it
+- **AND** it SHALL not modify terminal task or apply evidence.
+
+### Requirement: Terminal startup reconciliation clears transient conversation state
+
+On startup, ACP Skills SHALL normalize stale terminal connected, connecting,
+prompting, and permission transient state to a closed, available, idle
+conversation when the run remains otherwise eligible. It SHALL preserve task,
+result, apply, output, sequence, transcript, usage, and business-error evidence.
+
+#### Scenario: Restart cleans stale terminal prompt state
+
+- **GIVEN** a persisted succeeded or failed run contains stale active
+  conversation, prompt, or permission fields from process termination
+- **WHEN** startup reconciliation loads the run
+- **THEN** the conversation SHALL become closed, recoverable, and idle
+- **AND** prompt and permission temporaries SHALL be cleared
+- **AND** all workflow-owned terminal evidence SHALL remain unchanged.
+
+### Requirement: Legacy failed migration requires workflow-open evidence
+
+ACP Skills SHALL migrate a legacy `failed` record to `failed_retriable` only
+when explicit workflow-open evidence exists and no terminal evidence exists.
+Possessing a session id alone SHALL NOT make a failed task retriable.
+
+#### Scenario: Terminal legacy failed record remains failed
+
+- **GIVEN** a legacy failed run has a session but terminal apply or workflow
+  evidence and no pending workflow interaction
+- **WHEN** persistence migration loads the record
+- **THEN** its status SHALL remain failed
+- **AND** terminal conversation eligibility SHALL be derived independently.
+
+#### Scenario: Workflow-open legacy failed record becomes retriable
+
+- **GIVEN** a legacy failed run contains explicit pending interaction,
+  convergence, apply-pending, or equivalent workflow-open evidence and lacks
+  terminal evidence
+- **WHEN** persistence migration loads the record
+- **THEN** it SHALL retain the existing failed-to-failed_retriable migration.
+
+### Requirement: ACP Skills recovery SHALL use the startup readiness gate
+
+Recovery SHALL use the same cancellation signal and phase limits as initial setup while launching transport, initializing ACP, loading or resuming the session, and reapplying persisted runtime selection. Recovery SHALL publish `connected` only after the recovered session is usable.
+
+#### Scenario: Recovery is canceled during session attach
+
+- **WHEN** task cancellation occurs while a recovery session load or resume request is pending
+- **THEN** the run SHALL become `canceled`
+- **AND** the pending recovery SHALL not publish connected or send the continuation prompt if it later settles.
+
+#### Scenario: Recovered configuration times out
+
+- **WHEN** persisted mode, model, or configuration cannot be applied within its 60-second startup phase
+- **THEN** recovery SHALL fail with phase-specific diagnostics
+- **AND** no live controller SHALL remain registered from the failed attempt.

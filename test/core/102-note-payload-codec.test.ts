@@ -126,12 +126,9 @@ describe("Zotero note payload codec", function () {
     const envelope = buildWorkbenchPayloadEnvelope({
       noteKind: "digest",
       payloadType: "digest-markdown",
-      payload: {
-        version: 1,
-        entry: "artifacts/digest.md",
-        format: "markdown",
-        content: "# Digest\n\nBody",
-      },
+      schemaVersion: "digest.v1",
+      format: "markdown",
+      value: "# Digest\n\nBody",
     });
     const bytes = buildWorkbenchPayloadPngBytes(basePngBytes, envelope);
 
@@ -147,7 +144,7 @@ describe("Zotero note payload codec", function () {
     assert.equal(block?.noteKind, "digest");
     assert.equal(block?.attachmentKey, "PAYLOAD2");
     assert.equal(block?.markdown, "# Digest\n\nBody");
-    assert.equal((block?.payload as any)?.entry, "artifacts/digest.md");
+    assert.equal(block?.payload, "# Digest\n\nBody");
   });
 
   it("decodes legacy v1 attachment-backed workbench payloads", function () {
@@ -189,7 +186,9 @@ describe("Zotero note payload codec", function () {
     const envelope = buildWorkbenchPayloadEnvelope({
       noteKind: "digest",
       payloadType: "digest-markdown",
-      payload: { format: "markdown", content: "# Digest" },
+      schemaVersion: "digest.v1",
+      format: "markdown",
+      value: "# Digest",
     });
     const bytes = Buffer.from(
       buildWorkbenchPayloadPngBytes(basePngBytes, envelope),

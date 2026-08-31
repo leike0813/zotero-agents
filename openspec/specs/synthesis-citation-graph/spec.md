@@ -1,7 +1,10 @@
-## Purpose
+# synthesis-citation-graph Specification
 
+## Purpose
 Citation Graph stores graph structure, metrics, and Workbench layout as stale-tolerant sidecar cache projections built from active references and bindings.
+
 ## Requirements
+
 ### Requirement: Citation graph Workbench layout is stored in DB
 
 The Synthesis repository SHALL store Workbench citation graph layout state in
@@ -93,14 +96,176 @@ deterministic topic synthesis statistics.
 - **THEN** the response SHALL include a structured stale diagnostic
 - **AND** it SHALL NOT trigger graph rebuild or refresh as part of the read.
 
-### Requirement: Workbench citation graph aggregates source-target evidence before display selection
+### Requirement: Unified graph build SHALL have isolated worker parity
 
-The Citation Graph read model SHALL expose at most one citation edge for each source-target pair, and it SHALL derive an external target's incoming degree from distinct library source nodes rather than raw reference instances.
+The environment-neutral Unified Citation Graph build contract SHALL produce
+equivalent strictly rebuilt results in process and through the internal sidecar
+canary for wire-bounded full and source-slice requests.
+
+#### Scenario: Full graph fixture is compared
+- **WHEN** the same valid full-scope request is executed directly and through the worker canary
+- **THEN** nodes, resolved and aggregate edges, ownership, incoming groups, light metrics, and diagnostics SHALL be equivalent
+
+#### Scenario: Source-slice fixture is compared
+- **WHEN** the same valid source-slice request is executed directly and through the worker canary
+- **THEN** the rebuilt scope and all result collections SHALL be equivalent
+
+### Requirement: Citation graph layout computation SHALL not hold the library write lock
+
+
+The application service SHALL compute a canonical Citation Graph layout request outside the per-library write lock and SHALL hold that lock only for bounded promotion work.
+
+#### Scenario: Layout engine is delayed
+
+- **WHEN** an injected asynchronous layout engine has not yet completed
+- **THEN** the service SHALL NOT retain the library write lock for the duration of the computation.
+
+### Requirement: Citation graph layout promotion SHALL validate its graph basis
+
+
+The application service SHALL promote computed coordinates only when the current DB graph hash still equals the graph hash used by the layout engine.
+
+#### Scenario: Graph basis is unchanged
+
+- **WHEN** the engine returns a valid result and the current graph hash equals the request graph hash
+- **THEN** the service SHALL persist the existing layout shape and layout hash
+- **AND** later Workbench reads SHALL observe the promoted coordinates.
+
+#### Scenario: Graph basis changes during computation
+
+- **WHEN** the current graph hash differs from the request graph hash before promotion
+- **THEN** the service SHALL leave the previous layout row unchanged
+- **AND** it SHALL record the stable `citation_graph_layout_basis_superseded` diagnostic without classifying the engine as failed.
+
+#### Scenario: Engine fails or returns malformed data
+
+- **WHEN** the engine throws, rejects a bounded request, or returns a malformed result
+- **THEN** the operation SHALL expose a stable failure diagnostic without raw engine errors
+- **AND** it SHALL NOT overwrite the previous readable layout projection.
+
+### Requirement: Citation graph metrics computation SHALL not hold the library write lock
+
+
+The application service SHALL capture a canonical Citation Graph metrics request under a bounded library lock, compute it outside that lock, and hold the lock again only for bounded promotion work.
+
+#### Scenario: Metrics engine is delayed
+
+- **WHEN** an injected asynchronous metrics engine has not completed
+- **THEN** the service SHALL NOT retain the library write lock for the duration of the computation.
+
+#### Scenario: Graph refresh commits before metrics computation
+
+- **WHEN** a full or incremental graph refresh successfully commits graph structure
+- **THEN** graph cache readiness SHALL remain readable while complex metrics compute outside the lock
+- **AND** metrics freshness SHALL continue to reflect the persisted source graph hash.
+
+### Requirement: Citation graph metrics promotion SHALL validate its graph basis
+
+
+The application service SHALL replace complex metrics only when the current DB graph hash still equals the graph hash used by the metrics engine.
+
+#### Scenario: Graph basis is unchanged
+
+- **WHEN** the engine returns a valid result and the current graph hash equals the request graph hash
+- **THEN** the service SHALL persist the existing metrics rows and canonical metrics hash
+- **AND** later reads SHALL report the metrics as current.
+
+#### Scenario: Graph basis changes during computation
+
+- **WHEN** the current graph hash differs from the request graph hash before promotion
+- **THEN** the service SHALL leave previous complex metrics rows unchanged
+- **AND** it SHALL return the stable `citation_graph_metrics_basis_superseded` diagnostic without classifying the engine as failed.
+
+#### Scenario: Engine fails or returns malformed data
+
+- **WHEN** the engine throws, rejects a bounded request, or returns a malformed result
+- **THEN** the operation SHALL expose a stable failure diagnostic without raw engine errors
+- **AND** it SHALL NOT delete or overwrite previous complex metrics rows.
+
+### Requirement: Citation graph refresh paths SHALL share metrics orchestration
+
+
+Full graph rebuild, incremental graph refresh, and explicit metrics refresh SHALL use the same request projection, engine invocation, result rebuilding, and guarded-promotion behavior.
+
+#### Scenario: Any metrics refresh path runs
+
+- **WHEN** complex metrics are requested after a full rebuild, incremental refresh, or manual refresh
+- **THEN** the configured metrics engine SHALL be invoked through the shared orchestration
+- **AND** each path SHALL apply the same superseded and failure-preservation rules.
+
+### Requirement: Citation graph construction paths SHALL share one build engine
+
+
+Legacy paper graph projection, full graph cache rebuild, source-slice incremental refresh, and sidecar-backed related-items fallback SHALL route graph assembly through the configured Citation Graph build engine.
+
+#### Scenario: Any graph construction path runs
+
+- **WHEN** a graph is built from legacy papers or resolved production sidecar facts
+- **THEN** the configured build engine SHALL own node merging, reference-edge construction, source-target aggregation, role evidence, ownership, incoming groups, and light metrics
+- **AND** application adapters SHALL only resolve environment-owned facts and map result envelopes.
+
+### Requirement: Citation graph build promotion SHALL validate its durable basis
+
+
+The application service SHALL replace full or source-slice Citation Graph rows only when the current durable graph-input basis equals the basis captured before engine computation.
+
+#### Scenario: Build basis is unchanged
+
+- **WHEN** the engine returns a valid result and the durable graph-input basis remains unchanged
+- **THEN** the service SHALL transactionally replace the intended graph scope and update cache basis
+- **AND** later reads SHALL expose the rebuilt graph.
+
+#### Scenario: Build basis changes during computation
+
+- **WHEN** active raw references, effective canonical redirects, or accepted bindings change before promotion
+- **THEN** the service SHALL leave previous graph rows and cache basis unchanged
+- **AND** it SHALL expose the stable `citation_graph_build_basis_superseded` diagnostic.
+
+#### Scenario: Engine fails or returns malformed data
+
+- **WHEN** the engine throws, is cancelled, rejects a bounded request, or returns a malformed result
+- **THEN** the service SHALL expose a sanitized failure diagnostic
+- **AND** it SHALL NOT delete or overwrite the previous active graph.
+
+### Requirement: Citation Graph promotes only basis-current worker layouts
+
+The Citation Graph service SHALL treat sidecar layout output as an untrusted pure
+compute result and SHALL promote it only after strict rebuilding and a current
+graph-basis check.
+
+#### Scenario: Worker result matches the current graph
+- **WHEN** a strict worker result returns for the graph hash that remains current
+- **THEN** the plugin repository stores the layout using the existing layout schema
+
+#### Scenario: Worker result is invalid or superseded
+- **WHEN** the worker result fails strict rebuilding or the graph basis changes
+- **THEN** the result is not stored and the previous layout content is retained
+
+### Requirement: Metrics kernel may execute across the sidecar boundary
+
+Citation Graph refresh SHALL allow the pure metrics kernel to execute remotely
+while graph capture, basis comparison, and promotion remain in the plugin.
+
+#### Scenario: Remote result matches current graph
+- **WHEN** a strictly rebuilt metrics result returns and the graph basis is unchanged
+- **THEN** the existing promotion path stores that result exactly as it would store a direct-engine result
+
+#### Scenario: Remote result is late
+- **WHEN** a metrics result returns after its graph basis has been superseded
+- **THEN** the existing promotion guards discard it
+
+### Requirement: Citation Graph build output aggregates source-target evidence before display selection
+
+The configured Citation Graph build engine SHALL emit at most one citation edge
+for each source-target pair and SHALL derive an external target's incoming
+degree from distinct library source nodes rather than raw reference instances.
+The Workbench SHALL consume that aggregate result without re-aggregating raw
+reference instances.
 
 #### Scenario: One library paper repeats an external reference
 
 - **WHEN** one library source paper contains multiple reference instances that resolve to the same external target
-- **THEN** the read model SHALL expose one source-target edge with accumulated mention, role, and source-reference evidence
+- **THEN** the build engine SHALL emit one source-target edge with accumulated mention, role, and source-reference evidence
 - **AND** the external target SHALL have incoming degree one
 - **AND** the target and edge SHALL remain hover-only and SHALL NOT participate in default layout computation.
 
@@ -117,3 +282,17 @@ The Citation Graph read model SHALL expose at most one citation edge for each so
 - **THEN** the persisted reference-instance records SHALL remain unchanged
 - **AND** the graph edge SHALL retain the contributing source references and accumulated role evidence.
 
+### Requirement: Citation Graph layout state SHALL distinguish legacy and current layout versions
+
+The Citation Graph projection SHALL read legacy layout identities for stale rendering and SHALL treat only layout version 2 with a Rust v2 engine identity as current.
+
+#### Scenario: Legacy layout is projected
+
+- **WHEN** persisted layout metadata identifies d3-force, radial, or components version 1.2
+- **THEN** the layout SHALL remain readable as stale cache state
+- **AND** it SHALL NOT be mistaken for a current v2 result.
+
+#### Scenario: Current layout is projected
+
+- **WHEN** persisted layout metadata identifies version 2 and a supported Rust engine
+- **THEN** the layout SHALL be eligible for current-basis rendering and normal promotion checks.

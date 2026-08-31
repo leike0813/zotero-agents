@@ -3,6 +3,7 @@ type RuntimeAddonLike = {
     config?: {
       addonName?: string;
       addonRef?: string;
+      addonVersion?: string;
       prefsPrefix?: string;
     };
     ztoolkit?: Record<string, unknown>;
@@ -46,6 +47,7 @@ type RuntimeBridgeOverride = {
   FileReader?: typeof globalThis.FileReader | null | undefined;
   navigator?: typeof globalThis.navigator | null | undefined;
   console?: typeof globalThis.console | null | undefined;
+  windows?: unknown[] | undefined;
 };
 
 type RuntimeHostCapabilities = {
@@ -83,15 +85,19 @@ function resolveRuntimeGlobal() {
 }
 
 function readWindowFromGlobalVar() {
-  const runtimeWindow = (
-    globalThis as typeof globalThis & {
-      window?: Window;
+  try {
+    const runtimeWindow = (
+      globalThis as typeof globalThis & {
+        window?: Window;
+      }
+    ).window;
+    if (!runtimeWindow) {
+      return undefined;
     }
-  ).window;
-  if (!runtimeWindow) {
+    return runtimeWindow as RuntimeWindowLike;
+  } catch {
     return undefined;
   }
-  return runtimeWindow as RuntimeWindowLike;
 }
 
 function readHiddenDomWindow() {
@@ -121,29 +127,45 @@ function readMainWindow() {
   }
 }
 
-function resolveRuntimeWindow() {
-  const runtimeAddon = resolveRuntimeAddon();
-  const globalWindow = readWindowFromGlobalVar();
-  return ((
-    runtimeAddon?.data as
+export function resolveRuntimeWindowCandidates() {
+  const candidates: unknown[] = [];
+  const append = (candidate: unknown) => {
+    if (candidate && !candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  };
+  for (const candidate of runtimeBridgeOverride?.windows || []) {
+    append(candidate);
+  }
+  try {
+    const runtimeAddon = resolveRuntimeAddon();
+    const data = runtimeAddon?.data as
       | {
           dialog?: { window?: Window };
           prefs?: { window?: Window };
         }
-      | undefined
-  )?.dialog?.window ||
-    (
-      runtimeAddon?.data as
-        | {
-            dialog?: { window?: Window };
-            prefs?: { window?: Window };
-          }
-        | undefined
-    )?.prefs?.window ||
-    globalWindow ||
-    readMainWindow() ||
-    readHiddenDomWindow() ||
-    undefined) as RuntimeWindowLike | undefined;
+      | undefined;
+    try {
+      append(data?.dialog?.window);
+    } catch {
+      // Isolate a protected or closing dialog candidate.
+    }
+    try {
+      append(data?.prefs?.window);
+    } catch {
+      // Isolate a protected or closing preferences candidate.
+    }
+  } catch {
+    // Isolate an unavailable addon candidate.
+  }
+  append(readWindowFromGlobalVar());
+  append(readMainWindow());
+  append(readHiddenDomWindow());
+  return candidates;
+}
+
+function resolveRuntimeWindow() {
+  return resolveRuntimeWindowCandidates()[0] as RuntimeWindowLike | undefined;
 }
 
 function readExternalRuntimeBridgeOverride() {

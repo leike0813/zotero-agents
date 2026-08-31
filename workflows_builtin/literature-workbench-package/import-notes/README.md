@@ -6,13 +6,13 @@
 
 ## 前置准备
 
-需要先有导出产物文件（`digest.md`、`references.json`、`citation_analysis.json`）。
+需要先有导出产物文件（`digest.md`、`references.json`、`citation_analysis.json`、`literature_score.json` 中的一个或多个）。
 
 ## 怎么输入？
 
 - **选中单个父条目**（每次只能导到一个条目）
 - 选择包含导出产物的目录
-- 导入前会校验 `references.json` 和 `citation_analysis.json` 的结构合法性
+- 导入前会校验 references、citation analysis 和 literature score JSON 的结构合法性
 
 ## 执行方式
 
@@ -24,13 +24,14 @@
 
 ## 产出什么？
 
-在父条目下创建/更新三类分析笔记：
+在父条目下创建/更新四类分析笔记：
 
 | 笔记 | 来源文件 |
 |------|---------|
 | Digest Note | `digest.md` |
 | References Note | `references.json` |
 | Citation Analysis Note | `citation_analysis.json`、`citation_analysis.md` |
+| Literature Score Note | `literature_score.json` |
 
 如 `digest.md` 含代表图标记，导入界面自动解析同目录图片。图片导入失败不会阻塞 digest note 导入。
 

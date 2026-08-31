@@ -23,9 +23,7 @@ import {
 } from "../../src/modules/taskDashboardHistory";
 import {
   getAcpSkillRunRecord,
-  registerAcpSkillRunController,
   resetAcpSkillRunsForTests,
-  resolveAcpSkillRunPermissionRequest,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -33,14 +31,16 @@ import {
   resolveSkillRunnerHostBridgePermissionRequest,
 } from "../../src/modules/skillRunnerHostBridgePermissionRegistry";
 import {
-  createSkillRunnerRun,
+  applySkillRunnerRunEvent,
   resetSkillRunnerRunStoreForTests,
-  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import {
+  hasHostBridgeUploadedFileLease,
+  registerHostBridgeUploadedFile,
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
 } from "../../src/modules/hostBridgeFileRegistry";
+import { validateWorkflowResourceBindings } from "../../src/modules/hostBridgeWorkflowResources";
 import {
   acknowledgeHostBridgeNotificationEvents,
   HOST_BRIDGE_NOTIFICATION_MAX_EVENTS,
@@ -85,6 +85,8 @@ import {
   markHostBridgeOperationOutcomeUnknown,
   reserveHostBridgeOperation,
 } from "../../src/modules/hostBridgeOperationStore";
+import { registerAcpSkillRunController } from "../../src/modules/acpSkillRunControllerRegistry";
+import { resolveAcpSkillRunPermissionRequest } from "../../src/modules/acpSkillRunPermissionQueue";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -270,6 +272,28 @@ describe("host bridge workflow control", function () {
       sequence: { steps: [] },
     };
     entry.manifest.executionModes = ["interactive"];
+    entry.manifest.supportedInvocationModes = [
+      "interactive",
+      "non-interactive",
+    ];
+    entry.manifest.resourceRequirements = [
+      {
+        id: "source",
+        direction: "input",
+        kind: "archive",
+        cardinality: "one",
+        required: true,
+        accept: { extensions: [".zip"] },
+      },
+      {
+        id: "result",
+        direction: "output",
+        kind: "archive",
+        cardinality: "one",
+        required: true,
+        suggestedName: "result.zip",
+      },
+    ];
     entry.manifest.parameters = {
       scope: { type: "string", required: true },
       language: { type: "string", default: "en-US" },
@@ -288,6 +312,8 @@ describe("host bridge workflow control", function () {
     ]);
     assert.deepEqual(projectWorkflowManifestContract(entry.manifest), {
       executionModes: ["interactive"],
+      supportedInvocationModes: ["interactive", "non-interactive"],
+      resourceRequirements: entry.manifest.resourceRequirements,
       providerRequirements: {
         requestKind: "skillrunner.sequence.v1",
         acceptedProviderTypes: ["skillrunner", "acp"],
@@ -1908,6 +1934,164 @@ describe("host bridge workflow control", function () {
     );
   });
 
+  it("parses opaque workflow resource bindings without accepting paths", function () {
+    const parsed = parseHostBridgeWorkflowSubmitRequest({
+      workflowId: "bridge-workflow",
+      selection: { kind: "none" },
+      resourceBindings: {
+        schema: "zotero-bridge.workflow-resources.v1",
+        inputs: {
+          source: { fileIds: ["file-upload-1"] },
+        },
+        outputs: {
+          result: { delivery: "bridge-download" },
+        },
+      },
+    });
+
+    assert.deepEqual(parsed.resourceBindings, {
+      schema: "zotero-bridge.workflow-resources.v1",
+      inputs: {
+        source: { fileIds: ["file-upload-1"] },
+      },
+      outputs: {
+        result: { delivery: "bridge-download" },
+      },
+    });
+    try {
+      parseHostBridgeWorkflowSubmitRequest({
+        workflowId: "bridge-workflow",
+        selection: { kind: "none" },
+        resourceBindings: {
+          inputs: { source: { path: "/tmp/source.zip" } },
+        },
+      });
+      assert.fail("expected path-like resource binding to be rejected");
+    } catch (error) {
+      assert.strictEqual(
+        (error as { code?: string }).code,
+        "invalid_workflow_resource_bindings",
+      );
+    }
+  });
+
+  it("validates workflow resource handles without leasing or consuming them", async function () {
+    const entry = workflow("resource-validation");
+    entry.manifest.supportedInvocationModes = [
+      "interactive",
+      "non-interactive",
+    ];
+    entry.manifest.resourceRequirements = [
+      {
+        id: "source",
+        direction: "input",
+        kind: "archive",
+        cardinality: "one",
+        required: true,
+        accept: { extensions: [".zip"] },
+      },
+      {
+        id: "result",
+        direction: "output",
+        kind: "archive",
+        cardinality: "one",
+        required: true,
+      },
+    ];
+    const upload = await registerHostBridgeUploadedFile({
+      bytes: new Uint8Array([1, 2, 3]),
+      displayName: "source.zip",
+      contentType: "application/zip",
+    });
+    const validation = await validateWorkflowResourceBindings({
+      manifest: entry.manifest,
+      raw: {
+        inputs: { source: { fileIds: [upload.fileId] } },
+        outputs: { result: { delivery: "bridge-download" } },
+      },
+    });
+
+    assert.strictEqual(validation.inputs.source[0].fileId, upload.fileId);
+    assert.isFalse(hasHostBridgeUploadedFileLease(upload.fileId));
+    assert.strictEqual(
+      (await resolveHostBridgeFileDownload(upload.fileId)).descriptor.fileId,
+      upload.fileId,
+    );
+
+    for (const testCase of [
+      {
+        raw: {
+          inputs: { source: { fileIds: [upload.fileId] } },
+          outputs: {},
+        },
+        code: "workflow_resource_missing",
+      },
+      {
+        raw: {
+          inputs: {
+            source: { fileIds: [upload.fileId] },
+            unknown: { fileIds: [upload.fileId] },
+          },
+          outputs: { result: { delivery: "bridge-download" } },
+        },
+        code: "invalid_workflow_resource_bindings",
+      },
+    ]) {
+      try {
+        await validateWorkflowResourceBindings({
+          manifest: entry.manifest,
+          raw: testCase.raw,
+        });
+        assert.fail(`expected ${testCase.code}`);
+      } catch (error) {
+        assert.strictEqual((error as { code?: string }).code, testCase.code);
+      }
+      assert.isFalse(hasHostBridgeUploadedFileLease(upload.fileId));
+    }
+  });
+
+  it("rejects explicitly interactive-only workflows before resource resolution", async function () {
+    const entry = workflow("interactive-only");
+    entry.manifest.supportedInvocationModes = ["interactive"];
+    try {
+      await validateWorkflowResourceBindings({
+        manifest: entry.manifest,
+        raw: undefined,
+      });
+      assert.fail("expected non-interactive eligibility rejection");
+    } catch (error) {
+      assert.strictEqual(
+        (error as { code?: string }).code,
+        "workflow_resource_ineligible",
+      );
+    }
+  });
+
+  it("accepts an omitted binding set when every resource slot is optional", async function () {
+    const entry = workflow("optional-resources");
+    entry.manifest.supportedInvocationModes = [
+      "interactive",
+      "non-interactive",
+    ];
+    entry.manifest.resourceRequirements = [
+      {
+        id: "research-materialized-files",
+        direction: "input",
+        kind: "file",
+        cardinality: "many",
+        required: false,
+      },
+    ];
+
+    const validation = await validateWorkflowResourceBindings({
+      manifest: entry.manifest,
+      raw: undefined,
+    });
+
+    assert.strictEqual(validation.bindings, undefined);
+    assert.deepEqual(validation.inputs, {});
+  });
+
   it("lists native queued units, inspects their active submission, and cancels only pending units", async function () {
     const token = configureHostBridgeServerForTests({
       token: "workflow-token",
@@ -2089,6 +2273,82 @@ describe("host bridge workflow control", function () {
     assert.include(approvalRequest.detail, "Source: zotero-bridge CLI");
     assert.notInclude(approvalRequest.detail, '"workflowId"');
     assert.notInclude(approvalRequest.detail, "{");
+  });
+
+  it("returns downloadable resource outputs from a direct workflow submission", async function () {
+    const entry = workflow("bridge-output-workflow");
+    entry.manifest.supportedInvocationModes = [
+      "interactive",
+      "non-interactive",
+    ];
+    entry.manifest.resourceRequirements = [
+      {
+        id: "report",
+        direction: "output",
+        kind: "file",
+        cardinality: "one",
+        required: true,
+        suggestedName: "report.txt",
+      },
+    ];
+    entry.hooks.applyResult = async ({ runtime }: any) => {
+      const output = await runtime.hostApi.resources.allocateOutput({
+        slotId: "report",
+        suggestedName: "report.txt",
+        contentType: "text/plain",
+      });
+      await runtime.hostApi.file.writeText(output.path, "remote report\n");
+      return runtime.hostApi.resources.publishOutput({
+        slotId: "report",
+        path: output.path,
+        displayName: "report.txt",
+        contentType: "text/plain",
+      });
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-output-token",
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Output Workflow Parent");
+    await parent.saveTx();
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "global",
+    }));
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v2/workflows/submit",
+      body: {
+        workflowId: "bridge-output-workflow",
+        selection: { items: [{ id: parent.id }] },
+        resourceBindings: {
+          schema: "zotero-bridge.workflow-resources.v1",
+          outputs: { report: { delivery: "bridge-download" } },
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.admission, "direct");
+    const descriptor = parsed.json.result.resourceOutputs[0];
+    assert.strictEqual(descriptor.slotId, "report");
+    assert.strictEqual(descriptor.displayName, "report.txt");
+    assert.strictEqual(descriptor.contentType, "text/plain");
+    assert.isString(descriptor.fileId);
+    assert.isNumber(descriptor.size);
+    assert.isString(descriptor.sha256);
+    assert.isString(descriptor.expiresAt);
+    assert.include(descriptor.downloadCommand, descriptor.fileId);
+
+    const download = await resolveHostBridgeFileDownload(descriptor.fileId);
+    assert.strictEqual(
+      fs.readFileSync(download.source.path, "utf8"),
+      "remote report\n",
+    );
   });
 
   it("returns queued admission without fabricated workflow run or job handles", async function () {
@@ -2579,20 +2839,24 @@ describe("host bridge workflow control", function () {
       workflowRunId: "run-sequence",
       jobId: "job-1",
     });
-    const run = createSkillRunnerRun({
-      backendId: "backend-1",
-      workflowId: "literature-analysis",
-      workflowRunId: "run-sequence",
-      jobId: "job-1:digest",
-      taskName: "Digest",
-      sequenceRunId: "run-sequence",
-      sequenceJobId: "job-1",
-      sequenceStepId: "digest",
-      createdAt: now,
-      updatedAt: now,
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "backend-1",
+        workflowId: "literature-analysis",
+        workflowRunId: "run-sequence",
+        jobId: "job-1:digest",
+        taskName: "Digest",
+        sequenceRunId: "run-sequence",
+        sequenceJobId: "job-1",
+        sequenceStepId: "digest",
+        createdAt: now,
+        updatedAt: now,
+      },
     });
     assert.isNotNull(run);
-    updateSkillRunnerRunStateByRunKey({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       runKey: run!.runKey,
       state: "running",
       updatedAt: now,
@@ -2752,6 +3016,55 @@ describe("host bridge workflow control", function () {
       parsed.json.result.skillRuns[0].skillRunId,
       "acp-status-only-1",
     );
+  });
+
+  it("keeps terminal ACP task liveness separate from conversation actions", function () {
+    const requestId = "acp-terminal-conversation-host";
+    upsertAcpSkillRun({
+      requestId,
+      status: "failed",
+      backendStatus: "failed",
+      runId: "run-acp-terminal-conversation-host",
+      workflowId: "bridge-workflow",
+      taskName: "Failed ACP Task",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-acp-terminal-conversation-host",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+      applyResultState: "failed",
+      error: "original workflow failure",
+    });
+
+    const detached = getHostBridgeSkillRun(requestId);
+    assert.equal(detached.state, "failed");
+    assert.equal(detached.liveness, "terminal");
+    assert.deepInclude(detached.actions, {
+      canReply: false,
+      canConnect: true,
+      canCancelWorkflow: false,
+      isFailedRetriable: false,
+    });
+
+    registerAcpSkillRunController(
+      requestId,
+      {
+        cancel: async () => undefined,
+        reply: async () => undefined,
+        disconnect: async () => undefined,
+      },
+      undefined,
+      "post-terminal-conversation",
+    );
+    const connected = getHostBridgeSkillRun(requestId);
+    assert.equal(connected.state, "failed");
+    assert.equal(connected.liveness, "terminal");
+    assert.deepInclude(connected.actions, {
+      canReply: true,
+      canConnect: false,
+      canCancelWorkflow: false,
+      isFailedRetriable: false,
+    });
   });
 
   it("reports ACP sequence workflow status from root state and concrete step runs only", async function () {
@@ -3505,18 +3818,22 @@ describe("host bridge workflow control", function () {
   it("returns stable errors for unsupported or non-waiting skill-run interactions", async function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     const now = new Date().toISOString();
-    const skillRunnerRun = createSkillRunnerRun({
-      runKey: "skillrunner-run-1",
-      backendId: "backend-sr",
-      workflowId: "bridge-workflow",
-      workflowRunId: "run-skillrunner-1",
-      jobId: "job-skillrunner",
-      taskName: "SkillRunner Task",
-      createdAt: now,
-      updatedAt: now,
+    const skillRunnerRun = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        runKey: "skillrunner-run-1",
+        backendId: "backend-sr",
+        workflowId: "bridge-workflow",
+        workflowRunId: "run-skillrunner-1",
+        jobId: "job-skillrunner",
+        taskName: "SkillRunner Task",
+        createdAt: now,
+        updatedAt: now,
+      },
     });
     assert.isNotNull(skillRunnerRun);
-    updateSkillRunnerRunStateByRunKey({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       runKey: "skillrunner-run-1",
       state: "waiting_user",
       updatedAt: now,

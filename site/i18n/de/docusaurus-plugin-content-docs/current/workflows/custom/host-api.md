@@ -322,10 +322,10 @@ Verwaltet Workflow-Editor-Sitzungen. `registerRenderer` und `unregisterRenderer`
 ## Synthesis-Operationen (hostApi.synthesis)
 
 ```ts
-hostApi.synthesis?: SynthesisService
+hostApi.synthesis?: WorkflowSynthesisApi
 ```
 
-Bietet Zugriff auf den Synthesis Workbench-Dienst (Themen, Konzepte, Tags, Zitierungsgraph usw.). Nur verfügbar, wenn das Synthesis-System initialisiert ist.
+Bietet eine begrenzte Workflow-Schnittstelle für Digest- und Topic-Anwendung, Topic-Berichte, Paper-Artefakte, Tag-Vokabular und Tag-Prüfungen. Sie stellt nur `applyLiteratureDigestSidecar`, `applyTopicSynthesisResult`, `getTopicReport`, `readPaperArtifacts`, `loadTagVocabulary`, `saveTagVocabulary`, `exportTagVocabularyForRegulator`, `listStagedTagSuggestions`, `stageTagSuggestions`, `discardStagedTagSuggestions`, `replaceTagAuditRecords` und `clearTagAuditRecord` bereit. Live-Zotero-Elemente und Ergebnispfade werden vom Host in begrenzte Client-Payloads umgewandelt.
 
 ## Vollständiges Beispiel
 

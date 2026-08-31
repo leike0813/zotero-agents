@@ -12,7 +12,7 @@ Zotero-Plugin-Prozess
 ├── Host-Bridge-HTTP-Server (Loopback: 127.0.0.1:<port>)
 │     ├── Bearer-Token-Authentifizierung (jede Anfrage)
 │     ├── Schreibgenehmigungsschranke (pro Vorgang)
-│     └── Fähigkeitsrouter (30+ Fähigkeiten)
+│     └── Fähigkeitsrouter (60+ Fähigkeiten)
 │
 └── zotero-bridge-CLI (Begleit-Binary)
       ├── Semantische Befehle (context, library, mutation, synthesis)
@@ -20,7 +20,7 @@ Zotero-Plugin-Prozess
       └── Stdin/Pipe-Modus (für ACP-Agent-Integration)
 ```
 
-Protokollversion: `host-bridge.v1`. Alle Endpunkte außer `GET /bridge/v1/health` erfordern Bearer-Token-Authentifizierung.
+Protokollversion: `host-bridge.v2`. Alle Endpunkte außer `GET /bridge/v1/health` erfordern Bearer-Token-Authentifizierung. Capability-Verträge verwenden `host-bridge.capabilities.v2`.
 
 ## Konfiguration
 
@@ -89,51 +89,179 @@ Verwenden Sie die Schaltfläche „CLI installieren" in den Einstellungen. ACP-L
 
 ### Semantische Befehle
 
+<details>
+<summary>Alle 125 kanonischen Befehle</summary>
+
+#### surface — Agent-Oberfläche
 ```
-zotero-bridge status                           # Gesundheitsprüfung (keine Auth)
-zotero-bridge manifest                         # Vollständiges Fähigkeitsmanifest
-zotero-bridge call <fähigkeit> [--input]      # Roher Fähigkeitsaufruf
-zotero-bridge item search --query <text>
-zotero-bridge item get --key <key>
-zotero-bridge item notes --key <key>
-zotero-bridge item attachments --key <key>
-zotero-bridge note get --key <key>
-zotero-bridge note payloads --key <key>
-zotero-bridge note payload --key <key>
-zotero-bridge library list --input '{"limit":50}'
-zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
-zotero-bridge topics list
-zotero-bridge topics get-context --input <JSON>
-zotero-bridge topics get-report --input <JSON>
-zotero-bridge schemas get
-zotero-bridge concepts query --input <JSON>
-zotero-bridge citation-graph query-cluster --input <JSON>
-zotero-bridge citation-graph get-overview
-zotero-bridge library-index get
-zotero-bridge resolvers resolve --input <JSON>
-zotero-bridge reference-index get
-zotero-bridge paper-artifacts get-manifest --input <JSON>
-zotero-bridge paper-artifacts read --input <JSON>
-zotero-bridge insights get-attention-queue
-zotero-bridge literature ingest --input <JSON>
-zotero-bridge workflow list
-zotero-bridge workflow describe --workflow <id>
-zotero-bridge workflow submit --workflow <id> (--input <JSON> | --none)
-zotero-bridge workflow agent-run --workflow <id> (--input <JSON> | --none) --output-dir <DIR>
-zotero-bridge workflow run <runId>
-zotero-bridge task list [--workflow <id>] [--active-only]
-zotero-bridge file download <fileId> --output <path>
+zotero-bridge surface identity --json
+zotero-bridge surface describe <command...> --json
+zotero-bridge surface search --intent <text>
 ```
 
+#### bridge — Serverstatus & Profil
+```
+zotero-bridge bridge status
+zotero-bridge bridge manifest
+zotero-bridge bridge profile inspect
+zotero-bridge bridge profile diagnose
+zotero-bridge bridge backend list
+zotero-bridge bridge backend status
+zotero-bridge call <capability> [--input <json>]
+```
+
+#### library — Bibliothek lesen
+```
+zotero-bridge library items list [--cursor <c>]
+zotero-bridge library item search --query <text>
+zotero-bridge library item get --key <key>
+zotero-bridge library item notes --key <key>
+zotero-bridge library item attachments --key <key>
+zotero-bridge library note get --key <key>
+zotero-bridge library note payloads --key <key>
+zotero-bridge library note payload --key <key> --payload-id <id>
+zotero-bridge library annotation list --key <key>
+zotero-bridge library annotation export --key <key> --format json|markdown
+zotero-bridge library snapshot --input <json>
+zotero-bridge library readiness audit --input <json>
+zotero-bridge library readiness missing-pdf --input <json>
+zotero-bridge library readiness missing-markdown --input <json>
+zotero-bridge library readiness missing-analysis --input <json>
+```
+
+#### context — UI-Kontext & Navigation
+```
+zotero-bridge context current
+zotero-bridge context selection get
+zotero-bridge context selection open
+zotero-bridge context item open --key <key>
+zotero-bridge context note open --key <key>
+zotero-bridge context collection open --key <key>
+```
+
+#### synthesis — Syntheseschicht
+```
+zotero-bridge synthesis topic list --input <json>
+zotero-bridge synthesis topic find-by-paper-ref --input <json>
+zotero-bridge synthesis topic get-context --input <json>
+zotero-bridge synthesis topic get-report --input <json>
+zotero-bridge synthesis topic get-review-input --input <json>
+zotero-bridge synthesis schema get
+zotero-bridge synthesis concept query --input <json>
+zotero-bridge synthesis graph overview --input <json>
+zotero-bridge synthesis graph query-cluster --input <json>
+zotero-bridge synthesis graph get-slice --input <json>
+zotero-bridge synthesis graph get-layout --input <json>
+zotero-bridge synthesis graph get-metrics --input <json>
+zotero-bridge synthesis graph rank-external-references --input <json>
+zotero-bridge synthesis graph rank-library-papers --input <json>
+zotero-bridge synthesis graph refresh-metrics --input <json>
+zotero-bridge synthesis graph update --input <json>
+zotero-bridge synthesis index status
+zotero-bridge synthesis index library get --input <json>
+zotero-bridge synthesis index reference get --input <json>
+zotero-bridge synthesis cache status
+zotero-bridge synthesis cache refresh-reference-sidecar --input <json>
+zotero-bridge synthesis cache invalidate --input <json>
+zotero-bridge synthesis resolver resolve --input <json>
+zotero-bridge synthesis artifact manifest --input <json>
+zotero-bridge synthesis artifact read --input <json>
+zotero-bridge synthesis artifact export-filtered --input <json>
+zotero-bridge synthesis artifact resolve-topic-digest --input <json>
+zotero-bridge synthesis insight attention-queue
+```
+
+#### mutation — Schreibvorgänge
+```
+zotero-bridge mutation preview --input <json>
+zotero-bridge mutation apply --input <json>
+zotero-bridge mutation literature-ingest --input <json>
+zotero-bridge mutation tag add --input <json>
+zotero-bridge mutation tag remove --input <json>
+zotero-bridge mutation collection create --input <json>
+zotero-bridge mutation collection add-items --input <json>
+zotero-bridge mutation collection remove-items --input <json>
+zotero-bridge mutation item update --input <json>
+zotero-bridge mutation item attach-file --input <json>
+zotero-bridge mutation note create --input <json>
+zotero-bridge mutation note update --input <json>
+zotero-bridge mutation note upsert-payload --input <json>
+```
+
+#### workflow — Workflow-Verwaltung
+```
+zotero-bridge workflow list
+zotero-bridge workflow submit --workflow <id> (--input <json> | --none)
+zotero-bridge workflow queue list [--workflow <id>]
+zotero-bridge workflow queue cancel --submission-id <id>
+zotero-bridge workflow submission get --submission-id <id>
+zotero-bridge workflow describe --workflow <id> [--json]
+zotero-bridge workflow validate --input <json>
+zotero-bridge workflow requirements --workflow <id> --input <json>
+zotero-bridge workflow profile list
+zotero-bridge workflow profile describe --profile <id>
+zotero-bridge workflow profile validate --profile <id>
+zotero-bridge workflow agent-run --workflow <id> (--input <json> | --none) --output-dir <dir>
+zotero-bridge workflow agent-bundle inspect --path <path>
+zotero-bridge workflow agent-result validate --input <json>
+zotero-bridge workflow agent-apply --run-id <id> --input <json>
+zotero-bridge workflow agent-apply-status --run-id <id>
+zotero-bridge workflow agent-renew --run-id <id>
+zotero-bridge workflow agent-abandon --run-id <id>
+```
+
+#### run — Laufzeitbeobachtung
+```
+zotero-bridge run get --run-id <id>
+zotero-bridge run cancel --run-id <id>
+zotero-bridge run list [--workflow <id>]
+zotero-bridge run active
+zotero-bridge run recent
+zotero-bridge run workflow recent
+zotero-bridge run skill get --run-id <id>
+zotero-bridge run skill reply --run-id <id> --input <json>
+zotero-bridge run skill connect --run-id <id>
+zotero-bridge run skill recent
+zotero-bridge run skill events --run-id <id>
+zotero-bridge run notification list [--limit <n>]
+zotero-bridge run notification wait [--timeout-ms <ms>]
+zotero-bridge run notification ack --notification-id <id>
+zotero-bridge run permission pending
+zotero-bridge run permission get --request-id <id>
+```
+
+#### file — Dateitransfers
+```
+zotero-bridge file download <fileId> --output <path>
+zotero-bridge file upload --path <path>
+```
+
+#### product — Dashboard-Produkte
+```
+zotero-bridge product list [--limit <n>]
+zotero-bridge product get --product-id <id>
+zotero-bridge product download --product-id <id> --output <path>
+zotero-bridge product remove --product-id <id>
+```
+
+#### operation — Persistente Vorgänge
+```
+zotero-bridge operation get --operation-id <id>
+```
+
+</details>
+
 Eingabe akzeptiert: Inline-JSON, JSON-Dateipfad, `@file`-Syntax, `-` (stdin).
+
+Für den vollständigen, aktuellen Befehlskatalog führe `zotero-bridge surface identity --json` aus, um die aktuelle `commandCatalogChecksum` zu sehen, dann `zotero-bridge surface describe <command...>` für den Vertrag eines bestimmten Befehls.
 
 ### Ausgabevertrag
 
 stdout gibt immer genau ein JSON-Objekt aus:
 
 ```json
-{ "ok": true, "data": {...}, "meta": { "cli": "zotero-bridge", "schema": "zotero-bridge.cli.v1" } }
-{ "ok": false, "error": {...}, "meta": { "cli": "zotero-bridge", "schema": "zotero-bridge.cli.v1" } }
+{ "ok": true, "data": {...}, "meta": { "cliSchema": "zotero-bridge.cli.v5" } }
+{ "ok": false, "error": {...}, "meta": { "cliSchema": "zotero-bridge.cli.v5" } }
 ```
 
 Fehler-Exit-Codes:
@@ -165,7 +293,7 @@ Bekannte Profilorte:
 ```json
 {
   "schema": "zotero-bridge.profile.v1",
-  "protocol": "host-bridge.v1",
+  "protocol": "host-bridge.v2",
   "endpoint": "http://127.0.0.1:26570/bridge/v1",
   "connectionMode": "local",
   "auth": { "type": "bearer", "tokenEnv": "ZOTERO_BRIDGE_TOKEN" }
@@ -193,7 +321,7 @@ Injizierte Umgebungsvariablen:
 ## Verfügbare Fähigkeiten
 
 <details>
-<summary>Alle 30+ Fähigkeiten</summary>
+<summary>Alle 60+ Fähigkeiten</summary>
 
 ### Kontext
 
@@ -215,6 +343,9 @@ Injizierte Umgebungsvariablen:
 | `library.list_note_payloads` | Notiz-Payloads auflisten |
 | `library.get_note_payload` | Bestimmtes Payload abrufen |
 | `library.get_item_attachments` | Anhänge auflisten |
+| `library.list_annotations` | Reader-Annotationen auflisten |
+| `library.export_annotations` | Reader-Annotationen als Markdown oder JSON exportieren |
+| `library.readiness_audit` | Paginierte schreibgeschützte Bibliotheks-Reifegradprüfung |
 
 ### Mutation
 
@@ -223,36 +354,91 @@ Injizierte Umgebungsvariablen:
 | `mutation.preview` | Schreibvorgang vorschauen (nicht ausführen) |
 | `mutation.execute` | Schreibvorgang ausführen (erfordert Genehmigung) |
 
-### Synthese
+### Workflow-Produkte
+
+| Fähigkeit | Beschreibung |
+|-----------|-------------|
+| `workflow_products.list` | Normale Dashboard-Produkte auflisten |
+| `workflow_products.get` | Öffentliche Metadaten für ein Produkt zurückgeben |
+| `workflow_products.read_asset` | Ein Produkt-Asset zum Download registrieren |
+| `workflow_products.export` | Ein oder alle Produkt-Assets exportieren |
+| `workflow_products.remove` | Einen Produktdatensatz entfernen |
+
+### Synthese — Themen
 
 | Fähigkeit | Beschreibung |
 |-----------|-------------|
 | `topics.list` | Alle Themen auflisten |
+| `topics.find_by_paper_ref` | Themen nach Papierreferenz finden |
 | `topics.get_context` | Themenkontext abrufen |
 | `topics.get_report` | Themenbericht abrufen |
 | `topics.get_review_input` | Themen-Review-Paket zusammenstellen |
-| `schemas.get` | Schemadefinitionen abrufen |
-| `concepts.query` | Konzept-Wissensbasis abfragen |
+
+### Synthese — Zitationsgraph
+
+| Fähigkeit | Beschreibung |
+|-----------|-------------|
 | `citation_graph.query_cluster` | Zitationscluster abfragen |
 | `citation_graph.get_overview` | Graphübersicht abrufen |
 | `citation_graph.get_slice` | Teilgraph-Slice extrahieren |
 | `citation_graph.get_metrics` | Graphmetriken berechnen |
+| `citation_graph.get_layout` | Persistierte Layout-Koordinaten abrufen |
 | `citation_graph.rank_external_references` | Externe Referenzen rangieren |
 | `citation_graph.rank_library_papers` | Bibliotheksarbeiten rangieren |
+| `citation_graph.refresh_metrics` | Diagnose: Persistierte Metriken aktualisieren |
+| `citation_graph.update` | Atomare Zitationsgraph-Aktualisierung starten |
+
+### Synthese — Konzepte, Schemata, Resolver
+
+| Fähigkeit | Beschreibung |
+|-----------|-------------|
+| `concepts.query` | Konzept-Wissensbasis abfragen |
+| `schemas.get` | Schemadefinitionen abrufen |
+| `resolvers.resolve` | Referenz-/Themen-Resolver auflösen |
+
+### Synthese — Papier-Artefakte
+
+| Fähigkeit | Beschreibung |
+|-----------|-------------|
 | `paper_artifacts.get_manifest` | Artefaktmanifest abrufen |
 | `paper_artifacts.read` | Artefaktinhalt lesen |
 | `paper_artifacts.export_filtered` | Gefilterte Artefakte exportieren |
 | `paper_artifacts.resolve_topic_digest` | Themen-Digest auflösen |
-| `insights.get_attention_queue` | Aufmerksamkeits-Warteschlange abrufen |
-| `resolvers.resolve` | Referenz-/Themen-Resolver auflösen |
+
+### Synthese — Indizes & Erkenntnisse
+
+| Fähigkeit | Beschreibung |
+|-----------|-------------|
 | `reference_index.get` | Referenzindex abrufen |
+| `reference_sidecar.refresh` | Reference-Sidecar-Aktualisierung starten |
 | `library_index.get` | Bibliotheksindex abrufen |
+| `insights.get_attention_queue` | Aufmerksamkeits-Warteschlange abrufen |
+| `synthesis.operation.get` | Persistiertes Synthese-Vorgangs-Quittung lesen |
 
 ### Diagnose
 
 | Fähigkeit | Beschreibung |
 |-----------|-------------|
 | `diagnostic.get_status` | Dienststatus abrufen |
+
+### Debug (nur Debug-Modus)
+
+| Fähigkeit | Beschreibung |
+|-----------|-------------|
+| `debug.status` | Debug-Host-Bridge-Status-Snapshot |
+| `debug.persistence.snapshot` | Laufzeit-Persistenz-Snapshot |
+| `debug.tasks.snapshot` | Workflow-Aufgaben- und ACP-Lauf-Diagnose |
+| `debug.zotero.eval` | Genehmigtes JavaScript im Zotero-Kontext ausführen |
+| `debug.acpSkillRun.reapplyResult` | applyResult für einen ACP-Skill-Lauf erneut ausführen |
+| `debug.skillrunner.connections.snapshot` | SkillRunner-Connection-Governor-Diagnose |
+| `debug.synthesis.snapshot` | Synthese-Vorgangs- und Cache-Snapshot |
+| `debug.synthesis.diff` | Zotero-Payloads mit Repository-Caches vergleichen |
+| `debug.synthesis.cache.list` | Synthese-Sidecar-Cache-Zeilen auflisten |
+| `debug.synthesis.operations.list` | Synthese-Vorgänge auflisten |
+| `debug.synthesis.paper.inspect` | Ein Papier über Caches hinweg inspizieren |
+| `debug.synthesis.topic.inspect` | Ein Thema über Artefakte hinweg inspizieren |
+| `debug.synthesis.profiler.list` | Synthese-Profiler-Läufe |
+| `debug.synthesis.cleanInstallReset` | Gefährlich: Synthese-Datenbankzustand zurücksetzen |
 
 </details>
 

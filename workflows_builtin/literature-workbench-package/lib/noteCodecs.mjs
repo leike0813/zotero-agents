@@ -7,7 +7,11 @@ import {
   readTagAttribute,
 } from "./htmlCodec.mjs";
 import { attachWorkbenchPayloadToNote } from "./embeddedPayloadAttachments.mjs";
-import { requireHostApi } from "./runtime.mjs";
+import {
+  portableItemRef,
+  requireCommittedMutation,
+  requireHostApi,
+} from "./runtime.mjs";
 
 function renderInlineMarkdown(text) {
   let html = escapeHtml(text);
@@ -187,6 +191,9 @@ export function parseWorkbenchNoteKind(noteContent) {
   if (/data-zs-payload=(["'])citation-analysis-markdown\1/i.test(text)) {
     return "citation-analysis";
   }
+  if (/data-zs-payload=(["'])literature-score-json\1/i.test(text)) {
+    return "literature-score";
+  }
   if (/data-zs-payload=(["'])conversation-note-markdown\1/i.test(text)) {
     return "conversation-note";
   }
@@ -205,6 +212,7 @@ export function parseWorkbenchNoteKind(noteContent) {
     kind === "references" ||
     kind === "citation-analysis" ||
     kind === "citation_analysis" ||
+    kind === "literature-score" ||
     kind === "conversation-note" ||
     kind === "custom"
   ) {
@@ -293,23 +301,33 @@ export function buildConversationNotePayload(args) {
 }
 
 export function buildConversationNoteContent(args) {
+  const markdown = String(args.markdown || "");
+  let previewLength = Math.min(markdown.length, 40_000);
+  let renderedPreview = renderMarkdownToHtml(markdown.slice(0, previewLength));
+  while (renderedPreview.length > 40_000 && previewLength > 0) {
+    previewLength = Math.floor(
+      previewLength * (40_000 / renderedPreview.length) * 0.95,
+    );
+    renderedPreview = renderMarkdownToHtml(markdown.slice(0, previewLength));
+  }
   return [
     '<div data-zs-note-kind="conversation-note">',
     `<h1>${escapeHtml(String(args.title || ""))}</h1>`,
     '<div data-zs-view="conversation-note-html">',
-    renderMarkdownToHtml(args.markdown),
+    renderedPreview,
     "</div>",
     "</div>",
   ].join("\n");
 }
 
 export async function createConversationNote(args) {
-  const note = await requireHostApi(args.runtime).parents.addNote(
-    args.parentItem,
-    {
-      content: buildConversationNoteContent(args),
-    },
-  );
+  const note = requireCommittedMutation(
+    await requireHostApi(args.runtime).notes.create({
+      operationId: `conversation-note:${Date.now().toString(36)}`,
+      placement: { kind: "child", parentRef: portableItemRef(args.parentItem) },
+      content: { format: "html", value: buildConversationNoteContent(args) },
+    }),
+  ).note;
   await attachWorkbenchPayloadToNote({
     runtime: args.runtime,
     note,

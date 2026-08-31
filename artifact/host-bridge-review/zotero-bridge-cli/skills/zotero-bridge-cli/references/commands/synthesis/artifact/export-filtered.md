@@ -2,6 +2,15 @@
 
 Export bounded paper artifacts into the run workspace
 
+## 论文工件合同
+
+- 完整的论文工件集是 `digest`、`references`、`citation_analysis` 和 `literature_score`。只有在确实需要全部四项时才省略 `artifact_types`；过滤操作应传入明确子集。
+- 只有四项状态全部可用时，覆盖才算完整。评分缺失记为 `missing`；解码或 schema 失败记为 `error`，并产生无效质量快照。两者在覆盖计算中都不可用。
+- `literature_quality` 是紧凑的固化评分快照。保留其状态、schema/rubric 身份、论文类型、分数、置信度、质量先验、payload hash 和诊断；不要用主观质量标签替换它。
+- 缺失或无效的评分快照使用中性 `quality_prior=0.5`，并保留 `literature_score_missing` 或 `literature_score_invalid`。Reference-sidecar refresh 不会创建或修复评分。
+
+选中评分工件时，过滤导出会写入完整的 decoded literature-score payload，并在其版本化 manifest 中携带紧凑的 `literature_quality` 快照。远程交付时，在读取 workspace 路径前先下载并校验返回的 bundle handle。
+
 ## 用法
 
 ```console
@@ -50,8 +59,33 @@ zotero-bridge synthesis artifact export-filtered [--endpoint <ENDPOINT>] [--oper
 ```json
 {
   "additionalProperties": true,
+  "properties": {
+    "artifact_types": {
+      "items": {
+        "enum": [
+          "digest",
+          "references",
+          "citation_analysis",
+          "literature_score"
+        ]
+      },
+      "type": "array"
+    },
+    "paper_ref": {
+      "type": "string"
+    },
+    "paper_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "run_root": {
+      "type": "string"
+    }
+  },
   "type": "object",
-  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
 
@@ -60,8 +94,33 @@ zotero-bridge synthesis artifact export-filtered [--endpoint <ENDPOINT>] [--oper
 ```json
 {
   "additionalProperties": true,
+  "properties": {
+    "artifact_types": {
+      "items": {
+        "enum": [
+          "digest",
+          "references",
+          "citation_analysis",
+          "literature_score"
+        ]
+      },
+      "type": "array"
+    },
+    "paper_ref": {
+      "type": "string"
+    },
+    "paper_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "run_root": {
+      "type": "string"
+    }
+  },
   "type": "object",
-  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
 
@@ -251,8 +310,33 @@ zotero-bridge synthesis artifact export-filtered --query '{}'
       "requiredWhen": [],
       "schema": {
         "additionalProperties": true,
+        "properties": {
+          "artifact_types": {
+            "items": {
+              "enum": [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score"
+              ]
+            },
+            "type": "array"
+          },
+          "paper_ref": {
+            "type": "string"
+          },
+          "paper_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "run_root": {
+            "type": "string"
+          }
+        },
         "type": "object",
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object."
       },
       "schemaSource": "target-capability",
       "token": "--query"
@@ -284,8 +368,33 @@ zotero-bridge synthesis artifact export-filtered --query '{}'
   "pagination": "file",
   "payloadSchema": {
     "additionalProperties": true,
+    "properties": {
+      "artifact_types": {
+        "items": {
+          "enum": [
+            "digest",
+            "references",
+            "citation_analysis",
+            "literature_score"
+          ]
+        },
+        "type": "array"
+      },
+      "paper_ref": {
+        "type": "string"
+      },
+      "paper_refs": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "run_root": {
+        "type": "string"
+      }
+    },
     "type": "object",
-    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+    "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object."
   },
   "recovery": [
     {

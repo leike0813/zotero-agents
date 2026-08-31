@@ -117,10 +117,10 @@ function skillQualityGoals(skill: SkillContract): string {
   const goals: Record<string, string[]> = {
     "create-topic-synthesis-prepare": [
       "topic intent 必须把 seed 转成稳定 topic identity：标题、别名、定义、纳入/排除范围都要能指导 resolver。",
-      "duplicate check 只基于 Host topic list 中现有 topic 的 title、description、aliases 和 id，不能把宽泛相关主题误判为同一主题。",
+      "target resolution 必须基于完整 Host topic inventory：materialized duplicate 优先取消，同一身份的 active Planned Topic 优先复用，仅在两者均不存在时新建。",
       "resolver proposal 要可复现、边界清楚；runtime 负责执行 `synthesis resolver resolve`、citation metrics 和 filtered artifact export，LLM 不手写 resolver result。",
       "远程 SkillRunner profile 下 filtered artifact export 可能返回 bridge-download；按 runtime 写出的 `runtime/payloads/paper-artifacts-export-delivery.json` 执行 downloadCommand/unpackHint 后再继续。",
-      "paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、quality、core_digest 和 caveats，不提前写跨文献综合。",
+      "paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、core_digest 和 caveats；文献内在质量只读取 manifest 固化的 literature_quality，不提前写跨文献综合。",
     ],
     "update-topic-synthesis-prepare": [
       "Stage 00 runtime 预审必须从 get-context digest/audit 和当前 resolver resolve 生成 update audit report。",
@@ -152,9 +152,9 @@ function llmRuntimeBoundary(skill: SkillContract): {
   const tasks: Record<string, { llm: string[]; runtime: string[] }> = {
     "create-topic-synthesis-prepare": {
       llm: [
-        "create topic intent 和 duplicate check 判断。",
+        "create topic intent 和 materialized/Planned/new target resolution 判断。",
         "resolver proposal 设计。",
-        "per-paper triage：relevance、quality、core_digest、caveats。",
+        "per-paper triage：relevance、core_digest、caveats；质量使用 manifest 固化的 literature_quality。",
       ],
       runtime: [
         "初始化 SQLite 和 stage state。",
@@ -168,7 +168,7 @@ function llmRuntimeBoundary(skill: SkillContract): {
       llm: [
         "基于 runtime update audit report 判断 cancel 或 continue。",
         "continue 时设计只增不改的 resolver proposal。",
-        "按 runtime 指定 workset 做 per-paper triage：relevance、quality、core_digest、caveats。",
+        "按 runtime 指定 workset 做 per-paper triage：relevance、core_digest、caveats；质量使用 manifest 固化的 literature_quality。",
       ],
       runtime: [
         "初始化或校验 SQLite 和 stage state。",
@@ -670,6 +670,7 @@ function canceledOutputSchema(): Record<string, unknown> {
       duplicate_topic_id: { type: "string" },
       topic_seed: { type: "string" },
       topic_id: { type: "string" },
+      retryable: { type: "boolean" },
     },
   };
 }

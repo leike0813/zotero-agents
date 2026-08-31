@@ -1,0 +1,25 @@
+[package]
+name = "synthesis-sidecar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+synthesis-protocol = { path = "../synthesis-protocol" }
+synthesis-metrics = { path = "../synthesis-metrics" }
+synthesis-tag-vocabulary = { path = "../synthesis-tag-vocabulary" }
+synthesis-concept-kb = { path = "../synthesis-concept-kb" }
+synthesis-topic-graph = { path = "../synthesis-topic-graph" }
+synthesis-reference-matcher = { path = "../synthesis-reference-matcher" }
+synthesis-topic-structured-artifact = { path = "../synthesis-topic-structured-artifact" }
+synthesis-citation-graph-build = { path = "../synthesis-citation-graph-build" }
+synthesis-citation-layout = { path = "../synthesis-citation-layout" }
+synthesis-repository = { path = "../synthesis-repository" }
+synthesis-canonical-store = { path = "../synthesis-canonical-store" }
+synthesis-application = { path = "../synthesis-application" }
+
+[dev-dependencies]
+synthesis-test-support = { path = "../synthesis-test-support" }

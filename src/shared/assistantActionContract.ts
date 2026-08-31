@@ -59,10 +59,12 @@ export type AssistantWorkspaceActionPayloadMap = {
   "archive-conversation": AssistantWorkspaceEmptyActionPayload;
   "select-run": AssistantWorkspaceEmptyActionPayload;
   "archive-run": AssistantWorkspaceEmptyActionPayload;
+  "select-task": AssistantWorkspaceEmptyActionPayload;
   "cancel-queued-workflow-unit": { queueId: string };
   "set-active-backend": { groupId: string };
   "new-conversation": { groupId: string };
   "open-backend-manager": AssistantWorkspaceEmptyActionPayload;
+  "open-auth-url": { url: string };
   "close-sidebar": AssistantWorkspaceEmptyActionPayload;
   "set-execution-display-mode": { mode: string };
   "load-transcript-page": {
@@ -87,6 +89,11 @@ export type AssistantWorkspaceActionPayloadMap = {
     responseLabel: string;
   };
   "submit-interaction-files": AssistantWorkspaceEmptyActionPayload;
+  "auth-import-run": {
+    providerId: string;
+    files: SkillRunnerAuthImportFilePayload[];
+    error: string;
+  };
   "resolve-permission": {
     permissionRequestId: string;
     // Senders emit exactly these two outcomes; host handlers stay tolerant
@@ -100,6 +107,110 @@ export type AssistantWorkspaceActionPayloadMap = {
   "copy-request-id": AssistantWorkspaceEmptyActionPayload;
   "copy-diagnostics": AssistantWorkspaceEmptyActionPayload;
   "open-workspace": AssistantWorkspaceEmptyActionPayload;
+};
+
+// ---------------------------------------------------------------------------
+// SkillRunner run-action payloads
+//
+// These types describe the payload shapes the SkillRunner run-action handler
+// (dispatchRunWorkspaceAction in src/modules/skillRunnerRunDialog.ts)
+// consumes. Payload interfaces keep the legacy open-wire shape (optional keys
+// plus an index signature); host handlers keep their defensive runtime
+// validation. The strict registry payload mirror above stays the SSOT for
+// what child pages put on the v1 action wire.
+// ---------------------------------------------------------------------------
+
+/** reply-run in auth mode (mode discriminator: "auth"). */
+export type SkillRunnerReplyRunAuthPayload = {
+  mode: "auth";
+  requestId?: string;
+  /** Method selection payload; mutually exclusive with submission. */
+  selection?: Record<string, unknown>;
+  /** Auth submission payload; mutually exclusive with selection. */
+  submission?: Record<string, unknown>;
+  authSessionId?: string;
+  replyKind?: string;
+  replyText?: string;
+  [key: string]: unknown;
+};
+
+/** reply-run in interaction mode (default when mode is absent). */
+export type SkillRunnerReplyRunInteractionPayload = {
+  mode?: "interaction";
+  requestId?: string;
+  interactionId?: number;
+  replyText?: string;
+  responseValue?: unknown;
+  option?: unknown;
+  responseObject?: unknown;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerReplyRunPayload =
+  | SkillRunnerReplyRunAuthPayload
+  | SkillRunnerReplyRunInteractionPayload;
+
+export type SkillRunnerSubmitInteractionFilesPayload = {
+  requestId?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerSelectTaskPayload = {
+  taskKey?: string;
+  runKey?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerArchiveRunPayload = {
+  runKey?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerCancelRunPayload = {
+  requestId?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerCopyRequestIdPayload = {
+  requestId?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerCopyDiagnosticsPayload = {
+  requestId?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerOpenAuthUrlPayload = {
+  url?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerResolvePermissionPayload = {
+  requestId?: string;
+  permissionRequestId?: string;
+  outcome?: string;
+  optionId?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerAuthImportFilePayload = {
+  name?: string;
+  contentBase64?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerAuthImportRunPayload = {
+  requestId?: string;
+  providerId?: string;
+  files?: SkillRunnerAuthImportFilePayload[];
+  error?: string;
+  [key: string]: unknown;
+};
+
+export type SkillRunnerCancelQueuedWorkflowUnitPayload = {
+  queueId?: string;
+  [key: string]: unknown;
 };
 
 // ---------------------------------------------------------------------------
@@ -160,6 +271,41 @@ export type AcpChatAction = AcpChatOnlyAction | AcpSharedAction;
 
 export type AcpSkillsAction = AcpSkillsOnlyAction | AcpSharedAction;
 
+/** Registry actions a skillrunner child page shares with the ACP pages. */
+export type SkillrunnerSharedAction =
+  | "open-context-drawer"
+  | "close-context-drawer"
+  | "open-details-drawer"
+  | "close-details-drawer"
+  | "request-owner-details"
+  | "open-permission-request"
+  | "close-permission-request"
+  | "toggle-drawer-section"
+  | "toggle-drawer-group"
+  | "set-chat-display-mode"
+  | "set-execution-display-mode"
+  | "load-transcript-page"
+  | "archive-run"
+  | "cancel-run"
+  | "cancel-queued-workflow-unit"
+  | "reply-run"
+  | "select-interaction-option"
+  | "submit-interaction-files"
+  | "resolve-permission"
+  | "copy-request-id"
+  | "copy-diagnostics"
+  | "open-backend-manager"
+  | "open-workspace";
+
+/** Registry actions limited to the skillrunner source. */
+export type SkillrunnerOnlyAction =
+  | "select-task"
+  | "auth-import-run"
+  | "open-auth-url";
+
+/** Registry actions a skillrunner child page may send. */
+export type SkillrunnerAction = SkillrunnerSharedAction | SkillrunnerOnlyAction;
+
 // ---------------------------------------------------------------------------
 // Out-of-band control-plane payloads (ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS)
 // ---------------------------------------------------------------------------
@@ -179,7 +325,7 @@ export type AssistantWorkspacePublicationRenderObservation = {
 
 export type AssistantWorkspaceChildControlPayloadMap = {
   ready: {
-    // Sent by the ACP child pages; the skillrunner run-dialog sends none and
+    // Sent by the ACP child pages; the skillrunner child sends none and
     // the host falls back to a tab-scoped generation.
     documentGeneration?: string;
   };
@@ -253,12 +399,28 @@ export type AcpSkillsActionEnvelope = {
   };
 }[AcpSkillsEnvelopeAction];
 
+/** Actions a skillrunner child page may put on the wire (registry + control). */
+export type SkillrunnerEnvelopeAction =
+  | SkillrunnerAction
+  | AssistantWorkspaceChildControlAction;
+
+/** SkillRunner child -> host envelope from the skillrunner page. */
+export type SkillrunnerActionEnvelope = {
+  [Action in SkillrunnerEnvelopeAction]: {
+    source: "skillrunner";
+    owner: Extract<AssistantWorkspaceOwner, { source: "skillrunner" }> | null;
+    actionId?: string;
+    /** SkillRunner child envelopes never carry a shell tab field. */
+    tab?: never;
+    action: Action;
+    payload: AssistantWorkspaceChildActionPayloadFor<Action>;
+  };
+}[SkillrunnerEnvelopeAction];
+
 /**
- * SkillRunner legacy child -> host envelope (run-dialog -> shell ->
- * assistant-workspace:child-action). Payload typing for the legacy action
- * family is owned by the skillrunner legacy contract work item; kept
- * structurally loose here so the host child-action handler admits both
- * families.
+ * SkillRunner legacy child -> host envelope shape (pre-convergence child
+ * pages carried no source/owner fields). Kept structurally loose so the host
+ * child-action handler still admits an older child bundle.
  */
 export type AssistantWorkspaceLegacyChildActionEnvelope = {
   tab: "skillrunner";
@@ -275,6 +437,7 @@ export type AssistantWorkspaceLegacyChildActionEnvelope = {
 export type AssistantWorkspaceChildActionEnvelope =
   | AcpChatActionEnvelope
   | AcpSkillsActionEnvelope
+  | SkillrunnerActionEnvelope
   | AssistantWorkspaceLegacyChildActionEnvelope;
 
 /**
@@ -321,7 +484,10 @@ export type _AssistantChildControlCoverageGuard = AssistantActionContractAssert<
 // Every registry action must be reachable from exactly one source subset.
 export type _AssistantActionSubsetCoverageGuard = AssistantActionContractAssert<
   AssistantActionContractIsEqual<
-    AcpChatOnlyAction | AcpSkillsOnlyAction | AcpSharedAction,
+    | AcpChatOnlyAction
+    | AcpSkillsOnlyAction
+    | AcpSharedAction
+    | SkillrunnerOnlyAction,
     keyof AssistantWorkspaceActionPayloadMap
   >
 >;

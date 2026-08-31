@@ -1,0 +1,1254 @@
+import {
+  SynthesisClientError,
+  toSynthesisJsonObject,
+  type SynthesisJsonObject,
+} from "./common.js";
+import {
+  rebuildSynthesisSidecarTraceContext,
+  type SynthesisSidecarTraceContext,
+} from "./sidecarObservability.js";
+import {
+  rebuildSynthesisSidecarTransferSnapshot,
+  type SynthesisSidecarTransferSnapshot,
+} from "./sidecarTransfer.js";
+import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "./schemaVersion.js";
+import {
+  rebuildSynthesisTopicCanonicalStoreSnapshot,
+  type SynthesisTopicCanonicalStoreSnapshot,
+} from "./sidecarCanonicalStore.js";
+import {
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
+  rebuildSynthesisSidecarRuntimePlatformSignature,
+  type SynthesisSidecarRuntimePlatformSignature,
+  type SynthesisSidecarRuntimeTarget,
+  type SynthesisSidecarRuntimeTargetTriple,
+} from "./sidecarRuntimeBundle.js";
+import { rebuildSynthesisProtocolCapabilityDto } from "./protocolSchema.js";
+import type {
+  SynthesisSidecarTransferAction,
+  SynthesisSidecarTransferManifest,
+  SynthesisSidecarTransferPage,
+  SynthesisSidecarTransferStatus,
+} from "./sidecarTransfer.js";
+export { rebuildSynthesisTopicCanonicalStoreSnapshot };
+export type { SynthesisTopicCanonicalStoreSnapshot };
+
+export const SYNTHESIS_SIDECAR_PROTOCOL = "synthesis-sidecar.v1" as const;
+export const SYNTHESIS_SIDECAR_HEALTH_PATH = "/synthesis/v1/health" as const;
+export const SYNTHESIS_SIDECAR_CALL_PATH = "/synthesis/v1/call" as const;
+
+export const SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES = [
+  "system.handshake",
+  "system.shutdown",
+] as const;
+export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
+  "workbench.chrome.read",
+  "topics.canonical.inspect",
+] as const;
+export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.listTopics",
+  "client.findTopicsByPaperRef",
+  "client.getTopicContext",
+  "client.resolveResolver",
+  "client.queryCitationGraphCluster",
+  "client.queryCitationGraph",
+  "client.getCitationGraphSlice",
+  "client.getCitationGraphLayout",
+  "client.getCitationGraphMetrics",
+  "client.rankLibraryPapers",
+  "client.refreshCitationGraphMetricsNow",
+  "client.startCitationGraphUpdate",
+  "client.getReferenceSidecarIndex",
+  "client.rankExternalReferences",
+  "client.getAttentionQueue",
+  "client.startReferenceSidecarRefresh",
+  "client.getPaperArtifactManifest",
+  "client.exportFilteredPaperArtifacts",
+  "client.queryConceptKb",
+  "client.getSchemas",
+  "client.getPublicMaintenanceOperation",
+  "client.controlPublicMaintenanceOperation",
+  "client.getLibraryIndex",
+  "client.getReviewInput",
+  "client.debugSynthesisSnapshot",
+  "client.debugSynthesisCacheList",
+  "client.debugSynthesisOperationsList",
+  "client.debugSynthesisProfilerList",
+  "client.debugSynthesisPaperInspect",
+  "client.debugSynthesisTopicInspect",
+  "client.debugSynthesisDiff",
+  "client.debugSynthesisCleanInstallReset",
+  "client.listWorkflowTopicOptions",
+  "client.getTopicPlanningContext",
+  "client.applyTopicPlan",
+  "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+  "client.resetSynthesisDatabase",
+  "client.consumeRelatedItemsSyncEcho",
+  "client.applyLiteratureDigestSidecar",
+  "client.applyTopicSynthesisResult",
+  "client.getTopicReport",
+  "client.deleteTopicArtifact",
+  "client.purgeDeletedTopicArtifacts",
+  "client.rejectTopicDiscoveryHint",
+  "client.restoreTopicDiscoveryHint",
+  "client.rebuildTopicGraphIndex",
+  "client.acceptTopicGraphRelation",
+  "client.rejectTopicGraphRelation",
+  "client.applyTopicGraphReviewAction",
+  "client.readPaperArtifacts",
+  "client.initializeBuiltinTagPolicy",
+  "client.isBuiltinTagPolicyInitialized",
+  "client.loadTagVocabulary",
+  "client.saveTagVocabulary",
+  "client.validateTagVocabulary",
+  "client.rebuildTagVocabularyIndex",
+  "client.exportTagVocabularyForRegulator",
+  "client.listStagedTagSuggestions",
+  "client.stageTagSuggestions",
+  "client.updateStagedTagSuggestion",
+  "client.updateTagVocabularyEntry",
+  "client.deleteTagVocabularyEntry",
+  "client.promoteStagedTagSuggestions",
+  "client.discardStagedTagSuggestions",
+  "client.clearStagedTagSuggestions",
+  "client.previewTagVocabularyImport",
+  "client.applyTagVocabularyImport",
+  "client.replaceTagAuditRecords",
+  "client.clearTagAuditRecord",
+  "client.beginTagAuditRun",
+  "client.appendTagAuditRun",
+  "client.promoteTagAuditRun",
+  "client.abortTagAuditRun",
+  "client.prepareTagRegulationAcknowledgement",
+  "client.commitTagRegulationAcknowledgement",
+  "client.getSynthesisWorkbenchChromeInput",
+  "client.getSynthesisWorkbenchSurfaceInput",
+  "client.getSynthesisBackgroundJobRows",
+  "client.readTopicDetail",
+  "client.resolveTopicPaperDigest",
+  "client.recomputeCitationGraphLayout",
+  "client.rebuildCitationGraphCacheNow",
+  "client.refreshCitationGraphCacheIncrementalNow",
+  "client.retryCitationGraphCacheRebuild",
+  "client.refreshReferenceSidecarNow",
+  "client.retryReferenceSidecarRefresh",
+  "client.runAdvancedReferenceMatchingNow",
+  "client.retryAdvancedReferenceMatching",
+  "client.applyCanonicalRevisionReviewAction",
+  "client.applyReferenceMatchProposalAction",
+  "client.applyReferenceMatchProposalActions",
+  "client.mergeEffectiveCanonicalReference",
+  "client.applyCanonicalRevisionMergeRequests",
+  "client.updateCanonicalReferenceMetadata",
+  "client.archiveCanonicalReference",
+  "client.rebuildConceptKbIndex",
+  "client.updateConceptDisplayText",
+  "client.applyConceptReviewAction",
+  "client.deleteConceptEntries",
+  "client.syncWebDavNow",
+  "client.pauseWebDavSync",
+  "client.resumeWebDavSync",
+  "client.retryWebDavSync",
+  "client.resolveWebDavSyncConflict",
+] as const;
+export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
+  "d2f8d0e6baf3fe170b595102209d95dca8b2a2ae5ea346de7bb17f2fa85aa0f1" as const;
+export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.listTopics",
+  "client.findTopicsByPaperRef",
+  "client.queryCitationGraphCluster",
+  "client.queryCitationGraph",
+  "client.getCitationGraphLayout",
+  "client.getCitationGraphSlice",
+  "client.getCitationGraphMetrics",
+  "client.rankLibraryPapers",
+  "client.rebuildCitationGraphCacheNow",
+  "client.recomputeCitationGraphLayout",
+  "client.refreshCitationGraphCacheIncrementalNow",
+  "client.refreshCitationGraphMetricsNow",
+  "client.retryCitationGraphCacheRebuild",
+  "client.startCitationGraphUpdate",
+  "client.applyCanonicalRevisionMergeRequests",
+  "client.applyCanonicalRevisionReviewAction",
+  "client.applyReferenceMatchProposalAction",
+  "client.applyReferenceMatchProposalActions",
+  "client.archiveCanonicalReference",
+  "client.getAttentionQueue",
+  "client.getReferenceSidecarIndex",
+  "client.getReviewInput",
+  "client.mergeEffectiveCanonicalReference",
+  "client.rankExternalReferences",
+  "client.refreshReferenceSidecarNow",
+  "client.retryAdvancedReferenceMatching",
+  "client.retryReferenceSidecarRefresh",
+  "client.runAdvancedReferenceMatchingNow",
+  "client.startReferenceSidecarRefresh",
+  "client.updateCanonicalReferenceMetadata",
+  "client.getPaperArtifactManifest",
+  "client.exportFilteredPaperArtifacts",
+  "client.getSchemas",
+  "client.getLibraryIndex",
+  "client.debugSynthesisSnapshot",
+  "client.debugSynthesisCacheList",
+  "client.debugSynthesisOperationsList",
+  "client.debugSynthesisProfilerList",
+  "client.debugSynthesisPaperInspect",
+  "client.debugSynthesisTopicInspect",
+  "client.debugSynthesisDiff",
+  "client.listWorkflowTopicOptions",
+  "client.getTopicPlanningContext",
+  "client.applyTopicPlan",
+  "client.consumeRelatedItemsSyncEcho",
+  "client.applyTopicSynthesisResult",
+  "client.readPaperArtifacts",
+  "client.isBuiltinTagPolicyInitialized",
+  "client.loadTagVocabulary",
+  "client.exportTagVocabularyForRegulator",
+  "client.listStagedTagSuggestions",
+  "client.clearTagAuditRecord",
+  "client.beginTagAuditRun",
+  "client.appendTagAuditRun",
+  "client.promoteTagAuditRun",
+  "client.abortTagAuditRun",
+  "client.prepareTagRegulationAcknowledgement",
+  "client.commitTagRegulationAcknowledgement",
+  "client.initializeBuiltinTagPolicy",
+  "client.saveTagVocabulary",
+  "client.validateTagVocabulary",
+  "client.rebuildTagVocabularyIndex",
+  "client.stageTagSuggestions",
+  "client.updateStagedTagSuggestion",
+  "client.updateTagVocabularyEntry",
+  "client.deleteTagVocabularyEntry",
+  "client.promoteStagedTagSuggestions",
+  "client.discardStagedTagSuggestions",
+  "client.clearStagedTagSuggestions",
+  "client.previewTagVocabularyImport",
+  "client.applyTagVocabularyImport",
+  "client.replaceTagAuditRecords",
+  "client.getSynthesisWorkbenchChromeInput",
+  "client.getSynthesisWorkbenchSurfaceInput",
+  "client.getSynthesisBackgroundJobRows",
+  "client.readTopicDetail",
+  "client.getTopicContext",
+  "client.resolveResolver",
+  "client.getTopicReport",
+  "client.resolveTopicPaperDigest",
+  "client.applyLiteratureDigestSidecar",
+  "client.deleteTopicArtifact",
+  "client.purgeDeletedTopicArtifacts",
+  "client.rejectTopicDiscoveryHint",
+  "client.restoreTopicDiscoveryHint",
+  "client.queryConceptKb",
+  "client.rebuildConceptKbIndex",
+  "client.updateConceptDisplayText",
+  "client.applyConceptReviewAction",
+  "client.deleteConceptEntries",
+  "client.rebuildTopicGraphIndex",
+  "client.acceptTopicGraphRelation",
+  "client.rejectTopicGraphRelation",
+  "client.applyTopicGraphReviewAction",
+  "client.getPublicMaintenanceOperation",
+  "client.controlPublicMaintenanceOperation",
+  "client.debugSynthesisCleanInstallReset",
+  "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+  "client.resetSynthesisDatabase",
+  "client.syncWebDavNow",
+  "client.pauseWebDavSync",
+  "client.resumeWebDavSync",
+  "client.retryWebDavSync",
+  "client.resolveWebDavSyncConflict",
+] as const satisfies readonly SynthesisSidecarProductionClientCapability[];
+export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
+  "compute.citation_graph_layout",
+  "compute.citation_graph_metrics",
+  "compute.citation_graph_build",
+  "compute.citation_graph_build_transfer",
+] as const;
+export const SYNTHESIS_SIDECAR_TRANSFER_CAPABILITIES = [
+  "transfer.content",
+] as const;
+export const SYNTHESIS_SIDECAR_WORKER_CAPABILITIES = [
+  "compute.citation_graph_layout",
+  "compute.citation_graph_metrics",
+  "compute.citation_graph_build",
+] as const;
+export const SYNTHESIS_SIDECAR_CAPABILITIES = [
+  ...SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES,
+  ...SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES,
+  ...SYNTHESIS_SIDECAR_TRANSFER_CAPABILITIES,
+  ...SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES,
+] as const;
+
+export const SYNTHESIS_SIDECAR_LIMITS = {
+  requestBodyBytes: 1024 * 1024,
+  computeRequestBodyBytes: 8 * 1024 * 1024,
+  computeResponseBodyBytes: 8 * 1024 * 1024,
+  jsonDepth: 32,
+  jsonNodes: 50_000,
+  computeRequestJsonNodes: 1_000_000,
+  computeResponseJsonNodes: 200_000,
+  stringLength: 64 * 1024,
+  requestIdLength: 512,
+  profileIdLength: 512,
+  capabilityLength: 128,
+} as const;
+
+export type SynthesisSidecarSystemCapability =
+  (typeof SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES)[number];
+export type SynthesisSidecarGeneralCapability =
+  (typeof SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES)[number];
+export type SynthesisSidecarProductionClientCapability =
+  (typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES)[number];
+export type SynthesisSidecarComputeCapability =
+  (typeof SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES)[number];
+export type SynthesisSidecarTransferCapability =
+  (typeof SYNTHESIS_SIDECAR_TRANSFER_CAPABILITIES)[number];
+export type SynthesisSidecarWorkerCapability =
+  (typeof SYNTHESIS_SIDECAR_WORKER_CAPABILITIES)[number];
+export type SynthesisSidecarCapability =
+  (typeof SYNTHESIS_SIDECAR_CAPABILITIES)[number];
+
+export type SynthesisSidecarLifecycleState = "starting" | "ready" | "stopping";
+
+type SynthesisSidecarGraphNodeKind =
+  | "library_paper"
+  | "external_reference"
+  | "unresolved_reference";
+
+type SynthesisSidecarGraphLayoutRequest = {
+  graphHash: string;
+  algorithm: "force" | "radial" | "components";
+  nodes: Array<{
+    nodeId: string;
+    kind: SynthesisSidecarGraphNodeKind;
+    title?: string;
+    year?: string;
+    initialX: number;
+    initialY: number;
+  }>;
+  edges: Array<{ edgeId: string; source: string; target: string }>;
+};
+
+type SynthesisSidecarGraphLayoutResult = {
+  graphHash: string;
+  algorithm: "force" | "radial" | "components";
+  layoutEngine: "forceatlas2-rust" | "radial-rust" | "components-rust";
+  layoutVersion: 2;
+  params: Record<string, number | string>;
+  nodes: Array<{ nodeId: string; x: number; y: number }>;
+};
+
+type SynthesisSidecarGraphMetricsRequest = {
+  graphHash: string;
+  nodes: Array<{
+    nodeId: string;
+    kind: SynthesisSidecarGraphNodeKind;
+    libraryId?: number;
+    itemKey?: string;
+    title?: string;
+    year?: string;
+  }>;
+  edges: Array<{
+    edgeId: string;
+    source: string;
+    target: string;
+    mentionCount: number;
+  }>;
+};
+
+type SynthesisSidecarGraphMetricsResult = {
+  graphHash: string;
+  metricsVersion: 2;
+  params: {
+    pagerankDamping: number;
+    pagerankIterations: number;
+    foundationFormula: string;
+    frontierFormula: string;
+  };
+  graphYear: number | null;
+  libraryNodeMetrics: Array<{
+    nodeId: string;
+    paperRef?: string;
+    itemKey?: string;
+    title?: string;
+    year?: string;
+    internalInDegree: number;
+    internalOutDegree: number;
+    externalReferenceCount: number;
+    unresolvedReferenceCount: number;
+    internalPagerank: number;
+    componentId: string;
+    componentSize: number;
+    isIsolated: boolean;
+    ageNorm: number;
+    recencyNorm: number;
+    inDegreeNorm: number;
+    outDegreeNorm: number;
+    pagerankNorm: number;
+    foundationScore: number;
+    frontierScore: number;
+    synthesisRoleHints: string[];
+  }>;
+  diagnostics: {
+    libraryNodeCount: number;
+    externalReferenceCount: number;
+    unresolvedReferenceCount: number;
+    componentCount: number;
+    isolatedLibraryNodeCount: number;
+    missingYearCount: number;
+  };
+};
+
+type SynthesisSidecarGraphBuildRequest = {
+  contractVersion: "synthesis-citation-graph-build.v1";
+  scope: { kind: "full" | "source_slice"; sourceIds: string[] };
+  rolePriority: string[];
+  libraryNodes: Array<{
+    nodeId: string;
+    title?: string;
+    year?: string;
+    authors: string[];
+    aliases: string[];
+  }>;
+  references: Array<{
+    referenceId: string;
+    edgeId: string;
+    sourceId: string;
+    sourceRef?: string;
+    targetId: string;
+    targetKind: SynthesisSidecarGraphNodeKind;
+    targetTitle?: string;
+    targetYear?: string;
+    targetAuthors: string[];
+    targetAliases: string[];
+    roles: string[];
+    weight: number;
+  }>;
+};
+
+type SynthesisSidecarGraphBuildOwnership = {
+  sourceId: string;
+  edgeId: string;
+  referenceId: string;
+  targetId: string;
+  status: "accepted" | "unbound";
+};
+
+type SynthesisSidecarGraphBuildResult = {
+  contractVersion: "synthesis-citation-graph-build.v1";
+  scope: SynthesisSidecarGraphBuildRequest["scope"];
+  nodes: Array<{
+    nodeId: string;
+    kind: SynthesisSidecarGraphNodeKind;
+    title?: string;
+    year?: string;
+    authors: string[];
+    aliases: string[];
+  }>;
+  resolvedEdges: Array<{
+    edgeId: string;
+    referenceId: string;
+    sourceId: string;
+    targetId: string;
+    status: "accepted" | "unbound";
+    roles: string[];
+    weight: number;
+  }>;
+  aggregateEdges: Array<{
+    sourceId: string;
+    targetId: string;
+    mentionCount: number;
+    primaryRole: string;
+    auxRoles: Array<{ role: string; count: number }>;
+    roleEvidence: Array<{ role: string; count: number }>;
+    sourceRefs: string[];
+  }>;
+  sourceOwnership: SynthesisSidecarGraphBuildOwnership[];
+  incomingGroups: SynthesisSidecarGraphBuildOwnership[];
+  lightMetrics: Array<{
+    nodeId: string;
+    outgoingCount: number;
+    incomingCount: number;
+    localDegree: number;
+    matchedOutgoingCount: number;
+    unresolvedOutgoingCount: number;
+    ambiguousOutgoingCount: 0;
+  }>;
+  diagnostics: {
+    nodeCounts: Record<SynthesisSidecarGraphNodeKind, number>;
+    referenceCount: number;
+    aggregateEdgeCount: number;
+  };
+};
+export type SynthesisSidecarComputePoolState =
+  | "idle"
+  | "busy"
+  | "degraded"
+  | "stopping";
+
+export type SynthesisSidecarComputePoolSnapshot = {
+  state: SynthesisSidecarComputePoolState;
+  active: 0 | 1;
+  queued: number;
+  restartCount: number;
+  failureCount: number;
+};
+
+export type SynthesisSidecarRepositorySnapshot = {
+  mode: "isolated_shadow";
+  state: "ready" | "stopping";
+  schemaVersion: typeof SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION;
+  repositoryId: string;
+};
+
+export type SynthesisSidecarCanonicalInspectResult = {
+  status: "absent" | "ready" | "invalid";
+  topicId: string;
+  pathId: string;
+  manifestHash: string | null;
+  artifactHash: string | null;
+  metadataHash: string | null;
+  sections: Array<{ filename: string; sha256: string; bytes: number }>;
+  diagnostics: Array<
+    | "topic_current_missing_file"
+    | "unknown_current_entry"
+    | "symlink_forbidden"
+    | "invalid_json"
+    | "snapshot_invalid"
+    | "hash_mismatch"
+    | "duplicate_section_filename"
+    | "path_identity_mismatch"
+  >;
+};
+
+export type SynthesisSidecarTransferResult =
+  | SynthesisSidecarTransferStatus
+  | SynthesisSidecarTransferManifest
+  | SynthesisSidecarTransferPage
+  | { canceled: true };
+
+export interface SynthesisSidecarForwardContractMap {
+  "system.handshake": {
+    request: SynthesisSidecarHandshakePayload;
+    result: SynthesisSidecarHandshakeResult;
+  };
+  "system.shutdown": {
+    request: Record<string, never>;
+    result: SynthesisSidecarShutdownResult;
+  };
+  "workbench.chrome.read": {
+    request: Record<string, never>;
+    result: {
+      maintenance: {
+        cacheReadiness: Array<{
+          cacheKey: "reference-sidecar:library" | "citation-graph:library";
+          cacheKind: "reference-sidecar" | "citation_graph";
+          status: "missing" | "ready" | "stale" | "refreshing" | "failed";
+          refreshedAt?: string;
+          updatedAt?: string;
+          staleReason?: string;
+        }>;
+        backgroundJobs: Array<{
+          job_id: string;
+          source:
+            | "workbench"
+            | "operation"
+            | "reference_sidecar_refresh"
+            | "citation_graph_cache_rebuild"
+            | "citation_graph_layout"
+            | "webdav_sync"
+            | "canonical_maintenance";
+          status: "submitted" | "queued" | "running" | "waiting" | "failed";
+          label: string;
+          detail?: string;
+          updated_at?: string;
+          progress:
+            | { mode: "indeterminate"; label?: string }
+            | {
+                mode: "determinate";
+                percent: number;
+                current?: number;
+                total?: number;
+                label?: string;
+              };
+        }>;
+      };
+    };
+  };
+  "topics.canonical.inspect": {
+    request: { topicId: string };
+    result: SynthesisSidecarCanonicalInspectResult;
+  };
+  "transfer.content": {
+    request: SynthesisSidecarTransferAction;
+    result: SynthesisSidecarTransferResult;
+  };
+  "compute.citation_graph_layout": {
+    request: SynthesisSidecarGraphLayoutRequest;
+    result: SynthesisSidecarGraphLayoutResult;
+  };
+  "compute.citation_graph_metrics": {
+    request: SynthesisSidecarGraphMetricsRequest;
+    result: SynthesisSidecarGraphMetricsResult;
+  };
+  "compute.citation_graph_build": {
+    request: SynthesisSidecarGraphBuildRequest;
+    result: SynthesisSidecarGraphBuildResult;
+  };
+  "compute.citation_graph_build_transfer": {
+    request: SynthesisSidecarTransferAction;
+    result: SynthesisSidecarTransferResult;
+  };
+}
+
+export type SynthesisSidecarForwardRequest =
+  SynthesisSidecarForwardContractMap[keyof SynthesisSidecarForwardContractMap]["request"];
+export type SynthesisSidecarForwardResult =
+  SynthesisSidecarForwardContractMap[keyof SynthesisSidecarForwardContractMap]["result"];
+
+type SynthesisSidecarCallRequestFor<
+  Capability extends keyof SynthesisSidecarForwardContractMap,
+> = {
+  protocol: string;
+  requestId: string;
+  profileId: string;
+  capability: Capability;
+  payload: SynthesisSidecarForwardContractMap[Capability]["request"];
+  trace?: SynthesisSidecarTraceContext;
+};
+
+export type SynthesisSidecarCallRequest = {
+  [Capability in keyof SynthesisSidecarForwardContractMap]: SynthesisSidecarCallRequestFor<Capability>;
+}[keyof SynthesisSidecarForwardContractMap];
+
+export type SynthesisSidecarHealth = {
+  status: "ok";
+  implementation: "rust-native";
+  protocol: typeof SYNTHESIS_SIDECAR_PROTOCOL;
+  serviceVersion: string;
+  serviceInstanceId: string;
+  supervisorInstanceId: string;
+  bundleId: string;
+  target: SynthesisSidecarRuntimeTarget;
+  targetTriple: SynthesisSidecarRuntimeTargetTriple;
+  buildFingerprint: string;
+  platformSignature: SynthesisSidecarRuntimePlatformSignature;
+  lifecycleState: SynthesisSidecarLifecycleState;
+  repository: SynthesisSidecarRepositorySnapshot;
+  canonicalStore: SynthesisTopicCanonicalStoreSnapshot;
+  computePool: SynthesisSidecarComputePoolSnapshot;
+  citationGraphTransfer: SynthesisSidecarTransferSnapshot;
+};
+
+export type SynthesisSidecarHandshakePayload = {
+  schemaVersion: string;
+  bundleId: string;
+  buildFingerprint: string;
+  supervisorInstanceId: string;
+};
+
+export type SynthesisSidecarHandshakeResult = {
+  implementation: "rust-native";
+  protocol: typeof SYNTHESIS_SIDECAR_PROTOCOL;
+  serviceVersion: string;
+  serviceInstanceId: string;
+  supervisorInstanceId: string;
+  bundleId: string;
+  target: SynthesisSidecarRuntimeTarget;
+  targetTriple: SynthesisSidecarRuntimeTargetTriple;
+  buildFingerprint: string;
+  platformSignature: SynthesisSidecarRuntimePlatformSignature;
+  profileId: string;
+  schemaVersion: string;
+  runtimeRootId: string;
+  dataRootId: string;
+  capabilities: SynthesisSidecarCapability[];
+  mutationEnabled: false;
+  lifecycleState: "ready";
+  repository: SynthesisSidecarRepositorySnapshot;
+  canonicalStore: SynthesisTopicCanonicalStoreSnapshot;
+  computePool: SynthesisSidecarComputePoolSnapshot;
+  citationGraphTransfer: SynthesisSidecarTransferSnapshot;
+};
+
+export type SynthesisSidecarShutdownResult = {
+  accepted: true;
+  lifecycleState: "stopping";
+};
+
+export const SYNTHESIS_SIDECAR_ERROR_CODES = [
+  "invalid_request",
+  "malformed_json",
+  "request_body_too_large",
+  "response_body_too_large",
+  "request_json_too_deep",
+  "request_json_too_large",
+  "request_string_too_long",
+  "request_timeout",
+  "operation_timeout",
+  "request_canceled",
+  "response_invalid",
+  "service_unavailable",
+  "method_not_allowed",
+  "not_found",
+  "unauthorized",
+  "lifecycle_forbidden",
+  "protocol_mismatch",
+  "profile_mismatch",
+  "schema_mismatch",
+  "basis_mismatch",
+  "repository_schema_incompatible",
+  "runtime_mismatch",
+  "capability_not_found",
+  "service_not_ready",
+  "worker_busy",
+  "worker_timeout",
+  "worker_canceled",
+  "worker_crashed",
+  "worker_result_invalid",
+  "worker_unavailable",
+  "transfer_busy",
+  "transfer_not_found",
+  "transfer_conflict",
+  "transfer_limit_exceeded",
+  "transfer_incomplete",
+  "transfer_output_not_ready",
+  "transfer_stopping",
+  "internal_error",
+] as const;
+
+export type SynthesisSidecarErrorCode =
+  (typeof SYNTHESIS_SIDECAR_ERROR_CODES)[number];
+
+export type SynthesisSidecarErrorDetails = {
+  limit?: number;
+  limitKind?: "depth" | "nodes" | "string";
+  maxBytes?: number;
+  maxDepth?: number;
+  maxNodes?: number;
+  maxLength?: number;
+  expectedProtocol?: typeof SYNTHESIS_SIDECAR_PROTOCOL;
+  expectedSchemaVersion?: string;
+  capability?: SynthesisSidecarCapability;
+  configCode?: string;
+  field?: string;
+};
+
+export type SynthesisSidecarError = {
+  code: SynthesisSidecarErrorCode;
+  message: string;
+  retryable: boolean;
+  details: SynthesisSidecarErrorDetails;
+};
+
+export type SynthesisSidecarDiagnostic = {
+  code: string;
+  severity: "info" | "warning" | "error";
+  scope: string;
+  field?: string;
+  operationId?: string;
+};
+
+export type SynthesisSidecarSuccess<
+  Data extends SynthesisSidecarForwardResult = SynthesisSidecarForwardResult,
+> = {
+  ok: true;
+  requestId: string;
+  serviceInstanceId: string;
+  data: Data;
+  diagnostics: SynthesisSidecarDiagnostic[];
+};
+
+export type SynthesisSidecarFailure = {
+  ok: false;
+  requestId: string;
+  serviceInstanceId: string;
+  error: SynthesisSidecarError;
+};
+
+export type SynthesisSidecarResponse =
+  | SynthesisSidecarSuccess
+  | SynthesisSidecarFailure;
+
+export function rebuildSynthesisSidecarForwardResult<
+  Capability extends keyof SynthesisSidecarForwardContractMap,
+>(
+  capability: Capability,
+  value: unknown,
+): SynthesisSidecarForwardContractMap[Capability]["result"] {
+  return rebuildSynthesisProtocolCapabilityDto({
+    capability,
+    direction: "result",
+    value,
+  });
+}
+
+function requireBoundedString(
+  value: unknown,
+  location: string,
+  maxLength: number,
+): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maxLength
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} must be a non-empty string of at most ${maxLength} characters`,
+      { location, maxLength },
+    );
+  }
+  return value;
+}
+
+export function rebuildSynthesisSidecarCallEnvelope(
+  value: unknown,
+): SynthesisSidecarCallRequest {
+  const json = toSynthesisJsonObject(value, "sidecarCallRequest");
+  const keys = Object.keys(json).sort();
+  const allowed = [
+    "capability",
+    "payload",
+    "profileId",
+    "protocol",
+    "requestId",
+    "trace",
+  ];
+  if (
+    ["capability", "payload", "profileId", "protocol", "requestId"].some(
+      (field) => !(field in json),
+    ) ||
+    keys.some((field) => !allowed.includes(field))
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarCallRequest fields are invalid",
+      { location: "sidecarCallRequest" },
+    );
+  }
+  const capability = requireBoundedString(
+    json.capability,
+    "capability",
+    SYNTHESIS_SIDECAR_LIMITS.capabilityLength,
+  );
+  return {
+    protocol: requireBoundedString(json.protocol, "protocol", 64),
+    requestId: requireBoundedString(
+      json.requestId,
+      "requestId",
+      SYNTHESIS_SIDECAR_LIMITS.requestIdLength,
+    ),
+    profileId: requireBoundedString(
+      json.profileId,
+      "profileId",
+      SYNTHESIS_SIDECAR_LIMITS.profileIdLength,
+    ),
+    capability,
+    payload: toSynthesisJsonObject(json.payload, "sidecarCallRequest.payload"),
+    ...(json.trace === undefined
+      ? {}
+      : { trace: rebuildSynthesisSidecarTraceContext(json.trace) }),
+  } as SynthesisSidecarCallRequest;
+}
+
+export function rebuildSynthesisSidecarCallRequest(
+  value: unknown,
+): SynthesisSidecarCallRequest {
+  const envelope = rebuildSynthesisSidecarCallEnvelope(value);
+  return {
+    ...envelope,
+    payload: rebuildSynthesisProtocolCapabilityDto({
+      capability: envelope.capability,
+      direction: "request",
+      value: envelope.payload,
+    }),
+  } as SynthesisSidecarCallRequest;
+}
+
+export function isSynthesisSidecarSystemCapability(
+  value: string,
+): value is SynthesisSidecarSystemCapability {
+  return (SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isSynthesisSidecarGeneralCapability(
+  value: string,
+): value is SynthesisSidecarGeneralCapability {
+  return (SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isSynthesisSidecarComputeCapability(
+  value: string,
+): value is SynthesisSidecarComputeCapability {
+  return (SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isSynthesisSidecarProductionClientCapability(
+  value: unknown,
+): value is SynthesisSidecarProductionClientCapability {
+  return (
+    typeof value === "string" &&
+    (
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES as readonly string[]
+    ).includes(value)
+  );
+}
+
+export function isSynthesisSidecarWorkerCapability(
+  value: string,
+): value is SynthesisSidecarWorkerCapability {
+  return (SYNTHESIS_SIDECAR_WORKER_CAPABILITIES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isSynthesisSidecarCapability(
+  value: string,
+): value is SynthesisSidecarCapability {
+  return (SYNTHESIS_SIDECAR_CAPABILITIES as readonly string[]).includes(value);
+}
+
+export function isSynthesisSidecarErrorCode(
+  value: unknown,
+): value is SynthesisSidecarErrorCode {
+  return (
+    typeof value === "string" &&
+    (SYNTHESIS_SIDECAR_ERROR_CODES as readonly string[]).includes(value)
+  );
+}
+
+export function rebuildSynthesisSidecarComputePoolSnapshot(
+  value: unknown,
+): SynthesisSidecarComputePoolSnapshot {
+  const json = toSynthesisJsonObject(value, "sidecarComputePoolSnapshot");
+  const expected = [
+    "state",
+    "active",
+    "queued",
+    "restartCount",
+    "failureCount",
+  ];
+  const keys = Object.keys(json).sort();
+  if (
+    keys.length !== expected.length ||
+    keys.some((key, index) => key !== [...expected].sort()[index])
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarComputePoolSnapshot fields are invalid",
+      { location: "sidecarComputePoolSnapshot" },
+    );
+  }
+  if (
+    json.state !== "idle" &&
+    json.state !== "busy" &&
+    json.state !== "degraded" &&
+    json.state !== "stopping"
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarComputePoolSnapshot.state is invalid",
+      { location: "sidecarComputePoolSnapshot.state" },
+    );
+  }
+  const integer = (entry: unknown, location: string, max?: number) => {
+    if (
+      typeof entry !== "number" ||
+      !Number.isSafeInteger(entry) ||
+      entry < 0 ||
+      (max !== undefined && entry > max)
+    ) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        `${location} is invalid`,
+        { location },
+      );
+    }
+    return entry;
+  };
+  const active = integer(json.active, "sidecarComputePoolSnapshot.active", 1);
+  return {
+    state: json.state,
+    active: active as 0 | 1,
+    queued: integer(json.queued, "sidecarComputePoolSnapshot.queued", 2),
+    restartCount: integer(
+      json.restartCount,
+      "sidecarComputePoolSnapshot.restartCount",
+    ),
+    failureCount: integer(
+      json.failureCount,
+      "sidecarComputePoolSnapshot.failureCount",
+    ),
+  };
+}
+
+export function rebuildSynthesisSidecarRepositorySnapshot(
+  value: unknown,
+): SynthesisSidecarRepositorySnapshot {
+  const json = toSynthesisJsonObject(value, "sidecarRepositorySnapshot");
+  const expected = ["mode", "state", "schemaVersion", "repositoryId"].sort();
+  const keys = Object.keys(json).sort();
+  if (
+    keys.length !== expected.length ||
+    keys.some((key, index) => key !== expected[index]) ||
+    json.mode !== "isolated_shadow" ||
+    (json.state !== "ready" && json.state !== "stopping") ||
+    json.schemaVersion !== SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION ||
+    typeof json.repositoryId !== "string" ||
+    !/^[a-f0-9]{64}$/.test(json.repositoryId)
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarRepositorySnapshot is invalid",
+      { location: "sidecarRepositorySnapshot" },
+    );
+  }
+  return {
+    mode: json.mode,
+    state: json.state,
+    schemaVersion: json.schemaVersion,
+    repositoryId: json.repositoryId,
+  };
+}
+
+function requireExactFields(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  location: string,
+) {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (
+    actual.length !== wanted.length ||
+    actual.some((field, index) => field !== wanted[index])
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} fields are invalid`,
+      { location },
+    );
+  }
+}
+
+function requireHash(value: unknown, location: string) {
+  const result = requireBoundedString(value, location, 64);
+  if (!/^[a-f0-9]{64}$/.test(result)) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} is invalid`,
+      {
+        location,
+      },
+    );
+  }
+  return result;
+}
+
+function requireCapabilities(value: unknown, location: string) {
+  if (
+    !Array.isArray(value) ||
+    value.length !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
+    !SYNTHESIS_SIDECAR_CAPABILITIES.every(
+      (capability, index) => value[index] === capability,
+    )
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} is invalid`,
+      {
+        location,
+      },
+    );
+  }
+  return [...SYNTHESIS_SIDECAR_CAPABILITIES];
+}
+
+function rebuildNativeRuntimeIdentity(
+  value: Record<string, unknown>,
+  location: string,
+) {
+  if (
+    value.implementation !== "rust-native" ||
+    value.protocol !== SYNTHESIS_SIDECAR_PROTOCOL
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} identity is invalid`,
+      { location },
+    );
+  }
+  const target = requireBoundedString(
+    value.target,
+    `${location}.target`,
+    32,
+  ) as SynthesisSidecarRuntimeTarget;
+  if (
+    !(target in SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES) ||
+    value.targetTriple !== SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target]
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location}.target is invalid`,
+      { location: `${location}.target` },
+    );
+  }
+  return {
+    implementation: "rust-native" as const,
+    protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+    serviceVersion: requireBoundedString(
+      value.serviceVersion,
+      `${location}.serviceVersion`,
+      128,
+    ),
+    serviceInstanceId: requireBoundedString(
+      value.serviceInstanceId,
+      `${location}.serviceInstanceId`,
+      128,
+    ),
+    supervisorInstanceId: requireBoundedString(
+      value.supervisorInstanceId,
+      `${location}.supervisorInstanceId`,
+      128,
+    ),
+    bundleId: requireHash(value.bundleId, `${location}.bundleId`),
+    target,
+    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
+    buildFingerprint: requireHash(
+      value.buildFingerprint,
+      `${location}.buildFingerprint`,
+    ),
+    platformSignature: rebuildSynthesisSidecarRuntimePlatformSignature(
+      value.platformSignature,
+      target,
+    ),
+  };
+}
+
+export function rebuildSynthesisSidecarHealth(
+  value: unknown,
+): SynthesisSidecarHealth {
+  const json = toSynthesisJsonObject(value, "sidecarHealth");
+  requireExactFields(
+    json,
+    [
+      "status",
+      "implementation",
+      "protocol",
+      "serviceVersion",
+      "serviceInstanceId",
+      "supervisorInstanceId",
+      "bundleId",
+      "target",
+      "targetTriple",
+      "buildFingerprint",
+      "platformSignature",
+      "lifecycleState",
+      "repository",
+      "canonicalStore",
+      "computePool",
+      "citationGraphTransfer",
+    ],
+    "sidecarHealth",
+  );
+  if (
+    json.status !== "ok" ||
+    (json.lifecycleState !== "starting" &&
+      json.lifecycleState !== "ready" &&
+      json.lifecycleState !== "stopping")
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarHealth state is invalid",
+      { location: "sidecarHealth" },
+    );
+  }
+  return {
+    status: "ok",
+    ...rebuildNativeRuntimeIdentity(json, "sidecarHealth"),
+    lifecycleState: json.lifecycleState,
+    repository: rebuildSynthesisSidecarRepositorySnapshot(json.repository),
+    canonicalStore: rebuildSynthesisTopicCanonicalStoreSnapshot(
+      json.canonicalStore,
+    ),
+    computePool: rebuildSynthesisSidecarComputePoolSnapshot(json.computePool),
+    citationGraphTransfer: rebuildSynthesisSidecarTransferSnapshot(
+      json.citationGraphTransfer,
+    ),
+  };
+}
+
+export function rebuildSynthesisSidecarHandshakeResult(
+  value: unknown,
+): SynthesisSidecarHandshakeResult {
+  const json = toSynthesisJsonObject(value, "sidecarHandshake");
+  requireExactFields(
+    json,
+    [
+      "implementation",
+      "protocol",
+      "serviceVersion",
+      "serviceInstanceId",
+      "supervisorInstanceId",
+      "bundleId",
+      "target",
+      "targetTriple",
+      "buildFingerprint",
+      "platformSignature",
+      "profileId",
+      "schemaVersion",
+      "runtimeRootId",
+      "dataRootId",
+      "capabilities",
+      "mutationEnabled",
+      "lifecycleState",
+      "repository",
+      "canonicalStore",
+      "computePool",
+      "citationGraphTransfer",
+    ],
+    "sidecarHandshake",
+  );
+  if (json.mutationEnabled !== false || json.lifecycleState !== "ready") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarHandshake state is invalid",
+      { location: "sidecarHandshake" },
+    );
+  }
+  return {
+    ...rebuildNativeRuntimeIdentity(json, "sidecarHandshake"),
+    profileId: requireHash(json.profileId, "sidecarHandshake.profileId"),
+    schemaVersion: requireBoundedString(
+      json.schemaVersion,
+      "sidecarHandshake.schemaVersion",
+      128,
+    ),
+    runtimeRootId: requireHash(
+      json.runtimeRootId,
+      "sidecarHandshake.runtimeRootId",
+    ),
+    dataRootId: requireHash(json.dataRootId, "sidecarHandshake.dataRootId"),
+    capabilities: requireCapabilities(
+      json.capabilities,
+      "sidecarHandshake.capabilities",
+    ),
+    mutationEnabled: false,
+    lifecycleState: "ready",
+    repository: rebuildSynthesisSidecarRepositorySnapshot(json.repository),
+    canonicalStore: rebuildSynthesisTopicCanonicalStoreSnapshot(
+      json.canonicalStore,
+    ),
+    computePool: rebuildSynthesisSidecarComputePoolSnapshot(json.computePool),
+    citationGraphTransfer: rebuildSynthesisSidecarTransferSnapshot(
+      json.citationGraphTransfer,
+    ),
+  };
+}

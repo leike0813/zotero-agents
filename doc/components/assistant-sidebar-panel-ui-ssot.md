@@ -58,6 +58,43 @@ SHOULD then own the four body rows: `conversation window`, `plan widget`,
 semantic model; it prevents ACP Chat, ACP Skills, and SkillRunner from drifting
 in body sizing, reply alignment, and plan/hint height behavior.
 
+### Region Collapse Under Limited Height
+
+The `shell toolbar`, `banner`, and `reply zone` regions SHALL be collapsible
+so the conversation window keeps vertical space when the panel viewport height
+is small. Region collapse is a pure chrome presentation state owned by the
+child panel runtime (`src/sidebar/assistantRegionCollapse.ts`): it toggles the
+`is-region-collapsed` class on the region container and a
+`data-collapse-stage` attribute on the panel root, and it SHALL NOT enter any
+region render key, any region signature selection, or the panel DTO, and it
+SHALL NOT trigger a transcript or non-transcript region re-render. Each region
+exposes a chevron toggle button appended to the region container (outside the
+Preact managed mount), labelled through shared localized labels.
+
+The trigger model is manual-first with an automatic fallback:
+
+- A viewport-height observer derives an auto stage with hysteresis. Stage 1
+  (height at or below 620px, recovering above 680px) collapses the banner;
+  stage 2 (at or below 540px, recovering above 600px) additionally compacts
+  the reply zone; stage 3 (at or below 440px, recovering above 500px)
+  additionally collapses the shell toolbar.
+- Clicking a region toggle pins a manual override for that region; toggling
+  back to the auto-suggested value clears the override and returns the region
+  to the auto stage. Collapse state is session-scoped and SHALL NOT persist.
+
+The collapsed forms are:
+
+- `shell toolbar`: action groups are hidden; only a slim strip with the
+  expand toggle remains.
+- `banner`: only the title row remains; subtitle, metadata pills, status row,
+  indicators, selectors, and context actions are hidden, except that
+  warning/danger notices and the new-conversation `+` action stay visible.
+- `reply zone`: the textarea compacts to a single line and the footer becomes
+  a single row holding the runtime selectors (Mode/Model/Reasoning on ACP
+  panels) and the Send button; the hint text and usage gauge are hidden. The
+  textarea element itself is restyled, never replaced, so draft, focus, and
+  caret survive collapse transitions.
+
 ### Empty-State Chrome
 
 ACP Chat, ACP Skills, and SkillRunner SHALL keep the same toolbar, banner,
@@ -588,6 +625,15 @@ between Running and Completed. Queued rows are source-level DTOs: they do not
 create owners, run keys, request IDs, transcript selection, or provider
 placeholders. Their only action is an icon-only Host cancel carrying `queueId`.
 
+Every unfinished Host-managed task row shows its submission symbol immediately
+before the task title. Queued, running, waiting, and resumption-pending rows from
+one submission keep the same symbol; completed rows omit it. The symbol conveys
+lineage only. Status text and existing status components continue to convey
+execution state, and phase order remains in the subtitle without copying the
+symbol. Hover text and the symbol's equivalent `aria-label` expose only the
+frozen symbol, provider label, and model label, using localized field labels and
+an explicit default for missing values.
+
 Running, Queued, and Completed are independently collapsible. Running is
 expanded by default; Queued and Completed are collapsed by default. The shared
 Assistant labels localize every section title, queued state, and queue cancel
@@ -599,3 +645,8 @@ Sections and backend groups have local collapse state and region-level
 signatures. Queue-only add/remove/collapse changes reconcile keyed drawer
 nodes without rebuilding transcript, Runner pane, toolbar, banner, plan, hint,
 reply, context/details drawers, or permission drawer.
+
+Submission symbol, provider/model tooltip data, and resumption-pending state
+belong only to the keyed task-row signature. Their changes may replace the
+affected row but SHALL NOT enter transcript or another managed-region
+signature, rebuild a section/group container, or disturb the current owner.

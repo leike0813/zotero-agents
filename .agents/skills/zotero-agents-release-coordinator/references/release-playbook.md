@@ -65,6 +65,10 @@ Then verify:
 npm run check:content-package-release
 ```
 
+Content Package publication is independent of the Host Bridge complete receipt.
+The matching receipt is enforced by the plugin tag-release workflow because the
+seven Host Bridge Skills are XPI assets.
+
 Rerun the gate with content package evidence only when verification passes:
 
 ```powershell

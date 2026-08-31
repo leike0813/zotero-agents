@@ -1,5 +1,9 @@
 import { joinPath } from "../utils/path";
 import {
+  waitForBoundedPromise,
+  type BoundedWaitStartupOptions,
+} from "../utils/wait";
+import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
   moveRuntimePath,
@@ -174,7 +178,10 @@ async function readActiveGeneration(root: string) {
   );
 }
 
-async function acquireKeyedLease(cacheKey: string) {
+async function acquireKeyedLease(
+  cacheKey: string,
+  startup?: BoundedWaitStartupOptions,
+) {
   const prior = leaseTails.get(cacheKey)?.promise || Promise.resolve();
   let releaseGate!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -183,7 +190,21 @@ async function acquireKeyedLease(cacheKey: string) {
   const tail = prior.catch(() => undefined).then(() => gate);
   const tailEntry = { promise: tail };
   leaseTails.set(cacheKey, tailEntry);
-  await prior.catch(() => undefined);
+  try {
+    await waitForBoundedPromise(
+      prior.catch(() => undefined),
+      {
+        phase: "acp-npx-cache-lease",
+        ...startup,
+      },
+    );
+  } catch (error) {
+    releaseGate();
+    if (leaseTails.get(cacheKey) === tailEntry) {
+      leaseTails.delete(cacheKey);
+    }
+    throw error;
+  }
   let released = false;
   return () => {
     if (released) {
@@ -203,6 +224,7 @@ export async function acquireAcpNpxLaunchCacheLease(args: {
   args?: string[];
   env?: Record<string, string>;
   cacheRoot?: string;
+  startup?: BoundedWaitStartupOptions;
 }): Promise<AcpNpxLaunchCacheLease | null> {
   const launch = resolveAcpNpxLaunchSpec(args);
   if (!launch || hasExplicitNpmCache(args.env)) {
@@ -213,7 +235,7 @@ export async function acquireAcpNpxLaunchCacheLease(args: {
     executable: launch.executable,
     packageSpec: launch.packageSpec,
   });
-  const release = await acquireKeyedLease(cacheKey);
+  const release = await acquireKeyedLease(cacheKey, args.startup);
   const cacheRoot =
     normalizeString(args.cacheRoot) || getRuntimePersistencePaths().cacheDir;
   const identityRoot = joinPath(cacheRoot, "acp-npx", cacheKey);

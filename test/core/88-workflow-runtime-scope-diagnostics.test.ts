@@ -19,6 +19,7 @@ import {
   executeApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 
 describe("workflow runtime scope diagnostics", function () {
@@ -110,7 +111,7 @@ describe("workflow runtime scope diagnostics", function () {
       "host-api-facade",
     );
     assert.equal(
-      entry?.details && (entry.details as any).hostApiSummary?.items,
+      entry?.details && (entry.details as any).hostApiSummary?.library,
       true,
     );
   });
@@ -200,5 +201,50 @@ describe("workflow runtime scope diagnostics", function () {
     });
 
     assert.equal(locale, "zh-CN");
+  });
+
+  it("keeps an infrastructure Synthesis override inside the scoped v12 host", async function () {
+    const hostApi = createWorkflowHostApi();
+    hostApi.synthesis.tags.loadVocabulary = async () => ({
+      entries: [{ tag: "topic:test", facet: "topic" }],
+      aliases: {},
+      abbrev: {},
+    });
+    let tag = "";
+    const workflow: LoadedWorkflow = {
+      manifest: {
+        id: "synthesis-override",
+        label: "Synthesis Override",
+        provider: "pass-through",
+        hooks: { applyResult: "hooks/applyResult.js" },
+      } as any,
+      rootDir: "fixtures/synthesis-override",
+      packageId: "diagnostic-package",
+      packageRootDir: "fixtures/diagnostic-package",
+      workflowSourceKind: "builtin",
+      hookExecutionMode: "precompiled-host-hook",
+      hooks: {
+        async applyResult(args) {
+          const snapshot =
+            await args.runtime.hostApi.synthesis.tags.loadVocabulary();
+          tag = snapshot.entries[0]?.tag || "";
+          return { ok: true };
+        },
+      },
+      buildStrategy: "declarative",
+    };
+
+    await executeApplyResult({
+      workflow,
+      parent: 1,
+      bundleReader: {
+        async readText() {
+          return "";
+        },
+      },
+      runtime: { hostApi },
+    });
+
+    assert.equal(tag, "topic:test");
   });
 });

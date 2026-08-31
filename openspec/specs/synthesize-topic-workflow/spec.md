@@ -5,15 +5,18 @@ Topic synthesis workflows produce validated result bundles that the plugin can a
 ### Requirement: Topic synthesis workflow result bundles are validated
 
 Topic synthesis workflows SHALL produce a verifiable result bundle before formal
-persistence. For structured topic synthesis outputs, `analysis_manifest_path`
-SHALL be the canonical entrypoint for section and sidecar discovery.
+persistence. For structured topic synthesis outputs, `artifact_manifest_path`
+SHALL be the canonical entrypoint for analysis, resolver, section, and sidecar
+discovery.
 
 #### Scenario: Valid structured bundle is received
 
-- **WHEN** a structured create/update bundle contains `analysis_manifest_path`
+- **WHEN** a structured create/update bundle contains `artifact_manifest_path`
   and required topic/runtime metadata
-- **THEN** the validator SHALL accept the bundle without requiring top-level
-  sidecar path fields.
+- **THEN** the validator SHALL resolve the analysis and resolver manifests from
+  the referenced artifact manifest
+- **AND** it SHALL accept the bundle without requiring top-level sidecar path
+  fields.
 
 #### Scenario: Legacy sidecar fields are present
 
@@ -96,4 +99,3 @@ to callers and UI.
 - **THEN** the workflow response SHALL preserve the structured code and
   diagnostics
 - **AND** it SHALL NOT collapse the result into a plain string error.
-

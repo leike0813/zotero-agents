@@ -69,7 +69,7 @@
       {
         "action": "submit",
         "created_at": "2026-06-06T08:11:54+00:00",
-        "payload_hash": "sha256:c9510936d396616eb32a24df8b100e934ddd3566353a3a66a116c9531f3908f9",
+        "payload_hash": "sha256:e0c0b7678ac236f69b21f3aff32018a6cf66742016743cdd461ec5334d599f43",
         "payload_path": "runtime/payloads/kg-enrichment.json",
         "skill_id": "topic-synthesis-core-enrichment",
         "stage_id": "stage_50_kg_enrichment"

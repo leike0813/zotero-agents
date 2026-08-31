@@ -1,8 +1,10 @@
-## Purpose
+# runtime-persistence-governance Specification
 
+## Purpose
 Runtime persistence governance defines where indexed operational state is stored and how cold-path JSON assets are treated.
 
 ## Requirements
+
 ### Requirement: SQLite state stores indexed operational state
 
 Runtime persistence governance SHALL separate plugin workflow/runtime SQLite state from Synthesis SQLite state.
@@ -23,6 +25,7 @@ Runtime persistence governance SHALL separate plugin workflow/runtime SQLite sta
 - **WHEN** Synthesis needs state for UI, MCP, Host Bridge, review actions, workers, operation progress, or graph queries
 - **THEN** it SHALL use indexed SQLite tables in `state/synthesis.db`
 - **AND** it SHALL NOT store that hot state in `state/zotero-agents.db`, prefs, runtime files, or `plugin_task_rows.payload_json`.
+
 ### Requirement: Runtime SQLite access is concurrency guarded
 
 Plugin-owned access to runtime SQLite databases SHALL use guarded SQLite execution paths.
@@ -32,6 +35,7 @@ Plugin-owned access to runtime SQLite databases SHALL use guarded SQLite executi
 - **WHEN** plugin-owned runtime persistence code opens or writes `state/zotero-agents.db` or `state/synthesis.db`
 - **THEN** access for the same normalized DB path SHALL reuse one guarded connection/coordinator inside the process
 - **AND** nested guarded transactions on that connection SHALL not issue nested `BEGIN IMMEDIATE` statements.
+
 ### Requirement: Runtime persistence usage exposes cleanable runtime categories
 
 Runtime persistence governance SHALL expose cleanable runtime data categories for prefs diagnostics and cleanup.
@@ -112,6 +116,56 @@ diagnostics.
 - **WHEN** runtime persistence paths are resolved
 - **THEN** child paths SHALL preserve POSIX path shape.
 
+### Requirement: Sidecar runtime installs have a fixed managed persistence root
+
+
+Runtime persistence governance SHALL reserve
+`runtime/synthesis/service-runtime` for product-owned Synthesis runtime
+versions, staging directories, and active/previous pointers.
+
+#### Scenario: Installer creates or repairs a runtime
+
+- **WHEN** the Synthesis runtime installer writes, moves, verifies, or removes
+  runtime assets
+- **THEN** every affected path SHALL remain below the fixed service-runtime root
+- **AND** arbitrary user or manifest-provided absolute paths SHALL not be used.
+
+### Requirement: Runtime pointer replacement is atomic
+
+
+Runtime persistence governance SHALL provide a fail-closed atomic text
+replacement primitive for managed pointer files.
+
+#### Scenario: Atomic replacement is available
+
+- **WHEN** active or previous runtime pointer content is updated
+- **THEN** a complete temporary sibling SHALL be atomically moved over the
+  target
+- **AND** readers SHALL observe either the prior or complete new document.
+
+#### Scenario: Atomic replacement is unavailable
+
+- **WHEN** the runtime cannot guarantee atomic replacement
+- **THEN** the pointer update SHALL fail
+- **AND** it SHALL not fall back to remove-then-write behavior.
+
+### Requirement: Sidecar lifecycle files remain profile and instance scoped
+
+
+Runtime persistence SHALL derive all sidecar lifecycle files below the fixed
+service-runtime profile directory and SHALL support atomic private text writes.
+
+#### Scenario: Supervisor creates a session
+- **WHEN** a profile-scoped sidecar session starts
+- **THEN** config and lease paths SHALL remain below that profile and session
+- **AND** private POSIX files SHALL use owner-only permissions.
+
+#### Scenario: Lifecycle cleanup runs
+- **WHEN** a service or supervisor cleans discovery, owner, or session state
+- **THEN** it SHALL first verify matching profile, supervisor, and service
+  identities
+- **AND** it SHALL not delete another instance's state.
+
 ### Requirement: Zotero runtime text I/O SHALL not block through synchronous Components streams
 
 Plugin-owned Zotero runtime text append and indexed range reads SHALL use
@@ -154,3 +208,69 @@ Runtime persistence integrity SHALL derive referenced Product objects from stric
 - **WHEN** one or more legacy rows cannot be migrated
 - **THEN** persistence diagnostics SHALL expose a retryable migration-incomplete state
 - **AND** SHALL not publish a mixed-layout Product view.
+
+### Requirement: Runtime filesystem adapters support strict and tolerant interfaces
+
+Plugin-owned runtime filesystem access SHALL use one runtime adapter selection
+implementation while preserving distinct strict and tolerant caller semantics.
+
+#### Scenario: Tolerant persistence read targets a missing file
+
+- **WHEN** an existing tolerant persistence reader targets a missing path
+- **THEN** it SHALL return its documented empty result
+- **AND** the missing path SHALL NOT be reported as a successful strict read.
+
+#### Scenario: Strict workflow read targets a missing file
+
+- **WHEN** a strict workflow-facing reader targets a missing or invalid path
+- **THEN** it SHALL reject deterministically
+- **AND** it SHALL NOT reinterpret the result as empty file content.
+
+#### Scenario: Strict workflow write has no runtime adapter
+
+- **WHEN** no supported asynchronous runtime adapter can write a file or create
+  its parent directory
+- **THEN** the strict operation SHALL reject
+- **AND** it SHALL NOT report a successful no-op.
+
+### Requirement: Runtime persistence SHALL own production ordinary asynchronous filesystem selection
+
+Every production TypeScript operation for existence, text or byte reads and writes, copy, move, stat, list, remove, directory creation, append, and temporary-path resolution SHALL delegate adapter selection to `runtimePersistence`. Callers MAY own domain naming, validation, atomicity, retention, and result semantics but MUST NOT select IOUtils, OS.File, Zotero.File, or Node filesystem adapters themselves.
+
+#### Scenario: Cached caller observes a new runtime
+
+- **WHEN** runtime globals change between two calls made through the same cached caller
+- **THEN** the second call resolves and uses the currently available filesystem adapter
+
+#### Scenario: Ordinary caller contains a local selector
+
+- **WHEN** the production governance scan finds an ordinary-I/O caller choosing a native or Node adapter
+- **THEN** the change fails completion unless that access is a named native-workload exception
+
+### Requirement: Strict and tolerant filesystem semantics SHALL share adapters without sharing failure policy
+
+Strict operations SHALL reject invalid paths, missing required inputs, failed writes, and unavailable adapters. Existing tolerant persistence reads SHALL retain their documented fallback values while using the same late-bound adapter implementation.
+
+#### Scenario: Missing strict input
+
+- **WHEN** a strict workflow read targets a missing file
+- **THEN** the call fails with a stable filesystem error rather than returning empty content
+
+#### Scenario: Missing tolerant state file
+
+- **WHEN** a tolerant persistence read targets an absent optional state file
+- **THEN** it returns the documented empty state without changing strict behavior
+
+### Requirement: Atomic and Unicode-sensitive operations SHALL have observable guarantees
+
+Atomic replacement, bounded append, move, and removal SHALL either satisfy their declared final-state guarantee or fail without claiming success. Text append SHALL preserve Unicode text across all supported runtime adapters.
+
+#### Scenario: Atomic replacement is unavailable
+
+- **WHEN** the selected adapter cannot provide the required atomic replacement guarantee
+- **THEN** the strict operation fails as unavailable and leaves the previously committed target usable
+
+#### Scenario: Unicode log entry is appended
+
+- **WHEN** a caller appends non-ASCII text through runtime persistence
+- **THEN** a subsequent indexed or full read returns the same text without encoding loss

@@ -10,7 +10,6 @@ import {
   writeRuntimeTextFile,
 } from "./runtimePersistence";
 import { readPackagedBinaryAsset } from "./packagedAssetResolver";
-import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import { getWindowsPowerShellAbsoluteCandidates } from "./windowsCommandResolution";
 import {
   readRuntimeEnv,
@@ -18,6 +17,7 @@ import {
   splitPathEntries,
 } from "../platform/env";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
+import { executeOneShotSubprocess } from "../platform/subprocess";
 import {
   resolveHostBridgeCliBinary,
   resolveHostBridgeCliPlatform,
@@ -331,97 +331,23 @@ function buildPowerShellArgs(script: string) {
   ];
 }
 
-async function runWithZoteroSubprocess(command: string, argv: string[]) {
-  const runtime = globalThis as {
-    Zotero?: {
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-  };
-  const subprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
-  if (typeof subprocess !== "function") {
-    return false;
-  }
-  await subprocess(command, argv);
-  return true;
-}
-
-async function readPipeText(pipe: unknown) {
-  const reader = pipe as
-    | {
-        readString?: () => Promise<string>;
-      }
-    | null
-    | undefined;
-  if (typeof reader?.readString !== "function") {
-    return "";
-  }
-  return String((await reader.readString()) || "");
-}
-
-async function runWithMozillaSubprocess(command: string, argv: string[]) {
-  const subprocess = getMozillaSubprocessModule();
-  if (typeof subprocess?.call !== "function") {
-    return false;
-  }
-  const proc = await subprocess.call({
+async function runOneShotCommand(command: string, argv: string[]) {
+  const result = await executeOneShotSubprocess({
     command,
-    arguments: argv,
+    args: argv,
+    timeoutMs: 60_000,
+    hidden: true,
   });
-  const [stdout, stderr] = await Promise.all([
-    readPipeText(proc.stdout),
-    readPipeText(proc.stderr),
-  ]);
-  const waited = await proc.wait?.();
-  const exitCodeRaw =
-    typeof waited === "number"
-      ? waited
-      : typeof proc.exitCode === "number"
-        ? proc.exitCode
-        : typeof proc.exitValue === "number"
-          ? proc.exitValue
-          : 0;
-  const exitCode = Number.isFinite(Number(exitCodeRaw))
-    ? Math.floor(Number(exitCodeRaw))
-    : 0;
-  if (exitCode !== 0) {
+  if (result.outcome === "unavailable") {
+    return false;
+  }
+  if (result.outcome !== "exited" || result.exitCode !== 0) {
     throw new Error(
-      normalizeString(stderr) || normalizeString(stdout) || `exit ${exitCode}`,
+      normalizeString(result.stderr) ||
+        normalizeString(result.stdout) ||
+        (result.timedOut ? "subprocess timed out" : `exit ${result.exitCode}`),
     );
   }
-  return true;
-}
-
-async function runWithNodeChildProcess(command: string, argv: string[]) {
-  const runtime = globalThis as {
-    ChromeUtils?: unknown;
-    Zotero?: unknown;
-    process?: unknown;
-  };
-  if (!runtime.process || runtime.Zotero || runtime.ChromeUtils) {
-    return false;
-  }
-  const childProcess = await dynamicImport("child_process").catch(() => null);
-  if (!childProcess?.execFile) {
-    return false;
-  }
-  await new Promise<void>((resolve, reject) => {
-    childProcess.execFile(
-      command,
-      argv,
-      { windowsHide: true },
-      (error: unknown) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      },
-    );
-  });
   return true;
 }
 
@@ -564,13 +490,7 @@ async function defaultSetWindowsUserPath(_dir: string) {
   try {
     for (const command of getPowerShellCandidates()) {
       try {
-        if (await runWithZoteroSubprocess(command, argv)) {
-          return true;
-        }
-        if (await runWithMozillaSubprocess(command, argv)) {
-          return true;
-        }
-        if (await runWithNodeChildProcess(command, argv)) {
+        if (await runOneShotCommand(command, argv)) {
           return true;
         }
       } catch {

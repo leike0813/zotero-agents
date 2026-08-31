@@ -1,9 +1,12 @@
+import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
+
 export type ZoteroNotePayloadKind =
   | "custom"
   | "conversation-note"
   | "digest"
   | "references"
   | "citation-analysis"
+  | "literature-score"
   | string;
 
 export type ZoteroNotePayloadBlock = {
@@ -14,6 +17,7 @@ export type ZoteroNotePayloadBlock = {
     | "embedded-image-attachment-v2";
   payloadStorageVersion?: number;
   payloadHash?: string;
+  logicalSchemaVersion?: string;
   anchorStatus?: "present" | "missing" | "stale" | "not_applicable";
   payloadType: string;
   noteKind: string;
@@ -174,10 +178,6 @@ function crc32(bytes: Uint8Array) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function hashPayloadText(value: string) {
-  return crc32(encodeUtf8Bytes(value)).toString(16).padStart(8, "0");
-}
-
 function buildPngChunk(type: string, data: Uint8Array) {
   const typeBytes = encodeAsciiBytes(type);
   const crcInput = concatByteArrays([typeBytes, data]);
@@ -226,15 +226,31 @@ function findPngChunk(bytes: Uint8Array, type: string) {
   return null;
 }
 
-export function buildWorkbenchPayloadEnvelope(args: {
-  noteKind: string;
+export type CanonicalLogicalNotePayload = {
   payloadType: string;
-  payload: unknown;
+  noteKind: string;
+  schemaVersion: string;
+  format: "json" | "markdown" | "text";
+  value: unknown;
+};
+
+export function canonicalLogicalNotePayloadHash(
+  payload: CanonicalLogicalNotePayload,
+) {
+  return hashSynthesisContractCanonicalJson({
+    payloadType: payload.payloadType,
+    noteKind: payload.noteKind,
+    schemaVersion: payload.schemaVersion,
+    format: payload.format,
+    value: payload.value,
+  });
+}
+
+export function buildWorkbenchPayloadEnvelope(args: CanonicalLogicalNotePayload & {
   noteId?: unknown;
   noteKey?: unknown;
   parentId?: unknown;
 }) {
-  const payloadText = JSON.stringify(args.payload ?? null);
   return {
     schemaVersion: 1,
     payloadStorageVersion: 2,
@@ -245,8 +261,12 @@ export function buildWorkbenchPayloadEnvelope(args: {
     parentId: args.parentId || null,
     noteKind: String(args.noteKind || "").trim(),
     payloadType: String(args.payloadType || "").trim(),
-    payloadHash: hashPayloadText(payloadText),
-    payload: args.payload,
+    // The numeric schemaVersion above versions the envelope. The caller's
+    // logical schema identity is persisted separately and participates in hash.
+    logicalSchemaVersion: String(args.schemaVersion || "").trim(),
+    format: args.format,
+    payloadHash: canonicalLogicalNotePayloadHash(args),
+    payload: args.value,
   };
 }
 
@@ -478,6 +498,9 @@ export function parseNoteKind(noteHtml: unknown) {
   if (/data-zs-payload=(["'])citation-analysis-json\1/i.test(html)) {
     return "citation-analysis";
   }
+  if (/data-zs-payload=(["'])literature-score-json\1/i.test(html)) {
+    return "literature-score";
+  }
   if (/data-zs-payload=(["'])conversation-note-markdown\1/i.test(html)) {
     return "conversation-note";
   }
@@ -637,6 +660,8 @@ export function parseEmbeddedNotePayloadBlock(
     payloadStorageVersion:
       Number(envelope?.payloadStorageVersion) || (v2Envelope ? 2 : 1),
     payloadHash: String(envelope?.payloadHash || "").trim() || undefined,
+    logicalSchemaVersion:
+      String(envelope?.logicalSchemaVersion || "").trim() || undefined,
     anchorStatus: "not_applicable",
     payloadType: "",
     noteKind: "",
@@ -660,21 +685,28 @@ export function parseEmbeddedNotePayloadBlock(
       throw new Error("workbench embedded payload type is missing");
     }
     const payload = envelope?.payload;
+    const logicalSchemaVersion = String(
+      envelope?.logicalSchemaVersion || "",
+    ).trim();
     const format =
-      String(payload?.format || "").trim() ||
+      String(envelope?.format || payload?.format || "").trim() ||
       (payloadType.endsWith("-markdown")
         ? "markdown"
         : payloadType.endsWith("-json")
           ? "json"
           : "text");
-    const decodedText =
-      format === "markdown"
+    const decodedText = logicalSchemaVersion
+      ? format === "json"
+        ? JSON.stringify(payload ?? null)
+        : String(payload ?? "")
+      : format === "markdown"
         ? String(payload?.content || "")
         : format === "json"
           ? JSON.stringify(payload || {})
           : String(payload?.content || "");
     block.payloadType = payloadType;
     block.noteKind = String(envelope?.noteKind || "").trim();
+    block.version = logicalSchemaVersion || "1";
     block.format =
       format === "markdown" || format === "json" || format === "text"
         ? format
@@ -683,7 +715,9 @@ export function parseEmbeddedNotePayloadBlock(
     block.estimatedSize = decodedText.length;
     block.payload = payload;
     if (block.format === "markdown") {
-      block.markdown = String(payload?.content || "");
+      block.markdown = logicalSchemaVersion
+        ? String(payload ?? "")
+        : String(payload?.content || "");
     }
   } catch (error) {
     block.errors = [error instanceof Error ? error.message : String(error)];

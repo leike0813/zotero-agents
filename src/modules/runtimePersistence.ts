@@ -58,7 +58,26 @@ export type RuntimePersistencePaths = {
   workflowProductsDir: string;
   cacheDir: string;
   tmpDir: string;
+  sidecarRuntimeRoot: string;
+  sidecarRuntimeCurrentDir: string;
   legacyDir: string;
+};
+
+export type SynthesisSidecarRuntimePaths = {
+  root: string;
+  currentDir: string;
+  profilesDir: string;
+  legacyVersionsDir: string;
+  legacyActivePointerPath: string;
+  legacyPreviousPointerPath: string;
+};
+
+export type SynthesisSidecarLifecyclePaths = {
+  profileRoot: string;
+  sessionsDir: string;
+  sessionRoot: string;
+  configPath: string;
+  discoveryPath: string;
 };
 
 export type RuntimePersistenceCategoryUsage = {
@@ -384,13 +403,32 @@ function isAbsolutePathLike(path: string) {
   );
 }
 
-function assertNativeRuntimeFsPath(path: string, operation: string) {
-  if (!isNonNativeAbsolutePath(path)) {
+function assertNativeRuntimeFsPath(
+  path: string,
+  operation: string,
+  platform?: string,
+) {
+  if (!isNonNativeAbsolutePath(path, platform)) {
     return;
   }
   throw new Error(
     `Refusing to ${operation} non-native absolute path on this platform: ${path}`,
   );
+}
+
+function assertNodeRuntimeFsPath(path: string, operation: string) {
+  const nodePlatform = normalizeString(
+    (globalThis as { process?: { platform?: unknown } }).process?.platform,
+  ).toLowerCase();
+  if (
+    nodePlatform === "win32" ||
+    nodePlatform === "darwin" ||
+    nodePlatform === "linux"
+  ) {
+    assertNativeRuntimeFsPath(path, operation, nodePlatform);
+    return;
+  }
+  assertNativeRuntimeFsPath(path, operation);
 }
 
 function createManagedPathDiagnostic(args: ManagedPathDiagnostic) {
@@ -720,6 +758,81 @@ export function resolveRuntimePersistenceRoot() {
   return resolvePlatformDataRoot();
 }
 
+export function resolveRuntimeTemporaryDirectory() {
+  const runtime = globalThis as {
+    PathUtils?: { tempDir?: unknown };
+    Zotero?: { getTempDirectory?: () => { path?: unknown } | null };
+  };
+  const pathUtilsTempDir = normalizeString(runtime.PathUtils?.tempDir);
+  if (pathUtilsTempDir) {
+    return normalizeRuntimeFsPath(pathUtilsTempDir);
+  }
+  try {
+    const zoteroTempDir = normalizeString(
+      runtime.Zotero?.getTempDirectory?.()?.path,
+    );
+    if (zoteroTempDir) {
+      return normalizeRuntimeFsPath(zoteroTempDir);
+    }
+  } catch {
+    // Fall through to environment and managed runtime candidates.
+  }
+  const environmentTempDir =
+    readEnv("TMPDIR") || readEnv("TEMP") || readEnv("TMP") || readEnv("Temp");
+  return normalizeRuntimeFsPath(
+    environmentTempDir || getRuntimePersistencePaths().tmpDir,
+  );
+}
+
+export function getSynthesisSidecarRuntimePaths(
+  runtimeRootRaw: string,
+): SynthesisSidecarRuntimePaths {
+  const runtimeRoot = normalizeString(runtimeRootRaw);
+  if (!runtimeRoot) {
+    throw new Error("Synthesis sidecar runtime root is missing");
+  }
+  const root = joinPath(runtimeRoot, "synthesis", "service-runtime");
+  return {
+    root,
+    currentDir: joinPath(root, "current"),
+    profilesDir: joinPath(root, "profiles"),
+    legacyVersionsDir: joinPath(root, "versions"),
+    legacyActivePointerPath: joinPath(root, "active.json"),
+    legacyPreviousPointerPath: joinPath(root, "previous.json"),
+  };
+}
+
+function assertLifecycleId(valueRaw: string, label: string) {
+  const value = normalizeString(valueRaw);
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(value)) {
+    throw new Error(`Synthesis sidecar ${label} is invalid`);
+  }
+  return value;
+}
+
+export function getSynthesisSidecarLifecyclePaths(args: {
+  runtimeRoot: string;
+  profileId: string;
+  supervisorInstanceId: string;
+}): SynthesisSidecarLifecyclePaths {
+  const runtime = getSynthesisSidecarRuntimePaths(args.runtimeRoot);
+  const profileId = assertLifecycleId(args.profileId, "profile id");
+  const supervisorInstanceId = assertLifecycleId(
+    args.supervisorInstanceId,
+    "supervisor instance id",
+  );
+  const profileRoot = joinPath(runtime.profilesDir, profileId);
+  const sessionsDir = joinPath(profileRoot, "sessions");
+  const sessionRoot = joinPath(sessionsDir, supervisorInstanceId);
+  return {
+    profileRoot,
+    sessionsDir,
+    sessionRoot,
+    configPath: joinPath(sessionRoot, "config.json"),
+    discoveryPath: joinPath(sessionRoot, "discovery.json"),
+  };
+}
+
 export function getRuntimePersistencePaths(
   rootRaw?: string,
 ): RuntimePersistencePaths {
@@ -729,6 +842,7 @@ export function getRuntimePersistencePaths(
   const stateDir = joinPath(root, "state");
   const logsDir = joinPath(runtimeRoot, "logs");
   const acpChatRoot = joinPath(runtimeRoot, "acp", "chat");
+  const sidecarRuntime = getSynthesisSidecarRuntimePaths(runtimeRoot);
   return {
     root,
     runtimeRoot,
@@ -747,6 +861,8 @@ export function getRuntimePersistencePaths(
     workflowProductsDir: joinPath(runtimeRoot, "workflow-products"),
     cacheDir: joinPath(runtimeRoot, "cache"),
     tmpDir: joinPath(runtimeRoot, "tmp"),
+    sidecarRuntimeRoot: sidecarRuntime.root,
+    sidecarRuntimeCurrentDir: sidecarRuntime.currentDir,
     legacyDir: joinPath(root, "legacy"),
   };
 }
@@ -847,17 +963,18 @@ export async function runtimePathExists(pathRaw: string) {
   return false;
 }
 
-export async function ensureRuntimeDirectory(pathRaw: string) {
+async function ensureRuntimeDirectoryInternal(
+  pathRaw: string,
+  surfaceErrors: boolean,
+) {
   const path = normalizeRuntimeFsPath(pathRaw);
   if (!path) {
+    if (surfaceErrors) {
+      throw new Error("runtime directory path is missing");
+    }
     return;
   }
   assertNativeRuntimeFsPath(path, "create runtime directory");
-  const nodeFs = await tryNodeFs();
-  if (nodeFs) {
-    await nodeFs.mkdir(path, { recursive: true });
-    return;
-  }
   const runtime = globalThis as {
     IOUtils?: {
       makeDirectory?: (path: string, options?: unknown) => Promise<void>;
@@ -889,23 +1006,40 @@ export async function ensureRuntimeDirectory(pathRaw: string) {
   }
   const file = runtime.Zotero?.File?.pathToFile?.(path);
   if (file) {
-    const ensureOne = (entry: any) => {
+    const ensureOne = (entry: any): boolean => {
       if (!entry) {
-        return;
+        return false;
       }
       if (typeof entry.exists === "function" && entry.exists()) {
-        return;
+        return true;
       }
-      ensureOne(entry.parent);
-      if (typeof entry.create === "function") {
-        const directoryType =
-          runtime.Components?.interfaces?.nsIFile?.DIRECTORY_TYPE ?? 1;
-        entry.create(directoryType, 0o755);
+      if (typeof entry.create !== "function" || !ensureOne(entry.parent)) {
+        return false;
       }
+      const directoryType =
+        runtime.Components?.interfaces?.nsIFile?.DIRECTORY_TYPE ?? 1;
+      entry.create(directoryType, 0o755);
+      return true;
     };
-    ensureOne(file);
+    if (ensureOne(file)) return;
+  }
+  const nodeFs = await tryNodeFs();
+  if (nodeFs) {
+    assertNodeRuntimeFsPath(path, "create runtime directory");
+    await nodeFs.mkdir(path, { recursive: true });
     return;
   }
+  if (surfaceErrors) {
+    throw new Error("No runtime directory creation API is available");
+  }
+}
+
+export function ensureRuntimeDirectory(pathRaw: string) {
+  return ensureRuntimeDirectoryInternal(pathRaw, false);
+}
+
+export function ensureRuntimeDirectoryStrict(pathRaw: string) {
+  return ensureRuntimeDirectoryInternal(pathRaw, true);
 }
 
 export async function copyRuntimeFileIfMissing(args: {
@@ -1128,10 +1262,7 @@ export async function moveRuntimePath(args: {
   throw new Error("No runtime file move API is available");
 }
 
-export async function setRuntimeExecutablePermissions(
-  pathRaw: string,
-  mode = 0o755,
-) {
+export async function setRuntimeFilePermissions(pathRaw: string, mode: number) {
   const path = normalizeString(pathRaw);
   if (!path || getPlatform() === "win32") {
     return false;
@@ -1179,6 +1310,49 @@ export async function setRuntimeExecutablePermissions(
   return false;
 }
 
+export async function setRuntimeExecutablePermissions(
+  pathRaw: string,
+  mode = 0o755,
+) {
+  return setRuntimeFilePermissions(pathRaw, mode);
+}
+
+export async function getRuntimeFilePermissions(pathRaw: string) {
+  const path = normalizeString(pathRaw);
+  if (!path) {
+    return null;
+  }
+  assertNativeRuntimeFsPath(path, "read runtime file permissions");
+  const runtime = globalThis as {
+    Zotero?: {
+      File?: {
+        pathToFile?: (path: string) => {
+          exists?: () => boolean;
+          permissions?: number;
+        };
+      };
+    };
+  };
+  const file = runtime.Zotero?.File?.pathToFile?.(path);
+  if (
+    file &&
+    (typeof file.exists !== "function" || file.exists()) &&
+    typeof file.permissions === "number"
+  ) {
+    return file.permissions & 0o777;
+  }
+  const fs = await tryNodeFs();
+  if (fs?.stat) {
+    try {
+      const stat = await fs.stat(path);
+      return Number(stat.mode) & 0o777;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function parentPath(pathRaw: string) {
   const path = normalizeString(pathRaw);
   const normalized = normalizeSlashes(path);
@@ -1189,9 +1363,18 @@ function parentPath(pathRaw: string) {
   return path.slice(0, index);
 }
 
-export async function readRuntimeTextFile(pathRaw: string) {
+async function readRuntimeTextFileInternal(
+  pathRaw: string,
+  surfaceErrors: boolean,
+) {
   const path = normalizeString(pathRaw);
-  if (!path || !(await runtimePathExists(path))) {
+  if (!path) {
+    if (surfaceErrors) {
+      throw new Error("text file path does not exist");
+    }
+    return "";
+  }
+  if (!surfaceErrors && !(await runtimePathExists(path))) {
     return "";
   }
   const runtime = globalThis as {
@@ -1218,7 +1401,18 @@ export async function readRuntimeTextFile(pathRaw: string) {
   if (fs) {
     return fs.readFile(path, "utf8");
   }
+  if (surfaceErrors) {
+    throw new Error("No text file read API is available");
+  }
   return "";
+}
+
+export function readRuntimeTextFile(pathRaw: string) {
+  return readRuntimeTextFileInternal(pathRaw, false);
+}
+
+export function readRuntimeTextFileStrict(pathRaw: string) {
+  return readRuntimeTextFileInternal(pathRaw, true);
 }
 
 export async function readRuntimeTextRange(
@@ -1415,13 +1609,20 @@ export async function scanRuntimeUtf8Lines(args: {
   };
 }
 
-export async function writeRuntimeTextFile(pathRaw: string, content: string) {
+async function writeRuntimeTextFileInternal(
+  pathRaw: string,
+  content: string,
+  surfaceErrors: boolean,
+) {
   const path = normalizeString(pathRaw);
   if (!path) {
+    if (surfaceErrors) {
+      throw new Error("text file path is missing");
+    }
     return;
   }
   assertNativeRuntimeFsPath(path, "write text runtime file");
-  await ensureRuntimeDirectory(parentPath(path));
+  await ensureRuntimeDirectoryInternal(parentPath(path), surfaceErrors);
   const runtime = globalThis as {
     IOUtils?: {
       writeUTF8?: (path: string, content: string) => Promise<unknown>;
@@ -1451,6 +1652,59 @@ export async function writeRuntimeTextFile(pathRaw: string, content: string) {
   const fs = await tryNodeFs();
   if (fs) {
     await fs.writeFile(path, content, "utf8");
+    return;
+  }
+  if (surfaceErrors) {
+    throw new Error("No text file write API is available");
+  }
+}
+
+export function writeRuntimeTextFile(pathRaw: string, content: string) {
+  return writeRuntimeTextFileInternal(pathRaw, content, false);
+}
+
+export function writeRuntimeTextFileStrict(pathRaw: string, content: string) {
+  return writeRuntimeTextFileInternal(pathRaw, content, true);
+}
+
+let atomicRuntimeWriteCounter = 0;
+
+async function replaceRuntimeTextFileAtomicallyFromString(
+  pathRaw: string,
+  content: string,
+) {
+  const path = normalizeString(pathRaw);
+  if (!path) {
+    throw new Error("atomic text target path is missing");
+  }
+  assertNativeRuntimeFsPath(path, "atomically replace runtime text file");
+  atomicRuntimeWriteCounter += 1;
+  const tempPath = `${path}.tmp-${Date.now().toString(36)}-${atomicRuntimeWriteCounter.toString(36)}`;
+  const Encoder =
+    (globalThis as { TextEncoder?: typeof TextEncoder }).TextEncoder ||
+    TextEncoder;
+  try {
+    await writeRuntimeBytes(tempPath, new Encoder().encode(content));
+    await moveRuntimePath({
+      sourcePath: tempPath,
+      targetPath: path,
+      overwrite: true,
+    });
+  } catch (error) {
+    await removeRuntimePath(tempPath).catch(() => false);
+    throw error;
+  }
+}
+
+export async function replacePrivateRuntimeTextFileAtomically(
+  pathRaw: string,
+  content: string,
+) {
+  await replaceRuntimeTextFileAtomicallyFromString(pathRaw, content);
+  const permissionsSet = await setRuntimeFilePermissions(pathRaw, 0o600);
+  if (getPlatform() !== "win32" && !permissionsSet) {
+    await removeRuntimePath(pathRaw).catch(() => false);
+    throw new Error("sidecar_private_file_permissions_unavailable");
   }
 }
 
@@ -1518,10 +1772,30 @@ export async function appendRuntimeTextFile(pathRaw: string, content: string) {
   }
 }
 
-export async function replaceRuntimeTextFileAtomically(args: {
+export function replaceRuntimeTextFileAtomically(
+  pathRaw: string,
+  content: string,
+): Promise<void>;
+export function replaceRuntimeTextFileAtomically(args: {
   targetPath: string;
   fragments: Iterable<string>;
-}) {
+}): Promise<void>;
+export async function replaceRuntimeTextFileAtomically(
+  pathOrArgs:
+    | string
+    | {
+        targetPath: string;
+        fragments: Iterable<string>;
+      },
+  content?: string,
+) {
+  if (typeof pathOrArgs === "string") {
+    return replaceRuntimeTextFileAtomicallyFromString(
+      pathOrArgs,
+      content || "",
+    );
+  }
+  const args = pathOrArgs;
   const targetPath = normalizeString(args.targetPath);
   if (!targetPath) {
     throw new Error("atomic text replacement target path is missing");
@@ -1587,6 +1861,24 @@ type RuntimePathStat = {
   lastModified?: number;
 };
 
+export const RUNTIME_PATH_INSPECTION_UNAVAILABLE_CODE =
+  "runtime_path_inspection_unavailable" as const;
+
+function createRuntimePathInspectionUnavailableError(message: string) {
+  const error = new Error(message) as Error & { code?: string };
+  error.code = RUNTIME_PATH_INSPECTION_UNAVAILABLE_CODE;
+  return error;
+}
+
+export function isRuntimePathInspectionUnavailableError(error: unknown) {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code ===
+      RUNTIME_PATH_INSPECTION_UNAVAILABLE_CODE
+  );
+}
+
 async function statRuntimePathInternal(
   pathRaw: string,
   surfaceErrors: boolean,
@@ -1625,7 +1917,9 @@ async function statRuntimePathInternal(
   }
   if (isNonNativeAbsolutePath(path)) {
     if (surfaceErrors) {
-      throw new Error("Runtime path cannot be inspected on this platform");
+      throw createRuntimePathInspectionUnavailableError(
+        "Runtime path cannot be inspected on this platform",
+      );
     }
     return { exists: false, isDir: false, size: 0 };
   }
@@ -1646,13 +1940,21 @@ async function statRuntimePathInternal(
     }
   }
   if (surfaceErrors) {
-    throw new Error("No runtime path stat API is available");
+    throw createRuntimePathInspectionUnavailableError(
+      "No runtime path stat API is available",
+    );
   }
   return { exists: await runtimePathExists(path), isDir: false, size: 0 };
 }
 
 export function statRuntimePath(pathRaw: string): Promise<RuntimePathStat> {
   return statRuntimePathInternal(pathRaw, false);
+}
+
+export function statRuntimePathStrict(
+  pathRaw: string,
+): Promise<RuntimePathStat> {
+  return statRuntimePathInternal(pathRaw, true);
 }
 
 async function listRuntimeChildrenInternal(
@@ -1689,6 +1991,10 @@ async function listRuntimeChildrenInternal(
 
 export function listRuntimeChildren(pathRaw: string) {
   return listRuntimeChildrenInternal(pathRaw, false);
+}
+
+export function listRuntimeChildrenStrict(pathRaw: string) {
+  return listRuntimeChildrenInternal(pathRaw, true);
 }
 
 export async function listRuntimeChildDirectories(pathRaw: string) {
@@ -1847,29 +2153,68 @@ export async function getRuntimePathSize(pathRaw: string): Promise<{
 
 export async function removeRuntimePath(pathRaw: string) {
   const path = normalizeString(pathRaw);
-  if (!path || !(await runtimePathExists(path))) {
+  if (!path) {
     return false;
   }
   const runtime = globalThis as {
-    IOUtils?: { remove?: (path: string, options?: unknown) => Promise<void> };
+    IOUtils?: {
+      exists?: (path: string) => Promise<boolean>;
+      remove?: (path: string, options?: unknown) => Promise<void>;
+    };
     OS?: {
       File?: { removeDir?: (path: string, options?: unknown) => Promise<void> };
     };
   };
+  if (
+    typeof runtime.IOUtils?.remove === "function" &&
+    typeof runtime.IOUtils.exists === "function" &&
+    (await runtime.IOUtils.exists(path).catch(() => false))
+  ) {
+    await runtime.IOUtils.remove(path, {
+      recursive: true,
+      ignoreAbsent: true,
+    });
+    return true;
+  }
+  const fs = await tryNodeFs();
+  if (fs) {
+    try {
+      await fs.access(path);
+    } catch {
+      return false;
+    }
+    await fs.rm(path, { force: true, recursive: true });
+    return true;
+  }
   if (typeof runtime.IOUtils?.remove === "function") {
-    await runtime.IOUtils.remove(path, { recursive: true });
+    if (
+      typeof runtime.IOUtils.exists === "function" &&
+      !(await runtime.IOUtils.exists(path).catch(() => false))
+    ) {
+      return false;
+    }
+    await runtime.IOUtils.remove(path, {
+      recursive: true,
+      ignoreAbsent: true,
+    });
     return true;
   }
   if (typeof runtime.OS?.File?.removeDir === "function") {
     await runtime.OS.File.removeDir(path, { ignoreAbsent: true });
     return true;
   }
-  const fs = await tryNodeFs();
-  if (fs) {
-    await fs.rm(path, { force: true, recursive: true });
-    return true;
-  }
   return false;
+}
+
+export async function removeRuntimePathStrict(pathRaw: string) {
+  const path = normalizeString(pathRaw);
+  if (!path || !(await runtimePathExists(path))) {
+    throw new Error("runtime path does not exist");
+  }
+  const removed = await removeRuntimePath(path);
+  if (!removed) {
+    throw new Error("runtime path removal is unavailable");
+  }
 }
 
 let runtimeTreeCopyTail: Promise<void> = Promise.resolve();

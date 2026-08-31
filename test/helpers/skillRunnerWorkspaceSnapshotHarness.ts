@@ -4,16 +4,22 @@ import {
   attachSkillRunnerSidebarHost,
   detachSkillRunnerSidebarHost,
   dispatchRunWorkspaceAction,
+  getSkillRunnerWorkspaceSelectedOwner,
   refreshSkillRunnerSidebarHostSnapshot,
   resetSkillRunnerRunDialogForTests,
-  type RunWorkspaceSnapshot,
+  subscribeSkillRunnerWorkspaceChanges,
 } from "../../src/modules/skillRunnerRunDialog";
+import { SKILLRUNNER_WORKSPACE_ADAPTER } from "../../src/modules/skillRunnerWorkspaceSurface";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
+  assertAssistantWorkspacePublication,
+  createSkillRunnerWorkspaceOwner,
+  type AssistantWorkspacePublication,
+} from "../../src/modules/assistantWorkspacePublication";
+import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
+import { AssistantWorkspacePublicationRuntime } from "../../src/modules/assistantWorkspacePublicationRuntime";
+import {
+  applySkillRunnerRunEvent,
   resetSkillRunnerRunStoreForTests,
-  updateSkillRunnerRunMessageCounts,
-  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import { resetTaskDashboardHistory } from "../../src/modules/taskDashboardHistory";
@@ -27,13 +33,12 @@ import {
 import type { AssistantMessageCountsSnapshot } from "../../src/modules/assistantMessageCounts";
 
 /**
- * Behavior-level harness for the SkillRunner workspace snapshot pipeline.
+ * Behavior-level harness for the SkillRunner workspace publication pipeline.
  *
  * It seeds the real run stores, points the persisted backend registry at a
- * local mock management server, attaches the real sidebar host with an
- * injected `publishSnapshot`, and captures the production
- * `RunWorkspaceSnapshot` objects that would normally be posted to the
- * run-dialog page. Shared by
+ * local mock management server, attaches the real sidebar host, and captures
+ * the v1 publications the workspace runtime emits through the shared
+ * publication plane. Shared by
  * `test/core/71-skillrunner-run-dialog-ui-e2e-alignment.test.ts` (contract
  * assertions) and `test/core/97-acp-ui-smoke.test.ts` (envelope source).
  */
@@ -42,6 +47,10 @@ export type SkillRunnerHarnessTaskSeed = {
   taskName?: string;
   skillId?: string;
   workflowId?: string;
+  /** Sequence membership projected into the workspace task row. */
+  sequenceRunId?: string;
+  sequenceJobId?: string;
+  sequenceStepId?: string;
   /** When omitted the task stays a local pre-request run (no requestId). */
   requestId?: string;
   /** Final lifecycle status; defaults to "queued" (local) or "waiting_user". */
@@ -54,6 +63,8 @@ export type SkillRunnerHarnessTaskSeed = {
     | "failed"
     | "canceled";
   executionMode?: "auto" | "interactive";
+  /** Request payload stored on the run record (e.g. auto-reply options). */
+  requestPayload?: Record<string, unknown>;
   /** Raw `pending` payload served by the mock `/interaction/pending`. */
   pending?: Record<string, unknown>;
   /** Raw `pending_auth` payload served by the mock `/interaction/pending`. */
@@ -64,6 +75,8 @@ export type SkillRunnerHarnessTaskSeed = {
   authSession?: Record<string, unknown>;
   /** Events served by the mock `/chat/history` endpoint. */
   chatEvents?: Array<Record<string, unknown>>;
+  /** When true the mock `/chat/history` endpoint answers 404. */
+  historyNotFound?: boolean;
   messageCounts?: AssistantMessageCountsSnapshot;
   updatedAt?: string;
 };
@@ -73,31 +86,29 @@ export type SkillRunnerHarnessSeededTask = {
   requestId: string;
 };
 
-export type SkillRunnerWorkspaceActionEnvelope = {
-  action: string;
-  payload: Record<string, unknown>;
-};
-
-export type SkillRunnerWorkspaceCapture = {
-  snapshots: Array<{
-    phase: "init" | "snapshot";
-    snapshot: RunWorkspaceSnapshot;
-  }>;
-  latest: () => RunWorkspaceSnapshot | undefined;
+/**
+ * v1 publication-plane capture for the SkillRunner workspace. Wired exactly
+ * like the production sidebar (`assistantWorkspaceSidebar.ts`): run-store
+ * changes flow through `subscribeSkillRunnerWorkspaceChanges` →
+ * `AssistantWorkspacePublicationRuntime.schedule` with
+ * `SKILLRUNNER_WORKSPACE_ADAPTER` → coordinator → captured posts. The run
+ * host is attached so the production refresh pipeline runs while assertions
+ * stay on the publication boundary.
+ */
+export type SkillRunnerWorkspacePublicationCapture = {
+  hostWindow: Window;
+  publications: AssistantWorkspacePublication[];
+  runtime: AssistantWorkspacePublicationRuntime;
+  flush: () => Promise<void>;
+  transcriptSnapshots: () => AssistantWorkspacePublication[];
   waitFor: (
-    predicate: (snapshot: RunWorkspaceSnapshot) => boolean,
+    predicate: (publication: AssistantWorkspacePublication) => boolean,
+    description?: string,
     timeoutMs?: number,
-  ) => Promise<RunWorkspaceSnapshot>;
-  waitForAfter: (
-    afterIndex: number,
-    predicate: (snapshot: RunWorkspaceSnapshot) => boolean,
-    timeoutMs?: number,
-  ) => Promise<{
-    index: number;
-    snapshot: RunWorkspaceSnapshot;
-  }>;
-  detach: () => void;
-  reattach: (args?: { selectRunKey?: string }) => Promise<void>;
+  ) => Promise<AssistantWorkspacePublication>;
+  detachHost: () => void;
+  reattachHost: (args?: { selectRunKey?: string }) => Promise<void>;
+  stop: () => void;
 };
 
 export type SkillRunnerWorkspaceSnapshotHarness = {
@@ -112,22 +123,44 @@ export type SkillRunnerWorkspaceSnapshotHarness = {
     requestId: string,
     status: MockRunChannel["status"],
   ) => void;
+  /**
+   * Registers a mock run channel after seeding, for runs whose request id is
+   * assigned late (local-only run graduating to a backend request).
+   */
+  registerRunChannel: (
+    requestId: string,
+    channel?: Partial<
+      Pick<
+        MockRunChannel,
+        | "status"
+        | "pending"
+        | "pendingAuth"
+        | "pendingAuthMethodSelection"
+        | "authSession"
+        | "chatEvents"
+      >
+    >,
+  ) => void;
   setPendingInteraction: (
     requestId: string,
     pending: Record<string, unknown>,
   ) => void;
+  /**
+   * Gates the mock `/chat/history` response behind a promise so tests can
+   * observe the same-owner history-loading window deterministically.
+   */
+  setHistoryGate: (requestId: string, gate: Promise<void> | null) => void;
+  /** Flips the mock `/chat/history` endpoint between 200 and 404. */
+  setHistoryNotFound: (requestId: string, notFound: boolean) => void;
   getChatStreamState: (requestId: string) => {
     openCount: number;
     requestCount: number;
     cursors: number[];
   };
   closeChatStreams: (requestId: string) => void;
-  attach: (args?: {
+  attachPublications: (args?: {
     selectRunKey?: string;
-    handleHostAction?: (
-      envelope: SkillRunnerWorkspaceActionEnvelope,
-    ) => boolean | Promise<boolean>;
-  }) => Promise<SkillRunnerWorkspaceCapture>;
+  }) => Promise<SkillRunnerWorkspacePublicationCapture>;
   dispatch: (
     action: string,
     payload?: Record<string, unknown>,
@@ -143,6 +176,10 @@ type MockRunChannel = {
   pendingAuthMethodSelection?: Record<string, unknown>;
   authSession?: Record<string, unknown>;
   chatEvents: Array<Record<string, unknown>>;
+  /** When set, the /chat/history response waits for this promise. */
+  historyGate: Promise<void> | null;
+  /** When true, /chat/history answers 404 even though the run exists. */
+  historyNotFound: boolean;
   chatStreams: Set<{
     response: ServerResponse;
     cursor: number;
@@ -285,6 +322,13 @@ async function startMockManagementServer(runs: Map<string, MockRunChannel>) {
           jsonResponse(res, 404, { error: "job not found" });
           return;
         }
+        if (channel.historyNotFound) {
+          jsonResponse(res, 404, { error: "chat history not found" });
+          return;
+        }
+        if (channel.historyGate) {
+          await channel.historyGate;
+        }
         jsonResponse(res, 200, {
           request_id: channel.requestId,
           count: channel.chatEvents.length,
@@ -394,7 +438,9 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
   markSkillRunnerBackendHealthSuccess(backendId);
 
   let taskCounter = 0;
+  let publicationCounter = 0;
   let closed = false;
+  const publicationCaptures: SkillRunnerWorkspacePublicationCapture[] = [];
 
   const harness: SkillRunnerWorkspaceSnapshotHarness = {
     backendId,
@@ -405,16 +451,24 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       const updatedAt =
         String(seed.updatedAt || "").trim() ||
         `2026-07-18T00:00:${String(ordinal).padStart(2, "0")}.000Z`;
-      const run = createSkillRunnerRun({
+      const run = applySkillRunnerRunEvent({
+        type: "submit.local_created",
         backendId,
-        workflowId: seed.workflowId || "literature-digest",
-        workflowRunId: `harness-workflow-run-${ordinal}`,
-        jobId: `harness-job-${ordinal}`,
-        taskName: seed.taskName || `Harness Task ${ordinal}`,
-        skillId: seed.skillId,
-        executionMode: seed.executionMode || "interactive",
-        createdAt: updatedAt,
-        updatedAt,
+        init: {
+          backendId,
+          workflowId: seed.workflowId || "literature-digest",
+          workflowRunId: `harness-workflow-run-${ordinal}`,
+          jobId: `harness-job-${ordinal}`,
+          taskName: seed.taskName || `Harness Task ${ordinal}`,
+          skillId: seed.skillId,
+          sequenceRunId: seed.sequenceRunId,
+          sequenceJobId: seed.sequenceJobId,
+          sequenceStepId: seed.sequenceStepId,
+          executionMode: seed.executionMode || "interactive",
+          requestPayload: seed.requestPayload,
+          createdAt: updatedAt,
+          updatedAt,
+        },
       });
       if (!run) {
         throw new Error("failed to seed SkillRunner run record");
@@ -423,22 +477,30 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       let requestId = "";
       if (typeof seed.requestId === "string") {
         requestId = seed.requestId.trim() || `req-harness-${ordinal}`;
-        attachSkillRunnerRequestId({ runKey, requestId, updatedAt });
-        updateSkillRunnerRunStateByRunKey({
+        applySkillRunnerRunEvent({
+          type: "request.created",
+          runKey,
+          requestId,
+          updatedAt,
+        });
+        applySkillRunnerRunEvent({
+          type: "backend.snapshot",
           runKey,
           state: "request_ready",
           updatedAt,
         });
       }
       const status = seed.status || (requestId ? "waiting_user" : "queued");
-      updateSkillRunnerRunStateByRunKey({
+      applySkillRunnerRunEvent({
+        type: "backend.snapshot",
         runKey,
         state: status,
         backendStatus: status,
         updatedAt,
       });
       if (seed.messageCounts) {
-        updateSkillRunnerRunMessageCounts({
+        applySkillRunnerRunEvent({
+          type: "run.message_counts_updated",
           runKey,
           messageCounts: seed.messageCounts,
         });
@@ -452,6 +514,8 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
           pendingAuthMethodSelection: seed.pendingAuthMethodSelection,
           authSession: seed.authSession,
           chatEvents: Array.isArray(seed.chatEvents) ? seed.chatEvents : [],
+          historyGate: null,
+          historyNotFound: seed.historyNotFound === true,
           chatStreams: new Set(),
           chatStreamRequestCount: 0,
           chatStreamCursors: [],
@@ -485,6 +549,43 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       }
       channel.status = status;
     },
+    registerRunChannel(requestId, channel = {}) {
+      const key = String(requestId || "").trim();
+      if (!key) {
+        throw new Error("registerRunChannel requires a request id");
+      }
+      if (runs.has(key)) {
+        throw new Error(`duplicate SkillRunner harness request: ${key}`);
+      }
+      runs.set(key, {
+        requestId: key,
+        status: String(channel.status || "running"),
+        pending: channel.pending,
+        pendingAuth: channel.pendingAuth,
+        pendingAuthMethodSelection: channel.pendingAuthMethodSelection,
+        authSession: channel.authSession,
+        chatEvents: Array.isArray(channel.chatEvents) ? channel.chatEvents : [],
+        historyGate: null,
+        historyNotFound: false,
+        chatStreams: new Set(),
+        chatStreamRequestCount: 0,
+        chatStreamCursors: [],
+      });
+    },
+    setHistoryGate(requestId, gate) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.historyGate = gate;
+    },
+    setHistoryNotFound(requestId, notFound) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.historyNotFound = notFound;
+    },
     setPendingInteraction(requestId, pending) {
       const channel = runs.get(String(requestId || "").trim());
       if (!channel) {
@@ -514,96 +615,111 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       }
       channel.chatStreams.clear();
     },
-    async attach(args = {}) {
-      const snapshots: SkillRunnerWorkspaceCapture["snapshots"] = [];
+    async attachPublications(args = {}) {
+      publicationCounter += 1;
+      const publications: AssistantWorkspacePublication[] = [];
       const hostWindow = createHostWindowStub();
-      const publishSnapshot = (
-        phase: "init" | "snapshot",
-        snapshot: RunWorkspaceSnapshot,
-      ) => {
-        // structuredClone matches what postMessage would deliver to the
-        // page and detaches the capture from later in-place mutations.
-        snapshots.push({ phase, snapshot: structuredClone(snapshot) });
-      };
-      const handleHostAction: Parameters<
-        typeof attachSkillRunnerSidebarHost
-      >[0]["handleHostAction"] = args.handleHostAction
-        ? async (envelope) => {
-            const handled = await args.handleHostAction?.({
-              action: String(envelope.action || ""),
-              payload: isObject(envelope.payload) ? envelope.payload : {},
+      const coordinator = new AssistantWorkspacePublicationCoordinator({
+        scopeKey: `skillrunner-harness-publications-${publicationCounter}`,
+        getActiveOwner(source) {
+          if (source !== "skillrunner") return null;
+          const selected = getSkillRunnerWorkspaceSelectedOwner();
+          return selected
+            ? createSkillRunnerWorkspaceOwner({
+                requestId: selected.requestId || undefined,
+                runKey: selected.runKey,
+              })
+            : null;
+        },
+        post(publication) {
+          assertAssistantWorkspacePublication(publication);
+          publications.push(structuredClone(publication));
+          // Acknowledge immediately so the coordinator transcript lane keeps
+          // pumping like it would behind a rendering child.
+          queueMicrotask(() => {
+            coordinator.acknowledge({
+              publicationId: publication.publicationId,
+              stage: "render-complete",
+              outcome: "accepted",
+              reason: null,
+              failure: null,
             });
-            return handled === true;
-          }
-        : undefined;
+          });
+          return true;
+        },
+      });
+      const runtime = new AssistantWorkspacePublicationRuntime({
+        coordinator,
+        activity: () => "matching-target",
+      });
+      const unsubscribe = subscribeSkillRunnerWorkspaceChanges((change) => {
+        runtime.schedule({
+          adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+          change,
+          context: undefined,
+        });
+      });
       const attachHost = () =>
         attachSkillRunnerSidebarHost({
           hostWindow,
-          frameWindow: null,
           isHostAlive: () => true,
-          publishSnapshot,
-          handleHostAction,
         });
       attachHost();
       await refreshSkillRunnerSidebarHostSnapshot({
         forceInit: true,
         runKey: args.selectRunKey,
       });
-      const capture: SkillRunnerWorkspaceCapture = {
-        snapshots,
-        latest: () => snapshots[snapshots.length - 1]?.snapshot,
-        async waitFor(predicate, timeoutMs = 8000) {
+      let stopped = false;
+      const capture: SkillRunnerWorkspacePublicationCapture = {
+        hostWindow,
+        publications,
+        runtime,
+        flush: () => runtime.flush(),
+        transcriptSnapshots: () =>
+          publications.filter(
+            (publication) =>
+              publication.publicationKind === "transcript" &&
+              publication.publicationForm === "snapshot",
+          ),
+        async waitFor(predicate, description, timeoutMs = 8000) {
           const deadline = Date.now() + timeoutMs;
           for (;;) {
-            for (let index = snapshots.length - 1; index >= 0; index -= 1) {
-              if (predicate(snapshots[index].snapshot)) {
-                return snapshots[index].snapshot;
+            for (let index = publications.length - 1; index >= 0; index -= 1) {
+              if (predicate(publications[index])) {
+                return publications[index];
               }
             }
             if (Date.now() > deadline) {
               throw new Error(
-                "timed out waiting for the expected SkillRunner workspace snapshot",
+                `timed out waiting for ${description || "the expected SkillRunner workspace publication"}`,
               );
             }
             await new Promise((resolve) => setTimeout(resolve, 25));
           }
         },
-        async waitForAfter(afterIndex, predicate, timeoutMs = 8000) {
-          const deadline = Date.now() + timeoutMs;
-          for (;;) {
-            for (
-              let index = Math.max(-1, afterIndex) + 1;
-              index < snapshots.length;
-              index += 1
-            ) {
-              if (predicate(snapshots[index].snapshot)) {
-                return { index, snapshot: snapshots[index].snapshot };
-              }
-            }
-            if (Date.now() > deadline) {
-              throw new Error(
-                "timed out waiting for the next expected SkillRunner workspace snapshot",
-              );
-            }
-            await new Promise((resolve) => setTimeout(resolve, 25));
-          }
-        },
-        detach() {
+        detachHost() {
           detachSkillRunnerSidebarHost({ hostWindow });
         },
-        async reattach(reattachArgs = {}) {
+        async reattachHost(reattachArgs = {}) {
           attachHost();
           await refreshSkillRunnerSidebarHostSnapshot({
             forceInit: true,
             runKey: reattachArgs.selectRunKey,
           });
         },
+        stop() {
+          if (stopped) {
+            return;
+          }
+          stopped = true;
+          unsubscribe();
+        },
       };
+      publicationCaptures.push(capture);
       return capture;
     },
     async dispatch(action, payload = {}) {
       await dispatchRunWorkspaceAction({
-        type: "skillrunner-sidebar:action",
         action,
         payload,
       });
@@ -613,6 +729,10 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         return;
       }
       closed = true;
+      for (const capture of publicationCaptures) {
+        capture.stop();
+      }
+      publicationCaptures.length = 0;
       await resetSkillRunnerRunDialogForTests();
       resetSkillRunnerRunStoreForTests();
       resetWorkflowTasks();
@@ -629,34 +749,4 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
     },
   };
   return harness;
-}
-
-/**
- * One-shot convenience wrapper used by suites that only need the latest
- * production snapshot for a given seed set (e.g. the ACP UI smoke suite).
- */
-export async function captureSkillRunnerWorkspaceEnvelope(args?: {
-  tasks?: SkillRunnerHarnessTaskSeed[];
-  selectRunKey?: string;
-  waitFor?: (snapshot: RunWorkspaceSnapshot) => boolean;
-  timeoutMs?: number;
-}): Promise<RunWorkspaceSnapshot> {
-  const harness = await startSkillRunnerWorkspaceSnapshotHarness();
-  try {
-    const seeded = (args?.tasks || []).map((task) => harness.seedTask(task));
-    const capture = await harness.attach({
-      selectRunKey:
-        args?.selectRunKey ||
-        (seeded.length > 0 ? seeded[seeded.length - 1].runKey : undefined),
-    });
-    const predicate =
-      args?.waitFor ||
-      (seeded.length > 0
-        ? (snapshot: RunWorkspaceSnapshot) =>
-            !!snapshot.session && snapshot.session.loading === false
-        : (snapshot: RunWorkspaceSnapshot) => snapshot.session === null);
-    return await capture.waitFor(predicate, args?.timeoutMs);
-  } finally {
-    await harness.reset();
-  }
 }

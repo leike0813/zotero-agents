@@ -143,7 +143,7 @@ describe("literature search ingest instruction-backed workflow", function () {
         {
           title: "隧道衬砌病害智能识别研究",
           ingestStatus: "created",
-          itemRef: { id: 101 },
+          itemRef: { libraryId: 1, key: "ITEM0001" },
           pdfStatus: "missing",
           needsCuration: false,
         },

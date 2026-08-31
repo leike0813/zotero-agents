@@ -5991,6 +5991,23 @@ def build_synthesis_graph_from_model(model: dict[str, Any]) -> dict[str, Any]:
         "paperRefs": [],
         "nodeIds": [node["id"] for node in nodes],
     }
+    visible_nodes = [
+        node for node in nodes if node.get("visibility") != "hover_only"
+    ]
+    hover_only_nodes = [
+        node for node in nodes if node.get("visibility") == "hover_only"
+    ]
+    visible_node_ids = {node["id"] for node in visible_nodes}
+    visible_edges = [
+        edge
+        for edge in edges
+        if edge.get("visibility") != "hover_only"
+        and edge.get("source") in visible_node_ids
+        and edge.get("target") in visible_node_ids
+    ]
+    hover_only_edges = [
+        edge for edge in edges if edge.get("visibility") == "hover_only"
+    ]
     return {
         "filters": filters,
         "graph_hash": synthesis_graph_hash(model) if nodes else "",
@@ -6000,16 +6017,16 @@ def build_synthesis_graph_from_model(model: dict[str, Any]) -> dict[str, Any]:
         "selectedTopicScope": topic_scope,
         "nodes": nodes,
         "edges": edges,
-        "hoverOnlyNodes": [],
-        "hoverOnlyEdges": [],
-        "visibleNodes": nodes,
-        "visibleEdges": edges,
+        "hoverOnlyNodes": hover_only_nodes,
+        "hoverOnlyEdges": hover_only_edges,
+        "visibleNodes": visible_nodes,
+        "visibleEdges": visible_edges,
         "diagnostics": {
             **diagnostics,
             "cache_status": "ready" if nodes else "missing",
             "library_node_count": sum(1 for node in nodes if node.get("kind") == "library_paper"),
             "shared_external_count": sum(1 for node in nodes if node.get("display_tier") == "shared_external"),
-            "hover_only_external_count": 0,
+            "hover_only_external_count": len(hover_only_nodes),
         },
     }
 

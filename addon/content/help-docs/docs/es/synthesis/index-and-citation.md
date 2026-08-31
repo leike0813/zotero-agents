@@ -145,7 +145,7 @@ El grafo de citas puede calcular diversas métricas para ayudar a identificar ar
 
 | Disposición | Descripción | Caso de uso |
 |-------------|-------------|-------------|
-| **Force (Force-Directed)** | Disposición d3-force | Explorar la estructura general |
+| **Force (Force-Directed)** | Disposición ForceAtlas2 (Rust) | Explorar la estructura general |
 | **Radial** | Expandir alrededor de un nodo seleccionado | Analizar la red de citas de un artículo |
 | **Components** | Agrupar por componentes conectados | Descubrir clústeres de citas independientes |
 

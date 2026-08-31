@@ -1060,16 +1060,46 @@ fields with `x-type: "artifact-manifest"`.
 
 ### Requirement: ACP SkillRunner-compatible runs SHALL record bridge transport audit
 
-### Requirement: ACP Skills startup preamble SHALL guide Windows Unicode-path recovery
+ACP SkillRunner-compatible runs using ACP transports SHALL write run-local
+ACP update, timeline, bridge, and transport audit files only when debug mode is
+enabled. The files SHALL live in the existing run-specific
+`.acp/<skillId>.<attempt>` namespace and bridge/transport events SHALL be
+correlated by spawn id.
 
-The packaged ACP Skills startup preamble SHALL instruct the agent that a Windows path which appears mojibake or fails lookup is not by itself a reason to abandon the run. The instruction SHALL require a Unicode-capable listing of a known parent directory, use of the exact returned filename together with available metadata, one retry, and no filename guessing or transliteration.
+#### Scenario: Debug ACP skill run writes detailed audit files
 
-#### Scenario: ACP Skills starts with Windows recovery guidance
+- **GIVEN** debug mode is enabled
+- **WHEN** an ACP SkillRunner-compatible run is prepared for skill
+  `literature-explainer`
+- **THEN** the run MAY write detailed audit files including
+  `.acp/literature-explainer.1/timeline.ndjson`
+- **AND** it MAY write
+  `.acp/literature-explainer.1/acp-updates.ndjson`
+- **AND** it MAY write
+  `.acp/literature-explainer.1/bridge.ndjson`
+- **AND** it MAY write
+  `.acp/literature-explainer.1/transport.ndjson`
+- **AND** `run.json` SHALL list the detailed audit file paths in its `files`
+  map.
 
-- **WHEN** ACP Skills builds its startup preamble
-- **THEN** the rendered preamble SHALL contain the Windows Unicode-path recovery guidance
-- **AND** it SHALL preserve the existing ACP Skills run-local contract and Host Bridge guidance.
+#### Scenario: Normal ACP skill run skips high-volume audit files
 
+- **GIVEN** debug mode is disabled
+- **WHEN** an ACP SkillRunner-compatible run is prepared and executed
+- **THEN** it SHALL NOT write `timeline.ndjson`
+- **AND** it SHALL NOT write `acp-updates.ndjson`
+- **AND** it SHALL NOT pass `bridge.ndjson` as a bridge audit target
+- **AND** it SHALL NOT write `transport.ndjson`
+- **AND** low-volume run metadata and terminal state files MAY still be written.
+
+#### Scenario: Repeated skill runs isolate audit files
+
+- **GIVEN** debug mode is enabled
+- **AND** `.acp/core-skill.1` already exists for one run in the workspace
+- **WHEN** another ACP SkillRunner-compatible run for `core-skill` is prepared
+- **THEN** the new run SHALL write bridge and transport audit files under
+  `.acp/core-skill.2`
+- **AND** it SHALL NOT append to `.acp/core-skill.1` files.
 
 #### Scenario: Bridge and transport audits share spawn id
 
@@ -1086,6 +1116,16 @@ The packaged ACP Skills startup preamble SHALL instruct the agent that a Windows
 - **WHEN** the ACP transport otherwise remains usable
 - **THEN** audit failure SHALL be logged as diagnostic failure
 - **AND** it SHALL NOT by itself fail the SkillRunner-compatible run.
+
+### Requirement: ACP Skills startup preamble SHALL guide Windows Unicode-path recovery
+
+The packaged ACP Skills startup preamble SHALL instruct the agent that a Windows path which appears mojibake or fails lookup is not by itself a reason to abandon the run. The instruction SHALL require a Unicode-capable listing of a known parent directory, use of the exact returned filename together with available metadata, one retry, and no filename guessing or transliteration.
+
+#### Scenario: ACP Skills starts with Windows recovery guidance
+
+- **WHEN** ACP Skills builds its startup preamble
+- **THEN** the rendered preamble SHALL contain the Windows Unicode-path recovery guidance
+- **AND** it SHALL preserve the existing ACP Skills run-local contract and Host Bridge guidance.
 
 ### Requirement: ACP Skills process-tree cleanup SHALL preserve validated signal targets
 ACP Skills normal runs, recovered runs, sequence stages, terminal cleanup, and diagnostics SHALL delegate local transport teardown to the shared controller whose signal actuation preserves the complete validated process-group target.
@@ -1623,3 +1663,72 @@ The packaged ACP Skills startup preamble SHALL instruct agents that, when Window
 - **WHEN** ACP Skills builds its startup preamble
 - **THEN** the rendered preamble SHALL contain the conditional PowerShell `@file` guidance
 - **AND** it SHALL preserve existing ACP Skills run-local contract and Host Bridge guidance.
+
+### Requirement: Recovered prompt settlement is selected by controller purpose
+
+The ACP SkillRunner-compatible runner SHALL reuse common recovered-session
+transport, transcript, timeout, permission, interrupt, force-stop, and disconnect
+machinery while selecting either workflow settlement or post-terminal
+conversation settlement from a process-local controller purpose.
+
+#### Scenario: Workflow recovery retains guarded settlement
+
+- **GIVEN** a waiting_user or failed_retriable run resumes
+- **WHEN** the user replies
+- **THEN** the runner SHALL preserve workflow continuation guards, output
+  convergence, result validation, sequence continuation, and apply behavior.
+
+#### Scenario: Terminal recovery uses conversation-only settlement
+
+- **GIVEN** explicit Connect installed a post-terminal-conversation controller
+- **WHEN** a prompt settles normally or abnormally
+- **THEN** the runner SHALL update only conversation-owned prompt, permission,
+  transcript, usage, connection, recovery, and reply-error data
+- **AND** it SHALL not call any workflow result or apply seam.
+
+### Requirement: Terminal projection is task-first
+
+ACP Skills task projection SHALL evaluate terminal task and apply evidence before
+conversation permission, prompt, pending interaction, convergence, or reply
+error evidence.
+
+#### Scenario: Permission does not reopen completed task
+
+- **GIVEN** a succeeded run has a post-terminal prompt awaiting permission
+- **WHEN** task state is projected
+- **THEN** the task SHALL remain terminal and completed
+- **AND** prompt activity SHALL be exposed only through conversation controls.
+
+#### Scenario: Conversation error does not replace failed task error
+
+- **GIVEN** a failed run retains a business error and a later terminal reply
+  fails
+- **WHEN** task and conversation data are projected
+- **THEN** task liveness SHALL remain failed with the business error
+- **AND** the later failure SHALL appear only as conversation or reply error.
+
+### Requirement: ACP Skill controllers SHALL have identity-safe setup and live ownership
+
+The compatible runner SHALL distinguish setup ownership from a live usable session. A setup controller SHALL be atomically replaced by the matching live controller only after readiness. Unregister and cleanup operations SHALL compare controller identity so an older asynchronous cleanup cannot remove a newer owner.
+
+#### Scenario: Setup completes after cancellation
+
+- **WHEN** cancellation wins while setup is pending
+- **AND** setup later resolves
+- **THEN** the late result SHALL be disposed
+- **AND** it SHALL NOT replace the controller, publish connected, send a prompt, or overwrite terminal state.
+
+#### Scenario: Older cleanup races a recovered controller
+
+- **WHEN** a stale controller cleanup settles after recovery installed a newer controller for the run
+- **THEN** unregister SHALL preserve the newer controller.
+
+### Requirement: ACP Skill controller cleanup SHALL be bounded
+
+Task cancel and disconnect SHALL use the runner's two-second controller cleanup watchdog. Timeout SHALL be observable in diagnostics but SHALL NOT block lifecycle convergence.
+
+#### Scenario: Cancel and close both hang
+
+- **WHEN** controller cancel or adapter close does not return within two seconds
+- **THEN** the requested local lifecycle transition SHALL complete
+- **AND** the cleanup timeout SHALL NOT retain Host capacity or duplicate identity.

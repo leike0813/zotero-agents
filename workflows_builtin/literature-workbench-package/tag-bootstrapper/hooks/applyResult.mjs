@@ -92,12 +92,12 @@ function normalizeAddTagEntries(value) {
 
 function resolveSynthesisVocabularyApi(runtime) {
   const synthesis = requireHostApi(runtime)?.synthesis;
-  if (!synthesis || typeof synthesis.loadTagVocabulary !== "function") {
+  if (!synthesis?.tags || typeof synthesis.tags.loadVocabulary !== "function") {
     throw new Error(
       "tag-bootstrapper synthesis vocabulary load API is unavailable",
     );
   }
-  if (typeof synthesis.saveTagVocabulary !== "function") {
+  if (typeof synthesis.tags.saveVocabulary !== "function") {
     throw new Error(
       "tag-bootstrapper synthesis vocabulary save API is unavailable",
     );
@@ -106,10 +106,10 @@ function resolveSynthesisVocabularyApi(runtime) {
 }
 
 async function loadStagedTagSuggestions(synthesis) {
-  if (typeof synthesis?.listStagedTagSuggestions !== "function") {
+  if (typeof synthesis?.tags?.listStagedSuggestions !== "function") {
     return [];
   }
-  return synthesis.listStagedTagSuggestions();
+  return synthesis.tags.listStagedSuggestions();
 }
 
 async function applyResultImpl({ resultContext, runResult, runtime }) {
@@ -138,7 +138,7 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
   const builtinLower = new Set(
     Object.values(statusPolicy).map((tag) => asString(tag).toLowerCase()),
   );
-  const current = await synthesis.loadTagVocabulary();
+  const current = await synthesis.tags.loadVocabulary();
   const staged = await loadStagedTagSuggestions(synthesis);
   const existingLower = new Set(
     (Array.isArray(current?.entries) ? current.entries : []).map((entry) =>
@@ -172,7 +172,7 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
     existingLower.add(lowered);
   }
   if (additions.length) {
-    await synthesis.saveTagVocabulary({
+    await synthesis.tags.saveVocabulary({
       entries: [
         ...(Array.isArray(current?.entries) ? current.entries : []),
         ...additions,

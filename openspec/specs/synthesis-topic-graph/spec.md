@@ -2,21 +2,22 @@
 
 ## Purpose
 TBD - created by archiving change add-synthesis-kg-topic-graph. Update Purpose after archive.
-## Requirements
-### Requirement: Topic graph canonical files are persisted
 
-Synthesis Topic Graph SHALL persist canonical topic nodes, topic edges, and manifest data under `synthesis/topic-graph/` using Foundation canonical transactions.
+## Requirements
+### Requirement: Topic graph canonical state is persisted in SQLite
+
+Synthesis Topic Graph SHALL persist canonical topic nodes, topic edges, review items, and manifest identity in the Synthesis SQLite repository using Foundation canonical transactions.
 
 #### Scenario: Empty topic graph is initialized
 
-- **WHEN** the topic graph service loads against an empty KG store
-- **THEN** it SHALL initialize `synthesis/topic-graph/topics`, `synthesis/topic-graph/edges`, and `synthesis/topic-graph/manifest.json`
+- **WHEN** the topic graph service loads against an empty Synthesis repository
+- **THEN** it SHALL initialize the Topic Graph SQLite tables through repository schema initialization
 - **AND** it SHALL return an empty graph snapshot.
 
 #### Scenario: Topic node and edge transaction commits
 
 - **WHEN** valid topic graph nodes or edges are written
-- **THEN** the service SHALL persist canonical JSON assets through a Foundation transaction
+- **THEN** the service SHALL persist canonical SQLite rows through a Foundation transaction
 - **AND** it SHALL mark `topic-graph-index` stale.
 
 ### Requirement: Topic graph edges have deterministic identity
@@ -44,17 +45,34 @@ Synthesis Topic Graph SHALL convert topic synthesis relation proposals into sugg
 
 ### Requirement: Topic graph projection is rebuildable
 
-Synthesis Topic Graph SHALL maintain a rebuildable `topic-graph-index` projection DTO.
+
+Synthesis Topic Graph SHALL use the configured Topic Graph index engine to
+compute deterministic roots and unplaced identifiers for the rebuildable
+`topic-graph-index` projection while the application owns repository reads,
+complete node/edge/review rows, manifest basis, diagnostics, progress, and
+projection registry promotion.
 
 #### Scenario: Projection rebuild records registry state
 
-- **WHEN** the topic graph projection is rebuilt from canonical files
-- **THEN** Foundation projection registry SHALL record schema version, source manifest hash, stale flag, last rebuild time, and diagnostics.
+- **WHEN** the topic graph projection is rebuilt from canonical state
+- **THEN** the application SHALL build and strictly validate the index against
+  the current manifest basis through the configured engine
+- **AND** Foundation projection registry SHALL record schema version, source
+  manifest hash, stale flag, last rebuild time, and diagnostics only after a
+  valid result.
 
 #### Scenario: Projection cache is missing
 
 - **WHEN** local projection cache is deleted
-- **THEN** the service SHALL rebuild graph DTO state from canonical files.
+- **THEN** the service SHALL rebuild graph DTO state from canonical state
+  through the configured engine.
+
+#### Scenario: Engine computation fails
+
+- **WHEN** the engine throws, is cancelled, exceeds bounds, or returns a
+  malformed result
+- **THEN** the last durable Topic Graph state and projection registry state
+  SHALL remain unchanged.
 
 ### Requirement: Topic graph diagnostics are sanitized
 
@@ -86,7 +104,7 @@ Synthesis Topic Graph SHALL allow Workbench users to accept or reject suggested 
 
 - **WHEN** a missing edge or non-suggested edge is reviewed
 - **THEN** the service SHALL return a structured diagnostic
-- **AND** no canonical graph assets SHALL be changed.
+- **AND** no canonical graph rows SHALL be changed.
 
 ### Requirement: Confirmed hierarchy relations cascade discovery candidates
 
@@ -137,3 +155,47 @@ Synthesis Topic Graph SHALL keep low-confidence or explicit-review relation prop
 - **WHEN** a user rejects a topic graph review item
 - **THEN** the review item SHALL be marked rejected
 - **AND** no edge SHALL be created.
+
+### Requirement: Placeholder nodes represent Planned Topics
+The Topic Graph SHALL represent Planned Topics with existing placeholder nodes and SHALL expose a public lifecycle of `planned`, `stale`, or `materialized` without creating a parallel topic identity.
+
+#### Scenario: Planned Topic is materialized
+- **WHEN** topic synthesis succeeds for a Planned Topic
+- **THEN** the same topic identifier is promoted to a materialized node and its planning definition remains available as provenance
+
+### Requirement: Relation proposal decisions are durable
+Relation proposals SHALL be reconciled by a canonical directed tuple of source topic, relation type, and target topic. Accepted and rejected decisions SHALL survive later planner and topic-synthesis proposals for the same tuple.
+
+#### Scenario: A second producer proposes the same relation
+- **WHEN** a planner or synthesis run proposes a tuple that already has a reviewed decision
+- **THEN** the decision is preserved and the new producer is added to provenance without reopening review
+
+#### Scenario: Content synthesis adds evidence
+- **WHEN** topic synthesis proposes an unreviewed relation that the planner already proposed
+- **THEN** the canonical proposal may merge supporting evidence and provenance without creating a duplicate edge candidate
+
+### Requirement: Discovery hints preserve applied screening outcomes
+
+Topic discovery hints SHALL distinguish open candidates, accepted source membership, evidence-based screening, explicit user rejection, and supersession.
+
+#### Scenario: Accepted candidate remains terminal
+
+- **WHEN** a successful topic update accepts a discovery hint
+- **THEN** its status SHALL remain `accepted` during later discovery rebuilds.
+
+#### Scenario: Unchanged screened candidate remains terminal
+
+- **GIVEN** a hint is `screened_out` with an evidence basis
+- **WHEN** discovery rebuild produces the same basis
+- **THEN** the hint SHALL remain screened out with its recorded outcome.
+
+#### Scenario: Changed screening basis reopens candidate
+
+- **GIVEN** a hint is `screened_out`
+- **WHEN** relevant topic metadata, literature metadata, discovery profile, or policy changes its evidence basis
+- **THEN** the hint SHALL reopen for semantic triage.
+
+#### Scenario: Explicit rejection remains durable
+
+- **WHEN** discovery rebuild encounters a user-rejected hint
+- **THEN** it SHALL preserve `rejected` regardless of screening basis changes.

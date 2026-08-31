@@ -2,6 +2,7 @@ import {
   ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
   isDebugModeEnabled,
 } from "./debugMode";
+import type { AssistantWorkspacePublicationSource } from "../shared/assistantWireContract";
 
 export const ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA =
   "zotero-agents.acp-runtime-performance-profile.v1" as const;
@@ -137,7 +138,7 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "inactive-source"
     | "owner-mismatch";
   publicationPhase: "initialization" | "steady-state";
-  publicationSurface: "acp-chat" | "acp-skills";
+  publicationSurface: AssistantWorkspacePublicationSource;
   publicationForm: "snapshot" | "delta" | "region";
   publicationCause:
     | "initialization"
@@ -161,7 +162,7 @@ export type AcpRuntimeProfileContext = {
   requestId: string;
   displayMode: "live" | "boundary" | "silent";
   transport: "stdio" | "websocket" | "unknown";
-  zoteroMajor: 7 | 9 | "unknown";
+  zoteroMajor: SupportedZoteroMajor;
 };
 
 export type AcpRuntimeMetricSnapshot = {
@@ -200,7 +201,7 @@ export type AcpRuntimeProfileSnapshot = AcpRuntimeProfileContext & {
 
 export type AcpRuntimePublicationLifecycleSnapshot = {
   publicationId: string;
-  source: "acp-chat" | "acp-skills";
+  source: AssistantWorkspacePublicationSource;
   kind: NonNullable<AcpRuntimeMetricLabels["publicationKind"]>;
   publicationForm: "snapshot" | "delta" | "region";
   publicationCause: NonNullable<AcpRuntimeMetricLabels["publicationCause"]>;
@@ -911,3 +912,4 @@ export function resetAcpRuntimePerformanceProfilerForTests() {
   disableAcpRuntimePerformanceProfiler();
   testOptions = {};
 }
+import type { SupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";

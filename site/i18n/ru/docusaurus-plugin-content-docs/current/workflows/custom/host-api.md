@@ -322,10 +322,10 @@ hostApi.editor = {
 ## Операции синтеза (hostApi.synthesis)
 
 ```ts
-hostApi.synthesis?: SynthesisService
+hostApi.synthesis?: WorkflowSynthesisApi
 ```
 
-Обеспечивает доступ к сервису Synthesis Workbench (темы, концепции, теги, граф цитирований и т.д.). Доступно только когда система синтеза инициализирована.
+Предоставляет узкий интерфейс workflow для применения digest и Topic, отчётов Topic, артефактов статей, словаря тегов и аудита тегов. Доступны только `applyLiteratureDigestSidecar`, `applyTopicSynthesisResult`, `getTopicReport`, `readPaperArtifacts`, `loadTagVocabulary`, `saveTagVocabulary`, `exportTagVocabularyForRegulator`, `listStagedTagSuggestions`, `stageTagSuggestions`, `discardStagedTagSuggestions`, `replaceTagAuditRecords` и `clearTagAuditRecord`. Host преобразует живые элементы Zotero и пути результатов в ограниченные клиентские данные.
 
 ## Полный пример
 

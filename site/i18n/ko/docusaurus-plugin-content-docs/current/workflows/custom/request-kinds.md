@@ -7,8 +7,8 @@ Workflow는 `request.kind`를 선언하여 어떤 Provider(실행기)가 요청�
 | `kind` | 적용 가능한 Provider | 설명 |
 |--------|---------------------|------|
 | `pass-through.run.v1` | pass-through | 순수 로컬 실행, 원격 백엔드 관여 없음 |
-| `skillrunner.job.v1` | skillrunner / acp | 단일 단계 SkillRunner Skill 실행 |
-| `skillrunner.sequence.v1` | acp | 다단계 연결 Skill 실행 |
+| `skillrunner.job.v1` | skillrunner | 단일 단계 SkillRunner Skill 실행 |
+| `skillrunner.sequence.v1` | acp / skillrunner | 다단계 연결 Skill 실행 |
 | `acp.prompt.v1` | acp | ACP 백엔드로 프롬프트 직접 전송 |
 | `acp.skill.run.v1` | acp | ACP 백엔드로 Skill 실행 직접 제출 |
 | `generic-http.request.v1` | generic-http | 단일 단계 HTTP API 호출 |
@@ -75,7 +75,7 @@ Skill-Runner 백엔드로 단일 Skill 실행 요청을 제출합니다. 제출 
 | `poll.interval_ms` | 폴링 간격 (밀리초) |
 | `poll.timeout_ms` | 전체 타임아웃 (밀리초) |
 
-Workflow에서 ACP 백엔드를 선택하면, `skillrunner.job.v1`이 자동으로 `acp.skill.run.v1`로 적응하므로, `skillrunner.job.v1`로 선언된 Workflow도 ACP 백엔드와 호환됩니다.
+`skillrunner.job.v1`은 SkillRunner 백엔드에만 호환됩니다. ACP를 통해 단일 단계 Skill 실행이 필요한 경우, `provider: "acp"`와 요청 종류 `acp.skill.run.v1`을 선언하십시오.
 
 ## skillrunner.sequence.v1 — 다단계 Skill 연결
 
@@ -243,8 +243,10 @@ Generic HTTP 백엔드로 단일 HTTP 요청을 전송합니다.
 |---------------------------|----------------|----------|
 | 순수 로컬 작업 수행, 원격 호출 없음 | `pass-through` | `pass-through.run.v1` |
 | Skill-Runner에 단일 Skill 제출 | `skillrunner` | `skillrunner.job.v1` |
-| 여러 Skill을 순차적으로 연결 | `acp` | `skillrunner.sequence.v1` |
+| 여러 Skill을 순차적으로 연결 | `acp` 또는 `skillrunner` | `skillrunner.sequence.v1` |
 | HTTP API 호출 | `generic-http` | `generic-http.request.v1` |
+| ACP 대화 시작 | `acp` | `acp.prompt.v1` |
+| 단일 Skill을 ACP 백엔드에 제출 | `acp` | `acp.skill.run.v1` |
 
 참고: `provider`는 Workflow가 어떤 백엔드와 호환되는지 결정하는 유일한 필드입니다. `request.kind`는 올바른 실행기로 라우팅하는 데만 사용되며, 백엔드 호환성 추론에는 관여하지 않습니다.
 

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,6 +30,14 @@ describe("host bridge surface definitions", function () {
     const [minimum, generic, hermes] = manifest.surfaces;
     assert.strictEqual(generic.extends, minimum.id);
     assert.strictEqual(hermes.extends, generic.id);
+    assert.strictEqual(
+      minimum.generatedRoot,
+      "addon/content/host-bridge-skills/zotero-bridge-cli",
+    );
+    assert.strictEqual(
+      generic.generatedRoot,
+      "addon/content/host-bridge-skills",
+    );
     for (const surface of manifest.surfaces) {
       assert.isString(surface.kind);
       assert.isString(surface.sourceRoot);
@@ -137,15 +146,63 @@ describe("host bridge surface definitions", function () {
       ),
     );
     assert.deepEqual(roots, [
-      "skills_builtin/zotero-bridge-cli",
-      "skills_builtin/zotero-library-agent",
-      "skills_builtin/zotero-library-query",
-      "skills_builtin/zotero-literature-acquisition",
-      "skills_builtin/zotero-literature-analysis",
-      "skills_builtin/zotero-research-synthesis",
-      "skills_builtin/zotero-library-curation",
+      "addon/content/host-bridge-skills/zotero-bridge-cli",
+      "addon/content/host-bridge-skills/zotero-library-agent",
+      "addon/content/host-bridge-skills/zotero-library-query",
+      "addon/content/host-bridge-skills/zotero-literature-acquisition",
+      "addon/content/host-bridge-skills/zotero-literature-analysis",
+      "addon/content/host-bridge-skills/zotero-research-synthesis",
+      "addon/content/host-bridge-skills/zotero-library-curation",
       "profiles/hermes/zotero-librarian/skills/zotero-librarian",
     ]);
+  });
+
+  it("binds the exact seven-Skill addon inventory to the CLI identity", function () {
+    const root = join(process.cwd(), "addon/content/host-bridge-skills");
+    const bundle = JSON.parse(
+      readFileSync(join(root, "manifest.json"), "utf8"),
+    );
+    const release = JSON.parse(
+      readFileSync(
+        join(process.cwd(), "cli/zotero-bridge/release.json"),
+        "utf8",
+      ),
+    );
+    assert.strictEqual(bundle.schema, "host-bridge.plugin-skill-bundle.v1");
+    assert.strictEqual(bundle.cli.version, release.version);
+    assert.strictEqual(bundle.cli.buildFingerprint, release.buildFingerprint);
+    assert.match(bundle.cli.commandCatalogChecksum, /^[a-f0-9]{64}$/);
+    assert.match(bundle.aggregateSha256, /^[a-f0-9]{64}$/);
+    assert.deepEqual(
+      bundle.skills.map((skill: { id: string }) => skill.id),
+      [
+        "zotero-bridge-cli",
+        "zotero-library-agent",
+        "zotero-library-query",
+        "zotero-literature-acquisition",
+        "zotero-literature-analysis",
+        "zotero-research-synthesis",
+        "zotero-library-curation",
+      ],
+    );
+    assert.lengthOf(bundle.files, 162);
+    const paths = new Set<string>();
+    for (const file of bundle.files as Array<{
+      path: string;
+      bytes: number;
+      sha256: string;
+    }>) {
+      assert.notMatch(file.path, /(^|\/)\.\.?($|\/)|\\/);
+      assert.isFalse(paths.has(file.path), file.path);
+      paths.add(file.path);
+      const bytes = readFileSync(join(root, file.path));
+      assert.strictEqual(bytes.length, file.bytes, file.path);
+      assert.strictEqual(
+        createHash("sha256").update(bytes).digest("hex"),
+        file.sha256,
+        file.path,
+      );
+    }
   });
 
   it("rejects cyclic, duplicate-id, and duplicate-mount definitions", function () {
@@ -172,6 +229,12 @@ describe("host bridge surface definitions", function () {
           value.surfaces[1].skills[0].mount = "skills/zotero-bridge-cli";
         },
       },
+      {
+        label: "minimum-outside-generic-bundle",
+        mutate(value: typeof valid) {
+          value.surfaces[0].generatedRoot = "addon/content/other-root";
+        },
+      },
     ];
     for (const testCase of cases) {
       const candidate = structuredClone(valid);
@@ -180,7 +243,7 @@ describe("host bridge surface definitions", function () {
       writeFileSync(path, JSON.stringify(candidate), "utf8");
       assert.throws(
         () => loadHostBridgeSurfaceDefinitions(path),
-        /cycle|duplicate|mount/i,
+        /cycle|duplicate|mount|bundle root/i,
         testCase.label,
       );
     }

@@ -1,52 +1,55 @@
 import { evaluateTagCompliance } from "../../lib/tagCompliance.mjs";
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
-function isTopLevelRegularItem(item) {
-  if (!item || Number(item.parentID || item.parentItemID || 0) > 0) {
-    return false;
-  }
-  try {
-    return item.isRegularItem?.() === true && item.deleted !== true;
-  } catch {
-    return false;
-  }
-}
-
-function itemTags(item) {
-  try {
-    return (item.getTags?.() || []).map((entry) => entry?.tag);
-  } catch {
-    return [];
-  }
-}
-
 async function applyResultImpl({ runtime }) {
   const host = requireHostApi(runtime);
-  const controlledTags = await host.synthesis.exportTagVocabularyForRegulator();
-  const byLibrary = new Map();
-  for (const item of await host.items.getAll()) {
-    if (!isTopLevelRegularItem(item)) continue;
-    const libraryId = Math.max(0, Math.floor(Number(item.libraryID) || 0));
-    const itemKey = String(item.key || "").trim();
-    if (!libraryId || !itemKey) continue;
-    const result = evaluateTagCompliance({
-      tags: itemTags(item),
-      controlledTags,
-    });
-    const entries = byLibrary.get(libraryId) || [];
-    entries.push({ itemKey, ...result });
-    byLibrary.set(libraryId, entries);
-  }
-  const summaries = [];
-  for (const [libraryId, entries] of byLibrary) {
-    await host.synthesis.replaceTagAuditRecords({ libraryId, entries });
-    summaries.push({
-      libraryId,
-      audited: entries.length,
-      needsTagRegulation: entries.filter((entry) => !entry.compliant).length,
-    });
-  }
-  return { libraries: summaries };
+  const vocabulary = await host.synthesis.tags.exportVocabularyForRegulator();
+  const firstPage = await host.library.listItems({ limit: 1 });
+  const libraryId = firstPage.libraryId;
+  const outcome = await host.synthesis.tags.withAuditRun(
+    { libraryId, vocabularyHash: vocabulary.vocabularyHash },
+    {},
+    (run) =>
+      host.library.traverseItems(
+        { libraryId, scope: "top-level-regular" },
+        {},
+        async (batch) => {
+          await run.append(
+            batch.items.map((item) => {
+              const evaluation = evaluateTagCompliance({
+                tags: item.tags,
+                controlledTags: vocabulary.allowedTags,
+              });
+              return {
+                target: {
+                  libraryId: item.ref.libraryId,
+                  itemKey: item.ref.key,
+                },
+                auditedRevision: item.revision,
+                auditedTagDigest: item.tagDigest,
+                auditedTags: item.tags,
+                evaluation: evaluation.compliant
+                  ? { state: "compliant" }
+                  : {
+                      state: "needs_regulation",
+                      nonCompliantTags: evaluation.nonCompliantTags,
+                    },
+              };
+            }),
+          );
+        },
+      ),
+  );
+  if (outcome.outcome !== "published") return { libraries: [] };
+  return {
+    libraries: [
+      {
+        libraryId,
+        audited: outcome.snapshot.auditedItems,
+        needsTagRegulation: outcome.snapshot.needsRegulation,
+      },
+    ],
+  };
 }
 
 export async function applyResult(args) {

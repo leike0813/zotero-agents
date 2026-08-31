@@ -7,8 +7,8 @@ Workflow は `request.kind` を宣言することで、どの Provider（実行�
 | `kind` | 対応 Provider | 説明 |
 |--------|--------------|------|
 | `pass-through.run.v1` | pass-through | 純粋なローカル実行。リモートバックエンド関与なし |
-| `skillrunner.job.v1` | skillrunner / acp | 単一ステップの SkillRunner Skill 実行 |
-| `skillrunner.sequence.v1` | acp | 複数ステップの連鎖 Skill 実行 |
+| `skillrunner.job.v1` | skillrunner | 単一ステップの SkillRunner Skill 実行 |
+| `skillrunner.sequence.v1` | acp / skillrunner | 複数ステップの連鎖 Skill 実行 |
 | `acp.prompt.v1` | acp | ACP バックエンドに直接プロンプトを送信 |
 | `acp.skill.run.v1` | acp | ACP バックエンドに Skill 実行を直接送信 |
 | `generic-http.request.v1` | generic-http | 単一ステップの HTTP API 呼び出し |
@@ -75,7 +75,7 @@ export function buildRequest({ selectionContext, executionOptions }) {
 | `poll.interval_ms` | ポーリング間隔（ミリ秒） |
 | `poll.timeout_ms` | 合計タイムアウト（ミリ秒） |
 
-Workflow が ACP バックエンドを選択した場合、`skillrunner.job.v1` は自動的に `acp.skill.run.v1` に適応するため、`skillrunner.job.v1` として宣言された Workflow も ACP バックエンドと互換性がある。
+`skillrunner.job.v1` は SkillRunner バックエンドにのみ対応する。ACP 経由で単一ステップの Skill 実行が必要な場合は、`provider: "acp"` とリクエスト種別 `acp.skill.run.v1` を宣言すること。
 
 ## skillrunner.sequence.v1 — 複数ステップ Skill 連鎖
 
@@ -243,8 +243,10 @@ Generic HTTP バックエンドに単一の HTTP リクエストを送信する�
 |---------------------|------------------|---------------|
 | 純粋なローカル操作。リモート呼び出しなし | `pass-through` | `pass-through.run.v1` |
 | 単一の Skill を SkillRunner に送信 | `skillrunner` | `skillrunner.job.v1` |
-| 複数の Skill を連鎖的に実行 | `acp` | `skillrunner.sequence.v1` |
+| 複数の Skill を連鎖的に実行 | `acp` または `skillrunner` | `skillrunner.sequence.v1` |
 | HTTP API を呼び出す | `generic-http` | `generic-http.request.v1` |
+| ACP 会話を開始 | `acp` | `acp.prompt.v1` |
+| 単一の Skill を ACP バックエンドに送信 | `acp` | `acp.skill.run.v1` |
 
 注：`provider` は Workflow が対応するバックエンドを決定する唯一のフィールドである。`request.kind` は正しい実行エンジンへのルーティングにのみ使用され、バックエンド互換性の推論には関与しない。
 

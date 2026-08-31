@@ -79,6 +79,8 @@ When the user asks for recurring behavior:
 6. Submit once through the CLI join point and branch on the returned admission contract. For direct admission, preserve the real `workflowRunId`. For host-queue admission, preserve `submissionId`, inspect its immutable unit projection, use `workflow queue list` only for active queue observation, use `workflow queue cancel <queueId>` only for a pending unit, and correlate admitted tasks with `run list --submission`.
 7. Return `zotero-librarian.operation-receipt.v1` plus the live evidence needed to support the user-facing conclusion. Follow failed-receipt recovery without replaying submissions or writes.
 
+For `index refresh`, let the service own the entire snapshot session and database boundary. It writes each accepted page into a non-authoritative staging generation, validates the terminal snapshot completion evidence against that exact snapshot, and promotes the generation atomically. Until promotion succeeds, searches and item reads continue to use the prior current generation. An interrupted, expired, mismatched, resource-limited, or restarted snapshot returns failure without absent-row deletion; start a new full refresh rather than resuming or reconstructing the old session.
+
 ## Resident routing
 
 Use the service domains as follows:
@@ -129,6 +131,7 @@ Zotero's native queue is the sole owner of pending units. A pending unit may be 
 - Do not infer a Product, artifact, item change, or successful maintenance outcome from terminal workflow state.
 - Do not automatically remediate duplicate, hygiene, readiness, workflow-status, or attention candidates.
 - Do not modify `state.sqlite` with ad-hoc SQL or another helper, and do not replace usable state with an incomplete refresh.
+- Do not treat staged rows, an active snapshot page, local counters, or a prior completion receipt as promotion evidence. Only the current refresh's matching Host-issued terminal evidence permits the service to promote a generation and remove rows absent from that complete snapshot; a complete empty snapshot may promote an empty current generation.
 - Do not persist or hand-edit workflow submission payloads, create a resident pending-unit queue, reserve native units, or maintain a replay journal. Live workflow validation and the native submission projection are the workflow-control facts.
 - A reviewed selection/options/provider/concurrency scope is input evidence, not a stored approval token. Every submit invocation requires current authority.
 - A queued submission or admitted unit with an uncertain response may already have changed remote state. Inspect the original `submissionId` and submission-filtered tasks before another submission.
@@ -212,3 +215,11 @@ The agent classifies work, delegates finite research tasks, judges live evidence
 - Read [resident operations](references/resident-operations.md) before index, workflow catalog, run, notification, library-question, or scheduled work.
 - Read [automation policy](references/automation-policy.md) before workflow mode choice, native queue submission, concurrency, maintenance proposals, acknowledgement, or any authority boundary.
 - Read [state and recovery](references/state-and-recovery.md) before judging freshness, repairing local state, handling partial/failed receipts, uncertain outcomes, or changing profile configuration.
+
+### Connection-profile workspace routing
+
+- Do not calculate or manually pass a workspace path. Select a connection with service `--profile`, `ZOTERO_BRIDGE_PROFILE`, or the platform well-known profile; the resident service, cron, and CLI installer follow that selection together.
+- The well-known profile is the default workspace and owns the existing `$HERMES_HOME/zotero-librarian/state.sqlite`. An explicit profile is routed to its normalized-path `workspaces/<sha256>/` workspace.
+- Explicit profile workspaces never share SQLite rows, workflow catalog entries, watched runs, notifications, or local `.zotero-bridge/bin` installations. The identity excludes profile JSON contents, endpoint values, tokens, and other secrets.
+- Use `--db` only for a diagnostic path inside the active workspace. Treat `workspace_path_outside_profile`, profile path failures, unavailable roots, and connection failures as fail-closed errors; do not retry against a shared/default path.
+- A workspace cache is not Zotero's current authority. Preserve the existing approval, queue, receipt, live-state, and current-fact rules when a profile changes.

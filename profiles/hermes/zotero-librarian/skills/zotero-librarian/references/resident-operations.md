@@ -6,14 +6,20 @@ Run `scripts/zotero_librarian_service.py` for every resident operation. Global o
 
 The normal JSON shape is `zotero-librarian.operation-receipt.v1` with `operation`, `status`, `generatedAt`, and optional `summary` or `data`. A failed pass adds `error.code`, `error.message`, and optional `error.details`, prints JSON, and exits nonzero. `--quiet` renders only an `unchanged` receipt as `[SILENT]`; changed, attention, and failed results remain visible.
 
+## Profile workspace selection
+
+The service resolves one profile workspace before the bounded pass. Agents and cron jobs do not need to supply a workspace path: `--profile` wins over `ZOTERO_BRIDGE_PROFILE`, and an omitted profile uses the platform well-known connection profile and its default `$HERMES_HOME/zotero-librarian/state.sqlite`. Explicit profile paths are normalized and assigned a SHA-256 workspace below `workspaces/`; the service passes the same explicit profile to every bridge call and prefers that workspace's `.zotero-bridge/bin` executable.
+
+`--db` is allowed only for a path inside the selected workspace. A failed profile lookup, path normalization, workspace-root check, connection, or containment check is fail closed and returns a failed receipt; it never falls back to another profile's database. Profile identity does not read profile JSON or include credentials. Switching profiles therefore switches catalog, index, watched-run, notification, and local CLI state as one unit.
+
 ## Operation contract matrix
 
 | Command | Reads | Local effect | Receipt data and meaning |
 | --- | --- | --- | --- |
-| `index refresh [--limit N]` | Paged live library snapshot | Atomically upserts current items, removes absent rows, stores refresh time | Counts `added`, `updated`, `deleted`, `total`; changed only for a projection delta |
+| `index refresh [--limit N] [--library-id ID]` | One fixed full-library snapshot captured by the Zotero capability Broker | Stages a generation page by page, then atomically promotes it and removes prior rows only after terminal evidence validates | Counts `added`, `updated`, `deleted`, `total`, plus `generationId` and `snapshotId`; changed only for a promoted projection delta |
 | `index search <query> [--limit N]` | Local title and serialized item fields | None beyond schema initialization | `ok` with matching cached `items`; never implies Zotero changed |
 | `index item <key-or-id>` | One local cached item | None | `ok` with cached `item`; missing cache entry is `item_not_found` |
-| `index stats` | Local item count and refresh metadata | None | `ok` with `itemCount` and `lastRefresh` |
+| `index stats` | Current generation count, refresh metadata, and staging count | None | `ok` with `itemCount`, `lastRefresh`, `currentGenerationId`, and `stagingGenerationCount` |
 | `workflow catalog-refresh` | Live workflow list and changed descriptions | Atomically upserts changed catalog entries | Number of `updated` definitions |
 | `workflow show <workflow-id>` | One cached workflow definition | None | `ok` with cached `workflow`; live describe is still required before execution |
 | `run register --run-id ID --workflow-id ID [--state S]` | Supplied identifiers | Upserts one watched run | Registered `runId` |
@@ -30,7 +36,9 @@ Read-only lookups return `ok`. `changed` is reserved for a local projection/jour
 
 ## Index and library questions
 
-`index refresh` pages through the complete live snapshot and commits within one database transaction. It retains a previous usable projection when paging, parsing, or the transaction fails. Record the refresh receipt before using the projection for repeated discovery.
+`index refresh` opens one fixed snapshot captured by the Zotero capability Broker and writes accepted pages to a staging generation. The snapshot identity, library, scope, stable order, batch sequence, delivered counts, and terminal completion evidence must remain consistent. Only the terminal evidence for that exact snapshot permits one promotion transaction to make the staging generation current and remove rows absent from the complete set. Paging, parsing, expiry, restart, evidence, staging-write, or promotion failure leaves the previous generation readable; a later pass starts a new snapshot instead of resuming the incomplete one.
+
+A completed empty snapshot is valid evidence for an empty current generation. An active terminal shape, locally counted rows, an old receipt, or cached `snapshotId` is not equivalent evidence. Staging state may remain available for diagnosis after interruption, but `index search`, `index item`, `index stats`, and library hygiene read only the current generation.
 
 Use `index search` across cached titles, creators, identifiers, tags, collections, publication fields, and serialized item data. Use `index item` for a known key or numeric ID and `index stats` to judge projection size and refresh time. These operations accelerate discovery and ranking; they cannot establish current selection, attachment access, permission, workflow mode, Product existence, or writeback state.
 
@@ -77,24 +85,26 @@ Purpose:
 Before:
 
 - Confirm the intended library connection and whether the current cache is usable.
-- Choose a page limit that bounds each request without truncating the full snapshot.
+- Choose a batch size from 1 through 1,000; the default is 500, and changing it does not relax the one-million-item snapshot cap or 30-minute Host session lifetime.
 
 Command:
 
 ```sh
-scripts/zotero_librarian_service.py index refresh --limit 200
+scripts/zotero_librarian_service.py index refresh --library-id 1 --limit 500
 ```
 
 Receipt:
 
 - `changed` when rows were added, updated, or removed.
 - `unchanged` when the completed snapshot matches the projection.
-- Data reports `added`, `updated`, `deleted`, and `total`.
+- Data reports `added`, `updated`, `deleted`, `total`, `generationId`, and `snapshotId` only after promotion.
+- A complete empty snapshot may report `deleted` for every prior row and `total: 0`.
 
 Next:
 
 - Use live Query reads for externally visible current facts.
-- On failure, retain the previous committed projection.
+- On failure, retain the previous current generation and the original failure; do not promote or manually merge staging rows.
+- Start a new full refresh when the Host session expires, restarts, or rejects continuation.
 
 ### `index search`
 
@@ -153,7 +163,7 @@ scripts/zotero_librarian_service.py index stats
 
 Receipt:
 
-- `ok` with `itemCount` and `lastRefresh`.
+- `ok` with `itemCount`, `lastRefresh`, `currentGenerationId`, and `stagingGenerationCount`.
 
 Next:
 
@@ -515,8 +525,9 @@ Index refresh fails on page four:
 
 - prior projection remains usable;
 - do not advance refresh time;
-- retry a bounded refresh;
-- do not merge three pages manually.
+- preserve the incomplete staging generation as non-authoritative diagnostic state;
+- start a new bounded full snapshot rather than resuming a process-local session;
+- do not merge three pages manually or infer absent-row deletion from their local count.
 
 Workflow validation becomes stale:
 

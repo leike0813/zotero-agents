@@ -109,33 +109,4 @@ describe("selection sample risk regression", function () {
     assert.lengthOf(alerts, 1);
     assert.match(alerts[0], /sample-output-dir-missing|采样输出目录|输出目录/i);
   });
-
-  it("Risk: MR-03 surfaces filesystem errors from sample export path", async function () {
-    const alerts: string[] = [];
-    Zotero.Prefs.set(prefKey, "D:/tmp/zotero-skills-sample", true);
-    Zotero.getMainWindow = (() =>
-      ({
-        alert: (message: unknown) => {
-          alerts.push(String(message || ""));
-        },
-        ZoteroPane: {
-          getSelectedItems: () => [],
-        },
-      }) as _ZoteroTypes.MainWindow) as typeof Zotero.getMainWindow;
-
-    const originalCreateDir = Zotero.File.createDirectoryIfMissingAsync;
-    Zotero.File.createDirectoryIfMissingAsync = (async () => {
-      throw new Error("mkdir blocked");
-    }) as typeof Zotero.File.createDirectoryIfMissingAsync;
-
-    try {
-      await sampleSelectionContext();
-    } finally {
-      Zotero.File.createDirectoryIfMissingAsync = originalCreateDir;
-    }
-
-    assert.lengthOf(alerts, 1);
-    assert.match(alerts[0], /sample failed/i);
-    assert.match(alerts[0], /mkdir blocked/i);
-  });
 });

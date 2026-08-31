@@ -39,11 +39,11 @@ describe("skillrunner sidebar host runtime", function () {
     ]);
     assert.include(ts, "ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY");
     assert.include(ts, "ASSISTANT_WORKSPACE_MESSAGE_TYPES.INIT");
-    assert.include(ts, "ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_SNAPSHOT");
+    assert.include(ts, "ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_PUBLICATION");
     assert.include(contract, '"__zsAssistantWorkspaceBridge"');
     assert.include(contract, '"assistant-workspace:init"');
-    assert.include(contract, '"assistant-workspace:child-snapshot"');
-    assert.include(ts, "dispatchRunWorkspaceAction");
+    assert.include(contract, '"assistant-workspace:child-publication"');
+    assert.include(ts, "dispatchSkillRunnerWorkspaceAction");
     assert.include(ts, "ACP_CHAT_WORKSPACE_ADAPTER");
     assert.include(ts, "new AssistantWorkspacePublicationRuntime");
     assert.notInclude(ts, "scheduleAssistantWorkspacePublicationChange");
@@ -100,8 +100,8 @@ describe("skillrunner sidebar host runtime", function () {
     );
 
     assert.include(workspaceHost, "createSkillRunnerHostActionHandler");
-    assert.include(workspaceHost, "publishLatestSkillRunnerChromeSnapshot");
-    assert.include(workspaceHost, "latestSkillRunnerBaseSnapshot");
+    assert.include(workspaceHost, "scheduleSkillRunnerPublications");
+    assert.include(workspaceHost, "dispatchSkillRunnerWorkspaceAction");
     assert.include(workspaceHost, "skillRunnerAttachedFrameWindow");
     assert.notInclude(workspaceHost, "refreshSkillRunnerWorkspacePresentation");
     assert.include(runDialog, "attachSkillRunnerSidebarHost");
@@ -138,10 +138,10 @@ describe("skillrunner sidebar host runtime", function () {
       "src/modules/skillRunnerForegroundContinuation.ts",
     );
 
-    assert.include(runSeam, "createSkillRunnerRun({");
-    assert.include(runSeam, "recordSkillRunnerProgress({");
-    assert.include(foregroundContinuation, "createSkillRunnerRun({");
-    assert.include(foregroundContinuation, "recordSkillRunnerProgress({");
+    assert.include(runSeam, `type: "submit.local_created"`);
+    assert.include(runSeam, `type: "submit.request_creating"`);
+    assert.include(foregroundContinuation, `type: "submit.local_created"`);
+    assert.include(foregroundContinuation, `type: "submit.request_creating"`);
   });
 
   it("hosts SkillRunner management UI inside the Dashboard backend tab", async function () {

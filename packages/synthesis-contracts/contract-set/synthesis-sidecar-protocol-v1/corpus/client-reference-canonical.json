@@ -1,0 +1,122 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "reference-manual-target-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "decisions": [
+              {
+                "proposalId": "proposal:1",
+                "action": "manual_target",
+                "target": {
+                  "kind": "zotero_item",
+                  "libraryId": 1,
+                  "itemKey": "ITEM1"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "reference-rank-row-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankExternalReferencesResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "items": [
+          {
+            "node_id": "ref:1",
+            "title": "Paper",
+            "year": "2026",
+            "authors": ["Ada"],
+            "external_degree": 1,
+            "shared_source_count": 1,
+            "source_paper_refs": ["1:ITEM1"],
+            "reason": "Referenced"
+          }
+        ],
+        "cursor": "0",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 1,
+        "total": 1,
+        "limit": 25,
+        "diagnostics": {
+          "snapshot_found": true,
+          "returned_count": 1,
+          "total_external_nodes": 1,
+          "limits": { "limit": 25, "maxLimit": 100 },
+          "warnings": [],
+          "repository_basis_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "canonical_basis_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "reference-target-open-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "decisions": [
+              {
+                "proposalId": "proposal:1",
+                "action": "manual_target",
+                "target": {
+                  "kind": "zotero_item",
+                  "libraryId": 1,
+                  "itemKey": "ITEM1",
+                  "legacy": true
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "reference-rank-author-type-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankExternalReferencesResult",
+      "valid": false,
+      "value": {
+        "ok": true,
+        "graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "items": [
+          {
+            "node_id": "ref:1",
+            "title": "Paper",
+            "year": "2026",
+            "authors": [{}],
+            "external_degree": 1,
+            "shared_source_count": 1,
+            "source_paper_refs": [],
+            "reason": "Referenced"
+          }
+        ],
+        "cursor": "0",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 1,
+        "total": 1,
+        "limit": 25,
+        "diagnostics": {
+          "snapshot_found": true,
+          "returned_count": 1,
+          "total_external_nodes": 1,
+          "limits": { "limit": 25, "maxLimit": 100 },
+          "warnings": [],
+          "repository_basis_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "canonical_basis_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    }
+  ]
+}

@@ -11,6 +11,11 @@ import {
   resolveProviderById,
 } from "./registry";
 import type { Provider, ProviderRuntimeOptionSchemaEntry } from "./types";
+import {
+  hasAcpProviderScopedModelOptions,
+  parseAcpProviderModelId,
+  resolveAcpDisplayModelIdForProviderSelection,
+} from "../modules/acpModelOptionFolding";
 
 export const PROVIDER_PROFILE_SCHEMA = "zotero-bridge.provider-profile.v1";
 export const PROVIDER_PROFILE_DESCRIPTOR_SCHEMA =
@@ -40,7 +45,13 @@ export type ProviderProfileDescriptor = {
   };
   catalog: {
     state: "ready" | "stale" | "unavailable";
+    source: "backend-cache" | "none";
+    refreshedAt?: string;
     revision?: string;
+    diagnostics: Array<{
+      code: string;
+      message: string;
+    }>;
   };
   options: Array<{
     key: string;
@@ -53,6 +64,11 @@ export type ProviderProfileDescriptor = {
     disabled?: boolean;
   }>;
 };
+
+export type ProviderProfileValidationSource =
+  | "explicit"
+  | "environment-default"
+  | "host-default";
 
 export class ProviderProfileError extends Error {
   code: string;
@@ -86,6 +102,27 @@ function isUnsafeString(value: string) {
     /^(?:https?|wss?|file):\/\//i.test(trimmed) ||
     /^(?:[A-Za-z]:[\\/]|\/|~[\\/]|\.\.?[\\/])/.test(trimmed)
   );
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function profileFingerprint(profile: ProviderProfile) {
+  let hash = 2166136261;
+  const input = stableJson(profile);
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a32-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function rejectUnsafeValue(value: unknown, path: string): void {
@@ -156,12 +193,103 @@ function requestKindsForBackend(backend: BackendInstance) {
 }
 
 function catalogState(backend: BackendInstance) {
-  if (backend.type !== "acp") return { state: "ready" as const };
+  if (backend.type !== "acp") {
+    return {
+      state: "ready" as const,
+      source: "none" as const,
+      diagnostics: [],
+    };
+  }
   const cache = backend.acp?.runtimeOptionsCache;
-  if (!cache) return { state: "unavailable" as const };
+  if (!cache) {
+    return {
+      state: "unavailable" as const,
+      source: "none" as const,
+      diagnostics: [
+        {
+          code: "runtime_catalog_missing",
+          message: "ACP runtime option catalog is unavailable.",
+        },
+      ],
+    };
+  }
+  const diagnostics: Array<{ code: string; message: string }> = [];
+  const refreshedAt = String(cache.refreshedAt || "").trim();
+  const refreshedMs = refreshedAt ? Date.parse(refreshedAt) : NaN;
+  if (!refreshedAt || !Number.isFinite(refreshedMs)) {
+    diagnostics.push({
+      code: "runtime_catalog_timestamp_missing",
+      message: "ACP runtime option catalog has no valid refresh timestamp.",
+    });
+  } else if (Date.now() - refreshedMs > 24 * 60 * 60 * 1000) {
+    diagnostics.push({
+      code: "runtime_catalog_stale",
+      message: "ACP runtime option catalog is older than 24 hours.",
+    });
+  }
+  const displayModels = cache.displayModels || [];
+  const rawModels = cache.rawModels || [];
+  if (cache.status === "stale") {
+    diagnostics.push({
+      code: "runtime_catalog_stale",
+      message: "ACP runtime option catalog is marked stale.",
+    });
+  } else if (cache.status === "unavailable") {
+    diagnostics.push({
+      code: "runtime_catalog_unavailable",
+      message: "ACP runtime option catalog is marked unavailable.",
+    });
+  }
+  for (const diagnostic of cache.diagnostics || []) {
+    if (!diagnostics.some((entry) => entry.code === diagnostic.code)) {
+      diagnostics.push({ ...diagnostic });
+    }
+  }
+  if (
+    hasAcpProviderScopedModelOptions(displayModels) &&
+    rawModels.length === 0
+  ) {
+    diagnostics.push({
+      code: "runtime_catalog_inconsistent",
+      message:
+        "ACP display models are provider-scoped but raw models are missing.",
+    });
+  }
+  const rawProviders = new Set(
+    rawModels
+      .map((entry) => parseAcpProviderModelId(entry.id)?.provider)
+      .filter((entry): entry is string => !!entry),
+  );
+  const displayProviders = new Set(
+    displayModels
+      .map((entry) => parseAcpProviderModelId(entry.id)?.provider)
+      .filter((entry): entry is string => !!entry),
+  );
+  if (
+    displayProviders.size > 0 &&
+    [...displayProviders].some((provider) => !rawProviders.has(provider))
+  ) {
+    diagnostics.push({
+      code: "runtime_catalog_inconsistent",
+      message:
+        "ACP display model providers are absent from the raw model catalog.",
+    });
+  }
+  const state = diagnostics.some(
+    (entry) => entry.code === "runtime_catalog_stale",
+  )
+    ? "stale"
+    : diagnostics.length > 0
+      ? "unavailable"
+      : "ready";
   return {
-    state: "ready" as const,
-    ...(cache.refreshedAt ? { revision: cache.refreshedAt } : {}),
+    state: state as "ready" | "stale" | "unavailable",
+    source: "backend-cache" as const,
+    ...(refreshedAt ? { refreshedAt } : {}),
+    ...(cache.revision || refreshedAt
+      ? { revision: cache.revision || refreshedAt }
+      : {}),
+    diagnostics,
   };
 }
 
@@ -352,6 +480,22 @@ export function validateProviderOptionsForBackend(args: {
     options: providerOptions,
     backend: args.backend,
   });
+  const acpProvider = String(providerOptions.acpModelProvider || "").trim();
+  const acpModel = String(providerOptions.acpModelId || "").trim();
+  const acpCache = args.backend.acp?.runtimeOptionsCache;
+  const expectedAcpModel =
+    args.backend.type === "acp" &&
+    acpProvider &&
+    acpModel &&
+    acpCache &&
+    hasAcpProviderScopedModelOptions(acpCache.displayModels || [])
+      ? resolveAcpDisplayModelIdForProviderSelection({
+          modelOptions: acpCache.displayModels || [],
+          provider: acpProvider,
+          modelId: acpModel,
+          currentDisplayModelId: acpCache.currentDisplayModelId,
+        })
+      : "";
   for (const key of Object.keys(providerOptions)) {
     if (key === "acpModelProvider") {
       continue;
@@ -365,6 +509,14 @@ export function validateProviderOptionsForBackend(args: {
     }
     const requested = providerOptions[key];
     const applied = normalizedOptions[key];
+    if (
+      key === "acpModelId" &&
+      expectedAcpModel &&
+      typeof applied === "string" &&
+      applied === expectedAcpModel
+    ) {
+      continue;
+    }
     if (
       (typeof requested === "string" &&
         requested.trim() &&
@@ -382,9 +534,14 @@ export function validateProviderOptionsForBackend(args: {
   return normalizedOptions;
 }
 
-export async function validateProviderProfile(raw: unknown): Promise<{
+export async function validateProviderProfile(
+  raw: unknown,
+  source: ProviderProfileValidationSource = "explicit",
+): Promise<{
   normalizedProfile: ProviderProfile;
   descriptor: ProviderProfileDescriptor;
+  source: ProviderProfileValidationSource;
+  profileFingerprint: string;
 }> {
   if (!isRecord(raw)) {
     throw new ProviderProfileError(
@@ -441,16 +598,56 @@ export async function validateProviderProfile(raw: unknown): Promise<{
       { backendId, reason: ready.reason },
     );
   }
+  const descriptor = await describeProviderProfile(backendId);
+  const catalogSensitive =
+    isRecord(providerOptions) &&
+    Object.keys(providerOptions).some((key) =>
+      [
+        "acpModeId",
+        "acpModelProvider",
+        "acpModelId",
+        "acpReasoningEffort",
+      ].includes(key),
+    );
+  if (
+    backend.type === "acp" &&
+    catalogSensitive &&
+    descriptor.catalog.state !== "ready"
+  ) {
+    throw new ProviderProfileError(
+      "provider_profile_option_unavailable",
+      "ACP runtime option catalog is not ready; refresh the backend catalog before dispatch",
+      {
+        backendId,
+        catalogState: descriptor.catalog.state,
+        diagnostics: descriptor.catalog.diagnostics,
+      },
+    );
+  }
   const normalizedOptions = validateProviderOptionsForBackend({
     backend,
     providerOptions,
   });
+  if (backend.type === "acp") {
+    const requestedProvider = String(
+      providerOptions.acpModelProvider || "",
+    ).trim();
+    const requestedModel = String(providerOptions.acpModelId || "").trim();
+    if (requestedProvider && requestedModel) {
+      normalizedOptions.acpModelProvider = requestedProvider;
+      normalizedOptions.acpModelId =
+        parseAcpProviderModelId(requestedModel)?.model || requestedModel;
+    }
+  }
+  const normalizedProfile = {
+    schema: PROVIDER_PROFILE_SCHEMA,
+    backendId,
+    providerOptions: normalizedOptions,
+  } as ProviderProfile;
   return {
-    normalizedProfile: {
-      schema: PROVIDER_PROFILE_SCHEMA,
-      backendId,
-      providerOptions: normalizedOptions,
-    },
-    descriptor: await describeProviderProfile(backendId),
+    normalizedProfile,
+    descriptor,
+    source,
+    profileFingerprint: profileFingerprint(normalizedProfile),
   };
 }

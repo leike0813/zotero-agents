@@ -10,6 +10,12 @@ import {
   collectSkillOutputDiagnostics,
 } from "../../lib/resultOutput.mjs";
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
+import { findLinkedAttachmentForPath } from "../../lib/translatorArtifacts.mjs";
+import {
+  portableItemRef,
+  requireCommittedMutation,
+} from "../../lib/runtime.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -112,37 +118,6 @@ async function readArtifactText(args) {
   return readBundleTextWithPathFallback(args);
 }
 
-async function findLinkedAttachmentForPath(parentItem, targetPath, runtime) {
-  const normalizedTargetPath = normalizePathForCompare(targetPath);
-  if (!normalizedTargetPath) {
-    return null;
-  }
-  for (const attachmentId of parentItem.getAttachments?.() || []) {
-    let attachment = null;
-    try {
-      attachment = runtime.helpers.resolveItemRef(attachmentId);
-    } catch {
-      attachment = null;
-    }
-    if (!attachment) {
-      continue;
-    }
-    let attachmentPath = "";
-    try {
-      attachmentPath = normalizeString(await attachment.getFilePathAsync?.());
-    } catch {
-      attachmentPath = "";
-    }
-    if (!attachmentPath) {
-      attachmentPath = normalizeString(attachment.getField?.("path"));
-    }
-    if (normalizePathForCompare(attachmentPath) === normalizedTargetPath) {
-      return attachment;
-    }
-  }
-  return null;
-}
-
 async function applyResultImpl({
   parent,
   bundleReader,
@@ -152,7 +127,10 @@ async function applyResultImpl({
   runtime,
 }) {
   const hostApi = requireHostApi(runtime);
-  const parentItem = runtime.helpers.resolveItemRef(parent);
+  const parentRef = portableItemRef(parent);
+  const parentDetail = await hostApi.library.getItemDetail(parentRef);
+  if (!parentDetail || parentDetail.kind !== "regular") throw new Error("deep-reading parent is unavailable");
+  const parentItem = parentDetail.item;
   const diagnostics = [];
   const result = await readResultJson({ bundleReader, resultContext });
   const skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
@@ -200,12 +178,12 @@ async function applyResultImpl({
     runtime,
   );
   if (!attachment) {
-    attachment = await hostApi.attachments.createFromPath({
-      path: htmlPath,
-      parent: parentItem,
-      title: attachmentTitle,
-      mimeType: "text/html",
-    });
+    attachment = requireCommittedMutation(await hostApi.attachments.create({
+      operationId: `deep-reading:attachment:${Date.now().toString(36)}`,
+      placement: { kind: "child", parentRef },
+      source: { kind: "linked_file", path: htmlPath },
+      metadata: { title: attachmentTitle, contentType: "text/html" },
+    })).attachment;
   }
 
   const statusWarnings = [];
@@ -216,14 +194,15 @@ async function applyResultImpl({
       throw new Error("literature-deep-reading statusTags API is unavailable");
     }
     statusTransition = await transition({
-      item: parentItem,
+      operationId: `deep-reading:status:${Date.now().toString(36)}`,
+      itemRef: parentRef,
       remove: ["need-deep-reading"],
     });
     statusWarnings.push(
-      ...(statusTransition?.warnings || []).map((warning) => ({
-        code: "literature_deep_reading_status_transition_failed",
-        ...warning,
-      })),
+      ...collectStatusTransitionDiagnostics(
+        statusTransition,
+        "literature_deep_reading_status_transition_failed",
+      ),
     );
   } catch (error) {
     statusWarnings.push({
@@ -235,8 +214,8 @@ async function applyResultImpl({
   return appendSkillDiagnosticsToResult(
     {
       ok: true,
-      attachmentKey: normalizeString(attachment?.key),
-      attachmentId: attachment?.id || null,
+      attachmentKey: normalizeString(attachment?.ref?.key),
+      attachmentId: null,
       htmlPath,
       sourcePath,
       htmlEntryPath: htmlResolved.entryPath,

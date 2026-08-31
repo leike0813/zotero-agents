@@ -9,6 +9,7 @@ import {
   resolveRuntimeConsole,
   resolveRuntimeHostCapabilities,
   resolveRuntimeToolkit,
+  resolveRuntimeWindowCandidates,
   resolveRuntimeZoteroDetails,
   resolveRuntimeZotero,
   resolveToolkitMember,
@@ -186,6 +187,29 @@ describe("runtime bridge", function () {
         delete runtime.Services;
       }
     }
+  });
+
+  it("isolates failed Window candidates and resolves replacements per call", function () {
+    const firstWindow = { name: "first" } as unknown as Window;
+    const secondWindow = { name: "second" } as unknown as Window;
+
+    installRuntimeBridgeOverrideForTests({
+      addon: {
+        data: Object.defineProperty({}, "dialog", {
+          configurable: true,
+          get() {
+            throw new Error("dialog unavailable");
+          },
+        }),
+      } as any,
+      windows: [firstWindow],
+    });
+    assert.include(resolveRuntimeWindowCandidates(), firstWindow);
+
+    installRuntimeBridgeOverrideForTests({ windows: [secondWindow] });
+    const secondCandidates = resolveRuntimeWindowCandidates();
+    assert.include(secondCandidates, secondWindow);
+    assert.notInclude(secondCandidates, firstWindow);
   });
 
   it("resolves alert capability with window -> toolkit -> global fallback order", function () {

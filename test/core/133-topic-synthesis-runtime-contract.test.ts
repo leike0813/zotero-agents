@@ -199,9 +199,11 @@ describe("Topic synthesis runtime contract", function () {
           definition: "Query-based object detection methods derived from DETR.",
           scope_include: ["DETR-style detection"],
           scope_exclude: ["generic image classification"],
-          duplicate_status: "none",
-          duplicate_candidate_ids: [],
-          duplicate_reason: "",
+          target_decision: {
+            action: "create_new",
+            candidate_topic_ids: [],
+            reason: "No same-identity topic exists in the fixture.",
+          },
         },
       );
       runGate(

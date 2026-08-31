@@ -32,29 +32,23 @@ import {
   resetTaskDashboardHistory,
 } from "../../src/modules/taskDashboardHistory";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
   getSkillRunnerRunStoreReadDiagnosticsForTests,
   getSkillRunnerRunRecordByRequest,
   listSkillRunnerRunProjectionSummaries,
   listSkillRunnerRunProjections,
   listSkillRunnerRunRecords,
   projectSkillRunnerRun,
-  recordSkillRunnerObserverFailure,
-  recordSkillRunnerProgress,
   registerSkillRunnerSkillDisplaySnapshot,
   resetSkillRunnerRunStoreReadDiagnosticsForTests,
   subscribeSkillRunnerRunStore,
-  updateSkillRunnerRunResult,
-  updateSkillRunnerRunStateByRequest,
-  updateSkillRunnerRunStateByRunKey,
+  applySkillRunnerRunEvent,
 } from "../../src/modules/skillRunnerRunStore";
 import { resetBackendsRegistryReadDiagnosticsForTests } from "../../src/backends/registry";
 import { clearSkillRunnerSkillDisplayRegistryMemoryForTests } from "../../src/modules/skillRunnerSkillDisplayRegistry";
 import {
+  applySequenceRunEvent,
   getSequenceRunState,
   initializeSequenceRunState,
-  recordSequenceStepRequestCreated,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import { setPref } from "../../src/utils/prefs";
 
@@ -67,24 +61,27 @@ describe("separated ACP and SkillRunner run stores", function () {
   });
 
   function recordSkillRunnerRunFromJob(job: JobRecord) {
-    const run = createSkillRunnerRun({
-      backendId: String(job.meta.backendId || ""),
-      workflowId: job.workflowId,
-      workflowRunId: String(job.meta.workflowRunId || job.meta.runId || ""),
-      jobId: job.id,
-      taskName: String(job.meta.taskName || job.id),
-      skillId: String(job.meta.skillId || "") || undefined,
-      sequenceRunId: String(job.meta.sequenceRunId || "") || undefined,
-      sequenceJobId: String(job.meta.sequenceJobId || "") || undefined,
-      sequenceStepId: String(job.meta.sequenceStepId || "") || undefined,
-      requestPayload: job.request,
-      fetchType: "result",
-      executionMode:
-        String(job.meta.executionMode || "") === "interactive"
-          ? "interactive"
-          : "auto",
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt,
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: String(job.meta.backendId || ""),
+        workflowId: job.workflowId,
+        workflowRunId: String(job.meta.workflowRunId || job.meta.runId || ""),
+        jobId: job.id,
+        taskName: String(job.meta.taskName || job.id),
+        skillId: String(job.meta.skillId || "") || undefined,
+        sequenceRunId: String(job.meta.sequenceRunId || "") || undefined,
+        sequenceJobId: String(job.meta.sequenceJobId || "") || undefined,
+        sequenceStepId: String(job.meta.sequenceStepId || "") || undefined,
+        requestPayload: job.request,
+        fetchType: "result",
+        executionMode:
+          String(job.meta.executionMode || "") === "interactive"
+            ? "interactive"
+            : "auto",
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+      },
     });
     if (!run) {
       return null;
@@ -95,7 +92,8 @@ describe("separated ACP and SkillRunner run stores", function () {
         "",
     ).trim();
     const attached = requestId
-      ? attachSkillRunnerRequestId({
+      ? applySkillRunnerRunEvent({
+          type: "request.created",
           runKey: run.runKey,
           requestId,
           updatedAt: job.updatedAt,
@@ -107,7 +105,8 @@ describe("separated ACP and SkillRunner run stores", function () {
     let current = attached;
     if (!requestId && job.state === "running") {
       current =
-        recordSkillRunnerProgress({
+        applySkillRunnerRunEvent({
+          type: "submit.request_creating",
           runKey: current.runKey,
           event: {
             type: "request-creating",
@@ -118,7 +117,8 @@ describe("separated ACP and SkillRunner run stores", function () {
     }
     if (requestId && job.meta.skillRunnerRequestReady) {
       current =
-        updateSkillRunnerRunStateByRunKey({
+        applySkillRunnerRunEvent({
+          type: "backend.snapshot",
           runKey: current.runKey,
           state: "request_ready",
           backendStatus: String(result?.backendStatus || job.state) as any,
@@ -126,7 +126,8 @@ describe("separated ACP and SkillRunner run stores", function () {
         }) || current;
     }
     return (
-      updateSkillRunnerRunStateByRunKey({
+      applySkillRunnerRunEvent({
+        type: "backend.snapshot",
         runKey: current.runKey,
         state: job.state,
         backendStatus: String(result?.backendStatus || job.state) as any,
@@ -284,7 +285,8 @@ describe("separated ACP and SkillRunner run stores", function () {
         updatedAt: `2026-06-18T00:00:1${index}.000Z`,
       });
       if (index % 2 === 1) {
-        updateSkillRunnerRunStateByRequest({
+        applySkillRunnerRunEvent({
+          type: "backend.snapshot",
           backendId,
           requestId: `sr-projection-${index}`,
           state: "succeeded",
@@ -363,7 +365,8 @@ describe("separated ACP and SkillRunner run stores", function () {
         updatedAt: `2026-06-18T00:00:1${index}.000Z`,
       });
       if (state !== "running") {
-        updateSkillRunnerRunStateByRequest({
+        applySkillRunnerRunEvent({
+          type: "backend.snapshot",
           backendId,
           requestId,
           state,
@@ -510,7 +513,8 @@ describe("separated ACP and SkillRunner run stores", function () {
     };
 
     recordSkillRunnerRunFromJob(job);
-    updateSkillRunnerRunResult({
+    applySkillRunnerRunEvent({
+      type: "result.fetched",
       backendId: "skillrunner-local",
       requestId: "sr-bundle-result",
       resultJson: { ok: true },
@@ -518,9 +522,7 @@ describe("separated ACP and SkillRunner run stores", function () {
       workspaceDir: "/remote/workspace",
       bundleDir: "C:/tmp/extracted-bundle",
       updatedAt: "2026-06-18T00:00:02.000Z",
-    } as Parameters<typeof updateSkillRunnerRunResult>[0] & {
-      bundleDir: string;
-    });
+    } as any);
 
     const entry = getPluginRunStoreEntryByRequest({
       kind: "skillrunner",
@@ -635,12 +637,12 @@ describe("separated ACP and SkillRunner run stores", function () {
     assert.equal(listSkillRunnerRunRecords()[0].runKey, localRunKey);
     assert.equal(listTaskDashboardHistory()[0]?.requestId, "sr-created-only");
 
-    const defensiveRequestReady = updateSkillRunnerRunStateByRequest({
+    const defensiveRequestReady = applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId: "skillrunner-local",
       requestId: "sr-created-only",
       state: "request_ready" as any,
       updatedAt: "2026-06-18T00:00:03.500Z",
-      eventType: "backend.snapshot",
     });
     assert.equal(defensiveRequestReady?.runKey, localRunKey);
     assert.equal(defensiveRequestReady?.status, "running");
@@ -670,12 +672,12 @@ describe("separated ACP and SkillRunner run stores", function () {
       "request_ready",
     );
 
-    const terminal = updateSkillRunnerRunStateByRequest({
+    const terminal = applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId: "skillrunner-local",
       requestId: "sr-created-only",
       state: "succeeded",
       updatedAt: "2026-06-18T00:00:04.000Z",
-      eventType: "backend.terminal",
     });
     assert.equal(terminal?.runKey, localRunKey);
     assert.equal(terminal?.status, "succeeded");
@@ -727,17 +729,20 @@ describe("separated ACP and SkillRunner run stores", function () {
       events.push(event.reason);
     });
 
-    createSkillRunnerRun({
-      backendId: "skillrunner-local",
-      workflowId: "workflow-debug-probe",
-      workflowRunId: "workflow-run-task-change-bridge",
-      jobId: "job-1",
-      taskName: "debug-host-bridge-connectivity-probe",
-      skillId: "debug-host-bridge-connectivity-probe",
-      fetchType: "result",
-      executionMode: "auto",
-      createdAt: "2026-06-18T00:00:00.000Z",
-      updatedAt: "2026-06-18T00:00:00.000Z",
+    applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "skillrunner-local",
+        workflowId: "workflow-debug-probe",
+        workflowRunId: "workflow-run-task-change-bridge",
+        jobId: "job-1",
+        taskName: "debug-host-bridge-connectivity-probe",
+        skillId: "debug-host-bridge-connectivity-probe",
+        fetchType: "result",
+        executionMode: "auto",
+        createdAt: "2026-06-18T00:00:00.000Z",
+        updatedAt: "2026-06-18T00:00:00.000Z",
+      },
     });
 
     unsubscribe();
@@ -761,33 +766,38 @@ describe("separated ACP and SkillRunner run stores", function () {
       }),
     );
     resetBackendsRegistryReadDiagnosticsForTests();
-    const run = createSkillRunnerRun({
-      backendId: "remote-skillrunner",
-      workflowId: "workflow-debug-probe",
-      workflowRunId: "workflow-run-detached-projection",
-      jobId: "job-1",
-      taskName: "debug-host-bridge-connectivity-probe",
-      skillId: "debug-host-bridge-connectivity-probe",
-      fetchType: "result",
-      executionMode: "interactive",
-      createdAt: "2026-06-18T00:00:00.000Z",
-      updatedAt: "2026-06-18T00:00:00.000Z",
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "remote-skillrunner",
+        workflowId: "workflow-debug-probe",
+        workflowRunId: "workflow-run-detached-projection",
+        jobId: "job-1",
+        taskName: "debug-host-bridge-connectivity-probe",
+        skillId: "debug-host-bridge-connectivity-probe",
+        fetchType: "result",
+        executionMode: "interactive",
+        createdAt: "2026-06-18T00:00:00.000Z",
+        updatedAt: "2026-06-18T00:00:00.000Z",
+      },
     });
     assert.isOk(run);
-    attachSkillRunnerRequestId({
+    applySkillRunnerRunEvent({
+      type: "request.created",
       runKey: run!.runKey,
       requestId: "sr-detached-projection",
       updatedAt: "2026-06-18T00:00:01.000Z",
     });
-    updateSkillRunnerRunStateByRequest({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId: "remote-skillrunner",
       requestId: "sr-detached-projection",
       state: "request_ready" as any,
       backendStatus: "running",
       updatedAt: "2026-06-18T00:00:02.000Z",
-      eventType: "backend.snapshot",
     });
-    recordSkillRunnerObserverFailure({
+    applySkillRunnerRunEvent({
+      type: "run.observer_detached",
       runKey: run!.runKey,
       error: new Error("network detached"),
       source: "test",
@@ -818,39 +828,43 @@ describe("separated ACP and SkillRunner run stores", function () {
       }),
     );
     resetBackendsRegistryReadDiagnosticsForTests();
-    const run = createSkillRunnerRun({
-      backendId: "remote-skillrunner-terminal",
-      workflowId: "workflow-debug-probe",
-      workflowRunId: "workflow-run-terminal-projection",
-      jobId: "job-1",
-      taskName: "debug-host-bridge-connectivity-probe",
-      skillId: "debug-host-bridge-connectivity-probe",
-      fetchType: "result",
-      executionMode: "interactive",
-      createdAt: "2026-06-18T00:00:00.000Z",
-      updatedAt: "2026-06-18T00:00:00.000Z",
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "remote-skillrunner-terminal",
+        workflowId: "workflow-debug-probe",
+        workflowRunId: "workflow-run-terminal-projection",
+        jobId: "job-1",
+        taskName: "debug-host-bridge-connectivity-probe",
+        skillId: "debug-host-bridge-connectivity-probe",
+        fetchType: "result",
+        executionMode: "interactive",
+        createdAt: "2026-06-18T00:00:00.000Z",
+        updatedAt: "2026-06-18T00:00:00.000Z",
+      },
     });
     assert.isOk(run);
-    attachSkillRunnerRequestId({
+    applySkillRunnerRunEvent({
+      type: "request.created",
       runKey: run!.runKey,
       requestId: "sr-terminal-projection",
       updatedAt: "2026-06-18T00:00:01.000Z",
     });
-    updateSkillRunnerRunStateByRequest({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId: "remote-skillrunner-terminal",
       requestId: "sr-terminal-projection",
       state: "request_ready" as any,
       backendStatus: "running",
       updatedAt: "2026-06-18T00:00:02.000Z",
-      eventType: "backend.snapshot",
     });
-    updateSkillRunnerRunStateByRequest({
+    applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId: "remote-skillrunner-terminal",
       requestId: "sr-terminal-projection",
       state: "succeeded",
       backendStatus: "succeeded",
       updatedAt: "2026-06-18T00:00:03.000Z",
-      eventType: "backend.snapshot",
     });
 
     const task = listWorkflowTasks().find(
@@ -864,17 +878,20 @@ describe("separated ACP and SkillRunner run stores", function () {
   });
 
   it("clears stale active task index after a targeted SkillRunner terminal projection sync", function () {
-    const run = createSkillRunnerRun({
-      backendId: "remote-skillrunner-active-sync",
-      workflowId: "workflow-debug-probe",
-      workflowRunId: "workflow-run-active-sync",
-      jobId: "job-1",
-      taskName: "debug-host-bridge-connectivity-probe",
-      skillId: "debug-host-bridge-connectivity-probe",
-      fetchType: "result",
-      executionMode: "interactive",
-      createdAt: "2026-06-18T00:00:00.000Z",
-      updatedAt: "2026-06-18T00:00:00.000Z",
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "remote-skillrunner-active-sync",
+        workflowId: "workflow-debug-probe",
+        workflowRunId: "workflow-run-active-sync",
+        jobId: "job-1",
+        taskName: "debug-host-bridge-connectivity-probe",
+        skillId: "debug-host-bridge-connectivity-probe",
+        fetchType: "result",
+        executionMode: "interactive",
+        createdAt: "2026-06-18T00:00:00.000Z",
+        updatedAt: "2026-06-18T00:00:00.000Z",
+      },
     });
     assert.isOk(run);
 
@@ -886,12 +903,12 @@ describe("separated ACP and SkillRunner run stores", function () {
       run!.runKey,
     );
 
-    const updated = updateSkillRunnerRunStateByRunKey({
+    const updated = applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       runKey: run!.runKey,
       state: "succeeded",
       backendStatus: "succeeded",
       updatedAt: "2026-06-18T00:00:01.000Z",
-      eventType: "backend.terminal",
     });
     assert.isOk(updated);
 
@@ -923,17 +940,20 @@ describe("separated ACP and SkillRunner run stores", function () {
     });
     clearSkillRunnerSkillDisplayRegistryMemoryForTests();
 
-    createSkillRunnerRun({
-      backendId: "skillrunner-local",
-      workflowId: "workflow-debug-probe",
-      workflowRunId: "workflow-run-display-registry",
-      jobId: "job-1",
-      taskName: "fallback task name",
-      skillId: "debug-display-skill",
-      fetchType: "result",
-      executionMode: "auto",
-      createdAt: "2026-06-18T00:00:00.000Z",
-      updatedAt: "2026-06-18T00:00:00.000Z",
+    applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "skillrunner-local",
+        workflowId: "workflow-debug-probe",
+        workflowRunId: "workflow-run-display-registry",
+        jobId: "job-1",
+        taskName: "fallback task name",
+        skillId: "debug-display-skill",
+        fetchType: "result",
+        executionMode: "auto",
+        createdAt: "2026-06-18T00:00:00.000Z",
+        updatedAt: "2026-06-18T00:00:00.000Z",
+      },
     });
 
     const projection = listSkillRunnerRunProjections()[0];
@@ -970,12 +990,12 @@ describe("separated ACP and SkillRunner run stores", function () {
     };
     recordSkillRunnerRunFromJob(job);
 
-    const updated = updateSkillRunnerRunStateByRequest({
+    const updated = applySkillRunnerRunEvent({
+      type: "backend.snapshot",
       backendId: "skillrunner-local",
       requestId: "sr-req-stable-snapshot",
       state: "running",
       updatedAt: "2026-06-18T00:00:10.000Z",
-      eventType: "backend.snapshot",
     });
 
     assert.equal(updated?.updatedAt, "2026-06-18T00:00:01.000Z");
@@ -1006,7 +1026,8 @@ describe("separated ACP and SkillRunner run stores", function () {
       workflowRunId: "sequence-root-no-request-index",
       jobId: "job-1",
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId: "sequence-root-no-request-index",
       stepIndex: 0,
       requestId: "sr-sequence-root-step-request",

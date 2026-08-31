@@ -21,8 +21,12 @@ workflow.json (fichier manifeste)
 |------|------|
 | `attachment` | Fichiers joints d'une notice |
 | `parent` | Notice parente de la notice sélectionnée |
+| `child` | Notice enfant |
+| `selection` | Notice directement sélectionnée |
 | `note` | Notice de type note |
-| `workflow` | Portée du traitement par lot |
+| `generated-note` | Note générée par un workflow |
+| `digest-image-target` | Cible d'image pour la représentation du digest |
+| `workflow` | Portée du traitement par lot (aucune sélection requise) |
 
 ### Système de Hooks
 
@@ -34,15 +38,16 @@ Les Workflows peuvent exécuter des scripts JavaScript personnalisés à différ
 - **normalizeSettings**: Normaliser les paramètres utilisateur
 - **applyResult**: Appliquer les résultats renvoyés par le backend à Zotero
 
-## Trois Backends d'Exécution
+## Quatre Backends d'Exécution
 
-Les Workflows peuvent être exécutés via trois types de backends :
+Les Workflows peuvent être exécutés via quatre types de backends :
 
 | Backend | Type de Requête | Cas d'Usage |
 |---------|-------------|---------|
-| **Skill-Runner** | `skill.run.v1` | Exécution de compétences générale, prend en charge le mode interactif |
-| **ACP** | `acp.skill.run.v1` | Exécution de compétences via le backend ACP |
-| **HTTP Générique** | `generic-http.request.v1` | Appels d'API HTTP |
+| **Skill-Runner** | `skillrunner.job.v1` / `skillrunner.sequence.v1` | Exécution de compétences générale, prend en charge le mode interactif |
+| **ACP** | `acp.prompt.v1` / `acp.skill.run.v1` / `skillrunner.sequence.v1` | Exécution de conversations ou de compétences via le backend ACP |
+| **HTTP Générique** | `generic-http.request.v1` / `generic-http.steps.v1` | Appels d'API HTTP |
+| **Pass-through** | `pass-through.run.v1` | Opérations purement locales, aucun backend distant nécessaire |
 
 ## Package Officiel de Workflows
 
@@ -68,12 +73,13 @@ Le plugin inclut une série de workflows officiels, regroupés par fonction :
 | **Deep Reading** | Générer une vue HTML structurée de lecture approfondie avec prise en charge de la traduction | Pièce jointe | ACP | [Détails](literature-deep-reading) |
 | **Literature Search & Ingest** | Laisser l'Agent rechercher de la littérature académique et l'ingérer directement dans Zotero | workflow | ACP | [Détails](literature-search-ingest) |
 | **Collection Collector** | Sélectionner la littérature existante de la bibliothèque pour une collection selon une portée déclarée | workflow | ACP | [Détails](collection-collector) |
-| **Export/Import Literature Bundle** | Exporter/importer des bundles ZIP portables de notices Zotero avec métadonnées, pièces jointes et notes | Notice parente / workflow | Aucun backend requis | [Détails](export-import-literature-bundle) |
+| **Export/Import Literature Bundle** | Exporter/importer des bundles ZIP portables de notices Zotero avec métadonnées, pièces jointes et notes | Notice parente / workflow | Pass-through | [Détails](export-import-literature-bundle) |
 | **Export Research Bundle** | Assembler automatiquement un bundle de recherche en lecture seule pour un projet à partir de la bibliothèque et du contexte Synthesis | workflow | Skill-Runner | [Détails](export-research-bundle) |
-| **Tag Auditor** | Analyser toutes les notices de la bibliothèque par rapport au vocabulaire de balises contrôlé et signaler la conformité | workflow | Aucun backend requis | [Détails](tag-auditor) |
+| **Tag Auditor** | Analyser toutes les notices de la bibliothèque par rapport au vocabulaire de balises contrôlé et signaler la conformité | workflow | Pass-through | [Détails](tag-auditor) |
 | **Tag Bootstrapper** | Créer interactivement un vocabulaire de balises contrôlé pour un domaine de recherche | workflow | Skill-Runner | [Détails](tag-bootstrapper) |
 | **Tag Regulator** | Normaliser les balises en fonction d'un vocabulaire contrôlé et inférer de nouvelles balises | Notice parente | Skill-Runner | [Détails](tag-regulator) |
-| **Export/Import Notes** | Exporter ou importer des notes d'analyse avec prise en charge de l'édition et de la réimportation | Notice parente | Aucun backend requis | [Détails](export-import-notes) |
+| **Export/Import Notes** | Exporter ou importer des notes d'analyse avec prise en charge de l'édition et de la réimportation | Notice parente | Pass-through | [Détails](export-import-notes) |
+| **Add Digest Representative Image** | Ajouter une image représentative à un digest de littérature | Notice parente | ACP | — |
 
 ### 🛠️ Utilitaires
 

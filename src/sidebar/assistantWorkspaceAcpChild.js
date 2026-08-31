@@ -1,14 +1,22 @@
-import { projectAssistantWorkspacePanel } from "./assistantPanelModel.js";
 import {
-  renderAssistantMessageCounts,
-  renderAssistantPanelSnapshot,
-} from "./assistantPanelRenderer.js";
+  projectAssistantWorkspacePanel,
+  statusTone,
+} from "./assistantPanelModel.js";
+import { adoptPanelRegions, managedMount } from "./assistantPanelRenderer.js";
+import { renderSidebarMarkdown } from "./markdownParser.js";
 import {
   applyAssistantTranscriptEffects,
   applyAssistantTranscriptEffectsExact,
   renderAssistantTranscript,
   resetAssistantTranscriptVirtualState,
 } from "./assistantTranscriptRenderer.js";
+import {
+  createChromePanelRenderer,
+  renderStaticChrome,
+  renderTranscriptRegion,
+  renderTranscriptRegionReset,
+} from "./components/chromeRenderer";
+import { createRegionCollapseController } from "./assistantRegionCollapse";
 import {
   ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY,
   ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS,
@@ -129,18 +137,23 @@ function validPublicationPayload(publication) {
   if (publication.publicationKind === "composer") {
     return (
       hasExactKeys(payload.reply, ["status"]) &&
-      hasExactKeys(payload.runtimeOptions, [
-        "mode",
-        "model",
-        "reasoningEffort",
-      ]) &&
-      [
-        payload.runtimeOptions.mode,
-        payload.runtimeOptions.model,
-        payload.runtimeOptions.reasoningEffort,
-      ].every(function (group) {
-        return hasExactKeys(group, ["selectedOptionId", "options", "enabled"]);
-      })
+      (payload.runtimeOptions === null ||
+        (hasExactKeys(payload.runtimeOptions, [
+          "mode",
+          "model",
+          "reasoningEffort",
+        ]) &&
+          [
+            payload.runtimeOptions.mode,
+            payload.runtimeOptions.model,
+            payload.runtimeOptions.reasoningEffort,
+          ].every(function (group) {
+            return hasExactKeys(group, [
+              "selectedOptionId",
+              "options",
+              "enabled",
+            ]);
+          })))
     );
   }
   if (publication.publicationKind === "owner-details") {
@@ -216,6 +229,14 @@ function validPublicationEnvelope(publication, source) {
     source === "acp-skills" &&
     (!hasExactKeys(owner, ["source", "ownerKey", "requestId"]) ||
       owner.ownerKey !== text(owner.requestId))
+  ) {
+    return false;
+  }
+  if (
+    source === "skillrunner" &&
+    (!hasExactKeys(owner, ["source", "ownerKey", "requestId", "runKey"]) ||
+      !text(owner.runKey) ||
+      owner.ownerKey !== (text(owner.requestId) || text(owner.runKey)))
   ) {
     return false;
   }
@@ -362,6 +383,17 @@ function createPageRequest(owner, cursor, limit) {
       source: "acp-skills",
       ownerKey: text(owner.ownerKey),
       requestId: text(owner.requestId),
+    };
+  } else if (
+    owner.source === "skillrunner" &&
+    text(owner.runKey) &&
+    text(owner.ownerKey) === (text(owner.requestId) || text(owner.runKey))
+  ) {
+    canonicalOwner = {
+      source: "skillrunner",
+      ownerKey: text(owner.ownerKey),
+      requestId: text(owner.requestId) || null,
+      runKey: text(owner.runKey),
     };
   }
   if (!canonicalOwner) return null;
@@ -975,87 +1007,6 @@ function createController(options) {
   return { applyPublication };
 }
 
-function renderResult(result, options) {
-  const opts = options || {};
-  const snapshot = (result && result.snapshot) || {};
-  const kind = result && result.publicationKind;
-  const reportEffect = function (observation) {
-    if (typeof opts.onEffectRendered !== "function") return;
-    try {
-      opts.onEffectRendered(observation);
-    } catch (_error) {
-      return;
-    }
-  };
-  const labels =
-    typeof opts.getLabels === "function" ? opts.getLabels(snapshot) || {} : {};
-  if (kind === "message-counts") {
-    const countsRegion = readStateRegion(snapshot, "message-counts");
-    return !!(
-      opts.panelRenderer &&
-      typeof opts.panelRenderer.renderAssistantMessageCounts === "function" &&
-      opts.panelRenderer.renderAssistantMessageCounts(
-        opts.messageCountContainer,
-        countsRegion ? countsRegion.counts : null,
-        labels,
-      )
-    );
-  }
-  if (kind !== "transcript") {
-    return typeof opts.renderRegion === "function"
-      ? opts.renderRegion(result)
-      : true;
-  }
-  const ownerKey =
-    typeof opts.getOwnerKey === "function"
-      ? text(opts.getOwnerKey(snapshot))
-      : "";
-  const region = readRegion(snapshot, opts.source, ownerKey);
-  const page = rendererPage(region);
-  const effect = result.effect || {};
-  if (effect.kind === "none") return true;
-  if (effect.kind === "snapshot") {
-    if (typeof opts.renderSnapshot !== "function") return false;
-    const rendered = opts.renderSnapshot(result);
-    if (rendered !== false) {
-      reportEffect({
-        renderPath: "snapshot",
-        insertedRows: 0,
-        updatedRows: 0,
-        removedRows: 0,
-        measuredRows: 0,
-      });
-    }
-    return rendered;
-  }
-  const mode = typeof opts.getMode === "function" ? opts.getMode() : opts.mode;
-  return !!(
-    opts.transcriptRenderer &&
-    typeof opts.transcriptRenderer.applyAssistantTranscriptEffects ===
-      "function" &&
-    opts.transcriptRenderer.applyAssistantTranscriptEffects({
-      container: opts.transcriptContainer,
-      nodeMap: opts.rowNodesByKey,
-      effect,
-      affectedItems: effect.affectedItems || [],
-      virtualized:
-        !!page &&
-        (typeof opts.isVirtualized === "function"
-          ? opts.isVirtualized(snapshot, region)
-          : true),
-      ownerKey: page ? page.ownerKey : undefined,
-      page: page || undefined,
-      mode: mode === "bubble" ? "bubble" : "plain",
-      variant: opts.variant,
-      expandedIds: opts.expandedRowKeys,
-      renderMarkdown: opts.renderMarkdown,
-      formatTime: opts.formatTime,
-      labels,
-      onEffectRendered: reportEffect,
-    })
-  );
-}
-
 const BRIDGE_KEY = ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY;
 
 function childSource() {
@@ -1064,7 +1015,11 @@ function childSource() {
       (document.documentElement &&
         document.documentElement.getAttribute("data-source")),
   );
-  return source === "acp-chat" || source === "acp-skills" ? source : "";
+  return source === "acp-chat" ||
+    source === "acp-skills" ||
+    source === "skillrunner"
+    ? source
+    : "";
 }
 
 function childBridge() {
@@ -1094,6 +1049,14 @@ function canonicalActionOwner(source, value) {
     source === "acp-skills" &&
     hasExactKeys(owner, ["source", "ownerKey", "requestId"]) &&
     text(owner.ownerKey) === text(owner.requestId)
+  ) {
+    return clone(owner);
+  }
+  if (
+    source === "skillrunner" &&
+    hasExactKeys(owner, ["source", "ownerKey", "requestId", "runKey"]) &&
+    text(owner.runKey) &&
+    text(owner.ownerKey) === (text(owner.requestId) || text(owner.runKey))
   ) {
     return clone(owner);
   }
@@ -1176,14 +1139,20 @@ function resolvePanelActionEnvelope(
   return null;
 }
 
-function createChildRuntime(source) {
+function createAssistantWorkspaceAcpChildRuntime(source) {
   const model = {
     projectAssistantWorkspacePanel,
+    statusTone,
   };
   const panelRenderer = {
-    renderAssistantMessageCounts,
-    renderAssistantPanelSnapshot,
+    adoptPanelRegions,
+    managedMount,
   };
+  const renderChromePanel = createChromePanelRenderer({
+    adoptPanelRegions: panelRenderer.adoptPanelRegions,
+    managedMount: panelRenderer.managedMount,
+    statusTone: model.statusTone,
+  });
   const transcriptRenderer = {
     applyAssistantTranscriptEffects,
     applyAssistantTranscriptEffectsExact,
@@ -1215,8 +1184,7 @@ function createChildRuntime(source) {
     interaction: document.querySelector('[data-role="interaction"]'),
     composer: document.querySelector('[data-role="composer"]'),
     details: document.querySelector('[data-role="details-drawer"]'),
-    plain: document.querySelector('[data-assistant-view-mode="plain"]'),
-    bubble: document.querySelector('[data-assistant-view-mode="bubble"]'),
+    viewMode: document.querySelector(".asst-conversation-overlay-menu"),
   };
   if (
     !elements.root ||
@@ -1248,6 +1216,7 @@ function createChildRuntime(source) {
     completedCollapsed: true,
     queuedCollapsed: true,
     runningCollapsed: false,
+    unavailableCollapsed: false,
     drawerGroupCollapsed: new Map(),
     expandedTranscriptRows: new Set(),
     replyDraft: "",
@@ -1258,6 +1227,7 @@ function createChildRuntime(source) {
   let labels = {};
   let actionRegistry = {};
   let actionSequence = 0;
+  let regionCollapse = null;
 
   function selectedOwner(state) {
     const owner = state && state.selection && state.selection.owner;
@@ -1320,6 +1290,74 @@ function createChildRuntime(source) {
     if (owner) ui.replyDraftByOwner.set(owner.ownerKey, ui.replyDraft);
   }
 
+  function readAuthImportInputFiles() {
+    const inputs = elements.interaction
+      ? Array.from(
+          elements.interaction.querySelectorAll(
+            "input[data-assistant-auth-import-file]",
+          ),
+        )
+      : [];
+    const jobs = [];
+    inputs.forEach(function (input) {
+      if (!input.files || input.files.length === 0) return;
+      const file = input.files[0];
+      const name =
+        input.getAttribute("data-assistant-auth-import-name") || file.name;
+      jobs.push(
+        new Promise(function (resolve, reject) {
+          const reader = new FileReader();
+          reader.onload = function () {
+            const raw = String(reader.result || "").trim();
+            const mark = "base64,";
+            const index = raw.indexOf(mark);
+            if (index < 0) {
+              reject(new Error("base64 conversion failed"));
+              return;
+            }
+            resolve({
+              name: name,
+              contentBase64: raw.slice(index + mark.length),
+            });
+          };
+          reader.onerror = function () {
+            reject(new Error("file read failed"));
+          };
+          reader.readAsDataURL(file);
+        }),
+      );
+    });
+    return Promise.all(jobs);
+  }
+
+  function submitAuthImport() {
+    const route = function (payload) {
+      const routed = resolvePanelActionEnvelope(
+        "auth-import-run",
+        payload,
+        selectedOwner(snapshot),
+        actionRegistry,
+        source,
+      );
+      if (!routed) {
+        fail("invalid-action-route");
+        return;
+      }
+      sendAction("auth-import-run", routed.payload, routed.owner);
+    };
+    readAuthImportInputFiles()
+      .then(function (files) {
+        route({ providerId: "", files: files, error: "" });
+      })
+      .catch(function (error) {
+        route({
+          providerId: "",
+          files: [],
+          error: text(error && error.message),
+        });
+      });
+  }
+
   function currentTranscript() {
     const region = snapshot.selection && snapshot.selection.transcript;
     const owner = selectedOwner(snapshot);
@@ -1331,31 +1369,7 @@ function createChildRuntime(source) {
   }
 
   function markdown(value) {
-    const input = String(value == null ? "" : value);
-    if (!window.markdownit) {
-      return input
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\n/g, "<br>");
-    }
-    try {
-      const parser = window.markdownit({
-        html: false,
-        breaks: true,
-        linkify: false,
-      });
-      if (window.texmath && window.katex) {
-        parser.use(window.texmath, {
-          engine: window.katex,
-          delimiters: "dollars",
-          katexOptions: { throwOnError: false },
-        });
-      }
-      return parser.render(input);
-    } catch (_error) {
-      return input;
-    }
+    return renderSidebarMarkdown(value);
   }
 
   function formatTime(value) {
@@ -1365,67 +1379,43 @@ function createChildRuntime(source) {
       : text(value);
   }
 
-  function showTranscriptState(kind, message) {
-    const owner = selectedOwner(snapshot);
-    const signature = transcriptStateSignature(
-      owner ? owner.ownerKey : "",
-      kind,
-      message,
-    );
-    const existingSignature =
-      elements.transcript.firstElementChild &&
-      elements.transcript.firstElementChild.getAttribute(
-        "data-assistant-transcript-state-signature",
-      );
-    if (existingSignature === signature) {
-      return true;
-    }
-    transcriptRenderer.resetAssistantTranscriptVirtualState(
-      elements.transcript,
-      owner ? owner.ownerKey : "",
-    );
-    elements.transcript.removeAttribute("data-assistant-transcript-order-key");
-    elements.transcript.removeAttribute("data-assistant-transcript-mode-key");
-    while (elements.transcript.firstChild) {
-      elements.transcript.removeChild(elements.transcript.firstChild);
-    }
-    const node = document.createElement("div");
-    node.className =
-      kind === "loading"
-        ? "assistant-transcript-loading asst-spinner"
-        : "assistant-transcript-empty";
-    node.setAttribute("data-assistant-transcript-state", kind);
-    node.setAttribute("data-assistant-transcript-state-signature", signature);
-    node.textContent = message || "";
-    elements.transcript.appendChild(node);
-    return true;
-  }
-
-  function updateViewModeButtons() {
-    const bubble = ui.chatDisplayMode === "bubble";
-    elements.transcript.classList.toggle("bubble-mode", bubble);
-    elements.transcript.classList.toggle("plain-mode", !bubble);
-    if (elements.plain)
-      elements.plain.setAttribute("aria-pressed", bubble ? "false" : "true");
-    if (elements.bubble)
-      elements.bubble.setAttribute("aria-pressed", bubble ? "true" : "false");
-  }
-
   function renderTranscript() {
     const owner = selectedOwner(snapshot);
     const region = currentTranscript();
-    updateViewModeButtons();
-    if (!owner) {
-      return showTranscriptState("idle", "");
+    let state = "idle";
+    if (owner) {
+      if (!region || region.status === "loading") {
+        state = "loading";
+      } else if (region.status === "failed") {
+        state = "failed";
+      } else {
+        state = rendererPage(region) ? "ready" : "loading";
+      }
     }
-    if (!region || region.status === "loading") {
-      return showTranscriptState("loading", "");
-    }
-    if (region.status === "failed") {
-      return showTranscriptState("failed", errorMessage(region));
+    // The wrapper owns the placeholder/mode boundary; entering a non-ready
+    // state removes the rows through its diff and resets the imperative
+    // virtual state through the injected reset (the old showTranscriptState
+    // clear). While ready, the wrapper vnode is null and the imperative
+    // renderer owns the container content.
+    renderTranscriptRegion({
+      container: elements.transcript,
+      state,
+      message: state === "failed" ? errorMessage(region) : "",
+      mode: ui.chatDisplayMode,
+      ownerKey: owner ? owner.ownerKey : "",
+      onResetVirtualState: function (container) {
+        transcriptRenderer.resetAssistantTranscriptVirtualState(
+          container,
+          owner ? owner.ownerKey : "",
+        );
+        container.removeAttribute("data-assistant-transcript-order-key");
+        container.removeAttribute("data-assistant-transcript-mode-key");
+      },
+    });
+    if (state !== "ready") {
+      return true;
     }
     const page = rendererPage(region);
-    if (!page) return showTranscriptState("loading", "");
     return renderTranscriptPage(owner, page, region.transcriptRevision);
   }
 
@@ -1532,6 +1522,9 @@ function createChildRuntime(source) {
       } else if (text(payload.sectionId) === "queued") {
         ui.queuedCollapsed = !ui.queuedCollapsed;
         renderPanel();
+      } else if (text(payload.sectionId) === "unavailable") {
+        ui.unavailableCollapsed = !ui.unavailableCollapsed;
+        renderPanel();
       }
       return;
     }
@@ -1562,9 +1555,17 @@ function createChildRuntime(source) {
       renderPanel();
       return;
     }
-    if (action === "set-active-conversation" || action === "select-run") {
+    if (
+      action === "set-active-conversation" ||
+      action === "select-run" ||
+      action === "select-task"
+    ) {
       ui.contextDrawerOpen = false;
       renderPanel();
+    }
+    if (action === "auth-import-run") {
+      submitAuthImport();
+      return;
     }
     captureReplyDraft();
     const routed = resolvePanelActionEnvelope(
@@ -1591,7 +1592,7 @@ function createChildRuntime(source) {
       ui.permissionRequestOpen = false;
     }
     const panel = model.projectAssistantWorkspacePanel(snapshot, ui, labels);
-    panelRenderer.renderAssistantPanelSnapshot(panel, {
+    renderChromePanel(panel, {
       managed: true,
       root: elements.root,
       onAction: handlePanelAction,
@@ -1608,6 +1609,17 @@ function createChildRuntime(source) {
       },
     });
     const owner = selectedOwner(snapshot);
+    renderStaticChrome({
+      viewModeContainer: elements.viewMode,
+      viewMode: ui.chatDisplayMode,
+      labels: labels || {},
+      onSelectViewMode: function (mode) {
+        ui.chatDisplayMode = mode;
+        renderTranscript();
+      },
+      emptyContainer: elements.empty,
+      emptyText: text(labels && labels.emptySelection),
+    });
     elements.empty.classList.toggle("hidden", Boolean(owner));
     elements.main.classList.remove("hidden");
     elements.drawer.classList.toggle("hidden", !ui.contextDrawerOpen);
@@ -1670,6 +1682,10 @@ function createChildRuntime(source) {
         "data-assistant-transcript-order-key",
       );
       elements.transcript.removeAttribute("data-assistant-transcript-mode-key");
+      // Bounded failure recovery intentionally hard-resets the container:
+      // unmount the wrapper vnode first so its next render starts from a
+      // clean slate, then drop the imperatively managed rows.
+      renderTranscriptRegionReset(elements.transcript);
       while (elements.transcript.firstChild) {
         elements.transcript.removeChild(elements.transcript.firstChild);
       }
@@ -1800,23 +1816,7 @@ function createChildRuntime(source) {
       payload && payload.labels && typeof payload.labels === "object"
         ? payload.labels
         : {};
-    const viewLabel = text(labels.view) || "";
-    const plainLabel = text(labels.plain) || "";
-    const bubbleLabel = text(labels.bubble) || "";
-    elements.empty.textContent = text(labels.emptySelection);
-    const viewGroup = document.querySelector(".asst-conversation-overlay-menu");
-    if (viewGroup) viewGroup.setAttribute("aria-label", viewLabel);
-    [
-      [elements.plain, plainLabel],
-      [elements.bubble, bubbleLabel],
-    ].forEach(function (entry) {
-      const button = entry[0];
-      const label = entry[1];
-      if (!button) return;
-      button.setAttribute("aria-label", label);
-      const node = button.querySelector(".asst-view-mode-label");
-      if (node) node.textContent = label;
-    });
+    if (regionCollapse) regionCollapse.refreshLabels();
     renderPanel();
   }
 
@@ -1826,19 +1826,6 @@ function createChildRuntime(source) {
       { documentGeneration: generation },
       null,
     );
-  }
-
-  if (elements.plain) {
-    elements.plain.addEventListener("click", function () {
-      ui.chatDisplayMode = "plain";
-      renderTranscript();
-    });
-  }
-  if (elements.bubble) {
-    elements.bubble.addEventListener("click", function () {
-      ui.chatDisplayMode = "bubble";
-      renderTranscript();
-    });
   }
 
   window.addEventListener("message", function (event) {
@@ -1865,6 +1852,19 @@ function createChildRuntime(source) {
 
   renderPanel();
   renderTranscript();
+  // Chrome-only collapse state for toolbar/banner/composer: container-class
+  // driven, outside the region render pipeline and signature boundaries.
+  regionCollapse = createRegionCollapseController({
+    root: elements.root,
+    regions: {
+      toolbar: elements.toolbar,
+      banner: elements.banner,
+      composer: elements.composer,
+    },
+    getLabels: function () {
+      return labels && labels.assistantPanel && labels.assistantPanel.collapse;
+    },
+  });
   ready();
   return { applyPublication: controller.applyPublication };
 }
@@ -1875,12 +1875,13 @@ function boot() {
     document.body.setAttribute("data-acp-child-failure", "invalid-source");
     return null;
   }
-  return createChildRuntime(source);
+  return createAssistantWorkspaceAcpChildRuntime(source);
 }
 
 export {
   applyOwnerNavigationUiTransition,
   boot,
+  createAssistantWorkspaceAcpChildRuntime,
   createClient,
   createController,
   createPageRequest,
@@ -1889,7 +1890,6 @@ export {
   ownerMatches,
   readRegion,
   readStateRegion,
-  renderResult,
   rendererPage,
   resolvePanelActionEnvelope,
   transcriptStateSignature,

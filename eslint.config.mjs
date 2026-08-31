@@ -96,7 +96,7 @@ export default [
   }),
   {
     name: "zotero-agents/sidebar-import-boundary",
-    files: ["src/sidebar/**/*.js"],
+    files: ["src/sidebar/**/*.{js,tsx}"],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -108,14 +108,24 @@ export default [
         {
           patterns: [
             {
-              regex: "^(?!(\\./|\\.\\./shared/|([^/]+/)*src/shared/)).+$",
+              regex:
+                "^(?!(\\./|\\.\\./shared/|([^/]+/)*src/shared/|preact|preact/hooks|preact/compat|@preact/signals)).+$",
               message:
-                "Sidebar page bundles may only import same-directory relative paths or src/shared/** modules.",
+                "Sidebar page bundles may only import same-directory relative paths, src/shared/** modules, or Preact entry points.",
             },
           ],
         },
       ],
       "no-unused-vars": ["error", { caughtErrorsIgnorePattern: "^_" }],
+    },
+  },
+  {
+    name: "zotero-agents/sidebar-tsx",
+    files: ["src/sidebar/**/*.tsx"],
+    rules: {
+      // Covered by @typescript-eslint/no-unused-vars; the base rule
+      // double-reports and misfires on JSX automatic-runtime imports.
+      "no-unused-vars": "off",
     },
   },
 ];

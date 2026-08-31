@@ -40,12 +40,18 @@ describe("workflow archive Zotero runtime", function () {
       const written = await archive.writeZipAtomic({
         targetPath,
         entries: [
-          { name: "manifest.json", text: '{"runtime":"zotero"}' },
-          { name: "payload.bin", bytes: new Uint8Array([7, 8, 9]) },
+          {
+            name: "manifest.json",
+            content: { kind: "text", text: '{"runtime":"zotero"}' },
+          },
+          {
+            name: "payload.bin",
+            content: { kind: "bytes", bytes: new Uint8Array([7, 8, 9]) },
+          },
         ],
       });
       assert.match(written.files["manifest.json"].sha256, /^[a-f0-9]{64}$/);
-      await archive.withExtractedZip(targetPath, async (extracted) => {
+      await archive.withExtractedZip({ sourcePath: targetPath }, {}, async (extracted) => {
         assert.equal(
           await extracted.readText("manifest.json"),
           '{"runtime":"zotero"}',

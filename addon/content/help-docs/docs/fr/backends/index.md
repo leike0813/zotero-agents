@@ -1,6 +1,6 @@
 # Aperçu de la configuration des backends
 
-Zotero Agents prend en charge trois types de backends, chacun adapté à différents cas d'utilisation.
+Zotero Agents prend en charge quatre types de backends, chacun adapté à différents cas d'utilisation.
 
 ## Comment choisir
 
@@ -32,6 +32,12 @@ Utilisé pour appeler des API HTTP spécifiques (telles que le service d'analyse
 
 → [Configuration du backend Generic HTTP](#doc/backends%2Fgeneric-http)
 
+### Pass-through
+
+Utilisé pour les workflows qui s'exécutent uniquement dans le contexte local du plugin — aucun backend distant ni appel d'API externe n'est impliqué. Les opérations d'export/import, l'audit de balises et le traitement de fichiers sont des exemples typiques. Les workflows Pass-through ne nécessitent aucune configuration de serveur et s'exécutent entièrement à l'intérieur du plugin.
+
+→ [Architecture des workflows personnalisés](#doc/workflows%2Fcustom%2Findex)
+
 ## Comparaison des types de backends
 
 | Type | Protocole | Mode d'exécution | Recommandation | Cas d'utilisation |
@@ -40,6 +46,7 @@ Utilisé pour appeler des API HTTP spécifiques (telles que le service d'analyse
 | **Skill-Runner (Docker)** | HTTP API | Service persistant | 🥈 Recommandé | Besoin d'exécution persistante en arrière-plan, partage LAN |
 | **Skill-Runner (en un clic)** | HTTP API | Démarre/s'arrête avec le plugin | 🥉 Dépannage | Impossible d'installer des agents / Docker |
 | **Generic HTTP** | HTTP | Service distant | Selon les besoins | Appel d'API HTTP spécifiques (par exemple, MinerU) |
+| **Pass-through** | Aucun (local) | Dans le plugin | Selon les besoins | Opérations purement locales (export, audit de balises, traitement de fichiers) |
 
 Tous les backends sont configurés via **[Outils → Gestionnaire de backends](#doc/backends%2Fbackend-manager)**.
 

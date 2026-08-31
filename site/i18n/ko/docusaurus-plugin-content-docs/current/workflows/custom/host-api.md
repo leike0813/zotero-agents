@@ -322,10 +322,10 @@ Workflow 에디터 세션을 관리합니다. `registerRenderer`와 `unregisterR
 ## 종합 연산 (hostApi.synthesis)
 
 ```ts
-hostApi.synthesis?: SynthesisService
+hostApi.synthesis?: WorkflowSynthesisApi
 ```
 
-Synthesis Workbench 서비스(주제, 개념, 태그, 인용 그래프 등)에 대한 접근을 제공합니다. Synthesis 시스템이 초기화된 경우에만 사용 가능합니다.
+digest와 Topic 적용, Topic 보고서, 논문 산출물, 태그 어휘와 제안, 태그 감사를 위한 제한된 workflow 인터페이스입니다. `applyLiteratureDigestSidecar`, `applyTopicSynthesisResult`, `getTopicReport`, `readPaperArtifacts`, `loadTagVocabulary`, `saveTagVocabulary`, `exportTagVocabularyForRegulator`, `listStagedTagSuggestions`, `stageTagSuggestions`, `discardStagedTagSuggestions`, `replaceTagAuditRecords`, `clearTagAuditRecord`만 제공합니다. Host는 실시간 Zotero 항목과 결과 경로를 크기가 제한된 클라이언트 payload로 변환합니다.
 
 ## 완전한 예시
 

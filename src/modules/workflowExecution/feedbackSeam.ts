@@ -17,6 +17,12 @@ import {
   type NotificationHubSeverity,
 } from "../notificationHub";
 import type { WorkflowJobOutcome, WorkflowToastPayload } from "./contracts";
+import { appendRuntimeLog } from "../runtimeLogManager";
+import { createWorkflowHostError } from "../../workflows/workflowHostErrorContract";
+import type {
+  WorkflowNotificationOwner,
+  WorkflowToastRequestDto,
+} from "../../workflows/types";
 
 type ProgressWindowInstance = {
   createLine: (args: {
@@ -57,6 +63,10 @@ export type WorkflowProgressToastController = {
 
 const visibleWorkflowToasts: ProgressWindowInstance[] = [];
 const recentWorkflowToastDedup = new Map<string, number>();
+const workflowCallerToastStates = new Map<
+  object,
+  { visible: number; timers: Set<ReturnType<typeof setTimeout>> }
+>();
 
 function resolveProgressWindowCtor() {
   return resolveToolkitMember<ProgressWindowCtor>("ProgressWindow");
@@ -95,7 +105,78 @@ const WORKFLOW_TOAST_EMOJI_PREFIXES = ["🚀", "⏳", "✅", "❌", "⏹️", "�
 export function resetWorkflowToastStateForTests() {
   visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
   recentWorkflowToastDedup.clear();
+  for (const state of workflowCallerToastStates.values()) {
+    for (const timer of state.timers) clearTimeout(timer);
+  }
+  workflowCallerToastStates.clear();
   resetNotificationHubForTests();
+}
+
+export function createWorkflowNotificationOwner(args: {
+  interactionMode: "interactive" | "non_interactive";
+  callerScope?: object;
+}): WorkflowNotificationOwner {
+  const callerScope = args.callerScope || {};
+  return {
+    toast(input: WorkflowToastRequestDto) {
+      if (args.interactionMode !== "interactive") {
+        appendRuntimeLog({
+          level: "warn",
+          scope: "hook",
+          stage: "workflow-host.notifications",
+          message: "Denied non-interactive workflow toast request",
+        });
+        throw createWorkflowHostError(
+          "interaction_required",
+          "notifications.toast requires an interactive Workflow Host",
+          { member: "notifications.toast" },
+        );
+      }
+      const text = typeof input?.text === "string" ? input.text.trim() : "";
+      const type = input?.type ?? "default";
+      if (!text || !["default", "success", "error"].includes(type)) {
+        throw createWorkflowHostError(
+          "invalid_request",
+          "Workflow toast request is invalid",
+          { reason: "invalid_value", field: !text ? "text" : "type" },
+        );
+      }
+      if (input.text.length > 4096) {
+        throw createWorkflowHostError(
+          "resource_limited",
+          "Workflow toast text exceeds the character limit",
+          { resource: "characters", limit: 4096, observed: input.text.length },
+        );
+      }
+      const state = workflowCallerToastStates.get(callerScope) || {
+        visible: 0,
+        timers: new Set<ReturnType<typeof setTimeout>>(),
+      };
+      workflowCallerToastStates.set(callerScope, state);
+      if (state.visible >= 5) {
+        throw createWorkflowHostError(
+          "resource_limited",
+          "Workflow caller already has five visible toasts",
+          { resource: "entries", limit: 5, observed: state.visible },
+        );
+      }
+      const shown = showWorkflowToast({
+        text,
+        type,
+        source: "workflow-host",
+        owner: "workflow",
+        scope: "workflow-host-api",
+      });
+      if (shown) {
+        state.visible += 1;
+        const timer = setTimeout(() => {
+          state.timers.delete(timer);
+          state.visible = Math.max(0, state.visible - 1);
+        }, WORKFLOW_TOAST_CLOSE_DELAY_MS);
+        state.timers.add(timer);
+      }
+    },
+  };
 }
 
 export function closeVisibleWorkflowToasts() {

@@ -335,6 +335,35 @@ def page_bridge(
     return rows
 
 
+def snapshot_bridge(
+    conn: sqlite3.Connection,
+    run_root: Path,
+    library_id: int,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    payload: dict[str, Any] = {"libraryId": library_id, "batchSize": 500}
+    for _ in range(10000):
+        page = run_bridge(
+            conn, run_root, "library-snapshot", ["library", "snapshot"], payload
+        )
+        rows.extend(rows_from_page(page, ("items",)))
+        has_more, cursor = page_cursor(page)
+        if not has_more:
+            break
+        snapshot_id = clean(page.get("snapshotId")) if isinstance(page, dict) else ""
+        if not snapshot_id or cursor is None:
+            raise RuntimeError("library-snapshot returned incomplete continuation state")
+        payload = {
+            "libraryId": library_id,
+            "batchSize": 500,
+            "snapshotId": snapshot_id,
+            "cursor": cursor,
+        }
+    else:
+        raise RuntimeError("library-snapshot exceeded pagination guard")
+    return rows
+
+
 def item_type(row: dict[str, Any]) -> str:
     return clean(row.get("itemType", row.get("item_type")))
 
@@ -343,8 +372,11 @@ def paper_ref_from_row(row: dict[str, Any], fallback_library_id: int = 0) -> str
     direct = clean(row.get("paperRef", row.get("paper_ref")))
     if PAPER_REF_RE.fullmatch(direct):
         return direct
-    library_id = int(row.get("libraryId", row.get("library_id", fallback_library_id)) or 0)
-    key = clean(row.get("key", row.get("itemKey", row.get("item_key"))))
+    ref = row.get("ref") if isinstance(row.get("ref"), dict) else row
+    library_id = int(
+        ref.get("libraryId", ref.get("library_id", fallback_library_id)) or 0
+    )
+    key = clean(ref.get("key", ref.get("itemKey", ref.get("item_key"))))
     return f"{library_id}:{key}" if library_id > 0 and key else ""
 
 
@@ -417,14 +449,7 @@ def run_stage_10(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         record_stage(conn, "stage_10_inventory_collect", result)
         return result
 
-    inventory_rows = page_bridge(
-        conn,
-        run_root,
-        "library-snapshot",
-        ["library", "snapshot"],
-        {"libraryId": library_id},
-        ("items",),
-    )
+    inventory_rows = snapshot_bridge(conn, run_root, library_id)
     existing_refs = {
         paper_ref_from_row(row, library_id) for row in collection_rows
     }

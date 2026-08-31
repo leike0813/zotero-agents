@@ -1,17 +1,21 @@
 import { appendSkillRunnerLocalDeployDebugLog } from "./skillRunnerLocalDeployDebugStore";
 import {
-  getWindowsExecutableCandidates,
-  getWindowsPowerShellAbsoluteCandidates,
-  isTrustedResolvedCommandPath,
-  resolveTrustedPathSearchResult,
-  resolveWindowsCommandFromPowerShell,
-} from "./windowsCommandResolution";
-import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+  buildRuntimeCommandLaunchPlan,
+  resolveRuntimeCommand,
+} from "../platform/command";
 import {
   getParentPath,
   isAbsolutePathLike,
   joinNativePath,
 } from "../platform/path";
+import {
+  ensureRuntimeDirectoryStrict,
+  readRuntimeTextFile,
+  removeRuntimePath,
+  runtimePathExists,
+  writeRuntimeTextFileStrict,
+} from "./runtimePersistence";
+import { executeOneShotSubprocess } from "../platform/subprocess";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -201,23 +205,7 @@ async function ensureDirectory(pathValue: string) {
   if (!normalized) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: {
-      makeDirectory?: (
-        path: string,
-        options?: { createAncestors?: boolean; ignoreExisting?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.makeDirectory === "function") {
-    await runtime.IOUtils.makeDirectory(normalized, {
-      createAncestors: true,
-      ignoreExisting: true,
-    });
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(normalized, { recursive: true });
+  await ensureRuntimeDirectoryStrict(normalized);
 }
 
 async function readUtf8File(pathValue: string) {
@@ -225,14 +213,7 @@ async function readUtf8File(pathValue: string) {
   if (!normalized) {
     return "";
   }
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(normalized);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(normalized, "utf8") as Promise<string>;
+  return readRuntimeTextFile(normalized);
 }
 
 async function removePath(pathValue: string) {
@@ -240,28 +221,8 @@ async function removePath(pathValue: string) {
   if (!normalized) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: {
-      remove?: (
-        path: string,
-        options?: { ignoreAbsent?: boolean; recursive?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.remove === "function") {
-    try {
-      await runtime.IOUtils.remove(normalized, {
-        ignoreAbsent: true,
-        recursive: true,
-      });
-      return;
-    } catch {
-      // fall through
-    }
-  }
   try {
-    const fs = await dynamicImport("fs/promises");
-    await fs.rm(normalized, { recursive: true, force: true });
+    await removeRuntimePath(normalized);
   } catch {
     // ignore cleanup failures
   }
@@ -272,15 +233,7 @@ async function writeUtf8File(pathValue: string, content: string) {
   if (!normalized) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: { writeUTF8?: (path: string, data: string) => Promise<unknown> };
-  };
-  if (typeof runtime.IOUtils?.writeUTF8 === "function") {
-    await runtime.IOUtils.writeUTF8(normalized, String(content || ""));
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(normalized, String(content || ""), "utf8");
+  await writeRuntimeTextFileStrict(normalized, String(content || ""));
 }
 
 async function readJsonObject(pathValue: string) {
@@ -445,508 +398,48 @@ function hasPathSeparator(command: string) {
   return /[\\/]/.test(command);
 }
 
-async function readProcessPipe(stream: unknown) {
-  if (typeof stream === "string") {
-    return stream;
-  }
-  if (
-    stream &&
-    typeof stream === "object" &&
-    "text" in (stream as Record<string, unknown>) &&
-    typeof (stream as { text?: unknown }).text === "string"
-  ) {
-    return String((stream as { text?: unknown }).text || "");
-  }
-  const reader = stream as {
-    readString?: () => Promise<string>;
-  };
-  if (!reader || typeof reader.readString !== "function") {
-    return "";
-  }
-  let text = "";
-  while (true) {
-    const chunk = await reader.readString();
-    if (!chunk) {
-      break;
-    }
-    text += chunk;
-  }
-  return text;
-}
-
-async function waitMozillaProcessExit(proc: unknown) {
-  const process = proc as {
-    wait?: () => Promise<number>;
-    exitCode?: unknown;
-  };
-  if (typeof process.wait === "function") {
-    try {
-      const code = await process.wait();
-      if (typeof code === "number" && Number.isFinite(code)) {
-        return Math.floor(code);
-      }
-    } catch {
-      return 1;
-    }
-  }
-  if (
-    typeof process.exitCode === "number" &&
-    Number.isFinite(process.exitCode)
-  ) {
-    return Math.floor(process.exitCode);
-  }
-  return 0;
-}
-
-async function runWithMozillaSubprocess(args: {
-  command: string;
-  argv: string[];
-}): Promise<CommandOutput> {
-  const subprocess = getMozillaSubprocessModule() as {
-    pathSearch?: (command: string) => Promise<string>;
-    call?: (args: { command: string; arguments?: string[] }) => Promise<{
-      stdout?: unknown;
-      stderr?: unknown;
-      wait?: () => Promise<number>;
-      exitCode?: unknown;
-    }>;
-  } | null;
-  if (!subprocess?.call) {
-    throw new Error("mozilla subprocess unavailable");
-  }
-  const command = normalizeString(args.command);
-  const pathSearchResult =
-    !isAbsoluteCommand(command) && !hasPathSeparator(command)
-      ? await resolveTrustedPathSearchResult({
-          command,
-          pathSearch: subprocess.pathSearch,
-          platform: detectWindows() ? "win32" : undefined,
-        })
-      : "";
-  const resolvedCommand =
-    !isAbsoluteCommand(command) &&
-    !hasPathSeparator(command) &&
-    pathSearchResult &&
-    (await isTrustedResolvedCommandPath(pathSearchResult))
-      ? normalizeString(pathSearchResult)
-      : command;
-  const proc = await subprocess.call({
-    command: resolvedCommand,
-    arguments: args.argv,
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    readProcessPipe(proc.stdout),
-    readProcessPipe(proc.stderr),
-    waitMozillaProcessExit(proc),
-  ]);
-  if (
-    exitCode !== 0 &&
-    (isExecutableNotFoundText(stderr) || isExecutableNotFoundText(stdout))
-  ) {
-    throw new Error(
-      normalizeString(stderr) ||
-        normalizeString(stdout) ||
-        "executable not found",
-    );
-  }
-  return {
-    exitCode,
-    stdout,
-    stderr,
-  };
-}
-
-async function runWithZoteroSubprocess(args: {
-  command: string;
-  argv: string[];
-}): Promise<CommandOutput> {
-  const runtime = globalThis as {
-    Zotero?: {
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-  };
-  const subprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
-  if (typeof subprocess !== "function") {
-    throw new Error("zotero subprocess unavailable");
-  }
-  const normalizeErrorText = (error: unknown) =>
-    normalizeString(
-      error && typeof error === "object" && "message" in error
-        ? (error as { message?: unknown }).message
-        : error,
-    );
-  const commandCandidates = await (async () => {
-    if (!detectWindows()) {
-      return [args.command];
-    }
-    const normalized = normalizeString(args.command).toLowerCase();
-    const powerShellSet = new Set([
-      "powershell",
-      "powershell.exe",
-      "pwsh",
-      "pwsh.exe",
-    ]);
-    if (!powerShellSet.has(normalized)) {
-      const resolvedCandidates = await resolveWindowsCommandFromPowerShell(
-        args.command,
-      );
-      const candidates = [
-        args.command,
-        ...resolvedCandidates,
-        ...getWindowsExecutableCandidates(args.command),
-        `${normalized.replace(/\.(exe|cmd|bat)$/i, "")}.exe`,
-      ];
-      return Array.from(
-        new Set(
-          candidates.map((entry) => normalizeString(entry)).filter(Boolean),
-        ),
-      );
-    }
-    const candidates = [
-      args.command,
-      ...getWindowsPowerShellAbsoluteCandidates(),
-      "powershell.exe",
-      "pwsh.exe",
-      "pwsh",
-      "powershell",
-    ];
-    return Array.from(
-      new Set(
-        candidates.map((entry) => normalizeString(entry)).filter(Boolean),
-      ),
-    );
-  })();
-  let lastErrorText = "";
-  for (let i = 0; i < commandCandidates.length; i++) {
-    const command = commandCandidates[i];
-    try {
-      const stdout = await subprocess(command, args.argv);
-      return {
-        exitCode: 0,
-        stdout: String(stdout || ""),
-        stderr: "",
-      };
-    } catch (error) {
-      const errorText = normalizeErrorText(error);
-      lastErrorText = errorText || lastErrorText;
-      if (
-        i < commandCandidates.length - 1 &&
-        isExecutableNotFoundText(errorText)
-      ) {
-        continue;
-      }
-      break;
-    }
-  }
-  return {
-    exitCode: 1,
-    stdout: "",
-    stderr: lastErrorText || "subprocess failed",
-  };
-}
-
-async function resolveWindowsCommandForNsIProcess(command: string) {
-  if (!detectWindows()) {
-    return "";
-  }
-  const normalized = normalizeString(command);
-  if (!normalized) {
-    return "";
-  }
-  const powerShellSet = new Set([
-    "powershell",
-    "powershell.exe",
-    "pwsh",
-    "pwsh.exe",
-  ]);
-  const lower = normalized.toLowerCase();
-  const candidates = Array.from(
-    new Set(
-      [
-        ...(isAbsoluteCommand(normalized) || hasPathSeparator(normalized)
-          ? [normalized]
-          : []),
-        ...(powerShellSet.has(lower)
-          ? getWindowsPowerShellAbsoluteCandidates()
-          : []),
-        ...(await resolveWindowsCommandFromPowerShell(normalized)),
-        ...getWindowsExecutableCandidates(normalized),
-      ]
-        .map((entry) => normalizeString(entry))
-        .filter(Boolean),
-    ),
-  );
-  for (const candidate of candidates) {
-    if (await pathExists(candidate)) {
-      return candidate;
-    }
-  }
-  return "";
-}
-
-type WindowsPowerShellCaptureContext = {
-  argv: string[];
-  tempDir: string;
-  stdoutPath: string;
-  stderrPath: string;
-};
-
-async function buildWindowsPowerShellCaptureContext(argv: string[]) {
-  const commandIndex = argv.findIndex(
-    (entry, index) => /^-command$/i.test(entry) && index < argv.length - 1,
-  );
-  if (commandIndex < 0) {
-    return null as WindowsPowerShellCaptureContext | null;
-  }
-  const originalCommand = String(argv[commandIndex + 1] || "");
-  const tempDir = joinFsPath(
-    resolveTempRoot(),
-    `zotero-skills-ps-capture-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-  );
-  await ensureDirectory(tempDir);
-  const stdoutPath = joinFsPath(tempDir, "stdout.log");
-  const stderrPath = joinFsPath(tempDir, "stderr.log");
-  const wrappedCommand = [
-    "$ErrorActionPreference='Stop'",
-    `$stdoutPath = ${toPowerShellSingleQuotedLiteral(stdoutPath)}`,
-    `$stderrPath = ${toPowerShellSingleQuotedLiteral(stderrPath)}`,
-    "& {",
-    originalCommand,
-    "} 1> $stdoutPath 2> $stderrPath",
-    "exit $LASTEXITCODE",
-  ].join("; ");
-  const nextArgv = [...argv];
-  nextArgv[commandIndex + 1] = wrappedCommand;
-  return {
-    argv: nextArgv,
-    tempDir,
-    stdoutPath,
-    stderrPath,
-  } as WindowsPowerShellCaptureContext;
-}
-
-async function runWithWindowsNsIProcessHidden(args: {
-  command: string;
-  argv: string[];
-}): Promise<CommandOutput> {
-  if (!detectWindows()) {
-    throw new Error("nsIProcess hidden execution is only available on Windows");
-  }
-  const runtime = globalThis as {
-    Components?: {
-      classes?: Record<
-        string,
-        { createInstance?: (iface: unknown) => unknown }
-      >;
-      interfaces?: Record<string, unknown>;
-    };
-    Cc?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
-    Ci?: Record<string, unknown>;
-  };
-  const classes = runtime.Components?.classes || runtime.Cc;
-  const interfaces = runtime.Components?.interfaces || runtime.Ci;
-  const localFileFactory = classes?.["@mozilla.org/file/local;1"];
-  const processFactory = classes?.["@mozilla.org/process/util;1"];
-  const nsIFile = interfaces?.nsIFile;
-  const nsIProcess = interfaces?.nsIProcess;
-  if (
-    !localFileFactory?.createInstance ||
-    !processFactory?.createInstance ||
-    !nsIFile ||
-    !nsIProcess
-  ) {
-    throw new Error("XPCOM nsIProcess APIs are unavailable");
-  }
-  const resolvedCommand = await resolveWindowsCommandForNsIProcess(
-    args.command,
-  );
-  if (!resolvedCommand) {
-    throw new Error(
-      `failed to resolve command for nsIProcess: ${args.command}`,
-    );
-  }
-  const captureContext = await buildWindowsPowerShellCaptureContext(args.argv);
-  const invocationArgv = captureContext ? captureContext.argv : args.argv;
-  const executable = localFileFactory.createInstance(nsIFile) as {
-    initWithPath?: (path: string) => void;
-  };
-  if (typeof executable.initWithPath !== "function") {
-    throw new Error("nsIFile.initWithPath is unavailable");
-  }
-  executable.initWithPath(resolvedCommand);
-  const proc = processFactory.createInstance(nsIProcess) as {
-    init?: (file: unknown) => void;
-    runwAsync?: (args: string[], count: number, observer: unknown) => void;
-    runAsync?: (args: string[], count: number, observer: unknown) => void;
-    startHidden?: boolean;
-    noShell?: boolean;
-    exitValue?: number;
-  };
-  if (typeof proc.init !== "function") {
-    throw new Error("nsIProcess.init is unavailable");
-  }
-  proc.init(executable);
-  try {
-    proc.startHidden = true;
-  } catch {
-    // ignore if unsupported
-  }
-  try {
-    proc.noShell = true;
-  } catch {
-    // ignore if unsupported
-  }
-  const runAsync =
-    typeof proc.runwAsync === "function"
-      ? proc.runwAsync.bind(proc)
-      : typeof proc.runAsync === "function"
-        ? proc.runAsync.bind(proc)
-        : null;
-  if (!runAsync) {
-    throw new Error("nsIProcess async execution is unavailable");
-  }
-  await new Promise<void>((resolve, reject) => {
-    try {
-      runAsync(invocationArgv, invocationArgv.length, {
-        observe: (_subject: unknown, topic: string) => {
-          if (topic === "process-finished" || topic === "process-failed") {
-            resolve();
-            return;
-          }
-          reject(new Error(`unexpected process topic: ${topic}`));
-        },
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-  const exitCode =
-    typeof proc.exitValue === "number" && Number.isFinite(proc.exitValue)
-      ? Math.floor(proc.exitValue)
-      : 1;
-  let stdout = "";
-  let stderr = "";
-  if (captureContext) {
-    try {
-      stdout = await readUtf8File(captureContext.stdoutPath);
-    } catch {
-      stdout = "";
-    }
-    try {
-      stderr = await readUtf8File(captureContext.stderrPath);
-    } catch {
-      stderr = "";
-    }
-    await removePath(captureContext.tempDir);
-  }
-  return {
-    exitCode,
-    stdout,
-    stderr,
-  };
-}
-
-async function runWithNodeExecFile(args: {
-  command: string;
-  argv: string[];
-  cwd?: string;
-  timeoutMs?: number;
-}): Promise<CommandOutput> {
-  const childProcess = await dynamicImport("child_process");
-  const util = await dynamicImport("util");
-  const execFileAsync = util.promisify(childProcess.execFile) as (
-    command: string,
-    argv: string[],
-    options: Record<string, unknown>,
-  ) => Promise<{ stdout: string; stderr: string }>;
-  try {
-    const result = await execFileAsync(args.command, args.argv, {
-      cwd: args.cwd,
-      timeout: args.timeoutMs ?? 600000,
-      windowsHide: true,
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return {
-      exitCode: 0,
-      stdout: String(result.stdout || ""),
-      stderr: String(result.stderr || ""),
-    };
-  } catch (error) {
-    const typed = (error || {}) as {
-      code?: unknown;
-      stdout?: unknown;
-      stderr?: unknown;
-      message?: unknown;
-    };
-    return {
-      exitCode:
-        typeof typed.code === "number" && Number.isFinite(typed.code)
-          ? Math.floor(typed.code)
-          : 1,
-      stdout: normalizeString(typed.stdout),
-      stderr: normalizeString(typed.stderr) || normalizeString(typed.message),
-    };
-  }
-}
-
 async function runCommand(args: {
   command: string;
   argv: string[];
   cwd?: string;
   timeoutMs?: number;
-}) {
-  const isWindows = detectWindows();
-  const isWindowsPowerShellCommand =
-    isWindows &&
-    /(^|[\\/])(powershell|pwsh)(\.exe)?$/i.test(normalizeString(args.command));
-  if (isWindows && (!args.cwd || isWindowsPowerShellCommand)) {
-    try {
-      return await runWithWindowsNsIProcessHidden({
-        command: args.command,
-        argv: args.argv,
-      });
-    } catch {
-      // fallthrough
-    }
-    try {
-      return await runWithMozillaSubprocess({
-        command: args.command,
-        argv: args.argv,
-      });
-    } catch {
-      // fallthrough
-    }
-    try {
-      return await runWithZoteroSubprocess({
-        command: args.command,
-        argv: args.argv,
-      });
-    } catch {
-      // fallthrough
-    }
-    return runWithNodeExecFile(args);
+}): Promise<CommandOutput> {
+  const resolution = await resolveRuntimeCommand(args.command);
+  if (!resolution.available || !resolution.resolvedPath) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: resolution.diagnostic || `command unavailable: ${args.command}`,
+    };
   }
-  try {
-    return await runWithMozillaSubprocess({
-      command: args.command,
-      argv: args.argv,
-    });
-  } catch {
-    // fallthrough
-  }
-  try {
-    return await runWithZoteroSubprocess({
-      command: args.command,
-      argv: args.argv,
-    });
-  } catch {
-    // fallthrough
-  }
-  return runWithNodeExecFile(args);
+  const launchPlan = buildRuntimeCommandLaunchPlan({
+    command: args.command,
+    resolvedCommand: resolution.resolvedPath,
+    commandArgs: args.argv,
+    resolution,
+  });
+  const result = await executeOneShotSubprocess({
+    command: launchPlan.command,
+    args: launchPlan.args,
+    environment: launchPlan.environment,
+    cwd: args.cwd,
+    timeoutMs: args.timeoutMs ?? 600_000,
+    hidden: true,
+  });
+  return {
+    exitCode:
+      result.outcome === "exited" && result.exitCode !== null
+        ? result.exitCode
+        : 1,
+    stdout: result.stdout,
+    stderr:
+      result.stderr ||
+      (result.outcome === "unavailable"
+        ? "subprocess is unavailable"
+        : result.outcome === "timed_out"
+          ? "subprocess timed out"
+          : "subprocess failed"),
+  };
 }
 
 async function pathExists(pathValue: string) {
@@ -954,54 +447,7 @@ async function pathExists(pathValue: string) {
   if (!targetPath) {
     return false;
   }
-  const runtime = globalThis as {
-    IOUtils?: { exists?: (path: string) => Promise<boolean> };
-    Components?: {
-      classes?: Record<
-        string,
-        { createInstance?: (iface: unknown) => unknown }
-      >;
-      interfaces?: Record<string, unknown>;
-    };
-    Cc?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
-    Ci?: Record<string, unknown>;
-  };
-  if (typeof runtime.IOUtils?.exists === "function") {
-    try {
-      return !!(await runtime.IOUtils.exists(targetPath));
-    } catch {
-      // continue fallback checks
-    }
-  }
-  try {
-    const classes = runtime.Components?.classes || runtime.Cc;
-    const interfaces = runtime.Components?.interfaces || runtime.Ci;
-    const localFileFactory = classes?.["@mozilla.org/file/local;1"];
-    const nsIFile = interfaces?.nsIFile;
-    if (localFileFactory?.createInstance && nsIFile) {
-      const file = localFileFactory.createInstance(nsIFile) as {
-        initWithPath?: (path: string) => void;
-        exists?: () => boolean;
-      };
-      if (typeof file.initWithPath === "function") {
-        file.initWithPath(targetPath);
-      }
-      if (typeof file.exists === "function") {
-        return !!file.exists();
-      }
-    }
-  } catch {
-    // continue fallback checks
-  }
-  try {
-    const fs = await dynamicImport("fs");
-    if (typeof fs?.existsSync === "function") {
-      return !!fs.existsSync(targetPath);
-    }
-  } catch {
-    // ignore node fs fallback failure
-  }
-  return false;
+  return runtimePathExists(targetPath);
 }
 
 function parseJsonObjectCandidate(text: string) {

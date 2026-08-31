@@ -185,13 +185,7 @@ describe("real OpenCode ACP against Zotero MCP server in Zotero runtime", functi
       this.skip();
     }
 
-    const descriptor = await ensureZoteroMcpServer({
-      resolveHostContext: () => ({
-        target: "library",
-        libraryId: "zotero-opencode-runtime-test",
-        selectionEmpty: true,
-      }),
-    });
+    const descriptor = await ensureZoteroMcpServer();
     transport = await launchAcpTransport({
       backend: createOpenCodeBackend(),
       cwd: resolveTestCwd(),

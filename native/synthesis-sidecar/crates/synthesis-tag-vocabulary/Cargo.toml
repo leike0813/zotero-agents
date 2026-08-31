@@ -1,0 +1,10 @@
+[package]
+name = "synthesis-tag-vocabulary"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+regress.workspace = true
+serde_json.workspace = true
+synthesis-protocol = { path = "../synthesis-protocol" }

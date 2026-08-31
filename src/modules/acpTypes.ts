@@ -165,6 +165,7 @@ export type AcpRemoteSessionRestoreStatus =
 
 export type AcpHostContext = {
   target: AcpSidebarTarget;
+  libraryIds?: string[];
   libraryId?: string;
   selectionEmpty: boolean;
   currentItem?: {
@@ -263,7 +264,7 @@ export type AcpConversationThoughtItem = AcpConversationItemBase & {
 export type AcpConversationToolCallItem = AcpConversationItemBase & {
   kind: "tool_call";
   toolCallId: string;
-  title: string;
+  title?: string;
   toolKind?: string;
   toolName?: string;
   inputSummary?: string;

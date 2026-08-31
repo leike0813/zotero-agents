@@ -1,312 +1,68 @@
-# Workflow Hook Helpers API Reference
+# Workflow Hook Runtime API Reference
 
-This document is the API-level reference for hook-side helper utilities injected as `runtime.helpers`.
+This document describes the current hook runtime boundary. The complete
+Workflow Host API v12 identity is owned by
+`src/workflows/workflowHostContract.ts`; protocol and package rules are in
+`doc/components/workflows.md`.
 
-Protocol-level workflow contract is documented in `doc/components/workflows.md`.
+Hooks receive the closed `runtime.hostApi` projection and declared execution
+context. They do not receive `runtime.helpers`, `runtime.handlers`,
+`runtime.zotero`, `IOUtils`, `Components`, or the addon object. Reusable pure
+functions belong in package-local modules and are imported with relative paths.
 
-## Runtime Entry
+## Editor Sessions
 
-Each hook receives `runtime`:
+`runtime.hostApi.editor.openSession(input)` is the only hook-facing editor
+entry point. The Workflow editor owner keeps renderer registration and global
+bridge details private. Sessions are queued, opened one at a time, and return
+`saved: false` when the user cancels or closes the editor.
 
-```js
-export function filterInputs({ selectionContext, runtime }) {
-  const helpers = runtime.helpers;
-  // use helpers here
-}
-```
+## Files, Archives, Resources, and Attachments
 
-## Scope Boundary
+`runtime.hostApi.file` exposes the exact v12 file group: `readText`,
+`writeText`, `readBytes`, `writeBytes`, `copy`, `exists`, `makeDirectory`,
+`materializeWorkflowInputFile`, `getTempDirectoryPath`, `pickDirectory`,
+`pickFile`, `pickSaveFile`, `pickFiles`, `stat`, `list`, `move`, and `remove`.
+All filesystem adapter selection is late-bound by
+`src/modules/runtimePersistence.ts`.
 
-- `runtime.helpers`: stable, workflow-agnostic utility surface.
-- Dialog/editor host APIs: hook-facing bridge APIs, not part of `runtime.helpers` (see below).
-
-## Full Helper Inventory
-
-Current source of truth:
-
-- `src/workflows/types.ts` (`HookHelpers`)
-- `src/workflows/helpers.ts` (`createHookHelpers`)
-
-### Attachment and Selection Helpers
-
-`getAttachmentParentId(entry: unknown): number | null`
-- Returns attachment parent item ID from `entry.parent.id` or `entry.item.parentItemID`.
-- Returns `null` when unavailable.
-
-`getAttachmentFilePath(entry: unknown): string`
-- Resolution order: `entry.filePath` -> `entry.item.data.path` -> `entry.item.title` -> `""`.
-
-`getAttachmentFileName(entry: unknown): string`
-- Derives basename from `getAttachmentFilePath`.
-- Normalizes `attachments:` / `storage:` prefix before basename extraction.
-
-`getAttachmentFileStem(entry: unknown): string`
-- Lower-cased filename stem without extension.
-
-`getAttachmentDateAdded(entry: unknown): number`
-- Parses `entry.item.data.dateAdded`.
-- Invalid/missing value returns `Number.POSITIVE_INFINITY`.
-
-`isMarkdownAttachment(entry: unknown): boolean`
-- `true` when filename ends with `.md` or MIME equals `text/markdown`.
-
-`isPdfAttachment(entry: unknown): boolean`
-- `true` when filename ends with `.pdf` or MIME equals `application/pdf`.
-
-`pickEarliestPdfAttachment(entries: unknown[]): unknown | null`
-- Filters PDF entries and sorts by:
-  - `dateAdded` ascending;
-  - filename lexical order as stable tie-breaker.
-- Returns first match or `null`.
-
-`cloneSelectionContext<T>(selectionContext: T): T`
-- Deep clones with JSON round-trip.
-- Intended for hook-side safe mutation flows.
-
-`withFilteredAttachments<T>(selectionContext: T, attachments: unknown[]): T`
-- Returns cloned selection context with:
-  - `items.attachments = attachments`
-  - `summary.attachmentCount = attachments.length`
-
-### Item and Note Helpers
-
-`resolveItemRef(ref: Zotero.Item | number | string): Zotero.Item`
-- Resolves direct item/id/key into `Zotero.Item`.
-- Throws when resolution fails.
-- String key resolution targets `Zotero.Libraries.userLibraryID`.
-
-`basenameOrFallback(targetPath: string | undefined, fallback: string): string`
-- Returns basename when `targetPath` is truthy; otherwise returns `fallback`.
-
-`toHtmlNote(title: string, body: string): string`
-- Returns escaped HTML note wrapper:
-  - `<h1>` title
-  - `<pre>` body
-
-### Reference Payload/Table Helpers
-
-`normalizeReferenceAuthors(value: unknown): string[]`
-- Accepts:
-  - author array;
-  - delimited string (`;` or newline).
-- Trims entries and drops empty elements.
-
-`normalizeReferenceEntry(entry: unknown, index: number): Record<string, unknown>`
-- Normalizes one reference row:
-  - required-ish fields: `id`, `title`, `year`, `author[]`
-  - optional `citekey` (`citeKey` merged into `citekey`)
-  - optional `rawText`
-  - optional metadata: `publicationTitle`, `conferenceName`, `university`, `archiveID`, `volume`, `issue`, `pages`, `place`
-- Empty optional values are removed.
-
-`normalizeReferencesArray(value: unknown): Record<string, unknown>[]`
-- Normalizes array input; non-array yields `[]`.
-
-`normalizeReferencesPayload(payload: unknown): Record<string, unknown>[]`
-- Accepts payload shapes:
-  - `Reference[]`
-  - `{ references: Reference[] }`
-  - `{ items: Reference[] }`
-- Throws if no recognizable references array exists.
-
-`replacePayloadReferences(payload: unknown, references: Record<string, unknown>[]): unknown`
-- Replaces references preserving payload shape when possible:
-  - array payload -> returns `references`
-  - `{ references: [] }` -> updates `references`
-  - `{ items: [] }` -> updates `items`
-  - other object -> writes `references`
-  - non-object -> returns `{ references }`
-
-`resolveReferenceSource(entry: unknown): string`
-- Returns first non-empty source field by priority:
-  - `publicationTitle` -> `conferenceName` -> `university` -> `archiveID`.
-
-`renderReferenceLocator(entry: unknown): string`
-- Renders locator from optional fields in order:
-  - `volume`, `issue`, `pages`, `place`
-- Format:
-  - `Vol. <volume>; No. <issue>; pp. <pages>; <place>`
-- Empty fields are skipped.
-
-`renderReferencesTable(references: unknown): string`
-- Canonical HTML table renderer used by shared reference-note workflows.
-- Column order:
-  - `#`, `Year`, `Title`, `Authors`, `Source`, `Locator`.
-- `citekey` remains part of normalized payload data when present, but is not rendered as a visible table column.
-- Input is normalized via `normalizeReferencesArray`.
-
-## Hook-Facing Dialog/Editor Bridge APIs
-
-These APIs are outside `runtime.helpers` and are provided by workflow editor host:
-
-- `globalThis.__zsWorkflowEditorHostOpen`
-- `globalThis.__zsWorkflowEditorHostRegisterRenderer`
-- `globalThis.__zsWorkflowEditorHostUnregisterRenderer`
-- `addon.data.workflowEditorHost.open`
-- `addon.data.workflowEditorHost.registerRenderer`
-- `addon.data.workflowEditorHost.unregisterRenderer`
-
-Primary implementation: `src/modules/workflowEditorHost.ts`.
-
-### Bridge Functions
-
-`open(args): Promise<{ saved: boolean; result?: unknown; reason?: string }>`
-- Opens one editor dialog session.
-- `saved = false` means user canceled/closed (conventionally equivalent to “No”).
-
-`registerRenderer(rendererId, renderer): void`
-- Registers renderer implementation by `rendererId`.
-
-`unregisterRenderer(rendererId): void`
-- Removes renderer registration.
-
-### Sequencing and Lifecycle Semantics
-
-- Sessions are queued and opened sequentially (one dialog at a time).
-- Multi-input workflow invocations therefore present dialogs one-by-one.
-- Renderer `serialize()` return value is passed back as `result` when saved.
-- If hook treats cancel as failure (for example by throwing), the corresponding job is marked failed.
-
-## Host API File Operations
-
-`runtime.hostApi.file` provides file system operations:
-
-### Single File Selection
-
-`pickFile(args?): Promise<string | null>`
-- Opens native file picker for single file selection.
-- Returns absolute path on success, `null` if user cancels.
-- `args.title`: dialog title (optional)
-- `args.directory`: starting directory (optional)
-- `args.filters`: file type filters as `[name, pattern][]` (optional)
-
-### Multi-File Selection (v0.3.0+)
-
-`pickFiles(args?): Promise<string[] | null>`
-- Opens native file picker with multi-select enabled.
-- Returns array of absolute paths in user selection order, `null` if user cancels.
-- Same `args` signature as `pickFile`.
-- Example:
-  ```js
-  const paths = await runtime.hostApi.file.pickFiles({
-    title: 'Select Markdown Files',
-    filters: [['Markdown', '*.md']]
-  });
-  if (paths) {
-    for (const p of paths) {
-      // process each file
-    }
-  }
-  ```
-
-### Directory Selection
-
-`pickDirectory(args?): Promise<string | null>`
-- Opens native directory picker.
-- Returns absolute path on success, `null` if user cancels.
-
-### File I/O
-
-`readText(path): Promise<string>`
-- Reads text file content.
-
-`readBytes(path): Promise<Uint8Array>`
-- Reads file as binary data.
-
-`writeText(path, content): Promise<void>`
-- Writes text content to file.
-
-`writeBytes(path, content): Promise<void>`
-- Writes binary data to file.
-
-`copy(src, dest): Promise<void>`
-- Copies file or directory from `src` to `dest`.
-
-`materializeWorkflowInputFile(args): Promise<{ path: string }>`
-- Writes a workflow-generated provider input file under the plugin-managed runtime tmp root.
-- Use this for files referenced by provider request inputs or `upload_files`.
-- `args.workflowId`: workflow id used for managed namespacing.
-- `args.key`: provider input key used for managed namespacing.
-- `args.fileName`: suggested file name; the host sanitizes and uniquifies it.
-- Provide exactly one of `args.content` for text or `args.bytes` for binary data.
-
-`pathToFile(path): string`
-- Converts a filesystem path string to a Zotero `nsIFile` path.
-
-`exists(path): Promise<boolean>`
-- Checks if file or directory exists.
-
-`makeDirectory(path): Promise<void>`
-- Creates directory (including parents).
-
-`getTempDirectoryPath(): string`
-- Returns an ephemeral Zotero temp directory path for short-lived scratch files only.
-- Do not use this for files referenced by provider request inputs or ACP schema validation.
+Archive access uses `archive.measureEntries`, `archive.writeZipAtomic`, and
+callback-scoped `archive.withExtractedZip`. Opaque workflow input/output files
+use the `resources` group. Stored or linked attachments are created through
+`attachments.create`; stored-file companions are validated and staged before
+the Zotero attachment is created, and post-create failures trigger best-effort
+rollback. Note images use `images.prepareForNoteEmbedding`, which returns an
+opaque run-scoped prepared-image reference.
 
 ## Runtime Context Fields
 
-Hook receives `runtime` object with these fields:
+Hook receives `runtime` with these fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `helpers` | `HookHelpers` | Utility functions (documented above) |
-| `hostApi` | `WorkflowHostApi` | Host API for file/dialog/notification access |
-| `hostApiVersion` | `number` | API version number |
-| `handlers` | `Handlers` | Data operation handlers |
-| `zotero` | `typeof Zotero` | Zotero global object |
+| `hostApi` | `WorkflowHostApiV12` | Exact 23-top-level/21-module/87-callable host projection |
+| `hostApiVersion` | `12` | Exact API version |
+| `invocationMode` | `"interactive" \| "non-interactive"` | Current invocation mode |
 | `debugMode` | `boolean \| undefined` | Debug mode flag |
 | `workflowId` | `string \| undefined` | Current workflow ID |
 | `packageId` | `string \| undefined` | Package ID (workflow packages only) |
 | `workflowRootDir` | `string \| undefined` | Workflow root directory path |
 | `packageRootDir` | `string \| undefined` | Package root directory path (workflow packages only) |
 | `workflowSourceKind` | `”builtin” \| “user” \| “”` | Source location type |
-| `hookName` | `”filterInputs” \| “buildRequest” \| “applyResult” \| “”` | Current hook name |
+| `hookName` | `"preflight" \| "buildRequest" \| "applyResult" \| ""` | Current hook name |
+| `locale` | `string \| undefined` | Resolved display locale |
+| `signal` | `AbortSignal \| undefined` | Read-only per-hook-run execution signal; aborts when the run ends or an upstream caller signal fires |
 | `fetch` | `typeof fetch \| null` | Fetch API (if available) |
 | `Buffer` | `typeof Buffer \| null` | Node Buffer (if available) |
 | `btoa` | `typeof btoa \| null` | Base64 encode (if available) |
 | `atob` | `typeof atob \| null` | Base64 decode (if available) |
 | `TextEncoder` | `typeof TextEncoder \| null` | Text encoder (if available) |
 | `TextDecoder` | `typeof TextDecoder \| null` | Text decoder (if available) |
-| `addon` | `typeof addon \| null` | Addon instance (if available) |
 | `FileReader` | `typeof globalThis.FileReader \| null` | FileReader API (if available) |
-| `navigator` | `typeof globalThis.navigator \| null` | Navigator object (if available) |
-
-## Practical Examples
-
-### Example 1: Attachment Filtering
-
-```js
-export function filterInputs({ selectionContext, runtime }) {
-  const attachments = Array.isArray(selectionContext?.items?.attachments)
-    ? selectionContext.items.attachments
-    : [];
-  const selected = attachments.filter((entry) => runtime.helpers.isPdfAttachment(entry));
-  return runtime.helpers.withFilteredAttachments(selectionContext, selected);
-}
-```
-
-### Example 2: Payload Normalization + Replacement
-
-```js
-function rewritePayload(payloadJson, runtime) {
-  const refs = runtime.helpers.normalizeReferencesPayload(payloadJson);
-  const next = refs.map((entry, i) =>
-    runtime.helpers.normalizeReferenceEntry({ ...entry, id: `ref-${i + 1}` }, i),
-  );
-  return runtime.helpers.replacePayloadReferences(payloadJson, next);
-}
-```
-
-### Example 3: Canonical Table Rendering
-
-```js
-function renderTableHtml(references, runtime) {
-  return runtime.helpers.renderReferencesTable(references);
-}
-```
 
 ## Maintenance Checklist
 
-- If `HookHelpers` changes in `src/workflows/types.ts`, update this document in the same change.
-- If helper behavior changes in `src/workflows/helpers.ts`, update relevant signature/semantics/examples.
-- If workflow editor host bridge keys or behaviors change (`src/modules/workflowEditorHost.ts`), update bridge section.
+- If `WorkflowRuntimeContext` or `WorkflowHostApiV12` changes in
+  `src/workflows/types.ts`, update this document in the same change.
+- If the code-native manifest changes, keep the 23/21/87 metrics and group list
+  synchronized here and in `doc/components/workflows.md`.

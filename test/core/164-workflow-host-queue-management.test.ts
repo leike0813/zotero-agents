@@ -6,6 +6,7 @@ import {
 import type {
   WorkflowExecutionUnitOutcome,
   WorkflowSubmissionQueueConfig,
+  WorkflowSubmissionQueueExecutionContext,
 } from "../../src/jobQueue/workflowSubmissionQueueContracts";
 
 type TestUnit = {
@@ -238,6 +239,238 @@ describe("workflow Host submission queue", function () {
     await Promise.all([first.completion, second.completion]);
   });
 
+  it("yields idempotently and resumes ahead of untouched FIFO work", async function () {
+    const queue = createQueue();
+    const contexts = new Map<string, WorkflowSubmissionQueueExecutionContext>();
+    const gates = new Map(
+      ["a", "b", "c"].map((id) => [
+        id,
+        deferred<WorkflowExecutionUnitOutcome>(),
+      ]),
+    );
+    const started: string[] = [];
+    const resumed: string[] = [];
+    const handle = queue.enqueueSubmission(
+      createConfig(
+        [{ id: "a" }, { id: "b" }, { id: "c" }],
+        async () => ({ status: "succeeded" }),
+        {
+          maxConcurrency: 1,
+          executeUnit: async (unit, context) => {
+            contexts.set(unit.id, context);
+            started.push(unit.id);
+            return gates.get(unit.id)!.promise;
+          },
+        },
+      ),
+    );
+
+    await flushMicrotasks();
+    assert.deepEqual(started, ["a"]);
+    assert.isTrue(contexts.get("a")!.slot.yield("waiting-user"));
+    assert.isFalse(contexts.get("a")!.slot.yield("waiting-user"));
+    await flushMicrotasks();
+    assert.deepEqual(started, ["a", "b"]);
+
+    const resume = contexts
+      .get("a")!
+      .slot.runWithPrioritySlot("user-reply", async () => {
+        resumed.push("a");
+      });
+    await flushMicrotasks();
+    assert.deepEqual(resumed, []);
+    assert.equal(
+      queue.getSlotSnapshot(contexts.get("a")!.submissionUnitId)?.state,
+      "resumption-pending",
+    );
+
+    gates.get("b")!.resolve({ status: "succeeded" });
+    await resume;
+    assert.deepEqual(resumed, ["a"]);
+    assert.deepEqual(started, ["a", "b"]);
+    assert.equal(
+      queue.getSlotSnapshot(contexts.get("a")!.submissionUnitId)?.state,
+      "held",
+    );
+
+    gates.get("a")!.resolve({ status: "succeeded" });
+    await flushMicrotasks();
+    assert.deepEqual(started, ["a", "b", "c"]);
+    gates.get("c")!.resolve({ status: "succeeded" });
+    await handle.completion;
+  });
+
+  it("aborts unsent resumptions on shutdown without leaking or sending input", async function () {
+    const queue = createQueue();
+    const contexts = new Map<string, WorkflowSubmissionQueueExecutionContext>();
+    const gates = new Map(
+      ["a", "b"].map((id) => [id, deferred<WorkflowExecutionUnitOutcome>()]),
+    );
+    const sent: string[] = [];
+    const handle = queue.enqueueSubmission(
+      createConfig(
+        [{ id: "a" }, { id: "b" }],
+        async () => ({ status: "succeeded" }),
+        {
+          maxConcurrency: 1,
+          executeUnit: async (unit, context) => {
+            contexts.set(unit.id, context);
+            return gates.get(unit.id)!.promise;
+          },
+        },
+      ),
+    );
+    await flushMicrotasks();
+    contexts.get("a")!.slot.yield("waiting-auth");
+    await flushMicrotasks();
+    const resume = contexts
+      .get("a")!
+      .slot.runWithPrioritySlot("auth-reply", async () => {
+        sent.push("a");
+      });
+    queue.shutdown();
+    assert.isFalse(await resume);
+    assert.deepEqual(sent, []);
+    gates.get("a")!.resolve({ status: "failed", reasonCode: "shutdown" });
+    gates.get("b")!.resolve({ status: "succeeded" });
+    await handle.completion;
+  });
+
+  it("replaces an unsent reply admission with terminal Host apply", async function () {
+    const queue = createQueue();
+    const contexts = new Map<string, WorkflowSubmissionQueueExecutionContext>();
+    const gates = new Map(
+      ["a", "b"].map((id) => [id, deferred<WorkflowExecutionUnitOutcome>()]),
+    );
+    const callbacks: string[] = [];
+    const handle = queue.enqueueSubmission(
+      createConfig(
+        [{ id: "a" }, { id: "b" }],
+        async () => ({ status: "succeeded" }),
+        {
+          maxConcurrency: 1,
+          executeUnit: async (unit, context) => {
+            contexts.set(unit.id, context);
+            return gates.get(unit.id)!.promise;
+          },
+        },
+      ),
+    );
+    await flushMicrotasks();
+    contexts.get("a")!.slot.yield("waiting-user");
+    await flushMicrotasks();
+
+    const reply = contexts
+      .get("a")!
+      .slot.runWithPrioritySlot("user-reply", async () => {
+        callbacks.push("reply");
+      });
+    assert.isTrue(contexts.get("a")!.slot.cancelPendingResumption());
+    const apply = contexts.get("a")!.slot.ensureSlot("host-apply");
+
+    gates.get("b")!.resolve({ status: "succeeded" });
+    assert.isFalse(await reply);
+    assert.isTrue(await apply);
+    assert.deepEqual(callbacks, []);
+    gates.get("a")!.resolve({ status: "succeeded" });
+    await handle.completion;
+  });
+
+  it("keeps yielded and resumed slots independent across submissions", async function () {
+    const queue = createQueue();
+    const contexts = new Map<string, WorkflowSubmissionQueueExecutionContext>();
+    const gates = new Map<
+      string,
+      ReturnType<typeof deferred<WorkflowExecutionUnitOutcome>>
+    >();
+    const started: string[] = [];
+    const executeUnit = async (
+      unit: TestUnit,
+      context: WorkflowSubmissionQueueExecutionContext,
+    ) => {
+      contexts.set(unit.id, context);
+      started.push(unit.id);
+      const gate = deferred<WorkflowExecutionUnitOutcome>();
+      gates.set(unit.id, gate);
+      return gate.promise;
+    };
+    const first = queue.enqueueSubmission(
+      createConfig([{ id: "a1" }, { id: "a2" }], executeUnit, {
+        maxConcurrency: 1,
+      }),
+    );
+    const second = queue.enqueueSubmission(
+      createConfig([{ id: "b1" }, { id: "b2" }], executeUnit, {
+        backend: { backendType: "skillrunner", backendId: "backend-b" },
+        maxConcurrency: 1,
+      }),
+    );
+    await flushMicrotasks();
+    contexts.get("a1")!.slot.yield("recoverable-failure");
+    await flushMicrotasks();
+    assert.deepEqual(started, ["a1", "b1", "a2"]);
+    assert.equal(queue.getActiveSubmission(first.submissionId)?.admitted, 2);
+    assert.equal(queue.getActiveSubmission(second.submissionId)?.admitted, 1);
+    const resume = contexts
+      .get("a1")!
+      .slot.runWithPrioritySlot("retry", async () => undefined);
+    gates.get("b1")!.resolve({ status: "succeeded" });
+    await flushMicrotasks();
+    assert.deepEqual(started, ["a1", "b1", "a2", "b2"]);
+    assert.equal(
+      queue.getSlotSnapshot(contexts.get("a1")!.submissionUnitId)?.state,
+      "resumption-pending",
+    );
+    gates.get("a2")!.resolve({ status: "succeeded" });
+    await resume;
+    gates.get("a1")!.resolve({ status: "succeeded" });
+    gates.get("b2")!.resolve({ status: "succeeded" });
+    await Promise.all([first.completion, second.completion]);
+  });
+
+  it("freezes safe display identities with stable non-numeric symbols", async function () {
+    const queue = createQueue();
+    const gates: Array<
+      ReturnType<typeof deferred<WorkflowExecutionUnitOutcome>>
+    > = [];
+    const handles = Array.from({ length: 10 }, (_, index) => {
+      const gate = deferred<WorkflowExecutionUnitOutcome>();
+      gates.push(gate);
+      return queue.enqueueSubmission(
+        createConfig([{ id: `u${index}` }], () => gate.promise, {
+          presentation: {
+            provider: index === 0 ? "openai" : "",
+            model: index === 0 ? "gpt-5" : "",
+          },
+        }),
+      );
+    });
+    const identities = handles.map((handle) =>
+      queue.getSubmissionDisplayIdentity(handle.submissionId),
+    );
+    assert.equal(new Set(identities.map((entry) => entry?.symbol)).size, 10);
+    assert.deepInclude(identities[0], {
+      symbol: "🌙",
+      provider: "openai",
+      model: "gpt-5",
+    });
+    assert.deepInclude(identities[8], {
+      symbol: "🌙🌙",
+      provider: "default",
+      model: "default",
+    });
+    for (const identity of identities) {
+      assert.notMatch(identity!.symbol, /[0-9#]/u);
+      assert.deepEqual(Object.keys(identity!).sort(), [
+        "model",
+        "provider",
+        "symbol",
+      ]);
+    }
+    gates.forEach((gate) => gate.resolve({ status: "succeeded" }));
+    await Promise.all(handles.map((handle) => handle.completion));
+  });
+
   for (const maxConcurrency of [undefined, 0] as const) {
     it(`treats ${String(maxConcurrency)} concurrency as unlimited`, async function () {
       const queue = createQueue();
@@ -342,6 +575,55 @@ describe("workflow Host submission queue", function () {
     });
     await admissionWins.completion;
     assert.deepEqual(executed, ["admit-first"]);
+  });
+
+  it("releases identity once when terminal observation wins before late provider completion", async function () {
+    const queue = createQueue();
+    const terminal = deferred<WorkflowExecutionUnitOutcome>();
+    const lateProvider = deferred<void>();
+    let providerCompletions = 0;
+    const handle = queue.enqueueSubmission(
+      createConfig([{ id: "terminal-first" }], async () => {
+        void lateProvider.promise.then(() => {
+          providerCompletions += 1;
+        });
+        return terminal.promise;
+      }),
+    );
+    await flushMicrotasks();
+    assert.isTrue(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "item:terminal-first",
+      }),
+    );
+
+    terminal.resolve({ status: "failed", terminalState: "canceled" });
+    const completion = await handle.completion;
+    assert.equal(completion.failed, 1);
+    assert.isFalse(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "item:terminal-first",
+      }),
+    );
+
+    const retry = queue.enqueueSubmission(
+      createConfig([{ id: "terminal-first" }], async () => ({
+        status: "succeeded",
+      })),
+    );
+    assert.equal((await retry.completion).succeeded, 1);
+
+    lateProvider.resolve();
+    await flushMicrotasks();
+    assert.equal(providerCompletions, 1);
+    assert.isFalse(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "item:terminal-first",
+      }),
+    );
   });
 
   it("publishes immutable sanitized snapshots without polling", async function () {
@@ -454,6 +736,7 @@ describe("workflow Host submission queue", function () {
     const queue = createQueue();
     const gate = deferred<WorkflowExecutionUnitOutcome>();
     const events: string[] = [];
+    const terminalSummaries: unknown[] = [];
     queue.subscribe((event) => events.push(event.type));
     const handle = queue.enqueueSubmission(
       createConfig(
@@ -462,7 +745,10 @@ describe("workflow Host submission queue", function () {
           unit.id === "u1"
             ? gate.promise
             : Promise.resolve({ status: "succeeded" }),
-        { maxConcurrency: 1 },
+        {
+          maxConcurrency: 1,
+          onTerminal: (summary) => terminalSummaries.push(summary),
+        },
       ),
     );
     await flushMicrotasks();
@@ -479,13 +765,15 @@ describe("workflow Host submission queue", function () {
     );
 
     gate.resolve({ status: "succeeded" });
-    assert.deepEqual(await handle.completion, {
+    const summary = await handle.completion;
+    assert.deepEqual(summary, {
       submissionId: handle.submissionId,
       total: 2,
       succeeded: 1,
       failed: 0,
       skipped: 1,
     });
+    assert.deepEqual(terminalSummaries, [summary]);
 
     queue.start();
     assert.isFalse(queue.isShuttingDown);

@@ -1,4 +1,4 @@
-import type { AcpHostContext, AcpMcpHealthSnapshot } from "./acpTypes";
+import type { AcpMcpHealthSnapshot } from "./acpTypes";
 import {
   getHostBridgeToken,
   isHostBridgeAuthorizationValid,
@@ -188,7 +188,7 @@ type ServerState = {
   toolCallCount: number;
   recentRequests: ZoteroMcpRequestLogEntry[];
   updatedAt: string;
-  resolveHostContext?: () => AcpHostContext;
+  resolveZoteroHostCapabilityBroker?: ZoteroMcpHandlerOptions["resolveZoteroHostCapabilityBroker"];
   requestToolPermission?: (
     request: ZoteroMcpToolPermissionRequest,
   ) =>
@@ -1725,7 +1725,8 @@ async function runMcpJsonRpcWithMetrics(
         });
       }
       const response = await handleZoteroMcpJsonRpc(payload, {
-        resolveHostContext: state.resolveHostContext,
+        resolveZoteroHostCapabilityBroker:
+          state.resolveZoteroHostCapabilityBroker,
         resolveMcpStatus: () =>
           getZoteroMcpServerStatus() as unknown as Record<string, unknown>,
         resolveHostBridgeStatus: getHostBridgeServerStatus,
@@ -1742,8 +1743,8 @@ async function runMcpJsonRpcWithMetrics(
               : `Zotero MCP tool call ${event.toolName}`,
             detail: event.error
               ? JSON.stringify(event.error)
-              : JSON.stringify(event.result || event.hostContext || {}),
-            raw: event.error || event.result || event.hostContext,
+              : JSON.stringify(event.result || {}),
+            raw: event.error || event.result,
           });
         },
       } satisfies ZoteroMcpHandlerOptions);
@@ -2320,7 +2321,7 @@ async function startServer() {
 
 export async function ensureZoteroMcpServer(
   args: {
-    resolveHostContext?: () => AcpHostContext;
+    resolveZoteroHostCapabilityBroker?: ZoteroMcpHandlerOptions["resolveZoteroHostCapabilityBroker"];
     requestToolPermission?: (
       request: ZoteroMcpToolPermissionRequest,
     ) =>
@@ -2343,9 +2344,9 @@ export async function ensureZoteroMcpServer(
     });
     throw new Error(message);
   }
-  if (args.resolveHostContext) {
+  if (args.resolveZoteroHostCapabilityBroker) {
     updateState({
-      resolveHostContext: args.resolveHostContext,
+      resolveZoteroHostCapabilityBroker: args.resolveZoteroHostCapabilityBroker,
     });
   }
   if (args.requestToolPermission) {
@@ -2486,7 +2487,7 @@ export function configureZoteroMcpServerForTests(
   args: {
     token?: string;
     endpoint?: string;
-    resolveHostContext?: () => AcpHostContext;
+    resolveZoteroHostCapabilityBroker?: ZoteroMcpHandlerOptions["resolveZoteroHostCapabilityBroker"];
     requestToolPermission?: (
       request: ZoteroMcpToolPermissionRequest,
     ) =>
@@ -2512,7 +2513,7 @@ export function configureZoteroMcpServerForTests(
     port: 0,
     endpoint: args.endpoint || "http://127.0.0.1:0/mcp",
     token,
-    resolveHostContext: args.resolveHostContext,
+    resolveZoteroHostCapabilityBroker: args.resolveZoteroHostCapabilityBroker,
     requestToolPermission: args.requestToolPermission,
     beforeToolCallForTests: args.beforeToolCallForTests,
     lastError: "",

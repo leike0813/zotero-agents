@@ -7,8 +7,8 @@ Workflow определяют, какой Provider (исполнитель) об
 | `kind` | Применимый Provider | Описание |
 |--------|---------------------|----------|
 | `pass-through.run.v1` | pass-through | Чисто локальное выполнение, удалённый бэкенд не задействован |
-| `skillrunner.job.v1` | skillrunner / acp | Одношаговое выполнение навыка SkillRunner |
-| `skillrunner.sequence.v1` | acp | Многошаговое цепочечное выполнение навыков |
+| `skillrunner.job.v1` | skillrunner | Одношаговое выполнение навыка SkillRunner |
+| `skillrunner.sequence.v1` | acp / skillrunner | Многошаговое цепочечное выполнение навыков |
 | `acp.prompt.v1` | acp | Отправить промпт непосредственно бэкенду ACP |
 | `acp.skill.run.v1` | acp | Отправить запуск навыка непосредственно бэкенду ACP |
 | `generic-http.request.v1` | generic-http | Одношаговый вызов HTTP API |
@@ -75,7 +75,7 @@ export function buildRequest({ selectionContext, executionOptions }) {
 | `poll.interval_ms` | Интервал опроса (миллисекунды) |
 | `poll.timeout_ms` | Общий таймаут (миллисекунды) |
 
-Когда workflow выбирает бэкенд ACP, `skillrunner.job.v1` автоматически адаптируется к `acp.skill.run.v1`, поэтому workflow, объявленные как `skillrunner.job.v1`, также совместимы с бэкендом ACP.
+`skillrunner.job.v1` совместим только с бэкендом SkillRunner. Если вам нужно одношаговое выполнение навыка через ACP, объявите `provider: "acp"` с типом запроса `acp.skill.run.v1`.
 
 ## skillrunner.sequence.v1 — Многошаговое цепочечное выполнение навыков
 
@@ -243,8 +243,10 @@ Handoff передаёт данные от одного шага к послед
 |-----------------------------------|-------------------|-------------|
 | Выполнять чисто локальные операции, без удалённых вызовов | `pass-through` | `pass-through.run.v1` |
 | Отправить один навык в Skill-Runner | `skillrunner` | `skillrunner.job.v1` |
-| Связать несколько навыков в последовательность | `acp` | `skillrunner.sequence.v1` |
+| Связать несколько навыков в последовательность | `acp` или `skillrunner` | `skillrunner.sequence.v1` |
 | Вызвать HTTP API | `generic-http` | `generic-http.request.v1` |
+| Начать диалог ACP | `acp` | `acp.prompt.v1` |
+| Отправить один навык на бэкенд ACP | `acp` | `acp.skill.run.v1` |
 
 Примечание: `provider` — это единственное поле, определяющее, с какими бэкендами совместим workflow. `request.kind` используется только для маршрутизации к правильному исполнителю и не участвует в выводе совместимости бэкендов.
 

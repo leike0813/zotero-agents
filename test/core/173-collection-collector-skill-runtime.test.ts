@@ -58,12 +58,34 @@ if (command === "library items list") data = {
   nextCursor: "", hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25)
 };
 else if (command === "library snapshot") data = {
+  schema: "zotero-agents.library-full-index.v1",
+  snapshotId: "snapshot-1",
+  libraryId: 1,
+  scope: "top-level-regular",
+  order: "stable_identity",
+  batchSize: 500,
+  batchIndex: 0,
   items: [
-    { libraryId: 1, key: "ITEM1234", itemType: "journalArticle", title: "Streaming perception for tunnel boring machines", tags: ["streaming"] },
-    { libraryId: 1, key: "ITEM5678", itemType: "conferencePaper", title: "Multimodal fusion", tags: ["multimodal"] },
-    { libraryId: 1, key: "EXIST123", itemType: "journalArticle", title: "Existing streaming paper", tags: ["streaming"] }
-  ],
-  nextCursor: "", hasMore: false, returned: 3, total: 3, limit: Number(input.limit || 25)
+    ["ITEM1234", "journalArticle", "Streaming perception for tunnel boring machines", ["streaming"]],
+    ["ITEM5678", "conferencePaper", "Multimodal fusion", ["multimodal"]],
+    ["EXIST123", "journalArticle", "Existing streaming paper", ["streaming"]]
+  ].map(([key, itemType, title, tags]) => ({
+    ref: { libraryId: 1, key }, kind: "regular", itemType, title,
+    parentRef: null, state: "active", revision: "1", tags, collectionRefs: [],
+    creators: [], date: "", year: null, publicationTitle: "",
+    identifiers: { doi: null, isbn: null, issn: null, arxiv: null, pmid: null },
+    url: null, noteCount: 0, attachmentCount: 0, annotationCount: 0,
+    modifiedAt: "2026-08-31T00:00:00.000Z"
+  })),
+  nextCursor: null, hasMore: false, returned: 3,
+  deliveredItems: 3, deliveredBatches: 1, outcome: "completed",
+  completionEvidence: {
+    snapshotId: "snapshot-1", schema: "zotero-agents.library-full-index.v1",
+    libraryId: 1, scope: "top-level-regular", totalItems: 3, totalBatches: 1,
+    order: "stable_identity",
+    contentDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    completedAt: "2026-08-31T00:00:00.000Z"
+  }
 };
 else if (command === "synthesis topic list") data = {
   topics: [{ topicId: "topic-a", title: "Multimodal perception" }],

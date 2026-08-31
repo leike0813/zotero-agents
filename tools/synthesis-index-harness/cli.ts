@@ -10,7 +10,7 @@ import {
   referenceMatcherFingerprint,
   type ReferenceCanonicalDedupeClusteredResult,
   type ReferenceCanonicalDedupeInput,
-} from "../../src/modules/synthesis/referenceMatcher.ts";
+} from "../../packages/synthesis-engine/src/referenceMatcher.ts";
 
 type JsonRecord = Record<string, any>;
 

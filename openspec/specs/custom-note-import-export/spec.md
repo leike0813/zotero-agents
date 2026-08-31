@@ -72,3 +72,44 @@ export-notes `filterInputs` hook MUST not filter out non-special notes.
 - **THEN** these notes MUST be included in `exportCandidates`
 - **AND** each MUST have `kind: "custom"`
 
+### Requirement: Note mutations SHALL be confirmed and revision-aware
+
+Note creation, content update, removal, and payload upsert SHALL validate portable refs and expected revisions, execute through canonical mutation admission, and return current normalized note or payload state with a confirmed receipt or structured attempt.
+
+#### Scenario: Note content revision conflicts
+
+- **WHEN** a note content update supplies an expected revision that no longer matches
+- **THEN** the mutation returns a conflict before changing content or embedded resources
+
+### Requirement: Embedded image writes SHALL preserve one content boundary
+
+Note creation and content update SHALL accept embedded images only as unique logical slots bound to opaque prepared-image refs from the same workflow run. The Host MUST validate content format, slot syntax and completeness, prepared refs, MIME, dimensions, and aggregate byte limits before mutation; materialize all new image attachments within the canonical note operation; clean replaced plugin-managed images; and issue one receipt covering the note and all affected attachments.
+
+#### Scenario: Prepared image cannot be staged before note mutation
+- **WHEN** any slot binding is duplicate, missing, unused, invalid, foreign, expired, or cannot be staged
+- **THEN** the note remains unchanged and any operation-local staging is cleaned
+- **AND** the failure does not expose a path or prepared bytes
+
+#### Scenario: Image copy fails after note creation
+- **WHEN** an accepted note mutation creates image attachments but cannot commit note content
+- **THEN** cleanup of every new attachment is attempted and the original note failure remains primary
+- **AND** the returned attempt reports any residue as `unknown` or `repair_required` without claiming committed success
+
+#### Scenario: Text content declares an embedded image
+- **WHEN** a text-format note content request includes an embedded-image slot
+- **THEN** validation fails before any attachment or note write
+
+#### Scenario: Accepted note operation is replayed
+- **WHEN** the same operation identity and prepared-image bindings are replayed
+- **THEN** the canonical mutation result is reused
+- **AND** no duplicate image attachment is created
+
+### Requirement: Note payload diagnostics SHALL be closed
+
+Note payload listing and reads SHALL expose only the declared payload provenance, health, and value variants. Native file errors and open warning bags MUST NOT enter the public result.
+
+#### Scenario: Payload storage is missing
+
+- **WHEN** a declared note payload has no readable backing value
+- **THEN** its public health state uses the closed diagnostic union and does not expose a local path or native exception
+

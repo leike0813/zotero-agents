@@ -35,9 +35,19 @@ import {
   validatePosixProcessGroupOwnership,
 } from "../../src/platform/processControl";
 import {
+  ensureRuntimeDirectoryStrict,
+  removeRuntimePath,
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
+import {
+  detectRuntimeArchitecture,
+  detectSynthesisSidecarRuntimeTarget,
+} from "../../src/platform/runtimePlatform";
+import {
+  executeOneShotSubprocess,
+  type OneShotSubprocessAdapter,
+} from "../../src/platform/subprocess";
 
 function redefineGlobalProperty(key: string, value: unknown) {
   const runtime = globalThis as Record<string, unknown>;
@@ -76,6 +86,315 @@ describe("runtime platform services", function () {
     resetRuntimeProcessControlSnapshotForTests();
   });
 
+  it("normalizes one-shot output and exit evidence across host adapters", async function () {
+    for (const kind of ["node", "mozilla"] as const) {
+      const adapter: OneShotSubprocessAdapter = {
+        kind,
+        supportsHiddenExecution: kind === "node",
+        async start(request) {
+          assert.equal(request.command, "/resolved/tool");
+          assert.deepEqual(request.args, ["--probe"]);
+          assert.deepEqual(request.environment, { TOKEN: "redacted" });
+          assert.equal(request.cwd, "/resolved/workdir");
+          return {
+            readStdout: async () => "stdout-value",
+            readStderr: async () => "stderr-value",
+            wait: async () => ({ exitCode: 7 }),
+          };
+        },
+      };
+
+      const result = await executeOneShotSubprocess(
+        {
+          command: "/resolved/tool",
+          args: ["--probe"],
+          environment: { TOKEN: "redacted" },
+          cwd: "/resolved/workdir",
+          timeoutMs: 100,
+          hidden: true,
+        },
+        { adapter },
+      );
+
+      assert.deepInclude(result, {
+        outcome: "exited",
+        adapter: kind,
+        available: true,
+        stdout: "stdout-value",
+        stderr: "stderr-value",
+        exitCode: 7,
+        timedOut: false,
+      });
+      assert.deepEqual(result.hidden, {
+        requested: true,
+        applied: kind === "node",
+      });
+      assert.deepEqual(result.termination, {
+        requested: false,
+        supported: false,
+        completed: false,
+      });
+    }
+  });
+
+  it("returns unavailable without searching commands or building environments", async function () {
+    const result = await executeOneShotSubprocess(
+      {
+        command: "already-resolved-command",
+        args: [],
+        timeoutMs: 100,
+      },
+      { adapter: null },
+    );
+
+    assert.deepInclude(result, {
+      outcome: "unavailable",
+      adapter: null,
+      available: false,
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      timedOut: false,
+    });
+  });
+
+  it("returns timeout and bounded termination evidence", async function () {
+    let terminateCalls = 0;
+    const adapter: OneShotSubprocessAdapter = {
+      kind: "mozilla",
+      supportsHiddenExecution: true,
+      async start() {
+        return {
+          readStdout: async () => "partial-out",
+          readStderr: async () => "partial-err",
+          wait: async () => new Promise<never>(() => undefined),
+          terminate: async () => {
+            terminateCalls += 1;
+          },
+        };
+      },
+    };
+
+    const result = await executeOneShotSubprocess(
+      {
+        command: "/resolved/hanging-tool",
+        timeoutMs: 5,
+        terminationGraceMs: 5,
+        hidden: true,
+      },
+      { adapter },
+    );
+
+    assert.equal(terminateCalls, 1);
+    assert.deepInclude(result, {
+      outcome: "timed_out",
+      adapter: "mozilla",
+      available: true,
+      stdout: "partial-out",
+      stderr: "partial-err",
+      exitCode: null,
+      timedOut: true,
+    });
+    assert.deepEqual(result.hidden, { requested: true, applied: true });
+    assert.deepEqual(result.termination, {
+      requested: true,
+      supported: true,
+      completed: true,
+    });
+  });
+
+  it("bounds a termination operation that never settles", async function () {
+    const adapter: OneShotSubprocessAdapter = {
+      kind: "windows-xpcom",
+      supportsHiddenExecution: true,
+      async start() {
+        return {
+          wait: async () => new Promise<never>(() => undefined),
+          terminate: async () => new Promise<never>(() => undefined),
+        };
+      },
+    };
+
+    const startedAt = Date.now();
+    const result = await executeOneShotSubprocess(
+      {
+        command: "C:\\resolved\\tool.exe",
+        timeoutMs: 5,
+        terminationGraceMs: 5,
+        hidden: true,
+      },
+      { adapter },
+    );
+
+    assert.isBelow(Date.now() - startedAt, 250);
+    assert.equal(result.outcome, "timed_out");
+    assert.deepEqual(result.hidden, { requested: true, applied: true });
+    assert.deepEqual(result.termination, {
+      requested: true,
+      supported: true,
+      completed: false,
+    });
+  });
+
+  it("executes through the production Node adapter with hidden execution", async function () {
+    const previousChromeUtils = redefineGlobalProperty(
+      "ChromeUtils",
+      undefined,
+    );
+    const previousZotero = redefineGlobalProperty("Zotero", undefined);
+    const previousComponents = redefineGlobalProperty("Components", undefined);
+    const previousCc = redefineGlobalProperty("Cc", undefined);
+    try {
+      const result = await executeOneShotSubprocess({
+        command: process.execPath,
+        args: [
+          "-e",
+          "process.stdout.write('node-out');process.stderr.write('node-err');process.exit(3)",
+        ],
+        timeoutMs: 2000,
+        hidden: true,
+      });
+
+      assert.deepInclude(result, {
+        outcome: "exited",
+        adapter: "node",
+        stdout: "node-out",
+        stderr: "node-err",
+        exitCode: 3,
+      });
+      assert.deepEqual(result.hidden, { requested: true, applied: true });
+    } finally {
+      restoreGlobalProperty("Cc", previousCc);
+      restoreGlobalProperty("Components", previousComponents);
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+    }
+  });
+
+  it("resolves the production Mozilla adapter independently on each invocation", async function () {
+    let invocation = 0;
+    const previousComponents = redefineGlobalProperty("Components", undefined);
+    const previousCc = redefineGlobalProperty("Cc", undefined);
+    const previousZotero = redefineGlobalProperty("Zotero", undefined);
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      importESModule() {
+        invocation += 1;
+        const stdout = `mozilla-${invocation}`;
+        let stdoutRead = false;
+        return {
+          Subprocess: {
+            async call() {
+              return {
+                stdout: {
+                  async readString() {
+                    if (stdoutRead) return "";
+                    stdoutRead = true;
+                    return stdout;
+                  },
+                },
+                stderr: { readString: async () => "" },
+                wait: async () => ({ exitValue: 0 }),
+              };
+            },
+          },
+        };
+      },
+    });
+    try {
+      const first = await executeOneShotSubprocess({
+        command: "/resolved/mozilla-tool",
+        timeoutMs: 100,
+      });
+      const second = await executeOneShotSubprocess({
+        command: "/resolved/mozilla-tool",
+        timeoutMs: 100,
+      });
+
+      assert.equal(first.adapter, "mozilla");
+      assert.equal(first.stdout, "mozilla-1");
+      assert.equal(second.adapter, "mozilla");
+      assert.equal(second.stdout, "mozilla-2");
+    } finally {
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("Cc", previousCc);
+      restoreGlobalProperty("Components", previousComponents);
+    }
+  });
+
+  it("feature-detects the production Windows hidden XPCOM adapter", async function () {
+    let initializedPath = "";
+    let processInstance:
+      | {
+          startHidden?: boolean;
+          noShell?: boolean;
+          exitValue: number;
+        }
+      | undefined;
+    const previousChromeUtils = redefineGlobalProperty(
+      "ChromeUtils",
+      undefined,
+    );
+    const previousZotero = redefineGlobalProperty("Zotero", undefined);
+    const previousComponents = redefineGlobalProperty("Components", {
+      interfaces: { nsIFile: {}, nsIProcess: {} },
+      classes: {
+        "@mozilla.org/file/local;1": {
+          createInstance() {
+            return {
+              initWithPath(path: string) {
+                initializedPath = path;
+              },
+            };
+          },
+        },
+        "@mozilla.org/process/util;1": {
+          createInstance() {
+            const instance = {
+              startHidden: false,
+              noShell: false,
+              exitValue: 4,
+              init() {},
+              runwAsync(
+                _args: string[],
+                _count: number,
+                observer: {
+                  observe: (subject: unknown, topic: string) => void;
+                },
+              ) {
+                observer.observe(instance, "process-finished");
+              },
+            };
+            processInstance = instance;
+            return instance;
+          },
+        },
+      },
+    });
+    try {
+      const result = await executeOneShotSubprocess({
+        command: "C:\\resolved\\hidden-tool.exe",
+        args: ["--probe"],
+        timeoutMs: 100,
+        hidden: true,
+      });
+
+      assert.equal(initializedPath, "C:\\resolved\\hidden-tool.exe");
+      assert.equal(processInstance?.startHidden, true);
+      assert.equal(processInstance?.noShell, true);
+      assert.deepInclude(result, {
+        outcome: "exited",
+        adapter: "windows-xpcom",
+        exitCode: 4,
+      });
+      assert.deepEqual(result.hidden, { requested: true, applied: true });
+    } finally {
+      restoreGlobalProperty("Components", previousComponents);
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+    }
+  });
+
   it("preserves Windows path style when joining from a Windows root", function () {
     assert.equal(
       joinNativePath("D:\\ZoteroSkillsRuntime", "acp", "runs"),
@@ -84,6 +403,48 @@ describe("runtime platform services", function () {
     assert.equal(
       joinNativePath("/tmp/zotero", "acp", "runs"),
       "/tmp/zotero/acp/runs",
+    );
+  });
+
+  it("detects supported Synthesis runtime targets without command discovery", function () {
+    assert.equal(detectRuntimeArchitecture("x64"), "x64");
+    assert.equal(detectRuntimeArchitecture("arm64"), "arm64");
+    assert.equal(detectRuntimeArchitecture("ia32"), "x86");
+    assert.equal(detectRuntimeArchitecture("armv7l"), "arm");
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "win32",
+        architecture: "x64",
+      }),
+      "win32-x64",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "darwin",
+        architecture: "arm64",
+      }),
+      "darwin-arm64",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "linux",
+        architecture: "ia32",
+      }),
+      "linux-x86",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "linux",
+        architecture: "armv7l",
+      }),
+      "linux-arm",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "win32",
+        architecture: "arm64",
+      }),
+      "unsupported",
     );
   });
 
@@ -115,18 +476,100 @@ describe("runtime platform services", function () {
     assert.isFalse(isNonNativeAbsolutePath("/tmp/run.json", "linux"));
   });
 
-  it("refuses to write non-native absolute runtime paths", async function () {
-    if (process.platform === "win32") {
+  it("refuses Node fallback for non-native absolute runtime paths", async function () {
+    if (typeof process === "undefined" || process.platform === "win32") {
       this.skip();
     }
-    const target = "C:\\zs-non-native-runtime\\file.txt";
+    const root = `C:\\zs-non-native-runtime-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const target = `${root}\\file.txt`;
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: true,
+      isMac: false,
+      isLinux: false,
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", undefined);
     try {
-      await writeRuntimeTextFile(target, "content");
-      assert.fail("expected non-native runtime path write to fail");
-    } catch (error) {
-      assert.include(String((error as Error).message || error), "non-native");
+      try {
+        await writeRuntimeTextFile(target, "content");
+        assert.fail("expected non-native runtime path write to fail");
+      } catch (error) {
+        assert.include(String((error as Error).message || error), "non-native");
+      }
+      assert.isFalse(await runtimePathExists(target));
+    } finally {
+      await removeRuntimePath(root).catch(() => false);
+      restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
     }
-    assert.isFalse(await runtimePathExists(target));
+  });
+
+  it("prefers the IOUtils runtime directory adapter in Node", async function () {
+    if (typeof process === "undefined" || process.platform === "win32") {
+      this.skip();
+    }
+    const target = `/tmp/zs-runtime-directory-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const dirs = new Set<string>();
+    const calls: string[] = [];
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: false,
+      isMac: false,
+      isLinux: true,
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", {
+      makeDirectory: async (path: string) => {
+        calls.push(path);
+        dirs.add(path);
+      },
+      stat: async (path: string) => {
+        if (!dirs.has(path)) {
+          throw new Error("directory not found");
+        }
+        return { type: "directory" };
+      },
+      exists: async (path: string) => dirs.has(path),
+      remove: async (path: string) => {
+        dirs.delete(path);
+      },
+    });
+    try {
+      await ensureRuntimeDirectoryStrict(target);
+      assert.include(calls, target);
+      assert.isTrue(dirs.has(target));
+    } finally {
+      await removeRuntimePath(target).catch(() => false);
+      restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
+  });
+
+  it("falls back to Node when the Zotero file adapter cannot create directories", async function () {
+    if (typeof process === "undefined" || process.platform === "win32") {
+      this.skip();
+    }
+    const target = `/tmp/zs-runtime-directory-fallback-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: false,
+      isMac: false,
+      isLinux: true,
+      File: {
+        pathToFile: () => ({ exists: () => false }),
+      },
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", undefined);
+    try {
+      await ensureRuntimeDirectoryStrict(target);
+      assert.isTrue(await runtimePathExists(target));
+    } finally {
+      await removeRuntimePath(target).catch(() => false);
+      restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
   });
 
   it("splits and merges PATH entries using the path style of the value", function () {

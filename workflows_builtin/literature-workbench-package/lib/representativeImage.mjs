@@ -4,7 +4,8 @@ import {
   escapeHtml,
   readTagAttribute,
 } from "./htmlCodec.mjs";
-import { requireHostApi } from "./runtime.mjs";
+import { extractMarkedEmbeddedImageKeys } from "./noteEmbeddedImages.mjs";
+import { portableItemRef, requireHostApi } from "./runtime.mjs";
 
 const REPRESENTATIVE_IMAGE_MARKDOWN_BLOCK_RE =
   /\n?<!--\s*zs:representative-image:v1\s+({[\s\S]*?})\s*-->\s*\n?!\[[^\]]*]\([^)]+\)\s*\n?<!--\s*\/zs:representative-image\s*-->\s*/i;
@@ -540,6 +541,7 @@ function renderRepresentativeImageBlock(args) {
   const height = String(args.prepared?.height || "").trim();
   const imageAttrs = [
     `data-attachment-key="${escapeAttribute(args.attachmentKey)}"`,
+    'data-zs-representative-image="v1"',
     `alt="${escapeAttribute(locator.label || "Representative image")}"`,
     width ? `width="${escapeAttribute(width)}"` : "",
     height ? `height="${escapeAttribute(height)}"` : "",
@@ -593,7 +595,10 @@ function withRepresentativeImageDiagnostic(result) {
 }
 
 export function extractExistingRepresentativeImageKeys(noteContent) {
-  const keys = [];
+  const keys = extractMarkedEmbeddedImageKeys(noteContent, {
+    markerAttribute: "data-zs-representative-image",
+    markerValue: "v1",
+  });
   const blockMatches = String(noteContent || "").matchAll(
     /<div\s+data-zs-block=(["'])representative-image\1[\s\S]*?<\/div>/gi,
   );
@@ -616,31 +621,23 @@ export function extractExistingRepresentativeImageKeys(noteContent) {
       }
     }
   }
-  const html = String(noteContent || "");
-  for (const keyMatch of html.matchAll(
-    /<img\b[^>]*data-attachment-key=(["'])([^"']+)\1[^>]*>/gi,
-  )) {
-    const key = normalizeText(keyMatch[2]);
-    if (key) {
-      keys.push(key);
-    }
-  }
   return Array.from(new Set(keys));
 }
 
 export async function cleanupRepresentativeImageAttachments(args) {
   const hostApi = requireHostApi(args.runtime);
   const note = args.digestNote;
+  const noteRef = portableItemRef(note);
+  const attachments = await hostApi.library.getItemAttachments(noteRef);
   for (const key of args.keys || []) {
     try {
-      const attachment = hostApi.items?.getByLibraryAndKey?.(
-        note.libraryID,
-        key,
-      );
-      if (!attachment || attachment.parentID !== note.id) {
-        continue;
-      }
-      await hostApi.attachments.remove(attachment);
+      const attachment = attachments.find((entry) => entry.ref.key === key);
+      if (!attachment) continue;
+      await hostApi.attachments.remove({
+        operationId: `representative-image:remove:${noteRef.libraryId}:${noteRef.key}:${key}`,
+        attachmentRef: attachment.ref,
+        disposition: "trash",
+      });
     } catch {
       // Best-effort cleanup only.
     }
@@ -682,7 +679,7 @@ export async function prepareRepresentativeImageForDigestNote(args) {
     };
   }
   const digestNote = args.digestNote;
-  if (!digestNote || typeof digestNote.getNote !== "function") {
+  if (!digestNote) {
     return withRepresentativeImageDiagnostic(
       skipped("digest_note_missing", locator),
     );
@@ -725,7 +722,7 @@ export async function prepareResolvedRepresentativeImageForDigestNote(args) {
     label: "Representative image",
   };
   const digestNote = args.digestNote;
-  if (!digestNote || typeof digestNote.getNote !== "function") {
+  if (!digestNote) {
     return withRepresentativeImageDiagnostic(
       skipped("digest_note_missing", locator),
     );
@@ -740,45 +737,30 @@ export async function prepareResolvedRepresentativeImageForDigestNote(args) {
     }
     const hostApi = requireHostApi(args.runtime);
     if (
-      typeof hostApi.images?.prepareForNoteEmbedding !== "function" ||
-      typeof hostApi.notes?.importEmbeddedImage !== "function"
+      typeof hostApi.images?.prepareForNoteEmbedding !== "function"
     ) {
       return withRepresentativeImageDiagnostic(
         skipped("host_image_api_unavailable", locator),
       );
     }
 
-    const prepared = await hostApi.images.prepareForNoteEmbedding(imagePath, {
-      maxLongEdge: 720,
-      targetBytes: 180 * 1024,
-      hardMaxBytes: 320 * 1024,
-      initialQuality: 0.82,
-      minQuality: 0.7,
-      sourceKind: locator.source_kind,
+    const prepared = await hostApi.images.prepareForNoteEmbedding({
+      source: { kind: "file", path: imagePath },
+      options: {
+        maxLongEdge: 720,
+        targetBytes: 180 * 1024,
+        hardMaxBytes: 320 * 1024,
+        outputFormat: "auto",
+      },
     });
-    const imported = await hostApi.notes.importEmbeddedImage(
-      digestNote,
-      prepared,
-    );
-    const attachmentKey = normalizeText(imported?.attachmentKey);
-    if (!attachmentKey) {
-      return withRepresentativeImageDiagnostic(
-        skipped("embedded_image_attachment_key_missing", locator),
-      );
-    }
 
     const previousContent =
       typeof args.previousNoteContent === "string"
         ? args.previousNoteContent
-        : String(digestNote.getNote?.() || "");
+        : "";
     const previousKeys =
       extractExistingRepresentativeImageKeys(previousContent);
-    const htmlBlock = renderRepresentativeImageBlock({
-      attachmentKey,
-      locator,
-      prepared,
-      strategy: args.strategy,
-    });
+    const htmlBlock = `<figure data-zs-representative-image="v1"><img data-zotero-agents-image-slot="representative" alt="${escapeAttribute(locator.label || "Representative image")}"></figure>`;
 
     return {
       status: "embedded",
@@ -786,15 +768,16 @@ export async function prepareResolvedRepresentativeImageForDigestNote(args) {
       strategy: args.strategy,
       imagePath,
       sourcePath: args.sourcePath,
-      attachmentKey,
       width: prepared.width,
       height: prepared.height,
-      compressedBytes: prepared.compressedBytes,
-      originalBytes: prepared.originalBytes,
+      compressedBytes: prepared.bytes,
       htmlBlock,
-      previousAttachmentKeys: previousKeys.filter(
-        (key) => key !== attachmentKey,
-      ),
+      embeddedImages: [{
+        slot: "representative",
+        preparedImage: prepared.ref,
+        altText: locator.label || "Representative image",
+      }],
+      previousAttachmentKeys: previousKeys,
     };
   } catch (error) {
     return withRepresentativeImageDiagnostic(

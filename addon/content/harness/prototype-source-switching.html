@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prototype: Assistant Workspace source switching (issue #36)</title>
+    <script src="../shared/theme.js"></script>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../sidebar/assistant-workspace.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--zs-bg);
+        color: var(--zs-text);
+        font: 13px/1.45 var(--zs-font-sans);
+      }
+      /* ---- review controls (NOT part of the design) ---- */
+      .proto-reviewbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 14px;
+        border-bottom: 1px dashed var(--zs-border-strong);
+        background: var(--zs-warning-soft);
+        color: var(--zs-text-soft);
+        font-size: 12px;
+      }
+      .proto-reviewbar strong {
+        color: var(--zs-warning);
+      }
+      .proto-reviewbar select {
+        font: inherit;
+        padding: 2px 6px;
+        border: 1px solid var(--zs-border);
+        border-radius: var(--zs-radius-sm);
+        background: var(--zs-input-bg);
+        color: var(--zs-text);
+      }
+      .proto-stage {
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 20px;
+      }
+      .proto-notes {
+        width: 300px;
+        font-size: 12px;
+        color: var(--zs-muted);
+        border: 1px dashed var(--zs-border);
+        border-radius: var(--zs-radius-md);
+        padding: 10px 12px;
+      }
+      .proto-notes h2 {
+        font-size: 12px;
+        margin: 0 0 6px;
+        color: var(--zs-text-soft);
+      }
+      .proto-notes ul {
+        margin: 6px 0 0;
+        padding-left: 16px;
+      }
+      .proto-notes li {
+        margin-bottom: 4px;
+      }
+      /* ---- device frame ---- */
+      .proto-device {
+        width: 340px;
+        height: 620px;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--zs-border-strong);
+        border-radius: var(--zs-radius-lg);
+        overflow: hidden;
+        background: var(--assistant-bg, var(--zs-bg));
+        box-shadow: var(--zs-shadow-soft);
+        position: relative;
+      }
+      .proto-chrome {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--zs-border);
+        background: var(--zs-panel-alt);
+        font-weight: 600;
+      }
+      .proto-chrome button {
+        border: 0;
+        background: none;
+        font-size: 14px;
+        color: var(--zs-muted);
+        cursor: pointer;
+      }
+      /* ---- lane switcher ---- */
+      .proto-lanes {
+        display: flex;
+        gap: 4px;
+        padding: 8px 10px 0;
+      }
+      .proto-lane {
+        flex: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 6px 4px;
+        border: 1px solid var(--zs-border);
+        border-bottom: none;
+        border-radius: var(--zs-radius-sm) var(--zs-radius-sm) 0 0;
+        background: transparent;
+        color: var(--zs-muted);
+        font: inherit;
+        cursor: pointer;
+      }
+      .proto-lane.is-active {
+        background: var(--zs-panel);
+        color: var(--zs-accent-strong);
+        font-weight: 600;
+        position: relative;
+      }
+      .proto-lane.is-active::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 2px;
+        background: var(--zs-panel);
+      }
+      /* ---- lane body ---- */
+      .proto-lane-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        border-top: 1px solid var(--zs-border);
+        background: var(--zs-panel);
+        min-height: 0;
+      }
+      .proto-toolbar {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--zs-border);
+      }
+      .proto-toolbar .spacer {
+        flex: 1;
+      }
+      .proto-btn {
+        font: inherit;
+        padding: 4px 10px;
+        border: 1px solid var(--zs-border);
+        border-radius: var(--zs-radius-sm);
+        background: var(--zs-panel-raised);
+        color: var(--zs-text);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .proto-btn:hover {
+        background: var(--zs-surface-hover);
+      }
+      .proto-btn.is-primary {
+        background: var(--zs-accent);
+        border-color: var(--zs-accent);
+        color: #fff;
+      }
+      .proto-btn[aria-expanded="true"] {
+        background: var(--zs-accent-soft);
+        border-color: var(--zs-accent-soft-border);
+      }
+      /* chips (variant C) */
+      .proto-chips {
+        display: flex;
+        gap: 6px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--zs-border);
+        overflow-x: auto;
+      }
+      .proto-chip {
+        font: inherit;
+        font-size: 12px;
+        white-space: nowrap;
+        padding: 3px 9px;
+        border: 1px solid var(--zs-border);
+        border-radius: var(--zs-radius-pill);
+        background: transparent;
+        color: var(--zs-muted);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .proto-chip.is-active {
+        background: var(--zs-accent-soft);
+        border-color: var(--zs-accent-soft-border);
+        color: var(--zs-accent-strong);
+        font-weight: 600;
+      }
+      /* menus */
+      .proto-menuwrap {
+        position: relative;
+      }
+      .proto-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        z-index: 30;
+        min-width: 200px;
+        background: var(--zs-panel-raised);
+        border: 1px solid var(--zs-border-strong);
+        border-radius: var(--zs-radius-md);
+        box-shadow: var(--zs-shadow-soft);
+        padding: 4px;
+      }
+      .proto-menu.align-right {
+        left: auto;
+        right: 0;
+      }
+      .proto-menu-label {
+        padding: 4px 10px 2px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--zs-muted-soft);
+      }
+      .proto-menu-item {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border: 0;
+        background: none;
+        font: inherit;
+        color: var(--zs-text);
+        cursor: pointer;
+        border-radius: var(--zs-radius-sm);
+        text-align: left;
+      }
+      .proto-menu-item:hover,
+      .proto-menu-item.is-focus {
+        background: var(--zs-surface-hover);
+      }
+      .proto-menu-item .meta {
+        margin-left: auto;
+        color: var(--zs-muted);
+        font-size: 11px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .proto-menu-item.is-checked {
+        font-weight: 600;
+      }
+      /* owner list */
+      .proto-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 6px;
+        min-height: 0;
+      }
+      .proto-group-header {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 8px;
+        margin-top: 4px;
+        border: 0;
+        background: none;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--zs-text-soft);
+        cursor: pointer;
+        border-radius: var(--zs-radius-sm);
+        text-align: left;
+      }
+      .proto-group-header:hover {
+        background: var(--zs-surface-hover);
+      }
+      .proto-group-header .caret {
+        width: 12px;
+        color: var(--zs-muted-soft);
+      }
+      .proto-group-header .count {
+        margin-left: auto;
+        color: var(--zs-muted);
+        font-weight: 400;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .proto-row {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        width: 100%;
+        padding: 7px 9px;
+        border: 0;
+        border-radius: var(--zs-radius-md);
+        background: none;
+        font: inherit;
+        color: var(--zs-text);
+        cursor: pointer;
+        text-align: left;
+      }
+      .proto-row:hover {
+        background: var(--zs-surface-hover);
+      }
+      .proto-row.is-selected {
+        background: var(--zs-surface-selected);
+      }
+      .proto-row-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 500;
+      }
+      .proto-row-title .t {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .proto-row-title.is-unread .t {
+        font-weight: 700;
+      }
+      .proto-row-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--zs-muted);
+      }
+      .proto-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 7px;
+        border-radius: var(--zs-radius-pill);
+        font-size: 10.5px;
+        border: 1px solid var(--zs-border);
+        color: var(--zs-text-soft);
+        white-space: nowrap;
+      }
+      .proto-badge.is-zotero {
+        background: var(--zs-accent-soft);
+        border-color: var(--zs-accent-soft-border);
+        color: var(--zs-accent-strong);
+      }
+      .proto-badge.is-skillrunner {
+        background: var(--zs-purple-soft);
+        border-color: var(--zs-purple);
+        color: var(--zs-purple);
+      }
+      .proto-row-meta .time {
+        margin-left: auto;
+        white-space: nowrap;
+      }
+      /* status + attention dots */
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex: none;
+        display: inline-block;
+      }
+      .dot.is-running {
+        background: var(--zs-accent);
+      }
+      .dot.is-attention {
+        background: var(--zs-warning);
+        box-shadow: 0 0 0 2px var(--zs-warning-soft);
+      }
+      .dot.is-error {
+        background: var(--zs-danger);
+      }
+      .dot.is-done {
+        background: var(--zs-border-strong);
+      }
+      .dot.is-unread {
+        background: var(--zs-accent);
+      }
+      .status-attention {
+        color: var(--zs-warning);
+        font-weight: 600;
+      }
+      .status-error {
+        color: var(--zs-danger);
+      }
+      /* states */
+      .proto-empty {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 24px;
+        text-align: center;
+        color: var(--zs-muted);
+      }
+      .proto-empty .big {
+        font-size: 22px;
+      }
+      .proto-banner {
+        margin: 8px 10px 0;
+        padding: 6px 10px;
+        border-radius: var(--zs-radius-sm);
+        font-size: 12px;
+        background: var(--zs-danger-soft);
+        border: 1px solid var(--zs-danger-border);
+        color: var(--zs-danger);
+      }
+      .proto-skeleton {
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .proto-skeleton .bar {
+        height: 34px;
+        border-radius: var(--zs-radius-md);
+        background: linear-gradient(
+          90deg,
+          var(--zs-panel-alt) 25%,
+          var(--zs-surface-hover) 50%,
+          var(--zs-panel-alt) 75%
+        );
+        background-size: 200% 100%;
+        animation: proto-shimmer 1.2s infinite;
+      }
+      @keyframes proto-shimmer {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
+        }
+      }
+      /* detail (owner) view */
+      .proto-detail {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .proto-detail-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--zs-border);
+      }
+      .proto-detail-head .back {
+        border: 0;
+        background: none;
+        font: inherit;
+        color: var(--zs-accent-strong);
+        cursor: pointer;
+        padding: 2px 4px;
+      }
+      .proto-detail-head .t {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .proto-transcript {
+        flex: 1;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        overflow-y: auto;
+      }
+      .proto-bubble {
+        max-width: 85%;
+        padding: 7px 10px;
+        border-radius: var(--zs-radius-lg);
+        font-size: 12px;
+      }
+      .proto-bubble.user {
+        align-self: flex-end;
+        background: var(--zs-accent-soft);
+        border: 1px solid var(--zs-accent-soft-border);
+      }
+      .proto-bubble.agent {
+        align-self: flex-start;
+        background: var(--zs-panel-alt);
+        border: 1px solid var(--zs-border);
+      }
+      .proto-loading-region {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        color: var(--zs-muted);
+        font-size: 12px;
+      }
+      .proto-spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--zs-border);
+        border-top-color: var(--zs-accent);
+        border-radius: 50%;
+        animation: proto-spin 0.8s linear infinite;
+      }
+      @keyframes proto-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .proto-toast {
+        position: absolute;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--zs-text);
+        color: var(--zs-bg);
+        padding: 5px 12px;
+        border-radius: var(--zs-radius-pill);
+        font-size: 12px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+      }
+      .proto-toast.is-on {
+        opacity: 0.92;
+      }
+      :focus-visible {
+        outline: 2px solid var(--zs-accent);
+        outline-offset: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="proto-reviewbar">
+      <strong>Prototype review controls — not part of the design</strong>
+      <label>
+        Variant
+        <select id="proto-variant">
+          <option value="A">A — Grouped list + New-picker</option>
+          <option value="B">B — Source menu filter</option>
+          <option value="C">C — Filter chips</option>
+        </select>
+      </label>
+      <label>
+        Scenario
+        <select id="proto-scenario">
+          <option value="populated">Populated</option>
+          <option value="attention">Attention in hidden source</option>
+          <option value="empty">Empty</option>
+          <option value="loading">Loading (owner-first)</option>
+          <option value="error">Error (source unavailable)</option>
+        </select>
+      </label>
+      <span>Issue #36 · low-fidelity · keyboard: Tab / ↑↓ / Enter / Esc</span>
+    </header>
+
+    <main class="proto-stage">
+      <div class="proto-device" id="proto-device" aria-label="Assistant sidebar mock"></div>
+      <aside class="proto-notes" id="proto-notes"></aside>
+    </main>
+
+    <script>
+      (function () {
+        "use strict";
+
+        /* ---------- facts ---------- */
+        var SOURCES = {
+          "zotero-agent": { label: "Zotero Agent" },
+          "external-agent": { label: "External Agent" },
+          skillrunner: { label: "SkillRunner" },
+        };
+        var LANE_SOURCES = {
+          conversations: ["zotero-agent", "external-agent"],
+          "skill-runs": ["zotero-agent", "external-agent", "skillrunner"],
+        };
+        var LANES = [
+          { key: "conversations", label: "Conversations" },
+          { key: "skill-runs", label: "Skill Runs" },
+        ];
+
+        function owner(lane, source, title, opts) {
+          opts = opts || {};
+          return {
+            lane: lane,
+            source: source,
+            backend: opts.backend || "",
+            title: title,
+            status: opts.status || "done", // running | waiting | unread | error | done
+            time: opts.time || "",
+          };
+        }
+
+        var DATA_POPULATED = [
+          owner("conversations", "zotero-agent", "Summarize Kwon 2024 methodology", { status: "unread", time: "2m" }),
+          owner("conversations", "zotero-agent", "Compare attention variants", { status: "done", time: "1h" }),
+          owner("conversations", "external-agent", "Refactor transcript renderer", { backend: "Claude Code", status: "running", time: "now" }),
+          owner("conversations", "external-agent", "Draft release notes", { backend: "Codex CLI", status: "done", time: "3d" }),
+          owner("skill-runs", "zotero-agent", "Literature digest — Zhou 2025", { status: "running", time: "now" }),
+          owner("skill-runs", "external-agent", "Batch translate — 6 PDFs", { backend: "Claude Code", status: "done", time: "5h" }),
+          owner("skill-runs", "skillrunner", "Literature Analysis — Tao 2023", { status: "waiting", time: "4m" }),
+          owner("skill-runs", "skillrunner", "Tag Regulation — 42 items", { status: "done", time: "1d" }),
+          owner("skill-runs", "skillrunner", "Deep Reading — Ito 2024", { status: "error", time: "2d" }),
+        ];
+
+        var DATA_ATTENTION = [
+          owner("conversations", "zotero-agent", "Summarize Kwon 2024 methodology", { status: "done", time: "2m" }),
+          owner("conversations", "zotero-agent", "Compare attention variants", { status: "done", time: "1h" }),
+          owner("conversations", "external-agent", "Refactor transcript renderer", { backend: "Claude Code", status: "unread", time: "now" }),
+          owner("skill-runs", "zotero-agent", "Literature digest — Zhou 2025", { status: "done", time: "3h" }),
+          owner("skill-runs", "skillrunner", "Literature Analysis — Tao 2023", { status: "waiting", time: "4m" }),
+          owner("skill-runs", "skillrunner", "Deep Reading — Ito 2024", { status: "waiting", time: "9m" }),
+        ];
+
+        /* ---------- state ---------- */
+        var state = {
+          variant: "A",
+          scenario: "populated",
+          lane: "conversations",
+          filter: "all",
+          selected: null, // index into current data
+          collapsed: {}, // groupKey -> true
+          menu: null, // "new" | "source"
+        };
+
+        var device = document.getElementById("proto-device");
+        var notes = document.getElementById("proto-notes");
+
+        function currentData() {
+          if (state.scenario === "empty") return [];
+          if (state.scenario === "attention") return DATA_ATTENTION;
+          return DATA_POPULATED;
+        }
+        function laneOwners(lane) {
+          return currentData().filter(function (o) {
+            return o.lane === lane;
+          });
+        }
+        function sourceUnavailable(source) {
+          return state.scenario === "error" && source === "external-agent";
+        }
+        function ownerNeedsAttention(o) {
+          return o.status === "waiting" || o.status === "unread" || o.status === "error";
+        }
+        function sourceAttention(lane, source) {
+          return laneOwners(lane).some(function (o) {
+            return o.source === source && ownerNeedsAttention(o);
+          });
+        }
+        function laneAttention(lane) {
+          return laneOwners(lane).some(ownerNeedsAttention);
+        }
+        function sourceCount(lane, source) {
+          return laneOwners(lane).filter(function (o) {
+            return o.source === source;
+          }).length;
+        }
+        function visibleOwners() {
+          var all = laneOwners(state.lane);
+          if (state.variant === "A" || state.filter === "all") return all;
+          return all.filter(function (o) {
+            return o.source === state.filter;
+          });
+        }
+        function sourceLabel(o) {
+          return SOURCES[o.source].label + (o.backend ? " · " + o.backend : "");
+        }
+
+        /* ---------- dom helpers ---------- */
+        function el(tag, cls, text) {
+          var n = document.createElement(tag);
+          if (cls) n.className = cls;
+          if (text != null) n.textContent = text;
+          return n;
+        }
+        function dot(kind) {
+          return el("span", "dot is-" + kind);
+        }
+        function statusMeta(o) {
+          if (o.status === "running") return { dot: "running", text: "Running", cls: "" };
+          if (o.status === "waiting") return { dot: "attention", text: "Needs approval", cls: "status-attention" };
+          if (o.status === "unread") return { dot: "unread", text: "New activity", cls: "" };
+          if (o.status === "error") return { dot: "error", text: "Failed", cls: "status-error" };
+          return { dot: "done", text: "", cls: "" };
+        }
+        function toast(msg) {
+          var t = device.querySelector(".proto-toast");
+          if (!t) {
+            t = el("div", "proto-toast");
+            device.appendChild(t);
+          }
+          t.textContent = msg;
+          t.classList.add("is-on");
+          setTimeout(function () {
+            t.classList.remove("is-on");
+          }, 1800);
+        }
+
+        /* ---------- renderers ---------- */
+        function renderChrome() {
+          var bar = el("div", "proto-chrome");
+          bar.appendChild(el("span", "", "Assistant"));
+          var close = el("button", "", "×");
+          close.setAttribute("aria-label", "Close assistant sidebar");
+          close.addEventListener("click", function () {
+            toast("Would close the sidebar");
+          });
+          bar.appendChild(close);
+          return bar;
+        }
+
+        function renderLanes() {
+          var nav = el("nav", "proto-lanes");
+          nav.setAttribute("aria-label", "Assistant workspace lanes");
+          LANES.forEach(function (lane) {
+            var b = el("button", "proto-lane" + (state.lane === lane.key ? " is-active" : ""), lane.label);
+            b.setAttribute("aria-pressed", state.lane === lane.key ? "true" : "false");
+            if (laneAttention(lane.key) && state.lane !== lane.key) {
+              b.appendChild(dot("attention"));
+              b.setAttribute("aria-label", lane.label + " — needs attention");
+            }
+            b.addEventListener("click", function () {
+              state.lane = lane.key;
+              state.filter = "all";
+              state.selected = null;
+              state.menu = null;
+              render();
+            });
+            nav.appendChild(b);
+          });
+          return nav;
+        }
+
+        function newMenuItems() {
+          // Conversations only: Zotero Agent direct, External Agent per backend.
+          var items = [
+            { label: "Zotero Agent", action: "new:zotero-agent" },
+            { label: "Claude Code", group: "External Agent", action: "new:Claude Code" },
+            { label: "Codex CLI", group: "External Agent", action: "new:Codex CLI" },
+          ];
+          return items;
+        }
+
+        function openMenu(anchor, items, onPick) {
+          closeMenu();
+          var wrap = anchor.closest(".proto-menuwrap") || anchor.parentElement;
+          var menu = el("div", "proto-menu");
+          menu.setAttribute("role", "menu");
+          var lastGroup = "";
+          items.forEach(function (item) {
+            if (item.group && item.group !== lastGroup) {
+              menu.appendChild(el("div", "proto-menu-label", item.group));
+              lastGroup = item.group;
+            }
+            var it = el("button", "proto-menu-item" + (item.checked ? " is-checked" : ""));
+            it.setAttribute("role", "menuitem");
+            it.appendChild(el("span", "", (item.checked ? "✓ " : "") + item.label));
+            if (item.meta || item.attention || item.unavailable) {
+              var meta = el("span", "meta");
+              if (item.unavailable) meta.appendChild(dot("error"));
+              else if (item.attention) meta.appendChild(dot("attention"));
+              if (item.meta) meta.appendChild(el("span", "", item.meta));
+              it.appendChild(meta);
+            }
+            it.addEventListener("click", function () {
+              dismissMenu();
+              onPick(item);
+            });
+            menu.appendChild(it);
+          });
+          wrap.style.position = "relative";
+          var wrapRect = wrap.getBoundingClientRect();
+          var deviceRect = device.getBoundingClientRect();
+          if (wrapRect.right + 210 > deviceRect.right) {
+            menu.classList.add("align-right");
+          }
+          wrap.appendChild(menu);
+          var focusables = Array.prototype.slice.call(menu.querySelectorAll(".proto-menu-item"));
+          menu.addEventListener("keydown", function (ev) {
+            var i = focusables.indexOf(document.activeElement);
+            if (ev.key === "ArrowDown") {
+              ev.preventDefault();
+              (focusables[i + 1] || focusables[0]).focus();
+            } else if (ev.key === "ArrowUp") {
+              ev.preventDefault();
+              (focusables[i - 1] || focusables[focusables.length - 1]).focus();
+            } else if (ev.key === "Escape") {
+              ev.preventDefault();
+              dismissMenu();
+              anchor.focus();
+            }
+          });
+          if (focusables[0]) focusables[0].focus();
+          document.addEventListener(
+            "mousedown",
+            function onDoc(ev) {
+              if (!menu.contains(ev.target) && ev.target !== anchor) {
+                dismissMenu();
+                document.removeEventListener("mousedown", onDoc);
+              }
+            },
+            { capture: true }
+          );
+          function dismissMenu() {
+            if (menu.parentElement) menu.parentElement.removeChild(menu);
+            anchor.setAttribute("aria-expanded", "false");
+            state.menu = null;
+          }
+          anchor.setAttribute("aria-expanded", "true");
+        }
+
+        function closeMenu() {
+          var open = device.querySelector(".proto-menu");
+          if (open && open.parentElement) open.parentElement.removeChild(open);
+          state.menu = null;
+        }
+
+        function renderToolbar() {
+          var bar = el("div", "proto-toolbar");
+          var isConversations = state.lane === "conversations";
+
+          if (state.variant === "B") {
+            // source menu filter
+            var wrap = el("div", "proto-menuwrap");
+            var cur =
+              state.filter === "all" ? "All sources" : SOURCES[state.filter].label;
+            var btn = el("button", "proto-btn", cur + " ▾");
+            btn.setAttribute("aria-haspopup", "menu");
+            btn.setAttribute("aria-expanded", "false");
+            btn.addEventListener("click", function () {
+              var items = [{ label: "All sources", value: "all" }];
+              LANE_SOURCES[state.lane].forEach(function (s) {
+                items.push({
+                  label: SOURCES[s].label,
+                  value: s,
+                  meta: String(sourceCount(state.lane, s)),
+                  attention: sourceAttention(state.lane, s),
+                  unavailable: sourceUnavailable(s),
+                });
+              });
+              items.forEach(function (it) {
+                it.checked = state.filter === it.value;
+              });
+              openMenu(btn, items, function (item) {
+                state.filter = item.value;
+                render();
+              });
+            });
+            wrap.appendChild(btn);
+            bar.appendChild(wrap);
+          }
+
+          bar.appendChild(el("span", "spacer"));
+
+          if (isConversations) {
+            var newWrap = el("div", "proto-menuwrap");
+            var newBtn = el("button", "proto-btn is-primary", "＋ New");
+            newWrap.appendChild(newBtn);
+            if (state.variant === "A" || state.filter === "all") {
+              newBtn.setAttribute("aria-haspopup", "menu");
+              newBtn.setAttribute("aria-expanded", "false");
+              newBtn.addEventListener("click", function () {
+                openMenu(newBtn, newMenuItems(), function (item) {
+                  toast("Would start a new conversation — " + item.label);
+                });
+              });
+            } else {
+              // B/C with a specific source selected: direct create
+              var target =
+                state.filter === "zotero-agent"
+                  ? "Zotero Agent"
+                  : "External Agent (choose backend…)";
+              newBtn.addEventListener("click", function () {
+                if (state.filter === "zotero-agent") {
+                  toast("Would start a new conversation — Zotero Agent");
+                } else {
+                  openMenu(newBtn, newMenuItems().slice(1), function (item) {
+                    toast("Would start a new conversation — " + item.label);
+                  });
+                }
+              });
+              newBtn.title = "New conversation — " + target;
+            }
+            bar.appendChild(newWrap);
+          }
+          return bar;
+        }
+
+        function renderChips() {
+          var row = el("div", "proto-chips");
+          row.setAttribute("role", "group");
+          row.setAttribute("aria-label", "Filter by source");
+          var chips = [{ key: "all", label: "All" }].concat(
+            LANE_SOURCES[state.lane].map(function (s) {
+              return { key: s, label: SOURCES[s].label };
+            })
+          );
+          chips.forEach(function (chip) {
+            var b = el(
+              "button",
+              "proto-chip" + (state.filter === chip.key ? " is-active" : "")
+            );
+            b.setAttribute("aria-pressed", state.filter === chip.key ? "true" : "false");
+            b.appendChild(el("span", "", chip.label));
+            if (chip.key !== "all") {
+              b.appendChild(el("span", "", String(sourceCount(state.lane, chip.key))));
+              if (sourceUnavailable(chip.key)) b.appendChild(dot("error"));
+              else if (sourceAttention(state.lane, chip.key)) b.appendChild(dot("attention"));
+            }
+            b.addEventListener("click", function () {
+              state.filter = chip.key;
+              render();
+            });
+            row.appendChild(b);
+          });
+          return row;
+        }
+
+        function renderRow(o, globalIndex) {
+          var row = el("button", "proto-row");
+          var title = el("span", "proto-row-title" + (o.status === "unread" ? " is-unread" : ""));
+          if (o.status === "waiting") title.appendChild(dot("attention"));
+          title.appendChild(el("span", "t", o.title));
+          row.appendChild(title);
+
+          var meta = el("span", "proto-row-meta");
+          var badgeCls =
+            o.source === "zotero-agent"
+              ? "proto-badge is-zotero"
+              : o.source === "skillrunner"
+                ? "proto-badge is-skillrunner"
+                : "proto-badge";
+          meta.appendChild(el("span", badgeCls, sourceLabel(o)));
+          var sm = statusMeta(o);
+          if (sm.text) {
+            var st = el("span", sm.cls, sm.text);
+            meta.appendChild(st);
+          }
+          meta.appendChild(el("span", "time", o.time));
+          row.appendChild(meta);
+
+          row.addEventListener("click", function () {
+            state.selected = globalIndex;
+            render();
+          });
+          return row;
+        }
+
+        function renderList() {
+          if (state.scenario === "loading") {
+            var sk = el("div", "proto-skeleton");
+            sk.setAttribute("aria-label", "Loading " + state.lane);
+            for (var i = 0; i < 4; i++) sk.appendChild(el("div", "bar"));
+            return sk;
+          }
+
+          var data = currentData();
+          var owners = visibleOwners();
+          var list = el("div", "proto-list");
+
+          if (state.scenario === "error") {
+            list.appendChild(
+              el(
+                "div",
+                "proto-banner",
+                "External Agent backends unavailable — connection lost. Other sources unaffected."
+              )
+            );
+          }
+
+          if (!owners.length) {
+            var empty = el("div", "proto-empty");
+            if (!data.length) {
+              if (state.lane === "conversations") {
+                empty.appendChild(el("div", "", "No conversations yet."));
+                empty.appendChild(el("div", "", "Start one with ＋ New above."));
+              } else {
+                empty.appendChild(el("div", "", "No skill runs yet."));
+                empty.appendChild(
+                  el("div", "", "Runs started from workflows appear here — nothing to create by hand.")
+                );
+              }
+            } else {
+              empty.appendChild(
+                el("div", "", "Nothing from " + SOURCES[state.filter].label + " yet.")
+              );
+            }
+            list.appendChild(empty);
+            return list;
+          }
+
+          if (state.variant === "A") {
+            LANE_SOURCES[state.lane].forEach(function (source) {
+              var group = owners.filter(function (o) {
+                return o.source === source;
+              });
+              var gKey = state.lane + ":" + source;
+              var collapsed = !!state.collapsed[gKey];
+              var head = el("button", "proto-group-header");
+              head.setAttribute("aria-expanded", collapsed ? "false" : "true");
+              head.appendChild(el("span", "caret", collapsed ? "▸" : "▾"));
+              head.appendChild(el("span", "", SOURCES[source].label));
+              var count = el("span", "count");
+              if (sourceUnavailable(source)) {
+                count.appendChild(dot("error"));
+                count.appendChild(el("span", "", "unavailable"));
+              } else {
+                if (sourceAttention(state.lane, source)) count.appendChild(dot("attention"));
+                count.appendChild(el("span", "", String(group.length)));
+              }
+              head.appendChild(count);
+              head.addEventListener("click", function () {
+                state.collapsed[gKey] = !collapsed;
+                render();
+              });
+              list.appendChild(head);
+              if (collapsed) return;
+              if (!group.length) {
+                list.appendChild(
+                  el(
+                    "div",
+                    "proto-row-meta",
+                    sourceUnavailable(source)
+                      ? "  Reconnect to see conversations from this source."
+                      : "  Nothing here yet."
+                  )
+                );
+                return;
+              }
+              group.forEach(function (o) {
+                list.appendChild(renderRow(o, data.indexOf(o)));
+              });
+            });
+          } else {
+            owners.forEach(function (o) {
+              list.appendChild(renderRow(o, data.indexOf(o)));
+            });
+          }
+
+          // arrow-key navigation across rows
+          list.addEventListener("keydown", function (ev) {
+            if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+            var rows = Array.prototype.slice.call(list.querySelectorAll(".proto-row"));
+            var i = rows.indexOf(document.activeElement);
+            if (i < 0) return;
+            ev.preventDefault();
+            var next = ev.key === "ArrowDown" ? rows[i + 1] : rows[i - 1];
+            if (next) next.focus();
+          });
+          return list;
+        }
+
+        function renderDetail() {
+          var o = currentData()[state.selected];
+          var wrap = el("div", "proto-detail");
+          var head = el("div", "proto-detail-head");
+          var back = el("button", "back", "‹ " + (state.lane === "conversations" ? "Conversations" : "Skill Runs"));
+          back.addEventListener("click", function () {
+            state.selected = null;
+            render();
+          });
+          head.appendChild(back);
+          head.appendChild(el("span", "t", o.title));
+          head.appendChild(
+            el(
+              "span",
+              "proto-badge" +
+                (o.source === "zotero-agent" ? " is-zotero" : o.source === "skillrunner" ? " is-skillrunner" : ""),
+              sourceLabel(o)
+            )
+          );
+          wrap.appendChild(head);
+
+          if (state.scenario === "loading") {
+            // owner-first: chrome + owner identity render immediately;
+            // transcript page loads inside its own region.
+            var lr = el("div", "proto-loading-region");
+            lr.setAttribute("role", "status");
+            lr.appendChild(el("div", "proto-spinner"));
+            lr.appendChild(el("div", "", "Loading transcript page…"));
+            wrap.appendChild(lr);
+            return wrap;
+          }
+
+          var tr = el("div", "proto-transcript");
+          var b1 = el("div", "proto-bubble user", "(transcript preview — not part of this prototype)");
+          var b2 = el(
+            "div",
+            "proto-bubble agent",
+            o.status === "waiting"
+              ? "This run is waiting for a permission decision."
+              : o.status === "error"
+                ? "This run failed. Recovery actions would appear here."
+                : "Owner view: transcript, drawers, reply — unchanged from today."
+          );
+          tr.appendChild(b1);
+          tr.appendChild(b2);
+          wrap.appendChild(tr);
+          return wrap;
+        }
+
+        var NOTES = {
+          A: [
+            "Owner list is grouped by source category; group headers collapse and carry count + attention.",
+            "Provider distinction = the group itself; backend name rides on the row as secondary text.",
+            "Conversations: ＋ New opens the agent picker (Zotero Agent direct; External Agent → configured backends).",
+            "Skill Runs: no ＋ New — runs arrive from workflows; the lane is an arrival/watch entry.",
+          ],
+          B: [
+            "One compact source menu filters a flat list; menu items carry count + attention + unavailable.",
+            "Provider distinction = per-row badge (e.g. “External Agent · Claude Code”).",
+            "＋ New adapts: with “All sources” it opens the picker; with a source selected it goes direct.",
+            "Skill Runs: no ＋ New.",
+          ],
+          C: [
+            "Single-select chips (with counts) filter a flat list; most glanceable, but takes a permanent row of vertical space.",
+            "Provider distinction = per-row badge, same as B.",
+            "＋ New adapts like B. Skill Runs: no ＋ New.",
+          ],
+        };
+
+        function renderNotes() {
+          notes.innerHTML = "";
+          notes.appendChild(el("h2", "", "Variant " + state.variant + " — how it works"));
+          var ul = el("ul");
+          NOTES[state.variant].forEach(function (t) {
+            ul.appendChild(el("li", "", t));
+          });
+          notes.appendChild(ul);
+          if (state.scenario === "attention") {
+            notes.appendChild(
+              el(
+                "div",
+                "",
+                "▶ Scenario: the unseen source (External Agent conversation / SkillRunner runs) needs attention — check that the switch control shows it without switching."
+              )
+            );
+          }
+          if (state.scenario === "loading") {
+            notes.appendChild(
+              el(
+                "div",
+                "",
+                "▶ Scenario: lane chrome renders instantly; list skeleton is owner-scoped. Open a row to see owner-first transcript loading."
+              )
+            );
+          }
+        }
+
+        function render() {
+          closeMenu();
+          device.innerHTML = "";
+          device.appendChild(renderChrome());
+          device.appendChild(renderLanes());
+          var body = el("section", "proto-lane-body");
+          if (state.selected != null && currentData()[state.selected]) {
+            body.appendChild(renderDetail());
+          } else {
+            state.selected = null;
+            body.appendChild(renderToolbar());
+            if (state.variant === "C") body.appendChild(renderChips());
+            body.appendChild(renderList());
+          }
+          device.appendChild(body);
+          renderNotes();
+        }
+
+        document.getElementById("proto-variant").addEventListener("change", function (ev) {
+          state.variant = ev.target.value;
+          state.filter = "all";
+          state.selected = null;
+          render();
+        });
+        document.getElementById("proto-scenario").addEventListener("change", function (ev) {
+          state.scenario = ev.target.value;
+          state.selected = null;
+          render();
+        });
+
+        render();
+      })();
+    </script>
+  </body>
+</html>

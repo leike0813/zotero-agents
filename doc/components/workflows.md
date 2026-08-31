@@ -209,6 +209,23 @@ Gitee mirror；如果 primary 和 mirror 都可用但语义不一致，插件选
 并将 mirror mismatch 记录为 degraded fallback，而不是阻断更新。发布 gate 默认
 只强校验 GitHub feed 与 GitHub release asset；Gitee mirror 校验是显式维护操作。
 
+### 正式发布频道选择
+
+正式发布必须显式指定频道，不存在隐式全频道默认值：
+
+```shell
+npm run release:content-package -- --dispatch --watch --channels stable,beta,dev
+```
+
+`--channels` 接受 `stable`、`beta`、`dev` 的任意非空组合；单频道与分批发布只
+构建、上传、更新和验证所选频道。发布端只替换 `content-feed/<channel>/feed.json`，
+不会清空分支、删除未选频道的 feed 或触发 Gitee 同步。要执行全频道发布，显式写出
+`stable,beta,dev`。
+
+Host Bridge 七个保留 Skill 随插件 XPI 发布，不属于 Content Package。内容包构建
+只扫描剩余的 `skills_builtin/` 与 `workflows_builtin/`；Host Bridge complete
+receipt 是插件发布门禁，不阻塞独立的内容包发布。
+
 ## Manifest（当前实现）
 
 Manifest 契约由以下 schema 唯一定义（SSOT）：
@@ -391,7 +408,8 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
 ### Agent-facing 内建 Workflow Catalog
 
 Generic Zotero research surface 在
-`zotero-library-agent/references/workflow-catalog.md` 中发布内建 workflow
+`addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md`
+中发布内建 workflow
 目录，帮助 agent 在执行实时发现之前缩小候选范围。目录不是独立维护的
 workflow 清单：`scripts/host-bridge-workflow-catalog.ts` 从
 `workflows_builtin/manifest.json`、各 package manifest 及其 `workflow.json`
@@ -452,7 +470,7 @@ describe`、`workflow validate-input`、`workflow profile describe` 与
   - `selected.pdf`
   - `selected.source`（由当前输入单元筛选后的唯一源附件，支持 markdown/pdf）
 - 每个 selector 在当前输入单元必须唯一命中，否则该输入单元报错/跳过
-- 声明式编译会自动把 `files[].key` 写入 create body 的 `input.<key>`，值为 `uploads/` 根下相对路径（例如 `inputs/source_path/example.md`）
+- 声明式编译会自动把 `files[].key` 写入 create body 的 `input.<key>`，值为 `uploads/` 根下相对路径（例如 `inputs/source_path/example.md`）；该 upload-relative 路径由单一 provider mapping 模块 `src/providers/skillrunner/uploadMapping.ts` 生成，声明式编译与 sequence runtime 共用同一投影
 - `upload_files` 仅用于“本地文件路径 -> zip entry”映射；zip entry 与 `input.<key>` 路径必须一致
 
 ### skillrunner.sequence.v1 关键约束
@@ -635,29 +653,22 @@ Hook 接收的 `runtime` 对象包含：
 
 ## Host API（Hook 可调用）
 
-`runtime.hostApi` 提供以下能力（详见 `src/workflows/types.ts`）：
+`runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
+`src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：23 个顶层
+key、21 个模块、87 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
-### 文件操作
+- `addon`、`environment`、`context`、`navigation`
+- `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
+- `bibliography`、`researchBundles`、`statusTags`
+- `file`、`archive`、`resources`、`clipboard`
+- `editor`、`notifications`、`logging`
+- `synthesis.workflowApply`、`synthesis.topics`、`synthesis.artifacts`、`synthesis.tags`
 
-- `hostApi.file.pathToFile(path)`：将路径转换为 File 对象
-- `hostApi.file.readText(path)`：读取文本文件
-- `hostApi.file.writeText(path, content)`：写入文本文件
-- `hostApi.file.exists(path)`：检查文件是否存在
-- `hostApi.file.makeDirectory(path)`：创建目录
-- `hostApi.file.materializeWorkflowInputFile(args)`：将 workflow 生成的 provider 输入文件写入插件管理的 runtime tmp，并返回本机绝对路径
-- `hostApi.file.getTempDirectoryPath()`：获取短生命周期 scratch 临时目录；不得用于 provider 请求输入文件
-- `hostApi.file.pickDirectory(args?)`：选择目录（返回路径或 null）
-- `hostApi.file.pickFile(args?)`：选择单个文件（返回路径或 null）
-- `hostApi.file.pickFiles(args?)`：**v0.3.0 新增** 选择多个文件（返回路径数组或 null）
-
-### 其他操作
-
-- `hostApi.items.get/resolve/getByLibraryAndKey/getAll`：条目操作
-- `hostApi.prefs.get/set/clear`：偏好设置操作
-- `hostApi.parents/notes/attachments/tags/collections/command`：Handler 快捷访问
-- `hostApi.editor.openSession/registerRenderer/unregisterRenderer`：编辑器会话
-- `hostApi.notifications.toast`：通知提示
-- `hostApi.logging.appendRuntimeLog`：运行日志
+交互与非交互投影具有相同结构；非交互调用 UI 成员时返回稳定的
+`interaction_required`。Hook scope 不提供 `runtime.zotero`、
+`runtime.handlers`、`runtime.helpers`、`IOUtils`、`Components` 或 addon 对象。
+文件系统 adapter 由 `src/modules/runtimePersistence.ts` 在每次调用时晚绑定；
+包内纯逻辑应放在 package-local module 中并通过相对路径导入。
 
 ## Workflow Package Schema
 

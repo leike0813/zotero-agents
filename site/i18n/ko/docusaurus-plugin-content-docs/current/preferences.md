@@ -100,7 +100,7 @@ Zotero Agents 설정은 **Zotero → 설정 → Zotero Agents**(Windows/Linux) �
 
 ## WebDAV 동기화
 
-Synthesis Workbench를 위한 교차 디바이스 동기화 솔루션으로, 더 이상 사용되지 않는 Git Sync를 대체합니다. 자세한 내용은 [WebDAV 동기화](synthesis/webdav-sync)를 참조하세요.
+Synthesis Workbench의 교차 디바이스 영구 데이터 동기화 기능입니다. 자세한 내용은 [WebDAV 동기화](synthesis/webdav-sync)를 참조하세요.
 
 | 설정 | 유형 | 기본값 | 설명 |
 |------|------|--------|------|

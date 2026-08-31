@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Behind the scenes, three subsystems work in concert: a **pluggable Workflow engi
 
 ### System Requirements
 
-- [Zotero 9](https://www.zotero.org/download/) or [Zotero 7](https://www.zotero.org/download/) (version ≥ 6.999)
+- [Zotero 7, 9, or 10](https://www.zotero.org/download/) (version ≥ 7.0)
 - If using the ACP backend: corresponding Agent CLI tools installed locally (`npx` auto-install also works)
 - If using the Skill-Runner backend: a deployed [Skill-Runner](https://github.com/leike0813/Skill-Runner) instance
 
-> **About Zotero versions**: This plugin is developed and tested on Zotero 9. Zotero 8 should be fully supported in theory (the plugin framework for Zotero 8/9 has not changed significantly); Zotero 7 should also work in theory, but due to limited bandwidth, it has not been thoroughly tested, and future maintenance will focus on Zotero 9. If you encounter issues on Zotero 7, please report them on [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **About Zotero versions**: The production manifest supports Zotero 7 through 10. The automated real-host matrix pins Zotero 7.0.32, 9.0.6, and 10.0.1 on Windows x64 and Linux x64; macOS Intel and Apple Silicon currently provide non-blocking Zotero 10 formal-XPI evidence. A representative-version result does not imply that every historical patch release was tested.
 
 ### Backend Types
 
@@ -284,6 +284,8 @@ The Workbench is a full Workspace Tab in Zotero, containing 8 Surfaces:
 | **Reader** | Topic deep reader: Overview / Taxonomy / Claims / Compare / Future Directions / Coverage / References / Report |
 
 The Workbench includes built-in **WebDAV sync**, which can synchronize structured data such as tag vocabularies, topic synthesis, and concept knowledge bases to a remote server via the WebDAV protocol, enabling lightweight cross-device sync and backup.
+
+Library maintenance such as reference refresh, graph/index rebuilds, and WebDAV synchronization returns a durable Public Maintenance Operation. The sidecar owns its admission, execution, cancel/retry/continue controls, progress, and terminal receipt. After a restart, pending work requires explicit continuation and work that may already have crossed an external-effect boundary is reported as failed rather than replayed automatically.
 
 <table>
 <tr>
@@ -565,7 +567,7 @@ For more architecture details, see [Documentation Site: Custom Workflows](https:
 
 | Limitation | Description | Plan |
 |------------|-------------|------|
-| **Synthesis heavy computation blocks UI** | Operations like refreshing the index, rebuilding the Citation Graph, and Advance Matching are computationally intensive; under Zotero's single host process architecture, they cause brief UI freezes. Please be patient during execution | Planned to be resolved in a future refactor |
+| **Native Synthesis retirement acceptance is not final** | Rust is the only production application, persistence, canonical-store, and compute owner. The plugin legacy owner and the external Node service/worker stack have been removed from the development source tree. Source-local contract, boundary, TypeScript, Rust, packaging, and representative process gates remain mandatory; a source-fresh seven-platform bundle/XPI inventory and Zotero 7/9 real-machine acceptance are still separate release evidence. | Complete `complete-synthesis-r9-stage1-acceptance` before treating the retirement lineage as release-ready |
 | **WebDAV sync not fully tested** | The auto-sync feature has not been thoroughly tested; if using it, stick to manual sync as much as possible | Will be improved in a future release |
 | **Large library performance** | Performance has not been sufficiently tested on large-scale libraries | To be addressed in future updates |
 

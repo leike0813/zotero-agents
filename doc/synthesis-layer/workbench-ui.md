@@ -10,6 +10,16 @@ Workbench UI is a read model over Zotero Library, workflow artifacts, and commit
 - Legacy JSON, canonical projections, and archived files must not appear as implicit fallback rows.
 - Debug file inspection belongs in debug tools, not normal Workbench UI.
 - Normal Workbench reads must not start library-wide reconciliation or cache refresh.
+- Progress, chrome, client, and debug reads are pure queries: they must not update operation lifecycle. Explicit startup reconciliation changes public-maintenance `pending` rows to `continuation_required`, fails public-maintenance `running` rows whose external-effect outcome is unknown, and cancels other stale `running` rows; it never dispatches work.
+
+In debug builds, failed native startup spans are part of the same causal trace
+store as RPC, reverse-Host, worker, transfer, and durable-operation spans.
+Workbench may show the latest stable startup phase and code and link to the
+read-only **Synthesis Sidecar** page in Task Manager. The page groups spans by
+trace, shows parent/child depth, attempt, dropped counts, allowlisted metrics
+and facts, and copies the complete sanitized selected trace. It offers no
+retry, restart, repair, or mutation action. Release builds retain neither this
+page nor trace context, process tails, trace stores, subscriptions, or patches.
 
 ## Surface-Scoped Refresh Architecture
 
@@ -19,22 +29,40 @@ Workbench UI uses three read-model layers:
 - Chrome: statusbar, operation progress, job popover, and local pending action state.
 - Surface: one named content area, one of `home`, `topics`, `index`, `review`, `graph`, `tags`, `concepts`, or `reader`.
 
+The native Workbench route validates exactly those shared public surface
+names. Critical smoke reads `home` through the same route; internal migration
+labels are not accepted as substitutes. Native discovery is client-ready only
+when its advertised ordered roster matches the shared ready-roster contract.
+
 Active Workbench hot paths must use surface-scoped messages:
 
 - `ready` initializes shell/chrome and requests the active surface only.
 - `selectTab` switches the shell state and requests only the selected surface when it is missing or dirty; switching back to an already loaded clean surface must serve the cached read model.
-- operation progress updates chrome only.
+- operation progress is read through the narrow `SynthesisClient.workbench.readProgress()` projection and updates chrome only.
 - local review pending, selection, and drawer state updates only the review/index surface and chrome.
 - Review Center filter changes may reload only the Review surface, using the active review tab and filters as query bounds.
 - explicit refresh or completed operations invalidate only declared surfaces; hidden invalidated surfaces are marked dirty and are not reloaded until viewed or explicitly refreshed.
+
+Workbench state sent to the native client is strict JSON. Optional selections
+are removed from the object when cleared; `undefined` must never cross the
+client boundary as an object value. A malformed optional UI field therefore
+cannot poison subsequent sidecar commands.
 
 The monolithic full Workbench snapshot is debug-only. It must not be used by `ready`, `selectTab`, `setFilters`, operation progress polling, local review actions, or graph layout checks. Startup warmup may prefill only lightweight chrome by default. Content surfaces must be loaded when visible, explicitly requested, or scheduled through a bounded surface list; they must yield before phase work starts and must not show a Zotero ProgressWindow or block the first Workbench paint.
 
 Chrome is not a content surface. It may read operation rows, cache-basis rows, storage status, and local pending command state, but it must not read Citation Graph nodes/edges, Index rows, Review proposal evidence, Tag/Concept projections, or Topic Graph data.
 
+The Rust production application owns chrome and every named Workbench surface
+projection over the production repository. Chrome remains a bounded operational
+query and cannot substitute for content surfaces. The TypeScript Workbench host
+routes both chrome and surfaces through the native `SynthesisClient`, manages
+surface-scoped UI state, and joins only the bounded Zotero facts that require
+reverse-Host authority. No plugin repository or shadow canary services a normal
+Workbench read.
+
 Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
 
-Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage and reference counts only; they must not carry every raw reference for collapsed rows. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center must use its active tab/status/kind/confidence state to load a bounded page of review data and the minimal readable context for those rows only. Review proposal context must use summary Zotero item reads and bounded raw-reference ids; it must not route through the Index sidecar row builder or read child note payloads.
+Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage, the Literature Analysis score summary, analysis routing mode, and reference counts only; they must not carry every raw reference for collapsed rows. The score summary is resolved only for the current page from the score note's embedded payload. It drives the five-star Rating column and the Analyze action: incomplete three-piece output runs full analysis, a complete three-piece output without a valid score runs score-only, and a complete scored item disables the action. Score-note and score-payload attachment notifications invalidate only the Index read model. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center applies active tab, status, kind, confidence, search, cursor, and limit before SQLite materialization. Reference rows cross the boundary as `registry.matchProposals` and `registry.cleanupProposals` with only their canonical/target context; Concept rows use `concepts.reviewItems` with candidate concepts; Topic Graph uses suggested `topicGraph.edges`, low-confidence `topicGraph.reviewItems`, and their endpoint nodes. `reviews` contains the aggregate summary only. Review reads must not route through the Index sidecar row builder or read child note payloads.
 
 ## Cache Status and Operations
 
@@ -73,11 +101,25 @@ Queue aggregates and debug work listings are not part of the active UI contract.
 
 Advanced Reference Matching appears under Index and Review as an explicit review workflow. The Index fact tables continue to show accepted binding facts and unbound derived state; open proposals are displayed in the review drawer and Review Center with Accept/Reject actions. The Review Center also lets users manage prior decisions: accepted proposals can be reopened, rejected, or deleted, and rejected proposals can be reopened, accepted, or deleted. Changing an accepted proposal must revoke the binding or redirect fact created from that proposal. Running advanced matching must require confirmation because it may run heavier binding and canonical dedupe logic than refresh.
 
+Reference Sidecar refresh/retry and advanced matching run/retry route through no-argument `SynthesisClient.references` commands. These commands do not carry UI progress callbacks; the existing 500 ms `workbench.readProgress()` poll remains the progress source. Refresh and advanced matching keep their confirmations, while both retry actions remain confirmation-free.
+
+Canonical revision Accept/Reject, single proposal actions, batch proposal decisions, single/batch canonical merge, metadata update, and archive route through strict `SynthesisClient.references` commands. The Workbench owns input aliases, trimming, default actions, batch filtering and canonical mapping, manual target mapping, boolean confirmation coercion, and metadata patch alias normalization. The client boundary validates canonical identifiers, action enums, merge pairs, bounded metadata fields, and manual-target discriminators. Proposal decisions in one batch commit independently and return per-item results, so a missing proposal does not discard valid decisions. Receipt reuse is valid only while the affected proposal status still equals the receipt's committed after-state; an intervening reopen, reject, retarget, reverse, or delete invalidates the older receipt. These commands retain command single-flight and singular `diagnostic` handling, add no confirmation dialog or progress callback, and keep plural `diagnostics` as supporting detail. Merge commands refresh Index/Review/Graph, metadata/archive refresh Index/Review, and only batch canonical merge uses deferred start.
+
+Concept KB rebuild, display-text update, review actions, and deletion route through strict `SynthesisClient.concepts` commands. The Workbench owns identifier trimming, review action selection, optional merge targets, and single/batch deletion aliases; the client boundary accepts only the four Concept display fields, strict review actions, and non-empty deletion batches. Rebuild keeps its protected confirmation and deferred start but carries no UI progress callback; persisted Workbench progress polling remains the progress source. Only review actions use singular `diagnostic` failure handling, and all four commands refresh Concepts/Review. Concept queries and checkpoint export remain on their current paths.
+
+Topic artifact deletion and purge plus discovery-hint rejection and restoration route through strict `SynthesisClient.topics` commands. Delete and purge retain their destructive confirmations and immediate single-flight execution; deletion still surfaces a returned domain reason when the Topic is not found. Discovery-hint actions retain trimmed identifiers, empty-ID skipping, singular `diagnostic` handling, and selected-surface refresh, so plural domain diagnostics remain reviewable results. Delete and purge refresh Home/Topics. These commands add no progress callback, streaming state, deferred start, or identifier aliases; Topic queries and mirror operations remain on their current paths.
+
+Topic Graph projection rebuild, edge acceptance/rejection, and review actions route through a distinct `SynthesisClient.topicGraph` capability rather than Citation Graph. Rebuild keeps protected confirmation, deferred start, persisted progress polling, and its current Home-only refresh while carrying no UI callback. Edge actions retain trimmed identifiers, empty-ID skipping, their shared decision single-flight key, and singular diagnostic handling. A low-confidence review approval creates a `suggested` edge; accepting that edge is the separate action that makes it `confirmed`. Both decisions mark the rebuildable Topic Graph index stale without starting rebuild. Confirming `broader_than` refreshes the persisted discovery cascade; a refresh failure is reported as a warning after the relation commit. The three mutations refresh Home/Topics/Graph/Review.
+
+Tag Vocabulary validation, projection rebuild, regulator export, canonical/staged mutations, and import preview/apply route through `SynthesisClient.tags`. They retain their existing single-flight arguments, confirmation, start timing, progress polling, clipboard ownership, strict DTOs, domain transactions, and Home/Tags refresh behavior.
+
+All five WebDAV runtime commands route through `SynthesisClient.sync.webDav`. The Workbench acquires a fresh client inside the existing single-flight closure for every command, preserves action trimming and the `keep_local` default, and keeps run/retry failure-state handling separate from pause/resume/conflict result handling. Only `syncWebDavNow` remains deferred; pause, resume, retry, and conflict resolution start immediately. Sync polling and the chrome refresh fast path are unchanged. State/configuration/credential/connection-test projections remain outside this command capability, and production Workbench has no full-service import.
+
 Canonical merge proposals must show readable source and target reference titles when matcher evidence provides them. Internal canonical ids are fallback diagnostics, not the primary decision text.
 
 ## Sync Status and Conflict Review
 
-The Workbench Sync panel is a runtime surface, not the long-term sync configuration editor. WebDAV base URL, WebDAV remote path, username, retry policy, and encrypted credential state are owned by Zotero Preferences. Git Sync is retained as hidden/deprecated service code and is not exposed by the Workbench Sync panel. When WebDAV Sync is disabled or incomplete, Workbench shows the config state and offers `Open preferences` as the primary action.
+The Workbench Sync panel is a runtime surface, not the long-term sync configuration editor. WebDAV base URL, WebDAV remote path, username, retry policy, and encrypted credential state are owned by Zotero Preferences. When WebDAV Sync is disabled or incomplete, Workbench shows the config state and offers `Open preferences` as the primary action.
 
 When WebDAV configuration is complete, Workbench may expose runtime actions such as `WebDAV Sync now`, `Pause`, `Resume`, and `Retry` based on service-provided `allowedActions`. The panel should use a compact summary row for remote path, base URL, and queue state, then place last run, recent sanitized connection-test diagnostics, and execution feedback in the terminal-style log area. It must never display or accept a password in the Workbench.
 
@@ -88,19 +130,36 @@ When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict revie
 ## Graph UI
 
 - Show all library nodes by default.
-- Show shared external nodes when more than one distinct library paper cites the target. Repeated reference instances from one library paper increase edge mentions but do not increase incoming degree.
-- Keep single-degree external nodes hover-only by default and exclude them from the default graph layout.
+- Project external visibility after the active topic, kind, role, and low-signal filters. A target with fewer than two distinct currently visible library sources stays out of the visual projection, and at least two distinct sources admit the target to the default projection. Repeated reference instances or evidence edges from one library paper do not increase the source count.
+- Keep every edge hidden at rest. Selection and pointer hover are independent interaction owners: their incident edges are shown as a union, while explicit edge selection keeps that edge visible. Default external admission controls mounted topology, not a separate always-visible edge tier; library nodes may remain visible without an edge.
+- Keep single-source external nodes and their edges in supplemental graph data for counts and details, but exclude them from WebGL, SVG, hover, selection, and every graph layout scope.
+- Apply the same 20,000-node/80,000-edge default projection to public Graph pages and layout input. Library nodes precede shared external nodes, and every selected edge has both endpoints in the projection.
+- Treat selection and pointer hover as presentation-only state over the default topology. When they differ, show the union of their default-projection incident edges; leaving the pointer target removes only its transient emphasis. Same-query page merges preserve valid pointer state, titles, and incident-edge presentation, while query or graph-basis changes discard transient pointer state without changing selection.
+- Aggregate filtered raw citation rows into one deterministic visual edge per directed endpoint pair before feeding Graphology or SVG. Keep raw rows for details; show distinct incoming library papers separately from normalized citation-record count.
+- Give default nodes that arrive without coordinates a deterministic fallback near a visible incident-node anchor. Slice merges preserve known coordinates and do not replace the continuation-page request owner.
+- Apply the same projection before the first standalone WebGL frame and in the SVG fallback. Reapplying unchanged filters must not change the partitions; the SVG fallback draws no edge at rest and reveals only default-projection incident edges for selected and pointer-hovered nodes.
 - If graph cache is stale and graph rows still exist, render the latest usable graph and show `refreshCitationGraphCacheIncrementalNow` when stale delta metadata is available; after a successful stale refresh, the host may run scoped related-items sync for the final affected source refs. Full rebuild remains the fallback when no delta is recorded.
 - If graph cache is failed but graph rows still exist, render the latest usable graph and offer `rebuildCitationGraphCacheNow`.
 - If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Sidecar-changing actions mark graph stale instead of starting source-slice graph refresh.
 - If graph structure exists but layout is missing/stale, draw what is available and offer `manualRecomputeLayout`.
+- Show in-graph layout waiting feedback only when the current graph has no usable coordinates. Once usable coordinates exist, keep that graph mounted and interactive during later recomputation and report progress only through the status bar.
+- Route manual and automatic layout recomputation through one host-owned `SynthesisClient.graph` coordinator. Manual recomputation is forced, automatic recomputation retains the layout-ready and graph-hash guards, rendering never mutates layout, and `graph_application_busy` converges by observing existing work without an error toast.
+- Accept fallback Workbench actions only from the runtime's exact frame window, and apply latest-wins sequencing to chrome/progress reads so an older Running response cannot overwrite a terminal state. Only an actual `refreshing` layout state may display layout-refresh activity.
+- Route full rebuild, incremental refresh, and failed rebuild retry through no-argument `SynthesisClient.graph` commands. These commands do not carry UI progress callbacks; the existing 500 ms `workbench.readProgress()` poll remains the progress source.
 - If graph cache is stale, failed, or missing, show a visible cache badge and keep topic workflows available.
 - Graph search is explicit: typing in the control does not refresh the surface until `Search` is pressed; `Clear` resets search immediately.
-- Graph edges should indicate direction with directed arrow rendering and target-tinted edge color. Hovering a visible neighbor of a selected node should show that neighbor title, including external reference nodes.
+- Graph edges should indicate direction with directed arrow rendering and target-tinted edge color. Pointer hover takes precedence only for the direction color of an edge incident to both interaction owners. Hovering any node must show its title, including external references and nodes with an importance or current-paper halo, without changing the selected node or its drawer.
 
 Graph data rebuild and layout rebuild must remain different UI actions. Layout rebuild never repairs missing graph data.
 
 The Graph surface owns one persistent Sigma stage, renderer, canvas set, and WebGL context set for the Workbench document lifetime. Sidebar, selection, drawer, status, snapshot, and tab updates must reuse that surface; model changes use `setGraph()` rather than renderer teardown. A hidden Graph surface remains mounted and inert without `display:none`, and host resize bursts are coalesced before one visible resize/refresh.
+
+The top bar contains a compact sidecar status indicator derived only from the
+supervisor's bounded public health projection. Color and label communicate the
+current lifecycle at a glance; hover, keyboard focus, or opening the indicator
+shows lifecycle, recovery, version/instance suffix, and compute-pool state.
+Foreground observation is coalesced and updates chrome only. It must not reload
+a content surface or expose repository paths, tokens, payloads, or raw errors.
 
 ## Review and Overrides
 

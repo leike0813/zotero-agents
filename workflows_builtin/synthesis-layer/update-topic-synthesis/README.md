@@ -4,12 +4,18 @@
 
 更新一个已创建的 Topic Synthesis（主题综合）。当库内新增文献、标签更新或引文图谱变化时，重新运行分析让主题保持最新。
 
+更新不以“必须新增文献”为前提。即使 resolver 的新增集合为空，digest、literature score、依赖、resolver 结果或 triage 状态发生变化，仍然可以构成一次有效更新。
+
 ## 前置准备
 
 与 [Create Topic Synthesis](../create-topic-synthesis/README.md) 相同，更新效果同样依赖库内文献的分析完整度。建议在以下变更后运行更新：
 - 新增了相关文献（已执行 Literature Analysis + Tag Regulator）
 - 引文图谱有显著变化（执行了 Advance Matching）
 - 受控词表有更新
+- 文献评分新增、删除、失效或内容变化
+- digest、依赖或既有 triage 覆盖发生变化，即使没有新增文献
+
+评分变化会影响上下文选择，因此 freshness 检测会要求完整更新。更新过程继续使用 digest、references、citation analysis 和 literature score 四件套；缺失或无效评分使用中性质量先验，不改变 Topic 相关性边界。
 
 ## 怎么输入？
 

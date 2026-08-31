@@ -43,7 +43,8 @@
         "message": { "type": "string", "minLength": 1 },
         "duplicate_topic_id": { "type": "string" },
         "topic_seed": { "type": "string" },
-        "topic_id": { "type": "string" }
+        "topic_id": { "type": "string" },
+        "retryable": { "type": "boolean" }
       }
     }
   ]

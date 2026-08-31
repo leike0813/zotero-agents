@@ -1,11 +1,28 @@
-const MIN_HOST_API_VERSION = 2;
-const MAX_HOST_API_VERSION = 10;
 const GLOBAL_HOST_API_KEY = "__zsHostApi";
 const GLOBAL_HOST_API_VERSION_KEY = "__zsHostApiVersion";
 const runtimeScopeStack = [];
 
 function isObjectLike(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+export function portableItemRef(value) {
+  const source = value?.ref || value || {};
+  const libraryId = Number(source.libraryId || source.libraryID);
+  const key = String(source.key || source.itemKey || "").trim();
+  if (!Number.isSafeInteger(libraryId) || libraryId <= 0 || !key) {
+    throw new Error("portable Zotero item ref is required");
+  }
+  return { libraryId, key };
+}
+
+export function requireCommittedMutation(execution) {
+  if (execution?.outcome === "committed" || execution?.outcome === "unchanged") {
+    return execution.result;
+  }
+  const error = new Error(execution?.attempt?.error?.message || "Workflow Host mutation failed");
+  error.attempt = execution?.attempt;
+  throw error;
 }
 
 function resolveCurrentWorkflowExecutionRuntime(runtime) {
@@ -110,13 +127,6 @@ export async function withPackageRuntimeScope(runtime, work) {
 export { resolveCurrentWorkflowExecutionRuntime };
 
 function resolvePerformanceProbeHooks() {
-  const hostApi = resolveHostApi();
-  const viaHostApi = hostApi?.logging?.recordPerformanceSpanForTests;
-  if (typeof viaHostApi === "function") {
-    return {
-      recordSpan: viaHostApi,
-    };
-  }
   const hooks = globalThis?.__zs_test_performance_probe_hooks__;
   if (
     hooks &&
@@ -151,47 +161,17 @@ export function requireHostApi(runtime, message) {
   if (!hostApi) {
     throw createHostContractError(
       runtime,
-      message || "workflow-package host contract v1 removed; use runtime.hostApi",
+      message || "workflow-package requires runtime.hostApi",
     );
   }
-  const version = resolveHostApiVersion(runtime);
-  if (
-    !Number.isFinite(version) ||
-    version < MIN_HOST_API_VERSION ||
-    version > MAX_HOST_API_VERSION
-  ) {
+  const hostApiVersion = resolveHostApiVersion(runtime);
+  if (hostApiVersion !== 12) {
     throw createHostContractError(
       runtime,
-      `workflow-package hostApi version mismatch: expected ${MIN_HOST_API_VERSION}-${MAX_HOST_API_VERSION}, received ${String(version || "missing")}`,
+      `workflow-package hostApi version mismatch: expected 12, received ${String(hostApiVersion || "missing")}`,
     );
   }
   return hostApi;
-}
-
-export function requireHostPrefs(runtime, message) {
-  const prefs = requireHostApi(runtime, message).prefs;
-  if (!prefs || typeof prefs.get !== "function") {
-    throw createHostContractError(runtime, "host capability missing: prefs");
-  }
-  return prefs;
-}
-
-export function requireHostItems(runtime, message) {
-  const items = requireHostApi(runtime, message).items;
-  if (!items || typeof items.get !== "function") {
-    emitAccessorDiagnostic({
-      runtime,
-      level: "error",
-      operation: "host-items",
-      stage: "runtime-items-missing",
-      message: "items API is unavailable in current runtime",
-    });
-    throw createHostContractError(
-      runtime,
-      "host capability missing: items",
-    );
-  }
-  return items;
 }
 
 export function requireHostEditor(runtime, message) {
@@ -291,7 +271,14 @@ export function decodeRuntimeBase64Utf8(text, runtime) {
 export function appendWorkflowRuntimeLog(args) {
   const runtime = args?.runtime;
   const logging = requireHostApi(runtime).logging;
-  return logging.appendRuntimeLog(args);
+  return logging.appendRuntimeLog({
+    level: args?.level,
+    stage: args?.stage,
+    message: args?.message,
+    ...(args?.operation ? { operation: args.operation } : {}),
+    ...(args?.phase ? { phase: args.phase } : {}),
+    ...(args?.details ? { details: args.details } : {}),
+  });
 }
 
 export function showWorkflowToast(args) {

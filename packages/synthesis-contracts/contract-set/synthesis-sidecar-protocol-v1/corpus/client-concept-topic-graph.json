@@ -1,0 +1,80 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "concept-query-nested-positive",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/QueryConceptKbResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "labels": ["AI"],
+        "matches": [
+          {
+            "label": "AI",
+            "exactConceptIds": ["concept:ai"],
+            "aliasMatches": [
+              { "aliasId": "alias:ai", "conceptId": "concept:ai" }
+            ],
+            "senseIds": [],
+            "ambiguous": false
+          }
+        ],
+        "truncated": false,
+        "limits": { "limit": 1, "maxLimit": 100, "total": 1 },
+        "diagnostics": [
+          { "code": "bounded_read_only", "details": { "requested": 1 } }
+        ]
+      }
+    },
+    {
+      "id": "topic-graph-mutation-positive",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/AcceptTopicGraphRelationResult",
+      "valid": true,
+      "value": {
+        "status": "committed",
+        "manifestHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "changedNodeIds": [],
+        "changedEdgeIds": ["edge:1"],
+        "reviewIds": [],
+        "diagnostics": [{ "code": "reviewed", "severity": "warning" }]
+      }
+    },
+    {
+      "id": "concept-match-open-negative",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/QueryConceptKbResult",
+      "valid": false,
+      "value": {
+        "ok": true,
+        "labels": ["AI"],
+        "matches": [
+          {
+            "label": "AI",
+            "exactConceptIds": [],
+            "aliasMatches": [],
+            "senseIds": [],
+            "ambiguous": false,
+            "legacy": true
+          }
+        ],
+        "truncated": false,
+        "limits": { "limit": 1, "maxLimit": 100, "total": 1 },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "topic-graph-diagnostic-type-negative",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/AcceptTopicGraphRelationResult",
+      "valid": false,
+      "value": {
+        "status": "committed",
+        "manifestHash": null,
+        "revision": 1,
+        "changedNodeIds": [],
+        "changedEdgeIds": [],
+        "reviewIds": [],
+        "diagnostics": [{ "code": "reviewed", "severity": 1 }]
+      }
+    }
+  ]
+}

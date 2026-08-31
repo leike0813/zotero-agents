@@ -4,7 +4,11 @@ import {
 } from "../../lib/literatureDigestNotes.mjs";
 import { getBaseName } from "../../lib/path.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
-import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -14,31 +18,8 @@ function isMarkdownPath(value) {
   return /\.(md|markdown|mmd)$/i.test(normalizeText(value));
 }
 
-function resolveItem(host, ref) {
-  try {
-    return host.items.get(ref) || null;
-  } catch {
-    return null;
-  }
-}
-
 function isDigestNote(noteItem) {
-  if (!noteItem || typeof noteItem.getNote !== "function") {
-    return false;
-  }
-  return parseGeneratedNoteKind(noteItem.getNote()) === "digest";
-}
-
-async function getAttachmentPath(attachment) {
-  try {
-    const path = normalizeText(await attachment?.getFilePathAsync?.());
-    if (path) {
-      return path;
-    }
-  } catch {
-    // fall through
-  }
-  return normalizeText(attachment?.getField?.("path"));
+  return parseGeneratedNoteKind(noteItem?.content) === "digest";
 }
 
 async function resolveSourceAttachmentByKey(host, noteItem, payload) {
@@ -48,23 +29,16 @@ async function resolveSourceAttachmentByKey(host, noteItem, payload) {
   if (!key) {
     return null;
   }
-  return (
-    host.items.getByLibraryAndKey?.(noteItem.libraryID, key) ||
-    host.items.getByLibraryAndKey?.(noteItem.libraryID || 1, key) ||
-    null
-  );
+  return (await host.library.getItemAttachments(noteItem.parentRef))
+    .find((attachment) => attachment.ref.key === key) || null;
 }
 
 async function collectParentMarkdownAttachments(host, parentItem) {
   const candidates = [];
-  for (const ref of parentItem?.getAttachments?.() || []) {
-    const attachment = resolveItem(host, ref);
-    if (!attachment) {
-      continue;
-    }
-    const path = await getAttachmentPath(attachment);
-    const title = normalizeText(attachment.getField?.("title"));
-    const contentType = normalizeText(attachment.getField?.("contentType"));
+  for (const attachment of await host.library.getItemAttachments(parentItem.ref)) {
+    const path = attachment.file.state === "available" ? attachment.file.path : "";
+    const title = normalizeText(attachment.title);
+    const contentType = normalizeText(attachment.contentType);
     if (
       isMarkdownPath(path) ||
       isMarkdownPath(title) ||
@@ -87,11 +61,13 @@ async function resolveSourcePath(args) {
     payload,
   );
   if (keyedAttachment) {
-    const keyedPath = await getAttachmentPath(keyedAttachment);
+    const keyedPath = keyedAttachment.file.state === "available"
+      ? keyedAttachment.file.path
+      : "";
     if (keyedPath) {
       return {
         sourcePath: keyedPath,
-        sourceAttachmentItemKey: normalizeText(keyedAttachment.key),
+        sourceAttachmentItemKey: normalizeText(keyedAttachment.ref.key),
         strategy: "payload-source-key",
       };
     }
@@ -111,7 +87,7 @@ async function resolveSourcePath(args) {
     if (matches.length === 1) {
       return {
         sourcePath: matches[0].path,
-        sourceAttachmentItemKey: normalizeText(matches[0].attachment.key),
+        sourceAttachmentItemKey: normalizeText(matches[0].attachment.ref.key),
         strategy: "payload-entry-basename",
       };
     }
@@ -119,7 +95,7 @@ async function resolveSourcePath(args) {
   if (markdownAttachments.length === 1) {
     return {
       sourcePath: markdownAttachments[0].path,
-      sourceAttachmentItemKey: normalizeText(markdownAttachments[0].attachment.key),
+      sourceAttachmentItemKey: normalizeText(markdownAttachments[0].attachment.ref.key),
       strategy: "single-parent-markdown-attachment",
     };
   }
@@ -144,20 +120,26 @@ async function assertExistingFile(host, path, reason) {
   }
 }
 
-function resolveTarget(args) {
+async function resolveTarget(args) {
   const host = args.host;
   const target = args.request?.digestRepresentativeImageTarget || {};
-  const noteItem = resolveItem(host, target.noteItemID || target.noteItemKey);
-  const parentItem = resolveItem(host, target.parentItemID || target.parentItemKey);
+  const noteRef = portableItemRef(target.noteRef);
+  const parentRef = portableItemRef(target.parentRef);
+  const noteItem = await host.library.getNoteDetail(noteRef, { format: "html" });
+  const parentDetail = await host.library.getItemDetail(parentRef);
   if (!noteItem || !isDigestNote(noteItem)) {
     throw new Error("add-digest-representative-image requires one digest note");
   }
-  if (!parentItem || noteItem.parentItemID !== parentItem.id) {
+  if (
+    parentDetail?.kind !== "regular" ||
+    noteItem.parentRef?.libraryId !== parentRef.libraryId ||
+    noteItem.parentRef?.key !== parentRef.key
+  ) {
     throw new Error(
       "add-digest-representative-image requires the digest note parent item",
     );
   }
-  return { noteItem, parentItem };
+  return { noteItem, parentItem: parentDetail.item };
 }
 
 async function applyResultImpl({ request, runtime }) {
@@ -169,7 +151,7 @@ async function applyResultImpl({ request, runtime }) {
     throw new Error("markdown_src parameter is required");
   }
 
-  const { noteItem, parentItem } = resolveTarget({ host, request });
+  const { noteItem, parentItem } = await resolveTarget({ host, request });
   const payload = await resolveDigestMarkdownPayloadForNote({
     runtime,
     noteItem,
@@ -212,16 +194,14 @@ async function applyResultImpl({ request, runtime }) {
   const result = applied.representativeImage || { status: "none" };
   if (result.status !== "embedded") {
     throw new Error(
-      `representative image not embedded: ${normalizeText(result.reason) || result.status}`,
+      `representative image not embedded: ${normalizeText(result.warning) || normalizeText(result.reason) || result.status}`,
     );
   }
 
   return {
     status: "embedded",
-    noteItemID: noteItem.id,
-    noteItemKey: normalizeText(noteItem.key),
-    parentItemID: parentItem.id,
-    parentItemKey: normalizeText(parentItem.key),
+    noteRef: noteItem.ref,
+    parentRef: parentItem.ref,
     markdown_src: markdownSrc,
     sourcePath: source.sourcePath,
     sourcePathStrategy: source.strategy,

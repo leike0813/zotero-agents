@@ -88,6 +88,16 @@ The log viewer MUST surface retention budget and sanitization metadata to explai
 - **WHEN** logs are displayed or exported
 - **THEN** viewer SHALL show that sensitive values are redacted and large payloads are summarized
 
+### Requirement: Log Viewer Window SHALL Show Important Retention Capacity
+The log viewer SHALL surface the important and total entry budgets so users can
+see how much diagnostic capacity remains.
+
+#### Scenario: Important retention quota is visible
+- **WHEN** the runtime log viewer is open
+- **THEN** the viewer SHALL display the retained `warn`/`error` count and its
+  active important-entry cap
+- **AND** it SHALL display the total retained count and active total-entry cap.
+
 ### Requirement: Log viewer entry MUST be exposed from preferences workflow section
 系统 MUST 在首选项工作流区提供日志窗口入口。
 

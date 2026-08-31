@@ -14,6 +14,8 @@ Before execution, use live commands in this order:
 6. Read the returned admission branch. For direct admission, preserve each returned `workflowRunId`; for host-queue admission, preserve `submissionId`, inspect `workflow submission get`, and correlate admitted tasks with `run list --submission`.
 7. Use real run handles to inspect admitted execution, then verify every requested Product, artifact, or changed Zotero object independently. Use `workflow queue cancel` only for a still-pending `queueId`; it is not run cancellation.
 
+When the live description declares external resources, add a resource preparation pass between description and validation. Confirm non-interactive invocation support and every slot's direction, cardinality, requiredness, and acceptance limits; upload agent-accessible inputs and retain their opaque `fileId` values; request only declared bridge-download outputs. Pass the same bindings to validation and submission without substituting paths, then download and verify every returned resource output before treating that deliverable as complete.
+
 Consult the bundled `zotero-bridge-cli` Skill's `workflow` and `run` command references for exact argv and structured recovery.
 
 The native Zotero queue is the only owner of pending workflow units and bounded admission. Do not persist a second plan-entry queue, reserve units locally, replay uncertain entries, or infer that the initial absence of a run handle means submission failed. A queued submission is one accepted operation identified by `submissionId`; its units may be pending, admitted, terminal, failed, or canceled independently.
@@ -37,6 +39,7 @@ Then compare:
 5. **Provider:** Is a backend profile required, compatible, configured, and separately validated?
 6. **Evidence:** Does the result contract name the Product, artifact, live change, or request bundle needed for completion?
 7. **Authority:** Does submission, mutation, maintenance, or apply-back introduce a current approval boundary?
+8. **External resources:** Does the workflow support non-interactive invocation, and can every required input/output slot be satisfied with uploaded opaque handles or bridge-download delivery?
 
 If two workflows remain plausible, explain the difference in their declared outcomes or result evidence and ask only when that choice matters. Do not choose by label similarity, emoji, package position, or a cached success from another source.
 

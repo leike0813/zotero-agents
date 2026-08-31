@@ -8,7 +8,10 @@ import { adaptSkillRunnerJobToAcpSkillRun } from "../../src/modules/acpSkillRunR
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
-import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
+import {
+  createWorkflowHostApi,
+  resetWorkflowHostApiForTests,
+} from "../../src/workflows/hostApi";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import {
   joinPath,
@@ -46,85 +49,76 @@ function makeRuntimeWithTranslate(args: {
   items?: TranslateCandidate[];
   throwMessage?: string;
 }) {
-  class Search {
-    setIdentifierInput: unknown;
-    setSearchInput: unknown;
-
-    setIdentifier(input: unknown) {
-      this.setIdentifierInput = input;
-    }
-
-    setSearch(input: unknown) {
-      this.setSearchInput = input;
-    }
-
-    async getTranslators() {
-      return [
-        {
-          translatorID: "translator-1",
-          label: "Mock Translator",
-          priority: 100,
-          translatorType: 8,
-        },
-      ];
-    }
-
-    setTranslator() {
-      // no-op
-    }
-
-    async translate() {
-      if (args.throwMessage) {
-        throw new Error(args.throwMessage);
-      }
-      return args.items || [];
-    }
-  }
-
+  const hostApi = createWorkflowHostApi();
   return {
-    zotero: {
-      ...Zotero,
-      Translate: {
-        Search,
+    hostApiVersion: 12,
+    hostApi: {
+      ...hostApi,
+      metadata: {
+        async translateIdentifier() {
+          if (args.throwMessage) throw new Error(args.throwMessage);
+          const items = args.items || [];
+          const evidence = {
+            normalizedIdentifier: "test-identifier",
+            candidateCount: items.length,
+            matchingCandidateCount: items.length ? 1 : 0,
+            translators: [{ id: "translator-1", label: "Mock Translator" }],
+          };
+          if (items.length === 0) {
+            return {
+              outcome: "not_found",
+              reason: "no_candidate",
+              evidence,
+            };
+          }
+          const item = items[0];
+          return {
+            outcome: "matched",
+            item: {
+              schema: "zotero-agents.portable-regular-item.v1",
+              itemType: String(item.itemType || "journalArticle"),
+              fields: Object.fromEntries(
+                Object.entries(item).filter(
+                  ([key, value]) =>
+                    key !== "itemType" &&
+                    key !== "creators" &&
+                    typeof value === "string",
+                ),
+              ),
+              creators: (Array.isArray(item.creators) ? item.creators : []).map(
+                (creator: any) =>
+                  creator.name
+                    ? {
+                        representation: "single_field",
+                        creatorType: creator.creatorType || "author",
+                        name: creator.name,
+                      }
+                    : {
+                        representation: "two_field",
+                        creatorType: creator.creatorType || "author",
+                        firstName: creator.firstName || "",
+                        lastName: creator.lastName || "",
+                      },
+              ),
+              tags: [],
+            },
+            evidence,
+          };
+        },
       },
     },
-    handlers,
   };
 }
 
 function makeHostApiOnlyRuntime(
-  parent: Zotero.Item,
+  _parent: Zotero.Item,
   metadataTranslate?: (args: unknown) => Promise<unknown> | unknown,
 ) {
-  const resolveParent = (ref: unknown) => {
-    if (ref && typeof ref === "object") {
-      return ref;
-    }
-    if (typeof ref === "number" && ref === parent.id) {
-      return parent;
-    }
-    if (typeof ref === "string" && ref === parent.key) {
-      return parent;
-    }
-    throw new Error(`Item not found: ${String(ref)}`);
-  };
+  const hostApi = createWorkflowHostApi();
   return {
+    hostApiVersion: 12,
     hostApi: {
-      items: {
-        get(ref: unknown) {
-          try {
-            return resolveParent(ref);
-          } catch {
-            return null;
-          }
-        },
-        resolve: resolveParent,
-        getByLibraryAndKey(libraryID: number, key: string) {
-          return libraryID === parent.libraryID && key === parent.key
-            ? parent
-            : null;
-        },
-      },
+      ...hostApi,
       ...(metadataTranslate
         ? {
             metadata: {
@@ -132,6 +126,18 @@ function makeHostApiOnlyRuntime(
             },
           }
         : {}),
+    },
+  };
+}
+
+function makeApplyRuntime(
+  overrides: Partial<ReturnType<typeof createWorkflowHostApi>> = {},
+) {
+  return {
+    hostApiVersion: 12,
+    hostApi: {
+      ...createWorkflowHostApi(),
+      ...overrides,
     },
   };
 }
@@ -873,16 +879,20 @@ describe("workflow: literature-metadata-curator", function () {
         async (args: any) => {
           requestedType = args?.type || "";
           return {
-            ok: true,
+            outcome: "matched",
             item: {
+              schema: "zotero-agents.portable-regular-item.v1",
               itemType: entry.parent.itemType,
               fields: { ...entry.item },
               creators: [],
-              ...entry.item,
+              tags: [],
             },
-            itemCount: 1,
-            translators: [{ translatorID: "host-api", label: "Host API" }],
-            diagnostics: [],
+            evidence: {
+              normalizedIdentifier: String((args as any)?.value || ""),
+              candidateCount: 1,
+              matchingCandidateCount: 1,
+              translators: [{ id: "host-api", label: "Host API" }],
+            },
           };
         },
       );
@@ -961,7 +971,7 @@ describe("workflow: literature-metadata-curator", function () {
 
     assert.equal(outcome.kind, "continue");
     assert.equal((outcome as any).context.parent.id, parent.id);
-    assert.equal((outcome as any).context.diagnostics[0].code, "no_items");
+    assert.equal((outcome as any).context.diagnostics[0].code, "no_candidate");
   });
 
   it("continues to fallback with hostApi metadata diagnostics when candidates are inconclusive", async function () {
@@ -970,17 +980,14 @@ describe("workflow: literature-metadata-curator", function () {
       doi: "10.1000/host-inconclusive",
     });
     const runtime = makeHostApiOnlyRuntime(parent, async () => ({
-      ok: false,
-      item: null,
-      itemCount: 0,
-      translators: [{ translatorID: "host-api", label: "Host API" }],
-      diagnostics: [
-        {
-          code: "no_items",
-          message: "No items returned from any translator.",
-          details: { itemCount: 0 },
-        },
-      ],
+      outcome: "not_found",
+      reason: "no_candidate",
+      evidence: {
+        normalizedIdentifier: "10.1000/host-inconclusive",
+        candidateCount: 0,
+        matchingCandidateCount: 0,
+        translators: [{ id: "host-api", label: "Host API" }],
+      },
     }));
     const outcome = await preflight({
       selectionContext: await selectionFor(parent),
@@ -989,7 +996,7 @@ describe("workflow: literature-metadata-curator", function () {
 
     assert.equal(outcome.kind, "continue");
     assert.equal((outcome as any).context.identifier.type, "DOI");
-    assert.equal((outcome as any).context.diagnostics[0].code, "no_items");
+    assert.equal((outcome as any).context.diagnostics[0].code, "no_candidate");
   });
 
   it("continues to fallback when selected parent has no supported identifier", async function () {
@@ -1015,25 +1022,25 @@ describe("workflow: literature-metadata-curator", function () {
     });
     const selectionContext = await selectionFor(parent);
     const runtime = makeHostApiOnlyRuntime(parent, async () => ({
-      ok: true,
+      outcome: "matched",
       item: {
+        schema: "zotero-agents.portable-regular-item.v1",
         itemType: "journalArticle",
-        DOI: "10.1000/host-api-parent",
-        title: "Host API metadata",
         fields: {
           DOI: "10.1000/host-api-parent",
           title: "Host API metadata",
         },
         creators: [],
+        tags: [],
       },
-      itemCount: 1,
-      translators: [
-        {
-          translatorID: "host-api-translator",
-          label: "Host API Translator",
-        },
-      ],
-      diagnostics: [],
+      evidence: {
+        normalizedIdentifier: "10.1000/host-api-parent",
+        candidateCount: 1,
+        matchingCandidateCount: 1,
+        translators: [
+          { id: "host-api-translator", label: "Host API Translator" },
+        ],
+      },
     }));
 
     const outcome = await preflight({
@@ -1108,7 +1115,7 @@ describe("workflow: literature-metadata-curator", function () {
           diagnostics: [{ code: "no_items", message: "No items" }],
         },
       },
-      runtime: { zotero: Zotero, handlers },
+      runtime: makeApplyRuntime(),
     } as any)) as any;
 
     assert.equal(request.kind, "skillrunner.job.v1");
@@ -1161,7 +1168,7 @@ describe("workflow: literature-metadata-curator", function () {
           },
         },
       },
-      runtime: { zotero: Zotero, handlers },
+      runtime: makeApplyRuntime(),
     } as any)) as any;
 
     assert.isTrue(result.applied);
@@ -1179,16 +1186,7 @@ describe("workflow: literature-metadata-curator", function () {
 
   it("removes the metadata-curation tag after successful apply", async function () {
     const parent = await createParent({ title: "Before tagged metadata" });
-    const removed: Array<{ item: unknown; tags: string[] }> = [];
-    const runtimeHandlers = {
-      ...handlers,
-      tag: {
-        ...handlers.tag,
-        async remove(item: unknown, tags: string[]) {
-          removed.push({ item, tags });
-        },
-      },
-    };
+    const removed: Array<{ itemRef: unknown; tags: string[] }> = [];
     const result = (await applyResult({
       parent,
       runResult: {
@@ -1199,28 +1197,25 @@ describe("workflow: literature-metadata-curator", function () {
           metadata: { fields: { title: "After tagged metadata" } },
         },
       },
-      runtime: {
-        zotero: Zotero,
-        handlers: runtimeHandlers,
-        hostApiVersion: 9,
-        hostApi: {
-          statusTags: {
-            async transition({ item, remove }: any) {
-              await runtimeHandlers.tag.remove(item, [
-                "status:need-metadata-curation",
-              ]);
-              return { added: [], removed: remove, warnings: [] };
-            },
+      runtime: makeApplyRuntime({
+        statusTags: {
+          ...createWorkflowHostApi().statusTags,
+          async transition({ itemRef, remove }: any) {
+            removed.push({ itemRef, tags: remove });
+            return {
+              outcome: "committed",
+              result: { added: [], removed: remove, unchanged: [] },
+            };
           },
         },
-      },
+      }),
     } as any)) as any;
 
     assert.isTrue(result.applied);
     assert.deepEqual(removed, [
       {
-        item: parent.id,
-        tags: ["status:need-metadata-curation"],
+        itemRef: { libraryId: parent.libraryID, key: parent.key },
+        tags: ["need-metadata-curation"],
       },
     ]);
     assert.isTrue(result.curationTagRemoved);
@@ -1269,38 +1264,28 @@ describe("workflow: literature-metadata-curator", function () {
           metadata: { fields: {}, creators: [] },
         },
       },
-      runtime: {
-        zotero: Zotero,
-        hostApiVersion: 9,
-        hostApi: {
-          statusTags: {
-            async transition({ item, remove }: any) {
-              removals.push({
-                item,
-                tags: ["status:need-metadata-curation"],
-              });
-              return { added: [], removed: remove, warnings: [] };
-            },
+      runtime: makeApplyRuntime({
+        statusTags: {
+          ...createWorkflowHostApi().statusTags,
+          async transition({ itemRef, remove }: any) {
+            removals.push({ itemRef, tags: remove });
+            return {
+              outcome: "committed",
+              result: { added: [], removed: remove, unchanged: [] },
+            };
           },
         },
-        handlers: {
-          ...handlers,
-          tag: {
-            ...handlers.tag,
-            async remove(item: unknown, tags: string[]) {
-              void item;
-              void tags;
-            },
-          },
-        },
-      },
+      }),
     } as any)) as any;
 
     assert.isFalse(result.applied);
     assert.isTrue(result.verifiedNoChange);
     assert.isTrue(result.curationTagRemoved);
     assert.deepEqual(removals, [
-      { item: parent.id, tags: ["status:need-metadata-curation"] },
+      {
+        itemRef: { libraryId: parent.libraryID, key: parent.key },
+        tags: ["need-metadata-curation"],
+      },
     ]);
   });
 
@@ -1316,26 +1301,14 @@ describe("workflow: literature-metadata-curator", function () {
           metadata: { fields: { date: "2026" }, creators: [] },
         },
       },
-      runtime: {
-        zotero: Zotero,
-        hostApiVersion: 9,
-        hostApi: {
-          statusTags: {
-            async transition() {
-              throw new Error("tag store unavailable");
-            },
+      runtime: makeApplyRuntime({
+        statusTags: {
+          ...createWorkflowHostApi().statusTags,
+          async transition() {
+            throw new Error("tag store unavailable");
           },
         },
-        handlers: {
-          ...handlers,
-          tag: {
-            ...handlers.tag,
-            async remove() {
-              throw new Error("tag store unavailable");
-            },
-          },
-        },
-      },
+      }),
     } as any)) as any;
 
     assert.isTrue(result.applied);
@@ -1373,7 +1346,7 @@ describe("workflow: literature-metadata-curator", function () {
           ],
         },
       },
-      runtime: { zotero: Zotero, handlers },
+      runtime: makeApplyRuntime(),
     } as any)) as any;
 
     assert.isTrue(result.applied);
@@ -1406,7 +1379,7 @@ describe("workflow: literature-metadata-curator", function () {
           },
         },
       },
-      runtime: { zotero: Zotero, handlers },
+      runtime: makeApplyRuntime(),
     } as any)) as any;
 
     assert.isTrue(result.applied);
@@ -1443,7 +1416,7 @@ describe("workflow: literature-metadata-curator", function () {
           },
         },
       },
-      runtime: { zotero: Zotero, handlers },
+      runtime: makeApplyRuntime(),
     } as any)) as any;
 
     assert.isTrue(result.applied);
@@ -1473,7 +1446,7 @@ describe("workflow: literature-metadata-curator", function () {
           },
         },
       },
-      runtime: { zotero: Zotero, handlers },
+      runtime: makeApplyRuntime(),
     } as any)) as any;
 
     assert.isTrue(result.applied);

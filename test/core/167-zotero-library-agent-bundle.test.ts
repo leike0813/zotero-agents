@@ -288,12 +288,12 @@ describe("zotero library agent source suite", function () {
     const catalog = readFileSync(
       join(
         process.cwd(),
-        "skills_builtin/zotero-library-agent/references/workflow-catalog.md",
+        "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
       ),
       "utf8",
     );
     const workflows = builtinWorkflowManifests();
-    assert.lengthOf(workflows, 19);
+    assert.lengthOf(workflows, 20);
     for (const workflow of workflows) {
       const workflowId = String(workflow.id);
       const entry = catalogEntry(catalog, workflowId);
@@ -426,7 +426,11 @@ describe("zotero library agent source suite", function () {
       summary: "The bounded task completed.",
     };
     for (const skill of GENERIC_SKILLS) {
-      const root = join(process.cwd(), "skills_builtin", skill);
+      const root = join(
+        process.cwd(),
+        "addon/content/host-bridge-skills",
+        skill,
+      );
       const runner = JSON.parse(
         readFileSync(join(root, "assets/runner.json"), "utf8"),
       );

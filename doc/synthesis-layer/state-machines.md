@@ -23,7 +23,7 @@ Terminal operation state does not imply data readiness. A completed operation is
 | `sm.cache.projection` | Sidecar cache service | Cache projection | Stale cache is mistaken for Zotero Library truth |
 | `sm.operation.explicit` | Explicit operation service | User/debug-triggered operation | Operation becomes a hidden worker queue |
 | `sm.topic.source_check` | Topic source-check service | Source-check diagnostic | Cache refresh marks topic changed |
-| `sm.sync.git` | Git Sync service | Durable exchange run | Live SQLite or conflicting durable facts are imported unsafely |
+| `sm.sync.webdav` | WebDAV Sync service | Durable exchange run | Live SQLite or conflicting durable facts are imported unsafely |
 | `sm.import.lifecycle` | Import/export service | Import run | Bundle writes sidecar state before preview |
 
 ## `sm.reference.canonical`
@@ -298,11 +298,17 @@ stateDiagram-v2
   validating --> failed: invalid path, hash, schema, or manifest
   previewing --> preview_ready: dry-run diff built
   previewing --> blocked_conflict: conflict gate blocks
-  preview_ready --> applying: user confirms or Git Sync auto-apply allowed
+  previewing --> blocked_tombstone: tombstone has no apply semantics
+  preview_ready --> applying: user confirms or WebDAV Sync preview is clean
   preview_ready --> cancelled: user cancels
   blocked_conflict --> previewing: manual edit or resolution clears blocker
-  applying --> stale_projection: durable facts committed
-  stale_projection --> applied: rebuildable projections marked stale
+  applying --> basis_superseded: repository or sync-index basis changed
+  applying --> canonical_staged: Topic batch staged
+  canonical_staged --> stale_projection: durable facts and receipt committed
+  stale_projection --> promoting: rebuildable projections marked stale
+  promoting --> applied: canonical batch promoted and receipt cleared
+  promoting --> recovering: promotion interrupted
+  recovering --> applied: matching receipt rolls forward
   applying --> failed: write failure
   failed --> validating: retry preview
 ```
@@ -311,24 +317,29 @@ Forbidden transitions:
 
 - `validating -> applying` without preview result.
 - `blocked_conflict -> applying` without an explicit resolution action.
+- `blocked_tombstone -> applying` while tombstone mutation is unsupported.
 - Importing a file bundle by making it a Workbench hot path.
 
-## `sm.sync.git`
+## `sm.sync.webdav`
 
-Owner: Git Sync service.
+Owner: WebDAV Sync service.
 
-Object: One Git durable-state exchange run.
+Object: One WebDAV durable-state exchange run.
 
 ```mermaid
 stateDiagram-v2
   [*] --> idle
-  idle --> syncing: queued or manual sync
+  idle --> queued: paused trigger
+  idle --> syncing: manual sync or canonical-write autosync
+  queued --> syncing: resume and explicit retry
   syncing --> validating: fetch/merge completed
   validating --> blocked_conflict: durable conflict gate blocks
+  validating --> blocked_conflict: unbased update is not acknowledged
   validating --> failed_permanent: invalid manifest, path, hash, or schema
   validating --> applying: preview clean
   applying --> idle: import applied and projections marked stale
   syncing --> failed_retryable: adapter or network failure
+  syncing --> failed_retryable: observed HEAD or ETag changed
   failed_retryable --> syncing: retry
   blocked_conflict --> idle: user keeps local or saves remote copy
   blocked_conflict --> syncing: user clears after manual edit
@@ -337,8 +348,11 @@ stateDiagram-v2
 Forbidden transitions:
 
 - `validating -> applying` when durable preview reports conflicts.
+- `validating -> applying` for unbased updates without explicit composition acknowledgement.
 - `applying -> import live SQLite`.
 - `blocked_conflict -> idle` by silently choosing last-writer-wins.
+- Restoring hidden retry timers after process startup.
+- Starting a second active run or admitting work after shutdown begins.
 
 ## State Combination Governance
 
@@ -352,3 +366,4 @@ Rules:
 4. Durable user decisions win over transient review items and cache refresh output.
 5. Current Zotero Library reads win over cached Zotero metadata whenever correctness matters.
 6. Reference sidecar refresh, citation graph cache incremental refresh, and citation graph cache rebuild are different operations; layout rebuild is a fourth operation scoped to coordinates only.
+7. A Citation Graph public maintenance operation and its private graph attempt have separate identities. Runtime owns the public lifecycle; the application creates one fresh private attempt per dispatch and consumes it exactly once. Graph rows, ready cache basis, and the private terminal transition form one atomic domain effect.

@@ -28,6 +28,7 @@ export async function preflight({ selectionContext, runtime }) {
     source_attachment_name: source.fileName,
     source_attachment_item_id: source.itemId,
     source_attachment_item_key: source.itemKey,
+    source_attachment_ref: source.itemRef,
     mineruSplit: {
       pageCount: metadata.pageCount || null,
       metadataSource: metadata.source,

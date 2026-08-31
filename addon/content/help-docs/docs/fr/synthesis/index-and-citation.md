@@ -145,7 +145,7 @@ Le graphe de citations peut calculer diverses métriques pour aider à identifie
 
 | Disposition | Description | Cas d'utilisation |
 |--------|-------------|----------|
-| **Force (Force-Directed)** | Disposition d3-force | Explorer la structure globale |
+| **Force (Force-Directed)** | Disposition ForceAtlas2 (Rust) | Explorer la structure globale |
 | **Radial** | Déploiement autour d'un nœud sélectionné | Analyser le réseau de citations d'un article |
 | **Composantes** | Regroupement par composantes connexes | Découvrir des clusters de citations indépendants |
 

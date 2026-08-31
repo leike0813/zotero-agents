@@ -9,12 +9,17 @@ import {
   parseWrappedTestInvocation,
   resolveMockSkillRunnerPort,
 } from "../../../scripts/run-zotero-test-with-mock";
+import {
+  buildShardEnv,
+  extractMochaFailureOutput,
+} from "../../../scripts/run-node-test-shards";
 import { setDiagnosticVerboseOverrideForTests } from "../../../src/modules/diagnosticVerbosity";
 import { createZToolkit } from "../../../src/utils/ztoolkit";
 import {
   patchGeneratedZoteroTestRunner,
   patchZoteroTestRunnerHtml,
 } from "../../../scripts/patch-zotero-test-runner";
+import { shouldUseHeadlessZoteroTest } from "../../../zotero-plugin.config";
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html>
@@ -91,6 +96,19 @@ function Reporter(runner) {
 </html>`;
 
 describe("zotero test infrastructure helpers", function () {
+  describe("Zotero display environment", function () {
+    it("uses headless mode only when Linux has no display server", function () {
+      assert.isTrue(shouldUseHeadlessZoteroTest("linux", {}));
+      assert.isFalse(shouldUseHeadlessZoteroTest("linux", { DISPLAY: ":0" }));
+      assert.isFalse(
+        shouldUseHeadlessZoteroTest("linux", {
+          WAYLAND_DISPLAY: "wayland-0",
+        }),
+      );
+      assert.isFalse(shouldUseHeadlessZoteroTest("darwin", {}));
+    });
+  });
+
   describe("wrapper forwarded args", function () {
     it("injects --no-watch by default for zotero test targets", function () {
       assert.deepEqual(buildForwardedTestArgs("test:zotero:cli", []), [
@@ -222,6 +240,56 @@ describe("zotero test infrastructure helpers", function () {
         env.ZOTERO_TEST_SKILLRUNNER_ENDPOINT,
         "http://127.0.0.1:49152",
       );
+    });
+
+    it("projects only Mocha failure details while preserving all failures and ANSI", function () {
+      const output = [
+        "\u001b[32m  ✔ passing case\u001b[0m",
+        "\u001b[31m  1) first failing case\u001b[0m",
+        "\u001b[32m  ✔ another passing case\u001b[0m",
+        "\u001b[31m  2) second failing case\u001b[0m",
+        "",
+        "\u001b[31m  2 failing\u001b[0m",
+        "",
+        "\u001b[0m  1) first failing case:",
+        "     AssertionError: first failure",
+        "      + expected - actual",
+        "",
+        "\u001b[0m  2) second failing case:",
+        "     Error: second failure",
+      ].join("\n");
+
+      const projected = extractMochaFailureOutput(output);
+
+      assert.include(projected, "2 failing");
+      assert.include(projected, "first failing case:");
+      assert.include(projected, "second failing case:");
+      assert.include(projected, "AssertionError: first failure");
+      assert.notInclude(projected, "passing case");
+      assert.notInclude(projected, "another passing case");
+      assert.include(projected, `${String.fromCharCode(27)}[`);
+    });
+
+    it("preserves child diagnostics when no Mocha failure epilogue exists", function () {
+      const output = "Error: test child failed before Mocha started\n";
+
+      assert.equal(extractMochaFailureOutput(output), output.trimEnd());
+    });
+
+    it("enables shard colors by default while preserving an explicit override", function () {
+      const env = buildShardEnv("node-core", "/tmp/node-test-shards", {
+        ZOTERO_TEST_MODE: "full",
+      });
+      const overridden = buildShardEnv("node-core", "/tmp/node-test-shards", {
+        FORCE_COLOR: "0",
+      });
+
+      assert.equal(env.FORCE_COLOR, "1");
+      assert.equal(
+        env.ZOTERO_TEST_DATA_DIR,
+        path.join("/tmp/node-test-shards", "node-core", "Zotero_data"),
+      );
+      assert.equal(overridden.FORCE_COLOR, "0");
     });
   });
 

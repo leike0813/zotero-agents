@@ -32,6 +32,10 @@ import {
   normalizeAcpRuntimeReplayPhase,
   type AcpRuntimeReplayPhaseValidation,
 } from "./acpRuntimeReplayIdentity";
+import {
+  createCancellationController,
+  type CancellationController,
+} from "../utils/wait";
 
 export { parseAcpRuntimeReplayCadence };
 
@@ -118,46 +122,9 @@ let view: AcpRuntimeReplayControllerView = {
   surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries([]),
   warnings: [],
 };
-type AcpRuntimeReplayCancellationController = {
-  readonly signal: AcpRuntimeReplayCancellationSignal;
-  abort: () => void;
-};
-
-let activeCancellationController:
-  | AcpRuntimeReplayCancellationController
-  | undefined;
+let activeCancellationController: CancellationController | undefined;
 let activeCompletion: Promise<void> | undefined;
 let runtimeOverride: Partial<ControllerRuntime> | undefined;
-
-function createAcpRuntimeReplayCancellationController(): AcpRuntimeReplayCancellationController {
-  let aborted = false;
-  const listeners = new Set<() => void>();
-  const signal: AcpRuntimeReplayCancellationSignal = {
-    get aborted() {
-      return aborted;
-    },
-    addEventListener(_type, listener) {
-      if (aborted) {
-        listener();
-        return;
-      }
-      listeners.add(listener);
-    },
-    removeEventListener(_type, listener) {
-      listeners.delete(listener);
-    },
-  };
-  return {
-    signal,
-    abort() {
-      if (aborted) return;
-      aborted = true;
-      const pending = Array.from(listeners);
-      listeners.clear();
-      for (const listener of pending) listener();
-    },
-  };
-}
 
 function runtime(): ControllerRuntime {
   return {
@@ -325,7 +292,7 @@ export async function startAcpRuntimeReplayController(args: {
     await notifyViewChange(args.onViewChange);
     return getAcpRuntimeReplayControllerView();
   }
-  const controller = createAcpRuntimeReplayCancellationController();
+  const controller = createCancellationController();
   let resolveCompletion: (() => void) | undefined;
   const completion = new Promise<void>((resolve) => {
     resolveCompletion = resolve;

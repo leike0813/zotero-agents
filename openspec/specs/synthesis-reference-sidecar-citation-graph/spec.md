@@ -1,7 +1,10 @@
-## Purpose
+# synthesis-reference-sidecar-citation-graph Specification
 
+## Purpose
 Reference sidecar and citation graph cache are stale-tolerant sidecar data, not synchronized Zotero Library truth.
+
 ## Requirements
+
 ### Requirement: Reference sidecar does not own Zotero Library facts
 
 Synthesis SHALL treat artifact sidecar rows, raw references, canonical references, redirects, and explicit binding decisions as plugin-owned cache state, not as an independent Zotero Library fact source.
@@ -221,9 +224,27 @@ When `citation-graph:library` is stale, Workbench SHALL be able to trigger a man
 
 - **GIVEN** graph cache basis is stale
 - **AND** diagnostics do not record an incremental refresh scope
-- **WHEN** Workbench renders graph controls
-- **THEN** the manual incremental refresh action SHALL be unavailable
-- **AND** full graph cache rebuild SHALL remain available as the fallback.
+- **WHEN** `refreshCitationGraphCacheIncrementalNow` runs
+- **THEN** it SHALL perform an explicit full graph cache rebuild
+- **AND** the operation receipt SHALL record full rebuild intent.
+
+### Requirement: Failed graph rebuild retry SHALL use durable intent
+
+Citation Graph full and source-slice attempts SHALL store distinct failed
+operation intents. `retryCitationGraphCacheRebuild` SHALL restore the most
+recent failed intent after repository reopen while reading current Host
+revision and durable sidecar facts.
+
+#### Scenario: Failed source-slice refresh is retried
+- **WHEN** the latest failed graph rebuild was incremental
+- **AND** the sidecar repository has been reopened
+- **THEN** retry SHALL collect the current recorded source closure and run a new source-slice job
+- **AND** it SHALL NOT replay the failed worker input.
+
+#### Scenario: Retried collection or compute fails
+- **WHEN** fresh Host collection, worker execution, or graph compare-and-swap fails
+- **THEN** the previous readable graph remains the last-good cache
+- **AND** the new retry operation reaches a terminal failed receipt.
 
 ### Requirement: Related-items sync follows explicit sidecar update paths
 
@@ -385,6 +406,34 @@ Synthesis SHALL derive citation graph roles from literature-analysis
 - **WHEN** Synthesis consumes the citation role
 - **THEN** Synthesis SHALL store and display the role as `unknown`.
 
+### Requirement: Production graph build SHALL separate durable-fact capture from graph assembly
+
+
+Production Citation Graph construction SHALL capture active sidecar facts and effective canonical/binding targets through the application repository, read current Zotero metadata through Host capabilities, and send only resolved JSON-safe facts to the build engine.
+
+#### Scenario: Production graph build is delayed
+
+- **WHEN** Host metadata loading or the configured build engine has not completed
+- **THEN** the per-library write lock SHALL NOT remain held
+- **AND** no graph rows SHALL be replaced.
+
+#### Scenario: Source slice is built
+
+- **WHEN** incremental refresh supplies affected source refs
+- **THEN** durable-fact capture and basis validation SHALL use the same source scope
+- **AND** successful promotion SHALL preserve unrelated source graph rows.
+
+### Requirement: Related-items fallback SHALL reuse production graph resolution
+
+
+Sidecar-backed related-items fallback SHALL use the same resolved-reference projection and build-engine result used by production Citation Graph construction without persisting a graph cache.
+
+#### Scenario: Graph cache is unavailable
+
+- **WHEN** related-items sync resolves accepted library-to-library edges directly from active sidecar facts
+- **THEN** it SHALL invoke the configured graph build engine
+- **AND** it SHALL consume accepted resolved edges without replacing graph cache rows.
+
 ### Requirement: Public sidecar refresh SHALL defer graph update
 The public reference-sidecar refresh operation SHALL commit sidecar changes and mark graph state stale without rebuilding graph rows in the same transaction.
 
@@ -395,8 +444,38 @@ The public reference-sidecar refresh operation SHALL commit sidecar changes and 
 
 ### Requirement: Public graph update SHALL preserve graph consistency
 Paper-scoped graph update SHALL atomically rewrite the requested source closure, while library-scoped graph update SHALL atomically replace the full graph and preserve last-good state on failure.
+Both scopes SHALL use durable-fact capture, the configured Citation Graph build
+engine, and basis-validated promotion.
 
 #### Scenario: Partial graph update cannot bootstrap a graph
 - **WHEN** paper-scoped graph update is requested without an existing graph cache
 - **THEN** the operation fails before writing with a safe action to request a library-scoped update.
 
+### Requirement: Canonical redirect facts SHALL form a rooted forest
+
+Persisted canonical redirects SHALL remain acyclic, and every canonical in a redirect component SHALL resolve to one deterministic effective canonical. Every redirect mutation boundary SHALL normalize its intended component change and validate the complete prospective graph before commit.
+
+#### Scenario: Reverse decision reroots an existing component
+- **WHEN** an explicit reverse decision selects a non-root canonical in an existing redirect component
+- **THEN** the system SHALL reroot the component without losing any member
+- **AND** the committed redirect graph SHALL remain acyclic.
+
+#### Scenario: Automatic matching revisits a resolved component
+- **WHEN** automatic matching proposes a redirect whose endpoints already resolve to the same effective canonical
+- **THEN** the system SHALL treat the graph effect as idempotent
+- **AND** it SHALL NOT override an explicit user-selected root.
+
+### Requirement: Existing canonical redirect cycles SHALL be repaired before production reads
+
+The production repository migration SHALL repair every pre-existing canonical redirect cycle before the sidecar becomes ready. Repair SHALL preserve component membership, prefer explicit user decisions over automatic facts, record the chosen root and displaced facts, and mark dependent projections stale.
+
+#### Scenario: Legacy database contains a cycle with a later reverse decision
+- **WHEN** startup opens a supported prior repository whose redirect cycle contains a newer explicit reverse decision
+- **THEN** migration SHALL retain the root selected by that decision
+- **AND** supersede accepted proposal facts corresponding to the displaced edge
+- **AND** complete without user interaction.
+
+#### Scenario: Legacy cycle has incomplete provenance
+- **WHEN** no unique explicit decision determines the root of a legacy redirect cycle
+- **THEN** migration SHALL choose a root using a stable deterministic fallback
+- **AND** record that fallback in a completed repair receipt rather than blocking startup.

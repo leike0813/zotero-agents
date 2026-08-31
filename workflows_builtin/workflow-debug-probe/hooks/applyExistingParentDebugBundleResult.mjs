@@ -1,31 +1,15 @@
 import { applyResult as applyDebugApplyContractResult } from "./applyDebugApplyContractResult.mjs";
 
 async function resolveRequestParent(args) {
-  const parentId = Number(args?.request?.targetParentID || 0);
-  if (!Number.isSafeInteger(parentId) || parentId <= 0) {
+  const parentRef = args?.request?.targetParentRef;
+  if (!parentRef?.libraryId || !parentRef?.key) {
     throw new Error(
       "debug existing-parent bundle apply requires request target parent",
     );
   }
-  if (!args?.runtime?.helpers?.resolveItemRef) {
-    throw new Error(
-      "debug existing-parent bundle apply requires item resolver",
-    );
-  }
-  let parent;
-  try {
-    parent = await args.runtime.helpers.resolveItemRef(parentId);
-  } catch (_error) {
-    throw new Error(
-      `debug existing-parent bundle apply parent does not exist: ${parentId}`,
-    );
-  }
-  if (!parent || Number(parent.id) !== parentId) {
-    throw new Error(
-      `debug existing-parent bundle apply parent does not exist: ${parentId}`,
-    );
-  }
-  return parent;
+  const detail = await args.runtime.hostApi.library.getItemDetail(parentRef);
+  if (!detail || detail.kind !== "regular") throw new Error("debug existing-parent bundle parent does not exist");
+  return detail.item;
 }
 
 export async function applyResult(args) {

@@ -157,6 +157,44 @@ describe("ACP shared skill catalog thin proxy overlay", function () {
     }
   });
 
+  it("changes catalog identity when the Host Bridge plugin bundle changes", async function () {
+    const root = await mkTempRoot();
+    try {
+      await createSkill({ root, rootKind: "skills_builtin", skillId: "demo" });
+      const registry = await scanPluginSkillRegistry({ cwd: root });
+      const withIdentity = (aggregateSha256: string) => ({
+        ...registry,
+        hostBridgePluginSkillBundle: {
+          identity: {
+            cli: {
+              version: "1.2.3",
+              buildFingerprint: "b".repeat(64),
+              commandCatalogChecksum: "c".repeat(64),
+            },
+            aggregateSha256,
+          },
+          reservedSkillIds: ["zotero-bridge-cli"],
+        },
+      });
+      const first = await buildAcpSharedSkillCatalog({
+        registry: withIdentity("a".repeat(64)),
+        catalogRootDir: path.join(root, "catalog"),
+      });
+      const second = await buildAcpSharedSkillCatalog({
+        registry: withIdentity("d".repeat(64)),
+        catalogRootDir: path.join(root, "catalog"),
+      });
+
+      assert.notEqual(first.catalogId, second.catalogId);
+      assert.strictEqual(
+        first.hostBridgePluginSkillBundle?.identity.aggregateSha256,
+        "a".repeat(64),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rewrites stable skill resource references to absolute catalog paths", function () {
     const result = rewriteAcpSkillReferences({
       skillId: "demo",

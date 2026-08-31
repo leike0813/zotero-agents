@@ -12,6 +12,13 @@ export function resolveAcpSkillRunWorkflowTaskState(
     "status" | "pendingPermission" | "pendingInteraction"
   >,
 ): WorkflowTaskRecord["state"] {
+  if (
+    run.status === "succeeded" ||
+    run.status === "failed" ||
+    run.status === "canceled"
+  ) {
+    return run.status;
+  }
   if (run.pendingPermission) {
     return "waiting_user";
   }
@@ -59,7 +66,12 @@ export function mapAcpSkillRunSummaryToWorkflowTask(
     state: resolveAcpSkillRunWorkflowTaskState(run),
     backendStatus: normalizeText(run.backendStatus) || undefined,
     applyState: run.applyResultState || undefined,
-    error: normalizeText(run.error) || normalizeText(run.conversationError),
+    error:
+      run.status === "succeeded" ||
+      run.status === "failed" ||
+      run.status === "canceled"
+        ? normalizeText(run.error)
+        : normalizeText(run.error) || normalizeText(run.conversationError),
     createdAt: normalizeText(run.createdAt) || normalizeText(run.updatedAt),
     updatedAt: normalizeText(run.updatedAt) || normalizeText(run.createdAt),
   };

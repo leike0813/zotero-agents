@@ -20,7 +20,7 @@ Estas métricas te permiten comprender rápidamente el nivel de estructuración 
 
 ## Panel de sincronización
 
-Si se ha configurado [WebDAV Sync](#doc/synthesis%2Fwebdav-sync) (recomendado) o [Git Sync](#doc/synthesis%2Fgit-sync) (obsoleto), la página Home muestra un panel de estado de sincronización:
+Si se ha configurado [WebDAV Sync](#doc/synthesis%2Fwebdav-sync), la página Home muestra un panel de estado de sincronización:
 
 ### WebDAV Sync
 
@@ -37,9 +37,7 @@ Para la configuración y uso detallado de la sincronización WebDAV, consulta [W
 La función de sincronización automática de WebDAV sync no ha sido probada exhaustivamente. Se recomienda **usar solo sincronización manual** en esta etapa, y habilitar la sincronización automática una vez que se mejore en una futura versión.
 :::
 
-### Git Sync (obsoleto)
 
-Consulta [Git Sync](#doc/synthesis%2Fgit-sync) como referencia histórica.
 
 ## Panel de elementos a revisar
 

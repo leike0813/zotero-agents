@@ -8,7 +8,7 @@ Design principles:
 
 - **Read-only snapshot mode** — all database access is through snapshot copies; write operations are rejected.
 - **Minimal Zotero mock** — only the subset of `Zotero.Prefs` needed for read queries is simulated; `set`/`clear` are blocked.
-- **Isolated module** — currently not exposed through any public entry point; consumers import directly from individual files.
+- **Served locally** — `npm run harness:ui` loads the real plugin pages against this model layer (see "Serving the Harness"); tests import the modules directly.
 - **Functional composition** — each layer is independently usable; callers assemble the required components.
 
 ## Architecture
@@ -16,12 +16,15 @@ Design principles:
 ```
 ┌─────────────────────────────────────────────────────┐
 │                  Model Layer                         │
-│  dashboardReadonlyModel.ts  assistantReadonlyModel.ts│
-│  synthesisReadonlyService.ts                         │
+│  dashboardReadonlyModel.ts                          │
+│  assistantReadonlyPublication.ts                     │
+│  synthesisReadonlyClient.ts                          │
 ├─────────────────────────────────────────────────────┤
 │              Data Access Layer                       │
 │  pluginStateReadonly.ts   backendsReadonly.ts        │
+│  skillRunnerReadonlyProjection.ts                    │
 │  zoteroReadonlyLibraryAdapter.ts                     │
+│  synthesisReadonlyPort.ts                            │
 │  synthesisWorkbenchI18nEnvelope.ts                   │
 ├─────────────────────────────────────────────────────┤
 │              Infrastructure Layer                    │
@@ -142,16 +145,17 @@ Built-in ACP backends (from `acpBackendPresets.listBuiltinAcpBackends()`) are me
 
 ### `zoteroReadonlyLibraryAdapter.ts`
 
-Reads directly from the Zotero SQLite database to build a read-only `SynthesisLibraryAdapter`.
+Reads directly from the Zotero SQLite database to build the read-only host read port used by the Synthesis readonly client.
 
 ```typescript
 // Export
-export async function createZoteroReadonlyLibraryAdapter(
-  options: ZoteroReadonlyLibraryAdapterOptions,
-): Promise<SynthesisLibraryAdapter & { close: () => void }>;
+export async function createZoteroReadonlyHostReadPort(args: {
+  dbPath: string;
+  libraryId: number;
+}): Promise<...>;
 ```
 
-Provides the standard `SynthesisLibraryAdapter` interface (items, creators, tags, collections, notes) backed by direct SQLite queries instead of the Zotero API.
+Provides host read facts (items, creators, tags, collections, notes) backed by direct SQLite queries instead of the Zotero API.
 
 ### `synthesisWorkbenchI18nEnvelope.ts`
 
@@ -166,29 +170,34 @@ export function buildHarnessSynthesisI18nEnvelope(
 ): SynthesisWorkbenchI18nEnvelope;
 ```
 
-Supported locales: `en-US`, `zh-CN`, `ja-JP`, `fr-FR`. Falls back to `en-US` for unsupported locales.
+Supported locales: `en-US`, `zh-CN`, `zh-TW`, `ja-JP`, `fr-FR`, `de`, `es-ES`, `pt-BR`, `ko-KR`, `it-IT`, `ru-RU`. Falls back to `en-US` for unsupported locales.
 
 ## Model Layer
 
-### `synthesisReadonlyService.ts`
+### `synthesisReadonlyClient.ts`
 
-Combines a read-only SQLite adapter and a Zotero library adapter into a fully initialized `SynthesisService`. Injects a minimal Zotero host mock into the global scope.
+Composes a read-only SQLite snapshot, a bounded readonly Synthesis port, and the Zotero host read port into a grouped Synthesis client over `createSynthesisClientFromPort`. Injects a minimal Zotero host mock into the global scope (`Prefs.set`/`clear` throw).
 
 ```typescript
 // Exports
-export type SynthesisReadonlyServiceOptions = {
+export type SynthesisReadonlyClientOptions = {
   zoteroDbPath: string;
   pluginDbPath: string;
+  synthesisDbPath?: string;
   pluginRuntimeRoot: string;
   libraryId?: number;
 };
 
-export async function createSynthesisReadonlyService(
-  options: SynthesisReadonlyServiceOptions,
+export async function createSynthesisReadonlyClient(
+  options: SynthesisReadonlyClientOptions,
 ): Promise<...>;
 ```
 
-The injected host mock prevents `Zotero.Prefs.set`/`clear` and provides the minimal runtime globals needed by `SynthesisService`.
+Synthesis data is read from the isolated `synthesisDbPath` when provided, otherwise from `pluginDbPath`; no production service/repository owner, canonical writer, or native mutation client is constructed (enforced by the static boundary tests in `test/ui/156`).
+
+### `synthesisReadonlyPort.ts`
+
+Bounded readonly fake `SynthesisClientPort` (`createSynthesisReadonlyPort`) serving home/topics/index/review/graph/tags/concepts/reader surfaces from the snapshot database; mutation commands are rejected with an explicit unavailable result.
 
 ### `dashboardReadonlyModel.ts`
 
@@ -227,38 +236,95 @@ export async function createDashboardReadonlyModel(
 
 The model provides a `snapshot()` method for the full dashboard state (tabs, summary, running rows, workflows, products, runtime logs). The `handleAction()` method simulates UI actions (tab switching, selection) — real host operations (run, cancel, save, open) are recorded in `actionLog` instead of executed.
 
-### `assistantReadonlyModel.ts`
+### `assistantReadonlyPublication.ts`
 
-Creates a read-only assistant model for inspecting ACP conversations, ACP skill runs, and SkillRunner tasks.
+Publishes the Assistant Workspace through the real publication plane
+(`AssistantWorkspacePublicationRuntime` + `AssistantWorkspacePublicationCoordinator`),
+sourced entirely from the readonly plugin-state store.
 
 ```typescript
 // Export
-export async function createAssistantReadonlyModel(dbPath: string): Promise<...>;
+export async function createAssistantReadonlyPublicationSession(args: {
+  pluginDbPath: string;
+  workflowsDir?: string;
+  builtinWorkflowsDir?: string;
+}): Promise<...>;
 ```
 
-Returns snapshots scoped to three views:
-- **acpChat** — ACP conversation history and metadata.
-- **acpSkills** — ACP skill run records.
-- **skillrunner** — SkillRunner v3 run-store projections.
+The session holds one runtime + coordinator channel per surface
+(`acp-chat`, `acp-skills`, `skillrunner`), each backed by a readonly
+`AssistantWorkspacePublicationAdapter` that mirrors the corresponding
+production surface adapter but reads from the readonly store:
 
-All operations are read-only; no backend interaction is attempted. SkillRunner projections use `runKey` as the row identity, attach `requestId` only as backend correlation, and derive display fields from readonly backend registry, workflow manifests, SkillRunner skill display prefs, and stored sequence state. The readonly harness does not persist or synthesize SkillRunner `skillLabel`.
+- **acp-chat** — ACP conversation history and metadata.
+- **acp-skills** — ACP skill run records.
+- **skillrunner** — SkillRunner v3 run-store projections (`runKey` identity,
+  `requestId` as backend correlation only).
+
+`bootstrap()` re-creates the channels with a fresh `scopeKey`, initializes
+every source (`cause: "initialization"`), and returns the init payload
+(`scopeKey`, surface configuration, surface labels) plus the queued
+publications. `handleMessage({type, payload})` routes the shell wire
+protocol: publication acks go to the owning runtime, owner-selection actions
+re-initialize the affected source (`cause: "owner-switch"`),
+`load-transcript-page` is served through `requestTranscriptPage`, and every
+other write-capable registry action is returned as a mock action (recorded
+by the harness server, never executed). `diagnostics()` and `close()` mirror
+the other harness models.
+
+The served harness page (`scripts/ui-harness-serve.ts` +
+`addon/content/harness/harness-host.js`) runs the production sidebar shell
+and child bundles against these endpoints, so the harness exercises the same
+publication protocol as the live plugin.
 
 ## Injection and Mocking Strategy
 
 | Target | Mechanism | Source |
 |--------|-----------|--------|
 | `Zotero.Prefs` | `installReadonlyZoteroPrefs` replaces `Zotero.Prefs` globally | `prefsReadonly.ts` |
-| Zotero host globals | Minimal Zotero mock injected during service creation | `synthesisReadonlyService.ts` |
+| Zotero host globals | Minimal Zotero mock injected during client creation | `synthesisReadonlyClient.ts` |
 | SQLite writes | Snapshot + statement whitelist (SELECT/WITH/PRAGMA only) | `sqliteReadonly.ts` |
 | Backend registry | Same normalization + builtin merge as live path | `backendsReadonly.ts` |
 | UI host operations | `actionLog` recording instead of execution | `dashboardReadonlyModel.ts` |
+| Assistant write actions | Mock-action log entries returned by the session, never executed | `assistantReadonlyPublication.ts` |
+
+## Serving the Harness
+
+`npm run harness:ui` starts `scripts/ui-harness-serve.ts` on
+`http://127.0.0.1:5177/` (override with `HARNESS_UI_PORT`). Paths come from
+`.env` (`ZOTERO_PLUGIN_DATA_DIR`, optional profile/prefs overrides);
+`--check` builds everything, prints component readiness as JSON, and exits.
+
+The server holds the four bundles in memory and rebuilds them on source
+changes: the workspace and synthesis apps, plus the production sidebar
+entries `src/sidebar/assistantWorkspaceApp.js` and
+`src/sidebar/acpChildApp.js` (built with the plugin's JSX/Preact options),
+served at `/content/sidebar/assistant-workspace.bundle.js` and
+`/content/sidebar/acp-child.bundle.js`. The harness page
+(`addon/content/harness/harness-host.js`) therefore runs the real Assistant
+Workspace shell and child panels. Live reload is delivered over
+`/api/harness/live` (SSE): bundle rebuilds and content changes reload the
+page, build failures surface as console warnings.
+
+Assistant traffic uses two endpoints: `GET/POST
+/api/harness/assistant/bootstrap` (INIT payload plus the initial
+publications) and `POST /api/harness/assistant/message` (ready, registry
+actions, ACKs, transcript page requests; returns new publications and an
+optional mock-action log entry). Dashboard and Synthesis keep their own
+action endpoints. Write classification is shared: `readonlyReasonForAction`
+maps each blocked action to a reason (`clipboard`, `host-api`,
+`backend-submit`, `db-write`, `readonly`) for the action log.
+
+The locale control covers the plugin's eleven locales; the selection is
+stored in `localStorage`, mirrored into the page URL, and forwarded to the
+server as the `x-zs-harness-locale` header for Synthesis i18n envelopes.
 
 ## Usage Example
 
 ```typescript
 import { parseHarnessEnv } from "./env";
 import { readZoteroPrefsStore, installReadonlyZoteroPrefs } from "./prefsReadonly";
-import { createSynthesisReadonlyService } from "./synthesisReadonlyService";
+import { createSynthesisReadonlyClient } from "./synthesisReadonlyClient";
 import { createDashboardReadonlyModel } from "./dashboardReadonlyModel";
 
 // 1. Parse environment for database paths
@@ -268,8 +334,8 @@ const env = parseHarnessEnv(envFileContent);
 const prefsStore = await readZoteroPrefsStore(env.zoteroPrefsPath!);
 installReadonlyZoteroPrefs(prefsStore);
 
-// 3. Create read-only synthesis service
-const service = await createSynthesisReadonlyService({
+// 3. Create the read-only Synthesis client
+const synthesis = await createSynthesisReadonlyClient({
   zoteroDbPath: "/path/to/zotero.sqlite",
   pluginDbPath: "/path/to/zotero-agents.db",
   synthesisDbPath: "/path/to/synthesis.db",

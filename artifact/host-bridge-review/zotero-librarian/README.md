@@ -18,6 +18,8 @@ hermes profile install https://github.com/leike0813/zotero-librarian-profile.git
 
 常驻状态默认位于 `$HERMES_HOME/zotero-librarian/state.sqlite`。可设置 `ZOTERO_LIBRARIAN_STATE_DIR` 将其置于其他位置。该状态数据库是本地缓存和日志，不取代 Zotero 的实时事实。
 
+Library refresh 使用由 Zotero capability Broker 捕获的固定 snapshot，以及 profile 本地的 staging generation。只有准确的 terminal completion evidence 校验通过后，常驻服务才会 promote 该 generation；snapshot 中断或重启时，先前 generation 仍保持 current，而完整的空 snapshot 可以原子 promote 为空索引。
+
 `scripts/zotero_librarian_service.py` 是唯一常驻入口，也是数据库 schema 的唯一所有者。交互式请求和 cron job 每次调用一个有边界的子命令，并接收 `zotero-librarian.operation-receipt.v1`。随附 cron job 可以索引、检查、监控、同步通知元数据并生成审阅候选项；绝不提交工作流或修改 Zotero。
 
 workflow 提交是交互式的，并使用随附的 Generic 与 CLI Skills。先读取实时 workflow contract，校验 selection 与 workflow options，再独立校验 provider profile，并在调用提交前取得当前授权。只为该次已授权请求传入显式有界的 concurrency。Zotero 返回 host-queue admission 时，保留 `submissionId`，检查其不可变 unit projection，并把 admitted tasks 与真实 run handles 关联起来；只有 unit 仍处于 pending 状态时，才使用 `queueId` 取消。Zotero 负责 pending ordering、admission，以及 slot 从执行到 terminal apply-back 的完整生命周期。常驻服务不持久化第二套 plan-entry queue，不预留 units，不重播 uncertain submissions，也不从 cron 提交。provider-profile 决策、不支持的 selection/options 和 Agent 自主 handoff 继续使用继承的 Generic workflow contract。
@@ -33,3 +35,9 @@ workflow 提交是交互式的，并使用随附的 Generic 与 CLI Skills。先
 - `state-and-recovery.md`：缓存新鲜度、原子更新、类型化 handle、不确定结果、安装和状态重建。
 
 随附 Generic 与 CLI Skills 是有效 profile 的组成部分。不得把它们的任务 playbook 或命令事实复制进常驻文档。
+
+## 连接 profile workspace
+
+Agent 无需计算或手动传入 workspace 路径。service 与 cron 会依次跟随 `--profile`、`ZOTERO_BRIDGE_PROFILE` 和平台 well-known profile。well-known profile 是默认 workspace，并继续拥有 `$HERMES_HOME/zotero-librarian/state.sqlite`；每个显式 profile 都有独立的内容寻址 `workspaces/<sha256>/` 目录，用于 SQLite 状态、run、notification、catalog 和 `.zotero-bridge/bin`。
+
+`--db` 只能作为诊断覆盖，并且解析后的路径必须位于当前 workspace 内。workspace identity 只使用规范化 profile 路径，绝不读取 profile JSON，也不包含 token、endpoint 或其他 secret。profile 不存在、路径规范化失败、workspace 根不可用、连接失败或数据库越界时必须 fail closed，并返回结构化 receipt；不得回退到共享状态。workspace cache 只用于发现，不是当前 Zotero 事实，也不改变 approval、queue、receipt 或 live-state 规则。

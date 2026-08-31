@@ -1,10 +1,13 @@
 import type { BackendInstance } from "../backends/types";
 import {
-  getMozillaSubprocessModule as getCompatMozillaSubprocessModule,
-  runtimeRemoveFile,
-  runtimeFileExists,
-  runtimeReadTextFile,
-} from "../utils/runtimeCompatibility";
+  readRuntimeTextFile,
+  removeRuntimePath,
+  runtimePathExists,
+} from "./runtimePersistence";
+import {
+  getMozillaSubprocessModule,
+  type MozillaSubprocessModule,
+} from "../platform/subprocess";
 import {
   buildRuntimeCommandLaunchPlan,
   getCachedRuntimeCommand,
@@ -35,6 +38,10 @@ import {
 } from "./acpWebSocketBridgeService";
 import { isDebugModeEnabled } from "./debugMode";
 import { observeAcpRuntimeGauge } from "./acpRuntimePerformanceProfiler";
+import {
+  waitForBoundedPromise,
+  type BoundedWaitStartupOptions,
+} from "../utils/wait";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -43,38 +50,12 @@ const dynamicImport: DynamicImport = new Function(
   "return import(specifier)",
 ) as DynamicImport;
 
-type MozillaSubprocessModule = {
-  pathSearch?: (command: string) => Promise<string | null>;
-  call?: (args: {
-    command: string;
-    arguments?: string[];
-    environment?: Record<string, string>;
-    environmentAppend?: boolean;
-    workdir?: string;
-  }) => Promise<{
-    stdin?: {
-      write?: (data: string) => Promise<void>;
-      close?: () => Promise<void>;
-    };
-    stdout?: {
-      readString?: () => Promise<string>;
-    };
-    stderr?: {
-      readString?: () => Promise<string>;
-    };
-    wait?: () => Promise<unknown>;
-    exitCode?: unknown;
-    exitValue?: unknown;
-    kill?: (timeout?: number) => void;
-    pid?: unknown;
-  }>;
-};
-
 export type AcpTransportLaunchArgs = {
   backend: BackendInstance;
   cwd: string;
   diagnosticCapture?: AcpTransportDiagnosticCaptureOptions;
   performanceProfileRequestId?: string;
+  startup?: BoundedWaitStartupOptions;
 };
 
 export type AcpReadResult<T> = {
@@ -521,7 +502,7 @@ async function resolveNodeDirectNpxLaunch(args: {
     joinWindowsPath(nodeDir, "node_modules\\npm\\bin\\npx-cli.js"),
   );
   try {
-    const shimText = await runtimeReadTextFile(npxPath);
+    const shimText = await readRuntimeTextFile(npxPath);
     pushUniquePath(
       candidates,
       parseNpxCliPathFromShim({ shimPath: npxPath, shimText }),
@@ -530,7 +511,7 @@ async function resolveNodeDirectNpxLaunch(args: {
     // Missing or unreadable shim text only disables this optimization.
   }
   for (const candidate of candidates) {
-    if (await runtimeFileExists(candidate)) {
+    if (await runtimePathExists(candidate)) {
       return {
         nodePath,
         npxCliPath: candidate,
@@ -776,10 +757,6 @@ function randomTransportId() {
   return Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function getMozillaSubprocessModule() {
-  return getCompatMozillaSubprocessModule() as MozillaSubprocessModule | null;
 }
 
 function createReadableStreamFromMozillaPipe(
@@ -1037,7 +1014,7 @@ async function readSupervisorIdentity(pidFilePath: string) {
     return null;
   }
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const text = normalizeString(await runtimeReadTextFile(path));
+    const text = normalizeString(await readRuntimeTextFile(path));
     const [pidText, token = ""] = text.split(/\r?\n/, 2);
     const pid = toPositiveProcessId(Number.parseInt(pidText, 10));
     if (pid !== null && normalizeString(token)) {
@@ -1054,7 +1031,7 @@ async function removeSupervisorPidFile(pidFilePath: string) {
     return;
   }
   try {
-    await runtimeRemoveFile(path);
+    await removeRuntimePath(path);
   } catch {
     // Pidfile cleanup is best-effort diagnostic hygiene.
   }
@@ -1992,6 +1969,7 @@ async function launchWebSocketBridgeAcpTransport(
   let closeResolve: (() => void) | null = null;
   let spawnResolve: (() => void) | null = null;
   let spawnReject: ((error: unknown) => void) | null = null;
+  let startupPending = true;
   let messageQueue = Promise.resolve();
   const stdoutQueue: Uint8Array[] = [];
   let stdoutQueuedBytes = 0;
@@ -2100,6 +2078,9 @@ async function launchWebSocketBridgeAcpTransport(
   });
 
   socket.onopen = () => {
+    if (!startupPending) {
+      return;
+    }
     emitAudit("websocket_open", {
       bridgePid: bridge.pid,
     });
@@ -2137,6 +2118,12 @@ async function launchWebSocketBridgeAcpTransport(
       }
       const type = normalizeString(message.type);
       if (type === "spawned") {
+        if (!startupPending) {
+          emitAudit("spawned_ignored", {
+            reason: "startup_settled",
+          });
+          return;
+        }
         lifecycle.childPid = toFiniteExitCode(message.pid);
         emitAudit("spawned_received", {
           childPid: lifecycle.childPid,
@@ -2310,7 +2297,27 @@ async function launchWebSocketBridgeAcpTransport(
       .then(() => handleClose(event));
   };
 
-  await spawnedPromise;
+  try {
+    await waitForBoundedPromise(spawnedPromise, {
+      phase: "acp-windows-bridge-spawn",
+      ...args.startup,
+    });
+    startupPending = false;
+  } catch (error) {
+    startupPending = false;
+    pendingError = error;
+    emitAudit("spawn_startup_stopped", {
+      reason:
+        error instanceof Error ? error.message : String(error || "unknown"),
+      timeoutMs: args.startup?.timeoutMs,
+    });
+    try {
+      socket.close();
+    } catch {
+      // ignore close errors during startup cleanup
+    }
+    throw error;
+  }
 
   const waitForExit = (timeoutMs: number) =>
     waitForPromiseWithTimeout(closedPromise, timeoutMs);

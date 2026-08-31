@@ -1,0 +1,1262 @@
+{
+  "schema": "synthesis-sidecar-protocol-registry.v1",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "sources": {
+    "productionClientRoster": "../synthesis-production-client-v1/capabilities.json",
+    "forwardCapabilityRoster": "../../../src/sidecarSystem.ts#SYNTHESIS_SIDECAR_CAPABILITIES",
+    "reverseHostRoster": "../../../src/sidecarProduction.ts#SYNTHESIS_REVERSE_HOST_CAPABILITIES",
+    "workerOperationRoster": "../../../../native/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
+  },
+  "expected": {
+    "crossProcessCapabilities": 120,
+    "deterministicWorkerOperations": 15
+  },
+  "documents": [
+    {
+      "name": "launch-config-v3",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/LaunchConfigV4"
+    },
+    {
+      "name": "discovery-v2",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/DiscoveryV2"
+    },
+    {
+      "name": "production-discovery-v5",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/ProductionDiscoveryV5"
+    },
+    {
+      "name": "runtime-bundle-v3",
+      "schemaRef": "schemas/runtime-bundle.schema.json#/$defs/BundleV3"
+    },
+    {
+      "name": "runtime-pointer-v2",
+      "schemaRef": "schemas/runtime-bundle.schema.json#/$defs/PointerV2"
+    },
+    {
+      "name": "health",
+      "schemaRef": "schemas/system.schema.json#/$defs/Health"
+    },
+    {
+      "name": "handshake",
+      "schemaRef": "schemas/system.schema.json#/$defs/HandshakeResult"
+    },
+    {
+      "name": "shutdown",
+      "schemaRef": "schemas/system.schema.json#/$defs/ShutdownResult"
+    },
+    {
+      "name": "sidecar-error",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarError"
+    },
+    {
+      "name": "trace-context",
+      "schemaRef": "schemas/observability.schema.json#/$defs/TraceContext"
+    },
+    {
+      "name": "observation-event",
+      "schemaRef": "schemas/observability.schema.json#/$defs/ObservationEvent"
+    }
+  ],
+  "corpora": [
+    "corpus/client-artifact-library-debug.json",
+    "corpus/client-citation-graph.json",
+    "corpus/client-concept-topic-graph.json",
+    "corpus/client-reference-canonical.json",
+    "corpus/client-tag.json",
+    "corpus/client-topic-workbench.json",
+    "corpus/client-workflow-review.json",
+    "corpus/client-webdav-maintenance.json",
+    "corpus/compute.json",
+    "corpus/lifecycle.json",
+    "corpus/reverse-host.json",
+    "corpus/system.json",
+    "corpus/transfer.json",
+    "corpus/worker.json"
+  ],
+  "opaqueLeaves": [
+    {
+      "schemaRef": "schemas/common.schema.json#/$defs/opaqueCanonicalJson",
+      "owner": "external-artifact-schema",
+      "schemaId": "synthesis.external-artifact-json",
+      "schemaVersion": "1.0.0",
+      "codec": "canonical-json@1",
+      "maxBytes": 8388608,
+      "maxDepth": 32,
+      "maxNodes": 200000,
+      "allowedSchemaFiles": [
+        "schemas/client-artifact-library-debug.schema.json",
+        "schemas/reverse-host.schema.json"
+      ]
+    },
+    {
+      "schemaRef": "schemas/common.schema.json#/$defs/canonicalTextChunk",
+      "owner": "canonical-json-text-chunks.v1",
+      "schemaId": "synthesis.canonical-json-text-chunk",
+      "schemaVersion": "1.0.0",
+      "codec": "utf8-canonical-json@1",
+      "maxBytes": 4194304,
+      "maxDepth": 1,
+      "maxNodes": 1,
+      "allowedSchemaFiles": [
+        "schemas/transfer.schema.json",
+        "schemas/worker.schema.json"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "capability": "client.listTopics",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListTopicsRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListTopicsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.findTopicsByPaperRef",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/FindTopicsByPaperRefRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/FindTopicsByPaperRefResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getTopicContext",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicContextRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicContextResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.resolveResolver",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveResolverRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveResolverResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.queryCitationGraphCluster",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.queryCitationGraph",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getCitationGraphSlice",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphSliceRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphSliceResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getCitationGraphLayout",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphLayoutRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphLayoutResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getCitationGraphMetrics",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphMetricsRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphMetricsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rankLibraryPapers",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RankLibraryPapersRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RankLibraryPapersResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.refreshCitationGraphMetricsNow",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphMetricsNowRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphMetricsNowResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.startCitationGraphUpdate",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/StartCitationGraphUpdateRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/StartCitationGraphUpdateResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getReferenceSidecarIndex",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetReferenceSidecarIndexRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetReferenceSidecarIndexResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rankExternalReferences",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankExternalReferencesRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankExternalReferencesResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getAttentionQueue",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetAttentionQueueRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetAttentionQueueResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.startReferenceSidecarRefresh",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/StartReferenceSidecarRefreshRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/StartReferenceSidecarRefreshResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getPaperArtifactManifest",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.exportFilteredPaperArtifacts",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ExportFilteredPaperArtifactsRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ExportFilteredPaperArtifactsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.queryConceptKb",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/QueryConceptKbRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/QueryConceptKbResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getSchemas",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetSchemasRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetSchemasResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getPublicMaintenanceOperation",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.controlPublicMaintenanceOperation",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ControlPublicMaintenanceOperationRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ControlPublicMaintenanceOperationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getLibraryIndex",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetLibraryIndexRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetLibraryIndexResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getReviewInput",
+      "direction": "host-to-sidecar",
+      "domain": "workflow-review",
+      "requestSchemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputRequest",
+      "resultSchemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.debugSynthesisSnapshot",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisSnapshotRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisSnapshotResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.debugSynthesisCacheList",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisCacheListRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisCacheListResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.debugSynthesisOperationsList",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.debugSynthesisProfilerList",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisProfilerListRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisProfilerListResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.debugSynthesisPaperInspect",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisPaperInspectRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisPaperInspectResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.debugSynthesisTopicInspect",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisTopicInspectRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisTopicInspectResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.debugSynthesisDiff",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisDiffRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisDiffResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.debugSynthesisCleanInstallReset",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.listWorkflowTopicOptions",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListWorkflowTopicOptionsRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListWorkflowTopicOptionsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getTopicPlanningContext",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicPlanningContextRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicPlanningContextResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyTopicPlan",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileSynthesisRuntimeWorkStateOnStartupRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileSynthesisRuntimeWorkStateOnStartupResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.resetSynthesisDatabase",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResetSynthesisDatabaseRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResetSynthesisDatabaseResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.consumeRelatedItemsSyncEcho",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ConsumeRelatedItemsSyncEchoRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ConsumeRelatedItemsSyncEchoResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyLiteratureDigestSidecar",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyLiteratureDigestSidecarRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyLiteratureDigestSidecarResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyTopicSynthesisResult",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicSynthesisResultRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicSynthesisResultResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getTopicReport",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicReportRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicReportResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.deleteTopicArtifact",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/DeleteTopicArtifactRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/DeleteTopicArtifactResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.purgeDeletedTopicArtifacts",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/PurgeDeletedTopicArtifactsRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/PurgeDeletedTopicArtifactsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rejectTopicDiscoveryHint",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/RejectTopicDiscoveryHintRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/RejectTopicDiscoveryHintResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.restoreTopicDiscoveryHint",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/RestoreTopicDiscoveryHintRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/RestoreTopicDiscoveryHintResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rebuildTopicGraphIndex",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/RebuildTopicGraphIndexRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/RebuildTopicGraphIndexResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.acceptTopicGraphRelation",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/AcceptTopicGraphRelationRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/AcceptTopicGraphRelationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rejectTopicGraphRelation",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/RejectTopicGraphRelationRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/RejectTopicGraphRelationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyTopicGraphReviewAction",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/ApplyTopicGraphReviewActionRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/ApplyTopicGraphReviewActionResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.readPaperArtifacts",
+      "direction": "host-to-sidecar",
+      "domain": "artifact-library-debug",
+      "requestSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsRequest",
+      "resultSchemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.initializeBuiltinTagPolicy",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/InitializeBuiltinTagPolicyRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/InitializeBuiltinTagPolicyResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.isBuiltinTagPolicyInitialized",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/IsBuiltinTagPolicyInitializedRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/IsBuiltinTagPolicyInitializedResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.loadTagVocabulary",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/LoadTagVocabularyRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/LoadTagVocabularyResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.saveTagVocabulary",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/SaveTagVocabularyRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/SaveTagVocabularyResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.validateTagVocabulary",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/ValidateTagVocabularyRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/ValidateTagVocabularyResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rebuildTagVocabularyIndex",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/RebuildTagVocabularyIndexRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/RebuildTagVocabularyIndexResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.exportTagVocabularyForRegulator",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/ExportTagVocabularyForRegulatorRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/ExportTagVocabularyForRegulatorResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.listStagedTagSuggestions",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/ListStagedTagSuggestionsRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/ListStagedTagSuggestionsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.stageTagSuggestions",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/StageTagSuggestionsRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/StageTagSuggestionsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.updateStagedTagSuggestion",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/UpdateStagedTagSuggestionRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/UpdateStagedTagSuggestionResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.updateTagVocabularyEntry",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/UpdateTagVocabularyEntryRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/UpdateTagVocabularyEntryResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.deleteTagVocabularyEntry",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/DeleteTagVocabularyEntryRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/DeleteTagVocabularyEntryResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.promoteStagedTagSuggestions",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/PromoteStagedTagSuggestionsRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/PromoteStagedTagSuggestionsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.discardStagedTagSuggestions",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/DiscardStagedTagSuggestionsRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/DiscardStagedTagSuggestionsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.clearStagedTagSuggestions",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/ClearStagedTagSuggestionsRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/ClearStagedTagSuggestionsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.previewTagVocabularyImport",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/PreviewTagVocabularyImportRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/PreviewTagVocabularyImportResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyTagVocabularyImport",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/ApplyTagVocabularyImportRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/ApplyTagVocabularyImportResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.replaceTagAuditRecords",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/ReplaceTagAuditRecordsRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/ReplaceTagAuditRecordsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.clearTagAuditRecord",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/ClearTagAuditRecordRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/ClearTagAuditRecordResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.beginTagAuditRun",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.appendTagAuditRun",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.promoteTagAuditRun",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/PromoteTagAuditRunRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/PromoteTagAuditRunResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.abortTagAuditRun",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/AbortTagAuditRunRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/AbortTagAuditRunResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.prepareTagRegulationAcknowledgement",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.commitTagRegulationAcknowledgement",
+      "direction": "host-to-sidecar",
+      "domain": "tag",
+      "requestSchemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementRequest",
+      "resultSchemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getSynthesisWorkbenchChromeInput",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchChromeInputRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchChromeInputResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getSynthesisWorkbenchSurfaceInput",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getSynthesisBackgroundJobRows",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisBackgroundJobRowsRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisBackgroundJobRowsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.readTopicDetail",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.resolveTopicPaperDigest",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveTopicPaperDigestRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveTopicPaperDigestResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.recomputeCitationGraphLayout",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RecomputeCitationGraphLayoutRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RecomputeCitationGraphLayoutResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rebuildCitationGraphCacheNow",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RebuildCitationGraphCacheNowRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RebuildCitationGraphCacheNowResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.refreshCitationGraphCacheIncrementalNow",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphCacheIncrementalNowRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphCacheIncrementalNowResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.retryCitationGraphCacheRebuild",
+      "direction": "host-to-sidecar",
+      "domain": "citation-graph",
+      "requestSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RetryCitationGraphCacheRebuildRequest",
+      "resultSchemaRef": "schemas/client-citation-graph.schema.json#/$defs/RetryCitationGraphCacheRebuildResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.refreshReferenceSidecarNow",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RefreshReferenceSidecarNowRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RefreshReferenceSidecarNowResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.retryReferenceSidecarRefresh",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryReferenceSidecarRefreshRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryReferenceSidecarRefreshResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.runAdvancedReferenceMatchingNow",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RunAdvancedReferenceMatchingNowRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RunAdvancedReferenceMatchingNowResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.retryAdvancedReferenceMatching",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryAdvancedReferenceMatchingRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryAdvancedReferenceMatchingResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyCanonicalRevisionReviewAction",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionReviewActionRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionReviewActionResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyReferenceMatchProposalAction",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyReferenceMatchProposalActions",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.mergeEffectiveCanonicalReference",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/MergeEffectiveCanonicalReferenceRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/MergeEffectiveCanonicalReferenceResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyCanonicalRevisionMergeRequests",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionMergeRequestsRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionMergeRequestsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.updateCanonicalReferenceMetadata",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/UpdateCanonicalReferenceMetadataRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/UpdateCanonicalReferenceMetadataResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.archiveCanonicalReference",
+      "direction": "host-to-sidecar",
+      "domain": "reference-canonical",
+      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ArchiveCanonicalReferenceRequest",
+      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ArchiveCanonicalReferenceResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rebuildConceptKbIndex",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/RebuildConceptKbIndexRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/RebuildConceptKbIndexResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.updateConceptDisplayText",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/UpdateConceptDisplayTextRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/UpdateConceptDisplayTextResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.applyConceptReviewAction",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/ApplyConceptReviewActionRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/ApplyConceptReviewActionResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.deleteConceptEntries",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/DeleteConceptEntriesRequest",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/DeleteConceptEntriesResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.syncWebDavNow",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncWebDavNowRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncWebDavNowResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.pauseWebDavSync",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/PauseWebDavSyncRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/PauseWebDavSyncResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.resumeWebDavSync",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResumeWebDavSyncRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResumeWebDavSyncResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.retryWebDavSync",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/RetryWebDavSyncRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/RetryWebDavSyncResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.resolveWebDavSyncConflict",
+      "direction": "host-to-sidecar",
+      "domain": "webdav-maintenance",
+      "requestSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResolveWebDavSyncConflictRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResolveWebDavSyncConflictResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "system.handshake",
+      "direction": "host-to-sidecar",
+      "domain": "system",
+      "requestSchemaRef": "schemas/system.schema.json#/$defs/HandshakeRequest",
+      "resultSchemaRef": "schemas/system.schema.json#/$defs/HandshakeResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "system.shutdown",
+      "direction": "host-to-sidecar",
+      "domain": "system",
+      "requestSchemaRef": "schemas/system.schema.json#/$defs/ShutdownRequest",
+      "resultSchemaRef": "schemas/system.schema.json#/$defs/ShutdownResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "workbench.chrome.read",
+      "direction": "host-to-sidecar",
+      "domain": "system",
+      "requestSchemaRef": "schemas/system.schema.json#/$defs/WorkbenchChromeReadRequest",
+      "resultSchemaRef": "schemas/system.schema.json#/$defs/WorkbenchChromeReadResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "topics.canonical.inspect",
+      "direction": "host-to-sidecar",
+      "domain": "system",
+      "requestSchemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectRequest",
+      "resultSchemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "transfer.content",
+      "direction": "host-to-sidecar",
+      "domain": "transfer",
+      "requestSchemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "resultSchemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "compute.citation_graph_layout",
+      "direction": "host-to-sidecar",
+      "domain": "compute",
+      "requestSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphLayoutRequest",
+      "resultSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphLayoutResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "compute.citation_graph_metrics",
+      "direction": "host-to-sidecar",
+      "domain": "compute",
+      "requestSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphMetricsRequest",
+      "resultSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphMetricsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "compute.citation_graph_build",
+      "direction": "host-to-sidecar",
+      "domain": "compute",
+      "requestSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphBuildRequest",
+      "resultSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphBuildResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "compute.citation_graph_build_transfer",
+      "direction": "host-to-sidecar",
+      "domain": "compute",
+      "requestSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphBuildTransferRequest",
+      "resultSchemaRef": "schemas/compute.schema.json#/$defs/CitationGraphBuildTransferResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.items.sync_snapshot",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.items.list_page",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.items.get_by_ref",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetByRefRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetByRefResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.items.get_audit_state",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.artifacts.scan_page",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.artifacts.read",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.representative_image.read",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "delivery.export.publish_archive",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportPublishArchiveRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportPublishArchiveResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "delivery.export.materialize_run_workspace",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportMaterializeRunWorkspaceRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportMaterializeRunWorkspaceResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "webdav.describe",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavDescribeRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavDescribeResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "webdav.read_text",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "webdav.write_text",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavWriteTextRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavWriteTextResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "webdav.ensure_collection",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavEnsureCollectionRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavEnsureCollectionResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "effects.related_items.apply_batch",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "effects.tags.apply_batch",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/TagEffectsApplyBatchRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/TagEffectsApplyBatchResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "effects.staged_tag_binding.resolve",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    }
+  ],
+  "workers": [
+    {
+      "operation": "citation_graph_metrics.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "citation_graph_layout.v2",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "tag_vocabulary_validate.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "tag_vocabulary_index.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "concept_kb_index.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "concept_kb_query.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "topic_graph_index.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "reference_binding.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "reference_canonical_dedupe.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "topic_manifest_validate.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "topic_artifact_assemble.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "topic_artifact_validate.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "topic_section_patch.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "citation_graph_build.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "operation": "citation_graph_build_transfer.v1",
+      "runHeaderSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferRunHeader",
+      "inputSectionSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferInputSection",
+      "outputHeaderSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferResultHeader",
+      "outputSectionSchemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferResultSection",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    }
+  ]
+}

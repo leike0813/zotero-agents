@@ -1,5 +1,8 @@
 import { assert } from "chai";
+import { spawnSync } from "child_process";
 import fs from "fs/promises";
+import os from "os";
+import path from "path";
 import { buildAcpSkillResourceManifest } from "../../src/modules/acpSkillResourceManifest";
 import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
@@ -277,5 +280,79 @@ describe("Manuscript Literature Framing workflow contract", function () {
     assert.include(stage, "ARTIFACT_MANIFEST_FILENAME");
     assert.include(stage, "require_existing_file");
     assert.notInclude(stage, '"assets": assets');
+  });
+
+  it("persists a versioned evidence inventory with frozen literature-quality roles", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "manuscript-quality-"),
+    );
+    const statePath = path.join(root, "runtime", "state.json");
+    const payloadPath = path.join(root, "runtime", "inventory.json");
+    const script = path.resolve(
+      "skills_builtin/manuscript-literature-framing/scripts/stage_runtime.py",
+    );
+    await fs.mkdir(path.dirname(payloadPath), { recursive: true });
+    await fs.writeFile(
+      payloadPath,
+      JSON.stringify({
+        evidence_inventory: {
+          schema_id: "writing.manuscript_evidence_inventory",
+          schema_version: "1.0.0",
+          review_inputs: [{ topic_id: "topic-a" }],
+          papers: [
+            {
+              paper_ref: "1:AAAA1111",
+              literature_quality: {
+                status: "available",
+                schema: "literature_score.v1",
+                rubric_id: "rubric.v1",
+                paper_type: "empirical",
+                overall_score: 82,
+                confidence: 0.8,
+                confidence_adjusted_score: 76,
+                quality_prior: 0.756,
+                payload_hash: "sha256:score",
+                diagnostics: [],
+              },
+              evidence_role: "primary",
+              reason: "Direct evidence for the central method claim.",
+              caveats: [],
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    const result = spawnSync(
+      "uv",
+      [
+        "run",
+        `--project=${path.join(os.homedir(), ".ar")}`,
+        "--locked",
+        "--",
+        "python",
+        script,
+        "--state",
+        statePath,
+        "--action",
+        "persist_evidence_inventory",
+        "--payload-file",
+        payloadPath,
+      ],
+      { cwd: root, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+    assert.equal(
+      state.evidence_inventory.schema_id,
+      "writing.manuscript_evidence_inventory",
+    );
+    assert.equal(state.evidence_inventory.schema_version, "1.0.0");
+    assert.equal(
+      state.evidence_inventory.papers[0].literature_quality.quality_prior,
+      0.756,
+    );
+    assert.equal(state.evidence_inventory.papers[0].evidence_role, "primary");
+    assert.match(state.evidence_inventory_hash, /^sha256:/);
   });
 });

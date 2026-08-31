@@ -13,11 +13,11 @@ import {
   resolveRuntimeAddon,
   resolveRuntimeHostCapabilities,
 } from "../utils/runtimeBridge";
+import { createWorkflowHostApi } from "../workflows/hostApi";
 import {
-  createWorkflowHostApi,
+  resolveWorkflowHostContractVersion,
   summarizeWorkflowHostApiCapabilities,
-  WORKFLOW_HOST_API_VERSION,
-} from "../workflows/hostApi";
+} from "../workflows/workflowHostContract";
 import {
   getWorkflowRegistryState,
   getLoadedWorkflowSourceById,
@@ -185,8 +185,15 @@ function createRuntimeCapabilitySummary() {
   });
 }
 
-function createHostApiSummary() {
-  return summarizeWorkflowHostApiCapabilities(createWorkflowHostApi());
+function inspectCurrentHostApi() {
+  const hostApi = createWorkflowHostApi();
+  return {
+    summary: summarizeWorkflowHostApiCapabilities(hostApi),
+    version: resolveWorkflowHostContractVersion({
+      hostApi,
+      currentProjection: true,
+    }),
+  };
 }
 
 export async function collectWorkflowDebugProbeChecks(args: {
@@ -205,7 +212,7 @@ export async function collectWorkflowDebugProbeChecks(args: {
     (entry) => !excluded.has(entry.manifest.id) && !isWorkflowDebugOnly(entry),
   );
   const runtimeCapabilitySummary = createRuntimeCapabilitySummary();
-  const hostApiSummary = createHostApiSummary();
+  const hostApiInspection = inspectCurrentHostApi();
   const checks: WorkflowDebugProbeCheck[] = [];
   for (const workflow of workflows) {
     const base = {
@@ -218,8 +225,8 @@ export async function collectWorkflowDebugProbeChecks(args: {
         workflow.hookExecutionMode === "precompiled-host-hook"
           ? "package-host-api-facade"
           : "legacy-runtime-context",
-      hostApiVersion: WORKFLOW_HOST_API_VERSION,
-      hostApiSummary,
+      hostApiVersion: hostApiInspection.version,
+      hostApiSummary: hostApiInspection.summary,
       runtimeCapabilitySummary,
       compiledHookSource:
         workflow.hookExecutionMode === "precompiled-host-hook"

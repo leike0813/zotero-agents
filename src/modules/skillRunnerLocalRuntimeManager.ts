@@ -19,6 +19,11 @@ import {
   resetSkillRunnerLocalDeployDebugSession,
 } from "./skillRunnerLocalDeployDebugStore";
 import { isAbsolutePathLike } from "../platform/path";
+import {
+  buildRuntimeCommandLaunchPlan,
+  resolveRuntimeCommand,
+} from "../platform/command";
+import { executeOneShotSubprocess } from "../platform/subprocess";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
   markSkillRunnerBackendHealthSuccess,
@@ -36,6 +41,11 @@ import {
   BUILTIN_SKILLRUNNER_RUNTIME_VERSION,
   resolveSkillRunnerRuntimeVersion,
 } from "./skillRunnerRuntimeFeed";
+import {
+  readRuntimeTextFileStrict,
+  removeRuntimePath,
+  runtimePathExists,
+} from "./runtimePersistence";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -847,14 +857,7 @@ async function sleepMs(ms: number) {
 }
 
 async function readTextFile(filePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(filePath, "utf8") as Promise<string>;
+  return readRuntimeTextFileStrict(filePath);
 }
 
 async function pathExists(pathValue: string) {
@@ -862,26 +865,7 @@ async function pathExists(pathValue: string) {
   if (!normalized) {
     return false;
   }
-  const runtime = globalThis as {
-    IOUtils?: { exists?: (path: string) => Promise<boolean> };
-  };
-  if (typeof runtime.IOUtils?.exists === "function") {
-    try {
-      const exists = !!(await runtime.IOUtils.exists(normalized));
-      if (exists) {
-        return true;
-      }
-    } catch {
-      // continue to node fallback
-    }
-  }
-  try {
-    const fs = await dynamicImport("fs/promises");
-    await fs.access(normalized);
-    return true;
-  } catch {
-    return false;
-  }
+  return runtimePathExists(normalized);
 }
 
 type RemovePathRecursiveDiagnostics = {
@@ -962,118 +946,45 @@ function toPowerShellSingleQuotedLiteral(raw: string) {
   return `'${normalized.replace(/'/g, "''")}'`;
 }
 
-async function removePathRecursiveWithNodeFs(pathValue: string) {
-  const fs = await dynamicImport("fs/promises");
-  await fs.rm(pathValue, {
-    recursive: true,
-    force: true,
-  });
-}
-
 type SubprocessInvocationResult = {
   ok: boolean;
   stdout: string;
   stderr: string;
 };
 
-function isExecutableNotFoundMessage(message: string) {
-  const normalized = normalizeString(message).toLowerCase();
-  return (
-    normalized.includes("executable not found") ||
-    normalized.includes("could not be found") ||
-    normalized.includes("is not recognized")
-  );
-}
-
-function normalizeWindowsPathCandidate(pathValue: string) {
-  const normalized = normalizeString(pathValue).replace(/^"+|"+$/g, "");
-  return normalized;
-}
-
-function getWindowsShellCommandCandidates(command: string) {
-  const normalizedCommand = normalizeString(command);
-  if (!detectWindows() || !normalizedCommand) {
-    return [normalizedCommand].filter(Boolean);
-  }
-  if (
-    normalizedCommand.startsWith("\\\\") ||
-    /^[A-Za-z]:[\\/]/.test(normalizedCommand) ||
-    /[\\/]/.test(normalizedCommand)
-  ) {
-    return [normalizedCommand];
-  }
-  const lower = normalizedCommand.toLowerCase();
-  const systemRoot =
-    readProcessEnv("SystemRoot") || readProcessEnv("WINDIR") || "C:\\Windows";
-  const comspec = normalizeWindowsPathCandidate(
-    readProcessEnv("ComSpec") || readProcessEnv("COMSPEC"),
-  );
-  const candidates: string[] = [normalizedCommand];
-  if (lower === "cmd" || lower === "cmd.exe") {
-    candidates.push(
-      comspec,
-      `${systemRoot}\\System32\\cmd.exe`,
-      `${systemRoot}\\Sysnative\\cmd.exe`,
-    );
-  } else if (lower === "powershell" || lower === "powershell.exe") {
-    candidates.push(
-      `${systemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
-      `${systemRoot}\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe`,
-    );
-  }
-  return Array.from(
-    new Set(candidates.map((entry) => normalizeString(entry)).filter(Boolean)),
-  );
-}
-
 async function runSubprocessCommand(args: {
   command: string;
   argv: string[];
 }): Promise<SubprocessInvocationResult> {
-  const runtime = globalThis as {
-    Zotero?: {
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-  };
-  const subprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
-  if (typeof subprocess !== "function") {
+  const resolution = await resolveRuntimeCommand(args.command);
+  if (!resolution.available || !resolution.resolvedPath) {
     return {
       ok: false,
       stdout: "",
-      stderr: "subprocess is unavailable in current context",
+      stderr: resolution.diagnostic || "subprocess command is unavailable",
     };
   }
-  const candidates = getWindowsShellCommandCandidates(args.command);
-  let lastError = "";
-  for (let i = 0; i < candidates.length; i++) {
-    const candidate = candidates[i];
-    try {
-      const stdout = await subprocess(candidate, args.argv);
-      return {
-        ok: true,
-        stdout: normalizeString(stdout),
-        stderr: "",
-      };
-    } catch (error) {
-      const message =
-        getDeleteErrorMessage(error) || "subprocess invocation failed";
-      lastError = message;
-      const canRetryWithNextCandidate =
-        i < candidates.length - 1 && isExecutableNotFoundMessage(message);
-      if (canRetryWithNextCandidate) {
-        continue;
-      }
-      break;
-    }
-  }
+  const launchPlan = buildRuntimeCommandLaunchPlan({
+    command: args.command,
+    resolvedCommand: resolution.resolvedPath,
+    commandArgs: args.argv,
+    resolution,
+  });
+  const result = await executeOneShotSubprocess({
+    command: launchPlan.command,
+    args: launchPlan.args,
+    environment: launchPlan.environment,
+    timeoutMs: 60_000,
+    hidden: true,
+  });
   return {
-    ok: false,
-    stdout: "",
-    stderr: lastError || "subprocess invocation failed",
+    ok: result.outcome === "exited" && result.exitCode === 0,
+    stdout: normalizeString(result.stdout),
+    stderr:
+      normalizeString(result.stderr) ||
+      (result.timedOut
+        ? "subprocess timed out"
+        : "subprocess invocation failed"),
   };
 }
 
@@ -1163,14 +1074,6 @@ async function removePathRecursive(
   if (!normalized) {
     return diagnostics;
   }
-  const runtime = globalThis as {
-    IOUtils?: {
-      remove?: (
-        path: string,
-        options?: { ignoreAbsent?: boolean; recursive?: boolean },
-      ) => Promise<void>;
-    };
-  };
   const usesWindowsPathSemantics =
     detectWindows() || isWindowsAbsoluteFsPath(normalized);
   const maxRetries = usesWindowsPathSemantics ? 3 : 0;
@@ -1198,17 +1101,20 @@ async function removePathRecursive(
     }
   };
 
-  if (typeof runtime.IOUtils?.remove === "function") {
-    try {
-      await runWithRetry(async () => {
-        await runtime.IOUtils?.remove?.(normalized, {
-          ignoreAbsent: true,
-          recursive: true,
-        });
-      });
-      return diagnostics;
-    } catch {
-      // continue with node fs fallback
+  try {
+    await runWithRetry(async () => {
+      await removeRuntimePath(normalized);
+    });
+    return diagnostics;
+  } catch (error) {
+    diagnostics.lastErrorCode = getDeleteErrorCode(error);
+    diagnostics.lastErrorMessage = getDeleteErrorMessage(error);
+    if (!detectWindows()) {
+      const wrapped = new Error(
+        diagnostics.lastErrorMessage || "failed to remove path recursively",
+      ) as RemovePathRecursiveError;
+      wrapped.deleteDiagnostics = diagnostics;
+      throw wrapped;
     }
   }
   const extendedPath = toWindowsExtendedPath(normalized);
@@ -1225,32 +1131,6 @@ async function removePathRecursive(
     } catch (error) {
       diagnostics.lastErrorCode =
         getDeleteErrorCode(error) || "SHELL_DELETE_FAILED";
-      diagnostics.lastErrorMessage =
-        getDeleteErrorMessage(error) || diagnostics.lastErrorMessage;
-      const wrapped = new Error(
-        diagnostics.lastErrorMessage || "failed to remove path recursively",
-      ) as RemovePathRecursiveError;
-      wrapped.deleteDiagnostics = diagnostics;
-      throw wrapped;
-    }
-  }
-  try {
-    await runWithRetry(async () => {
-      await removePathRecursiveWithNodeFs(normalized);
-    });
-    return diagnostics;
-  } catch {
-    // continue with Windows extended path fallback
-  }
-  if (extendedPath) {
-    diagnostics.longPathFallbackAttempted = true;
-    try {
-      await runWithRetry(async () => {
-        await removePathRecursiveWithNodeFs(extendedPath);
-      });
-      return diagnostics;
-    } catch (error) {
-      diagnostics.lastErrorCode = getDeleteErrorCode(error);
       diagnostics.lastErrorMessage =
         getDeleteErrorMessage(error) || diagnostics.lastErrorMessage;
       const wrapped = new Error(

@@ -1,0 +1,9 @@
+[package]
+name = "synthesis-topic-graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+synthesis-protocol = { path = "../synthesis-protocol" }

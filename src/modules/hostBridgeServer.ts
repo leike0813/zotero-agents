@@ -13,9 +13,15 @@ import {
   HostBridgeCapabilityContractError,
   HostBridgeWorkflowProductError,
   listHostBridgeCapabilities,
+  normalizeHostBridgeCollectionRef,
+  normalizeHostBridgeItemRef,
 } from "./hostBridgeCapabilityRegistry";
+import {
+  SynthesisClientError,
+  type SynthesisClient,
+} from "../../packages/synthesis-contracts/src/index";
+import type { DirectResearchBundleApplication } from "./researchBundleService";
 import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
-import type { SynthesisMcpService } from "./synthesis/mcpService";
 import {
   describeHostBridgeWorkflow,
   requirementsForHostBridgeWorkflow,
@@ -33,6 +39,8 @@ import {
   describeHostBridgeProviderProfile,
   listHostBridgeProviderProfiles,
   validateHostBridgeProviderProfile,
+  getHostBridgeWorkflowDefaults,
+  refreshHostBridgeProviderProfile,
   listHostBridgeActiveTasks,
   listHostBridgeNotifications,
   listHostBridgeRecentSkillRuns,
@@ -107,12 +115,14 @@ import {
   readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 import {
-  createZoteroHostCapabilityBrokerApis,
-  ZoteroCollectionNotFoundError,
-  ZoteroInvalidObjectRefError,
-  ZoteroItemNotFoundError,
-  ZoteroNavigationUnavailableError,
-  ZoteroNoteNotFoundError,
+  getLegacyZoteroCurrentView,
+  getLegacyZoteroSelectedItems,
+  openLegacyZoteroCollection,
+  openLegacyZoteroItem,
+  openLegacyZoteroNote,
+  openLegacyZoteroSelection,
+  resolveZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
 } from "./zoteroHostCapabilityBroker";
 import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
 import {
@@ -141,10 +151,7 @@ import {
 import { writeHostBridgeWellKnownProfile } from "./hostBridgeProfileStore";
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import {
-  invalidateDefaultSynthesisService,
-  SynthesisMaintenanceError,
-} from "./synthesis/service";
+import { invalidateDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import { getPref, setPref } from "../utils/prefs";
 import {
   beginHostHttpRequestRead,
@@ -263,8 +270,14 @@ let serverSocketFactory: (port: number, bindMode: HostBridgeBindMode) => any =
   createServerSocket;
 let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
-let synthesisServiceResolverForTests: (() => SynthesisMcpService) | undefined =
-  undefined;
+let synthesisClientResolverForTests:
+  | (() => SynthesisClient | Promise<SynthesisClient>)
+  | undefined = undefined;
+let directResearchBundleApplicationResolverForTests:
+  | (() =>
+      | DirectResearchBundleApplication
+      | Promise<DirectResearchBundleApplication>)
+  | undefined = undefined;
 let serverGeneration = 0;
 const acceptedConnections = new Set<AcceptedHostConnection>();
 const CONNECTION_INITIALIZATION_ERROR_PREFIX =
@@ -806,6 +819,13 @@ function workflowValidationErrorCode(
     code === "provider_profile_option_invalid" ||
     code === "provider_profile_option_unavailable" ||
     code === "workflow_provider_incompatible" ||
+    code === "workflow_resource_missing" ||
+    code === "workflow_resource_ineligible" ||
+    code === "workflow_resource_mismatch" ||
+    code === "workflow_resource_output_invalid" ||
+    code === "invalid_workflow_resource_bindings" ||
+    code === "workflow_interaction_required" ||
+    code === "workflow_conflict_requires_policy" ||
     code === "missing_required_workflow_parameter"
     ? code
     : fallback;
@@ -814,13 +834,19 @@ function workflowValidationErrorCode(
 function workflowValidationErrorDetails(error: unknown) {
   const requiredFields = (error as { requiredFields?: unknown })
     ?.requiredFields;
-  return Array.isArray(requiredFields)
-    ? {
-        requiredFields: requiredFields
-          .map((entry) => String(entry || "").trim())
-          .filter(Boolean),
-      }
-    : undefined;
+  const details =
+    (error as { details?: Record<string, unknown> | undefined })?.details || {};
+  const normalized = {
+    ...details,
+    ...(Array.isArray(requiredFields)
+      ? {
+          requiredFields: requiredFields
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean),
+        }
+      : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function parsePermissionScopeHeader(request: HttpRequest) {
@@ -1603,8 +1629,14 @@ async function callCapability(
       {
         getStatus: getHostBridgeServerStatus,
         connectionMode: parseConnectionModeHeader(request, transportContext),
-        ...(synthesisServiceResolverForTests
-          ? { resolveSynthesisService: synthesisServiceResolverForTests }
+        ...(synthesisClientResolverForTests
+          ? { resolveSynthesisClient: synthesisClientResolverForTests }
+          : {}),
+        ...(directResearchBundleApplicationResolverForTests
+          ? {
+              resolveDirectResearchBundleApplication:
+                directResearchBundleApplicationResolverForTests,
+            }
           : {}),
       },
     );
@@ -1664,8 +1696,8 @@ async function callCapability(
     if (error instanceof HostBridgeCursorError) {
       return paginationErrorResponse(error);
     }
-    if (error instanceof SynthesisMaintenanceError) {
-      const conflict = error.code === "maintenance_idempotency_conflict";
+    if (error instanceof SynthesisClientError) {
+      const conflict = error.code === "conflict";
       const code = conflict
         ? "synthesis_maintenance_idempotency_conflict"
         : "invalid_capability_input";
@@ -1678,7 +1710,10 @@ async function callCapability(
           "validation",
           {
             capability: capability.name,
-            reasonCode: error.code,
+            reasonCode:
+              typeof error.details?.reasonCode === "string"
+                ? error.details.reasonCode
+                : error.code,
           },
         ),
         code,
@@ -1968,52 +2003,39 @@ function asRequestObject(value: unknown): Record<string, unknown> {
 }
 
 function navigationErrorResponse(error: unknown) {
-  if (error instanceof ZoteroInvalidObjectRefError) {
+  if (error instanceof ZoteroHostCapabilityError) {
+    const details = error.details as Record<string, unknown>;
+    const notFound = error.code === "not_found";
+    const unavailable =
+      error.code === "unavailable" && details.reason === "navigation";
+    const transportCode =
+      error.code === "invalid_ref"
+        ? "invalid_object_ref"
+        : error.code === "invalid_request"
+          ? "invalid_object_ref"
+          : error.code === "not_found"
+            ? details.kind === "note"
+              ? "note_not_found"
+              : details.kind === "collection"
+                ? "collection_not_found"
+                : "item_not_found"
+            : unavailable
+              ? "navigation_unavailable"
+              : "context_navigation_failed";
     return response(
-      400,
-      "Bad Request",
-      hostBridgeError("invalid_object_ref", error.message, "validation", {
-        ref: error.ref,
-      }),
-      "invalid_object_ref",
-    );
-  }
-  if (error instanceof ZoteroItemNotFoundError) {
-    return response(
-      404,
-      "Not Found",
-      hostBridgeError("item_not_found", error.message, "not_found", {
-        ref: error.ref,
-      }),
-      "item_not_found",
-    );
-  }
-  if (error instanceof ZoteroNoteNotFoundError) {
-    return response(
-      404,
-      "Not Found",
-      hostBridgeError("note_not_found", error.message, "not_found", {
-        ref: error.ref,
-      }),
-      "note_not_found",
-    );
-  }
-  if (error instanceof ZoteroCollectionNotFoundError) {
-    return response(
-      404,
-      "Not Found",
-      hostBridgeError("collection_not_found", error.message, "not_found", {
-        ref: error.ref,
-      }),
-      "collection_not_found",
-    );
-  }
-  if (error instanceof ZoteroNavigationUnavailableError) {
-    return response(
-      503,
-      "Service Unavailable",
-      hostBridgeError("navigation_unavailable", error.message, "internal"),
-      "navigation_unavailable",
+      unavailable ? 503 : notFound ? 404 : 400,
+      unavailable
+        ? "Service Unavailable"
+        : notFound
+          ? "Not Found"
+          : "Bad Request",
+      hostBridgeError(
+        transportCode,
+        error.message,
+        unavailable ? "internal" : notFound ? "not_found" : "validation",
+        error.details,
+      ),
+      transportCode,
     );
   }
   return response(
@@ -2032,8 +2054,10 @@ function parseNavigationBody(request: HttpRequest) {
   try {
     return parseJsonBody(request.body || "");
   } catch {
-    throw new ZoteroInvalidObjectRefError(
+    throw new ZoteroHostCapabilityError(
+      "invalid_request",
       "navigation request body must be JSON",
+      { reason: "invalid_format" },
     );
   }
 }
@@ -2408,6 +2432,97 @@ async function validateProviderProfile(request: HttpRequest) {
   }
 }
 
+async function workflowDefaults(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow defaults endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: { workflowId?: unknown };
+  try {
+    payload = parseJsonBody(request.body) as { workflowId?: unknown };
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_workflow_defaults_request",
+        "Workflow defaults request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_workflow_defaults_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await getHostBridgeWorkflowDefaults(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_defaults_request",
+    );
+    const status = code === "workflow_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(code, errorMessage(error), "validation"),
+      code,
+    );
+  }
+}
+
+async function refreshProviderProfile(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Provider profile refresh endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: { backendId?: unknown };
+  try {
+    payload = parseJsonBody(request.body) as { backendId?: unknown };
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_provider_profile_request",
+        "Provider profile refresh request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_provider_profile_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await refreshHostBridgeProviderProfile(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "provider_profile_refresh_failed",
+    );
+    const status = code === "provider_profile_backend_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(
+        code,
+        errorMessage(error),
+        "validation",
+        (error as { details?: Record<string, unknown> }).details,
+      ),
+      code,
+    );
+  }
+}
+
 async function workflowRequirements(request: HttpRequest) {
   if (request.method !== "POST") {
     return methodNotAllowed(
@@ -2507,6 +2622,7 @@ async function submitWorkflow(request: HttpRequest) {
             workflowRunId: result.workflowRunId,
             totalJobs: result.totalJobs,
             permission: result.permission,
+            resourceOutputs: result.resourceOutputs,
             runUrl: `/bridge/v2/workflows/runs/${encodeURIComponent(result.workflowRunId)}`,
             tasksUrl: `/bridge/v2/tasks?runId=${encodeURIComponent(result.workflowRunId)}`,
           }
@@ -3318,8 +3434,7 @@ async function getCurrentContext(request: HttpRequest) {
     );
   }
   try {
-    const currentView =
-      createZoteroHostCapabilityBrokerApis().context.getCurrentView();
+    const currentView = getLegacyZoteroCurrentView();
     const page = paginateRequestRows(
       request,
       "context current",
@@ -3357,7 +3472,7 @@ async function getCurrentSelection(request: HttpRequest) {
     const page = paginateRequestRows(
       request,
       "context selection get",
-      createZoteroHostCapabilityBrokerApis().context.getSelectedItems(),
+      getLegacyZoteroSelectedItems(),
     );
     return response(
       200,
@@ -3397,11 +3512,7 @@ async function openContextItem(request: HttpRequest) {
     return response(
       200,
       "OK",
-      hostBridgeOk(
-        await createZoteroHostCapabilityBrokerApis().context.openItem(
-          ref as never,
-        ),
-      ),
+      hostBridgeOk(await openLegacyZoteroItem(normalizeHostBridgeItemRef(ref))),
     );
   } catch (error) {
     if (error instanceof HostBridgeCursorError) {
@@ -3430,9 +3541,7 @@ async function openContextNote(request: HttpRequest) {
       200,
       "OK",
       hostBridgeOk(
-        await createZoteroHostCapabilityBrokerApis().context.openNote(
-          ref as never,
-        ),
+        await openLegacyZoteroNote(normalizeHostBridgeItemRef(ref, "note")),
       ),
     );
   } catch (error) {
@@ -3469,12 +3578,14 @@ async function openContextCollection(request: HttpRequest) {
       200,
       "OK",
       hostBridgeOk(
-        await createZoteroHostCapabilityBrokerApis().context.openCollection({
-          key: String(
-            object.key || object.collectionKey || collection.key || "",
-          ),
-          libraryId,
-        }),
+        await openLegacyZoteroCollection(
+          normalizeHostBridgeCollectionRef({
+            key: String(
+              object.key || object.collectionKey || collection.key || "",
+            ),
+            libraryId,
+          }),
+        ),
       ),
     );
   } catch (error) {
@@ -3497,10 +3608,9 @@ async function openContextSelection(request: HttpRequest) {
       : Array.isArray(payload)
         ? payload
         : [];
-    const result =
-      await createZoteroHostCapabilityBrokerApis().context.openSelection({
-        items: items as never[],
-      });
+    const result = await openLegacyZoteroSelection({
+      items: items.map((item) => normalizeHostBridgeItemRef(item)),
+    });
     const target = asRequestObject(result.target);
     const targetItems = Array.isArray(target.items) ? target.items : [];
     const page = paginateRequestRows(
@@ -3889,8 +3999,14 @@ async function getSynthesisCacheStatus(
       {
         getStatus: getHostBridgeServerStatus,
         connectionMode: parseConnectionModeHeader(request, transportContext),
-        ...(synthesisServiceResolverForTests
-          ? { resolveSynthesisService: synthesisServiceResolverForTests }
+        ...(synthesisClientResolverForTests
+          ? { resolveSynthesisClient: synthesisClientResolverForTests }
+          : {}),
+        ...(directResearchBundleApplicationResolverForTests
+          ? {
+              resolveDirectResearchBundleApplication:
+                directResearchBundleApplicationResolverForTests,
+            }
           : {}),
       },
     );
@@ -3963,7 +4079,7 @@ async function invalidateSynthesisCache(request: HttpRequest) {
       source: "host-bridge-cli",
       scope: parsePermissionScopeHeader(request),
     });
-    invalidateDefaultSynthesisService();
+    invalidateDefaultSynthesisClient();
     return response(
       200,
       "OK",
@@ -4257,6 +4373,14 @@ async function handleHttpRequestImpl(
 
     if (request.path === "/bridge/v2/workflows/provider-profiles/validate") {
       return validateProviderProfile(request);
+    }
+
+    if (request.path === "/bridge/v2/workflows/provider-profiles/refresh") {
+      return refreshProviderProfile(request);
+    }
+
+    if (request.path === "/bridge/v2/workflows/defaults") {
+      return workflowDefaults(request);
     }
 
     if (request.path === "/bridge/v2/workflows/validate") {
@@ -5074,7 +5198,8 @@ export function resetHostBridgeServerForTests() {
   state = createEmptyState("idle");
   startingPromise = null;
   serverSocketFactory = createServerSocket;
-  synthesisServiceResolverForTests = undefined;
+  synthesisClientResolverForTests = undefined;
+  directResearchBundleApplicationResolverForTests = undefined;
   acceptedConnections.clear();
   resetHostBridgeWriteAutoApprovalScopesForTests();
   resetHostBridgeAgentRunStoreForTests();
@@ -5088,7 +5213,10 @@ export function configureHostBridgeServerForTests(
     endpoint?: string;
     lanEnabled?: boolean;
     portMode?: HostBridgePortMode;
-    resolveSynthesisService?: () => SynthesisMcpService;
+    resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
+    resolveDirectResearchBundleApplication?: () =>
+      | DirectResearchBundleApplication
+      | Promise<DirectResearchBundleApplication>;
   } = {},
 ) {
   const lanEnabled = args.lanEnabled === true;
@@ -5108,7 +5236,9 @@ export function configureHostBridgeServerForTests(
     pinnedPort: getPinnedPort(),
     lastError: "",
   });
-  synthesisServiceResolverForTests = args.resolveSynthesisService;
+  synthesisClientResolverForTests = args.resolveSynthesisClient;
+  directResearchBundleApplicationResolverForTests =
+    args.resolveDirectResearchBundleApplication;
   return token;
 }
 

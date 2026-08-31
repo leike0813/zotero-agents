@@ -151,13 +151,14 @@ owned by runtime, host bridge, persistence, or deterministic materializers.
 #### Scenario: Create topic context payload is authored
 
 - **WHEN** the create skill gate requests `persist_topic_context`
-- **THEN** the agent-facing payload SHALL use flat fields such as
-  `topic_title`, `aliases`, `definition`, `scope_include`, `scope_exclude`,
-  `duplicate_status`, `duplicate_candidate_ids`, and `duplicate_reason`
-- **AND** the payload SHALL NOT include `topic_definition`, topic ids, hashes,
+- **THEN** the agent-facing payload SHALL use flat topic-definition fields and
+  a `target_decision` selecting `create_new`, `use_planned_topic`, or
+  `cancel_materialized_duplicate`
+- **AND** a selected existing topic SHALL appear in the decision's candidate ids
+- **AND** the payload SHALL NOT include nested `topic_definition`, hashes,
   locators, or nested `duplicate_check`
-- **AND** runtime SHALL derive the internal `topic_definition.id` from
-  `topic_title`.
+- **AND** runtime SHALL derive a new internal `topic_definition.id` from
+  `topic_title`, or preserve the selected Planned Topic id when one is reused.
 
 #### Scenario: Update topic context payload is authored
 
@@ -319,6 +320,14 @@ statistics, canonical external references, or the final synthesis report.
 
 The Host apply path SHALL accept split final candidates only when their
 referenced analysis manifest can produce a valid persisted topic artifact.
+
+#### Scenario: Resolver output is materialized as an apply-ready paper set
+
+- **GIVEN** the resolver returns public candidate records
+- **WHEN** the split runtime writes the resolver manifest
+- **THEN** it SHALL preserve the raw resolver response as `resolution_result`
+- **AND** it SHALL materialize the normalized candidates as
+  `resolved_paper_set.papers` for strict apply consumers.
 
 #### Scenario: Incomplete split manifest is rejected with actionable diagnostics
 
@@ -953,3 +962,50 @@ the wrapper skill instead of duplicating full Host Bridge command guidance.
   summary needed for the workflow
 - **AND** it SHALL NOT duplicate the full wrapper semantic guidance for
   workflow agent-run or apply-back.
+
+### Requirement: Update preparation turns discovery candidates into explicit source-membership decisions
+
+Update topic synthesis SHALL resolve a bounded open discovery candidate set independently of the topic resolver and SHALL use Stage 30 triage to determine candidate membership.
+
+#### Scenario: Relevant discovery candidate joins source papers
+
+- **GIVEN** an open discovery hint resolves to a paper outside the linked source set
+- **WHEN** Stage 30 classifies the paper as `core` or `related`
+- **THEN** finalization SHALL include it in `source_papers`
+- **AND** the resolver manifest SHALL record its accepted outcome and exact hint identity.
+
+#### Scenario: Non-relevant discovery candidate is screened out
+
+- **WHEN** Stage 30 classifies a discovery candidate as `external`, `irrelevant`, or `unknown`
+- **THEN** finalization SHALL omit it from the effective paper workset
+- **AND** the resolver manifest SHALL record the classification and screened-out outcome.
+
+#### Scenario: Base resolver combine mode cannot suppress discovery triage
+
+- **GIVEN** the topic resolver uses intersection or another selector combination
+- **WHEN** update preparation has open discovery candidates
+- **THEN** it SHALL resolve candidate paper refs through a separate union resolver
+- **AND** it SHALL preserve the unchanged base resolver as the topic resolver contract.
+
+### Requirement: Stage 50 aliases express lexical equivalence
+
+Stage 50 SHALL accept aliases only when they are interchangeable names for the same concept in the same sense.
+
+#### Scenario: Related terms are represented outside aliases
+
+- **WHEN** a term is broader, narrower, a component, task, method, dataset, benchmark, application, or merely associated
+- **THEN** the agent SHALL NOT put it in `aliases`
+- **AND** it SHALL use a relation proposal or separate concept when appropriate.
+
+#### Scenario: Concept details are structurally bounded
+
+- **WHEN** Stage 50 submits `concept_details`
+- **THEN** every entry SHALL provide `label`, `aliases`, `concept_type`, `definition`, and `topic_relevance`
+- **AND** unknown fields SHALL be rejected
+- **AND** aliases SHALL be unique and bounded.
+
+#### Scenario: Agent checks existing concept identity before proposing
+
+- **WHEN** the agent prepares Stage 50 concept details
+- **THEN** it SHALL call the read-only `synthesis concept query` command
+- **AND** use the returned canonical labels and aliases as evidence without mutating Concept KB.

@@ -1,20 +1,44 @@
-import { getAllRegularZoteroItems } from "../zoteroHostCapabilityBroker";
 import { listNotePayloadBlocksForItem } from "../zoteroNotePayloadResolver";
+import { resolveLibraryArtifactReadiness } from "../libraryArtifactReadiness";
 import {
   listNotePayloadBlocks,
   type ZoteroNotePayloadBlock,
 } from "../notePayloadCodec";
+import {
+  queryZoteroLibraryPage,
+  ZoteroLibraryCursorError,
+} from "../zoteroLibraryPageQuery";
+import {
+  SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT,
+  SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
+  SYNTHESIS_HOST_READ_REF_LIMIT_MAX,
+  SynthesisClientError,
+  toSynthesisJsonValue,
+  type SynthesisHostArtifactDescriptor,
+  type SynthesisHostArtifactType,
+  type SynthesisHostLibraryItemSummary,
+  type SynthesisHostReadPort,
+} from "../../../packages/synthesis-contracts/src/index";
+import { createZoteroHostCapabilityBroker } from "../zoteroHostCapabilityBroker";
 import type {
   CitationGraphPaperInput,
   CitationGraphReferenceInput,
 } from "./citationGraph";
 import { hashCanonicalJson, hashMarkdown } from "./foundation";
 import type {
-  ReferenceSidecarArtifactType,
+  PaperArtifactType,
   ReferenceSidecarInput,
   ReferenceSidecarInputNote,
 } from "./registry";
-import { buildReferenceSidecarMetadataFingerprintPayload } from "./registry";
+import {
+  buildReferenceSidecarMetadataFingerprintPayload,
+  PAPER_ARTIFACT_PAYLOAD_TYPES,
+  PAPER_ARTIFACT_TYPES,
+} from "./registry";
+import {
+  buildLiteratureQualitySnapshot,
+  parseLiteratureScore,
+} from "../../shared/literatureScore";
 
 export type SynthesisLibraryIndexPaper = {
   paper_ref: string;
@@ -49,11 +73,6 @@ export type SynthesisLibraryIndex = {
   page_hash?: string;
 };
 
-export type SynthesisTagUsageCount = {
-  tag: string;
-  count: number;
-};
-
 export type SynthesisRegistryMetadataFingerprint = {
   library_id: number;
   item_key: string;
@@ -68,13 +87,13 @@ export type PaperArtifactReadRequest = {
   paperRefs?: string[];
   paper_ref?: string;
   paperRef?: string;
-  artifact_types?: ReferenceSidecarArtifactType[];
-  artifactTypes?: ReferenceSidecarArtifactType[];
+  artifact_types?: PaperArtifactType[];
+  artifactTypes?: PaperArtifactType[];
 };
 
 export type PaperArtifactReadResult = {
   paper_ref: string;
-  artifact_type: ReferenceSidecarArtifactType;
+  artifact_type: PaperArtifactType;
   status: "available" | "missing" | "decode_error" | "unsupported";
   payload_type: string;
   probe_source?: string;
@@ -99,45 +118,7 @@ export type ReferenceSidecarArtifactScanResult = {
   sourceItems?: ReferenceSidecarInput[];
 };
 
-export type SynthesisLibraryAdapter = {
-  getRegistryInputs: () => Promise<ReferenceSidecarInput[]>;
-  getRegistryInputsPage?: (args?: {
-    libraryId?: number;
-    limit?: number;
-  }) => Promise<ReferenceSidecarInput[]>;
-  getRegistryInputForItem?: (args: {
-    libraryId?: number;
-    itemKey: string;
-  }) => Promise<ReferenceSidecarInput | null>;
-  getRegistryInputSummaryForItem?: (args: {
-    libraryId?: number;
-    itemKey: string;
-  }) => Promise<ReferenceSidecarInput | null>;
-  getTagUsageCounts?: (args?: {
-    libraryId?: number;
-  }) => Promise<SynthesisTagUsageCount[]>;
-  getRegistryMetadataFingerprints?: (args?: {
-    libraryId?: number;
-    limit?: number;
-  }) => Promise<SynthesisRegistryMetadataFingerprint[]>;
-  getLibraryIndex: () => Promise<SynthesisLibraryIndex>;
-  getCitationGraphInputs: () => Promise<CitationGraphPaperInput[]>;
-  scanArtifactSidecars?: (args?: {
-    sourceRefs?: string[];
-    artifactTypes?: ReferenceSidecarArtifactType[];
-  }) => Promise<ReferenceSidecarArtifactScanResult>;
-  readPaperArtifacts: (
-    args: PaperArtifactReadRequest,
-  ) => Promise<{ artifacts: PaperArtifactReadResult[]; diagnostics: string[] }>;
-};
-
-const PAYLOAD_TYPES: Record<ReferenceSidecarArtifactType, string> = {
-  digest: "digest-markdown",
-  references: "references-json",
-  citation_analysis: "citation-analysis-json",
-};
-
-const ARTIFACT_TYPE_ALIASES: Record<string, ReferenceSidecarArtifactType> = {
+const ARTIFACT_TYPE_ALIASES: Record<string, PaperArtifactType> = {
   digest: "digest",
   "digest-markdown": "digest",
   references: "references",
@@ -147,13 +128,11 @@ const ARTIFACT_TYPE_ALIASES: Record<string, ReferenceSidecarArtifactType> = {
   citationAnalysis: "citation_analysis",
   "citation-analysis": "citation_analysis",
   "citation-analysis-json": "citation_analysis",
+  literature_score: "literature_score",
+  literatureScore: "literature_score",
+  "literature-score": "literature_score",
+  "literature-score-json": "literature_score",
 };
-
-const DEFAULT_ARTIFACT_TYPES: ReferenceSidecarArtifactType[] = [
-  "digest",
-  "references",
-  "citation_analysis",
-];
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -317,17 +296,16 @@ async function paperInputFromItem(
     notes: await childNotes(item),
     creators: getCreators(item),
     doi: readField(item, "DOI"),
+    arxiv: readField(item, "arXiv"),
     isbn: readField(item, "ISBN"),
     url: readField(item, "url"),
     citekey: getCitekey(item),
     dateAdded: cleanString(item?.dateAdded),
+    ...(await literatureAnalysisSummaryFromItem(item)),
   };
 }
 
-function paperInputSummaryFromItem(
-  item: any,
-  fallbackLibraryId: number,
-): ReferenceSidecarInput {
+async function paperInputSummaryFromItem(item: any, fallbackLibraryId: number) {
   const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
   return {
     libraryId,
@@ -339,10 +317,26 @@ function paperInputSummaryFromItem(
     collections: collectionRefs(item),
     creators: getCreators(item),
     doi: readField(item, "DOI"),
+    arxiv: readField(item, "arXiv"),
     isbn: readField(item, "ISBN"),
     url: readField(item, "url"),
     citekey: getCitekey(item),
     dateAdded: cleanString(item?.dateAdded),
+    ...(await literatureAnalysisSummaryFromItem(item)),
+  };
+}
+
+async function literatureAnalysisSummaryFromItem(item: any) {
+  const readiness = await resolveLibraryArtifactReadiness(item);
+  const score = readiness.literatureScore.summary;
+  return {
+    literatureAnalysisArtifacts: {
+      digest: readiness.generated.digest,
+      references: readiness.generated.references,
+      citationAnalysis: readiness.generated.citationAnalysis,
+      literatureScore: readiness.literatureScore.status,
+    },
+    literatureScore: score || undefined,
   };
 }
 
@@ -397,176 +391,9 @@ function isVisibleTopLevelRegular(item: any) {
   return regular && topLevel && !deleted;
 }
 
-async function registryInputsFromZotero(libraryId: number) {
-  const items = await getAllRegularZoteroItems(libraryId);
-  const rows = await Promise.all(
-    items
-      .filter(isVisibleTopLevelRegular)
-      .filter(
-        (item: any) =>
-          normalizeLibraryId(item?.libraryID, libraryId) === libraryId,
-      )
-      .map((item) => paperInputFromItem(item, libraryId)),
-  );
-  return rows
-    .filter((input) => input.itemKey)
-    .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
-}
-
-async function tagUsageCountsFromZotero(
-  libraryId: number,
-): Promise<SynthesisTagUsageCount[]> {
-  const counts = new Map<string, number>();
-  const items = await getAllRegularZoteroItems(libraryId);
-  for (const item of items) {
-    if (!isVisibleTopLevelRegular(item)) {
-      continue;
-    }
-    if (normalizeLibraryId(item?.libraryID, libraryId) !== libraryId) {
-      continue;
-    }
-    for (const tag of getTags(item)) {
-      counts.set(tag, (counts.get(tag) || 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .map(([tag, count]) => ({ tag, count }))
-    .sort((left, right) => left.tag.localeCompare(right.tag));
-}
-
 function itemByLibraryAndKey(libraryId: number, itemKey: string) {
   const zotero = zoteroRuntime();
   return zotero.Items?.getByLibraryAndKey?.(libraryId, itemKey) || null;
-}
-
-function itemById(itemId: number) {
-  const zotero = zoteroRuntime();
-  return zotero.Items?.get?.(itemId) || null;
-}
-
-function itemIdFromQueryRow(row: unknown) {
-  if (typeof row === "number") {
-    return Math.max(0, Math.floor(row));
-  }
-  if (!row || typeof row !== "object") {
-    return 0;
-  }
-  const record = row as Record<string, unknown>;
-  return Math.max(
-    0,
-    Math.floor(
-      Number(
-        record.itemID || record.itemId || record.item_id || record.id || 0,
-      ) || 0,
-    ),
-  );
-}
-
-async function queryVisibleTopLevelRegularItemIds(args: {
-  libraryId: number;
-  limit: number;
-}) {
-  const zotero = zoteroRuntime();
-  const queryAsync = zotero.DB?.queryAsync;
-  if (typeof queryAsync !== "function") {
-    return null;
-  }
-  const limit = Math.max(1, Math.floor(Number(args.limit) || 1));
-  const baseParams = [args.libraryId, limit];
-  const queries = [
-    `
-      SELECT I.itemID
-      FROM items I
-      LEFT JOIN itemNotes N ON N.itemID = I.itemID
-      LEFT JOIN itemAttachments A ON A.itemID = I.itemID
-      LEFT JOIN deletedItems D ON D.itemID = I.itemID
-      WHERE I.libraryID = ?
-        AND N.itemID IS NULL
-        AND A.itemID IS NULL
-        AND D.itemID IS NULL
-      ORDER BY I.key ASC
-      LIMIT ?
-    `,
-    `
-      SELECT I.itemID
-      FROM items I
-      LEFT JOIN itemNotes N ON N.itemID = I.itemID
-      LEFT JOIN itemAttachments A ON A.itemID = I.itemID
-      WHERE I.libraryID = ?
-        AND N.itemID IS NULL
-        AND A.itemID IS NULL
-      ORDER BY I.key ASC
-      LIMIT ?
-    `,
-  ];
-  for (const sql of queries) {
-    try {
-      const rows = await queryAsync.call(zotero.DB, sql, baseParams);
-      return (Array.isArray(rows) ? rows : [])
-        .map(itemIdFromQueryRow)
-        .filter(Boolean);
-    } catch {
-      // Try the next schema-compatible query or fall back to a bounded scan.
-    }
-  }
-  return null;
-}
-
-function boundedVisibleTopLevelRegularItems(args: {
-  libraryId: number;
-  limit: number;
-}) {
-  const limit = Math.max(1, Math.floor(Number(args.limit) || 1));
-  const rows = [];
-  let misses = 0;
-  for (let id = 1; id <= 50000 && rows.length < limit; id += 1) {
-    const item = itemById(id);
-    if (!item) {
-      misses += 1;
-      if (misses >= 500) {
-        break;
-      }
-      continue;
-    }
-    misses = 0;
-    if (
-      isVisibleTopLevelRegular(item) &&
-      normalizeLibraryId(item?.libraryID, args.libraryId) === args.libraryId
-    ) {
-      rows.push(item);
-    }
-  }
-  return rows;
-}
-
-async function visibleTopLevelRegularItemsPage(args: {
-  libraryId: number;
-  limit: number;
-}) {
-  const requestedLimit = Math.max(1, Math.floor(Number(args.limit) || 1));
-  const ids = await queryVisibleTopLevelRegularItemIds({
-    libraryId: args.libraryId,
-    limit: requestedLimit,
-  });
-  if (ids) {
-    return ids
-      .map((id) => itemById(id))
-      .filter(isVisibleTopLevelRegular)
-      .filter(
-        (item: any) =>
-          normalizeLibraryId(item?.libraryID, args.libraryId) ===
-          args.libraryId,
-      )
-      .sort((left: any, right: any) =>
-        cleanString(left?.key).localeCompare(cleanString(right?.key)),
-      );
-  }
-  return boundedVisibleTopLevelRegularItems({
-    libraryId: args.libraryId,
-    limit: requestedLimit,
-  }).sort((left: any, right: any) =>
-    cleanString(left?.key).localeCompare(cleanString(right?.key)),
-  );
 }
 
 function resolveCollection(ref: string, libraryId: number) {
@@ -640,21 +467,19 @@ export function buildLibraryIndexFromRegistryInputs(
   };
 }
 
-function normalizeArtifactType(
-  value: unknown,
-): ReferenceSidecarArtifactType | null {
+function normalizeArtifactType(value: unknown): PaperArtifactType | null {
   const text = cleanString(value);
   return ARTIFACT_TYPE_ALIASES[text] || null;
 }
 
-function normalizeArtifactTypes(
+export function normalizeReferenceSidecarArtifactTypes(
   values: unknown,
-): ReferenceSidecarArtifactType[] {
+): PaperArtifactType[] {
   const rawValues = Array.isArray(values) ? values : [];
   const normalized = rawValues
     .map(normalizeArtifactType)
-    .filter((entry): entry is ReferenceSidecarArtifactType => !!entry);
-  const source = normalized.length ? normalized : DEFAULT_ARTIFACT_TYPES;
+    .filter((entry): entry is PaperArtifactType => !!entry);
+  const source = normalized.length ? normalized : PAPER_ARTIFACT_TYPES;
   return Array.from(new Set(source));
 }
 
@@ -712,9 +537,9 @@ function payloadProbeFields(args: {
 function firstPayloadBlock(args: {
   input: ReferenceSidecarInput;
   scan: ReturnType<typeof payloadBlocksForInput>;
-  artifactType: ReferenceSidecarArtifactType;
+  artifactType: PaperArtifactType;
 }) {
-  const payloadType = PAYLOAD_TYPES[args.artifactType];
+  const payloadType = PAPER_ARTIFACT_PAYLOAD_TYPES[args.artifactType];
   const acceptedSources = new Set([
     "embedded-image-attachment",
     "html-payload-block",
@@ -888,7 +713,7 @@ export function readArtifactsFromRegistryInputs(
       .map(cleanString)
       .filter(Boolean),
   );
-  const requestedTypes = normalizeArtifactTypes(
+  const requestedTypes = normalizeReferenceSidecarArtifactTypes(
     args.artifact_types || args.artifactTypes,
   );
   const artifacts: PaperArtifactReadResult[] = [];
@@ -917,16 +742,18 @@ export function readArtifactsFromRegistryInputs(
     for (const type of requestedTypes) {
       const found = firstPayloadBlock({ input, scan, artifactType: type });
       if (!found) {
-        diagnostics.push(`${paperRef}:${PAYLOAD_TYPES[type]}:missing`);
+        diagnostics.push(
+          `${paperRef}:${PAPER_ARTIFACT_PAYLOAD_TYPES[type]}:missing`,
+        );
         artifacts.push({
           ...baseProbe,
           paper_ref: paperRef,
           artifact_type: type,
           status: "missing",
-          payload_type: PAYLOAD_TYPES[type],
+          payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
           missing_reason: "payload_not_found",
           diagnostics: [
-            `${paperRef}:${PAYLOAD_TYPES[type]}:missing`,
+            `${paperRef}:${PAPER_ARTIFACT_PAYLOAD_TYPES[type]}:missing`,
             `child_note_count=${scan.childNoteCount}`,
             `payload_types_seen=${scan.payloadTypesSeen.join(",") || "none"}`,
           ],
@@ -936,18 +763,42 @@ export function readArtifactsFromRegistryInputs(
       if (found.decodeError) {
         const errors = found.block.errors || ["decode_error"];
         diagnostics.push(
-          `${paperRef}:${PAYLOAD_TYPES[type]}:decode_error:${errors.join("; ")}`,
+          `${paperRef}:${PAPER_ARTIFACT_PAYLOAD_TYPES[type]}:decode_error:${errors.join("; ")}`,
         );
         artifacts.push({
           ...baseProbe,
           paper_ref: paperRef,
           artifact_type: type,
           status: "decode_error",
-          payload_type: PAYLOAD_TYPES[type],
+          payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
           note_key: found.note.key,
           note_title: cleanString(found.note.title),
           missing_reason: "payload_decode_error",
           diagnostics: errors,
+        });
+        continue;
+      }
+      if (
+        type === "literature_score" &&
+        !parseLiteratureScore(found.block.payload)
+      ) {
+        const error = "literature_score.v1 schema validation failed";
+        const payloadHash = artifactHash(found.block);
+        diagnostics.push(
+          `${paperRef}:${PAPER_ARTIFACT_PAYLOAD_TYPES[type]}:decode_error:${error}`,
+        );
+        artifacts.push({
+          ...baseProbe,
+          paper_ref: paperRef,
+          artifact_type: type,
+          status: "decode_error",
+          payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
+          note_key: found.note.key,
+          note_title: cleanString(found.note.title),
+          hash: payloadHash,
+          payload_hash: payloadHash,
+          missing_reason: "payload_decode_error",
+          diagnostics: [error],
         });
         continue;
       }
@@ -957,7 +808,7 @@ export function readArtifactsFromRegistryInputs(
         paper_ref: paperRef,
         artifact_type: type,
         status: "available",
-        payload_type: PAYLOAD_TYPES[type],
+        payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
         note_key: found.note.key,
         note_title: cleanString(found.note.title),
         hash: payloadHash,
@@ -980,7 +831,7 @@ export function readArtifactsFromRegistryInputs(
         paper_ref: ref,
         artifact_type: type,
         status: "missing",
-        payload_type: PAYLOAD_TYPES[type],
+        payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
         missing_reason: "paper_not_found",
         diagnostics: [`${ref}:paper_not_found`],
       });
@@ -989,115 +840,449 @@ export function readArtifactsFromRegistryInputs(
   return { artifacts, diagnostics, sourceItems: inputs };
 }
 
-export function createZoteroSynthesisLibraryAdapter(
-  args: {
-    libraryId?: number;
-  } = {},
-): SynthesisLibraryAdapter {
-  const libraryId =
+const HOST_ARTIFACT_LOCATOR_PREFIX = "synthesis-artifact:v1:";
+
+function invalidHostRead(
+  message: string,
+  details: Record<string, unknown> = {},
+): never {
+  throw new SynthesisClientError(
+    "invalid_request",
+    message,
+    toSynthesisJsonValue(details) as Record<
+      string,
+      import("../../../packages/synthesis-contracts/src/index").SynthesisJsonValue
+    >,
+  );
+}
+
+function validateHostLibraryId(value: unknown) {
+  const libraryId = Number(value);
+  if (!Number.isInteger(libraryId) || libraryId <= 0) {
+    invalidHostRead("Host libraryId must be a positive integer", {
+      libraryId: Number.isFinite(libraryId) ? libraryId : String(value),
+    });
+  }
+  return libraryId;
+}
+
+function validateHostPageLimit(value: unknown) {
+  if (value === undefined) {
+    return SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT;
+  }
+  const limit = Number(value);
+  if (
+    !Number.isInteger(limit) ||
+    limit <= 0 ||
+    limit > SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX
+  ) {
+    invalidHostRead("Host read page limit is invalid", {
+      limit: Number.isFinite(limit) ? limit : String(value),
+      maxLimit: SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
+    });
+  }
+  return limit;
+}
+
+function hostPaperRef(libraryId: number, itemKey: string) {
+  return `${libraryId}:${itemKey}`;
+}
+
+function parseHostPaperRef(value: unknown, expectedLibraryId: number) {
+  const normalized = cleanString(value);
+  const match = normalized.match(/^(\d+):([^:\s]+)$/);
+  if (!match) {
+    invalidHostRead("Host paper ref is invalid", { paperRef: normalized });
+  }
+  const libraryId = Number(match?.[1]);
+  const itemKey = cleanString(match?.[2]);
+  if (libraryId !== expectedLibraryId || !itemKey) {
+    return null;
+  }
+  return { libraryId, itemKey, paperRef: normalized };
+}
+
+async function hostItemSummary(
+  item: any,
+  fallbackLibraryId: number,
+): Promise<SynthesisHostLibraryItemSummary> {
+  const input = await paperInputSummaryFromItem(item, fallbackLibraryId);
+  const date = readField(item, "date");
+  const paperRef = hostPaperRef(input.libraryId, input.itemKey);
+  return {
+    paperRef,
+    libraryId: input.libraryId,
+    itemKey: input.itemKey,
+    itemType: cleanString(input.itemType),
+    title: cleanString(input.title),
+    year: cleanString(input.year),
+    date,
+    creators: [...(input.creators || [])],
+    tags: [...(input.tags || [])],
+    collections: [...(input.collections || [])],
+    doi: cleanString(input.doi),
+    arxiv: cleanString(input.arxiv),
+    isbn: cleanString(input.isbn),
+    url: cleanString(input.url),
+    citekey: cleanString(input.citekey),
+    dateAdded: cleanString(input.dateAdded),
+    updatedAt: cleanString(item?.dateModified || item?.dateAdded) || undefined,
+    metadataHash: metadataFingerprintFromItem(item, fallbackLibraryId).hash,
+  };
+}
+
+async function hostItemSummaries(
+  items: any[],
+  libraryId: number,
+): Promise<SynthesisHostLibraryItemSummary[]> {
+  const summaries = new Array<SynthesisHostLibraryItemSummary>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(4, items.length) },
+    async () => {
+      for (;;) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        summaries[index] = await hostItemSummary(items[index], libraryId);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return summaries;
+}
+
+function encodeArtifactLocator(args: {
+  libraryId: number;
+  itemKey: string;
+  noteKey: string;
+  artifactType: SynthesisHostArtifactType;
+}) {
+  return `${HOST_ARTIFACT_LOCATOR_PREFIX}${[
+    String(args.libraryId),
+    args.itemKey,
+    args.noteKey,
+    args.artifactType,
+  ]
+    .map((part) => encodeURIComponent(part))
+    .join(":")}`;
+}
+
+function decodeArtifactLocator(locator: unknown): {
+  libraryId: number;
+  itemKey: string;
+  noteKey: string;
+  artifactType: SynthesisHostArtifactType;
+} {
+  const value = cleanString(locator);
+  if (!value.startsWith(HOST_ARTIFACT_LOCATOR_PREFIX)) {
+    invalidHostRead("Host artifact locator is invalid");
+  }
+  const parts = value.slice(HOST_ARTIFACT_LOCATOR_PREFIX.length).split(":");
+  if (parts.length !== 4) {
+    invalidHostRead("Host artifact locator is invalid");
+  }
+  try {
+    const [libraryRaw, itemRaw, noteRaw, typeRaw] = parts.map((part) =>
+      decodeURIComponent(part),
+    );
+    const libraryId = validateHostLibraryId(libraryRaw);
+    const itemKey = cleanString(itemRaw);
+    const noteKey = cleanString(noteRaw);
+    const artifactType = cleanString(typeRaw) as SynthesisHostArtifactType;
+    if (!itemKey || !noteKey || !PAPER_ARTIFACT_TYPES.includes(artifactType)) {
+      invalidHostRead("Host artifact locator is invalid");
+    }
+    return { libraryId, itemKey, noteKey, artifactType };
+  } catch (error) {
+    if (error instanceof SynthesisClientError) {
+      throw error;
+    }
+    invalidHostRead("Host artifact locator is invalid");
+  }
+}
+
+function hostArtifactDescriptor(
+  artifact: PaperArtifactReadResult,
+): SynthesisHostArtifactDescriptor {
+  const parsed = parseHostPaperRef(
+    artifact.paper_ref,
+    artifact.paper_ref ? Number(String(artifact.paper_ref).split(":")[0]) : 0,
+  );
+  const libraryId = parsed?.libraryId || 0;
+  const itemKey = parsed?.itemKey || "";
+  const artifactType = artifact.artifact_type;
+  const locator =
+    artifact.status === "available" && artifact.note_key && itemKey
+      ? encodeArtifactLocator({
+          libraryId,
+          itemKey,
+          noteKey: artifact.note_key,
+          artifactType,
+        })
+      : undefined;
+  const descriptor = {
+    paperRef: artifact.paper_ref,
+    payloadType: artifact.payload_type,
+    status: artifact.status,
+    ...(locator ? { locator } : {}),
+    ...(artifact.payload_hash || artifact.hash
+      ? { payloadHash: cleanString(artifact.payload_hash || artifact.hash) }
+      : {}),
+    ...(artifact.status === "available"
+      ? {
+          estimatedSize: new TextEncoder().encode(
+            JSON.stringify(hostArtifactContent(artifact, artifactType)),
+          ).byteLength,
+        }
+      : {}),
+    diagnostics: [...(artifact.diagnostics || [])],
+  };
+  if (artifactType === "literature_score") {
+    return {
+      ...descriptor,
+      artifactType,
+      literatureQuality: buildLiteratureQualitySnapshot({
+        payload: artifact.payload,
+        payloadHash: cleanString(artifact.payload_hash || artifact.hash),
+        missing: artifact.status === "missing",
+      }),
+    };
+  }
+  return { ...descriptor, artifactType };
+}
+
+function hostArtifactContent(
+  artifact: PaperArtifactReadResult,
+  artifactType: SynthesisHostArtifactType,
+) {
+  return artifactType === "digest"
+    ? {
+        kind: "text" as const,
+        text: cleanString(
+          artifact.markdown || artifact.decoded_text || artifact.payload,
+        ),
+        mediaType: "text/markdown" as const,
+      }
+    : {
+        kind: "json" as const,
+        value: toSynthesisJsonValue(artifact.payload),
+      };
+}
+
+export function createZoteroSynthesisHostReadPort(
+  args: { libraryId?: number } = {},
+): SynthesisHostReadPort {
+  const configuredLibraryId =
     normalizeLibraryId(args.libraryId, 0) ||
     normalizeLibraryId(zoteroRuntime().Libraries?.userLibraryID, 1);
-  async function inputs() {
-    return registryInputsFromZotero(libraryId);
+  const snapshotBroker = createZoteroHostCapabilityBroker();
+  const snapshotOwner = {
+    ownerId: `synthesis-host-read:${configuredLibraryId}`,
+  };
+
+  async function syncSnapshot(request: {
+    libraryId: number;
+    batchSize?: number;
+    snapshotId?: string;
+    cursor?: string;
+  }) {
+    const libraryId = validateHostLibraryId(request.libraryId);
+    if (libraryId !== configuredLibraryId) {
+      invalidHostRead("Host libraryId is outside the configured scope", {
+        libraryId,
+      });
+    }
+    return snapshotBroker.library.syncSnapshot(request, snapshotOwner);
   }
+
+  async function listItemsPage(request: {
+    libraryId: number;
+    cursor?: string;
+    limit?: number;
+  }) {
+    const libraryId = validateHostLibraryId(request.libraryId);
+    if (libraryId !== configuredLibraryId) {
+      invalidHostRead("Host libraryId is outside the configured scope", {
+        libraryId,
+      });
+    }
+    const limit = validateHostPageLimit(request.limit);
+    const cursor = cleanString(request.cursor);
+    let page: Awaited<ReturnType<typeof queryZoteroLibraryPage>>;
+    try {
+      page = await queryZoteroLibraryPage(
+        {
+          libraryId,
+          limit,
+          cursor: cursor || undefined,
+        },
+        {
+          defaultLibraryId: configuredLibraryId,
+          defaultLimit: limit,
+          maxLimit: SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
+        },
+      );
+    } catch (error) {
+      if (error instanceof ZoteroLibraryCursorError) {
+        invalidHostRead("Host read cursor is invalid");
+      }
+      throw error;
+    }
+    return {
+      items: await hostItemSummaries(page.items, libraryId),
+      cursor,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      returned: page.items.length,
+      limit,
+    };
+  }
+
+  async function getItemsByRef(request: {
+    libraryId: number;
+    paperRefs: string[];
+  }) {
+    const libraryId = validateHostLibraryId(request.libraryId);
+    if (libraryId !== configuredLibraryId) {
+      invalidHostRead("Host libraryId is outside the configured scope", {
+        libraryId,
+      });
+    }
+    if (
+      !Array.isArray(request.paperRefs) ||
+      request.paperRefs.length > SYNTHESIS_HOST_READ_REF_LIMIT_MAX
+    ) {
+      invalidHostRead("Host paper ref request is invalid", {
+        maxRefs: SYNTHESIS_HOST_READ_REF_LIMIT_MAX,
+      });
+    }
+    const items: SynthesisHostLibraryItemSummary[] = [];
+    const missingPaperRefs: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of request.paperRefs) {
+      const parsed = parseHostPaperRef(raw, libraryId);
+      const paperRef = cleanString(raw);
+      if (seen.has(paperRef)) {
+        continue;
+      }
+      seen.add(paperRef);
+      const item = parsed
+        ? itemByLibraryAndKey(parsed.libraryId, parsed.itemKey)
+        : null;
+      if (!item || !isVisibleTopLevelRegular(item)) {
+        missingPaperRefs.push(paperRef);
+        continue;
+      }
+      items.push(await hostItemSummary(item, libraryId));
+    }
+    return { items, missingPaperRefs };
+  }
+
   return {
-    getRegistryInputs: inputs,
-    async getRegistryInputsPage(request = {}) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
-      const page = await visibleTopLevelRegularItemsPage({
-        libraryId: requestedLibraryId,
-        limit: limit > 0 ? limit : 250,
-      });
-      return page
-        .map((item: any) => paperInputSummaryFromItem(item, requestedLibraryId))
-        .filter((input) => input.itemKey);
-    },
-    async getRegistryInputForItem(request) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      const itemKey = cleanString(request.itemKey);
-      if (!itemKey) {
-        return null;
-      }
-      const item = itemByLibraryAndKey(requestedLibraryId, itemKey);
-      if (!item || !isVisibleTopLevelRegular(item)) {
-        return null;
-      }
-      return paperInputFromItem(item, requestedLibraryId);
-    },
-    async getRegistryInputSummaryForItem(request) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      const itemKey = cleanString(request.itemKey);
-      if (!itemKey) {
-        return null;
-      }
-      const item = itemByLibraryAndKey(requestedLibraryId, itemKey);
-      if (!item || !isVisibleTopLevelRegular(item)) {
-        return null;
-      }
-      return paperInputSummaryFromItem(item, requestedLibraryId);
-    },
-    async getTagUsageCounts(request = {}) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      return tagUsageCountsFromZotero(requestedLibraryId);
-    },
-    async getRegistryMetadataFingerprints(request = {}) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
-      const items = await getAllRegularZoteroItems(requestedLibraryId);
-      const rows = items
-        .filter((item: any) => {
-          const regular =
-            typeof item?.isRegularItem === "function"
-              ? item.isRegularItem()
-              : !item?.isNote?.() && !item?.isAttachment?.();
-          const topLevel =
-            typeof item?.isTopLevelItem === "function"
-              ? item.isTopLevelItem()
-              : !Number(item?.parentItemID || item?.parentID || 0);
-          return (
-            regular &&
-            topLevel &&
-            normalizeLibraryId(item?.libraryID, requestedLibraryId) ===
-              requestedLibraryId
-          );
-        })
-        .map((item: any) =>
-          metadataFingerprintFromItem(item, requestedLibraryId),
-        )
-        .filter((entry) => entry.item_key)
-        .sort((left, right) => left.item_key.localeCompare(right.item_key));
-      return limit > 0 ? rows.slice(0, limit) : rows;
-    },
-    async getLibraryIndex() {
-      return buildLibraryIndexFromRegistryInputs(libraryId, await inputs());
-    },
-    async getCitationGraphInputs() {
-      return buildCitationGraphInputsFromRegistryInputs(await inputs());
-    },
-    async scanArtifactSidecars(args = {}) {
-      return readArtifactsFromRegistryInputs(await inputs(), {
-        paper_refs: args.sourceRefs,
-        artifact_types: args.artifactTypes || DEFAULT_ARTIFACT_TYPES,
-      });
-    },
-    async readPaperArtifacts(args) {
-      return readArtifactsFromRegistryInputs(await inputs(), args);
+    library: { syncSnapshot, listItemsPage, getItemsByRef },
+    artifacts: {
+      async scanPage(request) {
+        const libraryId = validateHostLibraryId(request.libraryId);
+        const limit = validateHostPageLimit(request.limit);
+        const artifactTypes = request.artifactTypes?.length
+          ? request.artifactTypes
+          : [...PAPER_ARTIFACT_TYPES];
+        if (
+          artifactTypes.some((type) => !PAPER_ARTIFACT_TYPES.includes(type))
+        ) {
+          invalidHostRead("Host artifact type is invalid");
+        }
+        let summaries: SynthesisHostLibraryItemSummary[];
+        let cursor = cleanString(request.cursor);
+        let nextCursor = "";
+        let hasMore = false;
+        if (request.paperRefs?.length) {
+          const lookup = await getItemsByRef({
+            libraryId,
+            paperRefs: request.paperRefs,
+          });
+          summaries = lookup.items.slice(0, limit);
+        } else {
+          const page = await listItemsPage(request);
+          summaries = page.items;
+          cursor = page.cursor;
+          nextCursor = page.nextCursor;
+          hasMore = page.hasMore;
+        }
+        const inputs = await Promise.all(
+          summaries.map(async (summary) => {
+            const item = itemByLibraryAndKey(
+              summary.libraryId,
+              summary.itemKey,
+            );
+            return item ? paperInputFromItem(item, summary.libraryId) : null;
+          }),
+        );
+        const scan = readArtifactsFromRegistryInputs(
+          inputs.filter((input): input is ReferenceSidecarInput =>
+            Boolean(input),
+          ),
+          { artifact_types: artifactTypes },
+        );
+        return {
+          artifacts: scan.artifacts.map(hostArtifactDescriptor),
+          cursor,
+          nextCursor,
+          hasMore,
+          returned: summaries.length,
+          limit,
+        };
+      },
+      async read(request) {
+        const locator = decodeArtifactLocator(request.locator);
+        const expectedHash = cleanString(request.expectedHash);
+        if (!expectedHash) {
+          invalidHostRead("Host artifact expectedHash is required");
+        }
+        const item = itemByLibraryAndKey(locator.libraryId, locator.itemKey);
+        if (!item || !isVisibleTopLevelRegular(item)) {
+          return {
+            status: "missing" as const,
+            diagnostics: ["paper_not_found"],
+          };
+        }
+        const result = readArtifactsFromRegistryInputs(
+          [await paperInputFromItem(item, locator.libraryId)],
+          {
+            paper_refs: [hostPaperRef(locator.libraryId, locator.itemKey)],
+            artifact_types: [locator.artifactType],
+          },
+        );
+        const artifact = result.artifacts.find(
+          (entry) =>
+            entry.artifact_type === locator.artifactType &&
+            cleanString(entry.note_key) === locator.noteKey,
+        );
+        if (!artifact || artifact.status !== "available") {
+          return {
+            status: (artifact?.status === "decode_error"
+              ? "decode_error"
+              : "missing") as "decode_error" | "missing",
+            diagnostics: [...(artifact?.diagnostics || result.diagnostics)],
+          };
+        }
+        const currentHash = cleanString(artifact.payload_hash || artifact.hash);
+        if (currentHash !== expectedHash) {
+          return {
+            status: "stale" as const,
+            currentHash,
+            diagnostics: ["artifact_hash_changed"],
+          };
+        }
+        const content = hostArtifactContent(artifact, locator.artifactType);
+        return {
+          status: "available" as const,
+          payloadHash: currentHash,
+          content,
+          diagnostics: [...(artifact.diagnostics || [])],
+        };
+      },
     },
   };
 }

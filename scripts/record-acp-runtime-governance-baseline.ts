@@ -9,28 +9,29 @@ import {
 import type { AcpRuntimeGovernanceBaselineRecord } from "../src/modules/acpRuntimePerformanceBaseline";
 
 const OUTPUT_DIRECTORY = path.resolve("artifact", "performance-baselines");
-const MARKDOWN_PATH = path.join(
-  OUTPUT_DIRECTORY,
-  "acp-runtime-before-governance.md",
-);
-const JSON_PATH_BY_SURFACE = Object.fromEntries(
-  ACP_RUNTIME_BASELINE_SURFACE_STATES.map((surfaceState) => [
-    surfaceState,
-    path.join(
-      OUTPUT_DIRECTORY,
-      `acp-runtime-before-governance-${surfaceState}.json`,
-    ),
-  ]),
-) as Record<AcpRuntimeBaselineSurfaceState, string>;
+const DEFAULT_OUTPUT_PREFIX = "acp-runtime-before-governance";
 
-async function captureRecords() {
-  return (await runAcpSilentRuntimeBaselineMatrix()).map(
+function outputPaths(outputPrefix: string) {
+  return {
+    markdownPath: path.join(OUTPUT_DIRECTORY, `${outputPrefix}.md`),
+    jsonPathBySurface: Object.fromEntries(
+      ACP_RUNTIME_BASELINE_SURFACE_STATES.map((surfaceState) => [
+        surfaceState,
+        path.join(OUTPUT_DIRECTORY, `${outputPrefix}-${surfaceState}.json`),
+      ]),
+    ) as Record<AcpRuntimeBaselineSurfaceState, string>,
+  };
+}
+
+async function captureRecords(phase: "before-governance" | "after-governance") {
+  return (await runAcpSilentRuntimeBaselineMatrix(1_000, phase)).map(
     (baseline) => baseline.record,
   );
 }
 
 function renderMarkdown(
   records: readonly AcpRuntimeGovernanceBaselineRecord[],
+  options?: { comparabilityNote?: string },
 ) {
   const summaryRows = records.flatMap((record) =>
     record.summary.groups.map(
@@ -66,6 +67,9 @@ function renderMarkdown(
     `- Environment: Zotero \`${environment?.zoteroVersion || "unknown"}\`, plugin \`${environment?.pluginVersion || "unknown"}\`, platform \`${environment?.platform || "unknown"}\``,
     "",
     "> This is a repeatable CI mechanism smoke matrix, not a comparable real-workload baseline. It deliberately excludes machine-dependent timing values and does not claim to reproduce Zotero host latency or UI stalls. Comparable governance evidence comes from source-specific replay matrices.",
+    ...(options?.comparabilityNote
+      ? ["", `> ${options.comparabilityNote}`]
+      : []),
     "",
     "| Surface | Risk | Counters | Bytes | Peak gauge | Duration calls |",
     "| --- | --- | ---: | ---: | ---: | ---: |",
@@ -86,9 +90,16 @@ async function pathExists(targetPath: string) {
 
 export async function recordAcpRuntimeGovernanceBaseline(args?: {
   force?: boolean;
+  outputPrefix?: string;
 }) {
-  const first = await captureRecords();
-  const second = await captureRecords();
+  const outputPrefix = args?.outputPrefix || DEFAULT_OUTPUT_PREFIX;
+  const phase =
+    outputPrefix === DEFAULT_OUTPUT_PREFIX
+      ? ("before-governance" as const)
+      : ("after-governance" as const);
+  const { markdownPath, jsonPathBySurface } = outputPaths(outputPrefix);
+  const first = await captureRecords(phase);
+  const second = await captureRecords(phase);
   const firstJson = JSON.stringify(first, null, 2);
   const secondJson = JSON.stringify(second, null, 2);
   if (firstJson !== secondJson) {
@@ -100,19 +111,19 @@ export async function recordAcpRuntimeGovernanceBaseline(args?: {
     !args?.force &&
     (
       await Promise.all([
-        pathExists(MARKDOWN_PATH),
-        ...Object.values(JSON_PATH_BY_SURFACE).map(pathExists),
+        pathExists(markdownPath),
+        ...Object.values(jsonPathBySurface).map(pathExists),
       ])
     ).some(Boolean)
   ) {
     throw new Error(
-      "Before-governance baseline already exists; pass --force to replace it intentionally",
+      `Baseline "${outputPrefix}" already exists; pass --force to replace it intentionally`,
     );
   }
   await fs.mkdir(OUTPUT_DIRECTORY, { recursive: true });
   const jsonPaths: string[] = [];
   for (const record of first) {
-    const targetPath = JSON_PATH_BY_SURFACE[record.capture.surfaceState];
+    const targetPath = jsonPathBySurface[record.capture.surfaceState];
     await fs.writeFile(
       targetPath,
       `${JSON.stringify(record, null, 2)}\n`,
@@ -120,8 +131,24 @@ export async function recordAcpRuntimeGovernanceBaseline(args?: {
     );
     jsonPaths.push(targetPath);
   }
-  await fs.writeFile(MARKDOWN_PATH, renderMarkdown(first), "utf8");
-  return { jsonPaths, markdownPath: MARKDOWN_PATH, records: first };
+  const comparabilityNote =
+    outputPrefix === DEFAULT_OUTPUT_PREFIX
+      ? undefined
+      : "Recorded after the Assistant Workspace refactor (Phases 0–4): label shapes and R3 coverage are not comparable with the 2026-07-18 `acp-runtime-before-governance` recording. Region-signature (`panel_signature*`) and transcript page-read (`transcript_page_*`) series are production-emitted as of this recording.";
+  await fs.writeFile(
+    markdownPath,
+    renderMarkdown(first, { comparabilityNote }),
+    "utf8",
+  );
+  return { jsonPaths, markdownPath, records: first };
+}
+
+function readOutputPrefix(argv: readonly string[]) {
+  const inline = argv.find((arg) => arg.startsWith("--output-prefix="));
+  if (inline) return inline.slice("--output-prefix=".length).trim();
+  const index = argv.indexOf("--output-prefix");
+  if (index >= 0) return String(argv[index + 1] || "").trim();
+  return "";
 }
 
 if (
@@ -130,6 +157,7 @@ if (
 ) {
   recordAcpRuntimeGovernanceBaseline({
     force: process.argv.includes("--force"),
+    outputPrefix: readOutputPrefix(process.argv) || undefined,
   })
     .then(({ jsonPaths, markdownPath }) => {
       process.stdout.write(

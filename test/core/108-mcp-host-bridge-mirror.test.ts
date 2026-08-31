@@ -7,6 +7,8 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
 import { setPref } from "../../src/utils/prefs";
+import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -47,12 +49,53 @@ describe("MCP Host Bridge capability mirror", function () {
     assert.include(names, "diagnostic.get_status");
     assert.include(names, "topics.list");
     assert.include(names, "topics.find_by_paper_ref");
+    assert.include(names, "topics.get_planning_context");
     assert.include(names, "topics.get_report");
     assert.include(names, "citation_graph.get_layout");
     assert.include(names, "citation_graph.rank_external_references");
     assert.notInclude(names, "synthesis.list_topics");
     assert.notInclude(names, "get_current_view");
     assert.notInclude(names, "get_item_detail");
+  });
+
+  it("delivers the complete topic planning context through a registered file", async function () {
+    const client = createSynthesisClientFromPort({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async getTopicPlanningContext() {
+        return {
+          schema_id: "synthesis.topic_planning_context",
+          schema_version: "1.0.0",
+          library: {
+            total_papers: 2,
+            papers: [{ paper_ref: "1:AAAA1111" }, { paper_ref: "1:BBBB2222" }],
+          },
+          topics: [{ topic_id: "topic-a" }],
+          topic_graph: { nodes: [{ topic_id: "topic-a" }], edges: [] },
+          diagnostics: { bounded_inline: true, truncated: false },
+        };
+      },
+    });
+    const response: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "planning-context",
+        method: "tools/call",
+        params: {
+          name: "topics.get_planning_context",
+          arguments: { limit: 1 },
+        },
+      },
+      { resolveSynthesisClient: () => client },
+    );
+
+    const data = response.result.structuredContent.data;
+    assert.deepEqual(data.summary.paperRefs, ["1:AAAA1111"]);
+    assert.isTrue(data.summary.previewTruncated);
+    assert.strictEqual(data.delivery.mode, "bridge-download");
+    assert.isString(data.delivery.bundle.fileId);
+    assert.notProperty(data, "library");
   });
 
   it("dispatches MCP calls through Host Bridge capability handlers", async function () {
@@ -85,6 +128,73 @@ describe("MCP Host Bridge capability mirror", function () {
       response.result.structuredContent.data.status,
       "running",
     );
+  });
+
+  it("projects mutation attachments without host-local paths", async function () {
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      legacyMutations: {
+        async preview(request) {
+          return {
+            ok: true,
+            operation: request.operation,
+            targetRefs: [],
+            summary: "Attach file",
+            warnings: [],
+            requiresConfirmation: true,
+          };
+        },
+        async execute(request) {
+          return {
+            ok: true,
+            operation: request.operation,
+            targetRefs: [],
+            summary: "Attached file",
+            warnings: [],
+            requiresConfirmation: true,
+            result: {
+              attachments: [
+                {
+                  id: 42,
+                  key: "ATTACHMENT",
+                  libraryId: 1,
+                  title: "Attachment",
+                  contentType: "application/pdf",
+                  filename: "paper.pdf",
+                  path: `${process.cwd()}/package.json`,
+                },
+              ],
+            },
+          };
+        },
+      },
+    });
+    const response: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "attach",
+        method: "tools/call",
+        params: {
+          name: "mutation.execute",
+          arguments: {
+            operation: "item.attachFile",
+            item: { libraryId: 1, key: "ITEM0001" },
+            fileId: "uploaded-file",
+          },
+        },
+      },
+      {
+        resolveZoteroHostCapabilityBroker: () => broker,
+        requestToolPermission: () => true,
+      },
+    );
+
+    const attachment =
+      response.result.structuredContent.data.result.attachments[0];
+    assert.notProperty(attachment, "path");
+    assert.oneOf(attachment.access.mode, ["bridge-download", "unavailable"]);
+    if (attachment.access.mode === "bridge-download") {
+      assert.isString(attachment.access.file.fileId);
+    }
   });
 
   it("uses the Host Bridge bearer token for MCP HTTP requests", async function () {

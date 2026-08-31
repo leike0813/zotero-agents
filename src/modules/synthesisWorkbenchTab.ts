@@ -1,4 +1,14 @@
 import { config } from "../../package.json";
+import {
+  SynthesisClientError,
+  type SynthesisClient,
+  type SynthesisCitationGraphPageMetadata,
+  type SynthesisGraphCommandResult,
+  type SynthesisJsonObject,
+  type SynthesisPublicMaintenanceOperation,
+  type SynthesisReferenceMatchProposalDecision,
+  type SynthesisSyncConflictResolutionAction,
+} from "../../packages/synthesis-contracts/src/index";
 import { getString, getStringOrFallback } from "../utils/locale";
 import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
@@ -10,24 +20,24 @@ import { resolveAddonRef, resolveRuntimeToolkit } from "../utils/runtimeBridge";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
-import {
-  getDefaultSynthesisService,
-  invalidateDefaultSynthesisService,
-  topicPathId,
-} from "./synthesis/service";
-import {
-  copyRuntimeFile,
-  getRuntimePersistencePaths,
-  readRuntimeTextFile,
-  runtimePathExists,
-  writeRuntimeTextFile,
-} from "./runtimePersistence";
+import { writeRuntimeTextFile } from "./runtimePersistence";
 import { readPackagedBinaryAsset } from "./packagedAssetResolver";
 import { isTransientStorageBusyError } from "./guardedSqlite";
 import {
-  buildSynthesisStoragePaths,
-  hashCanonicalJson,
-} from "./synthesis/foundation";
+  getDefaultSynthesisClient,
+  getFreshDefaultSynthesisClient,
+} from "./synthesisClient/defaultClient";
+import {
+  classifySynthesisWorkbenchGraphMutationResult,
+  createSynthesisWorkbenchGraphLayoutFailure,
+  isSynthesisWorkbenchGraphApplicationBusyError,
+  resolveSynthesisWorkbenchGraphLayoutStatus,
+  selectSynthesisWorkbenchGraphLayoutFailure,
+  toSynthesisUiSnapshotInput,
+  toSynthesisWorkbenchPaperDigestReadRequest,
+  toSynthesisWorkbenchReadState,
+  type SynthesisWorkbenchGraphLayoutFailure,
+} from "./synthesisClient/workbenchUiAdapter";
 import {
   registerSynthesisWorkbenchSidecarChangeListener,
   type SynthesisWorkbenchSidecarChangeEvent,
@@ -42,16 +52,37 @@ import {
   type SynthesisUiAction,
   type SynthesisUiActionOperation,
   type SynthesisUiLayoutAlgorithm,
+  type SynthesisUiGraphEdge,
+  type SynthesisUiGraphNode,
   type SynthesisUiSnapshotInput,
   type SynthesisUiState,
   type SynthesisUiTab,
   type SynthesisWorkbenchSurfaceName,
 } from "./synthesis/uiModel";
+import {
+  continueSynthesisCitationGraphWindow,
+  createSynthesisCitationGraphWindow,
+  failSynthesisCitationGraphWindow,
+  mergeSynthesisCitationGraphPage,
+  mergeSynthesisCitationGraphSlice,
+  retrySynthesisCitationGraphWindow,
+  type SynthesisCitationGraphWindow,
+} from "../shared/synthesisCitationGraphWindow";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
+import { delay, yieldToEventLoop } from "../utils/runtimeCompatibility";
 import {
   BUILTIN_STATUS_FACET,
   isBuiltinStatusTag,
 } from "./synthesis/builtinTagPolicy";
+import { readSynthesisSidecarTraceSnapshot } from "./synthesisSidecarTrace";
+import { openTaskManagerDialog } from "./taskManagerDialog";
+import { recoverDefaultSynthesisProductionOwner } from "./synthesisProductionOwner";
+import { isSynthesisLiteratureScoreInvalidationEvent } from "./synthesis/itemObserver";
+import {
+  getSynthesisWorkbenchSidecarStatus,
+  observeSynthesisWorkbenchSidecarStatus,
+  subscribeSynthesisWorkbenchSidecarStatus,
+} from "./synthesisSidecarRuntimeSupervisor";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -59,6 +90,7 @@ type SynthesisBridgeMessageType =
   | "synthesis:chrome"
   | "synthesis:surface"
   | "synthesis:surface-error"
+  | "synthesis:graph-page"
   | "synthesis:topic-detail"
   | "synthesis:digest";
 
@@ -115,6 +147,7 @@ type SynthesisWorkbenchRuntime = {
   frame: Element;
   frameWindow: Window | null;
   removeMessageListener?: () => void;
+  removeFrameLoadListener?: () => void;
   handshakeTimer?: ReturnType<typeof setInterval>;
   commandProgressTimer?: ReturnType<typeof setInterval>;
   commandProgressSnapshotRunning?: boolean;
@@ -127,15 +160,32 @@ type SynthesisWorkbenchRuntime = {
   loadedSurfaces: Set<SynthesisWorkbenchSurfaceName>;
   dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>;
   surfaceRequestSeq: number;
+  chromeReadRevision: number;
   latestSurfaceRequestBySurface: Partial<
     Record<SynthesisWorkbenchSurfaceName, number>
   >;
+  inFlightSurfaceRefreshes: Partial<
+    Record<SynthesisWorkbenchSurfaceName, Promise<void>>
+  >;
+  queuedServiceSurfaceRefreshes: Set<SynthesisWorkbenchSurfaceName>;
   libraryReadModelRevision: number;
   libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
   inFlightCommands: Map<string, SynthesisUiActionOperation>;
   lastCompletedCommand?: SynthesisUiActionOperation;
   lastFailedCommand?: SynthesisUiActionOperation;
   actionWarnings: SynthesisUiActionOperation[];
+  graphLayoutFailure?: SynthesisWorkbenchGraphLayoutFailure;
+  graphGeneration: number;
+  graphWindow?: SynthesisCitationGraphWindow<
+    SynthesisUiGraphNode,
+    SynthesisUiGraphEdge
+  >;
+  graphPageLoop?: Promise<void>;
+  graphLayoutRefreshes: Map<string, Promise<unknown>>;
+  cleanedUp?: boolean;
+  sidecarStatusTimer?: ReturnType<typeof setInterval>;
+  sidecarStatusObservationRunning?: boolean;
+  removeSidecarStatusListener?: () => void;
 };
 
 type SurfaceRefreshRequestMeta = {
@@ -143,6 +193,7 @@ type SurfaceRefreshRequestMeta = {
   surface: SynthesisWorkbenchSurfaceName;
   selectedTabAtRequest: SynthesisUiTab;
   refreshFromService: boolean;
+  libraryReadModelRevision: number;
   startedAt: string;
 };
 
@@ -159,6 +210,7 @@ function beginSurfaceRefreshRequest(
     surface,
     selectedTabAtRequest: runtime.state.selectedTab,
     refreshFromService,
+    libraryReadModelRevision: runtime.libraryReadModelRevision,
     startedAt: new Date().toISOString(),
   };
 }
@@ -188,6 +240,7 @@ const SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS = 100;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
 const SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS = 500;
+const SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS = 5_000;
 const SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS = 250;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
@@ -402,8 +455,6 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
     libraryId: Number.isFinite(libraryId) && libraryId > 0 ? libraryId : 1,
     storage: {
       rootState: "unbound",
-      anchorState: "missing",
-      mirrorState: "missing",
     },
     preferences: {
       sourceWatchEnabled: false,
@@ -439,15 +490,33 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
 
 function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
   const fallback = buildDefaultSnapshotInput();
-  const message =
+  const fallbackMessage =
     error instanceof Error ? error.message : String(error || "unknown error");
+  const sidecar = readSynthesisSidecarTraceSnapshot()
+    .traces.flatMap((trace) => trace.events)
+    .filter(
+      (event) => event.boundary === "supervisor" && event.outcome === "failed",
+    )
+    .sort((left, right) => right.occurredAtMs - left.occurredAtMs)[0];
+  const isSidecarFailure = Boolean(sidecar);
+  const message = isSidecarFailure
+    ? [
+        `Synthesis sidecar startup failed during ${sidecar?.phase}.`,
+        sidecar?.code ? `Code: ${sidecar.code}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : fallbackMessage;
+  const diagnosticCode = isSidecarFailure
+    ? "synthesis_sidecar_startup_failed"
+    : "synthesis_snapshot_failed";
   return {
     ...fallback,
     sync: {
       status: "check_skipped",
       diagnostics: [
         {
-          code: "synthesis_snapshot_failed",
+          code: diagnosticCode,
           severity: "error",
           message,
         },
@@ -468,7 +537,7 @@ function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
         recommendedCommands: [],
         diagnostics: [
           {
-            code: "synthesis_snapshot_failed",
+            code: diagnosticCode,
             severity: "error",
             message,
           },
@@ -488,10 +557,46 @@ function surfaceForTab(tab: SynthesisUiTab): SynthesisWorkbenchSurfaceName {
 }
 
 function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
+  const input = runtime.snapshotInput || buildDefaultSnapshotInput();
+  const graph = input.graph;
+  const graphLayoutFailure = selectSynthesisWorkbenchGraphLayoutFailure({
+    graphHash: graph?.graph_hash,
+    layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
+    failure: runtime.graphLayoutFailure,
+  });
+  const graphDiagnostics = { ...(graph?.diagnostics || {}) };
+  delete graphDiagnostics.layout_failure;
+  if (graphLayoutFailure) {
+    graphDiagnostics.layout_failure = {
+      graph_hash: graphLayoutFailure.graphHash,
+      layout_algorithm: graphLayoutFailure.layoutAlgorithm,
+      code: graphLayoutFailure.code,
+      ...(graphLayoutFailure.mutationStatus
+        ? { mutation_status: graphLayoutFailure.mutationStatus }
+        : {}),
+      message: graphLayoutFailure.message,
+      occurred_at: graphLayoutFailure.occurredAt,
+    };
+  }
   return buildSynthesisUiSnapshot(
     {
-      ...(runtime.snapshotInput || buildDefaultSnapshotInput()),
+      ...input,
+      sidecarStatus: getSynthesisWorkbenchSidecarStatus(),
       actions: actionStatusInput(runtime),
+      ...(graph
+        ? {
+            graph: {
+              ...graph,
+              layoutStatus: resolveSynthesisWorkbenchGraphLayoutStatus({
+                graphHash: graph.graph_hash,
+                layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
+                layoutStatus: graph.layoutStatus,
+                failure: runtime.graphLayoutFailure,
+              }),
+              diagnostics: graphDiagnostics,
+            },
+          }
+        : {}),
     },
     runtime.state,
   );
@@ -511,9 +616,14 @@ function mergeRuntimeSnapshotInput(
 function markSurfaceLoaded(
   runtime: SynthesisWorkbenchRuntime,
   surface: SynthesisWorkbenchSurfaceName,
+  libraryReadModelRevision = runtime.libraryReadModelRevision,
 ) {
   runtime.loadedSurfaces.add(surface);
-  runtime.dirtySurfaces.delete(surface);
+  if (runtime.libraryReadModelRevision === libraryReadModelRevision) {
+    runtime.dirtySurfaces.delete(surface);
+  } else {
+    runtime.dirtySurfaces.add(surface);
+  }
 }
 
 function markSurfaceDirty(
@@ -525,6 +635,41 @@ function markSurfaceDirty(
 
 function registerSynthesisWorkbenchRuntime(runtime: SynthesisWorkbenchRuntime) {
   synthesisWorkbenchRuntimes.add(runtime);
+  runtime.removeSidecarStatusListener =
+    subscribeSynthesisWorkbenchSidecarStatus(() => {
+      if (!runtime.cleanedUp)
+        void sendChrome(runtime, { refreshFromService: false });
+    });
+  const observe = async () => {
+    if (
+      runtime.cleanedUp ||
+      runtime.sidecarStatusObservationRunning ||
+      runtime.frameWindow?.document?.visibilityState === "hidden"
+    ) {
+      return;
+    }
+    runtime.sidecarStatusObservationRunning = true;
+    try {
+      await observeSynthesisWorkbenchSidecarStatus();
+    } finally {
+      runtime.sidecarStatusObservationRunning = false;
+    }
+  };
+  registerBackgroundRefreshTimer({
+    owner: "synthesis-sidecar-workbench-status",
+    activationCondition: "Synthesis Workbench is mounted and foreground",
+    scopeKey: runtime.tabId,
+    allowedDataSources: ["sidecar supervisor snapshot", "sidecar health"],
+    maxReadShape: "bounded lifecycle and compute-pool counters",
+    requiresForegroundSurface: true,
+    minimumIntervalMs: SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS,
+    intervalMs: SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS,
+  });
+  runtime.sidecarStatusTimer = setInterval(
+    () => void observe(),
+    SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS,
+  );
+  void observe();
 }
 
 function scheduleLibraryReadModelSurfaceRefresh(
@@ -556,7 +701,10 @@ export function notifySynthesisWorkbenchLibraryItemsChanged(args: {
   extraData?: Record<string, unknown>;
 }) {
   synthesisLibraryReadModelRevision += 1;
-  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] = ["index"];
+  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
+    isSynthesisLiteratureScoreInvalidationEvent(args)
+      ? ["index", "topics", "home"]
+      : ["index"];
   for (const runtime of synthesisWorkbenchRuntimes) {
     runtime.libraryReadModelRevision = synthesisLibraryReadModelRevision;
     invalidatedSurfaces.forEach((surface) =>
@@ -577,9 +725,12 @@ export function notifySynthesisWorkbenchLibraryItemsChanged(args: {
 function handleSynthesisWorkbenchSidecarChanged(
   args: SynthesisWorkbenchSidecarChangeEvent,
 ) {
-  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
-    args.graphMayHaveChanged === false ? ["index"] : ["index", "graph"];
+  const invalidatedSurfaces = args.invalidatedSurfaces;
   for (const runtime of synthesisWorkbenchRuntimes) {
+    if (invalidatedSurfaces.includes("graph")) {
+      runtime.graphGeneration += 1;
+      runtime.graphWindow = undefined;
+    }
     invalidatedSurfaces.forEach((surface) =>
       markSurfaceDirty(runtime, surface),
     );
@@ -689,11 +840,13 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
     );
     return;
   }
-  const topicInput =
-    await getDefaultSynthesisService().getSynthesisWorkbenchSurfaceInput(
-      "topics",
-      createDefaultSynthesisUiState(),
-    );
+  const client = await getDefaultSynthesisClient();
+  const topicInput = toSynthesisUiSnapshotInput(
+    await client.workbench.readSurface({
+      surface: "topics",
+      state: toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+    }),
+  );
   const snapshot = buildSynthesisUiSnapshot(
     mergeSynthesisUiSnapshotInput(buildDefaultSnapshotInput(), topicInput),
     createDefaultSynthesisUiState(),
@@ -848,16 +1001,11 @@ function clearCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
   runtime.commandProgressTimer = undefined;
 }
 
-function isGitSyncRuntimeCommand(
+function isSyncRuntimeCommand(
   command: SynthesisUiActionOperation["command"] | undefined,
 ) {
   return (
-    command === "syncNow" ||
     command === "syncWebDavNow" ||
-    command === "pauseGitSync" ||
-    command === "resumeGitSync" ||
-    command === "retryGitSync" ||
-    command === "resolveGitSyncConflict" ||
     command === "pauseWebDavSync" ||
     command === "resumeWebDavSync" ||
     command === "retryWebDavSync" ||
@@ -865,21 +1013,10 @@ function isGitSyncRuntimeCommand(
   );
 }
 
-function hasInFlightGitSyncCommand(runtime: SynthesisWorkbenchRuntime) {
+function hasInFlightSyncCommand(runtime: SynthesisWorkbenchRuntime) {
   return Array.from(runtime.inFlightCommands.values()).some((operation) =>
-    isGitSyncRuntimeCommand(operation.command),
+    isSyncRuntimeCommand(operation.command),
   );
-}
-
-function getFreshSynthesisServiceForGitSyncCommand() {
-  invalidateDefaultSynthesisService();
-  return getDefaultSynthesisService();
-}
-
-async function notifyWorkbenchCommandProgress(
-  runtime: SynthesisWorkbenchRuntime,
-) {
-  await refreshWorkbenchCommandProgress(runtime);
 }
 
 async function refreshWorkbenchCommandProgress(
@@ -892,24 +1029,23 @@ async function refreshWorkbenchCommandProgress(
     return;
   }
   runtime.commandProgressSnapshotRunning = true;
+  const readRevision = ++runtime.chromeReadRevision;
   try {
-    if (hasInFlightGitSyncCommand(runtime)) {
+    if (hasInFlightSyncCommand(runtime)) {
       await sendChrome(runtime, {
         refreshFromService: true,
       });
       return;
     }
     if (!runtime.snapshotInputLocked) {
-      const base = runtime.snapshotInput || buildDefaultSnapshotInput();
-      runtime.snapshotInput = {
-        ...base,
-        maintenance: {
-          ...(base.maintenance || {}),
-          backgroundJobs:
-            getDefaultSynthesisService().getSynthesisBackgroundJobRows(),
-        },
-      };
-      prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
+      const client = await getDefaultSynthesisClient();
+      const input = toSynthesisUiSnapshotInput(
+        await client.workbench.readProgress(),
+      );
+      if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+        return;
+      }
+      mergeRuntimeSnapshotInput(runtime, input);
     }
     await sendChrome(runtime, {
       refreshFromService: false,
@@ -940,7 +1076,7 @@ function runWorkbenchCommandOnce(
   }
   runtime.inFlightCommands.set(operation.key, operation);
   void sendChrome(runtime, {
-    refreshFromService: isGitSyncRuntimeCommand(command),
+    refreshFromService: isSyncRuntimeCommand(command),
   });
   ensureCommandProgressPolling(runtime);
   const start = () =>
@@ -992,15 +1128,88 @@ function runWorkbenchCommandOnce(
   void start();
 }
 
-function failOnDiagnostic<T>(result: T): T {
-  const diagnostic =
-    result &&
-    typeof result === "object" &&
-    "diagnostic" in result &&
-    (result as { diagnostic?: unknown }).diagnostic;
+async function observePublicMaintenanceOperation(
+  client: Pick<SynthesisClient, "maintenance">,
+  accepted: SynthesisPublicMaintenanceOperation,
+  options: {
+    deadlineMs?: number;
+    isDisposed?: () => boolean;
+  } = {},
+): Promise<SynthesisJsonObject> {
+  let operation = accepted;
+  const deadline = Date.now() + (options.deadlineMs ?? 31 * 60_000);
+  while (operation.status === "pending" || operation.status === "running") {
+    if (options.isDisposed?.()) {
+      throw new Error(
+        `Stopped observing Synthesis maintenance operation ${operation.operation_id}.`,
+      );
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Synthesis maintenance operation ${operation.operation_id} is still running after the observer deadline.`,
+      );
+    }
+    await delay(250);
+    operation = await client.maintenance.getOperation({
+      operation_id: operation.operation_id,
+    });
+  }
+  if (operation.status === "completed") {
+    return operation.receipt && typeof operation.receipt === "object"
+      ? (operation.receipt as SynthesisJsonObject)
+      : {};
+  }
+  if (operation.receipt && typeof operation.receipt === "object") {
+    failOnDiagnostic(operation.receipt, operation.operation_id);
+    failOnSyncFailureState(operation.receipt);
+  }
+  throw new Error(
+    `Synthesis maintenance operation ${operation.operation_id} ended with ${operation.status}.`,
+  );
+}
+
+function failOnDiagnostic<T>(result: T, operationId?: string): T {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+  const row = result as Record<string, unknown>;
+  const diagnostic = "diagnostic" in result && row.diagnostic;
   if (diagnostic && typeof diagnostic === "object") {
-    const row = diagnostic as Record<string, unknown>;
-    throw new Error(String(row.message || row.code || "Action failed."));
+    const diagnosticRow = diagnostic as Record<string, unknown>;
+    throw new Error(
+      String(diagnosticRow.message || diagnosticRow.code || "Action failed."),
+    );
+  }
+  const maintenanceFailure =
+    row.schema === "synthesis.maintenance_receipt.v1" &&
+    row.outcome === "failed";
+  if (
+    ("ok" in result && row.ok === false) ||
+    maintenanceFailure ||
+    operationId
+  ) {
+    const diagnostics = [
+      ...("diagnostics" in result && Array.isArray(row.diagnostics)
+        ? row.diagnostics
+        : []),
+      ...("warnings" in result && Array.isArray(row.warnings)
+        ? row.warnings
+        : []),
+    ];
+    const firstDiagnostic = diagnostics.find(
+      (entry) =>
+        typeof entry === "string" ||
+        (entry !== null && typeof entry === "object"),
+    );
+    const message =
+      firstDiagnostic && typeof firstDiagnostic === "object"
+        ? (firstDiagnostic as Record<string, unknown>).message ||
+          (firstDiagnostic as Record<string, unknown>).code
+        : firstDiagnostic;
+    const code = String(
+      message || row.status || row.queue_state || "Action failed.",
+    );
+    throw new Error(operationId ? `${code} [${operationId}]` : code);
   }
   return result;
 }
@@ -1067,14 +1276,7 @@ async function sendSnapshot(
   if (!runtime.snapshotInput) {
     runtime.snapshotInput = buildDefaultSnapshotInput();
   }
-  const snapshot = buildSynthesisUiSnapshot(
-    {
-      ...(runtime.snapshotInput || buildDefaultSnapshotInput()),
-      actions: actionStatusInput(runtime),
-    },
-    runtime.state,
-  );
-  postWorkbenchMessage(runtime, messageType, snapshot);
+  postWorkbenchMessage(runtime, messageType, snapshotForRuntime(runtime));
 }
 
 async function sendChrome(
@@ -1084,11 +1286,22 @@ async function sendChrome(
   if (!runtime?.frameWindow) {
     return;
   }
+  const readRevision = ++runtime.chromeReadRevision;
   if (options.refreshFromService !== false && !runtime.snapshotInputLocked) {
-    const input = await getDefaultSynthesisService()
-      .getSynthesisWorkbenchChromeInput(runtime.state)
+    const client = await getDefaultSynthesisClient();
+    const input = await client.workbench
+      .readChrome({
+        state: toSynthesisWorkbenchReadState(runtime.state),
+      })
+      .then(toSynthesisUiSnapshotInput)
       .catch((error) => buildSnapshotErrorInput(error));
+    if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+      return;
+    }
     mergeRuntimeSnapshotInput(runtime, input);
+  }
+  if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+    return;
   }
   postWorkbenchMessage(
     runtime,
@@ -1097,7 +1310,273 @@ async function sendChrome(
   );
 }
 
-async function sendSurface(
+function graphPageNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback;
+}
+
+function mergeGraphPageInput(
+  runtime: SynthesisWorkbenchRuntime,
+  input: SynthesisUiSnapshotInput,
+  generation: number,
+  kind: "page" | "slice" = "page",
+) {
+  const graph = input.graph;
+  const page = graph?.page;
+  if (!graph || !page || generation !== runtime.graphGeneration) {
+    return false;
+  }
+  const graphHash = String(graph.graph_hash || "").trim();
+  const querySignature = String(page.querySignature || "").trim();
+  if (!graphHash || !querySignature || !runtime.graphWindow) {
+    return false;
+  }
+  const hoverNodeIds = new Set(
+    (graph.hoverOnlyNodes || []).map((node) => node.id),
+  );
+  const hoverEdgeIds = new Set(
+    (graph.hoverOnlyEdges || []).map((edge) => edge.id),
+  );
+  const patch = {
+    generation,
+    graphHash,
+    querySignature,
+    nodes: (graph.nodes || []).filter(
+      (node) => node.visibility !== "hover_only" && !hoverNodeIds.has(node.id),
+    ),
+    edges: (graph.edges || []).filter(
+      (edge) => edge.visibility !== "hover_only" && !hoverEdgeIds.has(edge.id),
+    ),
+    hoverOnlyNodes: graph.hoverOnlyNodes || [],
+    hoverOnlyEdges: graph.hoverOnlyEdges || [],
+    nextCursor: String(page.nextCursor || "").trim() || undefined,
+    hasMore: Boolean(page.hasMore),
+    totalNodes: graphPageNumber(page.totalNodes),
+    totalEdges: graphPageNumber(page.totalEdges),
+    totalHoverNodes: graphPageNumber(page.totalHoverNodes),
+    totalHoverEdges: graphPageNumber(page.totalHoverEdges),
+  };
+  const merged =
+    kind === "slice"
+      ? mergeSynthesisCitationGraphSlice(runtime.graphWindow, patch)
+      : mergeSynthesisCitationGraphPage(runtime.graphWindow, patch);
+  if (!merged.accepted) {
+    return false;
+  }
+  runtime.graphWindow = merged.window;
+  graph.nodes = [...merged.window.nodes, ...merged.window.hoverOnlyNodes];
+  graph.edges = [...merged.window.edges, ...merged.window.hoverOnlyEdges];
+  graph.hoverOnlyNodes = [...merged.window.hoverOnlyNodes];
+  graph.hoverOnlyEdges = [...merged.window.hoverOnlyEdges];
+  graph.page = {
+    ...page,
+    nextCursor: merged.window.nextCursor || "",
+    hasMore: merged.window.hasMore,
+    totalNodes: merged.window.totalNodes,
+    totalEdges: merged.window.totalEdges,
+    totalHoverNodes: merged.window.totalHoverNodes,
+    totalHoverEdges: merged.window.totalHoverEdges,
+    returnedNodes: merged.addedNodes,
+    returnedEdges: merged.addedEdges,
+    querySignature: merged.window.querySignature || "",
+    windowStatus: merged.window.status,
+  };
+  return true;
+}
+
+function graphWindowError(error: unknown) {
+  const details =
+    error && typeof error === "object" && "details" in error
+      ? (error as { details?: Record<string, unknown> }).details
+      : undefined;
+  return {
+    code: String(details?.sidecarCode || "surface_refresh_failed"),
+    reason: String(
+      details?.sidecarReason ||
+        (error instanceof Error ? error.message : error || ""),
+    ).slice(0, 160),
+  };
+}
+
+function publishGraphPage(
+  runtime: SynthesisWorkbenchRuntime,
+  request: SurfaceRefreshRequestMeta,
+) {
+  if (!runtime.frameWindow || !runtime.snapshotInput) return;
+  postWorkbenchMessage(runtime, "synthesis:graph-page", {
+    surface: "graph",
+    request,
+    requestId: request.requestId,
+    generation: runtime.graphGeneration,
+    snapshot: snapshotForRuntime(runtime),
+  });
+}
+
+async function loadGraphContinuationPages(
+  runtime: SynthesisWorkbenchRuntime,
+  request: SurfaceRefreshRequestMeta,
+  generation: number,
+) {
+  if (runtime.graphPageLoop) return runtime.graphPageLoop;
+  const loop = (async () => {
+    while (
+      !runtime.cleanedUp &&
+      generation === runtime.graphGeneration &&
+      isLatestSurfaceRefreshRequest(runtime, request) &&
+      isActiveSurface(runtime, "graph") &&
+      runtime.graphWindow?.status === "loading" &&
+      runtime.graphWindow.hasMore
+    ) {
+      const cursor = runtime.graphWindow.nextCursor;
+      const graphHash = runtime.graphWindow.graphHash;
+      if (!cursor || !graphHash) break;
+      try {
+        const client = await getDefaultSynthesisClient();
+        const input = toSynthesisUiSnapshotInput(
+          await client.workbench.readSurface({
+            surface: "graph",
+            state: toSynthesisWorkbenchReadState(runtime.state, {
+              graphWindowCursor: cursor,
+              expectedGraphHash: graphHash,
+            }),
+          }),
+        );
+        if (
+          !isLatestSurfaceRefreshRequest(runtime, request) ||
+          !isActiveSurface(runtime, "graph") ||
+          generation !== runtime.graphGeneration ||
+          !mergeGraphPageInput(runtime, input, generation)
+        ) {
+          break;
+        }
+        mergeRuntimeSnapshotInput(runtime, input);
+        publishGraphPage(runtime, request);
+        await yieldToEventLoop();
+      } catch (error) {
+        if (generation !== runtime.graphGeneration || !runtime.graphWindow) {
+          break;
+        }
+        const failure = graphWindowError(error);
+        runtime.graphWindow = failSynthesisCitationGraphWindow(
+          runtime.graphWindow,
+          failure.code,
+          failure.reason,
+        );
+        if (runtime.snapshotInput?.graph?.page) {
+          runtime.snapshotInput.graph.page = {
+            ...runtime.snapshotInput.graph.page,
+            windowStatus: "failed",
+            error: failure,
+          };
+        }
+        publishGraphPage(runtime, request);
+        break;
+      }
+    }
+  })();
+  runtime.graphPageLoop = loop;
+  try {
+    await loop;
+  } finally {
+    if (runtime.graphPageLoop === loop) runtime.graphPageLoop = undefined;
+  }
+}
+
+function currentGraphSurfaceRequest(
+  runtime: SynthesisWorkbenchRuntime,
+): SurfaceRefreshRequestMeta | undefined {
+  return currentSurfaceRequest(runtime, "graph");
+}
+
+async function expandGraphNeighborhood(
+  runtime: SynthesisWorkbenchRuntime,
+  payload: Record<string, unknown>,
+) {
+  const window = runtime.graphWindow;
+  const request = currentGraphSurfaceRequest(runtime);
+  const nodeId = String(payload.nodeId || "").trim();
+  const direction = String(payload.direction || "both");
+  if (
+    !window?.graphHash ||
+    !window.querySignature ||
+    !request ||
+    !nodeId ||
+    !["incoming", "outgoing", "both"].includes(direction)
+  ) {
+    return;
+  }
+  const generation = runtime.graphGeneration;
+  const client = await getDefaultSynthesisClient();
+  const result = await client.graph.getSlice({
+    startNodeId: nodeId,
+    depth: 1,
+    direction: direction as "incoming" | "outgoing" | "both",
+    maxNodes: 100,
+    maxEdges: 200,
+    expectedGraphHash: window.graphHash,
+    querySignature: window.querySignature,
+    layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
+    filters: {
+      ...(runtime.state.graph.topicId === "all"
+        ? {}
+        : { topicId: runtime.state.graph.topicId }),
+      nodeKinds: runtime.state.graph.nodeKinds,
+      roles:
+        runtime.state.graph.role === "all" ? [] : [runtime.state.graph.role],
+      includeLowSignal: runtime.state.graph.showLowSignalReferences,
+      search: runtime.state.graph.search,
+    },
+  });
+  if (
+    generation !== runtime.graphGeneration ||
+    !isLatestSurfaceRefreshRequest(runtime, request) ||
+    !isActiveSurface(runtime, "graph")
+  ) {
+    return;
+  }
+  const input: SynthesisUiSnapshotInput = {
+    libraryId: runtime.snapshotInput?.libraryId || 0,
+    graph: {
+      graph_hash: result.graph_hash,
+      nodes: result.nodes.map((node) => ({
+        id: node.node_id,
+        label: node.title || node.node_id,
+        kind: node.kind,
+        year: node.year,
+        authors: node.authors,
+        low_signal: node.low_signal,
+        external_degree: node.external_degree,
+        visibility: node.visibility,
+        display_tier: node.display_tier,
+      })),
+      edges: result.edges.map((edge) => ({
+        id: edge.edge_id,
+        source: edge.source,
+        target: edge.target,
+        primary_role: edge.primary_role,
+        mention_count: edge.mention_count,
+        visibility: edge.visibility,
+      })),
+      page: {
+        querySignature: result.querySignature || window.querySignature,
+        nextCursor: window.nextCursor || "",
+        hasMore: window.hasMore,
+        totalNodes: window.totalNodes,
+        totalEdges: window.totalEdges,
+        totalHoverNodes: window.totalHoverNodes,
+        totalHoverEdges: window.totalHoverEdges,
+        windowStatus: window.status,
+        roleOptions: runtime.snapshotInput?.graph?.page?.roleOptions || [],
+      },
+    },
+  };
+  if (mergeGraphPageInput(runtime, input, generation, "slice")) {
+    mergeRuntimeSnapshotInput(runtime, input);
+    publishGraphPage(runtime, request);
+  }
+}
+
+async function performSurfaceSend(
   runtime: SynthesisWorkbenchRuntime,
   surface: SynthesisWorkbenchSurfaceName,
   options: { refreshFromService?: boolean } = {},
@@ -1106,23 +1585,49 @@ async function sendSurface(
     return;
   }
   const refreshFromService = options.refreshFromService !== false;
-  const request = beginSurfaceRefreshRequest(
-    runtime,
-    surface,
-    refreshFromService,
-  );
+  const presentationOnly = !refreshFromService;
+  const request =
+    (presentationOnly ? currentSurfaceRequest(runtime, surface) : undefined) ||
+    beginSurfaceRefreshRequest(runtime, surface, refreshFromService);
+  const graphGeneration =
+    surface === "graph" && refreshFromService
+      ? ++runtime.graphGeneration
+      : runtime.graphGeneration;
+  if (surface === "graph" && refreshFromService) {
+    // Detach the superseded loop immediately. Its generation guard will make
+    // any in-flight result inert while the replacement query starts loading.
+    runtime.graphPageLoop = undefined;
+    runtime.graphWindow = createSynthesisCitationGraphWindow({
+      generation: graphGeneration,
+    });
+  }
   try {
     if (refreshFromService && !runtime.snapshotInputLocked) {
-      const input =
-        await getDefaultSynthesisService().getSynthesisWorkbenchSurfaceInput(
+      const client = await getDefaultSynthesisClient();
+      const input = toSynthesisUiSnapshotInput(
+        await client.workbench.readSurface({
           surface,
-          runtime.state,
-        );
+          state: toSynthesisWorkbenchReadState(runtime.state),
+        }),
+      );
       if (!isLatestSurfaceRefreshRequest(runtime, request)) {
         return;
       }
+      if (
+        surface === "graph" &&
+        String(input.graph?.graph_hash || "").trim() &&
+        !mergeGraphPageInput(runtime, input, graphGeneration)
+      ) {
+        return;
+      }
       mergeRuntimeSnapshotInput(runtime, input);
-      markSurfaceLoaded(runtime, surface);
+      markSurfaceLoaded(runtime, surface, request.libraryReadModelRevision);
+      if (
+        runtime.libraryReadModelRevision !== request.libraryReadModelRevision &&
+        isActiveSurface(runtime, surface)
+      ) {
+        runtime.queuedServiceSurfaceRefreshes.add(surface);
+      }
     }
     if (
       !isLatestSurfaceRefreshRequest(runtime, request) ||
@@ -1136,6 +1641,13 @@ async function sendSurface(
       requestId: request.requestId,
       snapshot: snapshotForRuntime(runtime),
     });
+    if (
+      surface === "graph" &&
+      refreshFromService &&
+      runtime.graphWindow?.status === "loading"
+    ) {
+      void loadGraphContinuationPages(runtime, request, graphGeneration);
+    }
   } catch (error) {
     if (
       !isLatestSurfaceRefreshRequest(runtime, request) ||
@@ -1153,6 +1665,62 @@ async function sendSurface(
       message: error instanceof Error ? error.message : String(error || ""),
     });
   }
+}
+
+async function sendSurface(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+  options: { refreshFromService?: boolean } = {},
+) {
+  const refreshFromService = options.refreshFromService !== false;
+  if (!refreshFromService) {
+    await performSurfaceSend(runtime, surface, { refreshFromService: false });
+    return;
+  }
+  const inFlight = runtime.inFlightSurfaceRefreshes[surface];
+  if (inFlight) {
+    if (refreshFromService) {
+      runtime.queuedServiceSurfaceRefreshes.add(surface);
+    }
+    return inFlight;
+  }
+
+  const run = (async () => {
+    let nextRefreshFromService: boolean = refreshFromService;
+    do {
+      runtime.queuedServiceSurfaceRefreshes.delete(surface);
+      await performSurfaceSend(runtime, surface, {
+        refreshFromService: nextRefreshFromService,
+      });
+      nextRefreshFromService =
+        runtime.queuedServiceSurfaceRefreshes.has(surface) &&
+        isActiveSurface(runtime, surface);
+    } while (nextRefreshFromService);
+  })();
+  runtime.inFlightSurfaceRefreshes[surface] = run;
+  try {
+    await run;
+  } finally {
+    if (runtime.inFlightSurfaceRefreshes[surface] === run) {
+      delete runtime.inFlightSurfaceRefreshes[surface];
+    }
+  }
+}
+
+function currentSurfaceRequest(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+): SurfaceRefreshRequestMeta | undefined {
+  const requestId = runtime.latestSurfaceRequestBySurface[surface];
+  if (!requestId) return undefined;
+  return {
+    requestId,
+    surface,
+    selectedTabAtRequest: runtime.state.selectedTab,
+    refreshFromService: true,
+    libraryReadModelRevision: runtime.libraryReadModelRevision,
+    startedAt: new Date().toISOString(),
+  };
 }
 
 async function sendActiveSurface(
@@ -1186,16 +1754,20 @@ async function sendTopicDetail(
   if (!runtime?.frameWindow) {
     return;
   }
-  const service = getDefaultSynthesisService();
-  const detail = await service.readTopicDetail({
+  const client = await getDefaultSynthesisClient();
+  const detail = await client.workbench.readTopicDetail({
     topicId,
   });
   if (
     !runtime.snapshotInputLocked &&
     surfaceNeedsServiceRefresh(runtime, "concepts")
   ) {
-    const conceptInput = await service
-      .getSynthesisWorkbenchSurfaceInput("concepts", runtime.state)
+    const conceptInput = await client.workbench
+      .readSurface({
+        surface: "concepts",
+        state: toSynthesisWorkbenchReadState(runtime.state),
+      })
+      .then(toSynthesisUiSnapshotInput)
       .catch(() => undefined);
     if (conceptInput) {
       mergeRuntimeSnapshotInput(runtime, conceptInput);
@@ -1224,8 +1796,10 @@ async function sendTopicDigest(
   if (!runtime?.frameWindow) {
     return;
   }
-  const digest =
-    await getDefaultSynthesisService().resolveTopicPaperDigest(args);
+  const client = await getDefaultSynthesisClient();
+  const digest = await client.workbench.readPaperDigest(
+    toSynthesisWorkbenchPaperDigestReadRequest(args),
+  );
   postWorkbenchMessage(runtime, "synthesis:digest", digest);
 }
 
@@ -1482,6 +2056,8 @@ async function resolveTopicExportDigests(
   topicId: string,
 ) {
   const digestsByKey: Record<string, Record<string, unknown>> = {};
+  let clientPromise: ReturnType<typeof getDefaultSynthesisClient> | undefined;
+  const resolveClient = () => (clientPromise ||= getDefaultSynthesisClient());
   const sourcePapers = Array.isArray(detail.source_papers)
     ? detail.source_papers
     : [];
@@ -1495,13 +2071,16 @@ async function resolveTopicExportDigests(
       }
       let digest: Record<string, unknown>;
       try {
+        const client = await resolveClient();
         digest = cleanExportRecord(
-          await getDefaultSynthesisService().resolveTopicPaperDigest({
-            topicId,
-            paper_ref: paperRef,
-            digest_ref: digestRef,
-            include_representative_image: true,
-          }),
+          await client.workbench.readPaperDigest(
+            toSynthesisWorkbenchPaperDigestReadRequest({
+              topicId,
+              paper_ref: paperRef,
+              digest_ref: digestRef,
+              include_representative_image: true,
+            }),
+          ),
         );
       } catch (error) {
         digest = {
@@ -1604,12 +2183,127 @@ function pruneGraphToTopicSubgraph(
   };
 }
 
+const SYNTHESIS_GRAPH_EXPORT_NODE_LIMIT = 50_000;
+const SYNTHESIS_GRAPH_EXPORT_EDGE_LIMIT = 100_000;
+
+async function readCompleteGraphSurfaceForExport(
+  client: Awaited<ReturnType<typeof getDefaultSynthesisClient>>,
+  state: SynthesisUiState,
+): Promise<SynthesisUiSnapshotInput> {
+  const generation = 1;
+  let window = createSynthesisCitationGraphWindow<
+    SynthesisUiGraphNode,
+    SynthesisUiGraphEdge
+  >({
+    generation,
+    nodeSoftLimit: SYNTHESIS_GRAPH_EXPORT_NODE_LIMIT,
+    edgeSoftLimit: SYNTHESIS_GRAPH_EXPORT_EDGE_LIMIT,
+  });
+  let cursor: string | undefined;
+  let expectedGraphHash: string | undefined;
+  let accumulated: SynthesisUiSnapshotInput | undefined;
+
+  do {
+    const pageInput = toSynthesisUiSnapshotInput(
+      await client.workbench.readSurface({
+        surface: "graph",
+        state: toSynthesisWorkbenchReadState(state, {
+          graphWindowCursor: cursor,
+          expectedGraphHash,
+        }),
+      }),
+    );
+    const graph = pageInput.graph;
+    const page = graph?.page as
+      | (SynthesisCitationGraphPageMetadata & Record<string, unknown>)
+      | undefined;
+    const graphHash = String(graph?.graph_hash || "").trim();
+    const querySignature = String(page?.querySignature || "").trim();
+    if (!graph || !page || !graphHash || !querySignature) {
+      throw new SynthesisClientError(
+        "internal",
+        "Citation graph export received an incomplete page",
+        { reason: "graph_export_page_invalid" },
+      );
+    }
+    const hoverNodeIds = new Set(
+      (graph.hoverOnlyNodes || []).map((node) => node.id),
+    );
+    const hoverEdgeIds = new Set(
+      (graph.hoverOnlyEdges || []).map((edge) => edge.id),
+    );
+    const merged = mergeSynthesisCitationGraphPage(window, {
+      generation,
+      graphHash,
+      querySignature,
+      nodes: (graph.nodes || []).filter(
+        (node) =>
+          node.visibility !== "hover_only" && !hoverNodeIds.has(node.id),
+      ),
+      edges: (graph.edges || []).filter(
+        (edge) =>
+          edge.visibility !== "hover_only" && !hoverEdgeIds.has(edge.id),
+      ),
+      hoverOnlyNodes: graph.hoverOnlyNodes || [],
+      hoverOnlyEdges: graph.hoverOnlyEdges || [],
+      nextCursor: String(page.nextCursor || "").trim() || undefined,
+      hasMore: page.hasMore,
+      totalNodes: graphPageNumber(page.totalNodes),
+      totalEdges: graphPageNumber(page.totalEdges),
+      totalHoverNodes: graphPageNumber(page.totalHoverNodes),
+      totalHoverEdges: graphPageNumber(page.totalHoverEdges),
+    });
+    if (!merged.accepted) {
+      throw new SynthesisClientError(
+        "conflict",
+        "Citation graph changed while the export was being assembled",
+        { reason: merged.reason || "basis_mismatch" },
+      );
+    }
+    window = merged.window;
+    if (window.status === "paused") {
+      throw new SynthesisClientError(
+        "conflict",
+        "Citation graph export exceeded its safety limit",
+        { reason: "graph_export_limit_exceeded" },
+      );
+    }
+    accumulated = {
+      ...pageInput,
+      graph: {
+        ...graph,
+        nodes: [...window.nodes, ...window.hoverOnlyNodes],
+        edges: [...window.edges, ...window.hoverOnlyEdges],
+        hoverOnlyNodes: [...window.hoverOnlyNodes],
+        hoverOnlyEdges: [...window.hoverOnlyEdges],
+        page: {
+          ...page,
+          nextCursor: window.nextCursor || "",
+          hasMore: window.hasMore,
+          windowStatus: window.status,
+        },
+      },
+    };
+    cursor = window.nextCursor;
+    expectedGraphHash = window.graphHash;
+  } while (window.hasMore && cursor);
+
+  if (!accumulated || window.hasMore) {
+    throw new SynthesisClientError(
+      "internal",
+      "Citation graph export could not reach a complete page window",
+      { reason: "graph_export_incomplete" },
+    );
+  }
+  return accumulated;
+}
+
 async function buildTopicDetailHtmlExport(
   runtime: SynthesisWorkbenchRuntime,
   topicId: string,
 ) {
-  const service = getDefaultSynthesisService();
-  const detail = (await service.readTopicDetail({
+  const client = await getDefaultSynthesisClient();
+  const detail = (await client.workbench.readTopicDetail({
     topicId,
   })) as SynthesisTopicDetailDto;
   const readerState = applySynthesisUiAction(runtime.state, {
@@ -1629,14 +2323,16 @@ async function buildTopicDetailHtmlExport(
     }).state,
   }));
   const [conceptInput, graphInputs, digestsByKey, assets] = await Promise.all([
-    service.getSynthesisWorkbenchSurfaceInput("concepts", graphState),
+    client.workbench
+      .readSurface({
+        surface: "concepts",
+        state: toSynthesisWorkbenchReadState(graphState),
+      })
+      .then(toSynthesisUiSnapshotInput),
     Promise.all(
       graphLayoutStates.map(async (entry) => ({
         ...entry,
-        input: await service.getSynthesisWorkbenchSurfaceInput(
-          "graph",
-          entry.state,
-        ),
+        input: await readCompleteGraphSurfaceForExport(client, entry.state),
       })),
     ),
     resolveTopicExportDigests(detail, topicId),
@@ -1713,106 +2409,6 @@ async function buildTopicDetailHtmlExport(
   ].join("\n");
 }
 
-const TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID =
-  "synthesis.topic_detail_html_export_metadata";
-const TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 7;
-
-type TopicDetailHtmlExportMetadata = {
-  schema_id?: string;
-  schema_version?: number;
-  renderer_version?: number;
-  topic_id?: string;
-  topic_signature?: string;
-  html_hash?: string;
-  generated_at?: string;
-};
-
-function topicDetailHtmlExportStoragePaths(topicId: string) {
-  const root = getRuntimePersistencePaths().root;
-  return buildSynthesisStoragePaths(root, topicPathId(topicId));
-}
-
-async function topicDetailHtmlExportSignature(
-  paths: ReturnType<typeof buildSynthesisStoragePaths>,
-) {
-  const [manifest, metadata, artifact] = await Promise.all([
-    readRuntimeTextFile(paths.currentManifest),
-    readRuntimeTextFile(paths.currentMetadata),
-    readRuntimeTextFile(paths.currentArtifact),
-  ]);
-  return hashCanonicalJson({
-    current_manifest: manifest,
-    current_metadata: metadata,
-    current_artifact: artifact,
-  });
-}
-
-async function readTopicDetailHtmlExportMetadata(path: string) {
-  const text = await readRuntimeTextFile(path);
-  if (!text.trim()) {
-    return null;
-  }
-  try {
-    return JSON.parse(text) as TopicDetailHtmlExportMetadata;
-  } catch {
-    return null;
-  }
-}
-
-async function isTopicDetailHtmlExportCurrent(args: {
-  paths: ReturnType<typeof buildSynthesisStoragePaths>;
-  topicId: string;
-  topicSignature: string;
-}) {
-  if (!(await runtimePathExists(args.paths.currentTopicDetailHtml))) {
-    return false;
-  }
-  const metadata = await readTopicDetailHtmlExportMetadata(
-    args.paths.currentTopicDetailHtmlMetadata,
-  );
-  const html = await readRuntimeTextFile(args.paths.currentTopicDetailHtml);
-  return (
-    metadata?.schema_id === TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID &&
-    metadata.renderer_version === TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION &&
-    metadata.topic_id === args.topicId &&
-    metadata.topic_signature === args.topicSignature &&
-    metadata.html_hash === hashCanonicalJson(html)
-  );
-}
-
-async function ensureCachedTopicDetailHtmlExport(
-  runtime: SynthesisWorkbenchRuntime,
-  topicId: string,
-) {
-  const paths = topicDetailHtmlExportStoragePaths(topicId);
-  const topicSignature = await topicDetailHtmlExportSignature(paths);
-  if (
-    await isTopicDetailHtmlExportCurrent({
-      paths,
-      topicId,
-      topicSignature,
-    })
-  ) {
-    return paths.currentTopicDetailHtml;
-  }
-  const html = await buildTopicDetailHtmlExport(runtime, topicId);
-  await writeRuntimeTextFile(paths.currentTopicDetailHtml, html);
-  const metadata: TopicDetailHtmlExportMetadata = {
-    schema_id: TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID,
-    schema_version: 1,
-    renderer_version: TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION,
-    topic_id: topicId,
-    topic_signature: topicSignature,
-    html_hash: hashCanonicalJson(html),
-    generated_at: new Date().toISOString(),
-  };
-  await writeRuntimeTextFile(
-    paths.currentTopicDetailHtmlMetadata,
-    `${JSON.stringify(metadata, null, 2)}\n`,
-  );
-  return paths.currentTopicDetailHtml;
-}
-
 async function exportTopicDetailHtml(
   runtime: SynthesisWorkbenchRuntime,
   topicId: string,
@@ -1824,8 +2420,10 @@ async function exportTopicDetailHtml(
   if (!outputPath) {
     return;
   }
-  const sourcePath = await ensureCachedTopicDetailHtmlExport(runtime, topicId);
-  await copyRuntimeFile({ sourcePath, targetPath: outputPath });
+  await writeRuntimeTextFile(
+    outputPath,
+    await buildTopicDetailHtmlExport(runtime, topicId),
+  );
 }
 
 async function exportTopicSynthesisReport(
@@ -1835,7 +2433,8 @@ async function exportTopicSynthesisReport(
   if (!topicId) {
     throw new Error("exportTopicSynthesisReport requires topicId");
   }
-  const report = await getDefaultSynthesisService().getTopicReport({
+  const client = await getDefaultSynthesisClient();
+  const report = await client.topics.getTopicReport({
     topicId,
   });
   const markdown = cleanReportExportString(
@@ -1916,6 +2515,111 @@ async function openZoteroItemFromCitationGraphNode(
   await selectZoteroItem(runtime, { libraryId, itemKey });
 }
 
+function currentGraphLayoutBasis(
+  runtime: SynthesisWorkbenchRuntime,
+  layoutAlgorithm: SynthesisUiLayoutAlgorithm,
+):
+  | Pick<SynthesisWorkbenchGraphLayoutFailure, "graphHash" | "layoutAlgorithm">
+  | undefined {
+  const graphHash = String(
+    runtime.snapshotInput?.graph?.graph_hash || "",
+  ).trim();
+  return graphHash ? { graphHash, layoutAlgorithm } : undefined;
+}
+
+async function recomputeWorkbenchCitationGraphLayout(
+  runtime: SynthesisWorkbenchRuntime,
+  layoutAlgorithm: SynthesisUiLayoutAlgorithm,
+  force = false,
+) {
+  const basis = currentGraphLayoutBasis(runtime, layoutAlgorithm);
+  const key = `${basis?.graphHash || "missing"}:${layoutAlgorithm}`;
+  const existing = runtime.graphLayoutRefreshes.get(key);
+  if (existing) return existing;
+  const refresh = (async () => {
+    const otherRefresh = Array.from(
+      runtime.graphLayoutRefreshes.entries(),
+    ).find(([otherKey]) => otherKey !== key)?.[1];
+    if (otherRefresh) await otherRefresh.catch(() => undefined);
+    try {
+      const client = await getDefaultSynthesisClient();
+      const result = classifySynthesisWorkbenchGraphMutationResult(
+        (await observePublicMaintenanceOperation(
+          client,
+          await client.graph.recomputeCitationGraphLayout({
+            algorithm: layoutAlgorithm,
+            ...(force ? { force: true } : {}),
+          }),
+          {
+            deadlineMs: 130_000,
+            isDisposed: () => Boolean(runtime.cleanedUp),
+          },
+        )) as SynthesisGraphCommandResult,
+      );
+      runtime.graphLayoutFailure = undefined;
+      return result;
+    } catch (error) {
+      if (isSynthesisWorkbenchGraphApplicationBusyError(error)) {
+        runtime.graphLayoutFailure = undefined;
+        await observeCurrentCitationGraphLayout(runtime, layoutAlgorithm);
+        return { status: "busy_observed" };
+      }
+      if (basis) {
+        runtime.graphLayoutFailure = createSynthesisWorkbenchGraphLayoutFailure(
+          {
+            ...basis,
+            error,
+          },
+        );
+        await sendSurface(runtime, "graph", {
+          refreshFromService: false,
+        }).catch(() => undefined);
+      }
+      throw error;
+    }
+  })();
+  runtime.graphLayoutRefreshes.set(key, refresh);
+  try {
+    return await refresh;
+  } finally {
+    if (runtime.graphLayoutRefreshes.get(key) === refresh) {
+      runtime.graphLayoutRefreshes.delete(key);
+    }
+  }
+}
+
+async function observeCurrentCitationGraphLayout(
+  runtime: SynthesisWorkbenchRuntime,
+  layoutAlgorithm: SynthesisUiLayoutAlgorithm,
+) {
+  const deadline = Date.now() + 130_000;
+  const expectedGraphHash = String(
+    runtime.snapshotInput?.graph?.graph_hash || "",
+  ).trim();
+  const client = await getDefaultSynthesisClient();
+  while (!runtime.cleanedUp && Date.now() < deadline) {
+    const layout = await client.graph.getPersistedLayout({
+      scope: "full",
+      algorithm: layoutAlgorithm,
+      maxNodes: 1,
+      maxEdges: 1,
+      allowTruncated: true,
+    });
+    if (
+      expectedGraphHash &&
+      layout.graph_hash &&
+      layout.graph_hash !== expectedGraphHash
+    ) {
+      return undefined;
+    }
+    if (layout.layout_status === "ready" || layout.layout_status === "failed") {
+      return layout.layout_status;
+    }
+    await delay(250);
+  }
+  return undefined;
+}
+
 function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
   const hostWindow = resolveWorkflowHostWindow(win);
   if (!hostWindow) {
@@ -1985,6 +2689,54 @@ function handleAction(
   if (!runtime) {
     return;
   }
+  if (
+    envelope.action === "continueGraphWindow" ||
+    envelope.action === "retryGraphWindow"
+  ) {
+    const current = runtime.graphWindow;
+    const requestId = runtime.latestSurfaceRequestBySurface.graph;
+    if (!current || !requestId || !isActiveSurface(runtime, "graph")) return;
+    runtime.graphWindow =
+      envelope.action === "continueGraphWindow"
+        ? continueSynthesisCitationGraphWindow(current)
+        : retrySynthesisCitationGraphWindow(current);
+    if (runtime.snapshotInput?.graph?.page) {
+      runtime.snapshotInput.graph.page = {
+        ...runtime.snapshotInput.graph.page,
+        windowStatus: runtime.graphWindow.status,
+      };
+    }
+    const request: SurfaceRefreshRequestMeta = {
+      requestId,
+      surface: "graph",
+      selectedTabAtRequest: "graph",
+      refreshFromService: true,
+      libraryReadModelRevision: runtime.libraryReadModelRevision,
+      startedAt: new Date().toISOString(),
+    };
+    publishGraphPage(runtime, request);
+    void loadGraphContinuationPages(runtime, request, runtime.graphGeneration);
+    return;
+  }
+  if (envelope.action === "openSynthesisSidecarDiagnostics") {
+    void openTaskManagerDialog({
+      initialTabKey: "synthesis-sidecar",
+      chromeWindow: runtime.window,
+    });
+    return;
+  }
+  if (envelope.action === "retrySynthesisSidecar") {
+    void recoverDefaultSynthesisProductionOwner()
+      .then(() => sendChrome(runtime, { refreshFromService: false }))
+      .catch((error) => reportWorkbenchError(error, runtime.window));
+    return;
+  }
+  if (envelope.action === "expandGraphNeighborhood") {
+    void expandGraphNeighborhood(runtime, envelope.payload || {}).catch(
+      (error) => reportWorkbenchError(error, runtime.window),
+    );
+    return;
+  }
   const previousState = runtime.state;
   const result = applySynthesisUiAction(runtime.state, {
     action: envelope.action,
@@ -1997,9 +2749,19 @@ function handleAction(
     return;
   }
   runtime.state = result.state;
+  const graphQueryChanged =
+    runtime.state.selectedTab === "graph" &&
+    ((envelope.action === "setFilters" && Boolean(envelope.payload?.graph)) ||
+      (envelope.action === "setGraphView" &&
+        ["role", "topicId", "nodeKinds", "showLowSignalReferences"].some(
+          (field) => field in (envelope.payload || {}),
+        )));
+  if (graphQueryChanged) {
+    void sendSurface(runtime, "graph", { refreshFromService: true });
+    return;
+  }
   if (envelope.action === "ready") {
     void sendChrome(runtime, { refreshFromService: true });
-    scheduleActiveSurfaceRefresh(runtime);
     return;
   }
   if (envelope.action === "refresh") {
@@ -2009,7 +2771,13 @@ function handleAction(
   }
   if (envelope.action === "selectTab") {
     void sendChrome(runtime, { refreshFromService: false });
-    scheduleActiveSurfaceRefresh(runtime);
+    if (runtime.state.selectedTab === "graph") {
+      void refreshGraphLayoutIfNeeded(runtime).catch((error) =>
+        reportWorkbenchError(error, runtime.window),
+      );
+    } else {
+      scheduleActiveSurfaceRefresh(runtime);
+    }
     return;
   }
   if (envelope.action === "setFilters") {
@@ -2122,10 +2890,11 @@ function handleAction(
       "manualRecomputeLayout",
       { algorithm },
       () =>
-        getDefaultSynthesisService().recomputeCitationGraphLayout({
-          algorithm: algorithm as SynthesisUiLayoutAlgorithm,
-          force: true,
-        }),
+        recomputeWorkbenchCitationGraphLayout(
+          runtime,
+          algorithm as SynthesisUiLayoutAlgorithm,
+          true,
+        ),
     );
     return;
   }
@@ -2134,10 +2903,15 @@ function handleAction(
       runtime,
       "rebuildCitationGraphCacheNow",
       {},
-      () =>
-        getDefaultSynthesisService().rebuildCitationGraphCacheNow({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return classifySynthesisWorkbenchGraphMutationResult(
+          (await observePublicMaintenanceOperation(
+            client,
+            await client.graph.rebuildCitationGraphCacheNow(),
+          )) as SynthesisGraphCommandResult,
+        );
+      },
       { deferStart: true },
     );
     return;
@@ -2149,10 +2923,15 @@ function handleAction(
       runtime,
       "refreshCitationGraphCacheIncrementalNow",
       {},
-      () =>
-        getDefaultSynthesisService().refreshCitationGraphCacheIncrementalNow({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return classifySynthesisWorkbenchGraphMutationResult(
+          (await observePublicMaintenanceOperation(
+            client,
+            await client.graph.refreshCitationGraphCacheIncrementalNow(),
+          )) as SynthesisGraphCommandResult,
+        );
+      },
       { deferStart: true },
     );
     return;
@@ -2162,18 +2941,24 @@ function handleAction(
       runtime,
       "retryCitationGraphCacheRebuild",
       {},
-      () =>
-        getDefaultSynthesisService().retryCitationGraphCacheRebuild({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return classifySynthesisWorkbenchGraphMutationResult(
+          (await observePublicMaintenanceOperation(
+            client,
+            await client.graph.retryCitationGraphCacheRebuild(),
+          )) as SynthesisGraphCommandResult,
+        );
+      },
       { deferStart: true },
     );
     return;
   }
   if (result.hostCommand?.command === "validateTagVocabulary") {
-    runWorkbenchCommandOnce(runtime, "validateTagVocabulary", {}, () =>
-      getDefaultSynthesisService().validateTagVocabulary(),
-    );
+    runWorkbenchCommandOnce(runtime, "validateTagVocabulary", {}, async () => {
+      const client = await getDefaultSynthesisClient();
+      return client.tags.validateTagVocabulary();
+    });
     return;
   }
   if (result.hostCommand?.command === "rebuildTagVocabularyIndex") {
@@ -2181,10 +2966,13 @@ function handleAction(
       runtime,
       "rebuildTagVocabularyIndex",
       {},
-      () =>
-        getDefaultSynthesisService().rebuildTagVocabularyIndex({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.tags.rebuildTagVocabularyIndex(),
+        );
+      },
       { deferStart: true },
     );
     return;
@@ -2194,10 +2982,13 @@ function handleAction(
       runtime,
       "rebuildConceptKbIndex",
       {},
-      () =>
-        getDefaultSynthesisService().rebuildConceptKbIndex({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.concepts.rebuildConceptKbIndex(),
+        );
+      },
       { deferStart: true },
     );
     return;
@@ -2207,10 +2998,13 @@ function handleAction(
       runtime,
       "rebuildTopicGraphIndex",
       {},
-      () =>
-        getDefaultSynthesisService().rebuildTopicGraphIndex({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.topicGraph.rebuildTopicGraphIndex(),
+        );
+      },
       { deferStart: true },
     );
     return;
@@ -2222,14 +3016,15 @@ function handleAction(
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const edgeId = String(commandArgs.edgeId || "").trim();
     if (edgeId) {
-      const service = getDefaultSynthesisService();
       const command = result.hostCommand.command;
-      runWorkbenchCommandOnce(runtime, command, { edgeId }, () =>
-        (command === "acceptTopicGraphRelation"
-          ? service.acceptTopicGraphRelation({ edgeId })
-          : service.rejectTopicGraphRelation({ edgeId })
-        ).then(failOnDiagnostic),
-      );
+      runWorkbenchCommandOnce(runtime, command, { edgeId }, async () => {
+        const client = await getDefaultSynthesisClient();
+        return (
+          command === "acceptTopicGraphRelation"
+            ? client.topicGraph.acceptTopicGraphRelation({ edgeId })
+            : client.topicGraph.rejectTopicGraphRelation({ edgeId })
+        ).then(failOnDiagnostic);
+      });
       return;
     }
     void sendActiveSurface(runtime, { refreshFromService: false });
@@ -2246,13 +3041,15 @@ function handleAction(
       runtime,
       "applyTopicGraphReviewAction",
       { reviewId, action },
-      () =>
-        getDefaultSynthesisService()
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.topicGraph
           .applyTopicGraphReviewAction({
             reviewId,
             action,
           })
-          .then(failOnDiagnostic),
+          .then(failOnDiagnostic);
+      },
     );
     return;
   }
@@ -2263,14 +3060,15 @@ function handleAction(
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const hintId = String(commandArgs.hintId || "").trim();
     if (hintId) {
-      const service = getDefaultSynthesisService();
       const command = result.hostCommand.command;
-      runWorkbenchCommandOnce(runtime, command, { hintId }, () =>
-        (command === "rejectTopicDiscoveryHint"
-          ? service.rejectTopicDiscoveryHint({ hintId })
-          : service.restoreTopicDiscoveryHint({ hintId })
-        ).then(failOnDiagnostic),
-      );
+      runWorkbenchCommandOnce(runtime, command, { hintId }, async () => {
+        const client = await getDefaultSynthesisClient();
+        return (
+          command === "rejectTopicDiscoveryHint"
+            ? client.topics.rejectTopicDiscoveryHint({ hintId })
+            : client.topics.restoreTopicDiscoveryHint({ hintId })
+        ).then(failOnDiagnostic);
+      });
       return;
     }
     void sendActiveSurface(runtime, { refreshFromService: false });
@@ -2288,11 +3086,13 @@ function handleAction(
         runtime,
         "updateConceptDisplayText",
         { conceptId },
-        () =>
-          getDefaultSynthesisService().updateConceptDisplayText({
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.concepts.updateConceptDisplayText({
             conceptId,
             fields,
-          }),
+          });
+        },
       );
       return;
     }
@@ -2308,20 +3108,24 @@ function handleAction(
       reviewId &&
       (action === "approve_create" ||
         action === "merge_into_existing" ||
-        action === "reject")
+        action === "reject" ||
+        action === "keep_alias" ||
+        action === "remove_alias")
     ) {
       runWorkbenchCommandOnce(
         runtime,
         "applyConceptReviewAction",
         { reviewId, action, targetConceptId },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.concepts
             .applyConceptReviewAction({
               reviewId,
               action,
               targetConceptId: targetConceptId || undefined,
             })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2340,10 +3144,12 @@ function handleAction(
         runtime,
         "deleteConceptEntry",
         { conceptId: conceptIds[0], conceptIds },
-        () =>
-          getDefaultSynthesisService().deleteConceptEntries({
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.concepts.deleteConceptEntries({
             conceptIds,
-          }),
+          });
+        },
       );
       return;
     }
@@ -2355,17 +3161,29 @@ function handleAction(
       runtime,
       "refreshReferenceSidecarNow",
       {},
-      () =>
-        getDefaultSynthesisService().refreshReferenceSidecarNow({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.references.refreshReferenceSidecarNow(),
+        ).then(failOnDiagnostic);
+      },
       { deferStart: true },
     );
     return;
   }
   if (result.hostCommand?.command === "retryReferenceSidecarRefresh") {
-    runWorkbenchCommandOnce(runtime, "retryReferenceSidecarRefresh", {}, () =>
-      getDefaultSynthesisService().retryReferenceSidecarRefresh(),
+    runWorkbenchCommandOnce(
+      runtime,
+      "retryReferenceSidecarRefresh",
+      {},
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.references.retryReferenceSidecarRefresh(),
+        ).then(failOnDiagnostic);
+      },
     );
     return;
   }
@@ -2374,10 +3192,13 @@ function handleAction(
       runtime,
       "runAdvancedReferenceMatchingNow",
       {},
-      () =>
-        getDefaultSynthesisService().runAdvancedReferenceMatchingNow({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.references.runAdvancedReferenceMatchingNow(),
+        ).then(failOnDiagnostic);
+      },
       { deferStart: true },
     );
     return;
@@ -2387,10 +3208,13 @@ function handleAction(
       runtime,
       "retryAdvancedReferenceMatching",
       {},
-      () =>
-        getDefaultSynthesisService().retryAdvancedReferenceMatching({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.references.retryAdvancedReferenceMatching(),
+        ).then(failOnDiagnostic);
+      },
       { deferStart: true },
     );
     return;
@@ -2409,10 +3233,12 @@ function handleAction(
         runtime,
         "applyCanonicalRevisionReviewAction",
         { reviewItemId, action },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .applyCanonicalRevisionReviewAction({ reviewItemId, action })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2427,7 +3253,7 @@ function handleAction(
             (entry): entry is Record<string, unknown> =>
               !!entry && typeof entry === "object" && !Array.isArray(entry),
           )
-          .map((entry) => {
+          .flatMap((entry): SynthesisReferenceMatchProposalDecision[] => {
             const proposalId = String(
               entry.proposalId || entry.proposal_id || "",
             ).trim();
@@ -2471,25 +3297,28 @@ function handleAction(
                       ).trim(),
                     }
                   : undefined;
-            return action === "manual_target"
-              ? { proposalId, action, target: normalizedTarget }
-              : { proposalId, action };
+            if (!proposalId) {
+              return [];
+            }
+            if (action === "manual_target") {
+              return normalizedTarget
+                ? [{ proposalId, action, target: normalizedTarget }]
+                : [];
+            }
+            return [{ proposalId, action }];
           })
-          .filter(
-            (entry) =>
-              entry.proposalId &&
-              (entry.action !== "manual_target" || Boolean(entry.target)),
-          )
       : [];
     if (decisions.length) {
       runWorkbenchCommandOnce(
         runtime,
         "applyReferenceMatchProposalActions",
         {},
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .applyReferenceMatchProposalActions({ decisions })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2512,10 +3341,12 @@ function handleAction(
         runtime,
         "applyReferenceMatchProposalAction",
         { proposalId, action },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .applyReferenceMatchProposalAction({ proposalId, action })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2539,14 +3370,16 @@ function handleAction(
         runtime,
         "mergeEffectiveCanonicalReference",
         { sourceEffectiveCanonicalId, targetEffectiveCanonicalId },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .mergeEffectiveCanonicalReference({
               sourceEffectiveCanonicalId,
               targetEffectiveCanonicalId,
               confirmRetargetGroup: Boolean(commandArgs.confirmRetargetGroup),
             })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2556,20 +3389,37 @@ function handleAction(
   if (result.hostCommand?.command === "applyCanonicalRevisionMergeRequests") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const requests = Array.isArray(commandArgs.requests)
-      ? commandArgs.requests.filter(
-          (entry): entry is Record<string, unknown> =>
-            Boolean(entry) && typeof entry === "object",
-        )
+      ? commandArgs.requests
+          .filter(
+            (entry): entry is Record<string, unknown> =>
+              Boolean(entry) &&
+              typeof entry === "object" &&
+              !Array.isArray(entry),
+          )
+          .map((request) => ({
+            sourceEffectiveCanonicalId: String(
+              request.sourceEffectiveCanonicalId ||
+                request.source_effective_canonical_id ||
+                "",
+            ).trim(),
+            targetEffectiveCanonicalId: String(
+              request.targetEffectiveCanonicalId ||
+                request.target_effective_canonical_id ||
+                "",
+            ).trim(),
+          }))
       : [];
     if (requests.length) {
       runWorkbenchCommandOnce(
         runtime,
         "applyCanonicalRevisionMergeRequests",
         { count: requests.length },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .applyCanonicalRevisionMergeRequests({ requests })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
         { deferStart: true },
       );
       return;
@@ -2588,20 +3438,26 @@ function handleAction(
       commandArgs.patch &&
       typeof commandArgs.patch === "object" &&
       !Array.isArray(commandArgs.patch)
-        ? (commandArgs.patch as Record<string, unknown>)
+        ? { ...(commandArgs.patch as Record<string, unknown>) }
         : {};
+    if ("normalizedTitle" in patch || "normalized_title" in patch) {
+      patch.normalizedTitle = patch.normalizedTitle || patch.normalized_title;
+      delete patch.normalized_title;
+    }
     if (canonicalReferenceId) {
       runWorkbenchCommandOnce(
         runtime,
         "updateCanonicalReferenceMetadata",
         { canonicalReferenceId },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .updateCanonicalReferenceMetadata({
               canonicalReferenceId,
               patch,
             })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2620,22 +3476,16 @@ function handleAction(
         runtime,
         "archiveCanonicalReference",
         { canonicalReferenceId },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .archiveCanonicalReference({ canonicalReferenceId })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
     void sendActiveSurface(runtime, { refreshFromService: false });
-    return;
-  }
-  if (result.hostCommand?.command === "syncNow") {
-    runWorkbenchCommandOnce(runtime, "syncNow", {}, () =>
-      getFreshSynthesisServiceForGitSyncCommand()
-        .syncNow()
-        .then(failOnSyncFailureState),
-    );
     return;
   }
   if (result.hostCommand?.command === "syncWebDavNow") {
@@ -2643,88 +3493,67 @@ function handleAction(
       runtime,
       "syncWebDavNow",
       {},
-      () =>
-        getFreshSynthesisServiceForGitSyncCommand()
-          .syncWebDavNow()
-          .then(failOnSyncFailureState),
+      async () => {
+        const client = await getFreshDefaultSynthesisClient();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.sync.webDav.runNow(),
+        ).then(failOnSyncFailureState);
+      },
       { deferStart: true },
     );
     return;
   }
-  if (result.hostCommand?.command === "pauseGitSync") {
-    runWorkbenchCommandOnce(runtime, "pauseGitSync", {}, () =>
-      getFreshSynthesisServiceForGitSyncCommand().pauseGitSync(),
-    );
-    return;
-  }
-  if (result.hostCommand?.command === "resumeGitSync") {
-    runWorkbenchCommandOnce(runtime, "resumeGitSync", {}, () =>
-      getFreshSynthesisServiceForGitSyncCommand().resumeGitSync(),
-    );
-    return;
-  }
-  if (result.hostCommand?.command === "retryGitSync") {
-    runWorkbenchCommandOnce(runtime, "retryGitSync", {}, () =>
-      getFreshSynthesisServiceForGitSyncCommand()
-        .retryGitSync()
-        .then(failOnSyncFailureState),
-    );
-    return;
-  }
-  if (result.hostCommand?.command === "resolveGitSyncConflict") {
-    const commandArgs = commandArgsFromPayload(envelope.payload);
-    const action = String(commandArgs.action || "keep_local").trim();
-    runWorkbenchCommandOnce(runtime, "resolveGitSyncConflict", { action }, () =>
-      getFreshSynthesisServiceForGitSyncCommand().resolveGitSyncConflict({
-        action: action as any,
-      }),
-    );
-    return;
-  }
   if (result.hostCommand?.command === "pauseWebDavSync") {
-    runWorkbenchCommandOnce(runtime, "pauseWebDavSync", {}, () =>
-      getFreshSynthesisServiceForGitSyncCommand().pauseWebDavSync(),
-    );
+    runWorkbenchCommandOnce(runtime, "pauseWebDavSync", {}, async () => {
+      const client = await getFreshDefaultSynthesisClient();
+      return client.sync.webDav.pause();
+    });
     return;
   }
   if (result.hostCommand?.command === "resumeWebDavSync") {
-    runWorkbenchCommandOnce(runtime, "resumeWebDavSync", {}, () =>
-      getFreshSynthesisServiceForGitSyncCommand().resumeWebDavSync(),
-    );
+    runWorkbenchCommandOnce(runtime, "resumeWebDavSync", {}, async () => {
+      const client = await getFreshDefaultSynthesisClient();
+      return client.sync.webDav.resume();
+    });
     return;
   }
   if (result.hostCommand?.command === "retryWebDavSync") {
-    runWorkbenchCommandOnce(runtime, "retryWebDavSync", {}, () =>
-      getFreshSynthesisServiceForGitSyncCommand()
-        .retryWebDavSync()
-        .then(failOnSyncFailureState),
-    );
+    runWorkbenchCommandOnce(runtime, "retryWebDavSync", {}, async () => {
+      const client = await getFreshDefaultSynthesisClient();
+      return observePublicMaintenanceOperation(
+        client,
+        await client.sync.webDav.retry(),
+      ).then(failOnSyncFailureState);
+    });
     return;
   }
   if (result.hostCommand?.command === "resolveWebDavSyncConflict") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
-    const action = String(commandArgs.action || "keep_local").trim();
+    const action = (String(commandArgs.action || "").trim() ||
+      "keep_local") as SynthesisSyncConflictResolutionAction;
     runWorkbenchCommandOnce(
       runtime,
       "resolveWebDavSyncConflict",
       { action },
-      () =>
-        getFreshSynthesisServiceForGitSyncCommand().resolveWebDavSyncConflict({
-          action,
-        }),
+      async () => {
+        const client = await getFreshDefaultSynthesisClient();
+        return client.sync.webDav.resolveConflict({ action });
+      },
     );
     return;
   }
   if (result.hostCommand?.command === "exportTagVocabulary") {
-    runWorkbenchCommandOnce(runtime, "exportTagVocabulary", {}, () =>
-      getDefaultSynthesisService()
+    runWorkbenchCommandOnce(runtime, "exportTagVocabulary", {}, async () => {
+      const client = await getDefaultSynthesisClient();
+      return client.tags
         .exportTagVocabularyForRegulator()
-        .then((tags) =>
+        .then(({ allowedTags }) =>
           runtime.hostWindow.navigator?.clipboard?.writeText?.(
-            `${tags.join("\n")}\n`,
+            `${allowedTags.join("\n")}\n`,
           ),
-        ),
-    );
+        );
+    });
     return;
   }
   if (
@@ -2733,10 +3562,16 @@ function handleAction(
   ) {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     if (typeof commandArgs.payload === "string" && commandArgs.payload.trim()) {
-      runWorkbenchCommandOnce(runtime, "previewTagVocabularyImport", {}, () =>
-        getDefaultSynthesisService().previewTagVocabularyImport(
-          commandArgs.payload as string,
-        ),
+      runWorkbenchCommandOnce(
+        runtime,
+        "previewTagVocabularyImport",
+        {},
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.tags.previewTagVocabularyImport({
+            payload: commandArgs.payload as string,
+          });
+        },
       );
       return;
     }
@@ -2750,32 +3585,27 @@ function handleAction(
     ).trim();
     const tag = String(commandArgs.tag || "").trim();
     if (tag) {
+      const facet = String(commandArgs.facet || tag.split(":")[0] || "topic");
+      const note = String(commandArgs.note || "");
+      const sourceFlow = String(
+        commandArgs.source_flow || "tag-regulator-suggest",
+      );
+      const parentBindings = Array.isArray(commandArgs.parent_bindings)
+        ? commandArgs.parent_bindings
+        : [];
       runWorkbenchCommandOnce(
         runtime,
         "updateStagedTagSuggestion",
         { tag },
         async () => {
-          if (originalTag && originalTag !== tag) {
-            await getDefaultSynthesisService().discardStagedTagSuggestions({
-              tags: [originalTag],
-            });
-          }
-          return getDefaultSynthesisService().stageTagSuggestions({
-            entries: [
-              {
-                tag,
-                facet: String(
-                  commandArgs.facet || tag.split(":")[0] || "topic",
-                ),
-                note: String(commandArgs.note || ""),
-                source_flow: String(
-                  commandArgs.source_flow || "tag-regulator-suggest",
-                ),
-                parent_bindings: Array.isArray(commandArgs.parent_bindings)
-                  ? commandArgs.parent_bindings
-                  : [],
-              },
-            ],
+          const client = await getDefaultSynthesisClient();
+          return client.tags.updateStagedTagSuggestion({
+            originalTag,
+            tag,
+            facet,
+            note,
+            sourceFlow,
+            parentBindings,
           });
         },
       );
@@ -2791,6 +3621,8 @@ function handleAction(
     ).trim();
     const tag = String(commandArgs.tag || "").trim();
     if (originalTag && tag) {
+      const facet = String(commandArgs.facet || tag.split(":")[0] || "topic");
+      const note = String(commandArgs.note || "");
       runWorkbenchCommandOnce(
         runtime,
         "updateTagVocabularyEntry",
@@ -2809,32 +3641,10 @@ function handleAction(
           ) {
             throw new Error("Builtin tag identity is protected");
           }
-          const service = getDefaultSynthesisService();
-          const snapshot = await service.loadTagVocabulary();
-          const nextEntries = snapshot.entries.map((entry) =>
-            entry.tag === originalTag
-              ? {
-                  ...entry,
-                  tag,
-                  facet: requestedFacet || entry.facet,
-                  note: String(commandArgs.note || ""),
-                }
-              : entry,
-          );
-          if (!nextEntries.some((entry) => entry.tag === tag)) {
-            nextEntries.push({
-              tag,
-              facet: String(commandArgs.facet || tag.split(":")[0] || "topic"),
-              note: String(commandArgs.note || ""),
-            });
-          }
-          return service.saveTagVocabulary({
-            entries: nextEntries,
-            aliases: snapshot.aliases,
-            abbrev: snapshot.abbrev,
-            protocol: snapshot.protocol,
-            transactionId: `tag-vocabulary-update-${Date.now()}`,
-          });
+          const client = await getDefaultSynthesisClient();
+          return client.tags
+            .updateTagVocabularyEntry({ originalTag, tag, facet, note })
+            .then(failOnDiagnostic);
         },
       );
       return;
@@ -2856,17 +3666,10 @@ function handleAction(
           if (isBuiltinStatusTag(originalTag)) {
             throw new Error("Builtin tags cannot be deleted");
           }
-          const service = getDefaultSynthesisService();
-          const snapshot = await service.loadTagVocabulary();
-          return service.saveTagVocabulary({
-            entries: snapshot.entries.filter(
-              (entry) => entry.tag !== originalTag,
-            ),
-            aliases: snapshot.aliases,
-            abbrev: snapshot.abbrev,
-            protocol: snapshot.protocol,
-            transactionId: `tag-vocabulary-delete-${Date.now()}`,
-          });
+          const client = await getDefaultSynthesisClient();
+          return client.tags
+            .deleteTagVocabularyEntry({ originalTag })
+            .then(failOnDiagnostic);
         },
       );
       return;
@@ -2884,8 +3687,10 @@ function handleAction(
         runtime,
         "promoteStagedTagSuggestions",
         { tag: tags[0], tags },
-        () =>
-          getDefaultSynthesisService().promoteStagedTagSuggestions({ tags }),
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.tags.promoteStagedTagSuggestions({ tags });
+        },
       );
       return;
     }
@@ -2902,8 +3707,10 @@ function handleAction(
         runtime,
         "discardStagedTagSuggestions",
         { tag: tags[0], tags },
-        () =>
-          getDefaultSynthesisService().discardStagedTagSuggestions({ tags }),
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.tags.discardStagedTagSuggestions({ tags });
+        },
       );
       return;
     }
@@ -2911,8 +3718,14 @@ function handleAction(
     return;
   }
   if (result.hostCommand?.command === "clearStagedTagSuggestions") {
-    runWorkbenchCommandOnce(runtime, "clearStagedTagSuggestions", {}, () =>
-      getDefaultSynthesisService().clearStagedTagSuggestions(),
+    runWorkbenchCommandOnce(
+      runtime,
+      "clearStagedTagSuggestions",
+      {},
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.tags.clearStagedTagSuggestions();
+      },
     );
     return;
   }
@@ -2928,11 +3741,13 @@ function handleAction(
         runtime,
         "applyTagVocabularyImport",
         { action },
-        () =>
-          getDefaultSynthesisService().applyTagVocabularyImport({
-            payload: commandArgs.payload,
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.tags.applyTagVocabularyImport({
+            payload: commandArgs.payload as string,
             action,
-          }),
+          });
+        },
       );
       return;
     }
@@ -3021,14 +3836,22 @@ function handleAction(
       void sendActiveSurface(runtime, { refreshFromService: false });
       return;
     }
-    runWorkbenchCommandOnce(runtime, "deleteTopicArtifact", { topicId }, () =>
-      getDefaultSynthesisService()
-        .deleteTopicArtifact({ topicId })
-        .then((deleteResult) => {
-          if (!deleteResult.ok) {
-            throw new Error(deleteResult.reason);
-          }
-        }),
+    runWorkbenchCommandOnce(
+      runtime,
+      "deleteTopicArtifact",
+      { topicId },
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.topics
+          .deleteTopicArtifact({ topicId })
+          .then((deleteResult) => {
+            if (!deleteResult.ok) {
+              throw new Error(
+                String(deleteResult.reason || "Topic artifact deletion failed"),
+              );
+            }
+          });
+      },
     );
     return;
   }
@@ -3047,8 +3870,14 @@ function handleAction(
       void sendActiveSurface(runtime, { refreshFromService: false });
       return;
     }
-    runWorkbenchCommandOnce(runtime, "purgeDeletedTopicArtifacts", {}, () =>
-      getDefaultSynthesisService().purgeDeletedTopicArtifacts(),
+    runWorkbenchCommandOnce(
+      runtime,
+      "purgeDeletedTopicArtifacts",
+      {},
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.topics.purgeDeletedTopicArtifacts();
+      },
     );
     return;
   }
@@ -3126,7 +3955,7 @@ function surfacesInvalidatedByCommand(
     command === "runSynthesizeTopic" ||
     command === "submitTopicSynthesisUpdate"
   ) {
-    return ["home", "topics", "graph", "review"];
+    return ["home", "topics", "concepts", "graph", "review"];
   }
   if (
     command === "acceptTopicGraphRelation" ||
@@ -3161,28 +3990,43 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
   if (runtime.state.selectedTab !== "graph") {
     return;
   }
-  const service = getDefaultSynthesisService();
-  const input = await service.getSynthesisWorkbenchSurfaceInput(
-    "graph",
-    runtime.state,
-  );
-  mergeRuntimeSnapshotInput(runtime, input);
-  const status = input.graph?.layoutStatus || "missing";
-  if (status === "ready" || !input.graph?.graph_hash) {
-    await sendSurface(runtime, "graph", {
-      refreshFromService: false,
-    });
+  await sendSurface(runtime, "graph", { refreshFromService: true });
+  const graph = runtime.snapshotInput?.graph;
+  const status = resolveSynthesisWorkbenchGraphLayoutStatus({
+    graphHash: graph?.graph_hash,
+    layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
+    layoutStatus: graph?.layoutStatus,
+    failure: runtime.graphLayoutFailure,
+  });
+  if (status === "ready" || status === "failed" || !graph?.graph_hash) {
     return;
   }
-  await service.recomputeCitationGraphLayout({
-    algorithm: runtime.state.graph.layoutAlgorithm,
-  });
-  await sendSurface(runtime, "graph", {
-    refreshFromService: true,
-  });
+  try {
+    if (status === "refreshing") {
+      await observeCurrentCitationGraphLayout(
+        runtime,
+        runtime.state.graph.layoutAlgorithm,
+      );
+    } else {
+      await recomputeWorkbenchCitationGraphLayout(
+        runtime,
+        runtime.state.graph.layoutAlgorithm,
+      );
+    }
+  } finally {
+    await sendSurface(runtime, "graph", {
+      refreshFromService: true,
+    });
+    await sendChrome(runtime, { refreshFromService: true });
+  }
 }
 
 function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
+  runtime.cleanedUp = true;
+  runtime.graphGeneration += 1;
+  runtime.graphWindow = undefined;
+  runtime.graphPageLoop = undefined;
+  runtime.graphLayoutRefreshes.clear();
   if (runtime.handshakeTimer) {
     clearInterval(runtime.handshakeTimer);
     runtime.handshakeTimer = undefined;
@@ -3192,7 +4036,15 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
     runtime.libraryReadModelDirtyTimer = undefined;
   }
   clearCommandProgressPolling(runtime);
+  if (runtime.sidecarStatusTimer) {
+    clearInterval(runtime.sidecarStatusTimer);
+    runtime.sidecarStatusTimer = undefined;
+  }
+  runtime.removeSidecarStatusListener?.();
+  runtime.removeSidecarStatusListener = undefined;
   clearSynthesisWorkbenchBridge(runtime);
+  runtime.removeFrameLoadListener?.();
+  runtime.removeFrameLoadListener = undefined;
   runtime.removeMessageListener?.();
   synthesisWorkbenchRuntimes.delete(runtime);
 }
@@ -3206,12 +4058,19 @@ function cleanupSynthesisWorkbenchTab() {
 
 function attachWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
   const frame = runtime.frame;
-  frame.addEventListener("load", () => {
+  const onLoad = () => {
     void ensureWorkbenchHandshake(runtime);
-  });
+  };
+  frame.addEventListener("load", onLoad);
+  runtime.removeFrameLoadListener = () => {
+    frame.removeEventListener("load", onLoad);
+  };
   const onMessage = (event: MessageEvent) => {
     const data = event.data as { type?: unknown };
     if (!data || data.type !== "synthesis:action") {
+      return;
+    }
+    if (!runtime.frameWindow || event.source !== runtime.frameWindow) {
       return;
     }
     handleAction(runtime, data as SynthesisWorkbenchActionEnvelope);
@@ -3326,10 +4185,15 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     loadedSurfaces: new Set(),
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
+    chromeReadRevision: 0,
     latestSurfaceRequestBySurface: {},
+    inFlightSurfaceRefreshes: {},
+    queuedServiceSurfaceRefreshes: new Set(),
     libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],
+    graphGeneration: 0,
+    graphLayoutRefreshes: new Map(),
   };
   registerSynthesisWorkbenchRuntime(runtime);
   attachWorkbenchBridge(runtime);
@@ -3402,10 +4266,15 @@ export async function openSynthesisWorkbenchTab(
     loadedSurfaces: new Set(),
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
+    chromeReadRevision: 0,
     latestSurfaceRequestBySurface: {},
+    inFlightSurfaceRefreshes: {},
+    queuedServiceSurfaceRefreshes: new Set(),
     libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],
+    graphGeneration: 0,
+    graphLayoutRefreshes: new Map(),
   };
   synthesisWorkbenchTab = runtime;
   registerSynthesisWorkbenchRuntime(runtime);
@@ -3419,6 +4288,29 @@ export async function resetSynthesisWorkbenchTabRuntimeForTests() {
   cleanupSynthesisWorkbenchTab();
 }
 
+async function publishSynthesisWorkbenchPrewarmPhase(
+  surface: "chrome" | SynthesisWorkbenchSurfaceName,
+  input: SynthesisUiSnapshotInput,
+) {
+  prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
+    prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),
+    input,
+  );
+  const runtime = synthesisWorkbenchTab;
+  if (!runtime) {
+    return;
+  }
+  mergeRuntimeSnapshotInput(runtime, input);
+  if (surface === "chrome") {
+    await sendChrome(runtime, { refreshFromService: false });
+    return;
+  }
+  markSurfaceLoaded(runtime, surface);
+  if (isActiveSurface(runtime, surface)) {
+    await sendSurface(runtime, surface, { refreshFromService: false });
+  }
+}
+
 export function prewarmSynthesisWorkbenchSurfaces(
   args: {
     surfaces?: SynthesisWorkbenchSurfaceName[];
@@ -3427,34 +4319,40 @@ export function prewarmSynthesisWorkbenchSurfaces(
   if (prewarmSynthesisSurfacesPromise) {
     return prewarmSynthesisSurfacesPromise;
   }
-  prewarmSynthesisSurfacesPromise = getDefaultSynthesisService()
-    .warmSynthesisWorkbenchSurfaces({
-      state: synthesisWorkbenchTab?.state || createDefaultSynthesisUiState(),
-      surfaces: args.surfaces,
-      onPhase: async (phase) => {
-        if (phase.input) {
-          prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
-            prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),
-            phase.input,
-          );
-        }
-        const runtime = synthesisWorkbenchTab;
-        if (!runtime || !phase.input) {
-          return;
-        }
-        mergeRuntimeSnapshotInput(runtime, phase.input);
-        if (phase.surface === "chrome") {
-          await sendChrome(runtime, { refreshFromService: false });
-          return;
-        }
-        markSurfaceLoaded(runtime, phase.surface);
-        if (surfaceForTab(runtime.state.selectedTab) === phase.surface) {
-          await sendSurface(runtime, phase.surface, {
-            refreshFromService: false,
-          });
-        }
-      },
-    })
+  prewarmSynthesisSurfacesPromise = (async () => {
+    const readState = toSynthesisWorkbenchReadState(
+      synthesisWorkbenchTab?.state || createDefaultSynthesisUiState(),
+    );
+    const client = await getDefaultSynthesisClient();
+    const surfaces =
+      args.surfaces !== undefined
+        ? args.surfaces
+        : ([
+            "index",
+            "review",
+            "graph",
+            "tags",
+            "concepts",
+            "topics",
+          ] satisfies SynthesisWorkbenchSurfaceName[]);
+    let input = toSynthesisUiSnapshotInput(
+      await client.workbench.readChrome({ state: readState }),
+    );
+    await publishSynthesisWorkbenchPrewarmPhase("chrome", input);
+    for (const surface of surfaces) {
+      await yieldToEventLoop();
+      try {
+        const surfaceInput = toSynthesisUiSnapshotInput(
+          await client.workbench.readSurface({ surface, state: readState }),
+        );
+        await publishSynthesisWorkbenchPrewarmPhase(surface, surfaceInput);
+        input = mergeSynthesisUiSnapshotInput(input, surfaceInput);
+      } catch {
+        continue;
+      }
+    }
+    return input;
+  })()
     .then((input) => {
       prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
         prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),

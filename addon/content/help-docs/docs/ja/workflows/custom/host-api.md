@@ -322,10 +322,10 @@ Workflow エディタセッションを管理する。`registerRenderer` と `un
 ## 合成操作（hostApi.synthesis）
 
 ```ts
-hostApi.synthesis?: SynthesisService
+hostApi.synthesis?: WorkflowSynthesisApi
 ```
 
-Synthesis Workbench サービス（トピック、コンセプト、タグ、引用グラフなど）へのアクセスを提供する。Synthesis システムが初期化されている場合にのみ利用可能。
+digest と Topic の適用、Topic レポート、論文アーティファクト、タグ語彙と候補、タグ監査のための限定された workflow インターフェースを提供する。公開するのは `applyLiteratureDigestSidecar`、`applyTopicSynthesisResult`、`getTopicReport`、`readPaperArtifacts`、`loadTagVocabulary`、`saveTagVocabulary`、`exportTagVocabularyForRegulator`、`listStagedTagSuggestions`、`stageTagSuggestions`、`discardStagedTagSuggestions`、`replaceTagAuditRecords`、`clearTagAuditRecord` のみである。Host は Zotero の live item と結果パスをサイズ制限付きの client payload に変換する。
 
 ## 完全な例
 

@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-synthesis-layer-foundation. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Canonical assets use versioned JSON envelopes
 
 Synthesis Layer canonical JSON assets SHALL use a versioned envelope with
@@ -96,31 +98,7 @@ runtime persistence APIs.
 - **WHEN** any canonical transaction asset path violates KG scope, traversal,
   segment, relative path budget, reserved name, or case-collision rules
 - **THEN** the foundation SHALL reject the transaction before staging
-- **AND** it SHALL NOT write target assets, receipts, store-change events, or
-  projection stale marks.
-
-### Requirement: Canonical transactions emit a single store change event
-
-Synthesis Layer foundation SHALL group canonical writes in an internal
-transaction that records receipts and emits one `canonical-store-changed` event
-after a successful commit.
-
-#### Scenario: Transaction commits multiple assets
-
-- **WHEN** one transaction writes multiple canonical assets in the same scope
-- **THEN** the foundation SHALL persist the assets
-- **AND** it SHALL record one receipt in DB-backed canonical-store records
-- **AND** it SHALL emit exactly one DB-backed `canonical-store-changed` event
-  containing the scope, changed assets, transaction id, and timestamp
-- **AND** it SHALL NOT append normal runtime records to
-  `sidecar/canonical-store-receipts.jsonl` or
-  `sidecar/canonical-store-events.jsonl`.
-
-#### Scenario: Transaction fails validation
-
-- **WHEN** any transaction asset fails validation before commit
-- **THEN** the foundation SHALL leave existing target assets unchanged
-- **AND** it SHALL write sanitized diagnostics for the failed transaction.
+- **AND** it SHALL NOT write target assets, receipts, or projection stale marks.
 
 ### Requirement: Projection registry tracks stale and rebuild state
 
@@ -160,11 +138,11 @@ helpers and persist them as DB-backed canonical-store records.
 
 Foundation SHALL provide reusable transaction, event, diagnostics, and projection stale helpers for canonical store domains.
 
-#### Scenario: Git adapter exchange runs
+#### Scenario: WebDAV durable exchange runs
 
-- **WHEN** a production Git adapter exchanges canonical assets with a worktree
+- **WHEN** the production WebDAV Host port exchanges canonical durable bundles
 - **THEN** the local canonical store SHALL remain the source of truth
-- **AND** imported remote content SHALL still enter the store only through Foundation-backed Git Sync import validation and promotion.
+- **AND** imported remote content SHALL enter the store only through Foundation-backed WebDAV import validation and promotion.
 
 ### Requirement: UI snapshot reads do not write foundation state
 
@@ -192,20 +170,38 @@ assets derived from high-entropy or long semantic identifiers.
 
 ### Requirement: Zotero note mirror is not a runtime persistence path
 
-Zotero note mirror SHALL NOT participate in normal Synthesis runtime
-persistence.
 
-#### Scenario: Canonical write completes without mirror refresh
+Zotero note mirror SHALL NOT participate in normal Synthesis runtime persistence, synchronization, or recovery.
 
-- **WHEN** a topic synthesis apply, delete, purge, or canonical transaction
-  succeeds
-- **THEN** the default service SHALL NOT create or update Zotero anchor notes or
-  mirror shards.
+#### Scenario: Canonical transaction completes without mirror access
 
-#### Scenario: Legacy mirror is migration-only
+- **WHEN** a topic synthesis apply, delete, purge, or canonical transaction succeeds
+- **THEN** the default service SHALL NOT discover, create, read, update, or delete Zotero anchor notes or mirror shards
+- **AND** success SHALL depend only on canonical transaction outcomes.
 
-- **WHEN** legacy mirror content exists
-- **THEN** only the explicit one-shot migration script MAY read it as a legacy
-  source
-- **AND** the plugin runtime SHALL NOT expose mirror rebuild/recovery as the
-  primary sync mechanism.
+#### Scenario: Legacy mirror data exists
+
+- **WHEN** legacy anchor or shard items remain in Zotero
+- **THEN** normal plugin runtime SHALL leave those items untouched
+- **AND** it SHALL NOT advertise mirror rebuild or canonical-from-shard recovery actions.
+
+#### Scenario: Future legacy migration is required
+
+- **WHEN** a future product requirement needs data from legacy mirror shards
+- **THEN** that migration SHALL be implemented as a separately specified, explicitly confirmed one-shot tool
+- **AND** it SHALL NOT restore Topic mirror as a normal Synthesis persistence path.
+
+### Requirement: WebDAV durable import uses one Foundation transaction
+
+WebDAV durable import SHALL apply validated canonical assets through one
+Foundation transaction. The import SHALL become successful only after canonical
+promotion completes, all promoted targets are verified, and the repository
+commit receipt is cleared.
+
+#### Scenario: Valid import is promoted
+
+- **WHEN** a WebDAV durable import passes validation, preview, and conflict gates
+- **THEN** one Foundation transaction SHALL apply all imported canonical facts
+- **AND** an interrupted promotion SHALL remain unsuccessful until ready-gated
+  recovery completes it
+- **AND** WebDAV import SHALL NOT schedule canonical autosync publication.

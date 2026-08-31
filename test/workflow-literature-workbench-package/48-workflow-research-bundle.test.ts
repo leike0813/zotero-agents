@@ -12,9 +12,137 @@ import {
   researchPayloadArtifactPath,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundle.mjs";
 import {
+  renderResearchBundleIndex,
   renderResearchBundleReadme,
   resolveResearchBundleReadmeLocale,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundleReadme.mjs";
+
+function metadataOnlyResearchBundles(
+  options: {
+    missing?: boolean;
+    coreSourceMissing?: boolean;
+  } = {},
+) {
+  return {
+    async materializePapers(args: {
+      paperRefs: Array<{ libraryId: number; key: string }>;
+    }) {
+      if (options.missing) {
+        return {
+          papers: [],
+          completeness: "incomplete",
+          issues: [],
+        };
+      }
+      const papers = args.paperRefs.map((ref) => {
+        return {
+          source: { ref, revision: `revision:${ref.key}` },
+          item: {
+            schema: "zotero-agents.portable-regular-item.v1",
+            itemType: "journalArticle",
+            fields: { title: ref.key },
+            creators: [],
+            tags: [],
+          },
+          collectionRefs: [],
+          relatedRefs: [],
+          notes: [],
+          attachments: [],
+          annotations: [],
+          issues: [],
+        };
+      });
+      return {
+        papers,
+        completeness: "complete",
+        issues: [],
+      };
+    },
+  };
+}
+
+function materializedPaper(
+  ref: { libraryId: number; key: string },
+  title: string,
+  attachments: any[] = [],
+) {
+  return {
+    source: { ref, revision: `revision:${ref.key}` },
+    item: {
+      schema: "zotero-agents.portable-regular-item.v1",
+      itemType: "journalArticle",
+      fields: { title },
+      creators: [],
+      tags: [],
+    },
+    collectionRefs: [],
+    relatedRefs: [],
+    notes: [],
+    attachments,
+    annotations: [],
+    issues: [],
+  };
+}
+
+function materializedAttachment(
+  parentRef: { libraryId: number; key: string },
+  key: string,
+  resourceId: string,
+  filename: string,
+  contentType: string,
+) {
+  const ref = { libraryId: parentRef.libraryId, key };
+  return {
+    sourceRef: ref,
+    metadata: {
+      ref,
+      parentRef,
+      revision: `revision:${key}`,
+      title: filename,
+      filename,
+      contentType,
+      charset: null,
+      url: null,
+      linkMode: "linked_file",
+      role: "ordinary",
+      file: { state: "available", path: "managed-by-resource" },
+    },
+    file: {
+      state: "available",
+      resourceRef: { kind: "workflow_resource", id: resourceId },
+      filename,
+      contentType,
+      sizeBytes: 1,
+      sha256: "fixture",
+    },
+  };
+}
+
+function bibliographyFixture(readResult: () => any) {
+  return {
+    async render(args: any) {
+      const result = readResult();
+      if (!result?.ok) throw new Error("export failed");
+      const formatId = result.fallbackUsed ? "bibtex" : "better-bibtex";
+      return {
+        content: result.content,
+        requestedFormats: args.formatPreference,
+        usedFormat: {
+          ref: { id: formatId },
+          label: result.translator.label,
+          fileExtension: "bib",
+          contentType: "application/x-bibtex",
+          availability: "available",
+          optionsSchema: null,
+        },
+        fallbackUsed: result.fallbackUsed,
+        issues: result.fallbackUsed
+          ? [{ code: result.attempts?.[0]?.errorCode || "unavailable" }]
+          : [],
+      };
+    },
+  };
+}
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 import { applyResult as applyResearchBundleResult } from "../../workflows_builtin/literature-workbench-package/export-research-bundle/hooks/applyResult.mjs";
 
@@ -39,6 +167,21 @@ describe("export research bundle workflow", function () {
     assert.equal(workflow?.parameters?.maxTopics?.default, 5);
     assert.equal(workflow?.parameters?.maxCorePapers?.default, 20);
     assert.equal(workflow?.parameters?.maxRelatedPapers?.default, 80);
+    assert.deepInclude(workflow?.parameters?.maxTopics || {}, {
+      min: 0,
+      max: 10,
+      integer: true,
+    });
+    assert.deepInclude(workflow?.parameters?.maxCorePapers || {}, {
+      min: 1,
+      max: 50,
+      integer: true,
+    });
+    assert.deepInclude(workflow?.parameters?.maxRelatedPapers || {}, {
+      min: 1,
+      max: 200,
+      integer: true,
+    });
   });
 
   it("ships a self-contained automatic skill package", async function () {
@@ -63,12 +206,30 @@ describe("export research bundle workflow", function () {
       ),
     );
     assert.notProperty(parameters.properties, "language");
+    assert.deepEqual(parameters.properties.maxTopics, {
+      type: "integer",
+      minimum: 0,
+      maximum: 10,
+      default: 5,
+    });
+    assert.deepEqual(parameters.properties.maxCorePapers, {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      default: 20,
+    });
+    assert.deepEqual(parameters.properties.maxRelatedPapers, {
+      type: "integer",
+      minimum: 1,
+      maximum: 200,
+      default: 80,
+    });
   });
 
   it("validates bounded selection and core subset invariants", function () {
     const selection = normalizeResearchSelection({
       schema_id: "research_bundle.selection",
-      schema_version: "1.0.0",
+      schema_version: "2.0.0",
       intent: {
         paper_title: "Graph-grounded review",
         article_type: "original research",
@@ -90,6 +251,28 @@ describe("export research bundle workflow", function () {
           { paper_ref: "1:LOW00000", semantic_relevance: 0.2, role: "related" },
         ],
       }),
+    );
+    const mandatory = normalizeResearchSelection({
+      ...selection,
+      limits: { ...selection.limits, max_related_papers: 1 },
+      papers: [
+        {
+          paper_ref: "1:TOPIC0001",
+          semantic_relevance: 0.2,
+          role: "related",
+          matched_topic_ids: ["graph"],
+          candidate_sources: ["topic:graph"],
+        },
+        {
+          paper_ref: "1:OPTIONAL1",
+          semantic_relevance: 0.9,
+          role: "core",
+        },
+      ],
+    });
+    assert.sameMembers(
+      mandatory.papers.map((paper) => paper.paper_ref),
+      ["1:TOPIC0001", "1:OPTIONAL1"],
     );
     assert.equal(
       normalizeResearchSelection({
@@ -120,39 +303,81 @@ describe("export research bundle workflow", function () {
     );
   });
 
+  it("accepts the documented maximum selection limits", function () {
+    const selection = normalizeResearchSelection({
+      schema_id: "research_bundle.selection",
+      schema_version: "2.0.0",
+      intent: {
+        paper_title: "Maximum bounded review",
+        article_type: "original research",
+        research_content: "The documented Research Bundle selection limits",
+      },
+      limits: {
+        max_topics: 10,
+        max_core_papers: 50,
+        max_related_papers: 200,
+      },
+      topics: Array.from({ length: 10 }, (_, index) => ({
+        topic_id: `topic-${String(index + 1).padStart(2, "0")}`,
+        relevance: 0.9,
+      })),
+      papers: Array.from({ length: 200 }, (_, index) => ({
+        paper_ref: `1:P${String(index + 1).padStart(4, "0")}`,
+        semantic_relevance: 0.9,
+        role: index < 50 ? "core" : "related",
+      })),
+      diagnostics: [],
+    });
+
+    assert.deepEqual(selection.limits, {
+      max_topics: 10,
+      max_core_papers: 50,
+      max_related_papers: 200,
+    });
+    assert.lengthOf(selection.topics, 10);
+    assert.lengthOf(selection.papers, 200);
+    assert.lengthOf(
+      selection.papers.filter((paper) => paper.role === "core"),
+      50,
+    );
+  });
+
   it("uses documented graph and fallback score weights", function () {
     assert.closeTo(
       computeResearchPaperScore({
         semantic: 0.8,
+        quality: 0.9,
         graph: 0.6,
         topic: 0.4,
         readiness: 1,
       }),
-      0.71,
+      0.735,
       0.0001,
     );
     assert.closeTo(
       computeResearchPaperScore({
         semantic: 0.8,
+        quality: 0.9,
         graph: 0,
         topic: 0.4,
         readiness: 1,
         graphAvailable: false,
       }),
-      0.75,
+      0.765,
       0.0001,
     );
   });
 
-  it("collects every supported analysis and conversation payload type", function () {
+  it("collects the complete literature-analysis payload set", function () {
     for (const payloadType of [
       "digest-markdown",
       "references-json",
       "citation-analysis-json",
-      "conversation-note-markdown",
+      "literature-score-json",
     ]) {
       assert.isTrue(isResearchPayloadType(payloadType));
     }
+    assert.isFalse(isResearchPayloadType("conversation-note-markdown"));
     assert.isFalse(isResearchPayloadType("unrelated-payload"));
     assert.equal(
       researchPayloadArtifactPath({
@@ -171,6 +396,15 @@ describe("export research bundle workflow", function () {
         format: "json",
       }),
       "papers/paper-001/citation-analysis-002.json",
+    );
+    assert.equal(
+      researchPayloadArtifactPath({
+        logicalId: "paper-001",
+        payloadType: "literature-score-json",
+        ordinal: 3,
+        format: "json",
+      }),
+      "papers/paper-001/literature-score-003.json",
     );
   });
 
@@ -211,7 +445,7 @@ describe("export research bundle workflow", function () {
           logical_id: "paper-001",
           paper_ref: "1:AAAA1111",
           role: "core",
-          score: 0.9,
+          selection_score: 0.9,
           metadata_path: "papers/paper-001/metadata.json",
           source: { kind: "markdown", path: "papers/paper-001/source.md" },
           payloads: [
@@ -243,6 +477,23 @@ describe("export research bundle workflow", function () {
       assert.equal(tableCellCount(tableLines[paperHeaderIndex]), 7);
       assert.equal(tableCellCount(tableLines[paperHeaderIndex + 1]), 7);
     }
+  });
+
+  it("renders a minimal deterministic index for Topic ids and paper titles", function () {
+    const index = renderResearchBundleIndex({
+      topics: [{ topic_id: "topic-a", logical_id: "topic-001" }],
+      papers: [
+        {
+          title: "Graph | Evidence",
+          paper_ref: "1:AAAA1111",
+          logical_id: "paper-001",
+        },
+      ],
+    });
+    assert.include(index, "| topic-a | `topics/topic-001` |");
+    assert.include(index, "| Graph \\| Evidence | `papers/paper-001` |");
+    assert.notInclude(index, "manifest.json");
+    assert.notInclude(index, "score");
   });
 
   it("registers topic reports, all metadata, and core Markdown sidecars as one atomic product", async function () {
@@ -328,9 +579,82 @@ describe("export research bundle workflow", function () {
               };
             },
           },
+          researchBundles: {
+            async materializePapers() {
+              return {
+                papers: [
+                  materializedPaper({ libraryId: 1, key: "AAAA1111" }, "A", [
+                    materializedAttachment(
+                      { libraryId: 1, key: "AAAA1111" },
+                      "MD",
+                      "markdown",
+                      "paper.md",
+                      "text/markdown",
+                    ),
+                  ]),
+                  materializedPaper({ libraryId: 1, key: "BBBB2222" }, "B", [
+                    materializedAttachment(
+                      { libraryId: 1, key: "BBBB2222" },
+                      "PDF",
+                      "pdf",
+                      "second.pdf",
+                      "application/pdf",
+                    ),
+                  ]),
+                  materializedPaper({ libraryId: 1, key: "CCCC3333" }, "C"),
+                ],
+                completeness: "complete",
+                issues: [],
+              };
+            },
+          },
           synthesis: {
-            async getTopicReport() {
-              return { markdown: "# Topic report" };
+            topics: {
+              async getReport() {
+                return { markdown: "# Topic report" };
+              },
+            },
+          },
+          resources: {
+            async get(ref: { id: string }) {
+              const resource = {
+                markdown: {
+                  path: markdownPath,
+                  displayName: "paper.md",
+                  contentType: "text/markdown",
+                },
+                pdf: {
+                  path: pdfPath,
+                  displayName: "second.pdf",
+                  contentType: "application/pdf",
+                },
+              }[ref.id as "markdown" | "pdf"];
+              return {
+                ref: { kind: "workflow_resource", id: ref.id },
+                ...resource,
+              };
+            },
+          },
+          bibliography: {
+            async render(args: any) {
+              exportedItemKeys.push(
+                ...args.itemRefs.map((ref: any) => ref.key),
+              );
+              return {
+                content:
+                  "@article{a, title={A}}\n@article{b, title={B}}\n@article{c, title={C}}\n",
+                requestedFormats: args.formatPreference,
+                usedFormat: {
+                  ref: { id: "better-bibtex" },
+                  label: "Better BibTeX",
+                  fileExtension: "bib",
+                  contentType: "application/x-bibtex",
+                  availability: "available",
+                  optionsSchema: null,
+                },
+                fallbackUsed: false,
+                issues: [],
+              };
             },
           },
           library: {
@@ -407,6 +731,7 @@ describe("export research bundle workflow", function () {
       assert.include(productPaths, "papers/paper-002/source.pdf");
       assert.include(productPaths, "papers/paper-003/metadata.json");
       assert.include(productPaths, "references.bib");
+      assert.include(productPaths, "index.md");
       assert.deepEqual(exportedItemKeys, ["AAAA1111", "BBBB2222", "CCCC3333"]);
       assert.notInclude(productPaths, "papers/paper-001.image-m1-figure.png");
       assert.notInclude(productPaths, `papers/paper-001/${outsideFileName}`);
@@ -428,6 +753,9 @@ describe("export research bundle workflow", function () {
         result.manifest.papers[0].metadata_path,
         "papers/paper-001/metadata.json",
       );
+      assert.isNull(result.manifest.papers[2].source);
+      assert.notInclude(productPaths, "papers/paper-003/source.md");
+      assert.notInclude(productPaths, "papers/paper-003/source.pdf");
       assert.deepEqual(result.manifest.papers[0].source.assets, [
         {
           path: "papers/paper-001/figures/a b.png",
@@ -450,6 +778,7 @@ describe("export research bundle workflow", function () {
       });
       assert.notProperty(result.manifest.files, "manifest.json");
       assert.property(result.manifest.files, "references.bib");
+      assert.property(result.manifest.files, "index.md");
       assert.deepInclude(result.manifest.bibliography, {
         status: "generated",
         path: "references.bib",
@@ -507,6 +836,8 @@ describe("export research bundle workflow", function () {
               }),
               exportText: async () => exportResult,
             },
+            researchBundles: metadataOnlyResearchBundles(),
+            bibliography: bibliographyFixture(() => exportResult),
             archive: createWorkflowArchiveApi(),
           },
         },
@@ -615,6 +946,7 @@ describe("export research bundle workflow", function () {
               throw new Error("must not be called");
             },
           },
+          researchBundles: metadataOnlyResearchBundles({ missing: true }),
           archive: createWorkflowArchiveApi(),
         },
       },
@@ -699,6 +1031,16 @@ describe("export research bundle workflow", function () {
               };
             },
           },
+          researchBundles: metadataOnlyResearchBundles({
+            coreSourceMissing: true,
+          }),
+          bibliography: bibliographyFixture(() => ({
+            ok: true,
+            content: "@article{a, title={A}}\n",
+            translator: { label: "Better BibTeX" },
+            fallbackUsed: false,
+            attempts: [],
+          })),
           library: { getItemAttachments: async () => [] },
           file: {
             exists: async () => false,

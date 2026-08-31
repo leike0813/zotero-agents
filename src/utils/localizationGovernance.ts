@@ -11,7 +11,25 @@ function normalizeLocale(value: unknown) {
     .toLowerCase();
 }
 
-export function resolveRuntimeLocale() {
+export function canonicalizeLocale(value: unknown) {
+  const locale = String(value || "")
+    .trim()
+    .replace(/_/g, "-");
+  if (!locale) {
+    return "en-US";
+  }
+  try {
+    return Intl.getCanonicalLocales(locale)[0] || "en-US";
+  } catch {
+    return "en-US";
+  }
+}
+
+export function resolveRuntimeLocale(locale?: unknown) {
+  const explicit = normalizeLocale(locale);
+  if (explicit) {
+    return explicit;
+  }
   const runtime = globalThis as {
     Zotero?: { locale?: unknown };
     navigator?: { language?: unknown };

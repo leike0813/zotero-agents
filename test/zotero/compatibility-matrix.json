@@ -1,0 +1,172 @@
+{
+  "schemaId": "zotero-agents.zotero-compatibility-matrix.v1",
+  "extractRecipeVersion": 1,
+  "platforms": {
+    "linux-x64": {
+      "os": "linux",
+      "arch": "x64",
+      "runner": "ubuntu-24.04"
+    },
+    "windows-x64": {
+      "os": "windows",
+      "arch": "x64",
+      "runner": "windows-2025"
+    },
+    "macos-x64": {
+      "os": "macos",
+      "arch": "x64",
+      "runner": "macos-15-intel"
+    },
+    "macos-arm64": {
+      "os": "macos",
+      "arch": "arm64",
+      "runner": "macos-15"
+    }
+  },
+  "targets": [
+    {
+      "id": "zotero-7-linux-x64",
+      "family": "zotero-7",
+      "version": "7.0.32",
+      "channel": "release",
+      "platform": "linux-x64",
+      "downloadUrl": "https://download.zotero.org/client/release/7.0.32/Zotero-7.0.32_linux-x86_64.tar.bz2",
+      "sha256": "8ddd78ffcdb2fee4f4e4b40b4e9444fb356bed01ca37a5565835f9b6f32db1ee",
+      "archiveFormat": "tar.bz2",
+      "expectedBinary": "Zotero_linux-x86_64/zotero",
+      "mozillaBaseline": "firefox115",
+      "policy": {
+        "pullRequestBehavior": true,
+        "mainBehavior": true,
+        "xpiSmoke": true,
+        "blocking": true
+      }
+    },
+    {
+      "id": "zotero-9-linux-x64",
+      "family": "zotero-9",
+      "version": "9.0.6",
+      "channel": "release",
+      "platform": "linux-x64",
+      "downloadUrl": "https://download.zotero.org/client/release/9.0.6/Zotero-9.0.6_linux-x86_64.tar.xz",
+      "sha256": "0db6e8f94bd0d84e862e6ef5c3e217030e173c0cd3c6dfbc836252c650fea3dd",
+      "archiveFormat": "tar.xz",
+      "expectedBinary": "Zotero_linux-x86_64/zotero",
+      "mozillaBaseline": "firefox140",
+      "policy": {
+        "pullRequestBehavior": true,
+        "mainBehavior": true,
+        "xpiSmoke": true,
+        "blocking": true
+      }
+    },
+    {
+      "id": "zotero-10-linux-x64",
+      "family": "zotero-10",
+      "version": "10.0.1",
+      "channel": "release",
+      "platform": "linux-x64",
+      "downloadUrl": "https://download.zotero.org/client/release/10.0.1/Zotero-10.0.1_linux-x86_64.tar.xz",
+      "sha256": "7bf57ab1e757077f2168a58cbc20b7f6db516ae7ad787bca94c6cdf0df6df200",
+      "archiveFormat": "tar.xz",
+      "expectedBinary": "Zotero_linux-x86_64/zotero",
+      "mozillaBaseline": "firefox140",
+      "policy": {
+        "pullRequestBehavior": true,
+        "mainBehavior": true,
+        "xpiSmoke": true,
+        "blocking": true
+      }
+    },
+    {
+      "id": "zotero-7-windows-x64",
+      "family": "zotero-7",
+      "version": "7.0.32",
+      "channel": "release",
+      "platform": "windows-x64",
+      "downloadUrl": "https://download.zotero.org/client/release/7.0.32/Zotero-7.0.32_win-x64.zip",
+      "sha256": "2ab5b1825600223655efec694e7ec0a406886f42c8cbad4138c00470c550e190",
+      "archiveFormat": "zip",
+      "expectedBinary": "Zotero_win-x64/zotero.exe",
+      "mozillaBaseline": "firefox115",
+      "policy": {
+        "pullRequestBehavior": true,
+        "mainBehavior": true,
+        "xpiSmoke": true,
+        "blocking": true
+      }
+    },
+    {
+      "id": "zotero-9-windows-x64",
+      "family": "zotero-9",
+      "version": "9.0.6",
+      "channel": "release",
+      "platform": "windows-x64",
+      "downloadUrl": "https://download.zotero.org/client/release/9.0.6/Zotero-9.0.6_win-x64.zip",
+      "sha256": "5101200aa900558d61abd6d0b4d504c8fb5b0e9edc9ee40f6d77bc21ec2eac9e",
+      "archiveFormat": "zip",
+      "expectedBinary": "Zotero_win-x64/zotero.exe",
+      "mozillaBaseline": "firefox140",
+      "policy": {
+        "pullRequestBehavior": true,
+        "mainBehavior": true,
+        "xpiSmoke": true,
+        "blocking": true
+      }
+    },
+    {
+      "id": "zotero-10-windows-x64",
+      "family": "zotero-10",
+      "version": "10.0.1",
+      "channel": "release",
+      "platform": "windows-x64",
+      "downloadUrl": "https://download.zotero.org/client/release/10.0.1/Zotero-10.0.1_win-x64.zip",
+      "sha256": "bf8604949c3018a3aca8ee140b578defcc6e70a49a155d00e8087d74ad788fd5",
+      "archiveFormat": "zip",
+      "expectedBinary": "Zotero_win-x64/zotero.exe",
+      "mozillaBaseline": "firefox140",
+      "policy": {
+        "pullRequestBehavior": true,
+        "mainBehavior": true,
+        "xpiSmoke": true,
+        "blocking": true
+      }
+    },
+    {
+      "id": "zotero-10-macos-x64",
+      "family": "zotero-10",
+      "version": "10.0.1",
+      "channel": "release",
+      "platform": "macos-x64",
+      "downloadUrl": "https://download.zotero.org/client/release/10.0.1/Zotero-10.0.1.dmg",
+      "sha256": "1b6e57cedb2dbcbe3f31c06069734d2201559da99a34c7f84167b6b4c7ee5aa8",
+      "archiveFormat": "dmg",
+      "expectedBinary": "Zotero.app/Contents/MacOS/zotero",
+      "mozillaBaseline": "firefox140",
+      "policy": {
+        "pullRequestBehavior": false,
+        "mainBehavior": false,
+        "xpiSmoke": true,
+        "blocking": false
+      }
+    },
+    {
+      "id": "zotero-10-macos-arm64",
+      "family": "zotero-10",
+      "version": "10.0.1",
+      "channel": "release",
+      "platform": "macos-arm64",
+      "downloadUrl": "https://download.zotero.org/client/release/10.0.1/Zotero-10.0.1.dmg",
+      "sha256": "1b6e57cedb2dbcbe3f31c06069734d2201559da99a34c7f84167b6b4c7ee5aa8",
+      "archiveFormat": "dmg",
+      "expectedBinary": "Zotero.app/Contents/MacOS/zotero",
+      "mozillaBaseline": "firefox140",
+      "policy": {
+        "pullRequestBehavior": false,
+        "mainBehavior": false,
+        "xpiSmoke": true,
+        "blocking": false
+      }
+    }
+  ]
+}

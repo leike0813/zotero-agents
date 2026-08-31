@@ -8,6 +8,7 @@ export function createAcpRuntimeReplayOwnerIdentity(syntheticRootId: string) {
   const chat = {
     backendId: ACP_RUNTIME_REPLAY_BACKEND_ID,
     conversationId: `${syntheticRootId}-conversation`,
+    sessionId: `${syntheticRootId}-session`,
   };
   return {
     syntheticRootId,

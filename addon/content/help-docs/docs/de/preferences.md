@@ -100,7 +100,7 @@ Alle Backend-Profile verwalten:
 
 ## WebDAV Sync
 
-Geräteübergreifende Synchronisierungslösung für das Synthesis Workbench als Ersatz für das eingestellte Git Sync. Details siehe [WebDAV Sync](#doc/synthesis%2Fwebdav-sync).
+Geräteübergreifende dauerhafte Synchronisierung für das Synthesis Workbench. Details siehe [WebDAV Sync](#doc/synthesis%2Fwebdav-sync).
 
 | Einstellung | Typ | Standard | Beschreibung |
 |-------------|-----|----------|-------------|

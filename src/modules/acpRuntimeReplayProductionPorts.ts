@@ -39,12 +39,11 @@ import {
 } from "./acpRuntimeReplayPublicationSidecar";
 import {
   getActiveAcpChatOwner,
-  inspectSyntheticAcpChatReplayTimers,
+  inspectAcpChatSessionTimers,
 } from "./acpSessionManager";
-import {
-  getSelectedAcpSkillRunRequestId,
-  inspectSyntheticAcpSkillRunReplayTimers,
-} from "./acpSkillRunStore";
+import { inspectAcpSyntheticConnectionAdapterTimers } from "./acpSyntheticConnectionAdapter";
+import { getSelectedAcpSkillRunRequestId } from "./acpSkillRunWorkspaceSelection";
+import { inspectAcpSkillRunTimers } from "./acpSkillRunWorkspaceDataPlane";
 
 export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
   surface: "closed" | "open-inactive" | "target-active";
@@ -64,13 +63,17 @@ export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
     const inspections =
       args.sourceKind === "acp-chat-conversation"
         ? [
-            inspectSyntheticAcpChatReplayTimers({
+            inspectAcpChatSessionTimers({
+              backendId: identity.chat.backendId,
+              conversationId: identity.chat.conversationId,
+            }),
+            inspectAcpSyntheticConnectionAdapterTimers({
               backendId: identity.chat.backendId,
               conversationId: identity.chat.conversationId,
             }),
           ]
         : [
-            inspectSyntheticAcpSkillRunReplayTimers({
+            inspectAcpSkillRunTimers({
               requestIds: [...requestIds],
             }),
           ];
@@ -148,15 +151,11 @@ export function createAcpRuntimeReplayProductionProfilerPort(): AcpRuntimeReplay
         sourceKind,
         surface,
       });
-      const zoteroMajorRaw = Number.parseInt(String(Zotero.version || "0"), 10);
       startAcpRuntimeProfile({
         requestId: syntheticRootId,
         displayMode: getAssistantExecutionDisplayMode(),
         transport: "unknown",
-        zoteroMajor:
-          zoteroMajorRaw === 7 || zoteroMajorRaw === 9
-            ? zoteroMajorRaw
-            : "unknown",
+        zoteroMajor: parseSupportedZoteroMajor(Zotero.version),
       });
       if (sourceKind === "acp-chat-conversation") {
         registerAcpRuntimeProfileAlias(
@@ -520,3 +519,4 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
     },
   };
 }
+import { parseSupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";

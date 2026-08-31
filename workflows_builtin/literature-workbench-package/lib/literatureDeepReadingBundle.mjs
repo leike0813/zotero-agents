@@ -1,7 +1,16 @@
 import { parsePayloadBlock, parseWorkbenchNoteKind } from "./noteCodecs.mjs";
 import { resolveWorkbenchEmbeddedPayloadBlock } from "./embeddedPayloadAttachments.mjs";
 import { getBaseName, joinPath, sanitizeFileNameSegment } from "./path.mjs";
-import { asUint8Array, createStoreZipBytes } from "./zipStore.mjs";
+import { portableItemRef } from "./runtime.mjs";
+
+function asUint8Array(value) {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return new Uint8Array(0);
+}
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -286,7 +295,7 @@ async function rewriteMarkdownImages({
       copiedBySourcePath.set(sourceKey, bundlePath);
       entries.push({
         name: bundlePath,
-        bytes,
+        content: { kind: "bytes", bytes },
       });
       replacements.push({
         start: ref.start,
@@ -327,20 +336,17 @@ async function rewriteMarkdownImages({
   };
 }
 
-function getAttachmentFileName(entry, runtime) {
-  const viaHelper = runtime?.helpers?.getAttachmentFileName?.(entry);
+function getAttachmentFileName(entry) {
   return (
-    normalizeString(viaHelper) ||
-    normalizeString(entry?.item?.getField?.("title")) ||
+    normalizeString(entry?.item?.filename) ||
+    normalizeString(entry?.item?.title) ||
     getBaseName(normalizeString(entry?.filePath || entry?.path || ""))
   );
 }
 
-async function resolveAttachmentFilePath(entry, runtime) {
-  const viaHelper = runtime?.helpers?.getAttachmentFilePath?.(entry);
+async function resolveAttachmentFilePath(entry) {
   const direct = entry?.filePath || entry?.path || entry?.item?.filePath;
-  const fromItem = await entry?.item?.getFilePathAsync?.();
-  const resolved = normalizeString(viaHelper || direct || fromItem);
+  const resolved = normalizeString(direct);
   if (!resolved) {
     throw new Error(
       "literature-deep-reading cannot resolve source attachment path",
@@ -350,11 +356,19 @@ async function resolveAttachmentFilePath(entry, runtime) {
 }
 
 function readParentField(parentItem, fieldName) {
-  return normalizeString(parentItem?.getField?.(fieldName));
+  return normalizeString(
+      parentItem?.getField?.(fieldName) ??
+      parentItem?.fields?.[fieldName] ??
+      parentItem?.data?.[fieldName] ??
+      parentItem?.[fieldName],
+  );
 }
 
 function readParentCreators(parentItem) {
-  const creators = parentItem?.getCreators?.();
+  const creators =
+    parentItem?.getCreators?.() ||
+    parentItem?.creators ||
+    parentItem?.data?.creators;
   if (!Array.isArray(creators)) {
     return [];
   }
@@ -375,11 +389,12 @@ function readParentCreators(parentItem) {
 }
 
 function normalizePaperRef(parentItem) {
-  const itemKey = normalizeString(parentItem?.key);
-  if (!itemKey) {
+  try {
+    const ref = portableItemRef(parentItem);
+    return `${ref.libraryId}:${ref.key}`;
+  } catch {
     return "";
   }
-  return `1:${itemKey}`;
 }
 
 function normalizeArtifactKind(kind) {
@@ -475,7 +490,7 @@ async function addArtifactEntry({
       `${payloadType || normalizedKind} payload decoded to empty content`,
     );
   }
-  entries.push({ name: destination, text });
+  entries.push({ name: destination, content: { kind: "text", text } });
   const hash = await sha256Hex(bytes);
   const row = {
     type: normalizedKind,
@@ -577,16 +592,18 @@ async function collectSidecarArtifacts({
     references: 0,
     "citation-analysis": 0,
   };
-  const noteIds = parentItem?.getNotes?.() || [];
+  const host = runtime.hostApi;
+  const parentRef = portableItemRef(parentItem);
+  const notes = await host.library.getItemNotes(parentRef);
   const paperRef = normalizePaperRef(parentItem);
 
   if (
     paperRef &&
     runtime?.hostApi?.synthesis &&
-    typeof runtime.hostApi.synthesis.readPaperArtifacts === "function"
+    typeof runtime.hostApi.synthesis.artifacts?.readPaperArtifacts === "function"
   ) {
     try {
-      const result = await runtime.hostApi.synthesis.readPaperArtifacts({
+      const result = await runtime.hostApi.synthesis.artifacts.readPaperArtifacts({
         paper_refs: [paperRef],
         artifact_types: ["digest", "references", "citation_analysis"],
       });
@@ -658,17 +675,9 @@ async function collectSidecarArtifacts({
     });
   }
 
-  for (const noteRef of noteIds) {
-    let noteItem = null;
-    try {
-      noteItem = runtime.helpers.resolveItemRef(noteRef);
-    } catch {
-      noteItem = null;
-    }
-    if (!noteItem) {
-      continue;
-    }
-    const noteContent = noteItem.getNote?.() || "";
+  for (const note of notes) {
+    const noteItem = await host.library.getNoteDetail(note.ref, { format: "html" });
+    const noteContent = noteItem.content;
     const kind = parseWorkbenchNoteKind(noteContent);
     if (!kinds.has(kind) || artifactEntries[kind]) {
       continue;
@@ -734,13 +743,16 @@ async function collectSidecarArtifacts({
 
   entries.push({
     name: "artifacts/artifact-manifest.json",
-    text: JSON.stringify(
-      {
-        artifacts: artifactManifest,
-      },
-      null,
-      2,
-    ),
+    content: {
+      kind: "text",
+      text: JSON.stringify(
+        {
+          artifacts: artifactManifest,
+        },
+        null,
+        2,
+      ),
+    },
   });
   return artifactEntries;
 }
@@ -755,12 +767,12 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
     workflowId = "literature-deep-reading",
   } = args;
   const hostFile = runtime.hostApi.file;
-  const sourcePath = await resolveAttachmentFilePath(sourceEntry, runtime);
+  const sourcePath = await resolveAttachmentFilePath(sourceEntry);
   const diagnostics = [];
   const entries = [];
-  const sourceFileName = getAttachmentFileName(sourceEntry, runtime);
-  const sourceIsMarkdown = runtime.helpers.isMarkdownAttachment(sourceEntry);
-  const sourceIsPdf = runtime.helpers.isPdfAttachment(sourceEntry);
+  const sourceFileName = getAttachmentFileName(sourceEntry);
+  const sourceIsMarkdown = /\.(?:md|markdown|mmd)$/i.test(sourcePath);
+  const sourceIsPdf = /\.pdf$/i.test(sourcePath);
 
   let sourceMarkdownStatus = "unavailable";
   let imageManifest = [];
@@ -777,13 +789,13 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
     imageManifest = rewritten.imageManifest;
     entries.push({
       name: "source.md",
-      text: rewritten.markdown,
+      content: { kind: "text", text: rewritten.markdown },
     });
   } else if (sourceIsPdf) {
     const bytes = asUint8Array(await hostFile.readBytes(sourcePath));
     entries.push({
       name: "original.pdf",
-      bytes,
+      content: { kind: "bytes", bytes },
     });
     diagnostics.push({
       level: "info",
@@ -823,7 +835,7 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
       ) {
         entries.push({
           name: "translator/alignment.json",
-          text: alignmentText,
+          content: { kind: "text", text: alignmentText },
         });
         translatorAlignment = {
           status: "available",
@@ -900,18 +912,41 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
 
   entries.push({
     name: "source-manifest.json",
-    text: JSON.stringify(sourceManifest, null, 2),
+    content: { kind: "text", text: JSON.stringify(sourceManifest, null, 2) },
   });
 
   if (typeof hostFile.materializeWorkflowInputFile !== "function") {
     throw new Error("hostApi.file.materializeWorkflowInputFile is required");
   }
-  const materialized = await hostFile.materializeWorkflowInputFile({
-    workflowId,
-    key: "source_bundle_path",
-    fileName: `source-bundle-parent-${String(parentItem?.id || "unknown")}.zip`,
-    bytes: createStoreZipBytes(entries),
-  });
+  const hostArchive = runtime.hostApi.archive;
+  if (typeof hostArchive?.writeZipAtomic !== "function") {
+    throw new Error("hostApi.archive.writeZipAtomic is required");
+  }
+  const temporaryRoot = await hostFile.getTempDirectoryPath();
+  const temporaryPath = joinPath(
+    temporaryRoot,
+    `literature-deep-reading-${Date.now()}-${Math.random().toString(36).slice(2)}.zip`,
+  );
+  let materialized;
+  try {
+    await hostArchive.writeZipAtomic({
+      targetPath: temporaryPath,
+      entries,
+    });
+    materialized = await hostFile.materializeWorkflowInputFile({
+      key: "source_bundle_path",
+      fileName: `source-bundle-parent-${String(parentItem?.id || "unknown")}.zip`,
+      content: {
+        kind: "bytes",
+        bytes: await hostFile.readBytes(temporaryPath),
+      },
+    });
+  } finally {
+    await hostFile.remove({
+      path: temporaryPath,
+      missing: "ignore",
+    });
+  }
   const bundlePath = String(materialized?.path || "").trim();
   if (!bundlePath) {
     throw new Error("hostApi.file.materializeWorkflowInputFile returned empty path");

@@ -1,0 +1,26 @@
+{
+  "schema": "synthesis-sidecar-runtime-prebuild-result.v2",
+  "repository": "leike0813/zotero-agents",
+  "workflow": "prebuild-synthesis-sidecar-runtime.yml",
+  "runId": 30437128176,
+  "requestId": "ssp-2026-07-29-dev-refactor-fresh-v14",
+  "sourceSha": "777401f05a635237a0d0da22fe93acb6b344d568",
+  "buildFingerprint": "5136480a56dfa1ab8c2d95c7c1cead7221c2e072e36c515bfc3b36be5f3d3335",
+  "aggregate": "f7ca685fe05b09751e8ff028c0496d49f39dcdd3b3f3c9b321adf24090bb7b56",
+  "prebuildBranch": "synthesis-sidecar-runtime-prebuilds",
+  "prebuildCommit": "20c72001686ffa3d1f3d7ddcf396318c70389299",
+  "setPath": "sets/f7ca685fe05b09751e8ff028c0496d49f39dcdd3b3f3c9b321adf24090bb7b56",
+  "cache": {
+    "cacheHits": [],
+    "cacheMisses": [
+      "darwin-arm64",
+      "darwin-x64",
+      "linux-arm",
+      "linux-arm64",
+      "linux-x64",
+      "linux-x86",
+      "win32-x64"
+    ],
+    "cacheSourceRuns": []
+  }
+}

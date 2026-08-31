@@ -12,15 +12,10 @@ import {
   appendAcpSkillRunUserReply,
   getAcpSkillRunSummaryDiagnosticsForTests,
   getAcpSkillRunRecord,
-  hasAcpSkillRunController,
-  detachAcpSkillRunControllerAfterApplyResult,
-  markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   recordAcpSkillRunSessionUpdate,
-  registerAcpSkillRunController,
   resetAcpSkillRunSummaryDiagnosticsForTests,
   resetAcpSkillRunsForTests,
-  shutdownAcpSkillRunConversations,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -70,6 +65,15 @@ import {
   clearRuntimeLogs,
   listRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
+import {
+  hasAcpSkillRunController,
+  registerAcpSkillRunController,
+} from "../../src/modules/acpSkillRunControllerRegistry";
+import {
+  detachAcpSkillRunControllerAfterApplyResult,
+  markAcpSkillRunApplyResult,
+  shutdownAcpSkillRunConversations,
+} from "../../src/modules/acpSkillRunActions";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-runtime-memory-"));

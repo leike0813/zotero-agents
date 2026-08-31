@@ -36,21 +36,21 @@ export function resolveSourceAttachment(selectionContext) {
     fileName: basenamePath(filePath),
     itemId: Number(attachment?.item?.id || 0) || null,
     itemKey: normalizeString(attachment?.item?.key),
+    itemRef: attachment?.item?.key && attachment?.item?.libraryID
+      ? { libraryId: Number(attachment.item.libraryID), key: normalizeString(attachment.item.key) }
+      : null,
     parentId:
       Number(attachment?.parent?.id || attachment?.item?.parentItemID || 0) ||
       null,
   };
 }
 
-async function readPdfBytes(filePath) {
-  const io = globalThis.IOUtils;
-  if (io?.read) {
-    const bytes = await io.read(filePath);
-    return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+async function readPdfBytes(args) {
+  const reader = args.runtime?.hostApi?.file?.readBytes;
+  if (typeof reader !== "function") {
+    throw new Error("Workflow Host file.readBytes is unavailable");
   }
-  const dynamicImport = new Function("specifier", "return import(specifier)");
-  const fs = await dynamicImport("fs/promises");
-  const bytes = await fs.readFile(filePath);
+  const bytes = await reader(args.filePath);
   return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 }
 
@@ -91,21 +91,8 @@ function normalizeOutlineEntries(value) {
 }
 
 async function readMetadataFromRuntimeHelper(args) {
-  const helpers = args.runtime?.helpers;
-  const reader =
-    helpers?.mineruReadPdfMetadata || helpers?.readPdfMetadataForWorkflow;
-  if (typeof reader !== "function") {
-    return null;
-  }
-  const value = await reader(args.filePath);
-  if (!isObject(value)) {
-    return null;
-  }
-  return {
-    pageCount: normalizePageCount(value.pageCount || value.numPages),
-    outline: normalizeOutlineEntries(value.outline),
-    source: "runtime-helper",
-  };
+  void args;
+  return null;
 }
 
 function getPdfJsFromModule(moduleValue) {
@@ -185,12 +172,12 @@ async function flattenPdfJsOutline(doc, entries, level = 1, output = []) {
   return output;
 }
 
-async function readMetadataFromPdfJs(filePath) {
+async function readMetadataFromPdfJs(args) {
   const pdfjs = await loadPdfJs();
   if (!pdfjs) {
     return null;
   }
-  const bytes = await readPdfBytes(filePath);
+  const bytes = await readPdfBytes(args);
   let loadingTask = null;
   let doc = null;
   try {
@@ -240,8 +227,8 @@ function estimatePageCountFromPdfText(text) {
   return maxCount;
 }
 
-async function readMetadataFromFallback(filePath) {
-  const bytes = await readPdfBytes(filePath);
+async function readMetadataFromFallback(args) {
+  const bytes = await readPdfBytes(args);
   const text = decodePdfBytes(bytes);
   const pageCount = estimatePageCountFromPdfText(text);
   if (pageCount <= 0) {
@@ -258,8 +245,8 @@ export async function readPdfSplitMetadata(args) {
   const diagnostics = [];
   const readers = [
     readMetadataFromRuntimeHelper,
-    ({ filePath }) => readMetadataFromPdfJs(filePath),
-    ({ filePath }) => readMetadataFromFallback(filePath),
+    readMetadataFromPdfJs,
+    readMetadataFromFallback,
   ];
   for (const reader of readers) {
     try {

@@ -21,8 +21,12 @@ workflow.json (manifest 파일)
 |------|------|
 | `attachment` | 항목의 첨부파일 |
 | `parent` | 선택된 항목의 상위 항목 |
+| `child` | 하위 항목 |
+| `selection` | 직접 선택된 항목 |
 | `note` | 노트 항목 |
-| `workflow` | 일괄 처리 범위 |
+| `generated-note` | Workflow에 의해 생성된 노트 |
+| `digest-image-target` | 다이제스트 대표 이미지 대상 |
+| `workflow` | 일괄 처리 범위 (선택 불필요) |
 
 ### 훅 시스템
 
@@ -34,15 +38,16 @@ Workflow는 실행의 여러 단계에서 사용자 정의 JavaScript 스크립�
 - **normalizeSettings**: 사용자 설정을 정규화합니다
 - **applyResult**: 백엔드에서 반환된 결과를 Zotero에 적용합니다
 
-## 세 가지 실행 백엔드
+## 네 가지 실행 백엔드
 
-Workflow는 세 가지 백엔드 유형을 통해 실행할 수 있습니다.
+Workflow는 네 가지 백엔드 유형을 통해 실행할 수 있습니다.
 
 | 백엔드 | 요청 유형 | 사용 사례 |
 |---------|-------------|---------|
-| **Skill-Runner** | `skill.run.v1` | 일반 스킬 실행, 인터랙티브 모드 지원 |
-| **ACP** | `acp.skill.run.v1` | ACP 백엔드를 통한 스킬 실행 |
-| **Generic HTTP** | `generic-http.request.v1` | HTTP API 호출 |
+| **Skill-Runner** | `skillrunner.job.v1` / `skillrunner.sequence.v1` | 일반 스킬 실행, 인터랙티브 모드 지원 |
+| **ACP** | `acp.prompt.v1` / `acp.skill.run.v1` / `skillrunner.sequence.v1` | ACP 백엔드를 통한 대화 또는 스킬 실행 |
+| **Generic HTTP** | `generic-http.request.v1` / `generic-http.steps.v1` | HTTP API 호출 |
+| **Pass-through** | `pass-through.run.v1` | 순수 로컬 작업, 원격 백엔드 불필요 |
 
 ## 공식 Workflow 패키지
 
@@ -68,12 +73,13 @@ Workflow는 세 가지 백엔드 유형을 통해 실행할 수 있습니다.
 | **Deep Reading** | 번역 지원 포함 구조화된 심층 독서 HTML 보기를 생성합니다 | 첨부파일 | ACP | [상세](literature-deep-reading) |
 | **Literature Search & Ingest** | AI가 학술 문헌을 검색하여 Zotero로 직접 수집합니다 | workflow | ACP | [상세](literature-search-ingest) |
 | **Collection Collector** | 선언된 범위에 따라 기존 컬렉션을 위해 라이브러리에서 기존 문헌 선택 | workflow | ACP | [상세](collection-collector) |
-| **Export/Import Literature Bundle** | 메타데이터, 첨부파일, 노트가 포함된 Zotero 항목의 휴대 가능한 ZIP 번들 내보내기/가져오기 | 상위 항목 / workflow | 백엔드 불필요 | [상세](export-import-literature-bundle) |
+| **Export/Import Literature Bundle** | 메타데이터, 첨부파일, 노트가 포함된 Zotero 항목의 휴대 가능한 ZIP 번들 내보내기/가져오기 | 상위 항목 / workflow | Pass-through | [상세](export-import-literature-bundle) |
 | **Export Research Bundle** | 라이브러리 및 Synthesis 컨텍스트에서 논문 프로젝트를 위한 읽기 전용 연구 번들 자동 구성 | workflow | Skill-Runner | [상세](export-research-bundle) |
-| **Tag Auditor** | 라이브러리의 모든 항목을 제어된 태그 어휘에 대해 스캔하고 준수 여부 보고 | workflow | 백엔드 불필요 | [상세](tag-auditor) |
+| **Tag Auditor** | 라이브러리의 모든 항목을 제어된 태그 어휘에 대해 스캔하고 준수 여부 보고 | workflow | Pass-through | [상세](tag-auditor) |
 | **Tag Bootstrapper** | 연구 도메인에 대한 제어된 태그 어휘를 대화형으로 생성합니다 | workflow | Skill-Runner | [상세](tag-bootstrapper) |
 | **Tag Regulator** | 제어된 어휘를 기반으로 태그를 정규화하고 새 태그를 추론합니다 | 상위 항목 | Skill-Runner | [상세](tag-regulator) |
-| **Export/Import Notes** | 편집 및 재가져오기를 지원하며 분석 노트를 내보내기 또는 가져오기합니다 | 상위 항목 | 백엔드 불필요 | [상세](export-import-notes) |
+| **Export/Import Notes** | 편집 및 재가져오기를 지원하며 분석 노트를 내보내기 또는 가져오기합니다 | 상위 항목 | Pass-through | [상세](export-import-notes) |
+| **Add Digest Representative Image** | 문헌 다이제스트에 대표 이미지 추가 | 상위 항목 | ACP | — |
 
 ### 🛠️ 유틸리티
 

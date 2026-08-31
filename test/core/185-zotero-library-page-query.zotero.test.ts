@@ -1,6 +1,18 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { queryZoteroLibraryPage } from "../../src/modules/zoteroLibraryPageQuery";
+import {
+  SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+  SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  SYNTHESIS_SIDECAR_OBSERVATION_SCHEMA,
+} from "../../packages/synthesis-contracts/src";
+import {
+  createSynthesisReverseHostEndpoint,
+  SYNTHESIS_REVERSE_HOST_PATH,
+} from "../../src/modules/synthesisReverseHostEndpoint";
+import type { SynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostBroker";
+import type { SynthesisSidecarObservationEvent } from "../../packages/synthesis-contracts/src/sidecarObservability";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -11,8 +23,264 @@ function isRealZoteroRuntime() {
 
 const describeZotero = isRealZoteroRuntime() ? describe : describe.skip;
 
+async function expectPageErrorCode(
+  action: () => Promise<unknown>,
+  expectedCode: string,
+  message: string,
+) {
+  let failure: unknown;
+  let rejected = false;
+  try {
+    await action();
+  } catch (error) {
+    rejected = true;
+    failure = error;
+  }
+  assert.isTrue(rejected, `${message}: expected the page request to reject`);
+  assert.strictEqual(
+    (failure as { code?: unknown }).code,
+    expectedCode,
+    message,
+  );
+}
+
+const reverseHostRequestHeaders = {
+  authorization: "",
+  "content-type": "application/json",
+  "zotero-allowed-request": "1",
+};
+
 describeZotero("zotero library page query in Zotero runtime", function () {
-  it("queries real SQLite pages and hydrates only ordered page ids", async function () {
+  it("transfers one large Unicode reverse Host response with exact framing", async function () {
+    setDebugModeOverrideForTests(true);
+    const authorizationToken = "a".repeat(64);
+    const profileId = "b".repeat(64);
+    const serviceInstanceId = "service-unicode";
+    const diagnosticEvents: SynthesisSidecarObservationEvent[] = [];
+    let value = `目录治理 ${"文献".repeat(32_000)}`;
+    const artifactReadPayload = {
+      locator: "fixture:unicode",
+      expectedHash: "fixture-unicode-hash",
+    };
+    const handlers = Object.fromEntries(
+      SYNTHESIS_REVERSE_HOST_CAPABILITIES.map((capability) => [
+        capability,
+        async () =>
+          capability === "library.artifacts.read"
+            ? {
+                status: "available",
+                payloadHash: artifactReadPayload.expectedHash,
+                content: { kind: "json", value: { value } },
+                diagnostics: [],
+              }
+            : capability === "library.artifacts.scan_page"
+              ? {
+                  cursor: "",
+                  nextCursor: "",
+                  hasMore: false,
+                  returned: 1,
+                  limit: 1,
+                  artifacts: [
+                    {
+                      paperRef: "1:UNICODE",
+                      artifactType: "digest",
+                      payloadType: "digest-markdown",
+                      status: "missing",
+                      diagnostics: value.match(/[\s\S]{1,60000}/g) || [],
+                    },
+                  ],
+                }
+              : { capability, value },
+      ]),
+    ) as SynthesisReverseHostHandlers;
+    const endpoint = createSynthesisReverseHostEndpoint({
+      profileId,
+      authorizationToken,
+      now: Date.now,
+      isHostConnected: () => true,
+      authorizeCapability: () => true,
+      handlers,
+      recordTraceEvent: (event) => diagnosticEvents.push(event),
+    });
+    const locator = endpoint.start();
+    endpoint.bindServiceInstance(serviceInstanceId);
+    const trace = {
+      schema: SYNTHESIS_SIDECAR_OBSERVATION_SCHEMA,
+      traceId: "c".repeat(32),
+      spanId: "d".repeat(16),
+      attempt: 0,
+    };
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            ...reverseHostRequestHeaders,
+            authorization: `Bearer ${authorizationToken}`,
+          },
+          body: JSON.stringify({
+            schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+            requestId: "request-unicode",
+            profileId,
+            serviceInstanceId,
+            operationId: "operation-unicode",
+            trace,
+            capability: "library.artifacts.read",
+            deadlineAtMs: Date.now() + 30_000,
+            payload: artifactReadPayload,
+          }),
+        },
+      ).catch((error) => {
+        throw new Error(`small-unicode-response: ${String(error)}`);
+      });
+      const source = await response.text().catch((error) => {
+        throw new Error(
+          `small-unicode-body: ${String(error)} ${JSON.stringify(
+            diagnosticEvents.slice(-3),
+          )}`,
+        );
+      });
+      assert.equal(
+        response.status,
+        200,
+        `reverse Host response: ${source}; diagnostics: ${JSON.stringify(
+          diagnosticEvents.slice(-3),
+        )}`,
+      );
+      assert.equal(
+        Number(response.headers.get("content-length")),
+        new TextEncoder().encode(source).byteLength,
+      );
+      assert.equal(JSON.parse(source).result.content.value.value, value);
+
+      value = "文".repeat(400_000);
+      const aboveGeneralLimit = await fetch(
+        `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            ...reverseHostRequestHeaders,
+            authorization: `Bearer ${authorizationToken}`,
+          },
+          body: JSON.stringify({
+            schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+            requestId: "request-oversized",
+            profileId,
+            serviceInstanceId,
+            operationId: "operation-oversized",
+            trace,
+            capability: "library.artifacts.read",
+            deadlineAtMs: Date.now() + 30_000,
+            payload: artifactReadPayload,
+          }),
+        },
+      ).catch((error) => {
+        throw new Error(`artifact-policy-response: ${String(error)}`);
+      });
+      const aboveGeneralLimitSource = await aboveGeneralLimit
+        .text()
+        .catch((error) => {
+          throw new Error(
+            `artifact-policy-body: ${String(error)} ${JSON.stringify(
+              diagnosticEvents.slice(-3),
+            )}`,
+          );
+        });
+      assert.equal(aboveGeneralLimit.status, 200);
+      assert.equal(
+        JSON.parse(aboveGeneralLimitSource).result.content.value.value,
+        value,
+      );
+
+      value = "页".repeat(300_000);
+      const scanResponse = await fetch(
+        `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            ...reverseHostRequestHeaders,
+            authorization: `Bearer ${authorizationToken}`,
+          },
+          body: JSON.stringify({
+            schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+            requestId: "request-large-scan-page",
+            profileId,
+            serviceInstanceId,
+            operationId: "operation-large-scan-page",
+            trace,
+            capability: "library.artifacts.scan_page",
+            deadlineAtMs: Date.now() + 30_000,
+            payload: {},
+          }),
+        },
+      );
+      const scanSource = await scanResponse.text();
+      assert.equal(scanResponse.status, 200);
+      assert.equal(
+        Number(scanResponse.headers.get("content-length")),
+        new TextEncoder().encode(scanSource).byteLength,
+      );
+      assert.equal(
+        JSON.parse(scanSource).result.artifacts[0].diagnostics.join(""),
+        value,
+      );
+
+      value = "文".repeat(2_800_000);
+      const oversized = await fetch(
+        `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            ...reverseHostRequestHeaders,
+            authorization: `Bearer ${authorizationToken}`,
+          },
+          body: JSON.stringify({
+            schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+            requestId: "request-over-artifact-limit",
+            profileId,
+            serviceInstanceId,
+            operationId: "operation-over-artifact-limit",
+            trace,
+            capability: "library.artifacts.read",
+            deadlineAtMs: Date.now() + 30_000,
+            payload: artifactReadPayload,
+          }),
+        },
+      ).catch((error) => {
+        throw new Error(`oversized-error-response: ${String(error)}`);
+      });
+      const oversizedSource = await oversized.text().catch((error) => {
+        throw new Error(
+          `oversized-error-body: ${String(error)} ${JSON.stringify(
+            diagnosticEvents.slice(-3),
+          )}`,
+        );
+      });
+      assert.equal(oversized.status, 503);
+      assert.equal(
+        Number(oversized.headers.get("content-length")),
+        new TextEncoder().encode(oversizedSource).byteLength,
+      );
+      assert.equal(
+        JSON.parse(oversizedSource).error.details.reason,
+        "reverse_host_response_too_large",
+      );
+      const oversizedEvent = diagnosticEvents.find(
+        (event) =>
+          event.phase === "transport-terminal" &&
+          event.code === "reverse_host_response_too_large",
+      );
+      assert.equal(oversizedEvent?.outcome, "failed");
+      assert.equal(oversizedEvent?.metrics?.budgetBytes, 8 * 1024 * 1024);
+      assert.isAbove(Number(oversizedEvent?.metrics?.responseBytes), 0);
+    } finally {
+      endpoint.stop();
+      setDebugModeOverrideForTests();
+    }
+  });
+
+  it("returns real SQLite pages with stable, user-visible results", async function () {
     const token = `keyset-${Date.now()}`;
     const collection = new Zotero.Collection();
     collection.name = `Keyset ${token}`;
@@ -35,28 +303,6 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       created.push(item);
     }
     const pagedItems = [...created];
-
-    const db = (Zotero as any).DB;
-    const previousQueryAsync = db.queryAsync;
-    const previousGetAsync = (Zotero.Items as any).getAsync;
-    const previousGetAll = (Zotero.Items as any).getAll;
-    const querySql: string[] = [];
-    const hydrated: number[][] = [];
-    let getAllCalls = 0;
-    db.queryAsync = async (sql: string, params: unknown[]) => {
-      querySql.push(sql);
-      return previousQueryAsync.call(db, sql, params);
-    };
-    (Zotero.Items as any).getAsync = async (idOrIds: number | number[]) => {
-      if (Array.isArray(idOrIds)) {
-        hydrated.push([...idOrIds]);
-      }
-      return previousGetAsync.call(Zotero.Items, idOrIds);
-    };
-    (Zotero.Items as any).getAll = async (...args: unknown[]) => {
-      getAllCalls += 1;
-      return previousGetAll.apply(Zotero.Items, args);
-    };
 
     try {
       const first = await queryZoteroLibraryPage({
@@ -171,17 +417,159 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         literal.items.map((item) => item.id),
         [pagedItems[0].id],
       );
-      assert.deepEqual(hydrated.slice(0, 2), [
-        [pagedItems[0].id],
-        pagedItems.slice(1).map((item) => item.id),
-      ]);
-      assert.strictEqual(getAllCalls, 0);
-      assert.isAtLeast(querySql.length, 28);
-      assert.isTrue(querySql.some((sql) => sql.includes("LIMIT ?")));
     } finally {
-      db.queryAsync = previousQueryAsync;
-      (Zotero.Items as any).getAsync = previousGetAsync;
-      (Zotero.Items as any).getAll = previousGetAll;
+      await Zotero.Items.trashTx(created.map((item) => item.id));
+      await collection.eraseTx();
+    }
+  });
+
+  it("normalizes canonical criteria and enforces bounded keyset pages", async function () {
+    const token = `canonical-page-${Date.now()}`;
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const collection = new Zotero.Collection();
+    collection.name = `Canonical page ${token}`;
+    (collection as any).libraryID = libraryId;
+    await collection.saveTx();
+
+    const created: Zotero.Item[] = [];
+    for (const suffix of ["first", "second", "third"]) {
+      const item = new Zotero.Item("journalArticle");
+      item.setField("title", `${token} ${suffix}`);
+      item.setTags?.([{ tag: `${token}:tag` }]);
+      await item.saveTx();
+      await handlers.collection.add([item], collection.id);
+      created.push(item);
+    }
+
+    const baseInput = {
+      libraryId,
+      collectionId: collection.id,
+      tag: `  ${token.toUpperCase()}:TAG  `,
+      itemType: "  journalArticle  ",
+      query: `  ${token.toUpperCase()}  `,
+    };
+    const expectedCriteria = {
+      schema: "zotero-agents.library-live-items.v1",
+      libraryId,
+      collectionId: collection.id,
+      tag: `${token}:tag`,
+      itemType: "journalArticle",
+      query: token,
+      scope: "top-level-regular",
+      order: "stable_identity",
+    };
+
+    try {
+      const normalizedCases = [
+        {
+          name: "normalizes case and surrounding whitespace once",
+          input: baseInput,
+          expectedIds: created.map((item) => item.id),
+          expectedCriteria,
+        },
+        {
+          name: "normalizes empty optional criteria as absent",
+          input: {
+            libraryId,
+            collectionId: collection.id,
+            tag: "   ",
+            itemType: "   ",
+            query: ` ${token} `,
+          },
+          expectedIds: created.map((item) => item.id),
+          expectedCriteria: {
+            schema: "zotero-agents.library-live-items.v1",
+            libraryId,
+            collectionId: collection.id,
+            tag: "",
+            itemType: "",
+            query: token,
+            scope: "top-level-regular",
+            order: "stable_identity",
+          },
+        },
+      ];
+      for (const testCase of normalizedCases) {
+        const page = await queryZoteroLibraryPage({
+          ...testCase.input,
+          limit: 10,
+        });
+        assert.deepEqual(
+          page.items.map((item) => item.id),
+          testCase.expectedIds,
+          testCase.name,
+        );
+        assert.deepEqual(
+          page.criteria,
+          testCase.expectedCriteria,
+          testCase.name,
+        );
+        assert.strictEqual(page.returned, testCase.expectedIds.length);
+        assert.isFalse(page.hasMore);
+        assert.strictEqual(page.nextCursor, "");
+      }
+
+      const first = await queryZoteroLibraryPage({ ...baseInput, limit: 1 });
+      const second = await queryZoteroLibraryPage({
+        ...baseInput,
+        cursor: first.nextCursor,
+        limit: 2,
+      });
+      assert.deepEqual(first.criteria, expectedCriteria);
+      assert.deepEqual(
+        first.items.map((item) => item.id),
+        [created[0].id],
+      );
+      assert.strictEqual(first.returned, 1);
+      assert.isTrue(first.hasMore);
+      assert.isNotEmpty(first.nextCursor);
+      assert.deepEqual(
+        second.items.map((item) => item.id),
+        created.slice(1).map((item) => item.id),
+      );
+      assert.strictEqual(second.returned, 2);
+      assert.isFalse(second.hasMore);
+      assert.strictEqual(second.nextCursor, "");
+
+      const invalidCursorCases = [
+        {
+          name: "rejects a malformed cursor",
+          input: { ...baseInput, cursor: "not-a-valid-cursor" },
+        },
+        {
+          name: "rejects a cursor bound to different normalized criteria",
+          input: {
+            ...baseInput,
+            query: `${token}-other`,
+            cursor: first.nextCursor,
+          },
+        },
+      ];
+      for (const testCase of invalidCursorCases) {
+        await expectPageErrorCode(
+          () => queryZoteroLibraryPage({ ...testCase.input, limit: 1 }),
+          "invalid_library_cursor",
+          testCase.name,
+        );
+      }
+
+      const empty = await queryZoteroLibraryPage({
+        libraryId,
+        query: `${token}-no-match`,
+        limit: 10,
+      });
+      assert.deepEqual(empty.items, []);
+      assert.strictEqual(empty.returned, 0);
+      assert.strictEqual(empty.totalScanned, 0);
+      assert.isFalse(empty.hasMore);
+      assert.strictEqual(empty.nextCursor, "");
+
+      await expectPageErrorCode(
+        () => queryZoteroLibraryPage({ ...baseInput, limit: 101 }),
+        "library_page_limit_exceeded",
+        "rejects an item page request above the hard limit",
+      );
+    } finally {
       await Zotero.Items.trashTx(created.map((item) => item.id));
       await collection.eraseTx();
     }

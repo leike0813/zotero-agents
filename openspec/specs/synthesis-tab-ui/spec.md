@@ -562,3 +562,38 @@ live Zotero host bridge.
 - **AND** topic scope controls are not shown
 - **AND** graph search and graph-return controls are not shown
 - **AND** graph cache rebuild, refresh, redraw layout, and other host-mutating controls are not shown
+
+### Requirement: Concepts page exposes alias audit and resolution controls
+
+The Concepts page SHALL let the user run the deterministic alias audit and resolve each resulting review item without direct record editing.
+
+#### Scenario: User starts alias audit
+
+- **WHEN** the user invokes the alias audit action
+- **THEN** Workbench SHALL run the canonical Concept KB audit
+- **AND** refresh concepts and review state with a concise result summary.
+
+#### Scenario: Alias audit item is displayed
+
+- **WHEN** an open review item has reason `alias_conflict` or `alias_equivalence_audit`
+- **THEN** the review UI SHALL identify the alias and owning concept
+- **AND** expose Keep alias and Remove alias actions
+- **AND** hide create/merge actions that do not apply to alias audit.
+
+### Requirement: Sidecar startup failure SHALL remain actionable in Workbench
+The Synthesis Workbench SHALL retain the current production startup failure until a later startup generation succeeds. It SHALL provide retry and diagnostics actions, and SHALL deduplicate transient notifications by failure generation.
+
+#### Scenario: Workbench opens after startup failure
+- **WHEN** production sidecar startup has failed
+- **THEN** Workbench displays the stable failure summary even if no previous topic surface data exists
+- **AND** offers retry and diagnostics actions
+
+#### Scenario: Retry succeeds
+- **WHEN** an explicit retry starts a new generation and reaches ready
+- **THEN** the persistent failure state is cleared
+- **AND** normal Workbench content refreshes
+
+#### Scenario: Task Manager inspects production failure
+- **WHEN** debug mode is disabled
+- **THEN** Task Manager displays the bounded safe summary
+- **AND** does not display raw process tails

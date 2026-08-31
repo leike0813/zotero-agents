@@ -5,9 +5,9 @@
     {
       "id": "zotero-bridge-cli",
       "kind": "minimum-core",
-      "patch": 2,
+      "patch": 4,
       "sourceRoot": "skills_src/zotero-bridge-cli",
-      "generatedRoot": "skills_builtin/zotero-bridge-cli",
+      "generatedRoot": "addon/content/host-bridge-skills/zotero-bridge-cli",
       "materializedRoot": "cli-bundle",
       "skills": [
         {
@@ -21,9 +21,9 @@
       "id": "zotero-library-agent",
       "kind": "generic-agent",
       "extends": "zotero-bridge-cli",
-      "patch": 2,
+      "patch": 5,
       "sourceRoot": "skills_src/zotero-library-agent",
-      "generatedRoot": "skills_builtin",
+      "generatedRoot": "addon/content/host-bridge-skills",
       "materializedRoot": "library-agent",
       "skills": [
         {
@@ -63,7 +63,7 @@
       "kind": "hosted-agent",
       "facet": "hermes",
       "extends": "zotero-library-agent",
-      "patch": 2,
+      "patch": 5,
       "sourceRoot": "profiles_src/hermes/zotero-librarian",
       "generatedRoot": "profiles/hermes/zotero-librarian",
       "materializedRoot": "librarian-profile",

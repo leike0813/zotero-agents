@@ -1,4 +1,5 @@
-import { runtimeFileExists } from "../utils/runtimeCompatibility";
+import { runtimePathExists } from "./runtimePersistence";
+import { executeOneShotSubprocess } from "../platform/subprocess";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -101,7 +102,7 @@ async function pathExists(targetPath: string) {
   if (!normalized) {
     return false;
   }
-  const runtimeExists = await runtimeFileExists(normalized);
+  const runtimeExists = await runtimePathExists(normalized);
   return runtimeExists;
 }
 
@@ -430,19 +431,6 @@ export async function resolveWindowsCommandFromPowerShell(
   if (!isSafeBareWindowsCommand(normalized)) {
     return [] as string[];
   }
-  const runtime = globalThis as {
-    Zotero?: {
-      Utilities?: {
-        Internal?: {
-          subprocess?: (command: string, args?: string[]) => Promise<string>;
-        };
-      };
-    };
-  };
-  const subprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
-  if (typeof subprocess !== "function") {
-    return [] as string[];
-  }
   const escapedCommand = normalized.replace(/'/g, "''");
   const script = [
     "$ErrorActionPreference='SilentlyContinue'",
@@ -460,8 +448,9 @@ export async function resolveWindowsCommandFromPowerShell(
     ]),
   );
   for (const shellCommand of powerShellCandidates) {
-    try {
-      const output = await subprocess(shellCommand, [
+    const result = await executeOneShotSubprocess({
+      command: shellCommand,
+      args: [
         "-NoLogo",
         "-NonInteractive",
         "-WindowStyle",
@@ -471,16 +460,19 @@ export async function resolveWindowsCommandFromPowerShell(
         "Bypass",
         "-Command",
         script,
-      ]);
-      const lines = String(output || "")
-        .split(/\r?\n/)
-        .map((entry) => normalizeString(entry))
-        .filter(Boolean);
-      if (lines.length > 0) {
-        return Array.from(new Set(lines));
-      }
-    } catch {
+      ],
+      timeoutMs: 15_000,
+      hidden: true,
+    });
+    if (result.outcome !== "exited" || result.exitCode !== 0) {
       continue;
+    }
+    const lines = result.stdout
+      .split(/\r?\n/)
+      .map((entry) => normalizeString(entry))
+      .filter(Boolean);
+    if (lines.length > 0) {
+      return Array.from(new Set(lines));
     }
   }
   return [] as string[];

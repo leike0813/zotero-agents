@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
-import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
@@ -61,22 +60,12 @@ async function buildMineruRequest(attachment: Zotero.Item, pdfPath: string) {
       source_attachment_path: pdfPath,
       source_attachment_item_id: attachment.id,
       source_attachment_item_key: attachment.key,
+      source_attachment_ref: {
+        libraryId: attachment.libraryID,
+        key: attachment.key,
+      },
     },
   };
-}
-
-function runtimeWithPdfMetadata(metadata: {
-  pageCount?: number;
-  numPages?: number;
-  outline?: Array<{ title?: string; page?: number; level?: number }>;
-}) {
-  const helpers = createHookHelpers(Zotero) as ReturnType<
-    typeof createHookHelpers
-  > & {
-    mineruReadPdfMetadata?: () => Promise<typeof metadata>;
-  };
-  helpers.mineruReadPdfMetadata = async () => metadata;
-  return { helpers };
 }
 
 function bundleReaderForDir(bundleDir: string) {
@@ -238,11 +227,11 @@ describe("workflow: mineru", function () {
       dirPath: tempDir,
       name: "short.pdf",
     });
+    await writeUtf8(source.pdfPath, "/Type /Page\n".repeat(200));
     const selection = await buildSelectionContext([source.attachment]);
     const requests = (await executeBuildRequests({
       workflow,
       selectionContext: selection,
-      runtime: runtimeWithPdfMetadata({ pageCount: 200 }),
     })) as Array<{
       steps?: Array<{ request?: { json?: any } }>;
       context?: Record<string, unknown>;
@@ -270,17 +259,11 @@ describe("workflow: mineru", function () {
       dirPath: tempDir,
       name: "long.pdf",
     });
+    await writeUtf8(source.pdfPath, "/Type /Page\n".repeat(450));
     const selection = await buildSelectionContext([source.attachment]);
     const requests = (await executeBuildRequests({
       workflow,
       selectionContext: selection,
-      runtime: runtimeWithPdfMetadata({
-        pageCount: 450,
-        outline: [
-          { title: "Chapter 2", page: 151, level: 1 },
-          { title: "Chapter 3", page: 301, level: 1 },
-        ],
-      }),
     })) as Array<{
       steps?: Array<{ request?: { json?: any; binary_from?: string } }>;
       context?: Record<string, unknown>;
@@ -680,7 +663,10 @@ describe("workflow: mineru", function () {
             getPolicy: () => ({}),
             transition: async (args: unknown) => {
               statusTransitions.push(args);
-              return { added: [], removed: [], warnings: [] };
+              return {
+                outcome: "committed",
+                result: { added: [], removed: [], unchanged: [] },
+              };
             },
           },
         } as any,
@@ -702,12 +688,11 @@ describe("workflow: mineru", function () {
       ),
       `expected linked markdown attachment=${targetMdPath}, got=${attachmentPaths.join(",")}`,
     );
-    assert.deepEqual(statusTransitions, [
-      {
-        item: parent,
-        remove: ["need-fulltext", "need-markdown"],
-      },
-    ]);
+    assert.lengthOf(statusTransitions, 1);
+    assert.deepInclude(statusTransitions[0], {
+      itemRef: { libraryId: parent.libraryID, key: parent.key },
+      remove: ["need-fulltext", "need-markdown"],
+    });
     assert.isFalse(applied.partial);
   });
 

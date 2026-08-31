@@ -20,7 +20,7 @@ Ces métriques vous aident à comprendre rapidement le niveau de structuration e
 
 ## Panneau de synchronisation
 
-Si la [synchronisation WebDAV](#doc/synthesis%2Fwebdav-sync) (recommandée) ou la [synchronisation Git](#doc/synthesis%2Fgit-sync) (obsolète) est configurée, la page Home affiche un panneau d'état de la synchronisation :
+Si la [synchronisation WebDAV](#doc/synthesis%2Fwebdav-sync) est configurée, la page Home affiche un panneau d'état de la synchronisation :
 
 ### Synchronisation WebDAV
 
@@ -39,7 +39,6 @@ La fonctionnalité de synchronisation automatique de la synchronisation WebDAV n
 
 ### Synchronisation Git (obsolète)
 
-Voir [Synchronisation Git](#doc/synthesis%2Fgit-sync) pour référence historique.
 
 ## Panneau d'éléments à réviser
 

@@ -7,6 +7,42 @@ const localize = getStringOrFallback;
 export function buildAssistantWorkspacePublicationLabels(
   source: AssistantWorkspacePublicationSource,
 ) {
+  if (source === "skillrunner") {
+    return {
+      assistantPanel: buildAssistantPanelLabels(),
+      title: localize(
+        "task-dashboard-home-skillrunner-title" as any,
+        "SkillRunner",
+      ),
+      runningTasksTitle: localize(
+        "task-dashboard-run-running-tasks-title" as any,
+        "Running",
+      ),
+      completedTasksTitle: localize(
+        "task-dashboard-run-completed-tasks-title" as any,
+        "Completed Tasks",
+      ),
+      emptySelection: localize(
+        "task-dashboard-run-workspace-empty" as any,
+        "No SkillRunner tasks.",
+      ),
+      view: localize("task-dashboard-acp-view" as any, "View"),
+      plain: localize("task-dashboard-acp-view-plain" as any, "Plain"),
+      bubble: localize("task-dashboard-acp-view-bubble" as any, "Bubble"),
+      panelRendererUnavailable: localize(
+        "task-dashboard-acp-skill-run-panel-renderer-unavailable" as any,
+        "SkillRunner panel renderer unavailable.",
+      ),
+      panelRendererFailed: localize(
+        "task-dashboard-acp-skill-run-panel-renderer-failed" as any,
+        "SkillRunner panel renderer failed",
+      ),
+      transcriptRendererUnavailable: localize(
+        "task-dashboard-acp-transcript-renderer-unavailable" as any,
+        "Transcript renderer unavailable.",
+      ),
+    };
+  }
   if (source === "acp-skills") {
     return {
       assistantPanel: buildAssistantPanelLabels(),

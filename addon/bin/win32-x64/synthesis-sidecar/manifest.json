@@ -1,0 +1,56 @@
+{
+  "schema": "synthesis-sidecar-runtime-bundle.v3",
+  "bundleId": "fe85201be6fc2650e7300b8ded32c77ca793841c9246093280779d854e511891",
+  "implementation": "rust-native",
+  "serviceVersion": "0.1.0",
+  "protocolVersion": "synthesis-sidecar.v1",
+  "target": "win32-x64",
+  "targetTriple": "x86_64-pc-windows-msvc",
+  "executable": "synthesis-sidecar.exe",
+  "buildFingerprint": "b0552934d1db34183085d8d3b32bfbcf6e3bddbdfa98a1f74e342567b7c63b73",
+  "capabilities": [
+    "system.handshake",
+    "system.shutdown",
+    "workbench.chrome.read",
+    "topics.canonical.inspect",
+    "transfer.content",
+    "compute.citation_graph_layout",
+    "compute.citation_graph_metrics",
+    "compute.citation_graph_build",
+    "compute.citation_graph_build_transfer"
+  ],
+  "createdAt": "2026-08-29T03:12:54.000Z",
+  "expiresAt": null,
+  "provenance": {
+    "sourceFingerprint": "19da1c7fdbe240ffa920d1dd75ea8483236058e8dfa1e80f877cae8dc4424da6",
+    "toolchain": "nightly-2026-07-25",
+    "cargoLockSha256": "5c891779150a6771ddb9eeca779411b50a43dd3ab7c8e669cd0ffc6e0745fa5f",
+    "licenseInventory": "licenses.json"
+  },
+  "files": [
+    {
+      "path": "LICENSE-AGPL-3.0.txt",
+      "bytes": 34520,
+      "sha256": "76a97c878c9c7a8321bb395c2b44d3fe2f8d81314d219b20138ed0e2dddd5182",
+      "executable": false
+    },
+    {
+      "path": "licenses.json",
+      "bytes": 7210,
+      "sha256": "fbcf1981d66700145476ed20bcca4d2569742809349ead76f528099e7bdeb718",
+      "executable": false
+    },
+    {
+      "path": "provenance.json",
+      "bytes": 380,
+      "sha256": "690a461145bb6d8f31cc441339ad3ebddb7a090649892330359fdd61353da0fe",
+      "executable": false
+    },
+    {
+      "path": "synthesis-sidecar.exe",
+      "bytes": 6645760,
+      "sha256": "6fc251d3344fdff865a9b31bbcf21600814d66c26877cdf6566a195a0bb92f36",
+      "executable": true
+    }
+  ]
+}

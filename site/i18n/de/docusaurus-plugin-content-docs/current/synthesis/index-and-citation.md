@@ -145,7 +145,7 @@ Der Zitationsgraph kann verschiedene Metriken berechnen, um Kernpapers und einfl
 
 | Layout | Beschreibung | Anwendungsfall |
 |--------|-------------|----------------|
-| **Force (Force-Directed)** | d3-force-Layout | Gesamtstruktur erkunden |
+| **Force (Force-Directed)** | ForceAtlas2-Layout (Rust) | Gesamtstruktur erkunden |
 | **Radial** | Um einen ausgewählten Knoten expandieren | Zitationsnetzwerk eines Papers analysieren |
 | **Components** | Nach verbundenen Komponenten gruppieren | Unabhängige Zitationscluster entdecken |
 

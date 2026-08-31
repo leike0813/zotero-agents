@@ -2,14 +2,9 @@ import { joinPath } from "../utils/path";
 import { HOST_BRIDGE_PROTOCOL_VERSION } from "./hostBridgeProtocol";
 import {
   ensureRuntimeDirectory,
+  setRuntimeFilePermissions,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
-
-type DynamicImport = (specifier: string) => Promise<any>;
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
 
 export type HostBridgeWellKnownProfile = {
   schema: "zotero-bridge.profile.v1";
@@ -105,12 +100,7 @@ async function chmodOwnerReadWrite(path: string) {
   if (resolvePlatform() === "win32") {
     return false;
   }
-  const fs = await dynamicImport("fs/promises").catch(() => null);
-  if (typeof fs?.chmod !== "function") {
-    return false;
-  }
-  await fs.chmod(path, 0o600);
-  return true;
+  return setRuntimeFilePermissions(path, 0o600);
 }
 
 export async function writeHostBridgeWellKnownProfile(args: {

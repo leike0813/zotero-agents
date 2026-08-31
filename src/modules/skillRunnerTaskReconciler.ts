@@ -43,8 +43,7 @@ import {
   subscribeSkillRunnerBackendHealth,
 } from "./skillRunnerBackendHealthRegistry";
 import {
-  archiveSkillRunnerRunRecordByRequest,
-  deleteSkillRunnerRunRecordsByBackend,
+  applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
   listSkillRunnerRunRecords,
   type SkillRunnerRunRecord,
@@ -987,7 +986,8 @@ export class SkillRunnerTaskReconciler {
       backendId,
       requestIds: [requestId],
     });
-    const archivedRun = archiveSkillRunnerRunRecordByRequest({
+    const archivedRun = applySkillRunnerRunEvent({
+      type: "run.archived",
       backendId,
       requestId,
     });
@@ -1088,7 +1088,16 @@ export function purgeSkillRunnerBackendReconcileState(backendIdRaw: string) {
     backendId,
     requestIds,
   });
-  const removedRuns = deleteSkillRunnerRunRecordsByBackend(backendId);
+  let removedRuns = 0;
+  for (const record of listSkillRunnerRunRecords({ backendId })) {
+    if (record.backendId !== backendId) continue;
+    applySkillRunnerRunEvent({
+      type: "run.deleted",
+      runKey: record.runKey,
+      backendId: record.backendId,
+    });
+    removedRuns += 1;
+  }
   return {
     backendId,
     removedContexts: 0,

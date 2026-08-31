@@ -1,0 +1,224 @@
+{
+  "schema": "synthesis-sidecar-protocol-reverse-host-corpus.v1",
+  "cases": [
+    {
+      "id": "related-items-request-nested",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchRequest",
+      "valid": true,
+      "value": {
+        "effects": [
+          {
+            "effectId": "effect:1",
+            "action": "ensure_present",
+            "source": { "libraryId": 1, "itemKey": "SOURCE1" },
+            "target": { "libraryId": 1, "itemKey": "TARGET1" },
+            "provenance": {
+              "citationEdgeId": "edge:1",
+              "kind": "accepted_citation"
+            },
+            "permission": {
+              "scope": "synthesis.related_items",
+              "reason": "accepted_citation"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "tag-effect-result-nested",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/TagEffectsApplyBatchResult",
+      "valid": true,
+      "value": {
+        "receipts": [
+          {
+            "effectId": "effect:1",
+            "action": "ensure_present",
+            "status": "failed",
+            "occurredAt": "2026-08-12T00:00:00.000Z",
+            "diagnostics": [
+              {
+                "code": "tag_write_failed",
+                "severity": "error",
+                "message": "write failed"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "representative-image-result-nested",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "attachmentKey": "IMAGE1",
+        "mimeType": "image/png",
+        "contentBase64": "YQ==",
+        "alt": "preview",
+        "caption": "figure",
+        "width": 1,
+        "height": 1,
+        "compressedBytes": 1,
+        "sourceKind": "note-attachment",
+        "strategy": "first-image",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "webdav-description-result-nested",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavDescribeResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "configStatus": "configured",
+        "autoSyncEnabled": true,
+        "autoRetryEnabled": true,
+        "baseUrl": "https://dav.example.test/root",
+        "remotePath": "zotero-agents",
+        "username": "alice",
+        "credentialUpdatedAt": "2026-08-12T00:00:00.000Z",
+        "connectionTest": {
+          "ok": false,
+          "tested_at": "2026-08-12T00:00:00.000Z",
+          "config_status": "configured",
+          "diagnostics": [
+            {
+              "code": "webdav_sync_remote_unreachable",
+              "severity": "error",
+              "message": "unreachable",
+              "details": { "status": 503, "body": "unavailable" }
+            }
+          ]
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "artifact-scan-result-nested",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageResult",
+      "valid": true,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "snapshotRevision": "revision:1",
+        "hasMore": false,
+        "returned": 1,
+        "limit": 50,
+        "artifacts": [
+          {
+            "paperRef": "1:ITEM1",
+            "artifactType": "literature_score",
+            "payloadType": "literature-score-json",
+            "status": "available",
+            "locator": "note:ITEM1",
+            "payloadHash": "sha256:payload",
+            "estimatedSize": 128,
+            "diagnostics": [],
+            "literatureQuality": {
+              "status": "available",
+              "schema": "literature_score.v1",
+              "rubric_id": "rubric:1",
+              "paper_type": "article",
+              "overall_score": 8.5,
+              "confidence": 0.9,
+              "confidence_adjusted_score": 7.65,
+              "quality_prior": 0.5,
+              "payload_hash": "sha256:payload",
+              "diagnostics": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "delivery-result-nested",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportPublishArchiveResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "capability": "paper_artifacts.export_filtered",
+        "delivery": {
+          "mode": "bridge-download",
+          "bundle": {
+            "fileId": "file-1",
+            "sourceKind": "bridge-export",
+            "displayName": "export.zip",
+            "contentType": "application/zip",
+            "size": 128,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-08-12T00:00:00.000Z",
+            "expiresAt": "2026-08-12T01:00:00.000Z",
+            "owner": { "capability": "paper_artifacts.export_filtered" }
+          },
+          "downloadCommand": "zotero-bridge file download file-1 --output export.zip",
+          "unpackHint": "unzip export.zip -d ."
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "related-items-unknown-nested-key",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchRequest",
+      "valid": false,
+      "value": {
+        "effects": [
+          {
+            "effectId": "effect:1",
+            "action": "ensure_present",
+            "source": { "libraryId": 1, "itemKey": "SOURCE1" },
+            "target": { "libraryId": 1, "itemKey": "TARGET1" },
+            "provenance": {
+              "citationEdgeId": "edge:1",
+              "kind": "accepted_citation",
+              "ignored": true
+            },
+            "permission": {
+              "scope": "synthesis.related_items",
+              "reason": "accepted_citation"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "webdav-null-diagnostics",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavDescribeResult",
+      "valid": false,
+      "value": {
+        "status": "unavailable",
+        "configStatus": "invalid",
+        "autoSyncEnabled": false,
+        "autoRetryEnabled": false,
+        "baseUrl": "",
+        "remotePath": "",
+        "username": "",
+        "diagnostics": null
+      }
+    },
+    {
+      "id": "tag-effect-missing-permission-reason",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/TagEffectsApplyBatchRequest",
+      "valid": false,
+      "value": {
+        "effects": [
+          {
+            "effectId": "effect:1",
+            "action": "ensure_present",
+            "target": { "libraryId": 1, "itemKey": "TARGET1" },
+            "tag": "topic:contracts",
+            "provenance": { "kind": "staged_tag_promotion" },
+            "precondition": { "target": "exists" },
+            "permission": { "scope": "synthesis.tags" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "representative-image-unmatched-union",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadResult",
+      "valid": false,
+      "value": { "status": "ready", "diagnostics": [] }
+    }
+  ]
+}

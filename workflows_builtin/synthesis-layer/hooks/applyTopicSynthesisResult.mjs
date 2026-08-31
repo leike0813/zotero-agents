@@ -94,10 +94,11 @@ export async function applyResult(args) {
   }
   const markdown = await readMarkdownArtifact(args, bundle);
   const applyTopicSynthesisResult =
-    args?.runtime?.hostApi?.synthesis?.applyTopicSynthesisResult;
+    args?.runtime?.hostApi?.synthesis?.workflowApply
+      ?.applyTopicSynthesisResult;
   if (typeof applyTopicSynthesisResult !== "function") {
     throw new Error(
-      "topic synthesis applyResult requires runtime.hostApi.synthesis.applyTopicSynthesisResult",
+      "topic synthesis applyResult requires Workflow Host topic-synthesis apply",
     );
   }
   const result = await applyTopicSynthesisResult(

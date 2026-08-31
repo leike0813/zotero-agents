@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
+import { pathToFileURL } from "url";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { buildAcpSkillResourceManifest } from "../../src/modules/acpSkillResourceManifest";
 import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
@@ -84,6 +85,27 @@ describe("Synthesize topic workflow contract", function () {
 
     assert.equal(createWorkflow.request?.kind, "skillrunner.sequence.v1");
     assert.equal(updateWorkflow.request?.kind, "skillrunner.sequence.v1");
+    assert.deepInclude(createWorkflow.parameters?.usePlannedTopic, {
+      type: "boolean",
+      required: true,
+      default: false,
+    });
+    assert.deepInclude(createWorkflow.parameters?.plannedTopicId, {
+      type: "string",
+      required: true,
+      visible_if: { parameter: "usePlannedTopic", equals: true },
+      optionsSource: {
+        kind: "synthesis.topics",
+        valueFormat: "topicId",
+        labelFormat: "title",
+        filter: "planned",
+      },
+    });
+    assert.deepInclude(createWorkflow.parameters?.topicSeed, {
+      type: "string",
+      required: true,
+      visible_if: { parameter: "usePlannedTopic", equals: false },
+    });
     assert.deepEqual(
       createWorkflow.request?.sequence?.steps?.[0]?.short_circuit,
       {
@@ -374,7 +396,7 @@ describe("Synthesize topic workflow contract", function () {
     );
   });
 
-  it("loads create/update topic synthesis from the builtin synthesis-layer workflow package", async function () {
+  it("loads planner/create/update topic workflows from the builtin synthesis-layer package", async function () {
     const loaded = await loadWorkflowManifests("workflows_builtin", {
       workflowSourceKind: "builtin",
     });
@@ -384,7 +406,14 @@ describe("Synthesize topic workflow contract", function () {
     const updateWorkflow = loaded.workflows.find(
       (entry) => entry.manifest.id === "update-topic-synthesis",
     );
+    const plannerWorkflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "topic-planner",
+    );
 
+    assert.isOk(
+      plannerWorkflow,
+      `topic-planner should load; diagnostics=${JSON.stringify(loaded.diagnostics)}`,
+    );
     assert.isOk(
       createWorkflow,
       `create-topic-synthesis should load; diagnostics=${JSON.stringify(loaded.diagnostics)}`,
@@ -395,6 +424,12 @@ describe("Synthesize topic workflow contract", function () {
     );
     assert.equal(createWorkflow?.packageId, "synthesis-layer");
     assert.equal(updateWorkflow?.packageId, "synthesis-layer");
+    assert.equal(plannerWorkflow?.packageId, "synthesis-layer");
+    assert.equal(plannerWorkflow?.manifest.request?.kind, "skillrunner.job.v1");
+    assert.equal(
+      plannerWorkflow?.manifest.request?.create?.skill_id,
+      "topic-planner",
+    );
     assert.equal(
       createWorkflow?.manifest.request?.kind,
       "skillrunner.sequence.v1",
@@ -413,7 +448,7 @@ describe("Synthesize topic workflow contract", function () {
     );
   });
 
-  it("ships create/update topic synthesis workflows in the packaged builtin manifest", async function () {
+  it("ships planner/create/update topic workflows in the packaged builtin manifest", async function () {
     const builtinManifest = JSON.parse(
       await fs.readFile("workflows_builtin/manifest.json", "utf8"),
     );
@@ -425,6 +460,7 @@ describe("Synthesize topic workflow contract", function () {
       files,
       "synthesis-layer/create-topic-synthesis/workflow.json",
     );
+    assert.include(files, "synthesis-layer/topic-planner/workflow.json");
     assert.include(
       files,
       "synthesis-layer/update-topic-synthesis/workflow.json",
@@ -433,6 +469,7 @@ describe("Synthesize topic workflow contract", function () {
       files,
       "synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
     );
+    assert.include(files, "synthesis-layer/hooks/applyTopicPlanResult.mjs");
     assert.notInclude(
       files,
       "synthesis-layer/update-topic-synthesis/hooks/buildRequest.mjs",
@@ -440,13 +477,14 @@ describe("Synthesize topic workflow contract", function () {
     assert.notInclude(files, "synthesis-layer/synthesize-topic/workflow.json");
   });
 
-  it("registers split topic synthesis skills with output schemas", async function () {
+  it("registers the planner and split topic synthesis skills with output schemas", async function () {
     const registry = await getPluginSkillRegistry();
     const expected = [
       "create-topic-synthesis-prepare",
       "update-topic-synthesis-prepare",
       "topic-synthesis-core-enrichment",
       "topic-synthesis-finalize",
+      "topic-planner",
     ];
 
     for (const skillId of expected) {
@@ -461,6 +499,43 @@ describe("Synthesize topic workflow contract", function () {
     }
     assert.notProperty(registry.entriesById, "create-topic-synthesis");
     assert.notProperty(registry.entriesById, "update-topic-synthesis");
+  });
+
+  it("applies one complete planner result through the synthesis host API", async function () {
+    const hookUrl = pathToFileURL(
+      path.resolve(
+        "workflows_builtin/synthesis-layer/hooks/applyTopicPlanResult.mjs",
+      ),
+    ).href;
+    const hook = await import(`${hookUrl}?t=${Date.now()}`);
+    const plan = {
+      kind: "topic_plan",
+      operation: "reconcile",
+      base_graph_hash: "graph-v1",
+      library_index_hash: "library-v1",
+      topic_actions: [],
+      relation_proposals: [],
+      recommended_updates: [],
+    };
+    let received: unknown;
+    const result = await hook.applyResult({
+      resultContext: { resultJson: plan },
+      runtime: {
+        hostApi: {
+          synthesis: {
+            workflowApply: {
+              async applyTopicPlan(value: unknown) {
+                received = value;
+                return { status: "no_change", graph_hash: "graph-v1" };
+              },
+            },
+          },
+        },
+      },
+    });
+
+    assert.deepEqual(received, plan);
+    assert.equal(result.status, "no_change");
   });
 
   it("accepts canceled create-topic-synthesis prepare output without requiring a markdown artifact", async function () {
@@ -563,10 +638,12 @@ describe("Synthesize topic workflow contract", function () {
     );
   });
 
-  it("documents semantic duplicate detection before create-mode synthesis", async function () {
-    const skillText = await fs.readFile(
-      "skills_builtin/create-topic-synthesis-prepare/SKILL.md",
-      "utf8",
+  it("exposes create target resolution through the package contract", async function () {
+    const targetSchema = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/create-topic-synthesis-prepare/assets/schemas/stage-10-create-topic-context.schema.json",
+        "utf8",
+      ),
     );
     const runner = JSON.parse(
       await fs.readFile(
@@ -575,17 +652,14 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.match(skillText, /topic seed[\s\S]+synthesis topic list/i);
-    assert.include(skillText, "title、description、aliases");
-    assert.match(skillText, /duplicate check[\s\S]+topic_synthesis_canceled/);
-    assert.notInclude(skillText, "可建议改用 update-topic-synthesis");
-    assert.match(skillText, /取消[\s\S]+topic_synthesis_canceled/);
+    assert.sameMembers(
+      targetSchema.properties.target_decision.properties.action.enum,
+      ["create_new", "use_planned_topic", "cancel_materialized_duplicate"],
+    );
     assert.include(
       runner.entrypoint.prompts.common,
       "assets/output.schema.json",
     );
-    assert.include(skillText, "synthesis resolver resolve");
-    assert.include(skillText, "Host Bridge");
     assert.include(runner.entrypoint.prompts.common, "SKILL.md");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate.py");
     assert.notInclude(

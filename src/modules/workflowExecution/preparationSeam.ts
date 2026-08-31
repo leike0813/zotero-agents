@@ -16,6 +16,7 @@ import {
 } from "../../workflows/runtime";
 import { summarizeWorkflowExecutionError } from "../../workflows/errorMeta";
 import type { LoadedWorkflow } from "../../workflows/types";
+import type { WorkflowRuntimeContext } from "../../workflows/types";
 import type { WorkflowExecutionOptions } from "../workflowSettingsDomain";
 import type {
   BuildPreparedWorkflowUnitResult,
@@ -26,10 +27,11 @@ import type {
   WorkflowPreflightExecutionState,
   WorkflowRequestBuildPlan,
 } from "./contracts";
+import type { WorkflowScopedSelectionContext } from "../../workflows/workflowInputPlanning";
 import { alertWindow } from "./feedbackSeam";
 import { localizeWorkflowText } from "./messageFormatter";
 import { shouldShowWorkflowNotifications } from "./feedbackPolicy";
-import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../../workflows/triggerPolicy";
 import {
   ACP_SKILL_RUN_REQUEST_KIND,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
@@ -360,7 +362,9 @@ export async function runWorkflowPreparationSeam(
     executionOptionsOverride?: WorkflowExecutionOptions;
     ignoreSavedWorkflowSettings?: boolean;
     selectedItemsOverride?: Zotero.Item[];
+    selectionContextOverride?: WorkflowScopedSelectionContext;
     suppressUiFeedback?: boolean;
+    runtime?: Partial<WorkflowRuntimeContext>;
   },
   deps: Partial<PreparationDeps> = {},
 ): Promise<PreparationSeamResult> {
@@ -370,7 +374,9 @@ export async function runWorkflowPreparationSeam(
   };
   const selectedItems = Array.isArray(args.selectedItemsOverride)
     ? args.selectedItemsOverride
-    : args.win.ZoteroPane?.getSelectedItems?.() || [];
+    : args.selectionContextOverride !== undefined
+      ? []
+      : args.win.ZoteroPane?.getSelectedItems?.() || [];
   const workflowLabel = localizeWorkflowLabel(args.workflow);
   if (
     selectedItems.length === 0 &&
@@ -459,9 +465,12 @@ export async function runWorkflowPreparationSeam(
         error: previewError,
       });
     }
-    selectionContext = (await resolved.buildSelectionContext(
-      selectedItems,
-    )) as PreparedWorkflowExecution["selectionContext"];
+    selectionContext =
+      args.selectionContextOverride !== undefined
+        ? args.selectionContextOverride
+        : ((await resolved.buildSelectionContext(
+            selectedItems,
+          )) as PreparedWorkflowExecution["selectionContext"]);
     plan = await resolved.planWorkflowExecutionUnits({
       workflow: args.workflow,
       selectionContext,
@@ -470,6 +479,7 @@ export async function runWorkflowPreparationSeam(
         providerOptions: preview.providerOptions,
         runOptions: preview.runOptions,
       },
+      runtime: args.runtime,
     });
     candidateSkipped = plan.stats.candidateStats.skipped;
     resolved.appendRuntimeLog({
@@ -711,6 +721,7 @@ export async function runWorkflowPreparationSeam(
       executionOptions: preview,
       candidateSkipped,
       executionContext,
+      runtime: args.runtime,
     },
   };
 }
@@ -721,6 +732,7 @@ export async function buildWorkflowExecutionUnitPreview(
     workflow: LoadedWorkflow;
     executionOptionsOverride?: WorkflowExecutionOptions;
     selectedItemsOverride?: Zotero.Item[];
+    selectionContextOverride?: WorkflowScopedSelectionContext;
   },
   deps: Partial<PreparationDeps> = {},
 ): Promise<WorkflowExecutionUnitPreviewState> {
@@ -729,11 +741,14 @@ export async function buildWorkflowExecutionUnitPreview(
     ...deps,
   };
   try {
-    const selectedItems = Array.isArray(args.selectedItemsOverride)
-      ? args.selectedItemsOverride
-      : args.win.ZoteroPane?.getSelectedItems?.() || [];
     const selectionContext =
-      await resolved.buildSelectionContext(selectedItems);
+      args.selectionContextOverride !== undefined
+        ? args.selectionContextOverride
+        : await resolved.buildSelectionContext(
+            Array.isArray(args.selectedItemsOverride)
+              ? args.selectedItemsOverride
+              : args.win.ZoteroPane?.getSelectedItems?.() || [],
+          );
     const preview = resolved.resolveWorkflowExecutionOptionsPreview({
       workflow: args.workflow,
       executionOptionsOverride: args.executionOptionsOverride,
@@ -801,6 +816,7 @@ export async function buildPreparedWorkflowUnitExecution(
       selectionContext: args.unit.selectionContext,
       executionOptions: args.prepared.executionOptions,
       preparedUnit: args.unit,
+      runtime: args.prepared.runtime,
     });
   } catch (error) {
     if (isNoValidInputUnitsError(error)) {
@@ -850,6 +866,8 @@ export async function buildPreparedWorkflowUnitExecution(
       preflight,
       skillDisplayById,
       executionContext: args.prepared.executionContext,
+      executionOptions: args.prepared.executionOptions,
+      runtime: args.prepared.runtime,
     },
   };
 }

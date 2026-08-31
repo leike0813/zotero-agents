@@ -14,6 +14,8 @@
 | Library/reference index | 派生索引记录 | 当前书目写入状态 |
 | Resolver | 根据标签、分类、ref 与 combine rule 得到论文 scope | 超出返回有界集合的身份 |
 | Artifact manifest/read/export | 发现、内容访问与文件交付 | 从本地文件存在推断已持久化到 Zotero |
+| 直接论文研究包 | 一个或多个稳定 Zotero 条目引用的可移植交付 | 缺失的来源或分析工件已经生成或修复 |
+| 直接 Topic 研究包 | 当前 Topic 报告及全局去重的关联 digest | Topic membership、报告新鲜度或缺失 digest 已经重新计算 |
 | Attention queue | 排序后的审阅候选项 | 修复它们的权限 |
 | Concept/schema | 类型化语义定义 | 原始 Zotero 元数据搜索 |
 
@@ -88,6 +90,10 @@ follow_on_read:
 - 在 artifact read 前选择 artifact manifest；内容选择会影响结果时，在 export 前先 read；
 - 仅使用 attention queue 排定 review candidate 优先级，提出 maintenance 前先诊断所属模型。
 
+对论文工件，manifest 边界是四项集合 `digest + references + citation_analysis + literature_score`。保留每行的 `available`、`missing` 或 `error` 状态。`literature_score` 解码/schema 失败属于不可用证据，必须通过 invalid snapshot 和诊断与缺失区分。请求 manifest 或 filtered export 时如果省略 `artifact_types`，应得到全部四项；过滤时记录明确子集，防止将 partial read 误认为完整论文覆盖。
+
+紧凑的 `literature_quality` 快照足以用于 selection 和 evidence-role calibration。评分缺失或无效时，其中性先验为 `0.5`；评分可用时，使用 Host 计算的 confidence-adjusted prior。在下游工作中保留快照和 payload hash，不要重新评判论文内在质量。继续独立评估相关性和证据契合度：高评分不能将 external、unknown 或 irrelevant 论文移入 Topic 核心上下文，不能绕过 Research Bundle 相关性阈值，也不能在没有 evidence-role 决策时成为排除已确认 manuscript source 的理由。
+
 只有备选方案确实合理且会改变解释时才记录被拒方案。这样既能审计决策，也不会把每次简单读取都变成 planning artifact。
 
 ## Maintenance 前置条件与 receipt
@@ -119,8 +125,20 @@ follow_on_read:
 | Workflow output file | Workflow run 与 output/artifact mapping | Output schema 加 file checksum/size | 已生成 workflow artifact |
 | Zotero attachment delivery | 实时 parent 与 attachment ref | 签发的 file handle 加已验证字节 | 现有 attachment 的读取副本 |
 | 将 export 结果附加到 Zotero | Source Product/artifact、uploaded file handle、target parent | Source 与 upload checksum 加实时 child ref | 仅在实时确认后的持久 Zotero attachment |
+| 直接论文研究包 | 有序且已解析的 Zotero 条目引用及聚合 scope | 本地 manifest/清单，或远程 file handle 后续的已验证下载 | 包含可用来源、元数据和分析工件的可移植本地副本 |
+| 直接 Topic 研究包 | 有序的稳定 Topic ID、当前报告及规范关联论文引用 | 本地 manifest 与去重 digest 路由，或远程 file handle 后续的已验证下载 | 当前报告和可用 digest 的可移植本地副本 |
 
 Export manifest 或 file path 证明已经发现，不证明交付成功。已验证本地文件证明交付，不证明 Zotero attachment。如果最终 bundle 包含多个 asset，逐一清点 role 与 checksum，并说明哪些 asset 被有意排除。
+
+### 直接研究包流程
+
+论文 scope 可选择一至 100 个明确条目选择器，Topic scope 可选择一至 20 个稳定 Topic ID。Host 最多解析 500 篇不同论文，最多物化 5000 个文件或 2 GiB。边界拒绝代表需要重新决定 scope：缩小请求或明确拆分；不得静默截断、遗漏 Topic，或创建多个研究包却声称得到一个聚合结果。
+
+交付论文时，检查 manifest 路由 `papers/<libraryId>/<itemKey>/`。预期包含 `metadata.json`、可用时的 Markdown 正文及保留的树内图片（否则为 `source.pdf`），并记录 digest、references、citation analysis 和 literature score 状态。Markdown 优先表示该论文目录中存在 Markdown 来源时不再复制 PDF。来源或分析工件缺失时，保留带论文引用的警告；不得替换成其他论文或启动分析。
+
+交付 Topic 时，验证每份请求报告都位于其 Topic 目录中，并检查 `papers_by_ref`。即使多个 Topic 引用同一篇论文，关联 digest 在规范 Zotero 引用路由下也只保存一次。只有导出的报告副本中参考文献标记结构与记录的来源论文顺序匹配时才增加导航。校验失败时，保持报告不变，使用生成的来源索引，并报告导航回退警告。不得改写已存储的 Topic 工件。
+
+本地交付要求目标不存在或为空；`manifest.json`、`index.md`、选择器清单和声明文件均可读后才算完成。远程交付返回短期 `fileId`；运行提供的下载命令，验证大小及可用的 checksum，然后解压 ZIP 并检查同一份 manifest。不得暴露内部临时路径。物化失败时，任何局部目标都不是有效结果。handle 过期时，针对未变化的已验证选择器集合重新导出；若选择器或 Topic 状态已变，重试前重新建立 scope。
 
 ## 恢复与易错边界
 

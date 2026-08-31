@@ -1,24 +1,36 @@
 {
   "concept_details": [
     {
-      "description": "End-to-end object detection with transformers.",
-      "kind": "topic_root",
-      "label": "DETR"
+      "label": "DETR",
+      "aliases": [
+        "Detection Transformer"
+      ],
+      "concept_type": "topic_root",
+      "definition": "End-to-end object detection with transformers.",
+      "topic_relevance": "Defines the central model family covered by this synthesis topic."
     },
     {
-      "description": "Decoder queries representing predicted objects.",
-      "kind": "method_concept",
-      "label": "object queries"
+      "label": "object queries",
+      "aliases": [
+        "object query"
+      ],
+      "concept_type": "method_concept",
+      "definition": "Decoder queries representing predicted objects.",
+      "topic_relevance": "Captures the query-based set prediction mechanism shared across DETR-family models."
     },
     {
-      "description": "Sparse multi-scale attention used by Deformable DETR.",
-      "kind": "method_concept",
-      "label": "deformable attention"
+      "label": "deformable attention",
+      "aliases": [],
+      "concept_type": "method_concept",
+      "definition": "Sparse multi-scale attention used by Deformable DETR.",
+      "topic_relevance": "Represents a major DETR-family mechanism for improving multi-scale feature sampling and convergence."
     },
     {
-      "description": "DINO-style auxiliary denoising to stabilize DETR training.",
-      "kind": "training_strategy",
-      "label": "denoising training"
+      "label": "denoising training",
+      "aliases": [],
+      "concept_type": "training_strategy",
+      "definition": "DINO-style auxiliary denoising to stabilize DETR training.",
+      "topic_relevance": "Identifies a training strategy used by later DETR variants to accelerate and stabilize optimization."
     }
   ],
   "existing_topic_relation_proposals": [

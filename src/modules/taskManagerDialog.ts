@@ -13,6 +13,7 @@ import {
   listRuntimeLogs,
   type RuntimeLogListFilters,
 } from "./runtimeLogManager";
+import type { SynthesisSidecarTraceSnapshot } from "./synthesisSidecarTrace";
 import {
   cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
@@ -40,12 +41,19 @@ import {
 import { projectDashboardActiveTasks } from "./dashboardActiveTasks";
 import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
 import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
+import { readRuntimeTextFileStrict } from "./runtimePersistence";
 import {
   isAcpRuntimeReplayProfilerAvailable,
   isAcpRuntimeSemanticTraceRecorderAvailable,
   isDebugModeEnabled,
   isSkillRunnerConnectionAuditAvailable,
+  isSynthesisSidecarDiagnosticsAvailable,
 } from "./debugMode";
+
+const SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE =
+  typeof __debug_mode__ === "undefined"
+    ? isSynthesisSidecarDiagnosticsAvailable()
+    : __debug_mode__ && __synthesis_sidecar_diagnostics_enabled__;
 import type { AcpRuntimeSemanticTraceRecorderView } from "./acpRuntimeSemanticTraceRecorder";
 import type { AcpRuntimeReplayControllerView } from "./acpRuntimeReplayController";
 import type { SkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionAudit";
@@ -67,7 +75,7 @@ import {
   type WorkflowSettingsUiDescriptor,
 } from "./workflowSettings";
 import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
-import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
   isWorkflowSettingsStructuralRefreshChange,
@@ -90,9 +98,7 @@ import {
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import {
-  cancelAcpSkillRun,
   listAcpSkillRunSummaries,
-  selectAcpSkillRun,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
@@ -115,6 +121,8 @@ import {
   recordBackgroundRefreshRead,
   registerBackgroundRefreshTimer,
 } from "./backgroundRefreshGovernance";
+import { cancelAcpSkillRun } from "./acpSkillRunActions";
+import { selectAcpSkillRun } from "./acpSkillRunWorkspaceSelection";
 
 type DashboardState = {
   backends: BackendInstance[];
@@ -149,6 +157,7 @@ type DashboardState = {
   selectedFeedbackProductId: string;
   feedbackSkillFilter: string;
   selectedFeedbackProductIds: Set<string>;
+  productExportInProgress: boolean;
   homeWorkflowDocCacheByWorkflowId: Map<
     string,
     {
@@ -231,6 +240,7 @@ type DashboardSnapshot = {
   tabs: Array<{
     key: string;
     label: string;
+    group: "system" | "backend";
     backendId?: string;
     backendType?: string;
     disabled?: boolean;
@@ -266,6 +276,7 @@ type DashboardSnapshot = {
     selectedFeedbackProduct?: ReturnType<typeof getWorkflowProduct>;
     selectedFeedbackProductIds?: string[];
     selectedFeedbackPreview?: WorkflowProductPreview;
+    isExporting?: boolean;
   };
   homeWorkflowDocView?: {
     workflowId: string;
@@ -318,6 +329,8 @@ type DashboardSnapshot = {
         expired: number;
       };
       retentionMode: string;
+      maxImportantEntries: number;
+      importantEntryCount: number;
     };
     logs: DashboardLogRow[];
     selectedEntryIds: string[];
@@ -325,6 +338,9 @@ type DashboardSnapshot = {
       backends: { value: string; label: string }[];
       workflows: { value: string; label: string }[];
     };
+  };
+  synthesisSidecarView?: {
+    traceSnapshot: SynthesisSidecarTraceSnapshot;
   };
   skillRunnerConnectionAuditView?: {
     generatedAt: string;
@@ -400,6 +416,12 @@ function dashboardSelectedSurfaceSignatureInput(snapshot: DashboardSnapshot) {
     return {
       surfaceKey,
       runtimeLogsView: snapshot.runtimeLogsView,
+    };
+  }
+  if (surfaceKey === "synthesis-sidecar") {
+    return {
+      surfaceKey,
+      synthesisSidecarView: snapshot.synthesisSidecarView,
     };
   }
   if (surfaceKey === "skillrunner-connection-audit") {
@@ -745,14 +767,7 @@ async function renderMarkdownToSafeHtml(markdown: string) {
 }
 
 async function readUtf8TextFile(filePath: string) {
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-  };
-  if (typeof runtime.IOUtils?.readUTF8 === "function") {
-    return runtime.IOUtils.readUTF8(filePath);
-  }
-  const fs = await dynamicImport("fs/promises");
-  return fs.readFile(filePath, "utf8") as Promise<string>;
+  return readRuntimeTextFileStrict(filePath);
 }
 
 function toBackendTabKey(backendId: string) {
@@ -786,9 +801,7 @@ function compactError(error: unknown) {
 
 function resolveAcpRuntimeCaptureEnvironment() {
   const zoteroVersion = String(Zotero?.version || "unknown").trim();
-  const parsedMajor = Number.parseInt(zoteroVersion, 10);
-  const zoteroMajor =
-    parsedMajor === 7 || parsedMajor === 9 ? parsedMajor : "unknown";
+  const zoteroMajor = parseSupportedZoteroMajor(zoteroVersion);
   const platform = Zotero?.isWin ? "win32" : Zotero?.isMac ? "darwin" : "linux";
   return {
     pluginVersion: version,
@@ -1403,6 +1416,8 @@ async function buildDashboardSnapshot(args: {
   const summary =
     args.historySummary || summarizeTaskDashboardHistory(args.history);
   const debugModeEnabled = isDebugModeEnabled();
+  const synthesisSidecarDiagnosticsEnabled =
+    SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE;
   const skillRunnerConnectionAuditEnabled =
     __skillrunner_connection_audit_enabled__ &&
     debugModeEnabled &&
@@ -1415,6 +1430,7 @@ async function buildDashboardSnapshot(args: {
     requestedTabKey: args.state.selectedTabKey,
     backends: args.backends,
     debugModeEnabled,
+    synthesisSidecarDiagnosticsEnabled,
     skillRunnerConnectionAuditEnabled,
     acpTraceRecorderEnabled,
     acpReplayProfilerEnabled,
@@ -1799,6 +1815,11 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-tab-title",
       "Runtime Logs",
     ),
+    synthesisSidecarTabTitle: "Synthesis Sidecar",
+    synthesisSidecarCorrelationPlaceholder: localize(
+      "task-dashboard-synthesis-sidecar-correlation-placeholder",
+      "correlation / request / operation / attempt",
+    ),
     skillRunnerConnectionAuditTabTitle: "SkillRunner 连接审计",
     skillRunnerConnectionAuditTitle: "SkillRunner 连接审计",
     skillRunnerConnectionAuditEmpty: "暂无 SkillRunner 连接事件。",
@@ -1840,6 +1861,7 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-diagnostic-mode",
       "Diagnostic Mode",
     ),
+    runtimeLogsBudget: localize("log-viewer-budget", "Budget: { $value }"),
     runtimeLogsClearContext: localize(
       "task-dashboard-runtime-logs-clear-context",
       "Clear Context",
@@ -2028,24 +2050,38 @@ async function buildDashboardSnapshot(args: {
     {
       key: "home",
       label: labels.home,
+      group: "system" as const,
     },
     {
       key: "workflow-options",
       label: labels.tabWorkflowOptions,
+      group: "system" as const,
     },
     {
       key: "products",
       label: labels.tabProducts,
+      group: "system" as const,
     },
     {
       key: "runtime-logs",
       label: labels.runtimeLogsTabTitle,
+      group: "system" as const,
     },
+    ...(synthesisSidecarDiagnosticsEnabled
+      ? [
+          {
+            key: "synthesis-sidecar",
+            label: labels.synthesisSidecarTabTitle,
+            group: "system" as const,
+          },
+        ]
+      : []),
     ...(skillRunnerConnectionAuditEnabled
       ? [
           {
             key: "skillrunner-connection-audit",
             label: labels.skillRunnerConnectionAuditTabTitle,
+            group: "system" as const,
           },
         ]
       : []),
@@ -2054,6 +2090,7 @@ async function buildDashboardSnapshot(args: {
           {
             key: "acp-trace-replay",
             label: labels.acpTraceReplayTabTitle,
+            group: "system" as const,
           },
         ]
       : []),
@@ -2071,6 +2108,7 @@ async function buildDashboardSnapshot(args: {
       return {
         key: toBackendTabKey(backend.id),
         label: `${backendDisplayName} (${backend.type})`,
+        group: "backend" as const,
         backendId: backend.id,
         backendType: backend.type,
         disabled,
@@ -2108,6 +2146,18 @@ async function buildDashboardSnapshot(args: {
     homeWorkflowDocView,
     backendLoadError: args.state.backendLoadError,
   };
+
+  if (
+    synthesisSidecarDiagnosticsEnabled &&
+    resolvedSelectedTabKey === "synthesis-sidecar"
+  ) {
+    const { readSynthesisSidecarTraceSnapshot } =
+      await import("./synthesisSidecarTrace");
+    snapshot.synthesisSidecarView = {
+      traceSnapshot: readSynthesisSidecarTraceSnapshot(),
+    };
+    return finalizeDashboardSnapshot(snapshot);
+  }
 
   if (resolvedSelectedTabKey === "workflow-options") {
     snapshot.workflowOptionsView = await buildWorkflowOptionsView({
@@ -2202,6 +2252,7 @@ async function buildDashboardSnapshot(args: {
         args.state.selectedFeedbackProductIds,
       ),
       selectedFeedbackPreview,
+      isExporting: args.state.productExportInProgress,
     };
     return finalizeDashboardSnapshot(snapshot);
   }
@@ -2253,6 +2304,8 @@ async function buildDashboardSnapshot(args: {
         droppedEntries: logSummary.droppedEntries,
         droppedByReason: logSummary.droppedByReason,
         retentionMode: logSummary.retentionMode,
+        maxImportantEntries: logSummary.maxImportantEntries,
+        importantEntryCount: logSummary.importantEntryCount,
       },
       logs: rawLogs.map((entry) => mapLogRow(entry)),
       selectedEntryIds: Array.from(args.state.runtimeLogSelectedIdSet),
@@ -2589,6 +2642,7 @@ export async function openTaskManagerDialog(args?: {
     selectedFeedbackProductId: "",
     feedbackSkillFilter: "",
     selectedFeedbackProductIds: new Set(),
+    productExportInProgress: false,
     homeWorkflowDocCacheByWorkflowId: new Map(),
   };
   const initialBackendId = fromBackendTabKey(state.selectedTabKey);
@@ -2605,6 +2659,7 @@ export async function openTaskManagerDialog(args?: {
   let unsubscribeBackendHealth: (() => void) | undefined;
   let unsubscribeAcpSkillRuns: (() => void) | undefined;
   let unsubscribeWorkflowQueue: (() => void) | undefined;
+  let unsubscribeSynthesisDiagnostics: (() => void) | undefined;
   let refreshTimer: number | undefined;
   let deferredDashboardRefreshTimer: number | undefined;
   let dashboardRefreshQueued = false;
@@ -2885,6 +2940,8 @@ export async function openTaskManagerDialog(args?: {
           Date.now() - lastBackendRegistryReadAt > 30000),
     );
     const debugModeEnabled = isDebugModeEnabled();
+    const synthesisSidecarDiagnosticsEnabled =
+      SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE;
     const skillRunnerConnectionAuditEnabled =
       __skillrunner_connection_audit_enabled__ &&
       debugModeEnabled &&
@@ -2897,6 +2954,7 @@ export async function openTaskManagerDialog(args?: {
       requestedTabKey: state.selectedTabKey,
       backends: state.backends,
       debugModeEnabled,
+      synthesisSidecarDiagnosticsEnabled,
       skillRunnerConnectionAuditEnabled,
       acpTraceRecorderEnabled,
       acpReplayProfilerEnabled,
@@ -3011,6 +3069,7 @@ export async function openTaskManagerDialog(args?: {
     return (
       state.selectedTabKey === "workflow-options" ||
       state.selectedTabKey === "products" ||
+      state.selectedTabKey === "synthesis-sidecar" ||
       state.selectedTabKey === "skillrunner-connection-audit" ||
       state.selectedTabKey === "acp-trace-replay"
     );
@@ -3453,19 +3512,22 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
     if (action === "open-product-folder") {
+      if (state.productExportInProgress) return;
       const product = getWorkflowProduct(
         String(payload.productId || "").trim(),
       );
       if (!product) return;
-      const selected = await openRuntimeFilePicker({
-        title: localize(
-          "task-dashboard-products-export-title",
-          "Select Product export directory",
-        ),
-        mode: "folder",
-      });
-      if (typeof selected === "string") {
-        try {
+      state.productExportInProgress = true;
+      refresh("user-action");
+      try {
+        const selected = await openRuntimeFilePicker({
+          title: localize(
+            "task-dashboard-products-export-title",
+            "Select Product export directory",
+          ),
+          mode: "folder",
+        });
+        if (typeof selected === "string") {
           await exportWorkflowProductToDirectory({
             productId: product.productId,
             outputDir: selected,
@@ -3473,15 +3535,18 @@ export async function openTaskManagerDialog(args?: {
           openFolderInSystemFileManager(selected, {
             label: "product export folder",
           });
-        } catch (error) {
-          alertRuntimeWindow(
-            localize(
-              "task-dashboard-products-export-failed",
-              "Failed to export Product: {error}",
-              { args: { error: compactError(error) } },
-            ),
-          );
         }
+      } catch (error) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-products-export-failed",
+            "Failed to export Product: {error}",
+            { args: { error: compactError(error) } },
+          ),
+        );
+      } finally {
+        state.productExportInProgress = false;
+        refresh("user-action");
       }
       return;
     }
@@ -4381,6 +4446,10 @@ export async function openTaskManagerDialog(args?: {
       unsubscribeWorkflowQueue();
       unsubscribeWorkflowQueue = undefined;
     }
+    if (unsubscribeSynthesisDiagnostics) {
+      unsubscribeSynthesisDiagnostics();
+      unsubscribeSynthesisDiagnostics = undefined;
+    }
     if (removeMessageListener) {
       removeMessageListener();
       removeMessageListener = undefined;
@@ -4470,7 +4539,7 @@ export async function openTaskManagerDialog(args?: {
       const eventBackend =
         event.type === "added"
           ? event.entry
-          : event.type === "removed"
+          : event.type === "removed" || event.type === "slot-changed"
             ? event.backend
             : null;
       if (
@@ -4483,6 +4552,18 @@ export async function openTaskManagerDialog(args?: {
         refresh("queue-update");
       }
     });
+    if (SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE) {
+      void import("./synthesisSidecarTrace").then(
+        ({ subscribeSynthesisSidecarTracePatches }) => {
+          unsubscribeSynthesisDiagnostics =
+            subscribeSynthesisSidecarTracePatches(() => {
+              if (state.selectedTabKey === "synthesis-sidecar") {
+                refresh("diagnostic-update");
+              }
+            });
+        },
+      );
+    }
     registerBackgroundRefreshTimer({
       owner: "task-dashboard-refresh",
       activationCondition: "dashboard frame mounted",
@@ -4594,3 +4675,4 @@ export async function resetTaskManagerDialogRuntimeForTests() {
   }
   taskManagerDialog = undefined;
 }
+import { parseSupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";

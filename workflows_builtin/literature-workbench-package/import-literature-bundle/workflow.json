@@ -4,6 +4,25 @@
   "label": "Import Literature Bundle",
   "description": "Import a literature bundle and reconcile its supported Zotero literature artifacts.",
   "executionModes": ["auto"],
+  "supportedInvocationModes": ["interactive", "non-interactive"],
+  "resourceRequirements": [
+    {
+      "id": "bundle",
+      "direction": "input",
+      "kind": "archive",
+      "cardinality": "one",
+      "required": true,
+      "accept": { "extensions": [".zip"] }
+    },
+    {
+      "id": "research-import-files",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "many",
+      "required": false,
+      "accept": { "maxCount": 1000, "maxBytes": 17179869184 }
+    }
+  ],
   "version": "1.0.0",
   "provider": "pass-through",
   "trigger": {

@@ -199,3 +199,115 @@ Workflow manifests SHALL support `parameters.<key>.required` as an optional bool
 
 - **WHEN** a workflow parameter does not declare `required: true`
 - **THEN** the parameter SHALL retain optional behavior.
+
+### Requirement: Workflow Host public data SHALL use a closed portable value model
+
+Workflow Host and Broker public DTOs SHALL be composed from finite strict-JSON values and canonical portable references. The only non-JSON values permitted at the trusted in-process seam SHALL be `AbortSignal`, declared callbacks, editor DOM values, byte arrays, and trusted local path values explicitly named by the v12 contract.
+
+#### Scenario: Portable item reference is accepted
+
+- **WHEN** a caller supplies a positive finite `libraryId` and canonical Zotero item key
+- **THEN** the contract accepts the portable item reference without requiring a numeric item ID or raw Zotero object
+
+#### Scenario: Native object reaches a public DTO
+
+- **WHEN** a public DTO contains a Zotero object, Window, native stream, filesystem adapter, non-finite number, or undeclared binary value
+- **THEN** validation fails with a stable coded error before the value crosses the public seam
+
+### Requirement: Workflow Host errors SHALL use one closed public taxonomy
+
+Every Workflow Host owner SHALL expose failures through the eleven-code `zotero-agents.workflow-host-error.v1` contract with code-specific strict-JSON details. Callers MUST NOT branch on error prose, class name, stack, provider identity, or backend product name.
+
+#### Scenario: Missing referenced object
+
+- **WHEN** a valid portable reference resolves to no current object
+- **THEN** the failure uses `not_found` with a closed target kind and no raw reference or native cause
+
+#### Scenario: Non-interactive adapter denies UI
+
+- **WHEN** a non-interactive adapter receives a UI-dependent call
+- **THEN** the failure uses `interaction_required` and names only the closed member identity
+
+### Requirement: Cancelable calls SHALL use a separate trusted control parameter
+
+Potentially blocking Workflow Host calls with real cancellation points SHALL accept `WorkflowCallControl` separately from their JSON request DTO. Callback-scoped calls SHALL require the control parameter and SHALL execute callbacks serially.
+
+#### Scenario: Caller aborts before publication
+
+- **WHEN** the execution signal is aborted before a cancelable owner publishes a result
+- **THEN** the owner does not publish a late success and reports cancellation through the contractually permitted channel
+
+### Requirement: Contract variants SHALL retain one exact shape
+
+Interactive and non-interactive Workflow Host variants SHALL expose the same exact top-level and nested member identities. Availability or interaction policy MUST be represented by results or coded failures, never by missing optional members, spreads, proxies, or a runtime capability catalog.
+
+#### Scenario: Variant conformance is inspected
+
+- **WHEN** both current contract variants are recursively inspected
+- **THEN** their member identities and function positions are identical even though UI-dependent execution behavior differs
+
+#### Scenario: Foundation is implemented before activation
+
+- **WHEN** this foundation change is complete but final v12 activation has not run
+- **THEN** the production projection still reports the current v11 identity and does not expose a partial v12 surface
+
+### Requirement: Workflow Host leaf identity SHALL be closed and late-bound
+The staged Workflow Host leaf owners SHALL expose addon identity as exactly `addonName`, `addonRef`, and `addonVersion`, and environment information as exactly `zoteroVersion`, `platform`, and `locale`. Environment facts MUST be read on every call, normalized to closed portable values, and MUST NOT be used as capability discovery.
+
+#### Scenario: Runtime facts change between calls
+- **WHEN** the runtime version, platform candidate, or locale source changes after an owner was composed
+- **THEN** the next environment read uses the current runtime facts
+- **AND** unavailable fields fall back to `"unknown"`, `"unknown"`, or `"en-US"` as applicable without exposing runtime objects
+
+#### Scenario: Addon identity is requested
+- **WHEN** a caller reads addon identity
+- **THEN** the result contains only addon name, reference, and version
+- **AND** it does not expose a preference prefix or general configuration bag
+
+### Requirement: Workflow clipboard SHALL preserve plain-text flavor semantics
+The clipboard owner SHALL expose bounded `readText`, `writeText`, `hasText`, and `clear` operations. It MUST distinguish an absent text flavor from an empty text flavor, enforce a 16 MiB UTF-8 limit without disclosing clipboard content in errors, and keep identical member shape across interactive and non-interactive adapters.
+
+#### Scenario: Clipboard contains an empty text flavor
+- **WHEN** the clipboard contains text with value `""`
+- **THEN** `readText` returns `""` and `hasText` returns `true`
+- **AND** `clear` removes the flavor so a subsequent read returns `null`
+
+#### Scenario: Clipboard is unavailable in a non-interactive host
+- **WHEN** any clipboard operation is invoked through the non-interactive adapter
+- **THEN** the operation fails with stable `interaction_required` data
+- **AND** the clipboard member remains present
+
+#### Scenario: Clipboard input exceeds its hard limit
+- **WHEN** a caller attempts to read or write more than 16 MiB of UTF-8 text
+- **THEN** the operation fails with `resource_limited`
+- **AND** the failure contains no clipboard content
+
+### Requirement: Current Workflow Host contract identity SHALL be v12 only
+
+Internally created current Workflow projections SHALL report version 12 and one
+declared interaction mode. Current built-in packages SHALL require version 12
+exactly; unknown external projections SHALL not be mislabeled as current.
+
+#### Scenario: Current host is injected
+
+- **WHEN** the runtime injects the current Workflow Host projection
+- **THEN** identity diagnostics, request planning, and package guards all
+  observe version 12
+
+#### Scenario: Legacy projection is supplied
+
+- **WHEN** an external or test projection reports a version below 12
+- **THEN** current built-in packages reject it without installing a fallback
+  facade
+
+### Requirement: Workflow Host conformance SHALL be recursive and bidirectional
+
+Conformance SHALL report missing, unexpected, non-callable, version, and
+interaction-mode facts across the complete nested surface. Tests and build
+gates SHALL treat any fact as failure for current projections.
+
+#### Scenario: Nested member is missing
+
+- **WHEN** one current nested module omits a declared function
+- **THEN** conformance names the nested identity and fails even when every
+  top-level key exists

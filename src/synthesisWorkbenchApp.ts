@@ -2,9 +2,10 @@ import Graph from "graphology";
 import Sigma from "sigma";
 import { drawDiscNodeHover } from "sigma/rendering";
 import {
+  aggregateCitationGraphVisualEdges,
   buildCitationGraphNodeImportance,
-  citationGraphFallbackIncomingDegrees,
-  citationGraphIncomingDegree,
+  citationGraphFallbackOffsets,
+  citationGraphIncomingCounts,
   citationGraphNodeSize,
   CITATION_GRAPH_EDGE_SIZE,
   CITATION_GRAPH_INCOMING_EDGE_COLOR,
@@ -20,6 +21,7 @@ import {
   GRAPH_MAX_ZOOM_RATIO,
   GRAPH_MIN_ZOOM_RATIO,
   GRAPH_ZOOM_SLIDER_MAX,
+  projectCitationGraphVisibility,
   type CitationGraphNodeImportance,
 } from "./shared/citationGraphVisualRules";
 import {
@@ -32,6 +34,7 @@ import {
   type SynthesisWorkbenchI18nEnvelope,
   type SynthesisWorkbenchMessageKey,
 } from "./synthesisWorkbenchI18n";
+import { literatureScoreToStars } from "./shared/literatureScore";
 
 declare const window: Window &
   typeof globalThis & {
@@ -70,7 +73,10 @@ type SynthesisWorkbenchBridge = {
 
 type SynthesisI18nPayload = Partial<SynthesisWorkbenchI18nEnvelope>;
 
-type GraphNodeKind = "library_paper" | "external_reference";
+type GraphNodeKind =
+  | "library_paper"
+  | "external_reference"
+  | "unresolved_reference";
 
 type GraphNode = {
   id: string;
@@ -159,6 +165,27 @@ type SyncTransportSnapshot = {
 type Snapshot = {
   libraryId: number;
   selectedTab: SynthesisTab;
+  sidecarStatus?: {
+    lifecycle:
+      | "stopped"
+      | "starting"
+      | "ready"
+      | "unavailable"
+      | "incompatible"
+      | "stopping";
+    recoveryState: "none" | "scheduled" | "manual-recovery-required";
+    reasonCode?: string;
+    healthObservedAt?: string;
+    serviceInstanceId?: string;
+    serviceVersion?: string;
+    bundleId?: string;
+    nextRestartAt?: string;
+    computePool?: {
+      state: "idle" | "busy" | "degraded" | "stopping";
+      active: 0 | 1;
+      queued: number;
+    };
+  };
   actions?: {
     inFlight?: ActionOperation[];
     lastCompleted?: ActionOperation;
@@ -175,7 +202,6 @@ type Snapshot = {
   sync?: {
     status?: string;
     diagnostics?: Array<Record<string, unknown>>;
-    git?: SyncTransportSnapshot;
     webdav?: SyncTransportSnapshot;
   };
   conflicts?: { candidates?: Array<Record<string, unknown>> };
@@ -348,6 +374,20 @@ type Snapshot = {
     visibleNodes: GraphNode[];
     visibleEdges: GraphEdge[];
     diagnostics: Record<string, unknown>;
+    window?: {
+      nextCursor?: string;
+      hasMore: boolean;
+      totalNodes: number;
+      totalEdges: number;
+      totalHoverNodes: number;
+      totalHoverEdges: number;
+      loadedNodes: number;
+      loadedEdges: number;
+      querySignature: string;
+      status: "loading" | "complete" | "paused" | "failed";
+      roleOptions: string[];
+      error?: { code: string; reason?: string };
+    };
   };
   reader?: {
     topicId: string;
@@ -599,9 +639,11 @@ const state: {
   graphSurfaceActive: boolean;
   graphModelSignature?: string;
   graphLayoutSignature?: string;
+  graphQuerySignature?: string;
+  graphBasisHash?: string;
   graph?: Graph;
-  hoveredNode?: string;
-  hoverLabelNode?: string;
+  pointerHoveredNode?: string;
+  focusedLabelNode?: string;
   hoverClearTimer?: number;
   graphSearchDraft?: string;
   graphReturnTopicId?: string;
@@ -611,8 +653,6 @@ const state: {
   standaloneGraphFocusNodeId: string;
   standaloneDigestsByKey: Map<string, Record<string, unknown>>;
   standaloneGraphLayouts: Map<string, Snapshot["graph"]>;
-  dynamicHoverNodeIds: Set<string>;
-  dynamicHoverEdgeIds: Set<string>;
   localPendingActions: Map<string, ActionOperation>;
   optimisticReviewDecisions: Map<string, OptimisticReviewDecision>;
   pendingReferenceProposalDecisions: Map<
@@ -641,7 +681,6 @@ const state: {
   jobPopoverOpen: boolean;
   tagImportOpen: boolean;
   dismissedTagImportPreviewSignature?: string;
-  autoLayoutRequests: Set<string>;
   registryExpandedRows: Set<string>;
   registryLoadingReferenceRows: Set<string>;
   canonicalDetailTab: "overview" | "redirects" | "reviews";
@@ -674,13 +713,10 @@ const state: {
   statusbarExpirations: new Map(),
   jobPopoverOpen: false,
   tagImportOpen: false,
-  autoLayoutRequests: new Set(),
   registryExpandedRows: new Set(),
   registryLoadingReferenceRows: new Set(),
   canonicalDetailTab: "overview",
   canonicalDetailCollapsed: false,
-  dynamicHoverNodeIds: new Set(),
-  dynamicHoverEdgeIds: new Set(),
   standaloneExport: false,
   standaloneGraphOnly: false,
   standaloneGraphScopeLabel: "",
@@ -694,6 +730,7 @@ const state: {
 const colors: Record<GraphNodeKind, string> = {
   library_paper: "#1967b3",
   external_reference: "#7a861f",
+  unresolved_reference: "#9a6a21",
 };
 
 let conceptBubbleCleanup: (() => void) | undefined;
@@ -946,9 +983,8 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
       payload.layoutAlgorithm || payload.layoutPreset,
       state.snapshot.graph.layoutAlgorithm,
     );
-    const layoutGraph = normalizeStandaloneGraphSnapshot(
-      state.standaloneGraphLayouts.get(nextAlgorithm) || state.snapshot.graph,
-    );
+    const layoutGraph =
+      state.standaloneGraphLayouts.get(nextAlgorithm) || state.snapshot.graph;
     const filters = {
       ...layoutGraph.filters,
       ...state.snapshot.graph.filters,
@@ -965,15 +1001,14 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
           ? Boolean(payload.showLowSignalReferences)
           : state.snapshot.graph.filters.showLowSignalReferences,
     };
-    const filtered = filterStandaloneGraph(layoutGraph, filters);
+    const projectedGraph = normalizeStandaloneGraphSnapshot(
+      layoutGraph,
+      filters,
+    );
     state.snapshot = {
       ...state.snapshot,
       graph: {
-        ...layoutGraph,
-        filters,
-        layoutAlgorithm: normalizeGraphLayoutAlgorithm(nextAlgorithm),
-        visibleNodes: filtered.visibleNodes,
-        visibleEdges: filtered.visibleEdges,
+        ...projectedGraph,
         selectedElement:
           selected === null
             ? undefined
@@ -1102,8 +1137,6 @@ function reviewDecisionKey(
       return `reference-match:${keyPart(args.proposalId)}`;
     case "applyTagVocabularyImport":
       return `tag-import:${keyPart(args.action)}`;
-    case "resolveGitSyncConflict":
-      return `git-conflict:${keyPart(args.assetPath, "current")}:${keyPart(args.action)}`;
     default:
       return "";
   }
@@ -1125,16 +1158,33 @@ function normalizeGraphLayoutAlgorithm(value: unknown) {
     : "force";
 }
 
-function normalizeStandaloneGraphSnapshot(graph: Snapshot["graph"]) {
-  const layoutAlgorithm = normalizeGraphLayoutAlgorithm(graph.layoutAlgorithm);
+function normalizeStandaloneGraphSnapshot(
+  graph: Snapshot["graph"],
+  filterOverrides: Partial<Snapshot["graph"]["filters"]> = {},
+) {
+  const layoutAlgorithm = normalizeGraphLayoutAlgorithm(
+    filterOverrides.layoutAlgorithm || graph.layoutAlgorithm,
+  );
+  const filters = {
+    ...graph.filters,
+    ...filterOverrides,
+    layoutAlgorithm,
+  };
+  const projection = projectCitationGraphVisibility({
+    nodes: graph.nodes,
+    edges: graph.edges,
+    filters,
+    topicScopes: graph.topicScopes,
+  });
   return {
     ...graph,
     layoutStatus: "ready" as const,
     layoutAlgorithm,
-    filters: {
-      ...graph.filters,
-      layoutAlgorithm,
-    },
+    filters,
+    visibleNodes: projection.defaultNodes,
+    visibleEdges: projection.defaultEdges,
+    hoverOnlyNodes: projection.hoverOnlyNodes,
+    hoverOnlyEdges: projection.hoverOnlyEdges,
     diagnostics: {
       ...(graph.diagnostics || {}),
       cache_status: "ready",
@@ -1795,7 +1845,7 @@ function sourceLabelForJob(source: string) {
     workbench: "Workbench",
     operation: "Operation",
     citation_graph_layout: "Graph layout",
-    git_sync: "Git Sync",
+    webdav_sync: "WebDAV Sync",
     canonical_maintenance: "Canonical",
   };
   return labels[source] || source || "Synthesis";
@@ -2098,10 +2148,109 @@ function renderActionStatusbar(snapshot: Snapshot) {
 function renderTopbar(snapshot: Snapshot) {
   const topbar = el("div", "topbar");
   topbar.appendChild(el("h1", "", titleForTab(snapshot.selectedTab)));
+  const controls = el("div", "topbar-controls");
+  controls.appendChild(renderSidecarRuntimeIndicator(snapshot));
   if (snapshot.selectedTab === "reader" && state.topicDetail) {
-    topbar.appendChild(renderTopicDetailToolbar(state.topicDetail, snapshot));
+    controls.appendChild(renderTopicDetailToolbar(state.topicDetail, snapshot));
   }
+  topbar.appendChild(controls);
   return topbar;
+}
+
+function sidecarRuntimePresentation(snapshot: Snapshot) {
+  const status = snapshot.sidecarStatus;
+  const activeJobs =
+    snapshot.maintenance?.backgroundJobs?.rows?.filter(
+      (job) => job.status === "running" || job.status === "queued",
+    ).length || 0;
+  const inFlight = snapshot.actions?.inFlight?.length || 0;
+  if (!status)
+    return { state: "offline", label: t("synthesis-sidecar-offline") };
+  if (
+    status.lifecycle === "incompatible" ||
+    status.recoveryState === "manual-recovery-required"
+  ) {
+    return { state: "error", label: t("synthesis-sidecar-error") };
+  }
+  if (
+    status.lifecycle === "starting" ||
+    status.lifecycle === "stopping" ||
+    status.recoveryState === "scheduled"
+  ) {
+    return { state: "recovering", label: t("synthesis-sidecar-recovering") };
+  }
+  if (status.computePool?.state === "degraded") {
+    return { state: "degraded", label: t("synthesis-sidecar-degraded") };
+  }
+  if (status.lifecycle === "unavailable") {
+    return { state: "error", label: t("synthesis-sidecar-error") };
+  }
+  if (
+    status.lifecycle === "ready" &&
+    (status.computePool?.state === "busy" ||
+      (status.computePool?.active || 0) > 0 ||
+      (status.computePool?.queued || 0) > 0 ||
+      activeJobs > 0 ||
+      inFlight > 0)
+  ) {
+    return { state: "busy", label: t("synthesis-sidecar-busy") };
+  }
+  if (status.lifecycle === "ready") {
+    return { state: "ready", label: t("synthesis-sidecar-ready") };
+  }
+  return { state: "offline", label: t("synthesis-sidecar-offline") };
+}
+
+function renderSidecarRuntimeIndicator(snapshot: Snapshot) {
+  const status = snapshot.sidecarStatus;
+  const presentation = sidecarRuntimePresentation(snapshot);
+  const detail = document.createElement("details");
+  detail.className = `sidecar-runtime-indicator is-${presentation.state}`;
+  const summary = document.createElement("summary");
+  summary.setAttribute(
+    "aria-label",
+    `${t("synthesis-sidecar-status")}: ${presentation.label}`,
+  );
+  summary.appendChild(el("span", "sidecar-runtime-dot"));
+  summary.appendChild(el("span", "sidecar-runtime-label", presentation.label));
+  detail.appendChild(summary);
+  const popover = el("div", "sidecar-runtime-popover");
+  popover.appendChild(el("strong", "", t("synthesis-sidecar-status")));
+  const rows: Array<[string, string]> = [
+    [t("synthesis-sidecar-state"), presentation.label],
+    [t("synthesis-sidecar-version"), status?.serviceVersion || "—"],
+    [
+      t("synthesis-sidecar-instance"),
+      status?.serviceInstanceId?.slice(-8) || "—",
+    ],
+    [
+      t("synthesis-sidecar-compute"),
+      status?.computePool
+        ? `${status.computePool.state} · ${status.computePool.active}/${status.computePool.queued}`
+        : "—",
+    ],
+  ];
+  if (status?.reasonCode)
+    rows.push([t("synthesis-sidecar-reason"), status.reasonCode]);
+  if (status?.nextRestartAt)
+    rows.push([t("synthesis-sidecar-next-recovery"), status.nextRestartAt]);
+  rows.forEach(([label, value]) => {
+    const row = el("div", "sidecar-runtime-row");
+    row.appendChild(el("span", "muted", label));
+    row.appendChild(el("span", "", value));
+    popover.appendChild(row);
+  });
+  if (presentation.state === "error" || presentation.state === "degraded") {
+    popover.appendChild(
+      makeButton(
+        t("synthesis-diagnostics"),
+        "openSynthesisSidecarDiagnostics",
+        {},
+      ),
+    );
+  }
+  detail.appendChild(popover);
+  return detail;
 }
 
 function ensurePersistentGraphSurface() {
@@ -2140,6 +2289,39 @@ function setGraphSurfaceActive(active: boolean) {
 }
 
 function renderWorkbenchMain(main: HTMLElement, snapshot: Snapshot) {
+  const sidecarStatus = snapshot.sidecarStatus;
+  const sidecarFailure =
+    sidecarStatus &&
+    (sidecarStatus.recoveryState === "manual-recovery-required" ||
+      sidecarStatus.lifecycle === "incompatible" ||
+      (sidecarStatus.lifecycle === "unavailable" &&
+        sidecarStatus.recoveryState !== "scheduled"));
+  if (sidecarFailure) {
+    const card = el("aside", "sidecar-failure-card");
+    const copy = el("div", "sidecar-failure-copy");
+    copy.appendChild(el("strong", "", t("synthesis-sidecar-error")));
+    copy.appendChild(
+      el(
+        "div",
+        "muted",
+        sidecarStatus.reasonCode || t("synthesis-sidecar-offline"),
+      ),
+    );
+    card.appendChild(copy);
+    const actions = el("div", "sidecar-failure-actions");
+    actions.appendChild(
+      makeButton(t("synthesis-action-retry"), "retrySynthesisSidecar", {}),
+    );
+    actions.appendChild(
+      makeButton(
+        t("synthesis-diagnostics"),
+        "openSynthesisSidecarDiagnostics",
+        {},
+      ),
+    );
+    card.appendChild(actions);
+    main.appendChild(card);
+  }
   const graphSurface = ensurePersistentGraphSurface();
   main.appendChild(graphSurface);
   if (snapshot.selectedTab === "graph") {
@@ -2337,7 +2519,6 @@ function renderSelectedTabShell() {
     (runtime?.status === "failed" && runtime.snapshot)
   ) {
     renderWorkbenchMain(main, state.snapshot);
-    maybeRequestGraphLayoutRefresh(state.snapshot);
   } else {
     renderWorkbenchSurfaceLoading(main, surface);
   }
@@ -2447,7 +2628,6 @@ function renderSurface(surface: WorkbenchSurfaceName) {
   restoreWorkbenchRenderState(root, renderState);
   localizeWorkbenchDom(root);
   state.lastContentSignature = snapshotContentSignature(state.snapshot);
-  maybeRequestGraphLayoutRefresh(state.snapshot);
 }
 
 function scheduleSigmaResize() {
@@ -7497,6 +7677,11 @@ const registryArtifactBadges = [
     "Citation analysis artifact",
     "icon_artifact_citation_analysis.svg",
   ],
+  [
+    "literature_score",
+    "Literature score artifact",
+    "icon_artifact_literature_score.svg",
+  ],
 ] as const;
 
 function hasRegistryArtifact(row: Record<string, unknown>, artifact: string) {
@@ -7530,6 +7715,36 @@ function renderRegistryArtifacts(row: Record<string, unknown>) {
     image.setAttribute("aria-hidden", "true");
     node.appendChild(image);
     wrap.appendChild(node);
+  });
+  return wrap;
+}
+
+function renderRegistryRating(row: Record<string, unknown>) {
+  const score = Number(row.ratingScore);
+  const missing = !Number.isFinite(score) || score < 0 || score > 100;
+  const rating = missing ? null : literatureScoreToStars(score);
+  const wrap = el("span", `registry-rating ${missing ? "is-missing" : ""}`);
+  const label = missing
+    ? t("synthesis-rating-unavailable")
+    : t("synthesis-rating-value", {
+        score,
+        stars: rating?.rating || 0,
+      });
+  wrap.title = label;
+  wrap.setAttribute("aria-label", label);
+  const fills = missing ? ([1, 1, 1, 1, 1] as const) : rating!.fills;
+  fills.forEach((fill) => {
+    const star = el("span", "registry-rating-star");
+    star.setAttribute("aria-hidden", "true");
+    star.appendChild(
+      el("span", "registry-rating-star-empty", missing ? "★" : "☆"),
+    );
+    if (!missing && fill > 0) {
+      const filled = el("span", "registry-rating-star-fill", "★");
+      filled.style.width = `${fill * 100}%`;
+      star.appendChild(filled);
+    }
+    wrap.appendChild(star);
   });
   return wrap;
 }
@@ -7885,7 +8100,7 @@ function renderRegistryRowActions(row: Record<string, unknown>) {
         args: { libraryId, itemKey, workflowId: "literature-analysis" },
       },
       false,
-      row.artifactCoverage === "complete",
+      textValue(row.artifactCoverage) === "complete",
     ),
   );
   actions.appendChild(
@@ -7913,6 +8128,7 @@ function renderRegistryParentRow(row: Record<string, unknown>) {
       "registry-center-cell",
     ],
     [renderRegistryArtifacts(row), "registry-artifacts-cell"],
+    [renderRegistryRating(row), "registry-rating-cell"],
     [
       badge(textValue(row.index_scope, "library"), "ok"),
       "registry-center-cell",
@@ -7956,6 +8172,7 @@ function renderRegistryTable(snapshot: Snapshot) {
     "year",
     "coverage",
     "artifacts",
+    "rating",
     "status",
     "references",
     "id",
@@ -7969,6 +8186,9 @@ function renderRegistryTable(snapshot: Snapshot) {
     renderRegistryHeader("Coverage"),
     renderRegistryHeader("Artifacts", {
       className: "registry-artifacts-header",
+    }),
+    renderRegistryHeader(t("synthesis-column-rating"), {
+      className: "registry-rating-header",
     }),
     renderRegistryHeader("Status"),
     renderRegistryHeader("References", {
@@ -10130,7 +10350,8 @@ function reviewStatusMatches(status: unknown, filter: unknown) {
     return (
       normalizedStatus === "accepted" ||
       normalizedStatus === "approved" ||
-      normalizedStatus === "confirmed"
+      normalizedStatus === "confirmed" ||
+      normalizedStatus === "merged"
     );
   }
   if (normalizedFilter === "superseded") {
@@ -11412,6 +11633,19 @@ function conceptReviewActionCell(
     return "-";
   }
   const reviewId = textValue(row.review_id);
+  const reason = textValue(row.reason);
+  if (reason === "alias_conflict" || reason === "alias_equivalence_audit") {
+    return actionGroup([
+      makeButton(t("synthesis-action-keep-alias"), "hostCommand", {
+        command: "applyConceptReviewAction",
+        args: { reviewId, action: "keep_alias" },
+      }),
+      makeButton(t("synthesis-action-remove-alias"), "hostCommand", {
+        command: "applyConceptReviewAction",
+        args: { reviewId, action: "remove_alias" },
+      }),
+    ]);
+  }
   const candidateIds = conceptReviewCandidateIds(row);
   const actions = el("div", "review-table-actions concept-review-actions");
   actions.appendChild(
@@ -13086,19 +13320,33 @@ function renderConceptReviewPanel(
   const reviewId = textValue(item.review_id);
   const selectedTarget =
     snapshot.concepts.filters.reviewMergeTargets?.[reviewId] || "";
-  const actions = [
-    makeButton(t("synthesis-action-approve-as-new"), "hostCommand", {
-      command: "applyConceptReviewAction",
-      args: {
-        reviewId,
-        action: "approve_create",
-      },
-    }),
-    makeButton(t("synthesis-action-reject"), "hostCommand", {
-      command: "applyConceptReviewAction",
-      args: { reviewId, action: "reject" },
-    }),
-  ];
+  const reason = textValue(item.reason);
+  const aliasAudit =
+    reason === "alias_conflict" || reason === "alias_equivalence_audit";
+  const actions = aliasAudit
+    ? [
+        makeButton(t("synthesis-action-keep-alias"), "hostCommand", {
+          command: "applyConceptReviewAction",
+          args: { reviewId, action: "keep_alias" },
+        }),
+        makeButton(t("synthesis-action-remove-alias"), "hostCommand", {
+          command: "applyConceptReviewAction",
+          args: { reviewId, action: "remove_alias" },
+        }),
+      ]
+    : [
+        makeButton(t("synthesis-action-approve-as-new"), "hostCommand", {
+          command: "applyConceptReviewAction",
+          args: {
+            reviewId,
+            action: "approve_create",
+          },
+        }),
+        makeButton(t("synthesis-action-reject"), "hostCommand", {
+          command: "applyConceptReviewAction",
+          args: { reviewId, action: "reject" },
+        }),
+      ];
   const primaryChildren = [
     renderConceptReviewDecisionSummary(
       snapshot,
@@ -13108,7 +13356,7 @@ function renderConceptReviewPanel(
       selectedTarget,
     ),
   ];
-  if (candidateIds.length) {
+  if (!aliasAudit && candidateIds.length) {
     actions.splice(
       1,
       0,
@@ -13249,6 +13497,9 @@ function renderConceptReviewDecisionSummary(
 }
 
 function roleOptions(snapshot: Snapshot) {
+  if (snapshot.graph.window?.roleOptions.length) {
+    return [...snapshot.graph.window.roleOptions];
+  }
   return Array.from(
     new Set(
       snapshot.graph.edges
@@ -13351,6 +13602,101 @@ function graphDiagnosticSummary(
     .join("; ");
 }
 
+type GraphLayoutFailure = {
+  graphHash: string;
+  layoutAlgorithm: string;
+  code: string;
+  mutationStatus?: string;
+  message: string;
+  occurredAt: string;
+};
+
+function graphLayoutFailure(
+  snapshot: Snapshot,
+): GraphLayoutFailure | undefined {
+  const failure = snapshot.graph.diagnostics.layout_failure;
+  if (!isRecord(failure)) {
+    return undefined;
+  }
+  const graphHash = textValue(failure.graph_hash);
+  const layoutAlgorithm = textValue(failure.layout_algorithm);
+  if (
+    !graphHash ||
+    graphHash !== snapshot.graph.graph_hash ||
+    !layoutAlgorithm ||
+    layoutAlgorithm !== snapshot.graph.filters.layoutAlgorithm
+  ) {
+    return undefined;
+  }
+  return {
+    graphHash,
+    layoutAlgorithm,
+    code: textValue(failure.code, "internal"),
+    mutationStatus: textValue(failure.mutation_status) || undefined,
+    message: textValue(
+      failure.message,
+      t("synthesis-graph-layout-failed-body"),
+    ),
+    occurredAt: textValue(failure.occurred_at),
+  };
+}
+
+function makeCitationGraphLayoutFailureDebugDetails(
+  failure: GraphLayoutFailure,
+) {
+  if (!__debug_mode__) {
+    return undefined;
+  }
+  const details = document.createElement("details");
+  details.className = "graph-layout-failure-details";
+  details.appendChild(el("summary", "", t("synthesis-diagnostics")));
+  details.appendChild(
+    renderDetailList([
+      ["code", failure.code],
+      ["mutation status", failure.mutationStatus],
+      ["algorithm", failure.layoutAlgorithm],
+      ["graph hash", failure.graphHash],
+      ["occurred at", failure.occurredAt],
+    ]),
+  );
+  return details;
+}
+
+function graphLayoutFailureAction(
+  snapshot: Snapshot,
+  failure: GraphLayoutFailure,
+) {
+  const action = el("div", "graph-layout-failure-actions");
+  if (!state.standaloneExport) {
+    action.appendChild(makeGraphLayoutRecomputeButton(snapshot));
+  }
+  const details = makeCitationGraphLayoutFailureDebugDetails(failure);
+  if (details) {
+    action.appendChild(details);
+  }
+  return action.childElementCount ? action : undefined;
+}
+
+function makeCitationGraphLayoutFailureBanner(
+  snapshot: Snapshot,
+  failure: GraphLayoutFailure,
+) {
+  const banner = el("div", "graph-layout-banner graph-layout-failure");
+  banner.appendChild(el("strong", "", t("synthesis-layout-failed")));
+  banner.appendChild(
+    el(
+      "span",
+      "muted",
+      `${failure.message} ${t("synthesis-graph-layout-failed-body")}`,
+    ),
+  );
+  const action = graphLayoutFailureAction(snapshot, failure);
+  if (action) {
+    banner.appendChild(action);
+  }
+  return banner;
+}
+
 function renderCitationGraphLegend() {
   const legend = el(
     "div",
@@ -13405,6 +13751,30 @@ function renderCitationGraphLegend() {
     legend.appendChild(focusRow);
   }
   return legend;
+}
+
+function makeGraphSelectionDrawer(snapshot: Snapshot) {
+  if (!snapshot.graph.selectedElement) return undefined;
+  const selection = el("aside", "panel details graph-selection-drawer");
+  if (state.standaloneGraphOnly) {
+    selection.classList.add("graph-selection-drawer-compact");
+  }
+  selection.tabIndex = 0;
+  selection.setAttribute("aria-label", t("synthesis-graph-selection"));
+  const selectionHeader = el("div", "panel-header");
+  selectionHeader.appendChild(el("strong", "", t("synthesis-graph-selection")));
+  selection.appendChild(selectionHeader);
+  const selectionBody = el("div", "graph-selection-content");
+  selectionBody.dataset.synthesisScrollKey = "graph.selection";
+  selectionBody.appendChild(renderSelectedDetail(snapshot));
+  selection.appendChild(selectionBody);
+  return selection;
+}
+
+function hasUsableCitationGraphCoordinates(snapshot: Snapshot) {
+  return snapshot.graph.visibleNodes.some(
+    (node) => Number.isFinite(node.x) && Number.isFinite(node.y),
+  );
 }
 
 function renderGraph(main: HTMLElement, snapshot: Snapshot) {
@@ -13490,20 +13860,21 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     controls.appendChild(
       el(
         "p",
-        "muted",
+        "muted graph-shown-count",
         t("synthesis-graph-shown-count", {
           nodes: snapshot.graph.visibleNodes.length,
           edges: snapshot.graph.visibleEdges.length,
         }),
       ),
     );
+    controls.appendChild(renderGraphWindowProgress(snapshot));
     const libraryCount = Number(
       snapshot.graph.diagnostics.library_node_count || 0,
     );
     const sharedExternalCount = Number(
       snapshot.graph.diagnostics.shared_external_count || 0,
     );
-    const hoverOnlyExternalCount = Number(
+    const singleSourceHiddenCount = Number(
       snapshot.graph.diagnostics.hover_only_external_count ||
         snapshot.graph.hoverOnlyNodes.length ||
         0,
@@ -13515,7 +13886,7 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
         t("synthesis-graph-node-counts", {
           library: libraryCount,
           shared: sharedExternalCount,
-          hoverOnly: hoverOnlyExternalCount,
+          singleSourceHidden: singleSourceHiddenCount,
         }),
       ),
     );
@@ -13523,24 +13894,8 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     shell.appendChild(detail);
   }
 
-  if (snapshot.graph.selectedElement) {
-    const selection = el("aside", "panel details graph-selection-drawer");
-    if (state.standaloneGraphOnly) {
-      selection.classList.add("graph-selection-drawer-compact");
-    }
-    selection.tabIndex = 0;
-    selection.setAttribute("aria-label", t("synthesis-graph-selection"));
-    const selectionHeader = el("div", "panel-header");
-    selectionHeader.appendChild(
-      el("strong", "", t("synthesis-graph-selection")),
-    );
-    selection.appendChild(selectionHeader);
-    const selectionBody = el("div", "graph-selection-content");
-    selectionBody.dataset.synthesisScrollKey = "graph.selection";
-    selectionBody.appendChild(renderSelectedDetail(snapshot));
-    selection.appendChild(selectionBody);
-    shell.appendChild(selection);
-  }
+  const selection = makeGraphSelectionDrawer(snapshot);
+  if (selection) shell.appendChild(selection);
   main.appendChild(shell);
   canvas.classList.add("is-inactive");
 
@@ -13549,9 +13904,8 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     snapshot.graph.diagnostics?.cache_status,
     snapshot.graph.graph_hash ? "ready" : "missing",
   );
-  const hasVisibleCoordinates = snapshot.graph.visibleNodes.some(
-    (node) => typeof node.x === "number" && typeof node.y === "number",
-  );
+  const hasVisibleCoordinates = hasUsableCitationGraphCoordinates(snapshot);
+  const layoutFailure = graphLayoutFailure(snapshot);
   if (!snapshot.graph.graph_hash || !hasGraphData) {
     const empty = el("div", "graph-empty");
     empty.appendChild(
@@ -13625,35 +13979,38 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     );
     stage.appendChild(banner);
   }
-  if (snapshot.graph.layoutStatus !== "ready") {
-    const banner = el("div", "graph-layout-banner");
-    banner.appendChild(
-      el(
-        "strong",
-        "",
-        snapshot.graph.layoutStatus === "refreshing"
-          ? t("synthesis-graph-drawing")
-          : t("synthesis-graph-refreshing-layout"),
-      ),
+  if (layoutFailure && hasVisibleCoordinates) {
+    stage.appendChild(
+      makeCitationGraphLayoutFailureBanner(snapshot, layoutFailure),
     );
-    banner.appendChild(
-      el(
-        "span",
-        "muted",
-        snapshot.graph.layoutStatus === "failed"
-          ? t("synthesis-graph-layout-failed-body")
-          : t("synthesis-graph-layout-refreshing-body"),
-      ),
-    );
-    stage.appendChild(banner);
   }
   if (!hasVisibleCoordinates) {
+    const layoutFailed =
+      Boolean(layoutFailure) || snapshot.graph.layoutStatus === "failed";
+    const layoutRefreshing = snapshot.graph.layoutStatus === "refreshing";
+    const layoutUnavailableKey =
+      snapshot.graph.layoutStatus === "stale"
+        ? "synthesis-graph-diagnostic-stale"
+        : "synthesis-graph-diagnostic-missing";
     const pending = el("div", "graph-empty");
     pending.appendChild(
       renderEmptyState({
-        title: t("synthesis-graph-drawing"),
-        message: t("synthesis-graph-layout-computing"),
-        tone: snapshot.graph.layoutStatus === "failed" ? "warning" : "info",
+        title: layoutFailed
+          ? t("synthesis-layout-failed")
+          : layoutRefreshing
+            ? t("synthesis-graph-drawing")
+            : t(layoutUnavailableKey),
+        message: layoutFailed
+          ? layoutFailure?.message || t("synthesis-graph-layout-failed-body")
+          : layoutRefreshing
+            ? t("synthesis-graph-layout-computing")
+            : t(layoutUnavailableKey),
+        action: layoutFailure
+          ? graphLayoutFailureAction(snapshot, layoutFailure)
+          : !layoutRefreshing && !state.standaloneExport
+            ? makeGraphLayoutRecomputeButton(snapshot)
+            : undefined,
+        tone: layoutFailed ? "warning" : "info",
       }),
     );
     stage.appendChild(pending);
@@ -13664,6 +14021,106 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   }
   canvas.classList.remove("is-inactive");
   syncSigmaGraph(canvas, snapshot);
+}
+
+function renderGraphWindowProgress(snapshot: Snapshot) {
+  const container = el("div", "graph-window-progress");
+  const windowState = snapshot.graph.window;
+  if (!windowState) return container;
+  container.dataset.status = windowState.status;
+  container.appendChild(
+    el(
+      "p",
+      "muted graph-window-progress-label",
+      t("synthesis-graph-loading-progress", {
+        nodes: windowState.loadedNodes,
+        totalNodes: windowState.totalNodes + windowState.totalHoverNodes,
+        edges: windowState.loadedEdges,
+        totalEdges: windowState.totalEdges + windowState.totalHoverEdges,
+      }),
+    ),
+  );
+  if (windowState.status === "paused") {
+    container.appendChild(
+      makeLocalButton(t("synthesis-action-continue-graph-loading"), () =>
+        sendAction("continueGraphWindow"),
+      ),
+    );
+  } else if (windowState.status === "failed") {
+    container.appendChild(
+      el(
+        "p",
+        "muted",
+        windowState.error?.reason || t("synthesis-graph-loading-failed"),
+      ),
+    );
+    container.appendChild(
+      makeLocalButton(t("synthesis-action-retry-graph-loading"), () =>
+        sendAction("retryGraphWindow"),
+      ),
+    );
+  }
+  return container;
+}
+
+function updateGraphWindowManagedRegions(snapshot: Snapshot) {
+  const currentProgress = document.querySelector(
+    ".graph-window-progress",
+  ) as HTMLElement | null;
+  if (currentProgress) {
+    currentProgress.replaceWith(renderGraphWindowProgress(snapshot));
+  }
+  const shown = document.querySelector(
+    ".graph-shown-count",
+  ) as HTMLElement | null;
+  if (shown) {
+    shown.textContent = t("synthesis-graph-shown-count", {
+      nodes: snapshot.graph.visibleNodes.length,
+      edges: snapshot.graph.visibleEdges.length,
+    });
+  }
+}
+
+function updateGraphInteractionManagedRegions(snapshot: Snapshot) {
+  const surface = document.querySelector(
+    '[data-synthesis-persistent-surface="graph"]',
+  ) as HTMLElement | null;
+  const shell = surface?.querySelector(
+    ":scope > .graph-shell",
+  ) as HTMLElement | null;
+  if (!shell) {
+    renderSurface("graph");
+    return;
+  }
+  const existing = shell.querySelector(
+    ":scope > .graph-selection-drawer",
+  ) as HTMLElement | null;
+  const next = makeGraphSelectionDrawer(snapshot);
+  if (existing && next) {
+    existing.className = next.className;
+    existing.tabIndex = next.tabIndex;
+    existing.setAttribute("aria-label", t("synthesis-graph-selection"));
+    const body = existing.querySelector(
+      ":scope > .graph-selection-content",
+    ) as HTMLElement | null;
+    if (body) {
+      body.replaceChildren(renderSelectedDetail(snapshot));
+    } else {
+      existing.appendChild(
+        next.querySelector(":scope > .graph-selection-content")!,
+      );
+    }
+  } else if (existing) {
+    existing.remove();
+  } else if (next) {
+    shell.appendChild(next);
+  }
+  if (state.graph && state.sigma) {
+    syncGraphInteractionState(snapshot, state.graph, true);
+    state.sigma.refresh();
+  }
+  localizeWorkbenchDom(shell);
+  state.lastContentSignature = snapshotContentSignature(snapshot);
 }
 
 function renderGraphZoomOverlay() {
@@ -13757,57 +14214,6 @@ function setGraphZoomFromSlider(renderer: Sigma, slider: HTMLInputElement) {
   syncGraphZoomSlider(renderer);
 }
 
-function filterStandaloneGraph(
-  graph: Snapshot["graph"],
-  filters: Snapshot["graph"]["filters"],
-) {
-  const selectedScope =
-    filters.topicId === "all"
-      ? undefined
-      : graph.topicScopes.find((scope) => scope.topicId === filters.topicId);
-  const isTopicScoped = filters.topicId !== "all";
-  const topicSourceIds = new Set(selectedScope?.nodeIds || []);
-  const topicScopedNodeIds = new Set(topicSourceIds);
-  if (isTopicScoped) {
-    graph.edges.forEach((edge) => {
-      if (topicSourceIds.has(edge.source)) {
-        topicScopedNodeIds.add(edge.source);
-        topicScopedNodeIds.add(edge.target);
-      }
-      if (topicSourceIds.has(edge.target)) {
-        topicScopedNodeIds.add(edge.source);
-        topicScopedNodeIds.add(edge.target);
-      }
-    });
-  }
-  const visibleNodes = graph.nodes.filter((node) => {
-    if (!filters.nodeKinds.includes(node.kind)) return false;
-    if (!filters.showLowSignalReferences && node.low_signal) return false;
-    if (node.visibility === "hover_only") return false;
-    if (isTopicScoped && !topicScopedNodeIds.has(node.id)) return false;
-    return true;
-  });
-  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = graph.edges.filter((edge) => {
-    if (edge.visibility === "hover_only") return false;
-    if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) {
-      return false;
-    }
-    if (
-      isTopicScoped &&
-      !topicSourceIds.has(edge.source) &&
-      !topicSourceIds.has(edge.target)
-    ) {
-      return false;
-    }
-    if (filters.role !== "all" && edge.primary_role !== filters.role) {
-      return false;
-    }
-    return true;
-  });
-  return { visibleNodes, visibleEdges };
-}
-
 function renderStandaloneGraphControls(snapshot: Snapshot) {
   const wrap = el("div", "graph-controls standalone-graph-controls");
   const role = selectControl(
@@ -13821,25 +14227,29 @@ function renderStandaloneGraphControls(snapshot: Snapshot) {
   );
 
   const kindControls: HTMLElement[] = [];
-  (["library_paper", "external_reference"] as GraphNodeKind[]).forEach(
-    (kind) => {
-      const label = el("label", "checkbox-label");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
-      input.addEventListener("change", () => {
-        const next = new Set(snapshot.graph.filters.nodeKinds);
-        if (input.checked) next.add(kind);
-        else next.delete(kind);
-        sendAction("setGraphView", { nodeKinds: Array.from(next) });
-      });
-      label.appendChild(input);
-      label.appendChild(
-        document.createTextNode(enumLabel("graph-node-kind", kind)),
-      );
-      kindControls.push(label);
-    },
-  );
+  (
+    [
+      "library_paper",
+      "external_reference",
+      "unresolved_reference",
+    ] as GraphNodeKind[]
+  ).forEach((kind) => {
+    const label = el("label", "checkbox-label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
+    input.addEventListener("change", () => {
+      const next = new Set(snapshot.graph.filters.nodeKinds);
+      if (input.checked) next.add(kind);
+      else next.delete(kind);
+      sendAction("setGraphView", { nodeKinds: Array.from(next) });
+    });
+    label.appendChild(input);
+    label.appendChild(
+      document.createTextNode(enumLabel("graph-node-kind", kind)),
+    );
+    kindControls.push(label);
+  });
   const lowSignal = el("label", "checkbox-label");
   const lowSignalInput = document.createElement("input");
   lowSignalInput.type = "checkbox";
@@ -13950,21 +14360,7 @@ function renderGraphControls(snapshot: Snapshot) {
     false,
     graphCacheStatus === "refreshing",
   );
-  const redrawButton = makeButton(
-    t("synthesis-action-redraw-layout"),
-    "hostCommand",
-    {
-      command: "manualRecomputeLayout",
-      args: {
-        reason: "user",
-        algorithm: snapshot.graph.filters.layoutAlgorithm,
-      },
-    },
-    false,
-    graphCacheStatus !== "ready" ||
-      !snapshot.graph.graph_hash ||
-      snapshot.graph.layoutStatus === "refreshing",
-  );
+  const redrawButton = makeGraphLayoutRecomputeButton(snapshot);
   wrap.appendChild(
     graphControlGroup(t("synthesis-graph-control-cache"), [
       refreshButton,
@@ -13974,25 +14370,29 @@ function renderGraphControls(snapshot: Snapshot) {
   );
 
   const kindControls: HTMLElement[] = [];
-  (["library_paper", "external_reference"] as GraphNodeKind[]).forEach(
-    (kind) => {
-      const label = el("label", "checkbox-label");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
-      input.addEventListener("change", () => {
-        const next = new Set(snapshot.graph.filters.nodeKinds);
-        if (input.checked) next.add(kind);
-        else next.delete(kind);
-        sendAction("setGraphView", { nodeKinds: Array.from(next) });
-      });
-      label.appendChild(input);
-      label.appendChild(
-        document.createTextNode(enumLabel("graph-node-kind", kind)),
-      );
-      kindControls.push(label);
-    },
-  );
+  (
+    [
+      "library_paper",
+      "external_reference",
+      "unresolved_reference",
+    ] as GraphNodeKind[]
+  ).forEach((kind) => {
+    const label = el("label", "checkbox-label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
+    input.addEventListener("change", () => {
+      const next = new Set(snapshot.graph.filters.nodeKinds);
+      if (input.checked) next.add(kind);
+      else next.delete(kind);
+      sendAction("setGraphView", { nodeKinds: Array.from(next) });
+    });
+    label.appendChild(input);
+    label.appendChild(
+      document.createTextNode(enumLabel("graph-node-kind", kind)),
+    );
+    kindControls.push(label);
+  });
   const lowSignal = el("label", "checkbox-label");
   const lowSignalInput = document.createElement("input");
   lowSignalInput.type = "checkbox";
@@ -14062,7 +14462,7 @@ function graphNodeMatchesSearchText(searchable: unknown, query: string) {
 
 function refreshGraphSearchHighlight() {
   if (!currentGraphSearchQuery(state.snapshot || undefined)) {
-    state.hoverLabelNode = undefined;
+    state.focusedLabelNode = undefined;
   }
   state.sigma?.refresh();
 }
@@ -14095,6 +14495,28 @@ function makeGraphIncrementalRefreshButton(snapshot: Snapshot) {
         : t("synthesis-graph-cache-no-scope");
   }
   return button;
+}
+
+function makeGraphLayoutRecomputeButton(snapshot: Snapshot) {
+  const graphCacheStatus = textValue(
+    snapshot.graph.diagnostics?.cache_status,
+    snapshot.graph.graph_hash ? "ready" : "missing",
+  );
+  return makeButton(
+    t("synthesis-action-redraw-layout"),
+    "hostCommand",
+    {
+      command: "manualRecomputeLayout",
+      args: {
+        reason: "user",
+        algorithm: snapshot.graph.filters.layoutAlgorithm,
+      },
+    },
+    false,
+    graphCacheStatus !== "ready" ||
+      !snapshot.graph.graph_hash ||
+      snapshot.graph.layoutStatus === "refreshing",
+  );
 }
 
 function isCurrentPaperGraphNode(node: GraphNode) {
@@ -14214,7 +14636,7 @@ function drawGraphNodeHover(
   data: Record<string, unknown>,
   settings: Record<string, unknown>,
 ) {
-  if (data.importanceHalo && !data.importanceInteractive) {
+  if (data.importanceHalo) {
     drawGraphImportanceHalo(
       context,
       data as {
@@ -14226,24 +14648,9 @@ function drawGraphNodeHover(
         currentPaperNode?: unknown;
       },
     );
-    return;
+    if (!data.importanceInteractive) return;
   }
   drawDiscNodeHover(context as any, data as any, settings as any);
-}
-
-function clearDynamicHoverGraph(graph: Graph) {
-  for (const edgeId of Array.from(state.dynamicHoverEdgeIds)) {
-    if (graph.hasEdge(edgeId)) {
-      graph.dropEdge(edgeId);
-    }
-  }
-  for (const nodeId of Array.from(state.dynamicHoverNodeIds)) {
-    if (graph.hasNode(nodeId)) {
-      graph.dropNode(nodeId);
-    }
-  }
-  state.dynamicHoverEdgeIds.clear();
-  state.dynamicHoverNodeIds.clear();
 }
 
 function cancelScheduledHoverClear() {
@@ -14253,35 +14660,19 @@ function cancelScheduledHoverClear() {
   }
 }
 
-function scheduleHoverClear(
-  renderer: Sigma,
-  graph: Graph,
-  pinnedNode?: string,
-) {
+function scheduleHoverClear(renderer: Sigma, graph: Graph) {
   cancelScheduledHoverClear();
   state.hoverClearTimer = window.setTimeout(() => {
     state.hoverClearTimer = undefined;
     if (state.sigma !== renderer || state.graph !== graph) {
       return;
     }
-    if (pinnedNode && graph.hasNode(pinnedNode)) {
-      addHoverNeighborhood(graph, pinnedNode);
-      state.hoveredNode = pinnedNode;
-    } else {
-      clearDynamicHoverGraph(graph);
-      state.hoveredNode = undefined;
-    }
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = undefined;
     renderer.refresh();
   }, 80);
 }
 
-function addHoverNeighborhood(graph: Graph, hoveredNode: string) {
-  clearDynamicHoverGraph(graph);
-  if (!graph.hasNode(hoveredNode)) return;
-}
-
-function selectedGraphHoverNode(snapshot: Snapshot, graph: Graph) {
+function selectedGraphInteractionNode(snapshot: Snapshot, graph: Graph) {
   const selected = snapshot.graph.selectedElement;
   if (selected?.kind !== "node" || !graph.hasNode(selected.id)) {
     return undefined;
@@ -14289,7 +14680,38 @@ function selectedGraphHoverNode(snapshot: Snapshot, graph: Graph) {
   return selected.id;
 }
 
+function citationGraphUnitsPerPixel(graph: Graph) {
+  const renderer = state.sigma as
+    | (Sigma & {
+        viewportToGraph?: (point: { x: number; y: number }) => {
+          x: number;
+          y: number;
+        };
+      })
+    | undefined;
+  if (renderer?.viewportToGraph) {
+    const first = renderer.viewportToGraph({ x: 0, y: 0 });
+    const second = renderer.viewportToGraph({ x: 1, y: 0 });
+    const units = Math.hypot(second.x - first.x, second.y - first.y);
+    if (Number.isFinite(units) && units > 0) return units;
+  }
+  let minX = Infinity;
+  let maxX = -Infinity;
+  graph.forEachNode((_nodeId, attributes) => {
+    const x = Number(attributes.x);
+    if (!Number.isFinite(x)) return;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+  });
+  const width = Math.max(1, state.sigmaStage?.clientWidth || 800);
+  const span = maxX > minX ? maxX - minX : 1;
+  return span / width;
+}
+
 function sigmaGraphModelSignature(snapshot: Snapshot) {
+  const visualEdges = aggregateCitationGraphVisualEdges(
+    snapshot.graph.visibleEdges,
+  );
   return JSON.stringify({
     nodes: snapshot.graph.visibleNodes.map((node) => [
       node.id,
@@ -14303,7 +14725,7 @@ function sigmaGraphModelSignature(snapshot: Snapshot) {
       node.is_focus,
       node.focus_role,
     ]),
-    edges: snapshot.graph.visibleEdges.map((edge) => [
+    edges: visualEdges.map((edge) => [
       edge.id,
       edge.source,
       edge.target,
@@ -14321,88 +14743,223 @@ function sigmaGraphLayoutSignature(snapshot: Snapshot) {
   });
 }
 
-function syncSelectedGraphHover(snapshot: Snapshot, graph: Graph) {
-  clearDynamicHoverGraph(graph);
-  const pinnedHoverNode = selectedGraphHoverNode(snapshot, graph);
-  state.hoveredNode = pinnedHoverNode;
-  state.hoverLabelNode = undefined;
-  if (pinnedHoverNode) {
-    addHoverNeighborhood(graph, pinnedHoverNode);
+function syncGraphInteractionState(
+  snapshot: Snapshot,
+  graph: Graph,
+  preserveTransientHover: boolean,
+) {
+  const previousPointerNode = preserveTransientHover
+    ? state.pointerHoveredNode
+    : undefined;
+  state.pointerHoveredNode =
+    previousPointerNode && graph.hasNode(previousPointerNode)
+      ? previousPointerNode
+      : undefined;
+  state.focusedLabelNode =
+    state.focusedLabelNode && graph.hasNode(state.focusedLabelNode)
+      ? state.focusedLabelNode
+      : undefined;
+}
+
+function sigmaNodeAttributes(
+  node: GraphNode,
+  importance: CitationGraphNodeImportance | undefined,
+  fallbackPosition?: { x: number; y: number },
+) {
+  const currentPaperNode = isCurrentPaperGraphNode(node);
+  return {
+    title: node.label,
+    label: "",
+    x: typeof node.x === "number" ? node.x : fallbackPosition?.x || 0,
+    y: typeof node.y === "number" ? node.y : fallbackPosition?.y || 0,
+    size: citationGraphNodeSize(node, importance, currentPaperNode),
+    color:
+      importance?.halo || currentPaperNode
+        ? graphNodeImportanceColor(node)
+        : graphNodeColor(node),
+    zIndex: graphNodeZIndex(node, importance),
+    highlighted: importance?.halo || currentPaperNode || false,
+    importanceHalo: importance?.halo || currentPaperNode || false,
+    importanceInteractive: false,
+    currentPaperNode,
+    incomingDegree: importance?.incomingDegree || 0,
+    kind: node.kind,
+    visibility: node.visibility || "default",
+    display_tier: node.display_tier || "library",
+    searchable: graphNodeSearchText(node),
+  };
+}
+
+function sigmaEdgeAttributes(edge: GraphEdge) {
+  return {
+    type: "arrow",
+    hidden: true,
+    color: CITATION_GRAPH_OUTGOING_EDGE_COLOR,
+    size: CITATION_GRAPH_EDGE_SIZE,
+    label: edge.primary_role ? graphEdgeRoleLabel(edge.primary_role) : "",
+    zIndex: 0,
+    visibility: edge.visibility || "default",
+  };
+}
+
+function mergeSigmaGraphPage(snapshot: Snapshot) {
+  const graph = state.graph;
+  if (!graph) return;
+  const desiredNodeIds = new Set(
+    snapshot.graph.visibleNodes.map((node) => node.id),
+  );
+  const visualEdges = aggregateCitationGraphVisualEdges(
+    snapshot.graph.visibleEdges,
+  );
+  const desiredEdgeIds = new Set(visualEdges.map((edge) => edge.id));
+  graph.forEachEdge((edgeId) => {
+    if (!desiredEdgeIds.has(edgeId)) graph.dropEdge(edgeId);
+  });
+  graph.forEachNode((nodeId) => {
+    if (!desiredNodeIds.has(nodeId)) graph.dropNode(nodeId);
+  });
+  const importanceByNodeId = buildCitationGraphNodeImportance(
+    snapshot.graph.visibleNodes,
+    visualEdges,
+  );
+  const fallbackPositions = citationGraphMissingNodePositions(
+    snapshot,
+    graph,
+    visualEdges,
+  );
+  for (const node of snapshot.graph.visibleNodes) {
+    const existingPosition = graph.hasNode(node.id)
+      ? {
+          x: Number(graph.getNodeAttribute(node.id, "x") || 0),
+          y: Number(graph.getNodeAttribute(node.id, "y") || 0),
+        }
+      : fallbackPositions.get(node.id);
+    const attributes = sigmaNodeAttributes(
+      node,
+      importanceByNodeId.get(node.id),
+      existingPosition,
+    );
+    if (graph.hasNode(node.id)) graph.mergeNodeAttributes(node.id, attributes);
+    else graph.addNode(node.id, attributes);
   }
+  for (const edge of visualEdges) {
+    if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
+    const attributes = sigmaEdgeAttributes(edge);
+    if (graph.hasEdge(edge.id)) graph.mergeEdgeAttributes(edge.id, attributes);
+    else
+      graph.addDirectedEdgeWithKey(
+        edge.id,
+        edge.source,
+        edge.target,
+        attributes,
+      );
+  }
+  syncGraphInteractionState(snapshot, graph, true);
+}
+
+function citationGraphMissingNodePositions(
+  snapshot: Snapshot,
+  graph: Graph,
+  edges: readonly GraphEdge[],
+) {
+  const nodeIds = new Set(snapshot.graph.visibleNodes.map((node) => node.id));
+  const missingByAnchor = new Map<string, string[]>();
+  for (const node of snapshot.graph.visibleNodes) {
+    if (
+      graph.hasNode(node.id) ||
+      (typeof node.x === "number" && typeof node.y === "number")
+    ) {
+      continue;
+    }
+    const anchorId = edges
+      .filter((edge) => edge.source === node.id || edge.target === node.id)
+      .map((edge) => (edge.source === node.id ? edge.target : edge.source))
+      .find((candidate) => nodeIds.has(candidate) && graph.hasNode(candidate));
+    if (!anchorId) continue;
+    const pending = missingByAnchor.get(anchorId) || [];
+    pending.push(node.id);
+    missingByAnchor.set(anchorId, pending);
+  }
+  const positions = new Map<string, { x: number; y: number }>();
+  const unitsPerPixel = citationGraphUnitsPerPixel(graph);
+  for (const [anchorId, missingIds] of missingByAnchor) {
+    const anchor = graph.getNodeAttributes(anchorId) as Record<string, unknown>;
+    const offsets = citationGraphFallbackOffsets(
+      missingIds.length,
+      unitsPerPixel,
+    );
+    missingIds.sort().forEach((nodeId, index) => {
+      positions.set(nodeId, {
+        x: Number(anchor.x || 0) + offsets[index].x,
+        y: Number(anchor.y || 0) + offsets[index].y,
+      });
+    });
+  }
+  return positions;
 }
 
 function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   const modelSignature = sigmaGraphModelSignature(snapshot);
   const layoutSignature = sigmaGraphLayoutSignature(snapshot);
+  const querySignature = snapshot.graph.window?.querySignature || "";
   if (
     state.sigma &&
     state.graph &&
     state.graphModelSignature === modelSignature
   ) {
-    syncSelectedGraphHover(snapshot, state.graph);
+    const preserveTransientHover =
+      state.graphQuerySignature === querySignature &&
+      state.graphBasisHash === snapshot.graph.graph_hash;
+    syncGraphInteractionState(snapshot, state.graph, preserveTransientHover);
+    state.graphQuerySignature = querySignature;
+    state.graphBasisHash = snapshot.graph.graph_hash;
+    state.sigma.refresh();
+    scheduleSigmaResize();
+    return;
+  }
+  if (
+    state.sigma &&
+    state.graph &&
+    querySignature &&
+    state.graphQuerySignature === querySignature &&
+    state.graphBasisHash === snapshot.graph.graph_hash
+  ) {
+    mergeSigmaGraphPage(snapshot);
+    state.graphModelSignature = modelSignature;
+    state.graphLayoutSignature = layoutSignature;
     state.sigma.refresh();
     scheduleSigmaResize();
     return;
   }
   cancelScheduledHoverClear();
-  if (state.graph) {
-    clearDynamicHoverGraph(state.graph);
-  }
   const graph = new Graph({ multi: false, type: "directed" });
-  const importanceByNodeId = buildCitationGraphNodeImportance(
-    snapshot.graph.visibleNodes,
+  const visualEdges = aggregateCitationGraphVisualEdges(
     snapshot.graph.visibleEdges,
   );
-  state.dynamicHoverNodeIds.clear();
-  state.dynamicHoverEdgeIds.clear();
+  const importanceByNodeId = buildCitationGraphNodeImportance(
+    snapshot.graph.visibleNodes,
+    visualEdges,
+  );
   const visibleIds = new Set(
     snapshot.graph.visibleNodes.map((node) => node.id),
   );
   for (const node of snapshot.graph.visibleNodes) {
     const importance = importanceByNodeId.get(node.id);
-    const currentPaperNode = isCurrentPaperGraphNode(node);
-    graph.addNode(node.id, {
-      title: node.label,
-      label: "",
-      x: typeof node.x === "number" ? node.x : 0,
-      y: typeof node.y === "number" ? node.y : 0,
-      size: citationGraphNodeSize(
-        node,
-        importance,
-        isCurrentPaperGraphNode(node),
-      ),
-      color:
-        importance?.halo || currentPaperNode
-          ? graphNodeImportanceColor(node)
-          : graphNodeColor(node),
-      zIndex: graphNodeZIndex(node, importance),
-      highlighted: importance?.halo || currentPaperNode || false,
-      importanceHalo: importance?.halo || currentPaperNode || false,
-      importanceInteractive: false,
-      currentPaperNode,
-      incomingDegree: importance?.incomingDegree || 0,
-      kind: node.kind,
-      visibility: node.visibility || "default",
-      display_tier: node.display_tier || "library",
-      searchable: graphNodeSearchText(node),
-    });
+    graph.addNode(node.id, sigmaNodeAttributes(node, importance));
   }
-  for (const edge of snapshot.graph.visibleEdges) {
+  for (const edge of visualEdges) {
     if (visibleIds.has(edge.source) && visibleIds.has(edge.target)) {
-      graph.mergeDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
-        type: "arrow",
-        hidden: true,
-        color: CITATION_GRAPH_OUTGOING_EDGE_COLOR,
-        size: CITATION_GRAPH_EDGE_SIZE,
-        label: edge.primary_role ? graphEdgeRoleLabel(edge.primary_role) : "",
-        zIndex: 0,
-        visibility: edge.visibility || "default",
-      });
+      graph.mergeDirectedEdgeWithKey(
+        edge.id,
+        edge.source,
+        edge.target,
+        sigmaEdgeAttributes(edge),
+      );
     }
   }
 
   state.graph = graph;
-  syncSelectedGraphHover(snapshot, graph);
+  syncGraphInteractionState(snapshot, graph, false);
   if (state.sigma) {
     const layoutChanged =
       Boolean(state.graphLayoutSignature) &&
@@ -14410,6 +14967,8 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     state.sigma.setGraph(graph);
     state.graphModelSignature = modelSignature;
     state.graphLayoutSignature = layoutSignature;
+    state.graphQuerySignature = querySignature;
+    state.graphBasisHash = snapshot.graph.graph_hash;
     if (layoutChanged) {
       (state.sigma.getCamera() as any).setState?.({
         x: 0.5,
@@ -14436,7 +14995,18 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       const searchActive = !!query.trim();
       const searchMatch = graphNodeMatchesSearchText(data.searchable, query);
       const currentPaperNode = Boolean(data.currentPaperNode);
-      if (!state.hoveredNode || !graph.hasNode(state.hoveredNode)) {
+      const snapshot = state.snapshot;
+      const selectedNode = snapshot
+        ? selectedGraphInteractionNode(snapshot, graph)
+        : undefined;
+      const pointerNode =
+        state.pointerHoveredNode && graph.hasNode(state.pointerHoveredNode)
+          ? state.pointerHoveredNode
+          : undefined;
+      const ownerIds = Array.from(
+        new Set([selectedNode, pointerNode].filter((id): id is string => !!id)),
+      );
+      if (!ownerIds.length) {
         if (!searchActive) return data;
         return {
           ...data,
@@ -14461,18 +15031,17 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
           label: searchMatch ? data.title : "",
         };
       }
-      const neighbor =
-        node === state.hoveredNode ||
-        graph.areNeighbors(node, state.hoveredNode);
+      const neighbor = ownerIds.some(
+        (ownerId) => node === ownerId || graph.areNeighbors(node, ownerId),
+      );
       const activeHaloNode = Boolean(
-        data.importanceHalo && node === state.hoveredNode,
+        data.importanceHalo && node === pointerNode,
       );
       const showHoverLabel =
         searchMatch ||
-        node === state.hoverLabelNode ||
-        node === state.hoveredNode ||
-        (neighbor &&
-          (data.kind === "library_paper" || data.visibility === "hover_only"));
+        node === state.focusedLabelNode ||
+        node === pointerNode ||
+        (node === selectedNode && !pointerNode);
       return {
         ...data,
         color: searchMatch
@@ -14487,9 +15056,17 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
             : Math.max(1, Number(data.size || 1) * 0.6),
         zIndex: searchMatch
           ? Math.max(30, Number(data.zIndex || 0))
-          : neighbor
-            ? Math.max(10, Number(data.zIndex || 0))
-            : Number(data.zIndex || 0),
+          : node === pointerNode || node === selectedNode
+            ? Math.max(
+                data.kind === "library_paper" ? 24 : 12,
+                Number(data.zIndex || 0),
+              )
+            : neighbor
+              ? Math.max(
+                  data.visibility === "hover_only" ? 3 : 10,
+                  Number(data.zIndex || 0),
+                )
+              : Number(data.zIndex || 0),
         highlighted: Boolean(
           currentPaperNode ||
           (data.importanceHalo && (searchMatch || neighbor)),
@@ -14507,19 +15084,32 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
         state.snapshot?.graph.selectedElement?.kind === "edge"
           ? state.snapshot.graph.selectedElement.id
           : undefined;
-      const activeNode =
-        state.hoveredNode && graph.hasNode(state.hoveredNode)
-          ? state.hoveredNode
-          : undefined;
       const source = graph.source(edge);
       const target = graph.target(edge);
-      const connectedToActiveNode = activeNode
-        ? source === activeNode || target === activeNode
+      const snapshot = state.snapshot;
+      const selectedNode = snapshot
+        ? selectedGraphInteractionNode(snapshot, graph)
+        : undefined;
+      const pointerNode =
+        state.pointerHoveredNode && graph.hasNode(state.pointerHoveredNode)
+          ? state.pointerHoveredNode
+          : undefined;
+      const connectedToSelectedNode = selectedNode
+        ? source === selectedNode || target === selectedNode
+        : false;
+      const connectedToPointerNode = pointerNode
+        ? source === pointerNode || target === pointerNode
         : false;
       const selectedEdge = selectedEdgeId === edge;
-      const visible = connectedToActiveNode || selectedEdge;
+      const visible =
+        connectedToSelectedNode || connectedToPointerNode || selectedEdge;
+      const directionOwner = connectedToPointerNode
+        ? pointerNode
+        : connectedToSelectedNode
+          ? selectedNode
+          : undefined;
       const directionColor =
-        activeNode && target === activeNode
+        directionOwner && target === directionOwner
           ? CITATION_GRAPH_INCOMING_EDGE_COLOR
           : CITATION_GRAPH_OUTGOING_EDGE_COLOR;
       return {
@@ -14534,6 +15124,8 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   state.sigma = renderer;
   state.graphModelSignature = modelSignature;
   state.graphLayoutSignature = layoutSignature;
+  state.graphQuerySignature = querySignature;
+  state.graphBasisHash = snapshot.graph.graph_hash;
   const camera = renderer.getCamera() as any;
   camera?.on?.("updated", () => clampGraphCameraZoom(renderer));
   clampGraphCameraZoom(renderer);
@@ -14546,49 +15138,19 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   scheduleSigmaResize();
   renderer.on("enterNode", ({ node }: { node: string }) => {
     const graph = state.graph;
-    const snapshot = state.snapshot;
-    if (!graph || !snapshot) {
-      return;
-    }
-    const pinnedNode = selectedGraphHoverNode(snapshot, graph);
-    if (pinnedNode && node !== pinnedNode) {
-      state.hoverLabelNode = graph.areNeighbors(node, pinnedNode)
-        ? node
-        : undefined;
-      renderer.refresh();
+    if (!graph || !state.snapshot) {
       return;
     }
     cancelScheduledHoverClear();
-    if (
-      state.dynamicHoverNodeIds.has(node) &&
-      state.hoveredNode &&
-      graph.hasNode(state.hoveredNode)
-    ) {
-      renderer.refresh();
-      return;
-    }
-    if (node === state.hoveredNode) {
-      state.hoverLabelNode = undefined;
-      renderer.refresh();
-      return;
-    }
-    addHoverNeighborhood(graph, node);
-    state.hoveredNode = node;
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = node;
     renderer.refresh();
   });
   renderer.on("leaveNode", () => {
     const graph = state.graph;
-    const snapshot = state.snapshot;
-    if (!graph || !snapshot) {
+    if (!graph || !state.snapshot) {
       return;
     }
-    state.hoverLabelNode = undefined;
-    scheduleHoverClear(
-      renderer,
-      graph,
-      selectedGraphHoverNode(snapshot, graph),
-    );
+    scheduleHoverClear(renderer, graph);
   });
   renderer.on("clickNode", ({ node }: { node: string }) => {
     const graph = state.graph;
@@ -14596,16 +15158,13 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       return;
     }
     cancelScheduledHoverClear();
-    addHoverNeighborhood(graph, node);
-    state.hoveredNode = node;
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = node;
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: { kind: "node", id: node } });
   });
   renderer.on("clickEdge", ({ edge }: { edge: string }) => {
     cancelScheduledHoverClear();
-    state.hoveredNode = undefined;
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = undefined;
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: { kind: "edge", id: edge } });
   });
@@ -14615,9 +15174,8 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       return;
     }
     cancelScheduledHoverClear();
-    clearDynamicHoverGraph(graph);
-    state.hoveredNode = undefined;
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = undefined;
+    state.focusedLabelNode = undefined;
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: null });
   });
@@ -14628,7 +15186,7 @@ function focusSearch(query: string) {
   if (!normalized || !state.snapshot || !state.graph || !state.sigma) {
     return;
   }
-  state.hoverLabelNode = undefined;
+  state.focusedLabelNode = undefined;
   const match = state.snapshot.graph.visibleNodes.find(
     (node) =>
       graphNodeSearchText(node).includes(normalized) &&
@@ -14637,7 +15195,7 @@ function focusSearch(query: string) {
   if (!match || !state.graph.hasNode(match.id)) {
     return;
   }
-  state.hoverLabelNode = match.id;
+  state.focusedLabelNode = match.id;
   state.sigma.refresh();
 }
 
@@ -14655,9 +15213,17 @@ function renderSelectedDetail(snapshot: Snapshot) {
   }
   if (selected.kind === "node") {
     const node = graphNodeById(snapshot).get(selected.id);
-    const incomingDegrees = citationGraphFallbackIncomingDegrees(
-      snapshot.graph.visibleNodes,
-      snapshot.graph.visibleEdges,
+    const loadedEdges = Array.from(
+      new Map(
+        [...snapshot.graph.visibleEdges, ...snapshot.graph.hoverOnlyEdges].map(
+          (edge) => [edge.id, edge],
+        ),
+      ).values(),
+    );
+    const incomingCounts = citationGraphIncomingCounts(
+      selected.id,
+      loadedEdges,
+      [...snapshot.graph.visibleNodes, ...snapshot.graph.hoverOnlyNodes],
     );
     const fields: Array<[string, unknown]> = [
       ["title", node?.label || selected.id],
@@ -14668,14 +15234,38 @@ function renderSelectedDetail(snapshot: Snapshot) {
     ];
     if (!state.standaloneGraphOnly) {
       fields.splice(4, 0, [
-        "incoming citations",
-        node ? citationGraphIncomingDegree(node, incomingDegrees) : "-",
+        t("synthesis-graph-incoming-source-papers-current-view"),
+        node ? incomingCounts.sourcePaperCount : "-",
+      ]);
+      fields.splice(5, 0, [
+        t("synthesis-graph-incoming-citation-records-current-view"),
+        node ? incomingCounts.citationRecordCount : "-",
       ]);
     }
     if (!state.standaloneExport) {
       fields.push(["id", selected.id]);
     }
     wrap.appendChild(renderDetailList(fields));
+    if (!state.standaloneExport && node) {
+      const expand = el("div", "graph-neighborhood-actions");
+      (
+        [
+          ["incoming", "synthesis-action-expand-incoming"],
+          ["outgoing", "synthesis-action-expand-outgoing"],
+          ["both", "synthesis-action-expand-both"],
+        ] as const
+      ).forEach(([direction, label]) => {
+        expand.appendChild(
+          makeLocalButton(t(label), () =>
+            sendAction("expandGraphNeighborhood", {
+              nodeId: node.id,
+              direction,
+            }),
+          ),
+        );
+      });
+      wrap.appendChild(expand);
+    }
     if (node?.kind === "library_paper") {
       if (!state.standaloneExport) {
         wrap.appendChild(
@@ -14907,6 +15497,7 @@ function snapshotChromeSignature(snapshot: Snapshot | null) {
       (entry) => [entry.key, entry.command, entry.status, entry.started_at],
     ),
     backgroundJobs: snapshot.maintenance?.backgroundJobs || {},
+    sidecarStatus: snapshot.sidecarStatus || {},
     sync: snapshot.sync?.status,
     jobPopoverOpen: state.jobPopoverOpen,
   });
@@ -14920,6 +15511,7 @@ function compactRegistryRowSignature(row: Record<string, unknown>) {
     row.artifactCoverage,
     row.missing_artifacts,
     row.artifacts,
+    row.ratingScore,
     row.index_scope,
     row.reference_count,
     row.unbound_reference_count,
@@ -15078,6 +15670,38 @@ function reviewContentSignature(snapshot: Snapshot) {
       snapshot.topicGraph.inspector?.relationReviewItems || []
     ).map(compactReviewItemSignature),
   };
+}
+
+function graphSurfaceRenderSignature(snapshot: Snapshot) {
+  return JSON.stringify({
+    selectedTab: snapshot.selectedTab,
+    filters: snapshot.graph.filters,
+    graphHash: snapshot.graph.graph_hash,
+    layoutAlgorithm: snapshot.graph.layoutAlgorithm,
+    model: sigmaGraphModelSignature(snapshot),
+    topicScopes: (snapshot.graph.topicScopes || []).map((scope) => [
+      scope.topicId,
+      scope.title,
+      scope.nodeIds,
+    ]),
+    window: snapshot.graph.window,
+    counts: graphCountSignature(snapshot),
+    cacheStatus: snapshot.graph.diagnostics.cache_status,
+    layoutFailure: graphLayoutFailure(snapshot),
+  });
+}
+
+function canUpdateGraphInteractionOnly(
+  previous: Snapshot | null,
+  next: Snapshot,
+) {
+  return Boolean(
+    previous?.selectedTab === "graph" &&
+    next.selectedTab === "graph" &&
+    hasUsableCitationGraphCoordinates(previous) &&
+    hasUsableCitationGraphCoordinates(next) &&
+    graphSurfaceRenderSignature(previous) === graphSurfaceRenderSignature(next),
+  );
 }
 
 function snapshotContentSignature(snapshot: Snapshot | null) {
@@ -15381,7 +16005,6 @@ function render() {
   localizeWorkbenchDom(root as HTMLElement);
   state.lastContentSignature = snapshotContentSignature(state.snapshot);
   state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
-  maybeRequestGraphLayoutRefresh(state.snapshot);
 }
 
 function renderStandaloneGraphExportShell(
@@ -15396,39 +16019,6 @@ function renderStandaloneGraphExportShell(
   main.appendChild(graphSurface);
   setGraphSurfaceActive(true);
   renderGraph(graphSurface, snapshot);
-}
-
-function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
-  if (state.standaloneExport) {
-    return;
-  }
-  if (!snapshot || snapshot.selectedTab !== "graph") {
-    return;
-  }
-  if (
-    !snapshot.graph.graph_hash ||
-    snapshot.graph.nodes.length === 0 ||
-    (snapshot.graph.layoutStatus !== "missing" &&
-      snapshot.graph.layoutStatus !== "stale")
-  ) {
-    return;
-  }
-  const algorithm =
-    snapshot.graph.filters.layoutAlgorithm || snapshot.graph.layoutAlgorithm;
-  const key = `${snapshot.graph.graph_hash}:${algorithm}`;
-  if (
-    state.autoLayoutRequests.has(key) ||
-    isOperationPending("manualRecomputeLayout", { algorithm })
-  ) {
-    return;
-  }
-  state.autoLayoutRequests.add(key);
-  window.setTimeout(() => {
-    sendAction("hostCommand", {
-      command: "manualRecomputeLayout",
-      args: { reason: "auto", algorithm },
-    });
-  }, 0);
 }
 
 function buildDigestOutline(markdownNode: HTMLElement) {
@@ -15675,6 +16265,13 @@ window.addEventListener("keydown", (event: KeyboardEvent) => {
   if (event.key !== "Escape") {
     return;
   }
+  const runtimeStatus = document.querySelector(
+    ".sidecar-runtime-indicator[open]",
+  ) as HTMLDetailsElement | null;
+  if (runtimeStatus) {
+    runtimeStatus.open = false;
+    return;
+  }
   if (state.digestModal) {
     state.digestModal = undefined;
     syncDigestModal();
@@ -15740,6 +16337,10 @@ window.addEventListener("message", (event: MessageEvent) => {
     const visibleSurface = state.snapshot
       ? surfaceForTab(state.snapshot.selectedTab)
       : surface;
+    const interactionOnly =
+      !i18nChanged &&
+      surface === "graph" &&
+      canUpdateGraphInteractionOnly(state.snapshot, nextSnapshot);
     markSurfaceRuntime(surface, "ready", undefined, nextSnapshot, {
       requestId,
     });
@@ -15756,12 +16357,39 @@ window.addEventListener("message", (event: MessageEvent) => {
     }
     if (i18nChanged) {
       render();
+    } else if (interactionOnly) {
+      updateGraphInteractionManagedRegions(nextSnapshot);
     } else {
       renderSurface(surface);
     }
     if (chromeChanged) {
       state.lastChromeSignature = nextChromeSignature;
       renderWorkbenchChrome();
+    }
+    return;
+  }
+  if (data.type === "synthesis:graph-page") {
+    const payload =
+      data.payload && typeof data.payload === "object"
+        ? (data.payload as Record<string, unknown>)
+        : {};
+    const requestId = surfacePayloadRequestId(payload);
+    if (isStaleSurfacePayload("graph", requestId)) return;
+    const nextSnapshot = stripI18nFromSnapshotPayload(
+      payload.snapshot || null,
+    ) as Snapshot | null;
+    if (!nextSnapshot || nextSnapshot.selectedTab !== "graph") return;
+    acceptSurfacePayload("graph", requestId);
+    state.snapshot = nextSnapshot;
+    clearResolvedLocalPending(state.snapshot);
+    updateGraphWindowManagedRegions(nextSnapshot);
+    if (
+      state.sigmaStage &&
+      nextSnapshot.graph.visibleNodes.some(
+        (node) => typeof node.x === "number" && typeof node.y === "number",
+      )
+    ) {
+      syncSigmaGraph(state.sigmaStage, nextSnapshot);
     }
     return;
   }
@@ -15822,6 +16450,11 @@ window.addEventListener("message", (event: MessageEvent) => {
     const nextSnapshot = stripI18nFromSnapshotPayload(
       data.payload || null,
     ) as Snapshot | null;
+    const interactionOnly = Boolean(
+      nextSnapshot &&
+      !i18nChanged &&
+      canUpdateGraphInteractionOnly(state.snapshot, nextSnapshot),
+    );
     const nextContentSignature = snapshotContentSignature(nextSnapshot);
     const contentChanged =
       i18nChanged || nextContentSignature !== state.lastContentSignature;
@@ -15835,7 +16468,14 @@ window.addEventListener("message", (event: MessageEvent) => {
     if (!contentChanged) {
       state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
       renderWorkbenchChrome();
-      maybeRequestGraphLayoutRefresh(state.snapshot);
+      return;
+    }
+    if (interactionOnly && state.snapshot) {
+      updateGraphInteractionManagedRegions(state.snapshot);
+      if (chromeChanged) {
+        state.lastChromeSignature = nextChromeSignature;
+        renderWorkbenchChrome();
+      }
       return;
     }
     render();

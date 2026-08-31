@@ -96,15 +96,8 @@ export type AcpRuntimeReplayResult = {
   warnings: string[];
 };
 
-export type AcpRuntimeReplayCancellationSignal = {
-  readonly aborted: boolean;
-  addEventListener: (
-    type: "abort",
-    listener: () => void,
-    options?: { once?: boolean },
-  ) => void;
-  removeEventListener: (type: "abort", listener: () => void) => void;
-};
+export type AcpRuntimeReplayCancellationSignal =
+  import("../utils/wait").CancellationSignal;
 
 export type AcpRuntimeReplayLogicalRunPort = AcpRuntimeReplayLogicalTimePort & {
   registerOwner: (owner: AcpRuntimeTraceOwner) => void;
@@ -199,7 +192,14 @@ function createOwnerMapper(syntheticRootId: string) {
                 : `${syntheticRootId}-${requestNonce}-request`,
           }
         : {}),
-      ...(owner.sessionId ? { sessionId: `${prefix}-session` } : {}),
+      ...(owner.sessionId
+        ? {
+            sessionId:
+              conversationNonce === 1
+                ? identity.chat.sessionId
+                : `${syntheticRootId}-${conversationNonce}-session`,
+          }
+        : {}),
       ...(owner.turnId ? { turnId: `${prefix}-turn` } : {}),
     };
     owners.set(key, mapped);

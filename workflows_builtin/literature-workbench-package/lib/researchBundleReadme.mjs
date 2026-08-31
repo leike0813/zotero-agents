@@ -10,7 +10,7 @@ const COPY = {
     howToUse: "How to use this bundle",
     howIntro: "This is a read-only research snapshot. It is not a Zotero import package and missing material only means it was unavailable during export.",
     steps: [
-      "Read this README to understand the bundle's purpose and layout.",
+      "Start with `index.md` to map Topic identifiers and paper titles to stable directories, then read this README for the bundle's purpose and layout.",
       "Use `manifest.json` as the authoritative machine-readable inventory for provenance, integrity records, and detailed diagnostics.",
       "Start from the selected core papers and their source files, then use payloads and related papers as supporting evidence.",
       "Treat `warnings` in `manifest.json` as availability diagnostics; do not infer that a missing source or payload disproves a claim.",
@@ -45,13 +45,13 @@ const COPY = {
     howToUse: "使用顺序",
     howIntro: "这是只读的研究快照，不是 Zotero 导入包。某项材料缺失只表示导出时不可用，并不代表其内容不存在或不成立。",
     steps: [
-      "先阅读本 README，了解研究包的用途和文件布局。",
+      "先阅读 `index.md`，将 Topic 标识和文献标题映射到稳定目录，再阅读本 README 了解研究包用途和文件布局。",
       "将 `manifest.json` 视为机器可读的权威索引，用于查阅溯源、完整性记录和详细诊断。",
       "优先阅读核心文献及其 source 文件，再将 payload 和相关文献作为补充证据。",
       "将 `manifest.json` 的 `warnings` 视为可用性诊断；不要根据 source 或 payload 缺失推断某项主张不成立。",
     ],
     layout: "布局与命名",
-    layoutBody: "主题和文献材料位于 `topics/` 与 `papers/`，根目录还包含 README、清单和参考文献表。每个 Topic 与每篇文献都有稳定逻辑 ID 的独立目录，文献 payload 直接位于该文献目录中。Markdown 图片仅在 Markdown 所在目录树内时打包，并保留相对路径。",
+    layoutBody: "主题和文献材料位于 `topics/` 与 `papers/`，根目录还包含 `index.md`、README、清单和参考文献表。每个 Topic 与每篇文献都有稳定逻辑 ID 的独立目录，文献 payload 直接位于该文献目录中。Markdown 图片仅在 Markdown 所在目录树内时打包，并保留相对路径。",
     topicIndex: "主题索引",
     paperIndex: "文献索引",
     researchContent: "研究内容",
@@ -161,7 +161,7 @@ export function renderResearchBundleReadme(args = {}) {
     "",
     `| ID | ${copy.paperRef} | ${copy.role} | ${copy.score} | ${copy.metadata} | ${copy.source} | ${copy.payloads} |`,
     "| --- | --- | --- | --- | --- | --- | --- |",
-    ...papers.map((paper) => `| ${escapeCell(paper.logical_id)} | ${escapeCell(paper.paper_ref)} | ${escapeCell(paper.role)} | ${score(paper.score)} | ${codePath(paper.metadata_path)} | ${paper.source?.path ? codePath(paper.source.path) : copy.unavailable} | ${(paper.payloads || []).map((payload) => codePath(payload.path)).join(", ") || "-"} |`),
+    ...papers.map((paper) => `| ${escapeCell(paper.logical_id)} | ${escapeCell(paper.paper_ref)} | ${escapeCell(paper.role)} | ${score(paper.selection_score)} | ${codePath(paper.metadata_path)} | ${paper.source?.path ? codePath(paper.source.path) : copy.unavailable} | ${(paper.payloads || []).map((payload) => codePath(payload.path)).join(", ") || "-"} |`),
     "",
     `## ${copy.researchContent}`,
     "",
@@ -170,6 +170,28 @@ export function renderResearchBundleReadme(args = {}) {
     `## ${copy.warnings}`,
     "",
     warningCount === 0 ? copy.noWarnings : `${warningCount} ${copy.warningCount}`,
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderResearchBundleIndex(args = {}) {
+  const topics = Array.isArray(args.topics) ? args.topics : [];
+  const papers = Array.isArray(args.papers) ? args.papers : [];
+  const lines = [
+    "# Bundle Index",
+    "",
+    "## Topics",
+    "",
+    "| Topic ID | Directory |",
+    "| --- | --- |",
+    ...topics.map((topic) => `| ${escapeCell(topic.topic_id)} | ${codePath(`topics/${text(topic.logical_id, "topic-000")}`)} |`),
+    "",
+    "## Papers",
+    "",
+    "| Title | Directory |",
+    "| --- | --- |",
+    ...papers.map((paper) => `| ${escapeCell(paper.title || paper.paper_title || paper.paper_ref)} | ${codePath(`papers/${text(paper.logical_id, "paper-000")}`)} |`),
     "",
   ];
   return lines.join("\n");

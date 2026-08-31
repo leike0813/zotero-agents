@@ -9,9 +9,10 @@
   "$defs": {
     "itemRef": {
       "type": "object",
-      "required": ["id"],
+      "required": ["libraryId", "key"],
       "properties": {
-        "id": { "type": "integer", "minimum": 1 }
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "key": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },

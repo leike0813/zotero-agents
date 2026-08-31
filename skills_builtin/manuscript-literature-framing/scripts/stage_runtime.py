@@ -21,6 +21,9 @@ from runtime_state import (
 
 FALLBACK_RESULT_FILENAME = "manuscript-literature-framing.result.json"
 ARTIFACT_MANIFEST_FILENAME = "manuscript-literature-framing-artifacts.json"
+EVIDENCE_INVENTORY_SCHEMA = "writing.manuscript_evidence_inventory"
+EVIDENCE_INVENTORY_VERSION = "1.0.0"
+EVIDENCE_ROLES = {"primary", "supporting", "background", "counterevidence", "limitation"}
 
 
 def payload_file_required(action: str, payload_file: str | None) -> str:
@@ -270,11 +273,53 @@ def action_confirm_material_scope(state: dict[str, Any], payload: dict[str, Any]
 
 def action_persist_evidence_inventory(state: dict[str, Any], payload: dict[str, Any]) -> None:
     inventory = payload_object(payload, "evidence_inventory", "evidence_inventory")
+    if inventory.get("schema_id") != EVIDENCE_INVENTORY_SCHEMA:
+        raise ValueError(f"evidence_inventory.schema_id must be {EVIDENCE_INVENTORY_SCHEMA}")
+    if inventory.get("schema_version") != EVIDENCE_INVENTORY_VERSION:
+        raise ValueError(f"evidence_inventory.schema_version must be {EVIDENCE_INVENTORY_VERSION}")
     review_inputs = inventory.get("review_inputs") or payload.get("review_inputs") or payload.get("topics")
     if review_inputs is not None:
         inventory["review_inputs"] = ensure_list(review_inputs, "review_inputs")
     if not inventory.get("review_inputs"):
         raise ValueError("evidence_inventory.review_inputs must not be empty")
+    papers = ensure_list(inventory.get("papers"), "evidence_inventory.papers")
+    if not papers:
+        raise ValueError("evidence_inventory.papers must not be empty")
+    normalized_papers: list[dict[str, Any]] = []
+    seen_refs: set[str] = set()
+    for row in papers:
+        paper = ensure_object(row, "evidence_inventory.papers[]")
+        paper_ref = ensure_non_empty_string(paper.get("paper_ref"), "paper_ref")
+        if paper_ref in seen_refs:
+            raise ValueError(f"evidence_inventory paper_ref must be unique: {paper_ref}")
+        seen_refs.add(paper_ref)
+        quality = ensure_object(paper.get("literature_quality"), "literature_quality")
+        status = ensure_non_empty_string(quality.get("status"), "literature_quality.status")
+        if status not in {"available", "missing", "invalid"}:
+            raise ValueError("literature_quality.status is invalid")
+        quality_prior = quality.get("quality_prior")
+        if not isinstance(quality_prior, (int, float)) or not 0 <= float(quality_prior) <= 1:
+            raise ValueError("literature_quality.quality_prior must be between 0 and 1")
+        evidence_role = ensure_non_empty_string(paper.get("evidence_role"), "evidence_role")
+        if evidence_role not in EVIDENCE_ROLES:
+            raise ValueError("evidence_role is invalid")
+        reason = ensure_non_empty_string(paper.get("reason"), "reason")
+        caveats = [
+            str(value).strip()
+            for value in ensure_list(paper.get("caveats", []), "caveats")
+            if str(value).strip()
+        ]
+        normalized_papers.append(
+            {
+                **paper,
+                "paper_ref": paper_ref,
+                "literature_quality": quality,
+                "evidence_role": evidence_role,
+                "reason": reason,
+                "caveats": caveats,
+            }
+        )
+    inventory["papers"] = normalized_papers
     state["evidence_inventory"] = inventory
     state["review_inputs"] = inventory["review_inputs"]
     state["review_inputs_hash"] = stable_hash(inventory["review_inputs"])

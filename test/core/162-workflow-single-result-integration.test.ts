@@ -35,12 +35,9 @@ import {
   resetTaskDashboardHistory,
 } from "../../src/modules/taskDashboardHistory";
 import {
-  attachSkillRunnerRequestId,
-  createSkillRunnerRun,
   getSkillRunnerRunRecordByRequest,
   resetSkillRunnerRunStoreForTests,
-  updateSkillRunnerRunStateByRequest,
-  updateSkillRunnerRunStateByRunKey,
+  applySkillRunnerRunEvent,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
@@ -488,13 +485,12 @@ async function runDebugApplyWorkflow(args: {
 }
 
 function getRequestParent(request: Record<string, unknown>) {
-  const parentId = Number(request.targetParentID);
-  assert.isTrue(
-    Number.isFinite(parentId),
-    "request targetParentID is required",
+  const ref = isRecord(request.targetParentRef) ? request.targetParentRef : {};
+  const parent = Zotero.Items.getByLibraryAndKey(
+    Number(ref.libraryId),
+    normalizeString(ref.key),
   );
-  const parent = Zotero.Items.get(parentId);
-  assert.isOk(parent, `parent item ${parentId} should exist`);
+  assert.isOk(parent, "request targetParentRef must resolve to an item");
   return parent!;
 }
 
@@ -586,34 +582,39 @@ function findRequestReadyUpdate(run: IntegrationRun, requestId: string) {
 }
 
 function seedRequestReadySkillRunnerRun(requestId: string) {
-  const run = createSkillRunnerRun({
-    backendId: SKILLRUNNER_BACKEND.id,
-    workflowId: SINGLE_RESULT_WORKFLOW_ID,
-    workflowRunId: `run-${requestId}`,
-    jobId: `job-${requestId}`,
-    taskName: "debug-apply-single-result",
-    skillId: "debug-apply-contract",
-    requestPayload: {
-      kind: "skillrunner.job.v1",
-      skill_id: "debug-apply-contract",
-      fetch_type: "result",
-      poll: {
-        interval_ms: 1,
-        timeout_ms: 1,
+  const run = applySkillRunnerRunEvent({
+    type: "submit.local_created",
+    init: {
+      backendId: SKILLRUNNER_BACKEND.id,
+      workflowId: SINGLE_RESULT_WORKFLOW_ID,
+      workflowRunId: `run-${requestId}`,
+      jobId: `job-${requestId}`,
+      taskName: "debug-apply-single-result",
+      skillId: "debug-apply-contract",
+      requestPayload: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-apply-contract",
+        fetch_type: "result",
+        poll: {
+          interval_ms: 1,
+          timeout_ms: 1,
+        },
       },
+      fetchType: "result",
+      executionMode: "auto",
+      createdAt: "2026-06-22T00:00:00.000Z",
+      updatedAt: "2026-06-22T00:00:00.000Z",
     },
-    fetchType: "result",
-    executionMode: "auto",
-    createdAt: "2026-06-22T00:00:00.000Z",
-    updatedAt: "2026-06-22T00:00:00.000Z",
   });
   assert.isOk(run);
-  attachSkillRunnerRequestId({
+  applySkillRunnerRunEvent({
+    type: "request.created",
     runKey: run!.runKey,
     requestId,
     updatedAt: "2026-06-22T00:00:01.000Z",
   });
-  updateSkillRunnerRunStateByRunKey({
+  applySkillRunnerRunEvent({
+    type: "backend.snapshot",
     runKey: run!.runKey,
     state: "request_ready" as any,
     backendStatus: "running",
@@ -748,7 +749,7 @@ describe("workflow single-result behavior integration", function () {
 
     assert.equal(run.providerCalls[0]?.requestKind, "skillrunner.job.v1");
     assert.equal(run.applySummary.succeeded, 1);
-    assert.equal(run.applySummary.failed, 0);
+    assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assertParentHasTag(run.request);
     assert.isOk(findRequestReadyUpdate(run, requestId));
     assert.lengthOf(run.focusCalls, 1);
@@ -789,7 +790,7 @@ describe("workflow single-result behavior integration", function () {
     assert.lengthOf(run.assistantCalls, 0);
     assert.lengthOf(run.focusCalls, 0);
     assert.equal(run.applySummary.succeeded, 1);
-    assert.equal(run.applySummary.failed, 0);
+    assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assertParentHasTag(run.request);
   });
 
@@ -860,7 +861,10 @@ describe("workflow single-result behavior integration", function () {
         },
       });
 
-      assert.equal(Number(run.request.targetParentID), parent.id);
+      assert.deepEqual(run.request.targetParentRef, {
+        libraryId: parent.libraryID,
+        key: parent.key,
+      });
       assert.equal(run.applySummary.succeeded, 1);
       assert.equal(run.applySummary.failed, 0);
       assertParentHasAttachmentTitles(run.request, [
@@ -938,7 +942,7 @@ describe("workflow single-result behavior integration", function () {
     assert.isOk(findRequestReadyUpdate(run, "sr-sequence-result-result_one"));
     assert.isOk(findRequestReadyUpdate(run, "sr-sequence-result-result_two"));
     assert.equal(run.applySummary.succeeded, 1);
-    assert.equal(run.applySummary.failed, 0);
+    assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assert.lengthOf(run.assistantCalls, 0);
     const resultFocusTaskIds = run.focusCalls.map((entry) =>
       normalizeString(entry.runKey),
@@ -1075,7 +1079,7 @@ describe("workflow single-result behavior integration", function () {
     assert.isOk(findRequestReadyUpdate(run, "sr-sequence-bundle-bundle_one"));
     assert.isOk(findRequestReadyUpdate(run, "sr-sequence-bundle-bundle_two"));
     assert.equal(run.applySummary.succeeded, 1);
-    assert.equal(run.applySummary.failed, 0);
+    assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assert.lengthOf(run.assistantCalls, 0);
     const bundleFocusTaskIds = run.focusCalls.map((entry) =>
       normalizeString(entry.runKey),

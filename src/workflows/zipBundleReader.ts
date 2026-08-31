@@ -1,11 +1,11 @@
 import { joinPath } from "../utils/path";
 import { recordLeakProbeTempArtifactForTests } from "../modules/testLeakProbeTempArtifacts";
-
-type DynamicImport = (specifier: string) => Promise<any>;
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
+import { executeOneShotSubprocess } from "../platform/subprocess";
+import {
+  ensureRuntimeDirectoryStrict,
+  readRuntimeTextFileStrict,
+  resolveRuntimeTemporaryDirectory,
+} from "../modules/runtimePersistence";
 
 function hasZoteroZipRuntime() {
   const runtime = globalThis as {
@@ -24,27 +24,12 @@ function hasZoteroZipRuntime() {
 }
 
 async function mkTempDir(prefix: string) {
-  const runtime = globalThis as {
-    PathUtils?: { tempDir?: string };
-    IOUtils?: {
-      makeDirectory?: (path: string, options?: { createAncestors?: boolean }) => Promise<void>;
-    };
-  };
-  if (
-    typeof runtime.PathUtils?.tempDir === "string" &&
-    typeof runtime.IOUtils?.makeDirectory === "function"
-  ) {
-    const dir = joinPath(
-      runtime.PathUtils.tempDir,
-      `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-    );
-    await runtime.IOUtils.makeDirectory(dir, { createAncestors: true });
-    return dir;
-  }
-  const fs = await dynamicImport("fs/promises");
-  const os = await dynamicImport("os");
-  const path = await dynamicImport("path");
-  return fs.mkdtemp(path.join(os.tmpdir(), `${prefix}-`)) as Promise<string>;
+  const dir = joinPath(
+    resolveRuntimeTemporaryDirectory(),
+    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+  );
+  await ensureRuntimeDirectoryStrict(dir);
+  return dir;
 }
 
 function safeZipEntrySegments(entryPath: string) {
@@ -80,9 +65,6 @@ export class ZipBundleReader {
       Ci: Record<string, unknown> & {
         nsIZipReader: unknown;
       };
-      IOUtils: {
-        makeDirectory: (path: string, options?: { createAncestors?: boolean }) => Promise<void>;
-      };
       Zotero: { File: { pathToFile: (targetPath: string) => unknown } };
     };
     this.extractedDirPromise = (async () => {
@@ -110,16 +92,13 @@ export class ZipBundleReader {
           const segments = safeZipEntrySegments(entryName);
           const targetPath = joinPath(extractedDir, ...segments);
           if (entryName.endsWith("/")) {
-            await runtime.IOUtils.makeDirectory(targetPath, {
-              createAncestors: true,
-            });
+            await ensureRuntimeDirectoryStrict(targetPath);
             continue;
           }
           const parentSegments = segments.slice(0, -1);
           if (parentSegments.length > 0) {
-            await runtime.IOUtils.makeDirectory(
+            await ensureRuntimeDirectoryStrict(
               joinPath(extractedDir, ...parentSegments),
-              { createAncestors: true },
             );
           }
           zipReader.extract(entryName, runtime.Zotero.File.pathToFile(targetPath));
@@ -140,30 +119,37 @@ export class ZipBundleReader {
           kind: "zip-extracted-dir",
           path: tmpDir,
         });
-        const childProcess = await dynamicImport("child_process");
-        const util = await dynamicImport("util");
-        const execFileAsync = util.promisify(childProcess.execFile);
         const processObj = globalThis as {
           process?: { platform?: string };
         };
 
-        if (processObj.process?.platform === "win32") {
-          const command = [
-            "Expand-Archive",
-            `-LiteralPath '${this.bundlePath.replace(/'/g, "''")}'`,
-            `-DestinationPath '${tmpDir.replace(/'/g, "''")}'`,
-            "-Force",
-          ].join(" ");
-          await execFileAsync("powershell", [
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            command,
-          ]);
-          return tmpDir;
+        const request =
+          processObj.process?.platform === "win32"
+            ? {
+                command: "powershell",
+                args: [
+                  "-NoProfile",
+                  "-NonInteractive",
+                  "-Command",
+                  [
+                    "Expand-Archive",
+                    `-LiteralPath '${this.bundlePath.replace(/'/g, "''")}'`,
+                    `-DestinationPath '${tmpDir.replace(/'/g, "''")}'`,
+                    "-Force",
+                  ].join(" "),
+                ],
+                hidden: true,
+              }
+            : {
+                command: "unzip",
+                args: ["-q", this.bundlePath, "-d", tmpDir],
+              };
+        const result = await executeOneShotSubprocess(request);
+        if (result.outcome !== "exited" || result.exitCode !== 0) {
+          throw new Error(
+            `Failed to extract workflow bundle: ${result.stderr || result.outcome}`,
+          );
         }
-
-        await execFileAsync("unzip", ["-q", this.bundlePath, "-d", tmpDir]);
         return tmpDir;
       })();
     }
@@ -178,20 +164,11 @@ export class ZipBundleReader {
   }
 
   async readText(entryPath: string) {
-    const runtime = globalThis as {
-      IOUtils?: {
-        readUTF8?: (path: string) => Promise<string>;
-      };
-    };
     const extractedDir = await this.getExtractedDir();
     const targetPath = joinPath(
       extractedDir,
       ...safeZipEntrySegments(entryPath),
     );
-    if (typeof runtime.IOUtils?.readUTF8 === "function") {
-      return runtime.IOUtils.readUTF8(targetPath);
-    }
-    const fs = await dynamicImport("fs/promises");
-    return fs.readFile(targetPath, "utf8") as Promise<string>;
+    return readRuntimeTextFileStrict(targetPath);
   }
 }

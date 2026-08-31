@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -10,6 +9,11 @@ import {
   dispatchAndResolveGithubWorkflowRun,
   watchGithubWorkflowRun,
 } from "./github-workflow-run";
+import {
+  canonicalizeContentPackageChannels,
+  parseContentPackageChannels,
+  type ContentPackageChannel,
+} from "./content-package-channels";
 
 type RunCommand = CommandRunner;
 
@@ -21,10 +25,9 @@ export type ContentPackageReleaseArgs = {
   watch?: boolean;
   repo?: string;
   ref?: string;
+  channels?: ContentPackageChannel[];
   runCommand?: RunCommand;
   requestId?: string;
-  hostReleaseSetFile?: string;
-  hostReceiptFile?: string;
 };
 
 export type ContentPackageReleaseResult = {
@@ -49,12 +52,12 @@ function usage() {
   return [
     "Usage:",
     "  npm run release:content-package -- <patch|minor|major|version> [--plugin-version <range>]",
-    "  npm run release:content-package -- --dispatch [--watch] [--ref main]",
+    "  npm run release:content-package -- --dispatch --channels <stable,beta,dev> [--watch] [--ref main]",
     "",
     "Examples:",
     "  npm run release:content-package -- patch",
     '  npm run release:content-package -- patch --plugin-version ">=0.6.0"',
-    "  npm run release:content-package -- --dispatch --watch",
+    "  npm run release:content-package -- --dispatch --channels stable,beta,dev --watch",
   ].join("\n");
 }
 
@@ -92,6 +95,12 @@ export function parseContentPackageReleaseArgs(
     if (entry === "--watch") {
       parsed.watch = true;
       index += 1;
+      continue;
+    }
+    if (entry === "--channels" || entry.startsWith("--channels=")) {
+      const option = readOptionValue(argv, index, "--channels");
+      parsed.channels = parseContentPackageChannels(option.value);
+      index += option.consumed;
       continue;
     }
     if (entry === "--repo" || entry.startsWith("--repo=")) {
@@ -180,29 +189,8 @@ function nextCommands(args: { repo: string; ref: string }) {
     `git add ${DEFAULT_VERSION_FILE}`,
     'git commit -m "chore: bump content package version"',
     `git push origin ${args.ref}`,
-    `npm run release:content-package -- --dispatch --watch --repo ${args.repo} --ref ${args.ref}`,
+    `npm run release:content-package -- --dispatch --watch --channels stable,beta,dev --repo ${args.repo} --ref ${args.ref}`,
   ];
-}
-
-async function assertHostBridgeReleaseComplete(args: {
-  releaseSetFile: string;
-  receiptFile: string;
-}) {
-  const releaseSet = JSON.parse(await readFile(args.releaseSetFile, "utf8"));
-  let receipt: Record<string, unknown> = {};
-  try {
-    receipt = JSON.parse(await readFile(args.receiptFile, "utf8"));
-  } catch {
-    // Missing receipt is handled by the common mismatch error below.
-  }
-  if (
-    receipt.status !== "complete" ||
-    receipt.releaseSetId !== releaseSet.releaseSetId
-  ) {
-    throw new Error(
-      `Host Bridge ${releaseSet.releaseSetId} has no matching complete receipt; finish that publication before dispatching content packages.`,
-    );
-  }
 }
 
 export async function prepareContentPackageRelease(
@@ -224,6 +212,9 @@ export async function prepareContentPackageRelease(
       ].join(" "),
     );
   }
+  if (!args.dispatch && args.channels) {
+    throw new Error("--channels can only be used with --dispatch.");
+  }
 
   if (args.target) {
     result.bump = await bumpContentPackageVersion({
@@ -234,21 +225,21 @@ export async function prepareContentPackageRelease(
   }
 
   if (args.dispatch) {
+    const channels = args.channels
+      ? canonicalizeContentPackageChannels(args.channels)
+      : [];
+    if (channels.length === 0) {
+      throw new Error("--channels is required when using --dispatch.");
+    }
     await assertCleanWorkingTree(commandRunner);
     await assertRemoteRefContainsHead({ commandRunner, ref });
-    await assertHostBridgeReleaseComplete({
-      releaseSetFile: args.hostReleaseSetFile || "host-bridge/release-set.json",
-      receiptFile:
-        args.hostReceiptFile ||
-        "host-bridge/latest-complete-release-receipt.json",
-    });
     const requestId =
       args.requestId || createGithubWorkflowRequestId("content");
     const selected = await dispatchAndResolveGithubWorkflowRun({
       workflow: WORKFLOW_FILE,
       repo,
       ref,
-      inputs: { request_id: requestId },
+      inputs: { request_id: requestId, channels: channels.join(",") },
       expectedDisplayTitle: `Content package ${requestId}`,
       resolveExpectedHeadSha: async () =>
         (await commandRunner("git", ["rev-parse", "HEAD"])).stdout.trim(),

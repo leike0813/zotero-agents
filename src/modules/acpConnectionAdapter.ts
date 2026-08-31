@@ -60,6 +60,14 @@ import {
   recordAcpSessionNotificationForTrace,
   type AcpRuntimeSemanticTraceContext,
 } from "./acpRuntimeSemanticTraceRecorder";
+import {
+  BoundedWaitError,
+  createCancellationController,
+  waitForBoundedPromise,
+  type BoundedWaitStartupOptions,
+} from "../utils/wait";
+
+const ACP_STARTUP_PHASE_TIMEOUT_MS = 60_000;
 
 export type AcpConnectionUpdate = SessionNotification;
 export type AcpConnectionUpdateListener = (
@@ -91,6 +99,7 @@ export type AcpConnectionAdapterFactoryArgs = {
   diagnosticCapture?: AcpTransportDiagnosticCaptureOptions;
   performanceProfileRequestId?: string;
   semanticTraceContext?: AcpConnectionSemanticTraceContext;
+  startup?: BoundedWaitStartupOptions;
 };
 
 export type AcpConnectionSemanticTraceBinding = {
@@ -464,6 +473,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     }
   >();
   private closing = false;
+  private readonly startupController = createCancellationController();
+  private readonly startupTimeoutMs: number;
+  private removeExternalStartupAbort: () => void = () => undefined;
   private unsubscribeZoteroMcpDiagnostics: () => void = () => undefined;
   private readonly zoteroMcpDiagnosticListener = (
     event: ZoteroMcpDiagnosticEvent,
@@ -477,7 +489,40 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     });
   };
 
-  constructor(private readonly args: AcpConnectionAdapterFactoryArgs) {}
+  constructor(private readonly args: AcpConnectionAdapterFactoryArgs) {
+    this.startupTimeoutMs =
+      typeof args.startup?.timeoutMs === "number"
+        ? Math.max(0, args.startup.timeoutMs)
+        : ACP_STARTUP_PHASE_TIMEOUT_MS;
+    const externalSignal = args.startup?.signal;
+    if (externalSignal?.aborted) {
+      this.startupController.abort();
+    } else if (externalSignal) {
+      const abort = () => this.startupController.abort();
+      externalSignal.addEventListener("abort", abort, { once: true });
+      this.removeExternalStartupAbort = () =>
+        externalSignal.removeEventListener("abort", abort);
+    }
+  }
+
+  private async waitForStartupPhase<T>(
+    promise: Promise<T>,
+    phase: string,
+    onLateFulfilled?: (value: T) => void | Promise<void>,
+  ) {
+    return waitForBoundedPromise(promise, {
+      phase,
+      timeoutMs: this.startupTimeoutMs,
+      signal: this.startupController.signal,
+      onLateFulfilled,
+    });
+  }
+
+  private throwIfStartupStopped(phase: string) {
+    if (this.startupController.signal.aborted || this.closePromise) {
+      throw new BoundedWaitError({ kind: "canceled", phase });
+    }
+  }
 
   private mcpCompatibilityMode() {
     return normalizeMcpCompatibilityMode(this.args.mcpCompatibilityMode);
@@ -1390,7 +1435,12 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         command: this.args.backend.command,
         args: this.args.backend.args,
         env: this.args.backend.env,
+        startup: {
+          signal: this.startupController.signal,
+          timeoutMs: this.startupTimeoutMs,
+        },
       });
+      this.throwIfStartupStopped("acp-npx-cache-lease");
       if (cacheLease) {
         const selectionDiagnostic = {
           cacheKey: cacheLease.cacheKey,
@@ -1422,12 +1472,26 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           const backend = cacheLease
             ? { ...this.args.backend, env: cacheLease.environment }
             : this.args.backend;
-          transport = await launchAcpTransport({
-            backend,
-            cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
-            diagnosticCapture: this.args.diagnosticCapture,
-            performanceProfileRequestId: this.args.performanceProfileRequestId,
-          });
+          transport = await this.waitForStartupPhase(
+            launchAcpTransport({
+              backend,
+              cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
+              diagnosticCapture: this.args.diagnosticCapture,
+              performanceProfileRequestId:
+                this.args.performanceProfileRequestId,
+              startup: {
+                signal: this.startupController.signal,
+                timeoutMs: this.startupTimeoutMs,
+              },
+            }),
+            "acp-transport-launch",
+            async (lateTransport) => {
+              await lateTransport
+                .close({ graceMs: 1_000 })
+                .catch(() => undefined);
+            },
+          );
+          this.throwIfStartupStopped("acp-transport-launch");
           this.transport = transport;
           this.emitDiagnostic({
             kind: "spawned",
@@ -1448,10 +1512,14 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
             },
           );
           this.connection = connection;
-          const response = await connection.initialize({
-            protocolVersion: ACP_PROTOCOL_VERSION,
-            clientCapabilities: {},
-          });
+          const response = await this.waitForStartupPhase(
+            connection.initialize({
+              protocolVersion: ACP_PROTOCOL_VERSION,
+              clientCapabilities: {},
+            }),
+            "acp-initialize",
+          );
+          this.throwIfStartupStopped("acp-initialize");
           this.commandLabel = transport.getCommandLabel();
           this.commandLine = transport.getCommandLine();
           const normalizedAuthMethods = normalizeAuthMethods(
@@ -1502,11 +1570,14 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           const transportSnapshot = transport
             ? this.snapshotTransport(transport)
             : null;
-          const failure = this.selectInitializeFailure({
-            error,
-            closeResult,
-            snapshot: transportSnapshot,
-          });
+          const failure =
+            error instanceof BoundedWaitError
+              ? error
+              : this.selectInitializeFailure({
+                  error,
+                  closeResult,
+                  snapshot: transportSnapshot,
+                });
           const conflictCode = cacheLease
             ? classifyAcpNpxCacheRenameConflict(failure)
             : null;
@@ -1517,7 +1588,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
             !this.closePromise
           ) {
             const previousGeneration = cacheLease.generation;
-            await cacheLease.rotate();
+            await this.waitForStartupPhase(
+              cacheLease.rotate(),
+              "acp-npx-cache-rotate",
+            );
             const retryDiagnostic = {
               cacheKey: cacheLease.cacheKey,
               conflictCode,
@@ -1591,6 +1665,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   }
 
   async newSession() {
+    return this.waitForStartupPhase(this.newSessionOnce(), "acp-session-new");
+  }
+
+  private async newSessionOnce() {
     if (!this.connection) {
       await this.initialize();
     }
@@ -1678,6 +1756,13 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   }
 
   async loadSession(args: { sessionId: string }) {
+    return this.waitForStartupPhase(
+      this.loadSessionOnce(args),
+      "acp-session-load",
+    );
+  }
+
+  private async loadSessionOnce(args: { sessionId: string }) {
     if (!this.connection) {
       await this.initialize();
     }
@@ -1752,6 +1837,13 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   }
 
   async resumeSession(args: { sessionId: string }) {
+    return this.waitForStartupPhase(
+      this.resumeSessionOnce(args),
+      "acp-session-resume",
+    );
+  }
+
+  private async resumeSessionOnce(args: { sessionId: string }) {
     if (!this.connection) {
       await this.initialize();
     }
@@ -2009,6 +2101,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     if (this.closePromise) {
       return this.closePromise;
     }
+    this.startupController.abort();
+    this.removeExternalStartupAbort();
+    this.removeExternalStartupAbort = () => undefined;
     this.closing = true;
     this.closePromise = (async () => {
       try {

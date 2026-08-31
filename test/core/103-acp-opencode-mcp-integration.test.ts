@@ -147,13 +147,7 @@ describe("real OpenCode ACP MCP integration", function () {
       this.skip();
     }
 
-    const token = configureZoteroMcpServerForTests({
-      resolveHostContext: () => ({
-        target: "library",
-        libraryId: "opencode-real-integration",
-        selectionEmpty: true,
-      }),
-    });
+    const token = configureZoteroMcpServerForTests();
     server = await createNodeMcpServer();
     const port = await listen(server);
     const descriptor: ZoteroMcpServerDescriptor = {

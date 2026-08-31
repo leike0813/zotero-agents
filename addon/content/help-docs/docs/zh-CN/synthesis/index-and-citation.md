@@ -145,7 +145,7 @@ Canonical Reference Index 是 Synthesis 系统的核心索引，对文献库中�
 
 | 布局 | 说明 | 适用场景 |
 |------|------|---------|
-| **Force（力导向）** | d3-force 力导向布局 | 探索整体结构 |
+| **Force（力导向）** | ForceAtlas2（Rust）力导向布局 | 探索整体结构 |
 | **Radial（径向）** | 以选定节点为中心展开 | 分析某篇论文的引用网络 |
 | **Components** | 按连通组件分组 | 发现独立的引用集群 |
 

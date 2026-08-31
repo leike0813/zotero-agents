@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/common.schema.json",
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "protocolDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "scope"],
+      "properties": {
+        "code": { "$ref": "#/$defs/identifier" },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "scope": { "$ref": "#/$defs/identifier" },
+        "field": { "$ref": "#/$defs/identifier" },
+        "operationId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "protocolError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "$ref": "#/$defs/identifier" },
+        "reason": { "$ref": "#/$defs/identifier" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/protocolDiagnostic" }
+        }
+      }
+    },
+    "sidecarErrorCode": {
+      "enum": [
+        "invalid_request",
+        "malformed_json",
+        "request_body_too_large",
+        "response_body_too_large",
+        "request_json_too_deep",
+        "request_json_too_large",
+        "request_string_too_long",
+        "request_timeout",
+        "operation_timeout",
+        "request_canceled",
+        "response_invalid",
+        "service_unavailable",
+        "method_not_allowed",
+        "not_found",
+        "unauthorized",
+        "lifecycle_forbidden",
+        "protocol_mismatch",
+        "profile_mismatch",
+        "schema_mismatch",
+        "basis_mismatch",
+        "repository_schema_incompatible",
+        "runtime_mismatch",
+        "capability_not_found",
+        "service_not_ready",
+        "worker_busy",
+        "worker_timeout",
+        "worker_canceled",
+        "worker_crashed",
+        "worker_result_invalid",
+        "worker_unavailable",
+        "transfer_busy",
+        "transfer_not_found",
+        "transfer_conflict",
+        "transfer_limit_exceeded",
+        "transfer_incomplete",
+        "transfer_output_not_ready",
+        "transfer_stopping",
+        "internal_error"
+      ]
+    },
+    "sidecarErrorDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "limit": { "$ref": "#/$defs/safeNonNegativeInteger" },
+        "limitKind": { "enum": ["depth", "nodes", "string"] },
+        "maxBytes": { "$ref": "#/$defs/safeNonNegativeInteger" },
+        "maxDepth": { "$ref": "#/$defs/safeNonNegativeInteger" },
+        "maxNodes": { "$ref": "#/$defs/safeNonNegativeInteger" },
+        "maxLength": { "$ref": "#/$defs/safeNonNegativeInteger" },
+        "expectedProtocol": { "const": "synthesis-sidecar.v1" },
+        "expectedSchemaVersion": { "$ref": "#/$defs/identifier" },
+        "capability": { "$ref": "#/$defs/identifier" },
+        "configCode": { "$ref": "#/$defs/identifier" },
+        "field": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "sidecarError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "details"],
+      "properties": {
+        "code": { "$ref": "#/$defs/sidecarErrorCode" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "retryable": { "type": "boolean" },
+        "details": { "$ref": "#/$defs/sidecarErrorDetails" }
+      }
+    },
+    "opaqueCanonicalJson": true,
+    "canonicalTextChunk": { "type": "string", "maxLength": 4194304 }
+  }
+}

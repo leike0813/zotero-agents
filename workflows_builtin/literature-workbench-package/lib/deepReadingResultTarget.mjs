@@ -66,23 +66,8 @@ export function resolveDeepReadingHtmlPathFromSourcePath(sourcePath) {
 }
 
 export async function resolveAttachmentSourcePath(entry, runtime) {
-  const helpers = runtime?.helpers;
+  void runtime;
   const candidates = [];
-  const itemId = Number(entry?.item?.id || 0);
-  if (itemId && typeof helpers?.resolveItemRef === "function") {
-    try {
-      const item = helpers.resolveItemRef(itemId);
-      const resolved = normalizeString(await item?.getFilePathAsync?.());
-      if (resolved) {
-        candidates.push(resolved);
-      }
-    } catch {
-      // Continue with selection snapshot fields.
-    }
-  }
-  if (typeof helpers?.getAttachmentFilePath === "function") {
-    candidates.push(helpers.getAttachmentFilePath(entry));
-  }
   candidates.push(
     entry?.filePath,
     entry?.path,

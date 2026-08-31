@@ -1,0 +1,89 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "workbench-operational-chrome-result-nested",
+      "schemaRef": "schemas/system.schema.json#/$defs/WorkbenchChromeReadResult",
+      "valid": true,
+      "value": {
+        "maintenance": {
+          "cacheReadiness": [
+            {
+              "cacheKey": "reference-sidecar:library",
+              "cacheKind": "reference-sidecar",
+              "status": "ready",
+              "refreshedAt": "2026-08-12T00:00:00.000Z"
+            },
+            {
+              "cacheKey": "citation-graph:library",
+              "cacheKind": "citation_graph",
+              "status": "refreshing",
+              "staleReason": "basis_changed"
+            }
+          ],
+          "backgroundJobs": [
+            {
+              "job_id": "job:1",
+              "source": "citation_graph_layout",
+              "status": "running",
+              "label": "Layout",
+              "progress": {
+                "mode": "determinate",
+                "percent": 50,
+                "current": 1,
+                "total": 2,
+                "label": "Halfway"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "canonical-inspect-result-nested",
+      "schemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectResult",
+      "valid": true,
+      "value": {
+        "status": "ready",
+        "topicId": "topic:1",
+        "pathId": "topic-1",
+        "manifestHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifactHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "metadataHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "sections": [
+          {
+            "filename": "summary.md",
+            "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "bytes": 12
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "workbench-chrome-dead-state-payload",
+      "schemaRef": "schemas/system.schema.json#/$defs/WorkbenchChromeReadRequest",
+      "valid": false,
+      "value": { "state": {} }
+    },
+    {
+      "id": "workbench-job-generic-progress",
+      "schemaRef": "schemas/system.schema.json#/$defs/WorkbenchChromeReadResult",
+      "valid": false,
+      "value": {
+        "maintenance": {
+          "cacheReadiness": [],
+          "backgroundJobs": [
+            {
+              "job_id": "job:1",
+              "source": "workbench",
+              "status": "running",
+              "label": "Run",
+              "progress": { "mode": "determinate", "percent": 1, "details": {} }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

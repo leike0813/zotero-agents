@@ -1,7 +1,8 @@
+import type { SequenceStepLifecycleAdapter } from "./sequenceRuntime";
 import {
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
-} from "../acpSkillRunStore";
+} from "../acpSkillRunActions";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -27,32 +28,18 @@ async function settleAcpSequenceStep(args: {
   });
 }
 
-export async function finishAcpSequenceStep(args: {
-  requestId: string;
-  finalStep: boolean;
-  applyResultStatus?: "succeeded" | "failed" | "skipped";
-}) {
-  if (args.finalStep || args.applyResultStatus === "failed") {
-    return;
-  }
-  await settleAcpSequenceStep({
-    requestId: args.requestId,
-    state: "succeeded",
-  });
-}
-
-export async function settleAcpSequenceStepApply(args: {
-  requestId: string;
-  finalStep: boolean;
-  state: "succeeded" | "failed";
-  error?: string;
-}) {
-  if (args.state === "succeeded" && !args.finalStep) {
-    return;
-  }
-  await settleAcpSequenceStep({
-    requestId: args.requestId,
-    state: args.state,
-    error: args.error,
-  });
-}
+export const acpSequenceStepLifecycle: SequenceStepLifecycleAdapter = {
+  async settleStep(args) {
+    const stepOwnsFinalApply = args.finalStep && !!args.step.apply_result;
+    if (args.finalStep && !stepOwnsFinalApply) {
+      return;
+    }
+    const applyResult = args.state.steps[args.stepIndex]?.applyResult;
+    const failed = args.applyResultStatus === "failed";
+    await settleAcpSequenceStep({
+      requestId: args.requestId,
+      state: failed ? "failed" : "succeeded",
+      error: failed ? applyResult?.error : undefined,
+    });
+  },
+};

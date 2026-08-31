@@ -1,4 +1,5 @@
 import { createSha256Accumulator } from "../utils/sha256";
+import { statRuntimePath } from "./runtimePersistence";
 
 export const RUNTIME_FILE_TRANSFER_POLICY = Object.freeze({
   chunkBytes: 0x8000,
@@ -125,27 +126,14 @@ function createLocalFile(path: string, classes: any, interfaces: any) {
   return file;
 }
 
-async function statNodeFile(path: string) {
-  const fs = await dynamicImport("fs/promises");
-  const stat = await fs.stat(path);
-  return Number(stat.size);
-}
-
 async function statRuntimeFile(path: string) {
-  const runtime = globalThis as any;
-  if (typeof runtime.IOUtils?.stat === "function") {
-    const stat = await runtime.IOUtils.stat(path);
-    if (typeof stat?.size === "number") return stat.size;
+  const stat = await statRuntimePath(path);
+  if (stat.exists && !stat.isDir) {
+    return stat.size;
   }
-  if (runtime.process) {
-    return statNodeFile(path);
-  }
-  const { classes, interfaces } = runtimeComponents();
-  const file = createLocalFile(path, classes, interfaces);
-  if (file && typeof file.fileSize === "number") return file.fileSize;
   throw new RuntimeFileTransferError(
-    "runtime_file_transfer_unavailable",
-    "No bounded runtime file stat backend is available",
+    "runtime_file_unavailable",
+    "Runtime file is unavailable",
     { path },
   );
 }

@@ -213,8 +213,8 @@ state_machines:
         to: workbench_hot_path
         reason: import_must_write_through_repository_apis
 
-  - id: sm.sync.git
-    owner: git_sync_service
+  - id: sm.sync.webdav
+    owner: webdav_sync_service
     object: durable_exchange_run
     states: [idle, syncing, validating, applying, blocked_conflict, failed_retryable, failed_permanent]
     transitions:
@@ -234,7 +234,7 @@ state_machines:
         reason: durable_preview_conflicts_must_block
       - from: applying
         to: live_sqlite_import
-        reason: git_sync_imports_durable_assets_not_sqlite_files
+        reason: webdav_sync_imports_durable_assets_not_sqlite_files
       - from: blocked_conflict
         to: idle
         reason: last_writer_wins_is_forbidden
@@ -296,9 +296,9 @@ sequences:
     owner: import_export_service
     trigger: import_preview_or_apply_requested
     output: dry_run_diff_or_import_result
-  - id: seq.git_sync.export_import
-    owner: git_sync_service
-    trigger: git_sync_requested
+  - id: seq.webdav_sync.export_import
+    owner: webdav_sync_service
+    trigger: webdav_sync_requested
     output: durable_state_export_import_or_blocked_conflict
   - id: seq.ui.workbench_surface_refresh
     owner: synthesis_workbench_ui
@@ -319,7 +319,7 @@ events:
     - related_items_sync_requested
     - import_preview_requested
     - import_apply_requested
-    - git_sync_requested
+    - webdav_sync_requested
     - synthesis_reset_requested
     - synthesis_clean_install_reset_requested
     - workbench_surface_requested
@@ -335,7 +335,7 @@ events:
     - topic_discovery_apply
     - import_preview
     - import_apply
-    - git_sync
+    - webdav_sync
     - sidecar_reset
   progress:
     - operation_started

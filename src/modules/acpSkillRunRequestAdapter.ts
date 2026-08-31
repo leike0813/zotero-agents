@@ -113,6 +113,9 @@ export function adaptSkillRunnerJobToAcpSkillRun(
     ...(typeof request.targetParentID !== "undefined"
       ? { targetParentID: request.targetParentID }
       : {}),
+    ...(request.targetParentRef
+      ? { targetParentRef: { ...request.targetParentRef } }
+      : {}),
     ...(Object.keys(input).length > 0 ? { input } : {}),
     ...(request.parameter ? { parameter: { ...request.parameter } } : {}),
     ...(Object.keys(runtimeOptions).length > 0

@@ -1,0 +1,110 @@
+name: Release Synthesis Sidecar Runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_set_id:
+        description: Exact committed sidecar release set to materialize or resume
+        required: true
+        type: string
+      source_sha:
+        description: Exact sidecar source commit bound by the release set
+        required: true
+        type: string
+      prepared_sha:
+        description: Exact main commit containing the prepared release set
+        required: true
+        type: string
+      request_id:
+        description: Caller-selected correlation identifier
+        required: true
+        type: string
+
+run-name: Synthesis sidecar ${{ inputs.release_set_id }} (${{ inputs.request_id }})
+
+concurrency:
+  group: synthesis-sidecar-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.SYNTHESIS_SIDECAR_RELEASE_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.prepared_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.SYNTHESIS_SIDECAR_RELEASE_TOKEN || github.token }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - run: npm ci
+      - name: Bind prepared release set
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ inputs.prepared_sha }}"
+          git fetch origin main
+          git merge-base --is-ancestor "${{ inputs.source_sha }}" HEAD
+          git merge-base --is-ancestor HEAD origin/main
+          test "$(jq -r .releaseSetId synthesis-sidecar/release-set.json)" = "${{ inputs.release_set_id }}"
+          test "$(jq -r .sourceCommit synthesis-sidecar/release-set.json)" = "${{ inputs.source_sha }}"
+          npx tsx -e 'import { createSynthesisSidecarRuntimeReleaseSet, readSynthesisSidecarRuntimeReleaseSet } from "./scripts/synthesis-sidecar-runtime-release-set.ts"; import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; const set=await readSynthesisSidecarRuntimeReleaseSet(); const rebuilt=createSynthesisSidecarRuntimeReleaseSet({sourceCommit:set.sourceCommit,prebuildResult:set.prebuild,verificationResult:set.verification,identities:await computeSynthesisSidecarRuntimeIdentities()}); if(rebuilt.releaseSetId!==set.releaseSetId) throw new Error("release set identity mismatch")'
+          jq '.verification' synthesis-sidecar/release-set.json > verification-result.json
+          npx tsx scripts/resolve-synthesis-sidecar-verification.ts --repo="$GITHUB_REPOSITORY" --receipt=verification-result.json
+      - name: Restore exact verified content-addressed set
+        shell: bash
+        run: |
+          set -euo pipefail
+          aggregate="$(jq -r .prebuild.aggregate synthesis-sidecar/release-set.json)"
+          jq '.prebuild' synthesis-sidecar/release-set.json > prebuild-result.json
+          commit="$(jq -r .prebuild.prebuildCommit synthesis-sidecar/release-set.json)"
+          git init prebuild-store
+          git -C prebuild-store remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C prebuild-store fetch --depth=1 origin "$commit"
+          git -C prebuild-store checkout --detach FETCH_HEAD
+          commit="$(git -C prebuild-store rev-parse HEAD)"
+          test "$commit" = "$(jq -r .prebuild.prebuildCommit synthesis-sidecar/release-set.json)"
+          git -C prebuild-store cat-file -e "$commit:sets/$aggregate/manifest.json"
+          npm run sync:synthesis-sidecar-runtime-prebuilds -- --aggregate="$aggregate" --store-root=prebuild-store --result=prebuild-result.json --repo="$GITHUB_REPOSITORY" --source-sha="${{ inputs.source_sha }}"
+          npm run check:synthesis-sidecar-runtime-freshness
+      - name: Record complete release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/synthesis-sidecar-runtime-release-controller.ts init --workflow-run="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" --release-pipeline-revision="$(jq -r .releasePipelineRevision synthesis-sidecar/release-set.json)"
+          npx tsx scripts/synthesis-sidecar-runtime-release-controller.ts advance --step=materialize
+          npx tsx scripts/synthesis-sidecar-runtime-release-controller.ts advance --step=receipt
+          npx tsx scripts/synthesis-sidecar-runtime-release-controller.ts advance --step=finalize
+          jq -e '.status == "complete"' synthesis-sidecar/latest-complete-release-receipt.json
+      - name: Finalize source main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git worktree add .finalize origin/main
+          identities="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities(process.argv[1]).then(x=>process.stdout.write(JSON.stringify(x)))' .finalize)"
+          jq -e --argjson identities "$identities" '
+            .prebuild.sourceFingerprint == $identities.sourceFingerprint and
+            .prebuild.buildFingerprint == $identities.buildFingerprint and
+            .prebuild.prebuildPipelineRevision == $identities.prebuildPipelineRevision and
+            .verification.verificationFingerprint == $identities.verificationFingerprint and
+            .verification.verificationPipelineRevision == $identities.verificationPipelineRevision and
+            .releasePipelineRevision == $identities.releasePipelineRevision
+          ' synthesis-sidecar/release-set.json > /dev/null
+          aggregate="$(jq -r .prebuild.aggregate synthesis-sidecar/release-set.json)"
+          npm run sync:synthesis-sidecar-runtime-prebuilds -- --aggregate="$aggregate" --store-root=prebuild-store --result=prebuild-result.json --repo="$GITHUB_REPOSITORY" --source-sha="${{ inputs.source_sha }}" --addon-root=.finalize/addon/bin
+          mkdir -p .finalize/synthesis-sidecar
+          cp synthesis-sidecar/release-set.json synthesis-sidecar/latest-complete-release-receipt.json .finalize/synthesis-sidecar/
+          git -C .finalize add -A addon/bin synthesis-sidecar
+          git -C .finalize diff --cached --check
+          git -C .finalize config user.name github-actions[bot]
+          git -C .finalize config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C .finalize commit -m "chore(synthesis): finalize ${{ inputs.release_set_id }} [skip synthesis-sidecar]"
+          git -C .finalize push origin HEAD:main

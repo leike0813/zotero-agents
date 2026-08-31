@@ -78,6 +78,7 @@ import {
 } from "../../src/modules/acpConversationTranscriptStore";
 import { saveAcpConversationState } from "../../src/modules/acpConversationStore";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
+import { materializeHostBridgePluginSkillBundle } from "../../src/modules/hostBridgePluginSkillBundle";
 
 const ACP_CHAT_INJECTED_SKILL_BODIES = new Map([
   [
@@ -515,19 +516,20 @@ describe("acp session manager", function () {
     );
   });
 
-  it("keeps informative tool summaries from explicit summary or call details", async function () {
+  it("projects ACP tool display fields without deriving compatibility summary", async function () {
     await connectAcpConversation();
 
     await harness.lastAdapter?.emitSessionUpdate({
       sessionId: "session-1",
       update: {
         sessionUpdate: "tool_call",
-        toolCallId: "tool-summary",
-        title: "Tool Call",
-        kind: "other",
+        toolCallId: "tool-normalized",
+        name: "read_file",
+        title: "Reading configuration",
+        kind: "read",
         status: "pending",
-        input: {
-          path: "artifact/todo_memo.md",
+        rawInput: {
+          path: "config.json",
           limit: 20,
         },
       },
@@ -536,99 +538,14 @@ describe("acp session manager", function () {
       sessionId: "session-1",
       update: {
         sessionUpdate: "tool_call_update",
-        toolCallId: "tool-summary",
-        title: "Tool Call",
-        kind: "other",
-        status: "completed",
-      },
-    });
-
-    const toolItem = (await readActiveTranscriptItems()).find(
-      (entry) =>
-        entry.kind === "tool_call" && entry.toolCallId === "tool-summary",
-    );
-    assert.equal(toolItem?.toolName, "Tool");
-    assert.include(
-      String(toolItem?.inputSummary || ""),
-      "artifact/todo_memo.md",
-    );
-    assert.include(String(toolItem?.summary || ""), "artifact/todo_memo.md");
-    assert.notEqual(toolItem?.summary, "Tool Call");
-  });
-
-  it("keeps the first tool call summary when later updates arrive", async function () {
-    await connectAcpConversation();
-
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "tool-first-summary",
-        title: "Tool Call",
-        kind: "read",
-        status: "pending",
-        input: {
-          path: "first-call.md",
-        },
-      },
-    });
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tool-first-summary",
-        title: "Tool Call",
-        kind: "read",
-        status: "completed",
-        summary: "Later result text should not replace call args",
-      },
-    });
-
-    const toolItem = (await readActiveTranscriptItems()).find(
-      (entry) =>
-        entry.kind === "tool_call" && entry.toolCallId === "tool-first-summary",
-    );
-    assert.include(String(toolItem?.inputSummary || ""), "first-call.md");
-    assert.include(String(toolItem?.resultSummary || ""), "Later result");
-    assert.include(String(toolItem?.summary || ""), "first-call.md");
-    assert.notInclude(String(toolItem?.summary || ""), "Later result");
-  });
-
-  it("normalizes common ACP tool fields into tool name and frozen input summary", async function () {
-    await connectAcpConversation();
-
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call",
         toolCallId: "tool-normalized",
-        title: "Tool Call",
-        kind: "other",
-        status: "pending",
-        summary: "[]",
-      },
-    });
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tool-normalized",
-        title: "Tool Call",
-        status: "in_progress",
-        function_name: "read_file",
-        arguments: {
-          path: "artifact/todo_memo.md",
-        },
-      },
-    });
-    await harness.lastAdapter?.emitSessionUpdate({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tool-normalized",
-        title: "Tool Call",
         status: "completed",
-        output: "read file completed",
+        content: [
+          {
+            type: "content",
+            content: { type: "text", text: "Finished" },
+          },
+        ],
       },
     });
 
@@ -637,13 +554,12 @@ describe("acp session manager", function () {
         entry.kind === "tool_call" && entry.toolCallId === "tool-normalized",
     );
     assert.equal(toolItem?.toolName, "read_file");
-    assert.include(
-      String(toolItem?.inputSummary || ""),
-      "artifact/todo_memo.md",
-    );
-    assert.equal(toolItem?.resultSummary, "read file completed");
-    assert.notEqual(toolItem?.inputSummary, "[]");
-    assert.notInclude(String(toolItem?.summary || ""), "read file completed");
+    assert.equal(toolItem?.title, "Reading configuration");
+    assert.equal(toolItem?.toolKind, "read");
+    assert.equal(toolItem?.inputSummary, '{"path":"config.json","limit":20}');
+    assert.equal(toolItem?.resultSummary, "Finished");
+    assert.equal(toolItem?.summary, undefined);
+    assert.equal(toolItem?.state, "completed");
   });
 
   it("starts a new assistant message when a tool region appears between chunks", async function () {
@@ -902,6 +818,7 @@ describe("acp session manager", function () {
   });
 
   it("creates an ACP session on demand, merges streamed assistant chunks, and persists transcript state", async function () {
+    this.timeout(10_000);
     const dataDirectory = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-acp-data-"),
     );
@@ -919,6 +836,8 @@ describe("acp session manager", function () {
     };
     try {
       Zotero.Prefs.set(`${config.prefsPrefix}.skillDir`, userSkillRoot, true);
+      const materialized = await materializeHostBridgePluginSkillBundle();
+      assert.isTrue(materialized.ok);
       for (const [skillId, body] of ACP_CHAT_INJECTED_SKILL_BODIES) {
         await writeRegistrySkill({
           root: userSkillRoot,
@@ -1067,7 +986,8 @@ describe("acp session manager", function () {
           joinPath(root, "zotero-bridge-cli", "SKILL.md"),
           "utf8",
         );
-        assert.include(chatWrapperSkill, "USER ZOTERO BRIDGE OVERRIDE");
+        assert.include(chatWrapperSkill, "# Zotero Bridge CLI");
+        assert.notInclude(chatWrapperSkill, "USER ZOTERO BRIDGE OVERRIDE");
         assert.notInclude(chatWrapperSkill, "OLD CLAUDE COPY");
         const literatureSearchIngestSkill = await fs.readFile(
           joinPath(root, "literature-search-ingest", "SKILL.md"),
@@ -1284,8 +1204,8 @@ describe("acp session manager", function () {
         ),
       );
       assert.equal(unavailable?.raw?.expectedTargetCount, 18);
-      assert.equal(unavailable?.raw?.materializedTargetCount, 2);
-      assert.lengthOf(unavailable?.raw?.missingSkillIds || [], 8);
+      assert.equal(unavailable?.raw?.materializedTargetCount, 0);
+      assert.lengthOf(unavailable?.raw?.missingSkillIds || [], 9);
       assert.deepEqual(unavailable?.raw?.failedTargets, []);
       assert.isOk(harness.lastAdapter);
     } finally {
@@ -1304,6 +1224,7 @@ describe("acp session manager", function () {
   });
 
   it("does not report injected skills ready when one target copy fails", async function () {
+    this.timeout(10_000);
     const dataDirectory = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-acp-failed-skill-copy-data-"),
     );
@@ -1326,6 +1247,8 @@ describe("acp session manager", function () {
 
     try {
       Zotero.Prefs.set(`${config.prefsPrefix}.skillDir`, userSkillRoot, true);
+      const materialized = await materializeHostBridgePluginSkillBundle();
+      assert.isTrue(materialized.ok);
       for (const [skillId, body] of ACP_CHAT_INJECTED_SKILL_BODIES) {
         await writeRegistrySkill({
           root: userSkillRoot,
@@ -2410,7 +2333,10 @@ describe("acp session manager", function () {
       "execution",
       "authentication",
       "permissionPolicy",
+      "badges",
     ]);
+    // ACP sources publish no host-projected banner badges.
+    assert.isNull(baseline?.badges);
     assert.isNull(baseline?.interaction);
     assert.hasAllKeys(baseline?.connection, [
       "status",

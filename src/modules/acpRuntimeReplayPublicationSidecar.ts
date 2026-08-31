@@ -1,4 +1,5 @@
 import type { AcpRuntimeReplayCancellationSignal } from "./acpRuntimeReplayProfiler";
+import type { AssistantWorkspacePublicationSource } from "../shared/assistantWireContract";
 
 export type AcpRuntimeReplayPublicationTab =
   | "acp-chat"
@@ -22,7 +23,10 @@ export type AcpRuntimeReplayPublicationWindow = {
 
 export type AcpRuntimeReplayPublicationLifecycle = {
   publicationId: string;
-  source: AcpRuntimeReplayPublicationSurface;
+  // The host lifecycle registry is source-generic; the replay tooling only
+  // ever drives the ACP surfaces, so a skillrunner entry never appears here
+  // in practice and the drain logic filters on the ACP tab regardless.
+  source: AssistantWorkspacePublicationSource;
   deliverySequence: number;
   state: "pending" | "render-complete" | "rejected";
   reason?: string;
@@ -39,7 +43,7 @@ export type AcpRuntimeReplayPublicationInspection = {
 };
 
 export type AcpRuntimeReplayForcedPublication = {
-  source: AcpRuntimeReplayPublicationSurface;
+  source: AssistantWorkspacePublicationSource;
   publicationId: string;
   deliverySequence: number;
 };
@@ -208,7 +212,7 @@ export function drainAcpRuntimeReplayPublication(args: {
     let childWindow: AcpRuntimeReplayPublicationWindow | null = null;
     let targetPublicationId = "";
     let targetDeliverySequence = 0;
-    let targetSource: AcpRuntimeReplayPublicationSurface | "" = "";
+    let targetSource: AssistantWorkspacePublicationSource | "" = "";
     let publicationEpochSequence = 0;
     let epochPendingPublicationIds: string[] = [];
     let timeoutToken: ReturnType<typeof setTimeout> | null = null;

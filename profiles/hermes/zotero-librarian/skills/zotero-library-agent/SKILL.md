@@ -42,6 +42,8 @@ Interpret common requests as follows:
 | “Find papers and summarize them” | Acquisition → analysis | Verify the acquired or selected source set before analysis |
 | “Compare these methods” | Analysis | Resolve sources, comparison dimensions, and acceptable evidence depth |
 | “What does the literature say overall?” | Synthesis | Bound the source set, research question, model, and freshness |
+| “Download these papers as a research bundle” | Synthesis direct delivery | Require stable Zotero item refs; if the wording names titles or an ambiguous live selection, use Query to resolve identity first |
+| “Download these topics as one research bundle” | Synthesis direct delivery | Require one or more stable Topic IDs and verify each current report before delivery |
 | “Put this report into Zotero” | Curation | Verify the artifact and target; stop at the write authority boundary |
 | “Clean up duplicates and tags” | Curation | Convert “clean up” into a reviewable proposal and separate destructive choices |
 | “Use the deep-reading workflow” | Analysis with workflow candidate | Confirm live availability, selection input, options, provider, and submission authority |
@@ -59,6 +61,8 @@ For a read-only task, begin after material identity and scope are known. For acq
 2. Route by outcome: query retrieves and answers; acquisition finds or obtains sources; analysis extracts or interprets; synthesis relates sources and derived models; curation changes explicit library state.
 3. Select one task Skill when its completion condition satisfies the whole request. Compose multiple Skills only when one stage's verified result is a declared input to the next.
 
+Direct paper-bundle and Topic-bundle delivery is an independent read-only Synthesis branch. When stable item refs or Topic IDs are already known, route straight to Synthesis; do not insert acquisition, literature analysis, Topic maintenance, or the Product-producing Research Bundle workflow. When identity is ambiguous, Query resolves the bounded candidates and hands only verified Zotero refs or Topic IDs to Synthesis. Missing source text, digest, or analysis artifacts remain bundle diagnostics unless the user separately asks to generate or repair them.
+
 ### Compose and execute stages
 
 4. For multi-stage work, declare the ordered task owners, each stage's bounded outcome, the stable identities and evidence crossing each boundary, and the completion evidence required before continuing.
@@ -72,6 +76,8 @@ For a read-only task, begin after material identity and scope are known. For acq
 8. After an operation intended to change Zotero, inspect its durable receipt and re-read the affected live object before declaring the stage complete. A terminal run is not output verification.
 9. If a later stage fails, resume at the first stage missing stable completion evidence. Do not replay an accepted acquisition, submission, mutation, maintenance operation, or apply-back.
 10. Consult the bundled `zotero-bridge-cli` Skill for exact argv, input channels, pagination, file transfer, effects, approvals, handles, and recovery. Never reconstruct its command catalog here.
+
+For direct bundle delivery, local completion requires the requested destination, `manifest.json`, and the declared paper/topic inventory to exist. Remote completion requires a returned bridge file handle, successful download, and byte verification from the delivery descriptor; the handle alone is not the delivered bundle. If an item or Topic selector cannot resolve, stop the entire request at that selector boundary. If the manifest reports missing optional content, return the bundle with those diagnostics and do not silently start a repair workflow.
 
 ### Present a visible multi-stage plan
 
@@ -143,6 +149,7 @@ Do not dispatch both analysis and synthesis over an unresolved candidate set mer
 - Do not monitor a self-owned `agentRunId` through the Zotero-managed run plane or use a `workflowRunId` for agent apply-back.
 - Do not model `submissionId`, `queueId`, and `workflowRunId` as aliases. A native queued submission is monitored through its submission projection; only an admitted unit with a real run handle enters the Zotero-managed run plane.
 - Do not create a coordinator-owned workflow queue, reservation table, replay loop, or unattended batch scheduler. The coordinator may choose an explicitly bounded concurrency value for the current authorized submission, while Zotero owns pending-unit ordering, admission, and pending cancellation.
+- Treat Host-issued full-snapshot completion evidence as proof of one captured complete set only. An active, interrupted, expired, or restarted snapshot cannot establish whole-library absence or authorize replacement of a cached generation, and a completed snapshot does not replace a later live read when current state controls the answer or a write.
 
 ## LLM And Tool Responsibilities
 

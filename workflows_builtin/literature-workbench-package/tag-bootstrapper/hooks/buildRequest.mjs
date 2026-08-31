@@ -16,10 +16,10 @@ function resolveTagNoteLanguage(executionOptions) {
 
 async function loadTagVocabulary(runtime) {
   const synthesis = requireHostApi(runtime)?.synthesis;
-  if (!synthesis || typeof synthesis.loadTagVocabulary !== "function") {
+  if (!synthesis?.tags || typeof synthesis.tags.loadVocabulary !== "function") {
     throw new Error("tag-bootstrapper synthesis vocabulary API is unavailable");
   }
-  return synthesis.loadTagVocabulary();
+  return synthesis.tags.loadVocabulary();
 }
 
 function normalizeEntries(entries) {

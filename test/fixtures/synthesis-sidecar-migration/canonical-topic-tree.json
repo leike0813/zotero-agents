@@ -1,0 +1,30 @@
+{
+  "schema": "synthesis.canonical_topic_tree_baseline.v1",
+  "topic_id": "topic-fixture",
+  "owner_before_cutover": "zotero_plugin_process",
+  "owner_after_cutover": "synthesis_sidecar_service",
+  "canonical_source": "topic_current_files",
+  "zotero_note_role": "mirror",
+  "current_paths": [
+    "topics/topic-fixture/current/manifest.json",
+    "topics/topic-fixture/current/artifact.json",
+    "topics/topic-fixture/current/metadata.json",
+    "topics/topic-fixture/current/sections/summary.json",
+    "topics/topic-fixture/current/assets/topic-detail.html",
+    "topics/topic-fixture/current/assets/topic-detail.html.metadata.json"
+  ],
+  "legacy_paths": [
+    "topics/topic-fixture/current.md",
+    "topics/topic-fixture/current.json"
+  ],
+  "commit_order": [
+    "validate_candidate",
+    "stage_complete_tree",
+    "validate_manifest_and_hashes",
+    "promote_current_atomically",
+    "persist_database_metadata",
+    "plan_zotero_mirror_effect",
+    "apply_zotero_mirror_effect",
+    "persist_mirror_receipt_or_warning"
+  ]
+}

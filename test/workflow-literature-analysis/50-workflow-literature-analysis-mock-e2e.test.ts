@@ -145,13 +145,15 @@ describeLiteratureDigestE2ESuite(
           bundleReader,
           request: requests[0],
         })) as { notes: Zotero.Item[] };
-        assert.lengthOf(applyResult.notes, 3);
+        assert.lengthOf(applyResult.notes, 4);
         const firstNote = Zotero.Items.get(applyResult.notes[0].id)!;
         const secondNote = Zotero.Items.get(applyResult.notes[1].id)!;
         const thirdNote = Zotero.Items.get(applyResult.notes[2].id)!;
+        const fourthNote = Zotero.Items.get(applyResult.notes[3].id)!;
         assert.equal(firstNote.parentItemID, parent.id);
         assert.equal(secondNote.parentItemID, parent.id);
         assert.equal(thirdNote.parentItemID, parent.id);
+        assert.equal(fourthNote.parentItemID, parent.id);
         assert.match(firstNote.getNote(), /<h1>Digest<\/h1>/);
         assert.isAtLeast((firstNote.getAttachments?.() || []).length, 1);
         assert.match(secondNote.getNote(), /<h1>References<\/h1>/);
@@ -159,10 +161,16 @@ describeLiteratureDigestE2ESuite(
         assert.isAtLeast((secondNote.getAttachments?.() || []).length, 1);
         assert.match(thirdNote.getNote(), /<h1>Citation Analysis<\/h1>/);
         assert.isAtLeast((thirdNote.getAttachments?.() || []).length, 1);
+        assert.include(
+          fourthNote.getNote(),
+          'data-zs-note-kind="literature-score"',
+        );
+        assert.isAtLeast((fourthNote.getAttachments?.() || []).length, 1);
         const parentNotes = parent.getNotes();
         assert.include(parentNotes, firstNote.id);
         assert.include(parentNotes, secondNote.id);
         assert.include(parentNotes, thirdNote.id);
+        assert.include(parentNotes, fourthNote.id);
       } catch (error) {
         console.error(
           `[integration: literature-analysis with mock skill-runner] e2e failed\n${formatError(error)}`,

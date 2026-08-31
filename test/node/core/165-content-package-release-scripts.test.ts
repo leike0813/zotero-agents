@@ -1,8 +1,10 @@
 import { assert } from "chai";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import {
   bumpContentPackageVersion,
@@ -11,8 +13,11 @@ import {
 import {
   isTrackedContentSourceFile,
   normalizeContentPackageFileBytes,
+  resolveContentPackageBuildChannels,
   resolveContentPackageGeneratedAt,
 } from "../../../scripts/build-content-package-feed";
+import { parseContentPackageChannels } from "../../../scripts/content-package-channels";
+import { publishContentPackageFeeds } from "../../../scripts/publish-content-package-feeds";
 import { parseGithubContentPublicationArgs } from "../../../scripts/publish-content-package-github";
 import { parseGiteePublicationArgs } from "../../../scripts/sync-gitee-publication";
 import {
@@ -122,6 +127,12 @@ function githubContent(value: unknown) {
     encoding: "base64",
     content: Buffer.from(JSON.stringify(value), "utf8").toString("base64"),
   };
+}
+
+const execFileAsync = promisify(execFile);
+
+async function git(args: string[], cwd?: string) {
+  await execFileAsync("git", args, { cwd });
 }
 
 describe("content package release scripts", function () {
@@ -382,7 +393,7 @@ describe("content package release scripts", function () {
     assert.isFalse(result.dispatched);
     assert.includeMembers(result.nextCommands, [
       "git add content-package.version.json",
-      "npm run release:content-package -- --dispatch --watch --repo leike0813/zotero-agents --ref main",
+      "npm run release:content-package -- --dispatch --watch --channels stable,beta,dev --repo leike0813/zotero-agents --ref main",
     ]);
   });
 
@@ -423,25 +434,14 @@ describe("content package release scripts", function () {
   it("dispatches the content package publish workflow only from a clean tree", async function () {
     const calls: Array<{ command: string; args: string[] }> = [];
     let runListAttempts = 0;
-    const releaseSetFile = path.join(tempRoot, "release-set.json");
-    const receiptFile = path.join(tempRoot, "receipt.json");
-    await fs.writeFile(
-      releaseSetFile,
-      JSON.stringify({ releaseSetId: "hbrs-ready" }),
-    );
-    await fs.writeFile(
-      receiptFile,
-      JSON.stringify({ status: "complete", releaseSetId: "hbrs-ready" }),
-    );
 
     const result = await prepareContentPackageRelease({
       dispatch: true,
+      channels: ["dev", "beta"],
       watch: true,
       repo: "owner/repo",
       ref: "release-branch",
       requestId: "content-request-1",
-      hostReleaseSetFile: releaseSetFile,
-      hostReceiptFile: receiptFile,
       runCommand: async (command, args) => {
         calls.push({ command, args });
         if (command === "git" && args[0] === "rev-parse") {
@@ -513,6 +513,8 @@ describe("content package release scripts", function () {
           "release-branch",
           "-f",
           "request_id=content-request-1",
+          "-f",
+          "channels=beta,dev",
         ],
       },
       {
@@ -539,43 +541,33 @@ describe("content package release scripts", function () {
     ]);
   });
 
-  it("keeps the Host Bridge receipt gate in the content workflow", async function () {
-    const workflow = await fs.readFile(
+  it("gates Host Bridge receipts only in the plugin release workflow", async function () {
+    const contentWorkflow = await fs.readFile(
       ".github/workflows/publish-content-feed.yml",
       "utf8",
     );
-    assert.include(workflow, "latest-complete-release-receipt.json");
-    assert.include(workflow, 'test "$(jq -r .status');
-    assert.include(workflow, 'test "$(jq -r .releaseSetId');
-  });
-
-  it("rejects content dispatch while the Host Bridge release is pending", async function () {
-    const releaseSetFile = path.join(tempRoot, "pending-release-set.json");
-    const receiptFile = path.join(tempRoot, "stale-receipt.json");
-    await fs.writeFile(
-      releaseSetFile,
-      JSON.stringify({ releaseSetId: "hbrs-pending" }),
+    const pluginWorkflow = await fs.readFile(
+      ".github/workflows/release.yml",
+      "utf8",
     );
-    await fs.writeFile(
-      receiptFile,
-      JSON.stringify({ status: "complete", releaseSetId: "hbrs-old" }),
+    assert.notInclude(contentWorkflow, "latest-complete-release-receipt.json");
+    assert.include(pluginWorkflow, "latest-complete-release-receipt.json");
+    assert.include(pluginWorkflow, 'test "$(jq -r .status');
+    assert.include(pluginWorkflow, 'test "$(jq -r .releaseSetId');
+    assert.include(contentWorkflow, "channels:");
+    assert.include(contentWorkflow, "cancel-in-progress: false");
+    assert.include(
+      contentWorkflow,
+      "check:content-package-release -- --channels",
     );
-
-    await expectRejects(
-      prepareContentPackageRelease({
-        dispatch: true,
-        hostReleaseSetFile: releaseSetFile,
-        hostReceiptFile: receiptFile,
-        runCommand: async () => ({ stdout: "", stderr: "" }),
-      }),
-      /Host Bridge.*hbrs-pending.*complete receipt/i,
-    );
+    assert.include(pluginWorkflow, "check-plugin-host-bridge-assets.ts");
   });
 
   it("rejects workflow dispatch when local HEAD has not reached the remote ref", async function () {
     await expectRejects(
       prepareContentPackageRelease({
         dispatch: true,
+        channels: ["stable"],
         ref: "main",
         runCommand: async (command, args) => {
           if (command === "git" && args[0] === "merge-base") {
@@ -592,6 +584,7 @@ describe("content package release scripts", function () {
     await expectRejects(
       prepareContentPackageRelease({
         dispatch: true,
+        channels: ["stable"],
         runCommand: async (command) => ({
           stdout: command === "git" ? " M content-package.version.json\n" : "",
           stderr: "",
@@ -606,6 +599,7 @@ describe("content package release scripts", function () {
       parseContentPackageReleaseArgs([
         "minor",
         "--dispatch",
+        "--channels=dev,beta,dev",
         "--watch",
         "--repo",
         "owner/repo",
@@ -617,6 +611,7 @@ describe("content package release scripts", function () {
         watch: true,
         repo: "owner/repo",
         ref: "release-branch",
+        channels: ["beta", "dev"],
       },
     );
   });
@@ -635,6 +630,89 @@ describe("content package release scripts", function () {
         target: "minor",
         pluginVersion: ">=0.7.0",
       },
+    );
+  });
+
+  it("requires an explicit channel selection for dispatch only", async function () {
+    await expectRejects(
+      prepareContentPackageRelease({ dispatch: true }),
+      /--channels is required when using --dispatch/i,
+    );
+    await expectRejects(
+      prepareContentPackageRelease({ target: "patch", channels: ["stable"] }),
+      /--channels can only be used with --dispatch/i,
+    );
+  });
+
+  it("strictly normalizes content package channel selections", function () {
+    assert.deepEqual(parseContentPackageChannels("dev,beta,dev"), [
+      "beta",
+      "dev",
+    ]);
+    assert.deepEqual(resolveContentPackageBuildChannels("stable"), ["stable"]);
+    assert.deepEqual(resolveContentPackageBuildChannels(), ["stable", "dev"]);
+    assert.throws(
+      () => parseContentPackageChannels("stable,,dev"),
+      /stable.*beta.*dev/i,
+    );
+    assert.throws(
+      () => parseContentPackageChannels("stable,nightly"),
+      /stable.*beta.*dev/i,
+    );
+  });
+
+  it("patches selected feeds without changing other content-feed entries", async function () {
+    const remote = path.join(tempRoot, "content-feed.git");
+    const seed = path.join(tempRoot, "seed");
+    const sourceRoot = path.join(tempRoot, "source");
+    const clone = path.join(tempRoot, "clone");
+    await git(["init", "--bare", remote]);
+    await git(["init", seed]);
+    await fs.mkdir(path.join(seed, "stable"), { recursive: true });
+    await fs.mkdir(path.join(seed, "beta"), { recursive: true });
+    await fs.mkdir(path.join(seed, "dev"), { recursive: true });
+    await fs.writeFile(path.join(seed, "stable", "feed.json"), "stable-old\n");
+    await fs.writeFile(path.join(seed, "beta", "feed.json"), "beta-old\n");
+    await fs.writeFile(path.join(seed, "dev", "feed.json"), "dev-old\n");
+    await fs.writeFile(path.join(seed, "README.md"), "existing readme\n");
+    await git(["add", "."], seed);
+    await git(["config", "user.name", "test"], seed);
+    await git(["config", "user.email", "test@example.invalid"], seed);
+    await git(["commit", "-m", "seed"], seed);
+    await git(["branch", "-M", "content-feed"], seed);
+    await git(["remote", "add", "origin", remote], seed);
+    await git(["push", "origin", "content-feed"], seed);
+    await fs.mkdir(path.join(sourceRoot, "stable"), { recursive: true });
+    await fs.writeFile(
+      path.join(sourceRoot, "stable", "feed.json"),
+      "stable-new\n",
+    );
+
+    await publishContentPackageFeeds({
+      channels: ["stable"],
+      sourceRoot,
+      remoteUrl: remote,
+      repo: "owner/content-feed",
+      revision: "test-revision",
+      tempRoot,
+    });
+
+    await git(["clone", "--branch", "content-feed", remote, clone]);
+    assert.equal(
+      await fs.readFile(path.join(clone, "stable", "feed.json"), "utf8"),
+      "stable-new\n",
+    );
+    assert.equal(
+      await fs.readFile(path.join(clone, "beta", "feed.json"), "utf8"),
+      "beta-old\n",
+    );
+    assert.equal(
+      await fs.readFile(path.join(clone, "dev", "feed.json"), "utf8"),
+      "dev-old\n",
+    );
+    assert.equal(
+      await fs.readFile(path.join(clone, "README.md"), "utf8"),
+      "existing readme\n",
     );
   });
 
@@ -993,8 +1071,8 @@ describe("content package release scripts", function () {
       "dev",
     ]);
     assert.deepEqual(
-      parseContentPackageCheckArgs(["--channels", "stable"]).channels,
-      ["stable"],
+      parseContentPackageCheckArgs(["--channels", "dev,beta,dev"]).channels,
+      ["beta", "dev"],
     );
     assert.throws(
       () =>
@@ -1003,7 +1081,7 @@ describe("content package release scripts", function () {
     );
     assert.throws(
       () => parseContentPackageCheckArgs(["--channels", "nightly"]),
-      /stable, beta, and\/or dev/i,
+      /stable.*beta.*dev/i,
     );
   });
 

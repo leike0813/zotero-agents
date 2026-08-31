@@ -657,6 +657,32 @@ describe("workflow loader validation", function () {
     });
   });
 
+  it("loads bundle workflows through the dev-local precompiled hook path", async function () {
+    clearPackageHookBundleCacheForTests();
+    await withSimulatedZoteroRuntime(async () => {
+      const loaded = await loadWorkflowManifests(
+        joinPath(process.cwd(), "workflows_builtin"),
+        { workflowSourceKind: "dev-local" },
+      );
+      const workflowIds = [
+        "export-research-bundle",
+        "export-literature-bundle",
+        "import-literature-bundle",
+      ];
+      const workflows = loaded.workflows.filter((workflow) =>
+        workflowIds.includes(workflow.manifest.id),
+      );
+      assert.sameMembers(
+        workflows.map((workflow) => workflow.manifest.id),
+        workflowIds,
+        `warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
+      );
+      for (const workflow of workflows) {
+        assert.equal(workflow.hookExecutionMode, "precompiled-host-hook");
+      }
+    });
+  });
+
   it("injects bundled host scope from unified runtime resolvers instead of raw globalThis", async function () {
     const tmpRoot = await mkTempDir("zotero-skills-wf");
     await makeWorkflowPackage({
@@ -732,7 +758,7 @@ describe("workflow loader validation", function () {
       assert.isOk(bundleLog, JSON.stringify(listRuntimeLogs(), null, 2));
       const summary = ((bundleLog?.details as Record<string, any>) || {})
         .hostApiSummary;
-      assert.equal(summary?.items, true);
+      assert.equal(summary?.library, true);
       assert.equal(summary?.editor, true);
     });
   });

@@ -1,0 +1,543 @@
+{
+  "schema": "synthesis.production_observables.v1",
+  "baseline": {
+    "commit": "e210997a11e0054a3cb4ae0656e5cfb96102a09c",
+    "serviceSource": "src/modules/synthesis/service.ts",
+    "serviceFactory": "createSynthesisService",
+    "publicMethodCount": 131,
+    "publicMethodFingerprintSha256": "86cf1654ea210b9fc9af1d1230045e3703d666cbc84495d73a3012aa1aedfa3e"
+  },
+  "normalization": {
+    "timestamps": "fixed-iso-8601",
+    "paths": "repo-relative-or-redacted",
+    "operationIds": "logical-case-id",
+    "unorderedCollections": "canonical-key"
+  },
+  "productionRouteScenario": {
+    "resultTypes": {
+      "boolean": ["client.isBuiltinTagPolicyInitialized"],
+      "array": [
+        "client.listStagedTagSuggestions",
+        "client.validateTagVocabulary"
+      ]
+    },
+    "stableErrors": {
+      "client.updateConceptDisplayText": "unavailable",
+      "client.applyConceptReviewAction": "unavailable",
+      "client.deleteConceptEntries": "unavailable",
+      "client.acceptTopicGraphRelation": "unavailable",
+      "client.rejectTopicGraphRelation": "unavailable",
+      "client.applyTopicGraphReviewAction": "unavailable",
+      "client.exportFilteredPaperArtifacts": "invalid_request",
+      "client.getPaperArtifactManifest": "unavailable",
+      "client.readPaperArtifacts": "unavailable",
+      "client.resetSynthesisDatabase": "unavailable",
+      "client.debugSynthesisCleanInstallReset": "unavailable"
+    }
+  },
+  "surfaces": [
+    {
+      "id": "topic-workbench",
+      "cases": [
+        {
+          "id": "case:topic-empty-page",
+          "operation": "client.listTopics",
+          "access": "read",
+          "request": { "args": [{}] },
+          "expected": {
+            "dtoSemantics": ["bounded-empty-topic-page"],
+            "logicalFacts": ["repository-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "topics": [],
+              "returned": 0,
+              "total": 0,
+              "has_more": false
+            }
+          },
+          "comparison": { "unorderedCollections": ["topics:topic_id"] }
+        },
+        {
+          "id": "case:topic-find-missing-paper",
+          "operation": "client.findTopicsByPaperRef",
+          "access": "read",
+          "request": { "args": [{ "paperRef": "1:MISSING1" }] },
+          "expected": {
+            "dtoSemantics": ["normalized-paper-ref-query", "targeted-topic-read"],
+            "logicalFacts": ["repository-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "ok": true, "status": "ok", "topics": [] }
+          },
+          "comparison": { "unorderedCollections": ["topics:topic_id"] }
+        },
+        {
+          "id": "case:topic-context-absent",
+          "operation": "client.getTopicContext",
+          "access": "read",
+          "request": { "args": [{ "topicId": "topic:missing", "view": "full" }] },
+          "expected": {
+            "dtoSemantics": ["four-view-topic-context", "stable-absent-topic"],
+            "logicalFacts": ["canonical-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "schema_id": "synthesis.topic_context", "topic_id": "topic:missing", "status": "not_found" }
+          },
+          "comparison": { "unorderedCollections": ["diagnostics:value"] }
+        },
+        {
+          "id": "case:resolver-empty-match",
+          "operation": "client.resolveResolver",
+          "access": "read",
+          "request": { "args": [{ "paper_refs": ["1:MISSING1"], "combine": "union", "limit": 25 }] },
+          "expected": {
+            "dtoSemantics": ["validated-before-host-read", "union-intersection-page"],
+            "logicalFacts": ["repository-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "ok": false, "papers": [], "returned": 0, "total": 0 }
+          },
+          "comparison": { "unorderedCollections": ["papers:paper_ref"] }
+        },
+        {
+          "id": "case:topic-report-absent",
+          "operation": "client.getTopicReport",
+          "access": "read",
+          "request": { "args": [{ "topicId": "topic:missing" }] },
+          "expected": {
+            "dtoSemantics": ["explicit-report-field-only", "stable-unavailable-report"],
+            "logicalFacts": ["canonical-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "ok": false, "status": "not_found", "topic_id": "topic:missing", "markdown": "" }
+          },
+          "comparison": { "unorderedCollections": ["diagnostics:value"] }
+        },
+        {
+          "id": "case:workflow-topic-options-all",
+          "operation": "client.listWorkflowTopicOptions",
+          "access": "read",
+          "request": { "args": [{ "filter": "all" }] },
+          "expected": {
+            "dtoSemantics": ["all-or-updatable-filter", "bounded-options"],
+            "logicalFacts": ["repository-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "options": [], "diagnostics": [] }
+          },
+          "comparison": { "unorderedCollections": ["options:value"] }
+        },
+        {
+          "id": "case:topic-planning-context-empty",
+          "operation": "client.getTopicPlanningContext",
+          "access": "read",
+          "request": { "args": [] },
+          "expected": {
+            "dtoSemantics": ["basis-bound-library-and-topic-context", "bounded-planning-input"],
+            "logicalFacts": ["repository-state-preserved"],
+            "hostEffects": ["library-index-read"],
+            "writeExpectation": "zero",
+            "projection": {
+              "topics": [],
+              "diagnostics": {
+                "bounded_inline": true,
+                "truncated": false
+              }
+            }
+          },
+          "comparison": { "unorderedCollections": ["topics:topic_id", "library:paper_ref"] }
+        },
+        {
+          "id": "case:topic-plan-apply-empty",
+          "operation": "client.applyTopicPlan",
+          "access": "mutation",
+          "request": { "args": [{ "schema": "synthesis-topic-plan.v1", "basisHash": "fixture-basis", "actions": [] }] },
+          "expected": {
+            "dtoSemantics": ["revision-guarded-reconciliation", "membership-free-plan"],
+            "logicalFacts": ["atomic-topic-graph-write"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "status": "no_change" }
+          },
+          "comparison": { "unorderedCollections": ["results:topic_id", "diagnostics:code"] }
+        },
+        {
+          "id": "case:workbench-chrome-missing",
+          "operation": "client.getSynthesisWorkbenchChromeInput",
+          "access": "read",
+          "request": { "args": [{}] },
+          "expected": {
+            "dtoSemantics": ["bounded-operational-chrome", "application-owned-recommendations"],
+            "logicalFacts": ["operation-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "maintenance": {
+                "summary": {
+                  "status": "missing",
+                  "latestUsable": {
+                    "referenceSidecar": null,
+                    "citationGraph": null
+                  },
+                  "pendingDirtyCount": 0,
+                  "activeWorkerCount": 0,
+                  "activeWorkerKind": null,
+                  "canonicalSyncPending": false,
+                  "canonicalEpoch": 0,
+                  "stale": [],
+                  "partial": [],
+                  "missing": [
+                    "reference-sidecar:library",
+                    "citation-graph:library"
+                  ],
+                  "recommendedCommands": [
+                    "refreshReferenceSidecarNow",
+                    "rebuildCitationGraphCache"
+                  ],
+                  "diagnostics": []
+                },
+                "backgroundJobs": []
+              }
+            }
+          },
+          "comparison": { "unorderedCollections": ["maintenance.backgroundJobs:job_id"] }
+        },
+        {
+          "id": "case:workbench-topics-empty",
+          "operation": "client.getSynthesisWorkbenchSurfaceInput",
+          "access": "read",
+          "request": { "args": ["topics", {}] },
+          "expected": {
+            "dtoSemantics": ["surface-local-read", "hidden-surfaces-not-loaded"],
+            "logicalFacts": ["repository-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "artifacts": [], "deletedArtifacts": { "rows": [], "total": 0 } }
+          },
+          "comparison": { "unorderedCollections": ["artifacts:topic_id"] }
+        },
+        {
+          "id": "case:workbench-jobs-empty",
+          "operation": "client.getSynthesisBackgroundJobRows",
+          "access": "read",
+          "request": { "args": [] },
+          "expected": {
+            "dtoSemantics": ["bounded-background-job-rows"],
+            "logicalFacts": ["operation-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": []
+          },
+          "comparison": { "unorderedCollections": ["jobs:job_id"] }
+        },
+        {
+          "id": "case:topic-detail-absent",
+          "operation": "client.readTopicDetail",
+          "access": "read",
+          "request": { "args": [{ "topicId": "topic:missing" }] },
+          "expected": {
+            "dtoSemantics": ["stable-absent-topic-detail"],
+            "logicalFacts": ["canonical-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "ok": false, "status": "unavailable", "topicId": "topic:missing", "source_papers": [] }
+          },
+          "comparison": { "unorderedCollections": ["source_papers:paper_ref"] }
+        },
+        {
+          "id": "case:topic-paper-digest-unavailable",
+          "operation": "client.resolveTopicPaperDigest",
+          "access": "read",
+          "request": { "args": [{ "paperRef": "1:MISSING1" }] },
+          "expected": {
+            "dtoSemantics": ["stable-unavailable-digest"],
+            "logicalFacts": ["artifact-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "ok": false, "status": "unavailable", "paper_ref": "1:MISSING1", "digest_markdown": "" }
+          },
+          "comparison": { "unorderedCollections": ["diagnostics:value"] }
+        },
+        {
+          "id": "case:literature-apply-reopen",
+          "operation": "client.applyLiteratureDigestSidecar",
+          "access": "mutation",
+          "request": { "args": [{ "fixture": "literature-apply-valid" }] },
+          "expected": {
+            "dtoSemantics": ["strict-literature-apply", "receipt-idempotent-reopen"],
+            "logicalFacts": ["scoped-reference-projection-promoted-or-rolled-back"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "status": "sidecar_applied" }
+          },
+          "comparison": { "unorderedCollections": ["warnings:value"] }
+        },
+        {
+          "id": "case:topic-apply-reopen",
+          "operation": "client.applyTopicSynthesisResult",
+          "access": "mutation",
+          "request": { "args": [{ "fixture": "topic-apply-valid" }] },
+          "expected": {
+            "dtoSemantics": ["strict-topic-apply", "canonical-reopen"],
+            "logicalFacts": ["topic-and-canonical-promoted-atomically"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "status": "persisted" }
+          },
+          "comparison": { "unorderedCollections": ["warnings:value"] }
+        },
+        {
+          "id": "case:related-items-echo-idempotent",
+          "operation": "client.consumeRelatedItemsSyncEcho",
+          "access": "mutation",
+          "request": { "args": [{ "libraryId": 1, "itemKey": "MISSING1" }] },
+          "expected": {
+            "dtoSemantics": ["repository-owned-echo-consumption", "no-host-effect"],
+            "logicalFacts": ["unmatched-echo-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "consumed": false }
+          },
+          "comparison": { "unorderedCollections": ["warnings:value"] }
+        },
+        {
+          "id": "case:topic-delete-reopen",
+          "operation": "client.deleteTopicArtifact",
+          "access": "mutation",
+          "request": { "args": [{ "topicId": "topic:missing" }] },
+          "expected": {
+            "dtoSemantics": ["typed-delete-terminal", "delete-rebuild-reopen"],
+            "logicalFacts": ["canonical-archive-and-repository-rollback"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "ok": false, "status": "not_found" }
+          },
+          "comparison": { "unorderedCollections": ["warnings:value"] }
+        },
+        {
+          "id": "case:topic-purge-idempotent",
+          "operation": "client.purgeDeletedTopicArtifacts",
+          "access": "mutation",
+          "request": { "args": [] },
+          "expected": {
+            "dtoSemantics": ["typed-purge-terminal", "idempotent-reopen"],
+            "logicalFacts": ["active-topics-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "ok": true, "status": "purged" }
+          },
+          "comparison": { "unorderedCollections": ["warnings:value"] }
+        },
+        {
+          "id": "case:topic-hint-reject-idempotent",
+          "operation": "client.rejectTopicDiscoveryHint",
+          "access": "mutation",
+          "request": { "args": [{ "hintId": "hint:missing" }] },
+          "expected": {
+            "dtoSemantics": ["typed-hint-transition", "idempotent-reopen"],
+            "logicalFacts": ["unrelated-hints-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "ok": true, "status": "not_found" }
+          },
+          "comparison": { "unorderedCollections": ["diagnostics:value"] }
+        },
+        {
+          "id": "case:topic-hint-restore-idempotent",
+          "operation": "client.restoreTopicDiscoveryHint",
+          "access": "mutation",
+          "request": { "args": [{ "hintId": "hint:missing" }] },
+          "expected": {
+            "dtoSemantics": ["typed-hint-transition", "idempotent-reopen"],
+            "logicalFacts": ["unrelated-hints-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "bounded-mutation",
+            "projection": { "ok": true, "status": "not_found" }
+          },
+          "comparison": { "unorderedCollections": ["diagnostics:value"] }
+        }
+      ]
+    },
+    {
+      "id": "citation-graph",
+      "cases": [
+        {
+          "id": "case:citation-empty-window",
+          "operation": "client.queryCitationGraph",
+          "access": "read",
+          "request": { "args": [{}] },
+          "expected": {
+            "dtoSemantics": ["bounded-empty-graph-window"],
+            "logicalFacts": ["graph-basis-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "nodes": [],
+              "edges": [],
+              "diagnostics": {
+                "bounded": true,
+                "storage": "sqlite",
+                "truncated": false
+              }
+            }
+          },
+          "comparison": {
+            "unorderedCollections": ["nodes:paper_ref", "edges:edge_key"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "reference-canonical",
+      "cases": [
+        {
+          "id": "case:reference-empty-index",
+          "operation": "client.getReferenceSidecarIndex",
+          "access": "read",
+          "request": { "args": [{}] },
+          "expected": {
+            "dtoSemantics": ["bounded-empty-reference-index"],
+            "logicalFacts": ["canonical-basis-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "rows": [],
+              "returned": 0,
+              "total": 0,
+              "has_more": false
+            }
+          },
+          "comparison": { "unorderedCollections": ["sources:source_ref"] }
+        }
+      ]
+    },
+    {
+      "id": "tag",
+      "cases": [
+        {
+          "id": "case:tag-default-vocabulary",
+          "operation": "client.loadTagVocabulary",
+          "access": "read",
+          "request": { "args": [] },
+          "expected": {
+            "dtoSemantics": ["bounded-public-tag-vocabulary"],
+            "logicalFacts": ["tag-policy-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "aliases": {},
+              "abbrev": {},
+              "protocol": {
+                "version": "1.0.0",
+                "tag_pattern": "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+                "max_tag_length": 120,
+                "facets": [
+                  "field",
+                  "topic",
+                  "method",
+                  "model",
+                  "ai_task",
+                  "data",
+                  "tool",
+                  "status"
+                ]
+              },
+              "validation_warnings": []
+            }
+          },
+          "comparison": { "unorderedCollections": ["entries:tag"] }
+        }
+      ]
+    },
+    {
+      "id": "concept-topic-graph",
+      "cases": [
+        {
+          "id": "case:concept-empty-query",
+          "operation": "client.queryConceptKb",
+          "access": "read",
+          "request": { "args": [{}] },
+          "expected": {
+            "dtoSemantics": ["bounded-empty-concept-page"],
+            "logicalFacts": ["concept-basis-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "ok": true,
+              "labels": [],
+              "matches": [],
+              "truncated": false
+            }
+          },
+          "comparison": { "unorderedCollections": ["concepts:concept_id"] }
+        }
+      ]
+    },
+    {
+      "id": "artifact-library-debug",
+      "cases": [
+        {
+          "id": "case:library-empty-index",
+          "operation": "client.getLibraryIndex",
+          "access": "read",
+          "request": { "args": [{}] },
+          "expected": {
+            "dtoSemantics": ["bounded-empty-library-index"],
+            "logicalFacts": ["artifact-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "papers": [],
+              "returned": 0,
+              "total_papers": 0,
+              "has_more": false
+            }
+          },
+          "comparison": { "unorderedCollections": ["papers:paper_ref"] }
+        }
+      ]
+    },
+    {
+      "id": "webdav-maintenance",
+      "cases": [
+        {
+          "id": "case:maintenance-operation-absent",
+          "operation": "client.getPublicMaintenanceOperation",
+          "access": "read",
+          "request": { "args": [{ "operation_id": "baseline:missing" }] },
+          "expected": {
+            "dtoSemantics": ["stable-absent-operation"],
+            "logicalFacts": ["operation-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "schema": "synthesis.maintenance_operation.v1",
+              "operation_id": "baseline:missing",
+              "status": "not_found"
+            }
+          },
+          "comparison": { "unorderedCollections": ["operations:operation_id"] }
+        },
+        {
+          "id": "case:maintenance-control-absent",
+          "operation": "client.controlPublicMaintenanceOperation",
+          "access": "mutation",
+          "request": { "args": [{ "action": "cancel", "operation_id": "baseline:missing" }] },
+          "expected": {
+            "dtoSemantics": ["stable-absent-operation"],
+            "logicalFacts": ["operation-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "schema": "synthesis.maintenance_operation.v1",
+              "operation_id": "baseline:missing",
+              "status": "not_found"
+            }
+          },
+          "comparison": { "unorderedCollections": ["operations:operation_id"] }
+        }
+      ]
+    }
+  ]
+}

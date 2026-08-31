@@ -10,18 +10,14 @@ import {
 } from "./contentPackageSubscription";
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import {
+  ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
   statRuntimePath,
+  writeRuntimeTextFileStrict,
 } from "./runtimePersistence";
 type WorkflowSourceKind = "official" | "dev-local" | "user";
 
-type DynamicImport = (specifier: string) => Promise<any>;
 const DEFAULT_SKILL_DIR_NAME = "skills";
-
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
 
 type WorkflowRuntimeState = {
   workflowsDir: string;
@@ -289,32 +285,11 @@ export async function getDevLocalSkillDir() {
 }
 
 async function ensureDirectoryExists(targetDir: string) {
-  const runtime = globalThis as {
-    IOUtils?: {
-      makeDirectory?: (
-        path: string,
-        options?: { createAncestors?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.makeDirectory === "function") {
-    await runtime.IOUtils.makeDirectory(targetDir, { createAncestors: true });
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(targetDir, { recursive: true });
+  await ensureRuntimeDirectoryStrict(targetDir);
 }
 
 async function writeTextFile(filePath: string, content: string) {
-  const runtime = globalThis as {
-    IOUtils?: { writeUTF8?: (path: string, data: string) => Promise<unknown> };
-  };
-  if (typeof runtime.IOUtils?.writeUTF8 === "function") {
-    await runtime.IOUtils.writeUTF8(filePath, content);
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(filePath, content, "utf8");
+  await writeRuntimeTextFileStrict(filePath, content);
 }
 
 function summarizeLoadedWorkflows(loaded: LoadedWorkflows) {
@@ -491,44 +466,8 @@ export async function ensureDefaultWorkflowDirExistsOnStartup() {
 }
 
 async function ensureDefaultDirectoryExists(targetDir: string) {
-  const runtime = globalThis as {
-    IOUtils?: {
-      makeDirectory?: (
-        path: string,
-        options?: { createAncestors?: boolean },
-      ) => Promise<void>;
-    };
-  };
-  if (typeof runtime.IOUtils?.makeDirectory !== "function") {
-    const zoteroRuntime = globalThis as {
-      Zotero?: {
-        File?: {
-          pathToFile?: (path: string) => unknown;
-          createDirectoryIfMissingAsync?: (dir: unknown) => Promise<void>;
-        };
-      };
-    };
-    if (
-      typeof zoteroRuntime.Zotero?.File?.pathToFile === "function" &&
-      typeof zoteroRuntime.Zotero?.File?.createDirectoryIfMissingAsync ===
-        "function"
-    ) {
-      try {
-        const targetDirFile = zoteroRuntime.Zotero.File.pathToFile(targetDir);
-        await zoteroRuntime.Zotero.File.createDirectoryIfMissingAsync(
-          targetDirFile,
-        );
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  }
   try {
-    await runtime.IOUtils.makeDirectory(targetDir, {
-      createAncestors: true,
-    });
+    await ensureRuntimeDirectoryStrict(targetDir);
     return true;
   } catch {
     return false;

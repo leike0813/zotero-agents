@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const HOST_BRIDGE_SURFACE_DEFINITIONS_SCHEMA =
   "host-bridge.surface-definitions.v1" as const;
@@ -157,6 +157,32 @@ export function validateHostBridgeSurfaceDefinitions(
       seen.add(cursor.id);
       cursor = cursor.extends ? byId.get(cursor.extends) : undefined;
     }
+  }
+
+  const minimum = definitions.surfaces.find(
+    (surface) => surface.kind === "minimum-core",
+  );
+  const generic = definitions.surfaces.find(
+    (surface) => surface.kind === "generic-agent",
+  );
+  if (!minimum || !generic) {
+    throw new Error(
+      "Host Bridge surface definitions require minimum-core and generic-agent surfaces",
+    );
+  }
+  const minimumRelativeToBundle = relative(
+    resolve(generic.generatedRoot),
+    resolve(minimum.generatedRoot),
+  );
+  if (
+    !minimumRelativeToBundle ||
+    minimumRelativeToBundle === ".." ||
+    minimumRelativeToBundle.startsWith(`..${sep}`) ||
+    isAbsolute(minimumRelativeToBundle)
+  ) {
+    throw new Error(
+      `Minimum generated root must be inside the Generic bundle root: ${minimum.generatedRoot}`,
+    );
   }
 
   return definitions;

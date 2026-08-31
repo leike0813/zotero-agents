@@ -10,9 +10,7 @@
     "definition",
     "scope_include",
     "scope_exclude",
-    "duplicate_status",
-    "duplicate_candidate_ids",
-    "duplicate_reason"
+    "target_decision"
   ],
   "properties": {
     "topic_title": {
@@ -41,17 +39,35 @@
         "type": "string"
       }
     },
-    "duplicate_status": {
-      "enum": ["none", "possible_duplicate", "duplicate", "unknown"]
-    },
-    "duplicate_candidate_ids": {
-      "type": "array",
-      "items": {
-        "type": "string"
+    "target_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "candidate_topic_ids", "reason"],
+      "properties": {
+        "action": {
+          "enum": [
+            "create_new",
+            "use_planned_topic",
+            "cancel_materialized_duplicate"
+          ]
+        },
+        "selected_topic_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate_topic_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
       }
-    },
-    "duplicate_reason": {
-      "type": "string"
     }
   },
   "examples": [
@@ -61,9 +77,11 @@
       "definition": "Query-based object detection methods derived from DETR.",
       "scope_include": [],
       "scope_exclude": [],
-      "duplicate_status": "none",
-      "duplicate_candidate_ids": [],
-      "duplicate_reason": ""
+      "target_decision": {
+        "action": "create_new",
+        "candidate_topic_ids": [],
+        "reason": "No materialized or active Planned Topic represents the same identity."
+      }
     }
   ]
 }

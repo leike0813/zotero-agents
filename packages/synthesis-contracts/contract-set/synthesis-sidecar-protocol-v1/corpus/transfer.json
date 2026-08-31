@@ -1,0 +1,113 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "transfer-citation-input-manifest-nested",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationInputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-citation-graph-build-transfer.v1",
+        "encoding": "canonical_json_rows.v1",
+        "direction": "input",
+        "header": {
+          "contractVersion": "synthesis-citation-graph-build.v1",
+          "scope": { "kind": "source_slice", "sourceIds": ["paper:A"] },
+          "rolePriority": ["background"]
+        },
+        "pages": [
+          {
+            "kind": "library_nodes",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 128,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "kind": "references",
+            "pageIndex": 0,
+            "rowCount": 0,
+            "byteLength": 2,
+            "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "rootSha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "id": "transfer-citation-output-page-discriminated",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "resolved_edges",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 160,
+          "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "rows": [
+          {
+            "edgeId": "edge:1",
+            "referenceId": "reference:1",
+            "sourceId": "paper:A",
+            "targetId": "paper:B",
+            "status": "accepted",
+            "roles": ["background"],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "transfer-topic-asset-unknown-nested-field",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TopicAssetsManifest",
+      "valid": false,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "topic_apply_assets",
+          "assets": [
+            {
+              "id": "asset:1",
+              "mediaType": "application/json",
+              "byteLength": 2,
+              "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "firstPage": 0,
+              "pageCount": 1,
+              "metadata": {}
+            }
+          ]
+        },
+        "pages": [],
+        "rootSha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    },
+    {
+      "id": "transfer-output-page-kind-row-mismatch",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPage",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "kind": "nodes",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 160,
+          "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "rows": [
+          {
+            "edgeId": "edge:1",
+            "referenceId": "reference:1",
+            "sourceId": "paper:A",
+            "targetId": "paper:B",
+            "status": "accepted",
+            "roles": [],
+            "weight": 1
+          }
+        ]
+      }
+    }
+  ]
+}

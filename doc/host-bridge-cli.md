@@ -33,6 +33,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 
 | Capability | Category | Approval | Input | CLI exposure | Flags |
 | --- | --- | --- | --- | --- | --- |
+| `items.export_research_bundle` | items | `none` | `object required` | `library items export-research-bundle` | response:file-output, mcp-mirror |
 | `workflow_products.export` | workflow_products | `none` | `object required` | `product download` | response:file-output, mcp-mirror |
 | `workflow_products.get` | workflow_products | `none` | `object required` | `product get` | response:selector-bounded, mcp-mirror |
 | `workflow_products.list` | workflow_products | `none` | `object` | `product list` | response:paged, mcp-mirror |
@@ -50,9 +51,11 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `library.list_note_payloads` | library | `none` | `object` | `library note payloads` | response:selector-bounded, mcp-mirror |
 | `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | response:paged, mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `library item search` | response:limit-bounded, mcp-mirror |
-| `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | response:paged, mcp-mirror |
+| `library.sync_snapshot` | library | `none` | `object required` | `library snapshot` | response:paged, mcp-mirror |
+| `topics.export_research_bundle` | topics | `none` | `object` | `synthesis topic export-research-bundle` | response:file-output, mcp-mirror |
 | `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | response:selector-bounded, mcp-mirror |
 | `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | response:file-output, mcp-mirror |
+| `topics.get_planning_context` | topics | `none` | `object` | `synthesis topic get-planning-context` | response:file-output, mcp-mirror |
 | `topics.get_report` | topics | `none` | `object` | `synthesis topic get-report` | response:selector-bounded, mcp-mirror |
 | `topics.get_review_input` | topics | `none` | `object` | `synthesis topic get-review-input` | response:limit-bounded, mcp-mirror |
 | `topics.list` | topics | `none` | `object` | `synthesis topic list` | response:paged, mcp-mirror |
@@ -98,6 +101,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `library item get` | `library.get_item_detail` | capability | - |
 | `library item notes` | `library.get_item_notes` | capability | - |
 | `library item search` | `library.search_items` | capability | - |
+| `library items export-research-bundle` | `items.export_research_bundle` | capability | - |
 | `library items list` | `library.list_items` | capability | - |
 | `library note get` | `library.get_note_detail` | capability | - |
 | `library note payload` | `library.get_note_payload` | capability | - |
@@ -130,8 +134,10 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `synthesis insight attention-queue` | `insights.get_attention_queue` | capability | - |
 | `synthesis resolver resolve` | `resolvers.resolve` | capability | - |
 | `synthesis schema get` | `schemas.get` | capability | - |
+| `synthesis topic export-research-bundle` | `topics.export_research_bundle` | capability | - |
 | `synthesis topic find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
 | `synthesis topic get-context` | `topics.get_context` | capability | - |
+| `synthesis topic get-planning-context` | `topics.get_planning_context` | capability | - |
 | `synthesis topic get-report` | `topics.get_report` | capability | - |
 | `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
 | `synthesis topic list` | `topics.list` | capability | - |
@@ -141,10 +147,12 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `workflow agent-renew` | `POST /bridge/v2/workflows/agent-runs/{agentRunId}/renew` | endpoint | - |
 | `workflow agent-run` | `POST /bridge/v2/workflows/agent-run` | endpoint | - |
 | `workflow agent-run` | `GET /bridge/v2/files/{fileId}` | endpoint | - |
+| `workflow defaults` | `POST /bridge/v2/workflows/defaults` | endpoint | - |
 | `workflow describe` | `POST /bridge/v2/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v2/workflows` | endpoint | - |
 | `workflow profile describe` | `POST /bridge/v2/workflows/provider-profiles/describe` | endpoint | - |
 | `workflow profile list` | `GET /bridge/v2/workflows/provider-profiles` | endpoint | - |
+| `workflow profile refresh` | `POST /bridge/v2/workflows/provider-profiles/refresh` | endpoint | - |
 | `workflow profile validate` | `POST /bridge/v2/workflows/provider-profiles/validate` | endpoint | - |
 | `workflow queue cancel` | `POST /bridge/v2/workflows/queue/{queueId}/cancel` | endpoint | - |
 | `workflow queue list` | `GET /bridge/v2/workflows/queue` | endpoint | - |
@@ -217,7 +225,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 - Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
 - `library item search` accepts `query`, `limit`, `libraryId` in `--query`.
 - `library items list` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor` in `--query`.
-- `library snapshot` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor` in `--query`.
+- `library snapshot` accepts `libraryId`, `batchSize`, `snapshotId`, `cursor` in `--query`.
 - `library readiness audit` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor`, `checks`, `missingOnly`, `missing_only` in `--query`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
 - Omit `cursor` on the first library, snapshot, or readiness page. When `hasMore` is true, pass the exact returned opaque `nextCursor`; never construct or increment a cursor.
 
@@ -558,7 +566,9 @@ zotero-bridge synthesis artifact <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge synthesis insight <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge mutation literature-ingest --input <JSON_OR_FILE>
 zotero-bridge workflow list
-zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>]
+zotero-bridge workflow defaults --workflow <id>
+zotero-bridge workflow profile refresh --backend <id>
 zotero-bridge workflow submit --workflow <id> (--selection <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 zotero-bridge run get <workflowRunId>
@@ -932,8 +942,7 @@ capabilities、workflow control、file download 和 CLI metadata。
       }
     ]
   },
-  "workflowOptions": {},
-  "providerProfile": {}
+  "workflowOptions": {}
 }
 ```
 
@@ -1137,7 +1146,6 @@ PATH 已经可用。
 - `mutation literature-ingest --input`
 - `call --input`
 - `workflow describe --workflow-options`
-- `workflow describe --provider-profile`
 - `workflow submit --selection`
 - `workflow submit --workflow-options`
 - `workflow submit --provider-profile`
@@ -2055,7 +2063,7 @@ GET <endpoint>/workflows
 调用格式：
 
 ```text
-zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>]
 zotero-bridge workflow submit --workflow <id> (--selection <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 ```
@@ -2069,8 +2077,7 @@ Content-Type: application/json
 
 {
   "workflowId": "<id>",
-  "workflowOptions": {},
-  "providerProfile": {}
+  "workflowOptions": {}
 }
 
 POST <endpoint>/workflows/submit
@@ -2165,6 +2172,14 @@ requirements 允许空选择的 workflow。`workflow agent-run --none` 使用同
 ```
 
 profile 文件不得保存 bearer token、backend auth、baseUrl 或本地路径。
+
+提交时 profile 优先级为显式 `--provider-profile`、环境变量
+`ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`、Host 保存的 workflow 默认候选，
+最后才是无 profile。环境变量 profile 已代表用户配置的默认授权路径，CLI
+会直接验证并使用；没有环境变量时，先运行 `workflow defaults --workflow`
+披露候选并取得用户确认，再独立运行 profile validate 和 workflow submit。
+Host 默认候选不会自动注入 submit，显式 `{}` 会覆盖环境默认。ACP catalog
+缺失、过期或关系不一致时，先运行 `workflow profile refresh --backend`。
 
 成功 `data`：
 

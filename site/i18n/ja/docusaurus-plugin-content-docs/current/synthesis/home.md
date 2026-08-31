@@ -20,7 +20,7 @@ Home は Synthesis Workbench を開いたときに表示される最初のペー
 
 ## 同期パネル
 
-[WebDAV Sync](webdav-sync)（推奨）または [Git Sync](git-sync)（非推奨）が設定されている場合、Home ページには同期状態パネルが表示される。
+[WebDAV Sync](webdav-sync) が設定されている場合、Home ページには同期状態パネルが表示される。
 
 ### WebDAV Sync
 
@@ -37,9 +37,7 @@ WebDAV 同期の詳細な設定と使い方については [WebDAV Sync](webdav-
 WebDAV 同期の自動同期機能は十分にテストされていない。現段階では**手動同期のみを使用**し、将来のリリースで改善された後に自動同期を有効にすることを推奨する。
 :::
 
-### Git Sync（非推奨）
 
-過去の情報については [Git Sync](git-sync) を参照。
 
 ## レビューアイテムパネル
 

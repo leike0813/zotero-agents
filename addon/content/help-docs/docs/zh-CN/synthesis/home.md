@@ -20,7 +20,7 @@ Home 是打开 Synthesis Workbench 时首先看到的页面。它提供了文献
 
 ## 同步面板
 
-如果配置了 [WebDAV 同步](#doc/synthesis%2Fwebdav-sync)（推荐）或 [Git 同步](#doc/synthesis%2Fgit-sync)（已弃用），Home 页面会显示同步状态面板：
+如果配置了 [WebDAV 同步](#doc/synthesis%2Fwebdav-sync)，Home 页面会显示同步状态面板：
 
 ### WebDAV 同步
 
@@ -39,7 +39,6 @@ WebDAV 同步的自动同步功能尚未经过充分测试。建议当前阶段*
 
 ### Git 同步（已弃用）
 
-参见 [Git 同步](#doc/synthesis%2Fgit-sync) 获取历史参考。
 
 ## Review Items 面板
 

@@ -1,9 +1,9 @@
 # acp-skill-run-file-backed-runtime-state Specification
 
 ## Purpose
-Define the file-backed ACP Skills runtime, transcript paging, minimal Workspace
-projection, independent UI state axes, and durable owner-scoped persistence
-boundaries.
+Defines the file-backed ACP Skills runtime, including transcript paging, output
+revision and continuation state, minimal Workspace projection, independent UI
+state axes, and durable owner-scoped persistence boundaries.
 ## Requirements
 ### Requirement: ACP Skill runtime state is file-backed
 
@@ -541,3 +541,23 @@ When the ACP Skills Workspace resolves owner navigation or the selected owner an
 - **WHEN** the Workspace resolves the selected owner
 - **THEN** the selection SHALL remain empty
 - **AND** the initialization SHALL publish the unowned idle transcript.
+
+### Requirement: ACP Skill run store SHALL own only record and projection core
+
+`acpSkillRunStore` SHALL retain run record persistence, transcript/output
+revision projection, deletion, and reset orchestration. Status, controllers,
+permissions, runtime catalog, actions, and selection SHALL live in focused
+modules.
+
+#### Scenario: Focused modules do not import store values
+
+- **WHEN** a focused ACP Skill run module is loaded
+- **THEN** it SHALL NOT import runtime values from `acpSkillRunStore`
+- **AND** store-provided callbacks SHALL be the only write path into record
+  state
+
+#### Scenario: Store reset orchestrates every module
+
+- **WHEN** ACP Skill runs are reset for tests or shutdown
+- **THEN** the store SHALL reset all configured focused modules
+- **AND** no module-local state SHALL survive
