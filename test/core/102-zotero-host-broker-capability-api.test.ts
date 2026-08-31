@@ -35,7 +35,10 @@ import {
   ZoteroHostCapabilityError,
 } from "../../src/modules/zoteroHostCapabilityBroker";
 import { pinVerifiedMutationReceipt } from "../../src/modules/zoteroHostMutationAuthority";
-import { withWorkflowLibraryItemSnapshot } from "../../src/workflows/hostApi";
+import {
+  createWorkflowLibraryItemSnapshotApi,
+  withWorkflowLibraryItemSnapshot,
+} from "../../src/workflows/hostApi";
 import {
   assertStrictJsonValue,
   createFailClosedZoteroHostCapabilityBroker,
@@ -85,6 +88,30 @@ async function createCollection(name: string) {
   (collection as any).libraryID = Zotero.Libraries.userLibraryID;
   await collection.saveTx();
   return collection;
+}
+
+async function expectedCoverageDigestHex(
+  tuples: Array<{
+    ref: { libraryId: number; key: string };
+    revision: string;
+    tagDigest: string;
+  }>,
+) {
+  const coverage = await createSha256Accumulator();
+  assert.isOk(coverage);
+  const sorted = [...tuples].sort(
+    (left, right) =>
+      left.ref.libraryId - right.ref.libraryId ||
+      (left.ref.key < right.ref.key ? -1 : left.ref.key > right.ref.key ? 1 : 0),
+  );
+  for (const tuple of sorted) {
+    coverage!.update(
+      new TextEncoder().encode(
+        `${JSON.stringify([tuple.ref, tuple.revision, tuple.tagDigest])}\n`,
+      ),
+    );
+  }
+  return coverage!.digestHex();
 }
 
 async function expectBrokerError(
@@ -692,6 +719,262 @@ describe("zotero host broker capability api", function () {
     }
   });
 
+  it("rejects collection placement cycles, cross-library parents, and invalid initial members", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "collection-placement-test" };
+    const execute = (request: Record<string, unknown>) =>
+      (broker.mutations.execute as any)(request, scope);
+    const root = await createCollection("Placement Root");
+    const child = await createCollection("Placement Child");
+    (child as any).parentID = root.id;
+    await child.saveTx();
+    const rootRef = { libraryId: root.libraryID, key: root.key };
+    const childRef = { libraryId: child.libraryID, key: child.key };
+
+    const cycle = await execute({
+      operation: "collection.update",
+      operationId: "placement-cycle",
+      collectionRef: rootRef,
+      patch: { parentRef: childRef },
+    });
+    assert.strictEqual(cycle.outcome, "failed");
+    assert.strictEqual(cycle.attempt.error.code, "invalid_request");
+    assert.strictEqual(
+      cycle.attempt.error.details.reason,
+      "invalid_combination",
+    );
+    assert.isOk(Zotero.Collections.get(root.id));
+    assert.strictEqual(Number((root as any).parentID || 0), 0);
+
+    const selfParent = await execute({
+      operation: "collection.update",
+      operationId: "placement-self",
+      collectionRef: rootRef,
+      patch: { parentRef: rootRef },
+    });
+    assert.strictEqual(selfParent.outcome, "failed");
+    assert.strictEqual(
+      selfParent.attempt.error.details.reason,
+      "invalid_combination",
+    );
+
+    const foreignParent = await execute({
+      operation: "collection.update",
+      operationId: "placement-foreign-library",
+      collectionRef: rootRef,
+      patch: {
+        parentRef: { libraryId: root.libraryID + 1, key: child.key },
+      },
+    });
+    assert.strictEqual(foreignParent.outcome, "failed");
+    assert.strictEqual(
+      foreignParent.attempt.error.details.reason,
+      "invalid_combination",
+    );
+
+    const reparented = await execute({
+      operation: "collection.update",
+      operationId: "placement-valid",
+      collectionRef: childRef,
+      patch: { parentRef: null },
+    });
+    assert.strictEqual(reparented.outcome, "committed");
+
+    const member = await createParentItem("Initial Member Valid");
+    const attachment = new Zotero.Item("attachment");
+    (attachment as any).version = 1;
+    await attachment.saveTx();
+    const trashed = await createParentItem("Initial Member Trashed");
+    (trashed as any).markDeleted(true);
+    const memberRef = { libraryId: member.libraryID, key: member.key };
+    const attachmentRef = {
+      libraryId: attachment.libraryID,
+      key: attachment.key,
+    };
+    const trashedRef = { libraryId: trashed.libraryID, key: trashed.key };
+
+    const wrongKind = await execute({
+      operation: "collection.create",
+      operationId: "create-member-wrong-kind",
+      name: "Create Wrong Kind Member",
+      placement: { kind: "root", libraryId: member.libraryID },
+      initialMemberRefs: [attachmentRef],
+    });
+    assert.strictEqual(wrongKind.outcome, "failed");
+    assert.strictEqual(wrongKind.attempt.error.code, "invalid_ref");
+
+    const inactive = await execute({
+      operation: "collection.create",
+      operationId: "create-member-trashed",
+      name: "Create Trashed Member",
+      placement: { kind: "root", libraryId: member.libraryID },
+      initialMemberRefs: [trashedRef],
+    });
+    assert.strictEqual(inactive.outcome, "failed");
+    assert.strictEqual(inactive.attempt.error.code, "invalid_request");
+
+    const crossLibrary = await execute({
+      operation: "collection.create",
+      operationId: "create-member-cross-library",
+      name: "Create Cross Library Member",
+      placement: { kind: "root", libraryId: member.libraryID },
+      initialMemberRefs: [
+        { libraryId: member.libraryID + 1, key: member.key },
+      ],
+    });
+    assert.strictEqual(crossLibrary.outcome, "failed");
+    assert.strictEqual(
+      crossLibrary.attempt.error.details.reason,
+      "invalid_combination",
+    );
+
+    const created = await execute({
+      operation: "collection.create",
+      operationId: "create-member-valid",
+      name: "Create Valid Members",
+      placement: { kind: "root", libraryId: member.libraryID },
+      initialMemberRefs: [memberRef, memberRef],
+    });
+    assert.strictEqual(created.outcome, "committed");
+    assert.strictEqual(created.receipt.changes.length, 2);
+    assert.include(member.getCollections(), Number(
+      Zotero.Collections.getByLibraryAndKey(
+        member.libraryID,
+        created.result.collection.ref.key,
+      )!.id,
+    ));
+  });
+
+  it("bounds collection removal preview membership scans and fails closed on unreadable members", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "collection-remove-bounds" };
+    const preview = (request: Record<string, unknown>) =>
+      (broker.mutations.preview as any)(request, scope);
+    const collection = await createCollection("Bounded Removal");
+    const collectionRef = {
+      libraryId: collection.libraryID,
+      key: collection.key,
+    };
+    const first = await createParentItem("Bounded Member A");
+    const second = await createParentItem("Bounded Member B");
+    first.addToCollection(collection.id);
+    await first.saveTx();
+    second.addToCollection(collection.id);
+    await second.saveTx();
+
+    const plan = await preview({
+      operation: "collection.remove",
+      collectionRef,
+      childPolicy: "cascade",
+    });
+    assert.lengthOf(plan.plan.detachedMemberships, 2);
+
+    configureZoteroHostMutationRuntimeForTests({
+      maxPreviewTargets: 1,
+    } as any);
+    try {
+      await preview({
+        operation: "collection.remove",
+        collectionRef,
+        childPolicy: "cascade",
+      });
+      assert.fail("expected the detach plan hard limit to fail");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual(
+        (error as ZoteroHostCapabilityError).code,
+        "resource_limited",
+      );
+    } finally {
+      resetZoteroHostMutationRuntimeForTests();
+    }
+    assert.isOk(Zotero.Collections.get(collection.id));
+    assert.include(first.getCollections(), collection.id);
+
+    const unreadable = await createCollection("Unreadable Members");
+    (unreadable as any).getChildItems = () => {
+      throw new Error("member read failed");
+    };
+    try {
+      await preview({
+        operation: "collection.remove",
+        collectionRef: {
+          libraryId: unreadable.libraryID,
+          key: unreadable.key,
+        },
+        childPolicy: "cascade",
+      });
+      assert.fail("expected an unreadable member list to fail closed");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual(
+        (error as ZoteroHostCapabilityError).code,
+        "execution_failed",
+      );
+    }
+  });
+
+  it("fails closed on item.updateTags when the current tag read is incomplete", async function () {
+    const item = await createParentItem("Tag Overflow Item");
+    for (let index = 0; index < 101; index += 1) {
+      item.addTag(`overflow-${index}`);
+    }
+    await item.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "tag-overflow-test" };
+
+    const overflow = await (broker.mutations.execute as any)(
+      {
+        operation: "item.updateTags",
+        operationId: "tag-overflow-update",
+        itemRef: { libraryId: item.libraryID, key: item.key },
+        add: ["overflow-new"],
+        remove: [],
+      },
+      scope,
+    );
+    assert.strictEqual(overflow.outcome, "failed");
+    if (overflow.outcome !== "failed") assert.fail("expected failed attempt");
+    assert.strictEqual(overflow.attempt.error.code, "resource_limited");
+    assert.strictEqual(item.getTags().length, 101);
+    assert.notInclude(
+      item.getTags().map((entry: { tag: string }) => entry.tag),
+      "overflow-new",
+    );
+
+    const readable = await createParentItem("Tag Read Failure Item");
+    readable.addTag("kept-tag");
+    await readable.saveTx();
+    const originalGetTags = readable.getTags;
+    (readable as any).getTags = () => {
+      throw new Error("tag read failed");
+    };
+    try {
+      const unreadable = await (broker.mutations.execute as any)(
+        {
+          operation: "item.updateTags",
+          operationId: "tag-read-failure-update",
+          itemRef: { libraryId: readable.libraryID, key: readable.key },
+          add: [],
+          remove: ["kept-tag"],
+        },
+        scope,
+      );
+      assert.strictEqual(unreadable.outcome, "failed");
+      if (unreadable.outcome !== "failed") {
+        assert.fail("expected failed attempt");
+      }
+      assert.strictEqual(unreadable.attempt.error.code, "execution_failed");
+      assert.strictEqual(unreadable.attempt.error.phase, "read");
+    } finally {
+      (readable as any).getTags = originalGetTags;
+    }
+    assert.include(
+      readable.getTags().map((entry: { tag: string }) => entry.tag),
+      "kept-tag",
+    );
+  });
+
   it("routes stored attachment creation through canonical replay and preserves cleanup evidence", async function () {
     const parent = await createParentItem("Attachment Authority Parent");
     let creates = 0;
@@ -842,6 +1125,77 @@ describe("zotero host broker capability api", function () {
     assert.strictEqual(removed.receipt.operation, "attachments.remove");
     assert.notInclude(JSON.stringify(removed.receipt), attachmentPath);
     assertStrictJsonValue(removed);
+  });
+
+  it("rejects attachment metadata, move, and removal writes for note-owned roles", async function () {
+    const note = new Zotero.Item("note");
+    note.setNote("<p>note body</p>");
+    await note.saveTx();
+    const attachment = new Zotero.Item("attachment") as Zotero.Item & {
+      attachmentLinkMode: number;
+    };
+    attachment.attachmentLinkMode = 4;
+    (attachment as any).parentItemID = note.id;
+    attachment.setField("title", "Note Image");
+    await attachment.saveTx();
+    const ref = { libraryId: attachment.libraryID, key: attachment.key };
+    const scope = { ownerId: "attachment-role-gate-test" };
+    const broker = createZoteroHostCapabilityBroker();
+
+    const attempts: Array<{
+      operationId: string;
+      run: () => Promise<any>;
+    }> = [
+      {
+        operationId: "role-gate-update",
+        run: () =>
+          broker.attachments.updateMetadata(
+            {
+              operationId: "role-gate-update",
+              attachmentRef: ref,
+              patch: { title: "Hijacked Title" },
+            },
+            scope,
+          ),
+      },
+      {
+        operationId: "role-gate-move",
+        run: () =>
+          broker.attachments.move(
+            {
+              operationId: "role-gate-move",
+              attachmentRef: ref,
+              placement: { kind: "top_level" },
+            },
+            scope,
+          ),
+      },
+      {
+        operationId: "role-gate-remove",
+        run: () =>
+          broker.attachments.remove(
+            {
+              operationId: "role-gate-remove",
+              attachmentRef: ref,
+              disposition: "trash",
+            },
+            scope,
+          ),
+      },
+    ];
+    for (const { run } of attempts) {
+      const result = await run();
+      assert.strictEqual(result.outcome, "failed");
+      if (result.outcome !== "failed") assert.fail("expected role rejection");
+      assert.strictEqual(result.attempt.error.code, "invalid_ref");
+      assert.deepInclude(result.attempt.error.details, {
+        kind: "attachment",
+        reason: "wrong_kind",
+      });
+    }
+    assert.strictEqual(attachment.getField("title"), "Note Image");
+    assert.isTrue(Boolean(attachment.parentItemID));
+    assert.isFalse((attachment as any).deleted === true);
   });
 
   it("serializes identical in-progress submissions and rejects conflicting digests before another write", async function () {
@@ -1128,6 +1482,95 @@ describe("zotero host broker capability api", function () {
         pinned?.release();
       }
     }
+  });
+
+  it("reports related-item mutation outcomes and rejects invalid endpoints", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "related-mutation-outcomes" };
+    const execute = (request: Record<string, unknown>) =>
+      (broker.mutations.execute as any)(request, scope);
+    const source = await createParentItem("Related Outcome Source");
+    const related = await createParentItem("Related Outcome Target");
+    const sourceRef = { libraryId: source.libraryID, key: source.key };
+    const relatedRef = { libraryId: related.libraryID, key: related.key };
+
+    const added = await execute({
+      operation: "item.addRelated",
+      operationId: "related-add-1",
+      sourceRef,
+      relatedRef,
+    });
+    assert.strictEqual(added.outcome, "committed");
+    assert.strictEqual(added.result.outcome, "added");
+    assert.strictEqual(added.result.sourceRevision.length > 0, true);
+    assertStrictJsonValue(added);
+
+    const present = await execute({
+      operation: "item.addRelated",
+      operationId: "related-add-2",
+      sourceRef,
+      relatedRef,
+    });
+    assert.strictEqual(present.outcome, "unchanged");
+    assert.strictEqual(present.result.outcome, "already_present");
+
+    const removed = await execute({
+      operation: "item.removeRelated",
+      operationId: "related-remove-1",
+      sourceRef,
+      relatedRef,
+    });
+    assert.strictEqual(removed.outcome, "committed");
+    assert.strictEqual(removed.result.outcome, "removed");
+
+    const absent = await execute({
+      operation: "item.removeRelated",
+      operationId: "related-remove-2",
+      sourceRef,
+      relatedRef,
+    });
+    assert.strictEqual(absent.outcome, "unchanged");
+    assert.strictEqual(absent.result.outcome, "already_absent");
+
+    for (const invalid of [
+      {
+        operationId: "related-same",
+        sourceRef,
+        relatedRef: sourceRef,
+        reason: "invalid_combination",
+      },
+      {
+        operationId: "related-cross-library",
+        sourceRef,
+        relatedRef: { libraryId: source.libraryID + 1, key: related.key },
+        reason: "invalid_combination",
+      },
+    ]) {
+      const result = await execute({
+        operation: "item.addRelated",
+        operationId: invalid.operationId,
+        sourceRef: invalid.sourceRef,
+        relatedRef: invalid.relatedRef,
+      });
+      assert.strictEqual(result.outcome, "failed");
+      assert.strictEqual(result.attempt.error.code, "invalid_request");
+      assert.strictEqual(result.attempt.error.details.reason, invalid.reason);
+    }
+
+    const trashed = await createParentItem("Related Outcome Trashed");
+    (trashed as any).markDeleted(true);
+    const trashedResult = await execute({
+      operation: "item.addRelated",
+      operationId: "related-trashed",
+      sourceRef,
+      relatedRef: { libraryId: trashed.libraryID, key: trashed.key },
+    });
+    assert.strictEqual(trashedResult.outcome, "failed");
+    assert.strictEqual(trashedResult.attempt.error.code, "invalid_request");
+    assert.strictEqual(
+      trashedResult.attempt.error.details.field,
+      "relatedRef",
+    );
   });
 
   it("executes permanent item and collection removals only against complete preview evidence", async function () {
@@ -1662,6 +2105,112 @@ describe("zotero host broker capability api", function () {
     }
   });
 
+  it("fails snapshot delivery without completion evidence when a tag read fails", async function () {
+    const item = await createParentItem("Snapshot Tag Failure");
+    const originalGetTags = item.getTags;
+    (item as any).getTags = () => {
+      throw new Error("tag read failed");
+    };
+    try {
+      await withWorkflowLibraryItemSnapshot(
+        { libraryId: item.libraryID, batchSize: 1 },
+        {},
+        () => undefined,
+      );
+      assert.fail("expected snapshot delivery to fail closed");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.include(
+        ["execution_failed", "resource_limited"],
+        (error as ZoteroHostCapabilityError).code,
+      );
+      assert.notProperty(error as object, "completionEvidence");
+    } finally {
+      (item as any).getTags = originalGetTags;
+    }
+
+    const recovered = await withWorkflowLibraryItemSnapshot(
+      { libraryId: item.libraryID, batchSize: 1 },
+      {},
+      () => undefined,
+    );
+    assert.strictEqual(recovered.outcome, "completed");
+    assert.isOk(recovered.completionEvidence);
+  });
+
+  it("drives withItemSnapshot through the broker injected into the workflow host", async function () {
+    const syncCalls: Array<Record<string, unknown>> = [];
+    const cancelCalls: string[] = [];
+    const activePage = {
+      schema: "zotero-agents.library-snapshot.v1",
+      snapshotId: "snapshot-stub",
+      libraryId: 1,
+      batchSize: 1,
+      batchIndex: 0,
+      items: [],
+      outcome: "active",
+      nextCursor: "cursor-stub",
+      deliveredItems: 0,
+      deliveredBatches: 1,
+    };
+    const completedPage = {
+      ...activePage,
+      batchIndex: 1,
+      outcome: "completed",
+      nextCursor: null,
+      deliveredBatches: 2,
+      completionEvidence: { snapshotId: "snapshot-stub" },
+    };
+    const stubBroker = {
+      library: {
+        syncSnapshot: async (request: Record<string, unknown>) => {
+          syncCalls.push(request);
+          return request.cursor ? completedPage : activePage;
+        },
+        cancelSnapshot: (snapshotId: string) => {
+          cancelCalls.push(snapshotId);
+          return { outcome: "canceled" };
+        },
+      },
+    };
+    const withItemSnapshot = createWorkflowLibraryItemSnapshotApi(
+      stubBroker as any,
+    );
+    const batchIndexes: number[] = [];
+    const completed = await withItemSnapshot(
+      { libraryId: 1, batchSize: 1 },
+      {},
+      async (batch) => {
+        batchIndexes.push(batch.batchIndex);
+      },
+    );
+    assert.strictEqual(completed.outcome, "completed");
+    assert.lengthOf(syncCalls, 2);
+    assert.deepEqual(batchIndexes, [0, 1]);
+    assert.isEmpty(cancelCalls);
+
+    const failing = createWorkflowLibraryItemSnapshotApi(stubBroker as any);
+    try {
+      await failing({ libraryId: 1, batchSize: 1 }, {}, async () => {
+        throw new Error("callback failed");
+      });
+      assert.fail("expected callback failure to propagate");
+    } catch (error) {
+      assert.strictEqual((error as Error).message, "callback failed");
+    }
+    assert.deepEqual(cancelCalls, ["snapshot-stub"]);
+
+    const item = await createParentItem("Host Api Snapshot Item");
+    const hostApi = createWorkflowHostApi();
+    const viaHost = await hostApi.library.withItemSnapshot(
+      { libraryId: item.libraryID, batchSize: 1 },
+      {},
+      () => undefined,
+    );
+    assert.strictEqual(viaHost.outcome, "completed");
+    assert.isOk(viaHost.completionEvidence);
+  });
+
   it("keeps Workflow snapshot callbacks serial and returns no evidence after cancellation", async function () {
     const firstItem = await createParentItem("Workflow Snapshot A");
     await createParentItem("Workflow Snapshot B");
@@ -2031,8 +2580,11 @@ describe("zotero host broker capability api", function () {
     await createParentItem("Traversal Canonical Two");
     const broker = createZoteroHostCapabilityBroker();
     const batches: string[][] = [];
-    const coverage = await createSha256Accumulator();
-    assert.isOk(coverage);
+    const delivered: Array<{
+      ref: { libraryId: number; key: string };
+      revision: string;
+      tagDigest: string;
+    }> = [];
     const expectedTagDigest = await sha256Hex(
       new TextEncoder().encode(JSON.stringify([])),
     );
@@ -2053,15 +2605,11 @@ describe("zotero host broker capability api", function () {
         for (const item of batch.items) {
           const traversalItem = item as typeof item & { tagDigest?: string };
           assert.strictEqual(traversalItem.tagDigest, expectedTagDigest);
-          coverage?.update(
-            new TextEncoder().encode(
-              `${JSON.stringify([
-                item.ref,
-                item.revision,
-                traversalItem.tagDigest,
-              ])}\n`,
-            ),
-          );
+          delivered.push({
+            ref: item.ref,
+            revision: item.revision,
+            tagDigest: traversalItem.tagDigest!,
+          });
         }
         batches.push(batch.items.map((item) => item.ref.key));
         callbackActive = false;
@@ -2075,7 +2623,7 @@ describe("zotero host broker capability api", function () {
     if (completed.outcome !== "completed") assert.fail("expected completion");
     assert.strictEqual(
       completed.completionEvidence.coverageDigest,
-      coverage?.digestHex(),
+      await expectedCoverageDigestHex(delivered),
     );
     assert.isTrue(
       verifyLibraryTraversalCompletionEvidence(completed.completionEvidence),
@@ -2130,6 +2678,106 @@ describe("zotero host broker capability api", function () {
     );
     assert.strictEqual(canceled.outcome, "canceled");
     assert.notProperty(canceled, "completionEvidence");
+  });
+
+  it("digests traversal tags in code-unit order for non-ASCII tags", async function () {
+    const item = await createParentItem("Traversal Non Ascii Tags");
+    for (const tag of ["中", "ä", "z"]) {
+      item.addTag(tag);
+    }
+    await item.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+    const codeUnitOrdered = ["z", "ä", "中"];
+    const expectedTagDigest = await sha256Hex(
+      new TextEncoder().encode(JSON.stringify(codeUnitOrdered)),
+    );
+    assert.isString(expectedTagDigest);
+
+    const seen: string[][] = [];
+    const completed = await broker.library.traverseItems(
+      {
+        scope: "top-level-regular",
+        query: "Traversal Non Ascii Tags",
+        pageSize: 10,
+      },
+      {},
+      async (batch) => {
+        for (const entry of batch.items) {
+          const traversalItem = entry as typeof entry & {
+            tagDigest?: string;
+          };
+          seen.push(traversalItem.tags);
+          assert.strictEqual(traversalItem.tagDigest, expectedTagDigest);
+        }
+      },
+    );
+    assert.strictEqual(completed.outcome, "completed");
+    assert.deepEqual(seen, [codeUnitOrdered]);
+
+    const auditState = await broker.library.getItemAuditState({
+      libraryId: item.libraryID,
+      key: item.key,
+    });
+    assert.strictEqual(auditState.tagDigest, expectedTagDigest);
+  });
+
+  it("orders the traversal coverage digest by item identity rather than page order", async function () {
+    const first = await createParentItem("Traversal Ordering First");
+    const second = await createParentItem("Traversal Ordering Second");
+    // Pagination follows itemID order; force the key lexicographic order to be
+    // the exact opposite so the coverage digest must reorder before hashing.
+    (first as any).key = "ZZZZZZZZ";
+    await first.saveTx();
+    (second as any).key = "AAAAAAAA";
+    await second.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+    const delivered: Array<{
+      ref: { libraryId: number; key: string };
+      revision: string;
+      tagDigest: string;
+    }> = [];
+
+    const completed = await broker.library.traverseItems(
+      {
+        scope: "top-level-regular",
+        query: "Traversal Ordering",
+        pageSize: 1,
+      },
+      {},
+      async (batch) => {
+        for (const item of batch.items) {
+          const traversalItem = item as typeof item & { tagDigest?: string };
+          delivered.push({
+            ref: item.ref,
+            revision: item.revision,
+            tagDigest: traversalItem.tagDigest!,
+          });
+        }
+      },
+    );
+    if (completed.outcome !== "completed") assert.fail("expected completion");
+    assert.deepEqual(
+      delivered.map((item) => item.ref.key),
+      ["ZZZZZZZZ", "AAAAAAAA"],
+    );
+    assert.strictEqual(
+      completed.completionEvidence.coverageDigest,
+      await expectedCoverageDigestHex(delivered),
+    );
+
+    const unsorted = await createSha256Accumulator();
+    assert.isOk(unsorted);
+    for (const item of delivered) {
+      unsorted!.update(
+        new TextEncoder().encode(
+          `${JSON.stringify([item.ref, item.revision, item.tagDigest])}\n`,
+        ),
+      );
+    }
+    assert.notStrictEqual(
+      completed.completionEvidence.coverageDigest,
+      unsorted!.digestHex(),
+    );
   });
 
   it("normalizes selection and navigation while rejecting unsafe interaction", async function () {
@@ -2639,7 +3287,8 @@ describe("zotero host broker capability api", function () {
         await hostApi.file.readText("file:///%");
         assert.fail("expected malformed strict file read to fail");
       } catch (error) {
-        assert.instanceOf(error, TypeError);
+        assert.equal((error as { name?: string }).name, "WorkflowHostError");
+        assert.equal((error as { code?: string }).code, "invalid_request");
       }
       assert.equal(
         await hostApi.file.readText("file:///E:/research/a%20b.md"),
@@ -2767,6 +3416,84 @@ describe("zotero host broker capability api", function () {
     } finally {
       handlers.tag.update = originalUpdate;
     }
+  });
+
+  it("rejects unknown mutation operations at admission with unsupported_operation", async function () {
+    const item = await createParentItem("Unsupported Operation Item");
+    const broker = createZoteroHostCapabilityBroker();
+    for (const operation of ["item.updateFields", "item.addTags", "item.future"]) {
+      try {
+        await (broker.mutations.execute as any)(
+          {
+            operation,
+            operationId: `unsupported-${operation}`,
+            itemRef: { libraryId: item.libraryID, key: item.key },
+          },
+          { ownerId: "unsupported-operation-test" },
+        );
+        assert.fail("expected unsupported_operation rejection");
+      } catch (error) {
+        assert.instanceOf(error, ZoteroHostCapabilityError);
+        const brokerError = error as ZoteroHostCapabilityError;
+        assert.strictEqual(brokerError.code, "unsupported_operation");
+        assert.strictEqual(
+          brokerError.details.memberOrOperation,
+          operation,
+        );
+      }
+    }
+  });
+
+  it("re-executes retry_same_operation failures instead of replaying the failed snapshot", async function () {
+    const item = await createParentItem("Retry After Failure Item");
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "retry-authority-test" };
+    const request = {
+      operationId: "status-transition-retry",
+      itemRef: { libraryId: item.libraryID, key: item.key },
+      add: ["need-analysis"],
+    };
+    const originalUpdate = handlers.tag.update;
+    handlers.tag.update = async () => {
+      throw new Error("transient status write failure");
+    };
+    try {
+      const failed = await broker.statusTags.transition(request, scope);
+      assert.strictEqual(failed.outcome, "failed");
+      if (failed.outcome !== "failed") assert.fail("expected failed attempt");
+      assert.strictEqual(failed.attempt.error.recovery, "retry_same_operation");
+    } finally {
+      handlers.tag.update = originalUpdate;
+    }
+
+    const retried = await broker.statusTags.transition(request, scope);
+    assert.strictEqual(retried.outcome, "committed");
+    assert.notProperty(retried, "attempt");
+
+    const replayed = await broker.statusTags.transition(request, scope);
+    assert.deepEqual(replayed, retried);
+  });
+
+  it("replays non-retriable failed attempts without re-executing them", async function () {
+    const item = await createParentItem("Non Retriable Failure Item");
+    item.addTag("overlap-tag");
+    await item.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "non-retriable-test" };
+    const request = {
+      operation: "item.updateTags" as const,
+      operationId: "tag-overlap-failure",
+      itemRef: { libraryId: item.libraryID, key: item.key },
+      add: ["overlap-tag"],
+      remove: ["overlap-tag"],
+    };
+    const failed = await (broker.mutations.execute as any)(request, scope);
+    assert.strictEqual(failed.outcome, "failed");
+    if (failed.outcome !== "failed") assert.fail("expected failed attempt");
+    assert.strictEqual(failed.attempt.error.code, "invalid_request");
+
+    const replayed = await (broker.mutations.execute as any)(request, scope);
+    assert.deepEqual(replayed, failed);
   });
 
   it("routes get_current_view through hostApi context by default", async function () {

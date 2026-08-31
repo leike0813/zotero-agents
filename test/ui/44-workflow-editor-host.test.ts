@@ -615,6 +615,38 @@ describe("workflow editor host", function () {
     assert.match(String((missing as Error)?.message), /renderer not found/i);
   });
 
+  it("honors detached owner sessions instead of silently dropping the flag", async function () {
+    const owner = createWorkflowEditorOwner({ interactionMode: "interactive" });
+    const renderer = {
+      render: () => {},
+      serialize: ({ state }: { state: unknown }) => state,
+    };
+    MockDialog.nextButtons.push("save", "save");
+    MockDialog.nextDelays.push(25, 25);
+
+    const results = await Promise.all([
+      owner.openSession({
+        rendererId: "inline-detached",
+        renderer,
+        title: "Queued",
+        initialState: { index: 1 },
+      }),
+      owner.openSession({
+        rendererId: "inline-detached",
+        renderer,
+        title: "Detached",
+        initialState: { index: 2 },
+        detached: true,
+      }),
+    ]);
+
+    assert.equal(MockDialog.maxInFlight, 2);
+    assert.deepEqual(
+      results.map((entry) => entry.result),
+      [{ index: 1 }, { index: 2 }],
+    );
+  });
+
   it("rejects unsafe session values and non-interactive calls before opening", async function () {
     const interactive = createWorkflowEditorOwner({
       interactionMode: "interactive",

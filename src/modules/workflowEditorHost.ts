@@ -703,13 +703,14 @@ async function openBoundedWorkflowEditorSession(
   if (args.context !== undefined) {
     assertBoundedEditorValue(args.context, "context");
   }
-  const result = await enqueueCallerSession(callerScope, () =>
+  const openSession = () =>
     workflowEditorSessionOverrideForTests
-      ? Promise.resolve(
-          workflowEditorSessionOverrideForTests({ ...args, detached: false }),
-        )
-      : openDialogSession({ ...args, detached: false }),
-  );
+      ? Promise.resolve(workflowEditorSessionOverrideForTests(args))
+      : openDialogSession(args);
+  const result =
+    args.detached === true
+      ? await openSession()
+      : await enqueueCallerSession(callerScope, openSession);
   if (result.result !== undefined) {
     assertBoundedEditorValue(result.result, "result");
   }

@@ -70,9 +70,9 @@ else if (command === "library snapshot") data = {
     ["ITEM5678", "conferencePaper", "Multimodal fusion", ["multimodal"]],
     ["EXIST123", "journalArticle", "Existing streaming paper", ["streaming"]]
   ].map(([key, itemType, title, tags]) => ({
-    ref: { libraryId: 1, key }, itemType, title, tags,
-    creators: [], year: "", date: "", publicationTitle: "", collections: [],
-    revision: "1", state: "active",
+    ref: { libraryId: 1, key }, kind: "regular", itemType, title,
+    parentRef: null, state: "active", revision: "1", tags, collectionRefs: [],
+    creators: [], date: "", year: null, publicationTitle: "",
     identifiers: { doi: null, isbn: null, issn: null, arxiv: null, pmid: null },
     url: null, noteCount: 0, attachmentCount: 0, annotationCount: 0,
     modifiedAt: "2026-08-31T00:00:00.000Z"

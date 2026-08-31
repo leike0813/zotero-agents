@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "75f302ae9619cfc592a0d8b4f508873bad4540a6199b162d064c4dc4bfd919a1",
+  "commandCatalogChecksum": "876e21a63483d3f9e9d013505c399705894bf5f4099cf83b49b9b50a795aa7ab",
   "commands": [
     {
       "approvalContract": {
@@ -9642,7 +9642,7 @@
                       "minimum": 0,
                       "type": "integer"
                     },
-                    "collections": {
+                    "collectionRefs": {
                       "items": {
                         "additionalProperties": false,
                         "properties": {
@@ -9666,7 +9666,53 @@
                     },
                     "creators": {
                       "items": {
-                        "type": "string"
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "creatorType": {
+                                "type": "string"
+                              },
+                              "firstName": {
+                                "type": "string"
+                              },
+                              "lastName": {
+                                "type": "string"
+                              },
+                              "representation": {
+                                "const": "two_field"
+                              }
+                            },
+                            "required": [
+                              "representation",
+                              "creatorType",
+                              "firstName",
+                              "lastName"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "creatorType": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "representation": {
+                                "const": "single_field"
+                              }
+                            },
+                            "required": [
+                              "representation",
+                              "creatorType",
+                              "name"
+                            ],
+                            "type": "object"
+                          }
+                        ]
                       },
                       "type": "array"
                     },
@@ -9719,12 +9765,41 @@
                     "itemType": {
                       "type": "string"
                     },
+                    "kind": {
+                      "const": "regular"
+                    },
                     "modifiedAt": {
                       "type": "string"
                     },
                     "noteCount": {
                       "minimum": 0,
                       "type": "integer"
+                    },
+                    "parentRef": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "key": {
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "libraryId": {
+                              "minimum": 1,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "libraryId",
+                            "key"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "publicationTitle": {
                       "type": "string"
@@ -9771,21 +9846,26 @@
                       ]
                     },
                     "year": {
-                      "type": "string"
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
                     "ref",
+                    "kind",
                     "itemType",
                     "title",
-                    "creators",
-                    "year",
-                    "date",
-                    "publicationTitle",
-                    "tags",
-                    "collections",
-                    "revision",
+                    "parentRef",
                     "state",
+                    "revision",
+                    "tags",
+                    "collectionRefs",
+                    "creators",
+                    "date",
+                    "year",
+                    "publicationTitle",
                     "identifiers",
                     "url",
                     "noteCount",

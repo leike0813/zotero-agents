@@ -37,6 +37,12 @@ pub enum TagAuditAppendOutcome {
     AlreadyAppended { staged_items: usize },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TagAuditPromoteOutcome {
+    Promoted,
+    AlreadyPromoted,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TagAuditSnapshotRecord {
     pub library_id: i64,
@@ -100,6 +106,41 @@ pub enum TagRegulationCommitOutcome {
     NotFound,
 }
 
+fn abandon_tag_audit_runs(
+    repository: &Repository,
+    run_ids: &[String],
+    terminal_reason: &str,
+    now: &str,
+) -> Result<(), String> {
+    for run_id in run_ids {
+        repository
+            .connection()?
+            .execute(
+                "UPDATE synt_tag_audit_run
+                 SET status='abandoned',lease_library_id=NULL,
+                     cleanup_status='complete',terminal_reason=?1,updated_at=?2
+                 WHERE audit_run_id=?3 AND status='open'",
+                params![terminal_reason, now, run_id],
+            )
+            .map_err(|error| format!("repository_write:{error}"))?;
+        repository
+            .connection()?
+            .execute(
+                "DELETE FROM synt_tag_audit_batch WHERE audit_run_id=?1",
+                params![run_id],
+            )
+            .map_err(|error| format!("repository_write:{error}"))?;
+        repository
+            .connection()?
+            .execute(
+                "DELETE FROM synt_tag_audit_staging WHERE audit_run_id=?1",
+                params![run_id],
+            )
+            .map_err(|error| format!("repository_write:{error}"))?;
+    }
+    Ok(())
+}
+
 impl Repository {
     pub fn abandon_tag_audit_runs_for_other_hosts(
         &mut self,
@@ -124,33 +165,42 @@ impl Repository {
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|error| format!("repository_query:{error}"))?
             };
-            for run_id in &run_ids {
-                repository
-                    .connection()?
-                    .execute(
-                        "UPDATE synt_tag_audit_run
-                         SET status='abandoned',lease_library_id=NULL,
-                             cleanup_status='complete',terminal_reason='host_restarted',updated_at=?1
-                         WHERE audit_run_id=?2 AND status='open'",
-                        params![now, run_id],
-                    )
-                    .map_err(|error| format!("repository_write:{error}"))?;
-                repository
-                    .connection()?
-                    .execute(
-                        "DELETE FROM synt_tag_audit_batch WHERE audit_run_id=?1",
-                        params![run_id],
-                    )
-                    .map_err(|error| format!("repository_write:{error}"))?;
-                repository
-                    .connection()?
-                    .execute(
-                        "DELETE FROM synt_tag_audit_staging WHERE audit_run_id=?1",
-                        params![run_id],
-                    )
-                    .map_err(|error| format!("repository_write:{error}"))?;
-            }
+            abandon_tag_audit_runs(repository, &run_ids, "host_restarted", now)?;
             Ok(run_ids.len())
+        })
+    }
+
+    pub fn abandon_inactive_tag_audit_runs_for_host(
+        &mut self,
+        library_id: i64,
+        host_instance_id: &str,
+        active_run_ids: &[String],
+        now: &str,
+    ) -> Result<usize, String> {
+        self.transaction(|repository| {
+            let run_ids = {
+                let mut statement = repository
+                    .connection()?
+                    .prepare(
+                        "SELECT audit_run_id FROM synt_tag_audit_run
+                         WHERE library_id=?1 AND status='open' AND host_instance_id=?2",
+                    )
+                    .map_err(|error| format!("repository_query:{error}"))?;
+                statement
+                    .query_map(params![library_id, host_instance_id], |row| {
+                        row.get::<_, String>(0)
+                    })
+                    .map_err(|error| format!("repository_query:{error}"))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| format!("repository_query:{error}"))?
+            };
+            let stale = run_ids
+                .iter()
+                .filter(|run_id| !active_run_ids.contains(run_id))
+                .cloned()
+                .collect::<Vec<_>>();
+            abandon_tag_audit_runs(repository, &stale, "host_run_inactive", now)?;
+            Ok(stale.len())
         })
     }
 
@@ -334,7 +384,7 @@ impl Repository {
         audit_run_id: &str,
         lease_token: &str,
         snapshot: &TagAuditSnapshotRecord,
-    ) -> Result<bool, String> {
+    ) -> Result<TagAuditPromoteOutcome, String> {
         self.transaction(|repository| {
             let run = repository
                 .connection()?
@@ -355,7 +405,10 @@ impl Repository {
                 )
                 .map_err(|_| "tag_audit_run_not_found".to_owned())?;
             if run.1 == "promoted" {
-                return Ok(run.0 == snapshot.library_id && snapshot.source_run_id == audit_run_id);
+                if run.0 == snapshot.library_id && snapshot.source_run_id == audit_run_id {
+                    return Ok(TagAuditPromoteOutcome::AlreadyPromoted);
+                }
+                return Err("tag_audit_basis_conflict".into());
             }
             if run.1 != "open" || run.2 != lease_token {
                 return Err("tag_audit_run_fenced".into());
@@ -456,7 +509,7 @@ impl Repository {
                     params![audit_run_id],
                 )
                 .map_err(|error| format!("repository_write:{error}"))?;
-            Ok(true)
+            Ok(TagAuditPromoteOutcome::Promoted)
         })
     }
 
@@ -779,9 +832,10 @@ impl Repository {
 #[cfg(test)]
 mod tests {
     use super::super::{
-        Repository, RepositoryIdentity, TagAuditAppendOutcome, TagAuditRunRecord,
-        TagAuditSnapshotRecord, TagAuditStagingRecord, TagRegulationAcknowledgementPrepareOutcome,
-        TagRegulationCommitOutcome, TagRegulationVerifiedCommitRecord,
+        Repository, RepositoryIdentity, TagAuditAppendOutcome, TagAuditPromoteOutcome,
+        TagAuditRunRecord, TagAuditSnapshotRecord, TagAuditStagingRecord,
+        TagRegulationAcknowledgementPrepareOutcome, TagRegulationCommitOutcome,
+        TagRegulationVerifiedCommitRecord,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -823,6 +877,61 @@ mod tests {
 
         assert!(repository.begin_tag_audit_run(&record("run-1")).unwrap());
         assert!(!repository.begin_tag_audit_run(&record("run-2")).unwrap());
+
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn inactive_same_host_runs_are_abandoned_without_touching_active_runs() {
+        let (root, mut repository) = open("inactive-host-sweep");
+        let record = |run_id: &str| TagAuditRunRecord {
+            audit_run_id: run_id.into(),
+            library_id: 1,
+            status: "open".into(),
+            lease_token: format!("lease-{run_id}"),
+            host_instance_id: "host-1".into(),
+            package_id: "package-1".into(),
+            workflow_id: "workflow-1".into(),
+            content_digest: "content-1".into(),
+            vocabulary_hash: "vocabulary-1".into(),
+            basis_digest: "basis-1".into(),
+            created_at: "2026-08-30T00:00:00.000Z".into(),
+            updated_at: "2026-08-30T00:00:00.000Z".into(),
+        };
+
+        assert!(repository.begin_tag_audit_run(&record("run-1")).unwrap());
+        assert_eq!(
+            repository
+                .abandon_inactive_tag_audit_runs_for_host(
+                    1,
+                    "host-1",
+                    &["run-1".to_owned()],
+                    "2026-08-30T00:01:00.000Z",
+                )
+                .unwrap(),
+            0
+        );
+        assert!(!repository.begin_tag_audit_run(&record("run-2")).unwrap());
+        assert_eq!(
+            repository
+                .abandon_inactive_tag_audit_runs_for_host(
+                    1,
+                    "host-1",
+                    &[],
+                    "2026-08-30T00:02:00.000Z",
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            repository
+                .get_tag_audit_run("run-1")
+                .unwrap()
+                .map(|run| run.status),
+            Some("abandoned".into())
+        );
+        assert!(repository.begin_tag_audit_run(&record("run-2")).unwrap());
 
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
@@ -939,12 +1048,36 @@ mod tests {
             published_at: "2026-08-30T00:01:00.000Z".into(),
             updated_at: "2026-08-30T00:01:00.000Z".into(),
         };
-        assert!(
+        assert_eq!(
             repository
                 .promote_tag_audit_run("run-1", "lease-1", &snapshot)
-                .unwrap()
+                .unwrap(),
+            TagAuditPromoteOutcome::Promoted
         );
         assert_eq!(repository.list_active_tag_audits(1).unwrap().len(), 1);
+        assert_eq!(
+            repository.get_tag_audit_snapshot(1).unwrap(),
+            Some(snapshot.clone())
+        );
+        assert_eq!(
+            repository
+                .promote_tag_audit_run("run-1", "lease-1", &snapshot)
+                .unwrap(),
+            TagAuditPromoteOutcome::AlreadyPromoted
+        );
+        assert_eq!(
+            repository
+                .promote_tag_audit_run(
+                    "run-1",
+                    "lease-1",
+                    &TagAuditSnapshotRecord {
+                        library_id: 2,
+                        ..snapshot.clone()
+                    },
+                )
+                .unwrap_err(),
+            "tag_audit_basis_conflict"
+        );
         assert_eq!(
             repository.get_tag_audit_snapshot(1).unwrap(),
             Some(snapshot.clone())
@@ -962,10 +1095,11 @@ mod tests {
             updated_at: "2026-08-30T00:02:00.000Z".into(),
             ..snapshot.clone()
         };
-        assert!(
+        assert_eq!(
             repository
                 .promote_tag_audit_run("run-2", "lease-2", &empty)
-                .unwrap()
+                .unwrap(),
+            TagAuditPromoteOutcome::Promoted
         );
         assert!(repository.list_active_tag_audits(1).unwrap().is_empty());
         assert_eq!(repository.get_tag_audit_snapshot(1).unwrap(), Some(empty));

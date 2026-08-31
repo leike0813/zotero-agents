@@ -931,62 +931,76 @@ export function createBoundWorkflowResearchBundleApi(args: {
   };
 }
 
+export function createWorkflowLibraryItemSnapshotApi(
+  broker: Pick<
+    ReturnType<typeof createZoteroHostCapabilityBroker>,
+    "library"
+  > = createZoteroHostCapabilityBroker(),
+) {
+  return async function withItemSnapshot(
+    request: ZoteroHostLibrarySyncSnapshotRequest,
+    control: Readonly<{ signal?: AbortSignal }>,
+    onBatch: (batch: ZoteroLibrarySnapshotBatchDto) => void | Promise<void>,
+  ): Promise<ZoteroLibrarySnapshotWorkflowResultDto> {
+    if (control.signal?.aborted) {
+      throw new ZoteroHostCapabilityError(
+        "canceled",
+        "snapshot was canceled before capture",
+        { reason: "caller_signal" },
+      );
+    }
+    const scope = { ownerId: workflowSnapshotOwnerId() };
+    let page = await broker.library.syncSnapshot(request, scope);
+    for (;;) {
+      try {
+        await onBatch({
+          schema: page.schema,
+          snapshotId: page.snapshotId,
+          batchIndex: page.batchIndex,
+          items: page.items,
+        });
+      } catch (error) {
+        if (page.outcome === "active") {
+          broker.library.cancelSnapshot(page.snapshotId, scope);
+        }
+        throw error;
+      }
+      if (control.signal?.aborted) {
+        if (page.outcome === "active") {
+          return broker.library.cancelSnapshot(page.snapshotId, scope);
+        }
+        return {
+          outcome: "canceled",
+          snapshotId: page.snapshotId,
+          deliveredItems: page.deliveredItems,
+          deliveredBatches: page.deliveredBatches,
+        };
+      }
+      if (page.outcome === "completed") {
+        return {
+          outcome: "completed",
+          completionEvidence: page.completionEvidence,
+        };
+      }
+      page = await broker.library.syncSnapshot(
+        {
+          libraryId: page.libraryId,
+          batchSize: page.batchSize,
+          snapshotId: page.snapshotId,
+          cursor: page.nextCursor,
+        },
+        scope,
+      );
+    }
+  };
+}
+
 export async function withWorkflowLibraryItemSnapshot(
   request: ZoteroHostLibrarySyncSnapshotRequest,
   control: Readonly<{ signal?: AbortSignal }>,
   onBatch: (batch: ZoteroLibrarySnapshotBatchDto) => void | Promise<void>,
 ): Promise<ZoteroLibrarySnapshotWorkflowResultDto> {
-  if (control.signal?.aborted) {
-    throw new ZoteroHostCapabilityError(
-      "canceled",
-      "snapshot was canceled before capture",
-      { reason: "caller_signal" },
-    );
-  }
-  const broker = createZoteroHostCapabilityBroker();
-  const scope = { ownerId: workflowSnapshotOwnerId() };
-  let page = await broker.library.syncSnapshot(request, scope);
-  for (;;) {
-    try {
-      await onBatch({
-        schema: page.schema,
-        snapshotId: page.snapshotId,
-        batchIndex: page.batchIndex,
-        items: page.items,
-      });
-    } catch (error) {
-      if (page.outcome === "active") {
-        broker.library.cancelSnapshot(page.snapshotId, scope);
-      }
-      throw error;
-    }
-    if (control.signal?.aborted) {
-      if (page.outcome === "active") {
-        return broker.library.cancelSnapshot(page.snapshotId, scope);
-      }
-      return {
-        outcome: "canceled",
-        snapshotId: page.snapshotId,
-        deliveredItems: page.deliveredItems,
-        deliveredBatches: page.deliveredBatches,
-      };
-    }
-    if (page.outcome === "completed") {
-      return {
-        outcome: "completed",
-        completionEvidence: page.completionEvidence,
-      };
-    }
-    page = await broker.library.syncSnapshot(
-      {
-        libraryId: page.libraryId,
-        batchSize: page.batchSize,
-        snapshotId: page.snapshotId,
-        cursor: page.nextCursor,
-      },
-      scope,
-    );
-  }
+  return createWorkflowLibraryItemSnapshotApi()(request, control, onBatch);
 }
 
 export function createWorkflowAddonOwner(): WorkflowAddonOwner {

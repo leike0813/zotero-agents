@@ -123,27 +123,17 @@ export async function materializeValidTagsYaml(
   tags,
   parentId,
   runtime,
-  workflowId = "tag-regulator",
 ) {
   const result = await resolveWorkflowInputMaterializer(runtime)({
-    workflowId,
     key: "valid_tags",
     fileName: `valid_tags-parent-${String(parentId || "unknown")}.yaml`,
-    content: renderYamlTagList(tags),
+    content: { kind: "text", text: renderYamlTagList(tags) },
   });
   const filePath = String(result?.path || "").trim();
   if (!filePath) {
     throw new Error(
       "hostApi.file.materializeWorkflowInputFile returned empty path",
     );
-  }
-  try {
-    requireHostApi(runtime).logging?.recordLeakProbeTempArtifactForTests?.({
-      kind: "tag-regulator-valid-tags-yaml",
-      path: toNativePath(filePath),
-    });
-  } catch {
-    // keep probe registration best-effort
   }
   return toNativePath(filePath);
 }
@@ -156,17 +146,15 @@ export async function materializeDigestMarkdown(
   markdown,
   parentId,
   runtime,
-  workflowId = "tag-regulator",
 ) {
   const content = String(markdown || "");
   if (!content.trim()) {
     return null;
   }
   const result = await resolveWorkflowInputMaterializer(runtime)({
-    workflowId,
     key: "digest_markdown",
     fileName: `digest-markdown-parent-${String(parentId || "unknown")}.md`,
-    content,
+    content: { kind: "text", text: content },
   });
   const filePath = String(result?.path || "").trim();
   if (!filePath) {

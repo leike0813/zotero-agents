@@ -1,6 +1,7 @@
 import {
   copyRuntimeFile,
   ensureRuntimeDirectoryStrict,
+  isRuntimePathInspectionUnavailableError,
   listRuntimeChildrenStrict,
   moveRuntimePath,
   readRuntimeBytes,
@@ -8,21 +9,37 @@ import {
   removeRuntimePath,
   resolveRuntimeTemporaryDirectory,
   runtimePathExists,
+  statRuntimePath,
   statRuntimePathStrict,
   writeRuntimeBytes,
   writeRuntimeTextFileStrict,
 } from "../modules/runtimePersistence";
 import { openRuntimeFilePicker } from "../platform/filePicker";
-import { getBaseName, getParentPath, normalizeNativeLocalPath } from "../platform/path";
+import {
+  getBaseName,
+  getParentPath,
+  normalizeNativeLocalPath,
+} from "../platform/path";
 import { joinPath } from "../utils/path";
+import {
+  assertWorkflowCallNotCanceled,
+  createWorkflowHostError,
+} from "./workflowHostErrorContract";
 import type {
+  FilePickerFilterDto,
+  FilePickerRequestDto,
+  SaveFilePickerRequestDto,
+  WorkflowCallControl,
+  WorkflowFileCopyRequestDto,
   WorkflowFileListEntryDto,
   WorkflowFileListRequestDto,
   WorkflowFileListResultDto,
+  WorkflowFileMoveRequestDto,
+  WorkflowFileRemoveRequestDto,
   WorkflowFileRemoveResultDto,
   WorkflowFileStatDto,
+  WorkflowMakeDirectoryRequestDto,
 } from "./types";
-import { materializeWorkflowInputFile } from "./workflowInputMaterialization";
 
 const FILE_LIMITS = Object.freeze({
   readTextBytes: 64 * 1024 * 1024,
@@ -31,12 +48,67 @@ const FILE_LIMITS = Object.freeze({
   entries: 100_000,
   depth: 64,
   pathCharacters: 4_096,
+  pickerFilterGroups: 32,
+  pickerFilterExtensions: 64,
 });
 
-function requirePath(value: unknown) {
-  const path = normalizeNativeLocalPath(String(value || ""));
-  if (!path || path.length > FILE_LIMITS.pathCharacters) {
-    throw new TypeError("Workflow file path is invalid");
+function invalidRequest(
+  reason:
+    | "missing_field"
+    | "invalid_type"
+    | "invalid_value"
+    | "invalid_combination",
+  field: string,
+  message: string,
+) {
+  return createWorkflowHostError("invalid_request", message, {
+    reason,
+    field,
+  });
+}
+
+function resourceLimited(
+  resource: "entries" | "bytes" | "depth" | "path_length" | "selection",
+  limit: number,
+  observed?: number,
+) {
+  return createWorkflowHostError(
+    "resource_limited",
+    "Workflow file operation exceeds a fixed limit",
+    {
+      resource,
+      limit,
+      ...(typeof observed === "number" ? { observed } : {}),
+    },
+  );
+}
+
+function unavailable(message: string) {
+  return createWorkflowHostError("unavailable", message, {
+    reason: "filesystem",
+  });
+}
+
+function notFound() {
+  return createWorkflowHostError(
+    "not_found",
+    "Workflow file target does not exist",
+    { kind: "resource" },
+  );
+}
+
+function requirePath(value: unknown, field = "path") {
+  const raw = String(value || "");
+  if (raw.length > FILE_LIMITS.pathCharacters) {
+    throw resourceLimited(
+      "path_length",
+      FILE_LIMITS.pathCharacters,
+      raw.length,
+    );
+  }
+  const path = normalizeNativeLocalPath(raw);
+  if (!path) {
+    throw invalidRequest("invalid_value", field, "Workflow file path is invalid");
   }
   return path;
 }
@@ -45,12 +117,19 @@ function relativePath(root: string, path: string) {
   const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
   const normalizedPath = path.replace(/\\/g, "/");
   if (!normalizedPath.startsWith(`${normalizedRoot}/`)) {
-    throw new Error("Workflow file listing escaped its root");
+    throw createWorkflowHostError(
+      "permission_denied",
+      "Workflow file listing escaped its root",
+      { reason: "security_policy" },
+    );
   }
   return normalizedPath.slice(normalizedRoot.length + 1);
 }
 
-function statDto(path: string, stat: Awaited<ReturnType<typeof statRuntimePathStrict>>): WorkflowFileStatDto {
+function statDto(
+  path: string,
+  stat: Awaited<ReturnType<typeof statRuntimePathStrict>>,
+): WorkflowFileStatDto {
   return {
     path,
     kind: stat.isDir ? "directory" : "file",
@@ -62,10 +141,24 @@ function statDto(path: string, stat: Awaited<ReturnType<typeof statRuntimePathSt
   };
 }
 
+async function inspectExistingFile(path: string) {
+  try {
+    const stat = await statRuntimePathStrict(path);
+    if (!stat.exists || stat.isDir) throw notFound();
+    return stat;
+  } catch (error) {
+    if (isRuntimePathInspectionUnavailableError(error)) throw error;
+    if ((error as Error)?.name === "WorkflowHostError") throw error;
+    if (!(await runtimePathExists(path))) throw notFound();
+    throw unavailable("Workflow file cannot be inspected in this runtime");
+  }
+}
+
 async function assertFileSize(path: string, limit: number) {
-  const stat = await statRuntimePathStrict(path);
-  if (!stat.exists || stat.isDir) throw new Error("Workflow file is unavailable");
-  if (stat.size > limit) throw new Error("Workflow file exceeds its fixed byte limit");
+  const stat = await inspectExistingFile(path);
+  if (stat.size > limit) {
+    throw resourceLimited("bytes", limit, stat.size);
+  }
   return stat;
 }
 
@@ -91,87 +184,251 @@ async function atomicWrite(
   }
 }
 
+function normalizePickerFilters(filters: FilePickerFilterDto[] | undefined) {
+  if (typeof filters === "undefined") return undefined;
+  if (!Array.isArray(filters)) {
+    throw invalidRequest(
+      "invalid_type",
+      "filters",
+      "Workflow picker filters must be an array",
+    );
+  }
+  if (filters.length > FILE_LIMITS.pickerFilterGroups) {
+    throw resourceLimited(
+      "selection",
+      FILE_LIMITS.pickerFilterGroups,
+      filters.length,
+    );
+  }
+  return filters.map((filter): [string, string] => {
+    const label = String(filter?.label || "").trim();
+    const extensions = Array.isArray(filter?.extensions)
+      ? filter.extensions
+          .map((extension) =>
+            String(extension || "")
+              .trim()
+              .replace(/^\*?\.+/, ""),
+          )
+          .filter(Boolean)
+      : [];
+    if (!label || extensions.length === 0) {
+      throw invalidRequest(
+        "invalid_value",
+        "filters",
+        "Workflow picker filters require a label and extensions",
+      );
+    }
+    if (extensions.length > FILE_LIMITS.pickerFilterExtensions) {
+      throw resourceLimited(
+        "selection",
+        FILE_LIMITS.pickerFilterExtensions,
+        extensions.length,
+      );
+    }
+    return [label, extensions.map((extension) => `*.${extension}`).join(";")];
+  });
+}
+
+function pickerArgs(args: FilePickerRequestDto | SaveFilePickerRequestDto | undefined) {
+  return {
+    title: args?.title,
+    directory: args?.initialDirectory,
+    filters: normalizePickerFilters(args?.filters),
+    suggestion:
+      typeof (args as SaveFilePickerRequestDto | undefined)?.suggestedName ===
+      "string"
+        ? (args as SaveFilePickerRequestDto).suggestedName
+        : undefined,
+  };
+}
+
 export function createWorkflowFileApi() {
   return {
-    async readText(pathRaw: string) {
+    async readText(pathRaw: string, control?: WorkflowCallControl) {
+      assertWorkflowCallNotCanceled(control);
       const path = requirePath(pathRaw);
       try {
         await assertFileSize(path, FILE_LIMITS.readTextBytes);
       } catch (error) {
-        if (!String(error).includes("Runtime path cannot be inspected")) {
+        // Some runtimes cannot stat URL-like paths that remain readable;
+        // only the stable inspection-unavailable classification falls through.
+        if (!isRuntimePathInspectionUnavailableError(error)) {
           throw error;
         }
       }
-      const text = await readRuntimeTextFileStrict(path);
+      const text = await readRuntimeTextFileStrict(path).catch(() => {
+        throw unavailable("Workflow file read failed in this runtime");
+      });
       if (new TextEncoder().encode(text).length > FILE_LIMITS.readTextBytes) {
-        throw new Error("Workflow file exceeds its fixed byte limit");
+        throw resourceLimited("bytes", FILE_LIMITS.readTextBytes);
       }
+      assertWorkflowCallNotCanceled(control);
       return text;
     },
-    async writeText(pathRaw: string, content: string) {
+    async writeText(
+      pathRaw: string,
+      content: string,
+      control?: WorkflowCallControl,
+    ) {
+      assertWorkflowCallNotCanceled(control);
       const path = requirePath(pathRaw);
       const text = String(content ?? "");
       if (new TextEncoder().encode(text).length > FILE_LIMITS.transferBytes) {
-        throw new Error("Workflow file exceeds its fixed byte limit");
+        throw resourceLimited("bytes", FILE_LIMITS.transferBytes);
       }
       await atomicWrite(path, (temporaryPath) =>
         writeRuntimeTextFileStrict(temporaryPath, text),
       );
+      assertWorkflowCallNotCanceled(control);
     },
-    async readBytes(pathRaw: string) {
+    async readBytes(pathRaw: string, control?: WorkflowCallControl) {
+      assertWorkflowCallNotCanceled(control);
       const path = requirePath(pathRaw);
-      await assertFileSize(path, FILE_LIMITS.readBytes);
-      return readRuntimeBytes(path);
+      try {
+        await assertFileSize(path, FILE_LIMITS.readBytes);
+      } catch (error) {
+        // Same tolerance as readText: readable paths that cannot be stat-ed.
+        if (!isRuntimePathInspectionUnavailableError(error)) {
+          throw error;
+        }
+      }
+      const bytes = await readRuntimeBytes(path);
+      assertWorkflowCallNotCanceled(control);
+      return bytes;
     },
-    async writeBytes(pathRaw: string, bytes: Uint8Array | ArrayBuffer) {
+    async writeBytes(
+      pathRaw: string,
+      bytes: Uint8Array | ArrayBuffer,
+      control?: WorkflowCallControl,
+    ) {
+      assertWorkflowCallNotCanceled(control);
       const path = requirePath(pathRaw);
       const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
       if (view.byteLength > FILE_LIMITS.transferBytes) {
-        throw new Error("Workflow file exceeds its fixed byte limit");
+        throw resourceLimited("bytes", FILE_LIMITS.transferBytes);
       }
       await atomicWrite(path, (temporaryPath) =>
         writeRuntimeBytes(temporaryPath, view, { overwrite: false }),
       );
+      assertWorkflowCallNotCanceled(control);
     },
-    async copy(sourcePathRaw: string, targetPathRaw: string, overwrite = false) {
-      const sourcePath = requirePath(sourcePathRaw);
-      const targetPath = requirePath(targetPathRaw);
-      await assertFileSize(sourcePath, FILE_LIMITS.transferBytes);
+    async copy(args: WorkflowFileCopyRequestDto, control?: WorkflowCallControl) {
+      assertWorkflowCallNotCanceled(control);
+      const sourcePath = requirePath(args?.sourcePath, "sourcePath");
+      const targetPath = requirePath(args?.targetPath, "targetPath");
+      try {
+        await assertFileSize(sourcePath, FILE_LIMITS.transferBytes);
+      } catch (error) {
+        if (isRuntimePathInspectionUnavailableError(error)) {
+          throw unavailable(
+            "Workflow file cannot be inspected in this runtime",
+          );
+        }
+        throw error;
+      }
+      const overwrite = args?.overwrite === true;
       if (!overwrite && (await runtimePathExists(targetPath))) {
-        throw new Error("Workflow file copy target already exists");
+        throw createWorkflowHostError(
+          "conflict",
+          "Workflow file copy target already exists",
+          { reason: "ambiguous_state" },
+        );
       }
       if (overwrite && (await runtimePathExists(targetPath))) {
         await removeRuntimePath(targetPath);
       }
       await copyRuntimeFile({ sourcePath, targetPath });
+      assertWorkflowCallNotCanceled(control);
     },
-    async exists(pathRaw: string) {
+    async exists(pathRaw: string, control?: WorkflowCallControl) {
+      assertWorkflowCallNotCanceled(control);
       try {
         return await runtimePathExists(requirePath(pathRaw));
       } catch {
         return false;
       }
     },
-    makeDirectory(pathRaw: string) {
-      return ensureRuntimeDirectoryStrict(requirePath(pathRaw));
+    async makeDirectory(
+      args: WorkflowMakeDirectoryRequestDto,
+      control?: WorkflowCallControl,
+    ) {
+      assertWorkflowCallNotCanceled(control);
+      const path = requirePath(args?.path);
+      if (args?.recursive === false) {
+        const parentStat = await statRuntimePath(getParentPath(path));
+        if (!parentStat.exists || !parentStat.isDir) {
+          throw notFound();
+        }
+      }
+      await ensureRuntimeDirectoryStrict(path);
+      assertWorkflowCallNotCanceled(control);
     },
-    async stat(pathRaw: string) {
+    async stat(pathRaw: string, control?: WorkflowCallControl) {
+      assertWorkflowCallNotCanceled(control);
       const path = requirePath(pathRaw);
-      return statDto(path, await statRuntimePathStrict(path));
+      try {
+        const stat = await statRuntimePathStrict(path);
+        if (!stat.exists) throw notFound();
+        return statDto(path, stat);
+      } catch (error) {
+        if (isRuntimePathInspectionUnavailableError(error)) {
+          throw unavailable("Workflow file cannot be inspected in this runtime");
+        }
+        if ((error as Error)?.name === "WorkflowHostError") throw error;
+        if (!(await runtimePathExists(path))) throw notFound();
+        throw unavailable("Workflow file cannot be inspected in this runtime");
+      }
     },
-    async list(args: WorkflowFileListRequestDto): Promise<WorkflowFileListResultDto> {
+    async list(
+      args: WorkflowFileListRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowFileListResultDto> {
+      assertWorkflowCallNotCanceled(control);
       const rootPath = requirePath(args?.path);
       const recursive = args?.recursive === true;
-      const maxDepth = Math.min(
-        FILE_LIMITS.depth,
-        Math.max(0, Number(args?.maxDepth ?? FILE_LIMITS.depth) || 0),
-      );
-      const rootStat = await statRuntimePathStrict(rootPath);
-      if (!rootStat.isDir) throw new Error("Workflow file list root is not a directory");
+      const requestedDepth = args?.maxDepth;
+      if (
+        typeof requestedDepth !== "undefined" &&
+        (!Number.isSafeInteger(requestedDepth) || Number(requestedDepth) < 0)
+      ) {
+        throw invalidRequest(
+          "invalid_value",
+          "maxDepth",
+          "Workflow file list maxDepth must be a non-negative integer",
+        );
+      }
+      if (Number(requestedDepth) > FILE_LIMITS.depth) {
+        throw resourceLimited(
+          "depth",
+          FILE_LIMITS.depth,
+          Number(requestedDepth),
+        );
+      }
+      // A caller-provided maxDepth bounds traversal silently; only the fixed
+      // hard depth limit fails with resource_limited.
+      const depthBound =
+        typeof requestedDepth === "number"
+          ? Number(requestedDepth)
+          : Number.POSITIVE_INFINITY;
+      const rootStat = await statRuntimePathStrict(rootPath).catch((error) => {
+        if (isRuntimePathInspectionUnavailableError(error)) {
+          throw unavailable("Workflow file cannot be inspected in this runtime");
+        }
+        throw error;
+      });
+      if (!rootStat.exists) throw notFound();
+      if (!rootStat.isDir) {
+        throw invalidRequest(
+          "invalid_value",
+          "path",
+          "Workflow file list root is not a directory",
+        );
+      }
       const entries: WorkflowFileListEntryDto[] = [];
       const pending = [{ path: rootPath, depth: 0 }];
       let totalFileBytes = 0;
       while (pending.length) {
+        assertWorkflowCallNotCanceled(control);
         const current = pending.shift()!;
         const children = (await listRuntimeChildrenStrict(current.path)).sort();
         for (const child of children) {
@@ -184,14 +441,17 @@ export function createWorkflowFileApi() {
             modifiedAt: entry.modifiedAt,
           });
           if (entries.length > FILE_LIMITS.entries) {
-            throw new Error("Workflow file list exceeds its fixed entry limit");
+            throw resourceLimited("entries", FILE_LIMITS.entries);
           }
           if (entry.kind === "file") totalFileBytes += entry.sizeBytes || 0;
           if (recursive && entry.kind === "directory") {
-            if (current.depth >= maxDepth) {
-              throw new Error("Workflow file list exceeds its fixed depth limit");
+            const nextDepth = current.depth + 1;
+            if (nextDepth > FILE_LIMITS.depth) {
+              throw resourceLimited("depth", FILE_LIMITS.depth, nextDepth);
             }
-            pending.push({ path: child, depth: current.depth + 1 });
+            if (current.depth < depthBound) {
+              pending.push({ path: child, depth: nextDepth });
+            }
           }
         }
       }
@@ -202,6 +462,7 @@ export function createWorkflowFileApi() {
             ? 1
             : 0,
       );
+      assertWorkflowCallNotCanceled(control);
       return {
         rootPath,
         entries,
@@ -209,74 +470,70 @@ export function createWorkflowFileApi() {
         totalFileBytes,
       };
     },
-    move(args: { sourcePath: string; targetPath: string; overwrite?: boolean }) {
-      return moveRuntimePath({
-        sourcePath: requirePath(args?.sourcePath),
-        targetPath: requirePath(args?.targetPath),
+    async move(args: WorkflowFileMoveRequestDto, control?: WorkflowCallControl) {
+      assertWorkflowCallNotCanceled(control);
+      await moveRuntimePath({
+        sourcePath: requirePath(args?.sourcePath, "sourcePath"),
+        targetPath: requirePath(args?.targetPath, "targetPath"),
         overwrite: args?.overwrite === true,
       });
+      assertWorkflowCallNotCanceled(control);
     },
-    async remove(args: {
-      path: string;
-      recursive?: boolean;
-      missing?: "error" | "ignore";
-    }): Promise<WorkflowFileRemoveResultDto> {
+    async remove(
+      args: WorkflowFileRemoveRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowFileRemoveResultDto> {
+      assertWorkflowCallNotCanceled(control);
       const path = requirePath(args?.path);
       if (!(await runtimePathExists(path))) {
         if (args?.missing === "ignore") return { removed: false };
-        throw new Error("Workflow file remove target does not exist");
+        throw notFound();
       }
       const stat = await statRuntimePathStrict(path);
       if (stat.isDir && args?.recursive !== true) {
         const children = await listRuntimeChildrenStrict(path);
         if (children.length) {
-          throw new Error("Recursive workflow directory removal was not requested");
+          throw invalidRequest(
+            "invalid_combination",
+            "recursive",
+            "Recursive workflow directory removal was not requested",
+          );
         }
       }
-      return { removed: await removeRuntimePath(path) };
+      const removed = await removeRuntimePath(path);
+      assertWorkflowCallNotCanceled(control);
+      return { removed };
     },
-    materializeWorkflowInputFile,
-    getTempDirectoryPath: resolveRuntimeTemporaryDirectory,
-    pickDirectory: (args?: { title?: string; directory?: string }) =>
+    getTempDirectoryPath() {
+      try {
+        return resolveRuntimeTemporaryDirectory();
+      } catch {
+        throw createWorkflowHostError(
+          "unavailable",
+          "Runtime temporary directory is unavailable",
+          { reason: "runtime" },
+        );
+      }
+    },
+    pickDirectory: (args?: FilePickerRequestDto) =>
       openRuntimeFilePicker({
-        title: args?.title,
+        ...pickerArgs(args),
         mode: "folder",
-        directory: args?.directory,
       }) as Promise<string | null>,
-    pickFile: (args?: {
-      title?: string;
-      directory?: string;
-      filters?: [string, string][];
-    }) =>
+    pickFile: (args?: FilePickerRequestDto) =>
       openRuntimeFilePicker({
-        title: args?.title,
+        ...pickerArgs(args),
         mode: "open",
-        directory: args?.directory,
-        filters: args?.filters,
       }) as Promise<string | null>,
-    pickSaveFile: (args?: {
-      title?: string;
-      directory?: string;
-      filters?: [string, string][];
-      suggestedName?: string;
-    }) =>
+    pickSaveFile: (args?: SaveFilePickerRequestDto) =>
       openRuntimeFilePicker({
-        title: args?.title,
+        ...pickerArgs(args),
         mode: "save",
-        directory: args?.directory,
-        filters: args?.filters,
-        suggestion: args?.suggestedName,
       }) as Promise<string | null>,
-    pickFiles: (args?: {
-      title?: string;
-      directory?: string;
-      filters?: [string, string][];
-    }) =>
+    pickFiles: (args?: FilePickerRequestDto) =>
       openRuntimeFilePicker({
-        title: args?.title,
+        ...pickerArgs(args),
         mode: "multiple",
-        directory: args?.directory,
-        filters: args?.filters,
       }) as Promise<string[] | null>,
   };
 }

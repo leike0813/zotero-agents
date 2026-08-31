@@ -9,16 +9,16 @@ export type ResourceRef = Readonly<{
 
 export type StableIssueDto =
   | Readonly<{
-      code:
-        | "source_missing"
-        | "source_unreadable"
-        | "source_unsafe"
-        | "resource_missing"
-        | "resource_unreadable"
-        | "concurrent_modification"
-        | "optional_resource_missing";
-      target: "paper" | "note" | "attachment" | "image" | "resource";
-      logicalPath?: string;
+      code: "attachment_file_missing";
+      attachmentRef: PortableItemRef;
+    }>
+  | Readonly<{
+      code: "attachment_file_unreadable";
+      attachmentRef: PortableItemRef;
+    }>
+  | Readonly<{
+      code: "attachment_file_permission_denied";
+      attachmentRef: PortableItemRef;
     }>
   | Readonly<{
       code: "bibliography_format_fallback";
@@ -854,10 +854,17 @@ export type ItemRemovalResultDto = JsonObject & {
   outcome: RemovalOutcome;
 };
 
+export type RelatedItemMutationOutcome =
+  | "added"
+  | "removed"
+  | "already_present"
+  | "already_absent";
+
 export type RelatedItemMutationResultDto = JsonObject & {
   sourceRef: PortableItemRef;
   relatedRef: PortableItemRef;
-  related: boolean;
+  outcome: RelatedItemMutationOutcome;
+  sourceRevision: string;
 };
 
 export type CollectionMembershipResultDto = JsonObject & {
@@ -1742,25 +1749,39 @@ export type WorkflowFileRemoveRequestDto = {
   recursive?: boolean;
   missing?: "error" | "ignore";
 };
-export type WorkflowMakeDirectoryRequestDto = { path: string };
-export type WorkflowInputFileMaterializationRequestDto = import("./workflowInputMaterialization").WorkflowInputMaterializationRequest;
-export type WorkflowMaterializedFileDto = { path: string };
+export type WorkflowMakeDirectoryRequestDto = {
+  path: string;
+  recursive?: boolean;
+};
+export type WorkflowInputFileMaterializationRequestDto = import("./workflowInputMaterialization").ScopedWorkflowInputMaterializationRequest;
+export type WorkflowMaterializedFileDto = {
+  path: string;
+  sizeBytes: number;
+  sha256: string;
+};
+export type FilePickerFilterDto = {
+  label: string;
+  extensions: string[];
+};
 export type FilePickerRequestDto = {
   title?: string;
-  directory?: string;
-  filters?: [string, string][];
+  initialDirectory?: string;
+  filters?: FilePickerFilterDto[];
 };
 export type SaveFilePickerRequestDto = FilePickerRequestDto & {
   suggestedName?: string;
 };
-export type WorkflowArchiveMeasureRequestDto = import("./archive").WorkflowArchiveEntry[];
-export type WorkflowArchiveMeasureResultDto = import("./archive").WorkflowArchiveMeasurement;
+export type WorkflowArchiveEntryDto = import("./archive").WorkflowArchiveEntryDto;
+export type WorkflowArchiveMeasureRequestDto = {
+  entries: import("./archive").WorkflowArchiveEntryDto[];
+};
+export type WorkflowArchiveMeasureResultDto = import("./archive").WorkflowArchiveMeasureResultDto;
 export type WorkflowArchiveWriteRequestDto = {
   targetPath: string;
-  entries: import("./archive").WorkflowArchiveEntry[];
+  entries: import("./archive").WorkflowArchiveEntryDto[];
 };
 export type WorkflowArchiveWriteResultDto =
-  import("./archive").WorkflowArchiveMeasurement & { targetPath: string };
+  import("./archive").WorkflowArchiveMeasureResultDto & { targetPath: string };
 export type WorkflowArchiveExtractRequestDto = { sourcePath: string };
 export type WorkflowExtractedArchive = import("./archive").WorkflowExtractedArchive;
 export type WorkflowResourceFileDto = WorkflowResourceFile;
@@ -2183,6 +2204,12 @@ export type WorkflowRuntimeContext = {
   workflowSourceKind?: "official" | "dev-local" | "user" | "";
   hookName?: "preflight" | "buildRequest" | "applyResult" | "";
   locale?: string;
+  /**
+   * Read-only execution signal owned by the workflow runtime for the current
+   * run. Callers must not create parallel run-cancellation state; pass it to
+   * Workflow Host members through `WorkflowCallControl`.
+   */
+  signal?: AbortSignal;
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
   btoa?: typeof globalThis.btoa | null;

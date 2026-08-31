@@ -23,6 +23,15 @@ export const LITERATURE_EXPORT_MODES = new Set(["selection", "collection", "libr
 const LIST_PAGE_LIMIT = 200;
 const LIST_PAGE_GUARD = 10000;
 
+function toManifestFileIntegrity(files) {
+  return Object.fromEntries(
+    Object.entries(files || {}).map(([path, integrity]) => [
+      path,
+      { size: integrity?.sizeBytes ?? 0, sha256: integrity?.sha256 || "" },
+    ]),
+  );
+}
+
 function normalizeText(value) {
   return String(value || "").trim();
 }
@@ -169,7 +178,7 @@ export async function verifyLiteratureBundleFiles(manifest, archive) {
   const measured = await archive.measureEntries(Object.keys(manifest.files || {}));
   for (const [path, expected] of Object.entries(manifest.files || {})) {
     const actual = measured?.files?.[path];
-    if (actual?.size !== expected.size || actual?.sha256 !== expected.sha256) {
+    if (actual?.sizeBytes !== expected.size || actual?.sha256 !== expected.sha256) {
       throw new Error(`bundle file integrity mismatch: ${path}`);
     }
   }
@@ -222,7 +231,7 @@ export async function verifyResearchProductFiles(manifest, archive) {
   const measured = await archive.measureEntries(Object.keys(manifest.files || {}));
   for (const [path, expected] of Object.entries(manifest.files || {})) {
     const actual = measured?.files?.[path];
-    if (actual?.size !== expected.size || actual?.sha256 !== expected.sha256) {
+    if (actual?.sizeBytes !== expected.size || actual?.sha256 !== expected.sha256) {
       throw new Error(`research product file integrity mismatch: ${path}`);
     }
   }
@@ -427,7 +436,7 @@ export async function verifyLiteratureProductFiles(manifest, archive) {
   const measured = await archive.measureEntries(Object.keys(manifest.files || {}));
   for (const [path, expected] of Object.entries(manifest.files || {})) {
     const actual = measured?.files?.[path];
-    if (actual?.size !== expected.size || actual?.sha256 !== expected.sha256) {
+    if (actual?.sizeBytes !== expected.size || actual?.sha256 !== expected.sha256) {
       throw new Error(`literature product file integrity mismatch: ${path}`);
     }
   }
@@ -486,16 +495,16 @@ export async function buildLiteratureBundleExport(args) {
         });
         warnings.push(...rewritten.warnings.map((warning) => ({ ...warning, itemId, childId: id })));
         const path = `${basePath}/${baseName}`;
-        payloadEntries.push({ name: path, text: rewritten.markdown });
+        payloadEntries.push({ name: path, content: { kind: "text", text: rewritten.markdown } });
         const assets = rewritten.assets.map((asset) => {
           const assetPath = `${basePath}/${asset.relativePath}`;
-          payloadEntries.push({ name: assetPath, sourcePath: asset.sourcePath });
+          payloadEntries.push({ name: assetPath, content: { kind: "file", sourcePath: asset.sourcePath } });
           return { id: asset.id, path: assetPath, relativePath: asset.relativePath };
         });
         attachmentRecords.push({ id, kind: "markdown", metadata, path, assets });
       } else {
         const path = `${basePath}/${baseName}`;
-        payloadEntries.push({ name: path, sourcePath });
+        payloadEntries.push({ name: path, content: { kind: "file", sourcePath } });
         attachmentRecords.push({ id, kind: "file", metadata, path });
       }
     }
@@ -512,7 +521,7 @@ export async function buildLiteratureBundleExport(args) {
         const resource = await host.resources.get(image.resourceRef);
         const path = `items/${itemId}/notes/${id}/images/${imageId}/${sanitizeFileNameSegment(resource.displayName || `${imageId}.bin`)}`;
         const sourcePath = resource.path;
-        payloadEntries.push({ name: path, sourcePath });
+        payloadEntries.push({ name: path, content: { kind: "file", sourcePath } });
         portableHtml = portableHtml.replace(
           new RegExp(`data-zotero-agents-image-slot=(["'])${escapeRegex(image.slot)}\\1`, "i"),
           `data-zb-attachment-ref="${imageId}"`,
@@ -534,7 +543,7 @@ export async function buildLiteratureBundleExport(args) {
         })),
       );
       const htmlPath = `items/${itemId}/notes/${id}/note.html`;
-      payloadEntries.push({ name: htmlPath, text: portableHtml });
+      payloadEntries.push({ name: htmlPath, content: { kind: "text", text: portableHtml } });
       const payloads = note.payloads.map((block) => {
         const source = block.summary.source;
         const sourceSlot =
@@ -579,7 +588,7 @@ export async function buildLiteratureBundleExport(args) {
     });
   }
 
-  const measured = await host.archive.measureEntries(payloadEntries);
+  const measured = await host.archive.measureEntries({ entries: payloadEntries });
   const manifest = {
     kind: LITERATURE_BUNDLE_KIND,
     schemaVersion: LITERATURE_BUNDLE_SCHEMA_VERSION,
@@ -590,7 +599,7 @@ export async function buildLiteratureBundleExport(args) {
     },
     warnings,
     items: itemRecords,
-    files: measured.files,
+    files: toManifestFileIntegrity(measured.files),
   };
   return { manifest, entries: payloadEntries, warnings };
 }
@@ -685,7 +694,7 @@ export async function buildLiteratureProduct(args) {
     const metadataPath = `papers/${logicalId}/metadata.json`;
     entries.push({
       name: metadataPath,
-      text: `${JSON.stringify(item.itemJson, null, 2)}\n`,
+      content: { kind: "text", text: `${JSON.stringify(item.itemJson, null, 2)}\n` },
     });
 
     const payloads = [];
@@ -700,11 +709,11 @@ export async function buildLiteratureProduct(args) {
         payloadOrdinals.set(payloadType, ordinal);
         const extension = block.summary.format === "json" ? "json" : "md";
         const path = `papers/${logicalId}/payloads/${artifactName}-${String(ordinal).padStart(3, "0")}.${extension}`;
-        entries.push({ name: path, text: workbenchPayloadText({
+        entries.push({ name: path, content: { kind: "text", text: workbenchPayloadText({
           format: block.summary.format,
           payload: block.value,
           markdown: typeof block.value === "string" ? block.value : "",
-        }) });
+        }) } });
         payloads.push({
           id: `p${payloads.length + 1}`,
           payload_type: payloadType,
@@ -766,11 +775,11 @@ export async function buildLiteratureProduct(args) {
   });
   const bibliography = bibliographyExport.bibliography;
   if (bibliography.status === "generated") {
-    entries.push({ name: "references.bib", text: bibliographyExport.content });
+    entries.push({ name: "references.bib", content: { kind: "text", text: bibliographyExport.content } });
   }
-  entries.push({ name: "index.md", text: renderLiteratureProductIndex(papers) });
-  entries.push({ name: "README.md", text: renderLiteratureProductReadme() });
-  const measured = await host.archive.measureEntries(entries);
+  entries.push({ name: "index.md", content: { kind: "text", text: renderLiteratureProductIndex(papers) } });
+  entries.push({ name: "README.md", content: { kind: "text", text: renderLiteratureProductReadme() } });
+  const measured = await host.archive.measureEntries({ entries });
   const manifest = {
     schema_id: LITERATURE_PRODUCT_SCHEMA,
     schema_version: LITERATURE_PRODUCT_SCHEMA_VERSION,
@@ -781,7 +790,7 @@ export async function buildLiteratureProduct(args) {
     },
     bibliography,
     papers,
-    files: measured.files,
+    files: toManifestFileIntegrity(measured.files),
     warnings,
   };
   return { manifest, entries, warnings };
@@ -850,14 +859,14 @@ export async function buildLiteratureBundleSourceOnlyExport(args) {
     const entryPath = `items/${fileName}`;
     if (chosenAttachment.isMarkdown) {
       const text = await host.file.readText(chosenAttachment.sourcePath);
-      payloadEntries.push({ name: entryPath, text });
+      payloadEntries.push({ name: entryPath, content: { kind: "text", text } });
     } else {
-      payloadEntries.push({ name: entryPath, sourcePath: chosenAttachment.sourcePath });
+      payloadEntries.push({ name: entryPath, content: { kind: "file", sourcePath: chosenAttachment.sourcePath } });
     }
     itemRecords.push({ id: bundleLocalId, path: entryPath });
   }
 
-  const measured = await host.archive.measureEntries(payloadEntries);
+  const measured = await host.archive.measureEntries({ entries: payloadEntries });
   const manifest = {
     kind: LITERATURE_BUNDLE_SOURCE_ONLY_KIND,
     createdAt: new Date().toISOString(),
@@ -867,7 +876,7 @@ export async function buildLiteratureBundleSourceOnlyExport(args) {
     },
     warnings,
     items: itemRecords,
-    files: measured.files,
+    files: toManifestFileIntegrity(measured.files),
   };
   return { manifest, entries: payloadEntries, warnings };
 }
@@ -985,7 +994,7 @@ export async function exportLiteratureBundle(args) {
     targetCollection: args.targetCollection,
     selectionContext: args.selectionContext,
   });
-  const remoteOutput = args.host.resources?.mode === "non-interactive";
+  const remoteOutput = args.host.interactionMode === "non_interactive";
   const allocatedOutput = remoteOutput
     ? await args.host.resources.allocateOutput({
         slotId: "bundle",
@@ -997,7 +1006,7 @@ export async function exportLiteratureBundle(args) {
     ? allocatedOutput?.path || null
     : await args.host.file.pickSaveFile({
         title: "Export Literature Bundle",
-        filters: [["Literature bundle", "*.zip"]],
+        filters: [{ label: "Literature bundle", extensions: ["zip"] }],
         suggestedName: "literature-bundle.zip",
       });
   if (!selectedTargetPath) {
@@ -1013,7 +1022,7 @@ export async function exportLiteratureBundle(args) {
     await args.host.archive.writeZipAtomic({
       targetPath,
       entries: [
-        { name: "manifest.json", text: JSON.stringify(built.manifest, null, 2) },
+        { name: "manifest.json", content: { kind: "text", text: JSON.stringify(built.manifest, null, 2) } },
         ...built.entries,
       ],
     });
@@ -1041,7 +1050,7 @@ export async function exportLiteratureBundle(args) {
   await args.host.archive.writeZipAtomic({
     targetPath,
     entries: [
-      { name: "manifest.json", text: JSON.stringify(built.manifest, null, 2) },
+      { name: "manifest.json", content: { kind: "text", text: JSON.stringify(built.manifest, null, 2) } },
       ...built.entries,
     ],
   });
@@ -1507,14 +1516,17 @@ export async function importLiteratureBundle(args) {
     args.host.resources?.getInput("bundle")?.path ||
     (await args.host.file.pickFile({
       title: "Import Literature Bundle",
-      filters: [["Literature bundle", "*.zip"]],
+      filters: [{ label: "Literature bundle", extensions: ["zip"] }],
     }));
   if (!sourcePath) {
     return { kind: "literature_bundle_import", status: "canceled", importedItems: [], failedItems: [], warnings: [] };
   }
   let callbackStarted = false;
   try {
-    return await args.host.archive.withExtractedZip(sourcePath, async (archive) => {
+    return await args.host.archive.withExtractedZip(
+      { sourcePath },
+      { signal: args.runtime?.signal },
+      async (archive) => {
       callbackStarted = true;
       let manifest;
       try {

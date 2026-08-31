@@ -150,6 +150,7 @@ export type TagAuditRunHandleDto = {
 
 export type TagAuditRunBeginRequestDto = TagAuditRunRequestDto & {
   executionIdentity: TagAuditExecutionIdentityDto;
+  activeRunIds?: string[];
 };
 
 export type TagAuditRunBeginResultDto = {
@@ -273,9 +274,7 @@ function rebuildAuditTags(value: unknown, location: string) {
   });
   if (
     new Set(tags).size !== tags.length ||
-    tags.some(
-      (tag, index) => index > 0 && tags[index - 1]!.localeCompare(tag) >= 0,
-    )
+    tags.some((tag, index) => index > 0 && tags[index - 1]! >= tag)
   ) {
     return invalidTagAudit(location);
   }

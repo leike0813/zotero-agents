@@ -295,7 +295,7 @@ async function rewriteMarkdownImages({
       copiedBySourcePath.set(sourceKey, bundlePath);
       entries.push({
         name: bundlePath,
-        bytes,
+        content: { kind: "bytes", bytes },
       });
       replacements.push({
         start: ref.start,
@@ -490,7 +490,7 @@ async function addArtifactEntry({
       `${payloadType || normalizedKind} payload decoded to empty content`,
     );
   }
-  entries.push({ name: destination, text });
+  entries.push({ name: destination, content: { kind: "text", text } });
   const hash = await sha256Hex(bytes);
   const row = {
     type: normalizedKind,
@@ -743,13 +743,16 @@ async function collectSidecarArtifacts({
 
   entries.push({
     name: "artifacts/artifact-manifest.json",
-    text: JSON.stringify(
-      {
-        artifacts: artifactManifest,
-      },
-      null,
-      2,
-    ),
+    content: {
+      kind: "text",
+      text: JSON.stringify(
+        {
+          artifacts: artifactManifest,
+        },
+        null,
+        2,
+      ),
+    },
   });
   return artifactEntries;
 }
@@ -786,13 +789,13 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
     imageManifest = rewritten.imageManifest;
     entries.push({
       name: "source.md",
-      text: rewritten.markdown,
+      content: { kind: "text", text: rewritten.markdown },
     });
   } else if (sourceIsPdf) {
     const bytes = asUint8Array(await hostFile.readBytes(sourcePath));
     entries.push({
       name: "original.pdf",
-      bytes,
+      content: { kind: "bytes", bytes },
     });
     diagnostics.push({
       level: "info",
@@ -832,7 +835,7 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
       ) {
         entries.push({
           name: "translator/alignment.json",
-          text: alignmentText,
+          content: { kind: "text", text: alignmentText },
         });
         translatorAlignment = {
           status: "available",
@@ -909,7 +912,7 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
 
   entries.push({
     name: "source-manifest.json",
-    text: JSON.stringify(sourceManifest, null, 2),
+    content: { kind: "text", text: JSON.stringify(sourceManifest, null, 2) },
   });
 
   if (typeof hostFile.materializeWorkflowInputFile !== "function") {
@@ -931,10 +934,12 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
       entries,
     });
     materialized = await hostFile.materializeWorkflowInputFile({
-      workflowId,
       key: "source_bundle_path",
       fileName: `source-bundle-parent-${String(parentItem?.id || "unknown")}.zip`,
-      bytes: await hostFile.readBytes(temporaryPath),
+      content: {
+        kind: "bytes",
+        bytes: await hostFile.readBytes(temporaryPath),
+      },
     });
   } finally {
     await hostFile.remove({

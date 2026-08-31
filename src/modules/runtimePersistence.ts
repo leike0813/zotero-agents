@@ -1861,6 +1861,24 @@ type RuntimePathStat = {
   lastModified?: number;
 };
 
+export const RUNTIME_PATH_INSPECTION_UNAVAILABLE_CODE =
+  "runtime_path_inspection_unavailable" as const;
+
+function createRuntimePathInspectionUnavailableError(message: string) {
+  const error = new Error(message) as Error & { code?: string };
+  error.code = RUNTIME_PATH_INSPECTION_UNAVAILABLE_CODE;
+  return error;
+}
+
+export function isRuntimePathInspectionUnavailableError(error: unknown) {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code ===
+      RUNTIME_PATH_INSPECTION_UNAVAILABLE_CODE
+  );
+}
+
 async function statRuntimePathInternal(
   pathRaw: string,
   surfaceErrors: boolean,
@@ -1899,7 +1917,9 @@ async function statRuntimePathInternal(
   }
   if (isNonNativeAbsolutePath(path)) {
     if (surfaceErrors) {
-      throw new Error("Runtime path cannot be inspected on this platform");
+      throw createRuntimePathInspectionUnavailableError(
+        "Runtime path cannot be inspected on this platform",
+      );
     }
     return { exists: false, isDir: false, size: 0 };
   }
@@ -1920,7 +1940,9 @@ async function statRuntimePathInternal(
     }
   }
   if (surfaceErrors) {
-    throw new Error("No runtime path stat API is available");
+    throw createRuntimePathInspectionUnavailableError(
+      "No runtime path stat API is available",
+    );
   }
   return { exists: await runtimePathExists(path), isDir: false, size: 0 };
 }

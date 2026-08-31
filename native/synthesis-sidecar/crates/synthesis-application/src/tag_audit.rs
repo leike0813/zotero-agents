@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    TagAuditAppendOutcome, TagAuditRunRecord, TagAuditSnapshotRecord, TagAuditStagingRecord,
-    TagRegulationAcknowledgementPrepareOutcome, TagRegulationCommitOutcome,
+    TagAuditAppendOutcome, TagAuditPromoteOutcome, TagAuditRunRecord, TagAuditSnapshotRecord,
+    TagAuditStagingRecord, TagRegulationAcknowledgementPrepareOutcome, TagRegulationCommitOutcome,
     TagRegulationVerifiedCommitRecord,
 };
 
@@ -44,6 +44,8 @@ pub struct TagAuditRunBeginRequest {
     pub library_id: i64,
     pub vocabulary_hash: String,
     pub execution_identity: TagAuditExecutionIdentity,
+    #[serde(default)]
+    pub active_run_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,6 +256,11 @@ impl TagAuditApplication {
                 .principal
                 .content_digest
                 .is_empty()
+            || request.active_run_ids.len() > 1024
+            || request
+                .active_run_ids
+                .iter()
+                .any(|run_id| run_id.is_empty() || run_id.len() > 128)
         {
             return Err("invalid_request".into());
         }
@@ -302,6 +309,12 @@ impl TagAuditApplication {
             &request.execution_identity.host_instance_id,
             &record.updated_at,
         )?;
+        repository.abandon_inactive_tag_audit_runs_for_host(
+            request.library_id,
+            &request.execution_identity.host_instance_id,
+            &request.active_run_ids,
+            &record.updated_at,
+        )?;
         let created = repository.begin_tag_audit_run(&record)?;
         if !created {
             return Err("tag_audit_operation_in_progress".into());
@@ -344,7 +357,25 @@ impl TagAuditApplication {
             ))
         })?;
         let run = run.ok_or_else(|| "tag_audit_run_not_found".to_owned())?;
-        if run.status != "open" || run.lease_token != request.run.lease_token {
+        if run.lease_token != request.run.lease_token {
+            return Err("tag_audit_run_fenced".into());
+        }
+        if run.status == "promoted" {
+            let persisted = self
+                .repository
+                .with_reader(|repository| repository.get_tag_audit_snapshot(run.library_id))?
+                .filter(|snapshot| snapshot.source_run_id == run.audit_run_id)
+                .ok_or_else(|| "tag_audit_run_fenced".to_owned())?;
+            if persisted.coverage_digest != request.coverage_digest
+                || persisted.audited_items != request.visited_items as i64
+            {
+                return Err("tag_audit_coverage_conflict".into());
+            }
+            return Ok(TagAuditRunResult::Published {
+                snapshot: snapshot_summary(persisted),
+            });
+        }
+        if run.status != "open" {
             return Err("tag_audit_run_fenced".into());
         }
         if request.visited_items != staging.len()
@@ -422,11 +453,12 @@ impl TagAuditApplication {
                 .iter()
                 .filter(|entry| entry.evaluation_state == "needs_regulation")
                 .count() as i64,
-            source_run_id: run.audit_run_id,
+            source_run_id: run.audit_run_id.clone(),
             published_at: now.clone(),
             updated_at: now,
         };
-        self.repository
+        let outcome = self
+            .repository
             .owner()
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
@@ -435,19 +467,16 @@ impl TagAuditApplication {
                 &request.run.lease_token,
                 &snapshot,
             )?;
+        let snapshot = match outcome {
+            TagAuditPromoteOutcome::Promoted => snapshot,
+            TagAuditPromoteOutcome::AlreadyPromoted => self
+                .repository
+                .with_reader(|repository| repository.get_tag_audit_snapshot(run.library_id))?
+                .filter(|persisted| persisted.source_run_id == run.audit_run_id)
+                .ok_or_else(|| "tag_audit_snapshot_missing".to_owned())?,
+        };
         Ok(TagAuditRunResult::Published {
-            snapshot: TagAuditSnapshotSummary {
-                schema: "zotero-agents.tag-audit-snapshot.v1".into(),
-                library_id: snapshot.library_id,
-                snapshot_revision: snapshot.snapshot_revision,
-                vocabulary_hash: snapshot.vocabulary_hash,
-                basis_digest: snapshot.basis_digest,
-                coverage_digest: snapshot.coverage_digest,
-                audited_items: snapshot.audited_items,
-                needs_regulation: snapshot.needs_regulation,
-                published_at: snapshot.published_at,
-                updated_at: snapshot.updated_at,
-            },
+            snapshot: snapshot_summary(snapshot),
         })
     }
 
@@ -619,6 +648,21 @@ impl TagAuditApplication {
     }
 }
 
+fn snapshot_summary(snapshot: TagAuditSnapshotRecord) -> TagAuditSnapshotSummary {
+    TagAuditSnapshotSummary {
+        schema: "zotero-agents.tag-audit-snapshot.v1".into(),
+        library_id: snapshot.library_id,
+        snapshot_revision: snapshot.snapshot_revision,
+        vocabulary_hash: snapshot.vocabulary_hash,
+        basis_digest: snapshot.basis_digest,
+        coverage_digest: snapshot.coverage_digest,
+        audited_items: snapshot.audited_items,
+        needs_regulation: snapshot.needs_regulation,
+        published_at: snapshot.published_at,
+        updated_at: snapshot.updated_at,
+    }
+}
+
 fn validate_entries(
     audit_run_id: &str,
     entries: &[TagAuditStagingEntry],
@@ -774,6 +818,7 @@ mod tests {
                         content_digest: "content-1".into(),
                     },
                 },
+                active_run_ids: Vec::new(),
             })
             .unwrap();
         let tags = vec!["topic:agents".into()];
@@ -809,6 +854,235 @@ mod tests {
             })
             .unwrap();
         assert!(matches!(result, TagAuditRunResult::Published { .. }));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    struct CountingRuntime {
+        next: std::sync::atomic::AtomicU64,
+    }
+
+    impl TagAuditRuntimePort for CountingRuntime {
+        fn now(&self) -> String {
+            "2026-08-30T00:00:00.000Z".into()
+        }
+        fn opaque_id(&self, kind: &str) -> String {
+            let sequence = self
+                .next
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            format!("{kind}-{}", sequence + 1)
+        }
+    }
+
+    fn repository_with_vocabulary(label: &str) -> (std::path::PathBuf, Arc<RepositoryPort>) {
+        let root = std::env::temp_dir().join(format!(
+            "synthesis-tag-audit-application-{label}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-r7".into(),
+                data_root_id: "data-r7".into(),
+            },
+        )
+        .unwrap();
+        repository
+            .replace_tag_vocabulary_state(
+                None,
+                &synthesis_repository::TagVocabularyReplacement {
+                    state: TagApplicationStateRecord {
+                        vocabulary_hash: "vocabulary-1".into(),
+                        ..TagApplicationStateRecord::default()
+                    },
+                    ..synthesis_repository::TagVocabularyReplacement::default()
+                },
+            )
+            .unwrap();
+        (
+            root,
+            Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+        )
+    }
+
+    fn begin_request(host_instance_id: &str, active_run_ids: &[String]) -> TagAuditRunBeginRequest {
+        TagAuditRunBeginRequest {
+            library_id: 1,
+            vocabulary_hash: "vocabulary-1".into(),
+            execution_identity: TagAuditExecutionIdentity {
+                host_instance_id: host_instance_id.into(),
+                principal: TagAuditExecutionPrincipal {
+                    package_id: "package-1".into(),
+                    workflow_id: "workflow-1".into(),
+                    content_digest: "content-1".into(),
+                },
+            },
+            active_run_ids: active_run_ids.to_vec(),
+        }
+    }
+
+    #[test]
+    fn coverage_digest_matches_sorted_host_line_format() {
+        let (root, port) = repository_with_vocabulary("coverage-digest");
+        let run_record = TagAuditRunRecord {
+            audit_run_id: "run-1".into(),
+            library_id: 1,
+            status: "open".into(),
+            lease_token: "lease-1".into(),
+            host_instance_id: "host-1".into(),
+            package_id: "package-1".into(),
+            workflow_id: "workflow-1".into(),
+            content_digest: "content-1".into(),
+            vocabulary_hash: "vocabulary-1".into(),
+            basis_digest: "basis-1".into(),
+            created_at: "2026-08-30T00:00:00.000Z".into(),
+            updated_at: "2026-08-30T00:00:00.000Z".into(),
+        };
+        port.owner()
+            .lock()
+            .unwrap()
+            .begin_tag_audit_run(&run_record)
+            .unwrap();
+        let staging_record = |item_key: &str, revision: &str, digest: &str| {
+            TagAuditStagingRecord {
+                audit_run_id: "run-1".into(),
+                library_id: 1,
+                item_key: item_key.into(),
+                audited_revision: revision.into(),
+                audited_tag_digest: digest.into(),
+                evaluation_state: "compliant".into(),
+                non_compliant_tags_json: "[]".into(),
+            }
+        };
+        // Insert rows in the reverse of their canonical key order; the
+        // coverage digest must still follow (libraryId, key) ascending.
+        port.owner()
+            .lock()
+            .unwrap()
+            .append_tag_audit_batch(
+                "run-1",
+                "lease-1",
+                0,
+                "batch-1",
+                &[
+                    staging_record("BBBB2222", "revision-b", "digest-b"),
+                    staging_record("AAAA1111", "revision-a", "digest-a"),
+                ],
+            )
+            .unwrap();
+        let staging = port
+            .with_reader(|repository| repository.list_tag_audit_staging("run-1"))
+            .unwrap();
+        assert_eq!(
+            staging
+                .iter()
+                .map(|entry| entry.item_key.as_str())
+                .collect::<Vec<_>>(),
+            ["AAAA1111", "BBBB2222"]
+        );
+        let mut hash = Sha256::new();
+        hash.update(b"[{\"libraryId\":1,\"key\":\"AAAA1111\"},\"revision-a\",\"digest-a\"]\n");
+        hash.update(b"[{\"libraryId\":1,\"key\":\"BBBB2222\"},\"revision-b\",\"digest-b\"]\n");
+        let expected = format!("{:x}", hash.finalize());
+        assert_eq!(host_coverage_digest(&staging), expected);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn begin_reclaims_inactive_same_host_runs_but_preserves_active_runs() {
+        let (root, port) = repository_with_vocabulary("stale-sweep");
+        let app = TagAuditApplication::new(
+            port.clone(),
+            Arc::new(Fresh),
+            Arc::new(CountingRuntime {
+                next: std::sync::atomic::AtomicU64::new(0),
+            }),
+        );
+        let first = app.begin(&begin_request("host-1", &[])).unwrap();
+        assert_eq!(
+            app.begin(&begin_request("host-1", std::slice::from_ref(&first.audit_run_id)))
+                .unwrap_err(),
+            "tag_audit_operation_in_progress"
+        );
+        let second = app.begin(&begin_request("host-1", &[])).unwrap();
+        assert_ne!(first.audit_run_id, second.audit_run_id);
+        let first_record = port
+            .with_reader(|repository| repository.get_tag_audit_run(&first.audit_run_id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(first_record.status, "abandoned");
+        let entries: Vec<TagAuditStagingEntry> = Vec::new();
+        let batch_digest =
+            canonical_json_hash(&serde_json::to_value(&entries).unwrap()).unwrap();
+        assert_eq!(
+            app.append(&TagAuditRunAppendRequest {
+                run: first,
+                sequence: 0,
+                batch_digest,
+                entries,
+            })
+            .unwrap_err(),
+            "tag_audit_run_fenced"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn re_promote_returns_the_persisted_snapshot_revision() {
+        let (root, port) = repository_with_vocabulary("re-promote");
+        let app = TagAuditApplication::new(
+            port.clone(),
+            Arc::new(Fresh),
+            Arc::new(CountingRuntime {
+                next: std::sync::atomic::AtomicU64::new(0),
+            }),
+        );
+        let run = app.begin(&begin_request("host-1", &[])).unwrap();
+        let tags = vec!["topic:agents".to_owned()];
+        let entry = TagAuditStagingEntry {
+            target: TagAuditItemRef {
+                library_id: 1,
+                item_key: "AAAA1111".into(),
+            },
+            audited_revision: "revision-1".into(),
+            audited_tag_digest: host_tag_digest(&tags),
+            audited_tags: tags.clone(),
+            evaluation: TagAuditEvaluation::NeedsRegulation {
+                non_compliant_tags: tags,
+            },
+        };
+        let batch_digest = canonical_json_hash(&serde_json::to_value([&entry]).unwrap()).unwrap();
+        app.append(&TagAuditRunAppendRequest {
+            run: run.clone(),
+            sequence: 0,
+            batch_digest,
+            entries: vec![entry],
+        })
+        .unwrap();
+        let staging = port
+            .with_reader(|repository| repository.list_tag_audit_staging(&run.audit_run_id))
+            .unwrap();
+        let request = TagAuditRunPromoteRequest {
+            run: run.clone(),
+            visited_items: 1,
+            coverage_digest: host_coverage_digest(&staging),
+            evidence_id: "evidence-1".into(),
+        };
+        let first = match app.promote(&request).unwrap() {
+            TagAuditRunResult::Published { snapshot } => snapshot,
+            other => panic!("expected publication, got {other:?}"),
+        };
+        let second = match app.promote(&request).unwrap() {
+            TagAuditRunResult::Published { snapshot } => snapshot,
+            other => panic!("expected publication, got {other:?}"),
+        };
+        assert_eq!(second, first);
+        let persisted = port
+            .with_reader(|repository| repository.get_tag_audit_snapshot(1))
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.snapshot_revision, first.snapshot_revision);
+        assert_eq!(persisted.source_run_id, run.audit_run_id);
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

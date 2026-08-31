@@ -731,6 +731,15 @@ class MockCollection {
     collectionsById.delete(this.id);
     collectionsByKey.delete(this.key);
   }
+
+  getChildItems(asIDs = false, includeDeleted = false) {
+    const children = Array.from(itemsById.values()).filter(
+      (item) =>
+        (includeDeleted || !(item as any).deleted) &&
+        (item.getCollections?.() || []).includes(this.id),
+    );
+    return asIDs ? children.map((item) => item.id) : children;
+  }
 }
 
 class MockSearch {

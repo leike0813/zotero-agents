@@ -374,7 +374,7 @@ describe("literature portable bundle workflows", function () {
       selectionContext: { items: { parents: [{ item: { ref } }] } },
     });
     assert.equal(result.schemaId, "literature_bundle.product");
-    await archive.withExtractedZip(targetPath, async (extracted: any) => {
+    await archive.withExtractedZip({ sourcePath: targetPath }, {}, async (extracted: any) => {
       const manifest = JSON.parse(await extracted.readText("manifest.json"));
       assert.equal(manifest.schema_id, "literature_bundle.product");
       assert.equal(manifest.schema_version, "1.0.0");
@@ -397,6 +397,7 @@ describe("literature portable bundle workflows", function () {
     let pickerCalls = 0;
     let publishedPath = "";
     const host: any = {
+      interactionMode: "non_interactive",
       library: {
         getItemDetail: async () => ({ kind: "regular", item }),
       },
@@ -421,7 +422,6 @@ describe("literature portable bundle workflows", function () {
       addon: { getConfig: () => ({ addonVersion: "1" }) },
       archive,
       resources: {
-        mode: "non-interactive",
         getInput: () => null,
         getInputs: () => [],
         async allocateOutput() {
@@ -457,7 +457,7 @@ describe("literature portable bundle workflows", function () {
       result.resourceOutputs[0].fileId,
       "file-remote-literature-bundle",
     );
-    await archive.withExtractedZip(targetPath, async (extracted: any) => {
+    await archive.withExtractedZip({ sourcePath: targetPath }, {}, async (extracted: any) => {
       assert.include(extracted.entries, "manifest.json");
       assert.include(extracted.entries, "index.md");
     });
@@ -831,7 +831,7 @@ describe("literature portable bundle workflows", function () {
       await verifyLiteratureBundleFiles(manifest, {
         measureEntries: async (entryNames: string[]) => ({
           files: {
-            "payload.bin": { size: 3, sha256: "b".repeat(64) },
+            "payload.bin": { sizeBytes: 3, sha256: "b".repeat(64) },
           },
         }),
       });
@@ -873,7 +873,7 @@ describe("literature portable bundle workflows", function () {
         return {
           files: {
             "payload.bin": {
-              size: bytes.length,
+              sizeBytes: bytes.length,
               sha256:
                 "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
             },
@@ -952,8 +952,8 @@ describe("literature portable bundle workflows", function () {
       runtime: {
         hostApiVersion: 12,
         hostApi: {
+          interactionMode: "non_interactive",
           resources: {
-            mode: "non-interactive",
             getInput: (slotId: string) =>
               slotId === "bundle"
                 ? {
@@ -1014,8 +1014,8 @@ describe("literature portable bundle workflows", function () {
             },
           },
           archive: {
-            async withExtractedZip(path: string, callback: any) {
-              openedPath = path;
+            async withExtractedZip(input: { sourcePath: string }, _control: any, callback: any) {
+              openedPath = input.sourcePath;
               return callback({
                 entries: ["manifest.json"],
                 readText: async () => JSON.stringify(manifest),
@@ -1252,7 +1252,7 @@ describe("literature portable bundle workflows", function () {
           hostApi: {
             file: { pickFile: async () => "/tmp/valid-literature-bundle.zip" },
             archive: {
-              withExtractedZip: async (_path: string, callback: any) =>
+              withExtractedZip: async (_input: any, _control: any, callback: any) =>
                 callback({
                   entries: ["manifest.json"],
                   readText: async () => JSON.stringify(manifest),
@@ -1310,7 +1310,7 @@ describe("literature portable bundle workflows", function () {
           hostApi: {
             file: { pickFile: async () => "/tmp/valid-literature-bundle.zip" },
             archive: {
-              withExtractedZip: async (_path: string, callback: any) =>
+              withExtractedZip: async (_input: any, _control: any, callback: any) =>
                 callback({
                   entries: ["manifest.json"],
                   readText: async () => JSON.stringify(manifest),
@@ -1542,10 +1542,10 @@ describe("literature portable bundle workflows", function () {
     const exportedPayloadTypes = [];
     for (const entry of built.entries.filter(
       (candidate: any) =>
-        candidate.sourcePath && candidate.name.includes("/notes/"),
+        candidate.content?.kind === "file" && candidate.name.includes("/notes/"),
     )) {
       const parsed = parseWorkbenchEmbeddedPayloadBytes(
-        await readBytes(entry.sourcePath),
+        await readBytes(entry.content.sourcePath),
         { TextDecoder, Buffer },
       );
       if (parsed) exportedPayloadTypes.push(parsed.payloadType);
@@ -1561,7 +1561,10 @@ describe("literature portable bundle workflows", function () {
     await host.archive.writeZipAtomic({
       targetPath: bundlePath,
       entries: [
-        { name: "manifest.json", text: JSON.stringify(built.manifest) },
+        {
+          name: "manifest.json",
+          content: { kind: "text", text: JSON.stringify(built.manifest) },
+        },
         ...built.entries,
       ],
     });

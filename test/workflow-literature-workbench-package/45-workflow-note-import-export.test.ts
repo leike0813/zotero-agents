@@ -1134,8 +1134,8 @@ describe("workflow: literature-workbench import/export notes", function () {
           invocationMode: "non-interactive",
           hostApi: {
             ...baseHostApi,
+            interactionMode: "non_interactive",
             resources: {
-              mode: "non-interactive",
               getInput: () => null,
               getInputs: () => [],
               async allocateOutput() {
@@ -1528,7 +1528,6 @@ describe("workflow: literature-workbench import/export notes", function () {
                   },
                 },
                 resources: {
-                  mode: "non-interactive",
                   getInput(slotId: string) {
                     return slotId === "digest"
                       ? {

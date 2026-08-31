@@ -554,6 +554,7 @@ function createRuntimeContext(
     workflowRootDir:
       String(override?.workflowRootDir || "").trim() || undefined,
     packageRootDir: String(override?.packageRootDir || "").trim() || undefined,
+    signal: override?.signal,
     workflowSourceKind:
       override?.workflowSourceKind === "official" ||
       override?.workflowSourceKind === "dev-local" ||
@@ -651,6 +652,7 @@ function createHookRuntimeContext(args: {
   runtime: WorkflowRuntimeInfrastructureContext;
   workflow: LoadedWorkflow;
   hookName: "preflight" | "buildRequest" | "applyResult";
+  signal?: AbortSignal;
 }) {
   return {
     hostApi: args.runtime.hostApi,
@@ -664,6 +666,7 @@ function createHookRuntimeContext(args: {
     workflowSourceKind: args.workflow.workflowSourceKind || "",
     hookName: args.hookName,
     locale: args.runtime.locale,
+    signal: args.signal,
     fetch: args.runtime.fetch,
     Buffer: args.runtime.Buffer,
     btoa: args.runtime.btoa,
@@ -692,10 +695,24 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
   operation: string;
   work: (hookRuntime: WorkflowRuntimeContext) => Promise<T> | T;
 }) {
+  // The runtime owns one read-only execution signal per hook run; workflows
+  // receive it instead of creating parallel run-cancellation state. An
+  // upstream signal from the caller scope is linked, never replaced.
+  const executionController = new AbortController();
+  const upstreamSignal = args.runtime.signal;
+  const onUpstreamAbort = () => executionController.abort();
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) {
+      executionController.abort();
+    } else {
+      upstreamSignal.addEventListener("abort", onUpstreamAbort, { once: true });
+    }
+  }
   const hookRuntime = createHookRuntimeContext({
     runtime: args.runtime,
     workflow: args.workflow,
     hookName: args.hookName,
+    signal: executionController.signal,
   });
   let interactiveResources:
     | Awaited<ReturnType<typeof createHostBridgeWorkflowResourceApi>>
@@ -798,6 +815,11 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
               resources,
               researchBundles,
               synthesis,
+              inputScope: {
+                workflowId: args.workflow.manifest.id,
+                runId: leafRunId,
+              },
+              defaultControl: { signal: executionController.signal },
             }),
           hostApiVersion: WORKFLOW_HOST_API_VERSION,
         } satisfies WorkflowRuntimeContext;
@@ -876,6 +898,12 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
     });
     throw error;
   } finally {
+    if (upstreamSignal) {
+      upstreamSignal.removeEventListener("abort", onUpstreamAbort);
+    }
+    // Run termination (success, failure, or interruption) aborts the
+    // execution signal so late member calls cannot publish success results.
+    executionController.abort();
     await interactiveResources?.cleanup();
   }
 }

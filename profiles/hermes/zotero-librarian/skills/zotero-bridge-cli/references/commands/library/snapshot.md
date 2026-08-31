@@ -269,7 +269,7 @@ This command has no separate field-mapping program. Its binding mode is executab
                 "minimum": 0,
                 "type": "integer"
               },
-              "collections": {
+              "collectionRefs": {
                 "items": {
                   "additionalProperties": false,
                   "properties": {
@@ -293,7 +293,53 @@ This command has no separate field-mapping program. Its binding mode is executab
               },
               "creators": {
                 "items": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "creatorType": {
+                          "type": "string"
+                        },
+                        "firstName": {
+                          "type": "string"
+                        },
+                        "lastName": {
+                          "type": "string"
+                        },
+                        "representation": {
+                          "const": "two_field"
+                        }
+                      },
+                      "required": [
+                        "representation",
+                        "creatorType",
+                        "firstName",
+                        "lastName"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "creatorType": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "representation": {
+                          "const": "single_field"
+                        }
+                      },
+                      "required": [
+                        "representation",
+                        "creatorType",
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  ]
                 },
                 "type": "array"
               },
@@ -346,12 +392,41 @@ This command has no separate field-mapping program. Its binding mode is executab
               "itemType": {
                 "type": "string"
               },
+              "kind": {
+                "const": "regular"
+              },
               "modifiedAt": {
                 "type": "string"
               },
               "noteCount": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "parentRef": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "key": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "libraryId": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "libraryId",
+                      "key"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "publicationTitle": {
                 "type": "string"
@@ -398,21 +473,26 @@ This command has no separate field-mapping program. Its binding mode is executab
                 ]
               },
               "year": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
               "ref",
+              "kind",
               "itemType",
               "title",
-              "creators",
-              "year",
-              "date",
-              "publicationTitle",
-              "tags",
-              "collections",
-              "revision",
+              "parentRef",
               "state",
+              "revision",
+              "tags",
+              "collectionRefs",
+              "creators",
+              "date",
+              "year",
+              "publicationTitle",
               "identifiers",
               "url",
               "noteCount",
@@ -835,7 +915,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
                   "minimum": 0,
                   "type": "integer"
                 },
-                "collections": {
+                "collectionRefs": {
                   "items": {
                     "additionalProperties": false,
                     "properties": {
@@ -859,7 +939,53 @@ This closed descriptor is the machine-readable command contract returned by `sur
                 },
                 "creators": {
                   "items": {
-                    "type": "string"
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "creatorType": {
+                            "type": "string"
+                          },
+                          "firstName": {
+                            "type": "string"
+                          },
+                          "lastName": {
+                            "type": "string"
+                          },
+                          "representation": {
+                            "const": "two_field"
+                          }
+                        },
+                        "required": [
+                          "representation",
+                          "creatorType",
+                          "firstName",
+                          "lastName"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "creatorType": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "representation": {
+                            "const": "single_field"
+                          }
+                        },
+                        "required": [
+                          "representation",
+                          "creatorType",
+                          "name"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   },
                   "type": "array"
                 },
@@ -912,12 +1038,41 @@ This closed descriptor is the machine-readable command contract returned by `sur
                 "itemType": {
                   "type": "string"
                 },
+                "kind": {
+                  "const": "regular"
+                },
                 "modifiedAt": {
                   "type": "string"
                 },
                 "noteCount": {
                   "minimum": 0,
                   "type": "integer"
+                },
+                "parentRef": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "key": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "libraryId": {
+                          "minimum": 1,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "libraryId",
+                        "key"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "publicationTitle": {
                   "type": "string"
@@ -964,21 +1119,26 @@ This closed descriptor is the machine-readable command contract returned by `sur
                   ]
                 },
                 "year": {
-                  "type": "string"
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "ref",
+                "kind",
                 "itemType",
                 "title",
-                "creators",
-                "year",
-                "date",
-                "publicationTitle",
-                "tags",
-                "collections",
-                "revision",
+                "parentRef",
                 "state",
+                "revision",
+                "tags",
+                "collectionRefs",
+                "creators",
+                "date",
+                "year",
+                "publicationTitle",
                 "identifiers",
                 "url",
                 "noteCount",

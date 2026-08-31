@@ -17,18 +17,33 @@ export type ZoteroLibrarySnapshotCollectionRef = {
   key: string;
 };
 
+export type ZoteroLibrarySnapshotCreatorDto =
+  | {
+      representation: "two_field";
+      creatorType: string;
+      firstName: string;
+      lastName: string;
+    }
+  | {
+      representation: "single_field";
+      creatorType: string;
+      name: string;
+    };
+
 export type ZoteroLibrarySnapshotItemDto = {
   ref: ZoteroLibrarySnapshotItemRef;
+  kind: "regular";
   itemType: string;
   title: string;
-  creators: string[];
-  year: string;
-  date: string;
-  publicationTitle: string;
-  tags: string[];
-  collections: ZoteroLibrarySnapshotCollectionRef[];
-  revision: string;
+  parentRef: ZoteroLibrarySnapshotItemRef | null;
   state: "active";
+  revision: string;
+  tags: string[];
+  collectionRefs: ZoteroLibrarySnapshotCollectionRef[];
+  creators: ZoteroLibrarySnapshotCreatorDto[];
+  date: string;
+  year: string | null;
+  publicationTitle: string;
   identifiers: {
     doi: string | null;
     isbn: string | null;
@@ -173,6 +188,41 @@ function rebuildRef(value: unknown, location: string) {
   };
 }
 
+function rebuildCreator(
+  value: unknown,
+  location: string,
+): ZoteroLibrarySnapshotCreatorDto {
+  const record = toSynthesisJsonObject(value, location);
+  if (record.representation === "two_field") {
+    assertSynthesisExactFields(
+      record,
+      ["representation", "creatorType", "firstName", "lastName"],
+      [],
+      location,
+    );
+    return {
+      representation: "two_field",
+      creatorType: stringValue(record.creatorType, `${location}.creatorType`),
+      firstName: stringValue(record.firstName, `${location}.firstName`, true),
+      lastName: stringValue(record.lastName, `${location}.lastName`, true),
+    };
+  }
+  if (record.representation === "single_field") {
+    assertSynthesisExactFields(
+      record,
+      ["representation", "creatorType", "name"],
+      [],
+      location,
+    );
+    return {
+      representation: "single_field",
+      creatorType: stringValue(record.creatorType, `${location}.creatorType`),
+      name: stringValue(record.name, `${location}.name`),
+    };
+  }
+  invalid(`${location}.representation`);
+}
+
 export function rebuildZoteroLibrarySnapshotRequest(
   value: unknown,
 ): ZoteroLibrarySnapshotRequestDto {
@@ -217,16 +267,18 @@ export function rebuildZoteroLibrarySnapshotItem(
     record,
     [
       "ref",
+      "kind",
       "itemType",
       "title",
-      "creators",
-      "year",
-      "date",
-      "publicationTitle",
-      "tags",
-      "collections",
-      "revision",
+      "parentRef",
       "state",
+      "revision",
+      "tags",
+      "collectionRefs",
+      "creators",
+      "date",
+      "year",
+      "publicationTitle",
       "identifiers",
       "url",
       "noteCount",
@@ -237,6 +289,7 @@ export function rebuildZoteroLibrarySnapshotItem(
     [],
     location,
   );
+  if (record.kind !== "regular") invalid(`${location}.kind`);
   if (record.state !== "active") invalid(`${location}.state`);
   const identifiers = toSynthesisJsonObject(
     record.identifiers,
@@ -248,25 +301,35 @@ export function rebuildZoteroLibrarySnapshotItem(
     [],
     `${location}.identifiers`,
   );
-  if (!Array.isArray(record.collections)) invalid(`${location}.collections`);
+  if (!Array.isArray(record.collectionRefs)) {
+    invalid(`${location}.collectionRefs`);
+  }
+  if (!Array.isArray(record.creators)) invalid(`${location}.creators`);
   return {
     ref: rebuildRef(record.ref, `${location}.ref`),
+    kind: "regular",
     itemType: stringValue(record.itemType, `${location}.itemType`, true),
     title: stringValue(record.title, `${location}.title`, true),
-    creators: strings(record.creators, `${location}.creators`),
-    year: stringValue(record.year, `${location}.year`, true),
+    parentRef:
+      record.parentRef === null
+        ? null
+        : rebuildRef(record.parentRef, `${location}.parentRef`),
+    state: "active",
+    revision: stringValue(record.revision, `${location}.revision`),
+    tags: strings(record.tags, `${location}.tags`),
+    collectionRefs: record.collectionRefs.map((entry, index) =>
+      rebuildRef(entry, `${location}.collectionRefs[${index}]`),
+    ),
+    creators: record.creators.map((entry, index) =>
+      rebuildCreator(entry, `${location}.creators[${index}]`),
+    ),
     date: stringValue(record.date, `${location}.date`, true),
+    year: nullableString(record.year, `${location}.year`),
     publicationTitle: stringValue(
       record.publicationTitle,
       `${location}.publicationTitle`,
       true,
     ),
-    tags: strings(record.tags, `${location}.tags`),
-    collections: record.collections.map((entry, index) =>
-      rebuildRef(entry, `${location}.collections[${index}]`),
-    ),
-    revision: stringValue(record.revision, `${location}.revision`),
-    state: "active",
     identifiers: {
       doi: nullableString(identifiers.doi, `${location}.identifiers.doi`),
       isbn: nullableString(identifiers.isbn, `${location}.identifiers.isbn`),

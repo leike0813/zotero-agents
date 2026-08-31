@@ -209,6 +209,12 @@ describe("Workflow Host contract governance", function () {
       /from\s+["'](?:node:)?fs(?:\/promises)?["']/,
       /zoteroHostCapabilityBroker/,
       /runtimePersistence/,
+      /\bZotero\??\.File\b/,
+      /\bresources\??\.mode\b/,
+      /\brecord(?:PerformanceSpan|LeakProbeTempArtifact)ForTests\b/,
+      // v12 签名是 withExtractedZip({ sourcePath }, control, callback)；
+      // 禁止第一个参数不是对象字面量的 v11 形态 withExtractedZip(path, callback)。
+      /withExtractedZip\((?!\s*\{)/,
       /\.synthesis\??\.(?:applyLiteratureDigestSidecar|applyTopicSynthesisResult|getTopicReport|getTopicPlanningContext|applyTopicPlan|readPaperArtifacts|loadTagVocabulary|saveTagVocabulary|exportTagVocabularyForRegulator|listStagedTagSuggestions|stageTagSuggestions|discardStagedTagSuggestions|replaceTagAuditRecords|clearTagAuditRecord)\b/,
     ];
     const findings: string[] = [];

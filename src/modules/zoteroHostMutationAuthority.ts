@@ -304,6 +304,11 @@ function confirmedResult<TResult extends object>(
   return result;
 }
 
+function isRetriableFailedTerminal(result: MutationExecutionResult<object>) {
+  if (result.outcome !== "failed" || !("attempt" in result)) return false;
+  return result.attempt.error.recovery === "retry_same_operation";
+}
+
 export async function executeReservedMutation<TResult extends object>(args: {
   scope: ZoteroHostMutationCallerScope;
   operationId: string;
@@ -329,8 +334,15 @@ export async function executeReservedMutation<TResult extends object>(args: {
     if (existing.state === "running") {
       return existing.promise as Promise<MutationExecutionResult<TResult>>;
     }
-    existing.lastAccessedAt = now;
-    return existing.result as MutationExecutionResult<TResult>;
+    // A confirmed failure whose recovery contract is retry_same_operation is
+    // not replayed: the retried call forms a successor attempt under the same
+    // operation identity instead of returning the stale failure snapshot.
+    if (isRetriableFailedTerminal(existing.result)) {
+      mutationRecords.delete(key);
+    } else {
+      existing.lastAccessedAt = now;
+      return existing.result as MutationExecutionResult<TResult>;
+    }
   }
   ensureReservationCapacity(now);
   let resolveResult!: (result: MutationExecutionResult<object>) => void;

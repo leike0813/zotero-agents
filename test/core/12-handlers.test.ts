@@ -714,13 +714,6 @@ describeHandlersSuite("handlers", function () {
     }
   });
 
-  it("CommandHandler.run executes a command", async function () {
-    await handlers.command.run("notify", {
-      message: "handler command",
-    });
-    assert.isTrue(true);
-  });
-
   it("AttachmentHandler.create preserves file path", async function () {
     const file = await createTempFile(
       "handler-attachment-path.txt",

@@ -58,9 +58,15 @@ describe("workflow host api archive facade", function () {
     const written = await host.archive.writeZipAtomic({
       targetPath,
       entries: [
-        { name: "manifest.json", text: '{"kind":"test"}' },
-        { name: "files/source.bin", sourcePath },
-        { name: "files/bytes.bin", bytes: new Uint8Array([5, 6, 7]) },
+        {
+          name: "manifest.json",
+          content: { kind: "text", text: '{"kind":"test"}' },
+        },
+        { name: "files/source.bin", content: { kind: "file", sourcePath } },
+        {
+          name: "files/bytes.bin",
+          content: { kind: "bytes", bytes: new Uint8Array([5, 6, 7]) },
+        },
       ],
     });
 
@@ -69,8 +75,9 @@ describe("workflow host api archive facade", function () {
       "files/source.bin",
       "files/bytes.bin",
     ]);
-    assert.equal(written.files["files/source.bin"].size, 4);
+    assert.equal(written.files["files/source.bin"].sizeBytes, 4);
     assert.match(written.files["files/source.bin"].sha256, /^[a-f0-9]{64}$/);
+    assert.equal(written.totalEntries, 3);
 
     let extractedRoot = "";
     await host.archive.withExtractedZip(
@@ -118,14 +125,19 @@ describe("workflow host api archive facade", function () {
     const sourcePath = path.join(root, "source.bin");
     await fs.writeFile(sourcePath, Buffer.from([1, 2, 3, 4]));
 
-    const measured = await createWorkflowHostApi().archive.measureEntries([
-      {
-        name: "files/source.bin",
-        sourcePath: pathToFileURL(sourcePath).href,
-      },
-    ]);
+    const measured = await createWorkflowHostApi().archive.measureEntries({
+      entries: [
+        {
+          name: "files/source.bin",
+          content: {
+            kind: "file",
+            sourcePath: pathToFileURL(sourcePath).href,
+          },
+        },
+      ],
+    });
 
-    assert.equal(measured.files["files/source.bin"].size, 4);
+    assert.equal(measured.files["files/source.bin"].sizeBytes, 4);
     assert.match(measured.files["files/source.bin"].sha256, /^[a-f0-9]{64}$/);
   });
 
@@ -168,9 +180,14 @@ describe("workflow host api archive facade", function () {
       },
     });
     try {
-      const measured = await createWorkflowHostApi().archive.measureEntries([
-        { name: "entry.bin", bytes: new Uint8Array([1, 2, 3]) },
-      ]);
+      const measured = await createWorkflowHostApi().archive.measureEntries({
+        entries: [
+          {
+            name: "entry.bin",
+            content: { kind: "bytes", bytes: new Uint8Array([1, 2, 3]) },
+          },
+        ],
+      });
 
       assert.equal(createInstanceCalls, 1);
       assert.equal(initializedWith, nsICryptoHash.SHA256);
@@ -234,8 +251,14 @@ describe("workflow host api archive facade", function () {
       const written = await archive.writeZipAtomic({
         targetPath,
         entries: [
-          { name: "manifest.json", text: '{"runtime":"zotero9"}' },
-          { name: "payload.bin", bytes: new Uint8Array([4, 5, 6]) },
+          {
+            name: "manifest.json",
+            content: { kind: "text", text: '{"runtime":"zotero9"}' },
+          },
+          {
+            name: "payload.bin",
+            content: { kind: "bytes", bytes: new Uint8Array([4, 5, 6]) },
+          },
         ],
       });
 
@@ -261,15 +284,34 @@ describe("workflow host api archive facade", function () {
     }
   });
 
-  it("rejects unsafe and duplicate entry names", async function () {
+  it("rejects unsafe, duplicate, and case-folded duplicate entry names with stable error codes", async function () {
     const archive = createWorkflowHostApi().archive;
-    for (const entries of [
-      [{ name: "../escape.txt", text: "x" }],
-      [
-        { name: "same.txt", text: "a" },
-        { name: "same.txt", text: "b" },
-      ],
-    ]) {
+    const cases: Array<{
+      entries: Array<{ name: string; content: { kind: "text"; text: string } }>;
+      code: string;
+    }> = [
+      {
+        entries: [
+          { name: "../escape.txt", content: { kind: "text", text: "x" } },
+        ],
+        code: "invalid_request",
+      },
+      {
+        entries: [
+          { name: "same.txt", content: { kind: "text", text: "a" } },
+          { name: "same.txt", content: { kind: "text", text: "b" } },
+        ],
+        code: "invalid_request",
+      },
+      {
+        entries: [
+          { name: "Same.txt", content: { kind: "text", text: "a" } },
+          { name: "same.txt", content: { kind: "text", text: "b" } },
+        ],
+        code: "invalid_request",
+      },
+    ];
+    for (const { entries, code } of cases) {
       let error: unknown;
       try {
         await archive.writeZipAtomic({
@@ -279,7 +321,31 @@ describe("workflow host api archive facade", function () {
       } catch (caught) {
         error = caught;
       }
-      assert.instanceOf(error, Error);
+      assert.equal((error as { code?: string })?.code, code);
+    }
+  });
+
+  it("rejects entries without exactly one content variant", async function () {
+    const archive = createWorkflowHostApi().archive;
+    for (const content of [
+      undefined,
+      { kind: "file" },
+      { kind: "unknown", text: "x" },
+    ]) {
+      let error: unknown;
+      try {
+        await archive.measureEntries({
+          entries: [
+            {
+              name: "entry.txt",
+              content: content as never,
+            },
+          ],
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.equal((error as { code?: string })?.code, "invalid_request");
     }
   });
 
@@ -288,7 +354,12 @@ describe("workflow host api archive facade", function () {
     const targetPath = path.join(root, "measure.zip");
     await archive.writeZipAtomic({
       targetPath,
-      entries: [{ name: "known.bin", bytes: new Uint8Array([1]) }],
+      entries: [
+        {
+          name: "known.bin",
+          content: { kind: "bytes", bytes: new Uint8Array([1]) },
+        },
+      ],
     });
     await archive.withExtractedZip(
       { sourcePath: targetPath },
@@ -320,7 +391,13 @@ describe("workflow host api archive facade", function () {
       await createWorkflowHostApi().archive.writeZipAtomic({
         targetPath,
         entries: [
-          { name: "missing.bin", sourcePath: path.join(root, "missing.bin") },
+          {
+            name: "missing.bin",
+            content: {
+              kind: "file",
+              sourcePath: path.join(root, "missing.bin"),
+            },
+          },
         ],
       });
     } catch (caught) {
@@ -336,7 +413,9 @@ describe("workflow host api archive facade", function () {
     const archive = createWorkflowHostApi().archive;
     await archive.writeZipAtomic({
       targetPath,
-      entries: [{ name: "payload.txt", text: "scoped" }],
+      entries: [
+        { name: "payload.txt", content: { kind: "text", text: "scoped" } },
+      ],
     });
 
     let extracted: WorkflowExtractedArchive | undefined;
@@ -358,15 +437,124 @@ describe("workflow host api archive facade", function () {
     const archive = createWorkflowHostApi().archive;
 
     await assertRejects(
-      archive.measureEntries([{ name: `${"a".repeat(1021)}.txt`, text: "x" }]),
+      archive.measureEntries({
+        entries: [
+          {
+            name: `${"a".repeat(1021)}.txt`,
+            content: { kind: "text", text: "x" },
+          },
+        ],
+      }),
+      (error: { code?: string }) => error?.code === "resource_limited",
     );
     await assertRejects(
-      archive.measureEntries(
-        Array.from({ length: 20_001 }, (_, index) => ({
+      archive.measureEntries({
+        entries: Array.from({ length: 20_001 }, (_, index) => ({
           name: `entries/${index}.txt`,
-          text: "",
+          content: { kind: "text" as const, text: "" },
         })),
+      }),
+      (error: { code?: string }) => error?.code === "resource_limited",
+    );
+  });
+
+  it("fails canceled measure and write calls with a stable canceled error", async function () {
+    const archive = createWorkflowHostApi().archive;
+    const controller = new AbortController();
+    controller.abort();
+    const control = { signal: controller.signal };
+
+    await assertRejects(
+      archive.measureEntries(
+        {
+          entries: [
+            { name: "a.txt", content: { kind: "text", text: "a" } },
+          ],
+        },
+        control,
       ),
+      (error: { code?: string; details?: { reason?: string } }) =>
+        error?.code === "canceled" &&
+        error?.details?.reason === "caller_signal",
+    );
+    await assertRejects(
+      archive.writeZipAtomic(
+        {
+          targetPath: path.join(root, "canceled.zip"),
+          entries: [
+            { name: "a.txt", content: { kind: "text", text: "a" } },
+          ],
+        },
+        control,
+      ),
+      (error: { code?: string }) => error?.code === "canceled",
+    );
+    assert.isFalse(
+      await fs
+        .access(path.join(root, "canceled.zip"))
+        .then(() => true)
+        .catch(() => false),
+    );
+  });
+
+  it("does not publish a late success result when cancellation lands mid-write", async function () {
+    const archive = createWorkflowHostApi().archive;
+    const controller = new AbortController();
+    const targetPath = path.join(root, "mid-write.zip");
+    const entries = Array.from({ length: 32 }, (_, index) => ({
+      name: `entries/${index}.txt`,
+      content: {
+        kind: "bytes" as const,
+        bytes: new Uint8Array([index % 256]),
+      },
+    }));
+    // Abort while the write path is measuring entries; the native write
+    // itself is not interruptible, so the member must fail with a stable
+    // canceled error instead of publishing a late success result.
+    const probe = archive.writeZipAtomic(
+      { targetPath, entries },
+      { signal: controller.signal },
+    );
+    controller.abort();
+    await assertRejects(
+      probe,
+      (error: { code?: string }) => error?.code === "canceled",
+    );
+  });
+
+  it("cancels withExtractedZip before and after the callback", async function () {
+    const archive = createWorkflowHostApi().archive;
+    const targetPath = path.join(root, "scoped-cancel.zip");
+    await archive.writeZipAtomic({
+      targetPath,
+      entries: [
+        { name: "payload.txt", content: { kind: "text", text: "scoped" } },
+      ],
+    });
+
+    const preAborted = new AbortController();
+    preAborted.abort();
+    await assertRejects(
+      archive.withExtractedZip(
+        { sourcePath: targetPath },
+        { signal: preAborted.signal },
+        async () => "unreachable",
+      ),
+      (error: { code?: string }) => error?.code === "canceled",
+    );
+
+    const midRun = new AbortController();
+    await assertRejects(
+      archive.withExtractedZip(
+        { sourcePath: targetPath },
+        { signal: midRun.signal },
+        async (extracted) => {
+          assert.equal(await extracted.readText("payload.txt"), "scoped");
+          midRun.abort();
+          return "late-success";
+        },
+      ),
+      (error: { code?: string }) => error?.code === "canceled",
     );
   });
 });

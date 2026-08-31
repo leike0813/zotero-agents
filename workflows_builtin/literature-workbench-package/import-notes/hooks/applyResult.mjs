@@ -110,9 +110,9 @@ function getPickerTitle(kind) {
 
 function getPickerFilters(kind) {
   if (kind === "digest") {
-    return [["Markdown", "*.md"]];
+    return [{ label: "Markdown", extensions: ["md"] }];
   }
-  return [["JSON", "*.json"]];
+  return [{ label: "JSON", extensions: ["json"] }];
 }
 
 function getRepresentativeImageStatus(digest) {
@@ -420,7 +420,12 @@ function createImportRenderer(args) {
             }
             const selectedImagePath = await args.host.file.pickFile({
               title: "Import Representative Image",
-              filters: [["Images", "*.jpg;*.jpeg;*.png;*.webp;*.gif;*.bmp"]],
+              filters: [
+                {
+                  label: "Images",
+                  extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"],
+                },
+              ],
             });
             if (!selectedImagePath) {
               return;
@@ -484,7 +489,7 @@ function createImportRenderer(args) {
         try {
           const selectedPaths = await args.host.file.pickFiles({
             title: "Import Custom Notes",
-            filters: [["Markdown", "*.md"]],
+            filters: [{ label: "Markdown", extensions: ["md"] }],
           });
           if (!Array.isArray(selectedPaths) || selectedPaths.length === 0) {
             return;

@@ -127,13 +127,6 @@ export async function withPackageRuntimeScope(runtime, work) {
 export { resolveCurrentWorkflowExecutionRuntime };
 
 function resolvePerformanceProbeHooks() {
-  const hostApi = resolveHostApi();
-  const viaHostApi = hostApi?.logging?.recordPerformanceSpanForTests;
-  if (typeof viaHostApi === "function") {
-    return {
-      recordSpan: viaHostApi,
-    };
-  }
   const hooks = globalThis?.__zs_test_performance_probe_hooks__;
   if (
     hooks &&

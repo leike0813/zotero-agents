@@ -6,15 +6,17 @@ import { createWorkflowArchiveApi } from "./archive";
 import { createWorkflowBibliographyOwner } from "./bibliography";
 import { createWorkflowClipboardOwner } from "./clipboard";
 import { createWorkflowFileApi } from "./file";
+import { createWorkflowInputMaterializer } from "./workflowInputMaterialization";
 import {
   createWorkflowAddonOwner,
   createWorkflowHostCapabilityBroker,
   createWorkflowEnvironmentOwner,
   createWorkflowHostLiveReadAdapters,
-  withWorkflowLibraryItemSnapshot,
+  createWorkflowLibraryItemSnapshotApi,
   type WorkflowHostLeafScope,
 } from "./workflowHostOwners";
 import {
+  assertWorkflowCallNotCanceled,
   createWorkflowHostError,
   type WorkflowInteractionMember,
 } from "./workflowHostErrorContract";
@@ -65,6 +67,8 @@ export function createWorkflowHostApi(
     resources?: WorkflowHostApiV12["resources"];
     researchBundles?: WorkflowHostApiV12["researchBundles"];
     synthesis?: WorkflowHostApiV12["synthesis"];
+    inputScope?: { workflowId: string; runId: string };
+    defaultControl?: WorkflowCallControl;
   } = {},
 ): WorkflowHostApiV12 {
   const interactionMode = args.interactionMode || "interactive";
@@ -74,6 +78,11 @@ export function createWorkflowHostApi(
   const callerScope = args.preparedImages
     ? { ownerId, preparedImages: args.preparedImages }
     : { ownerId };
+  // Ordinary members fall back to the runtime-provided execution control when
+  // the caller omits it; an explicit control (including `{}`) is respected.
+  const defaultControl = args.defaultControl;
+  const withDefaultControl = (control?: WorkflowCallControl) =>
+    control || defaultControl;
   const resources = args.resources || createUnavailableResources();
   const broker = createWorkflowHostCapabilityBroker(resources);
   const liveReads = createWorkflowHostLiveReadAdapters({
@@ -130,7 +139,7 @@ export function createWorkflowHostApi(
     library: {
       listItems: liveReads.library.listItems,
       traverseItems: liveReads.library.traverseItems,
-      withItemSnapshot: withWorkflowLibraryItemSnapshot,
+      withItemSnapshot: createWorkflowLibraryItemSnapshotApi(broker),
       listCollections: liveReads.library.listCollections,
       getItemDetail: liveReads.library.getItemDetail,
       getItemNotes: liveReads.library.getItemNotes,
@@ -142,8 +151,13 @@ export function createWorkflowHostApi(
       exportPortableItems: liveReads.library.exportPortableItems,
     },
     metadata: {
-      translateIdentifier: (input) =>
-        broker.metadata.translateIdentifier(input),
+      translateIdentifier: async (input, control) => {
+        const effectiveControl = withDefaultControl(control);
+        assertWorkflowCallNotCanceled(effectiveControl);
+        const result = await broker.metadata.translateIdentifier(input);
+        assertWorkflowCallNotCanceled(effectiveControl);
+        return result;
+      },
     },
     mutations: {
       preview: ((input) =>
@@ -190,15 +204,24 @@ export function createWorkflowHostApi(
         broker.statusTags.transition(input, callerScope, control),
     },
     file: {
-      readText: workflowFile.readText,
-      writeText: workflowFile.writeText,
-      readBytes: workflowFile.readBytes,
-      writeBytes: workflowFile.writeBytes,
-      copy: (input) =>
-        workflowFile.copy(input.sourcePath, input.targetPath, input.overwrite),
-      exists: workflowFile.exists,
-      makeDirectory: (input) => workflowFile.makeDirectory(input.path),
-      materializeWorkflowInputFile: workflowFile.materializeWorkflowInputFile,
+      readText: (path, control) =>
+        workflowFile.readText(path, withDefaultControl(control)),
+      writeText: (path, content, control) =>
+        workflowFile.writeText(path, content, withDefaultControl(control)),
+      readBytes: (path, control) =>
+        workflowFile.readBytes(path, withDefaultControl(control)),
+      writeBytes: (path, bytes, control) =>
+        workflowFile.writeBytes(path, bytes, withDefaultControl(control)),
+      copy: (input, control) =>
+        workflowFile.copy(input, withDefaultControl(control)),
+      exists: (path, control) =>
+        workflowFile.exists(path, withDefaultControl(control)),
+      makeDirectory: (input, control) =>
+        workflowFile.makeDirectory(input, withDefaultControl(control)),
+      materializeWorkflowInputFile: createWorkflowInputMaterializer({
+        workflowId: args.inputScope?.workflowId || "workflow",
+        runId: args.inputScope?.runId || ownerId,
+      }),
       getTempDirectoryPath: workflowFile.getTempDirectoryPath,
       pickDirectory: interactive
         ? workflowFile.pickDirectory
@@ -212,16 +235,22 @@ export function createWorkflowHostApi(
       pickFiles: interactive
         ? workflowFile.pickFiles
         : denyPicker("file.pickFiles"),
-      stat: workflowFile.stat,
-      list: workflowFile.list,
-      move: workflowFile.move,
-      remove: workflowFile.remove,
+      stat: (path, control) =>
+        workflowFile.stat(path, withDefaultControl(control)),
+      list: (input, control) =>
+        workflowFile.list(input, withDefaultControl(control)),
+      move: (input, control) =>
+        workflowFile.move(input, withDefaultControl(control)),
+      remove: (input, control) =>
+        workflowFile.remove(input, withDefaultControl(control)),
     },
     archive: {
-      measureEntries: archive.measureEntries,
-      writeZipAtomic: archive.writeZipAtomic,
-      withExtractedZip: (input, _control, callback) =>
-        archive.withExtractedZip(input.sourcePath, callback),
+      measureEntries: (input, control) =>
+        archive.measureEntries(input, withDefaultControl(control)),
+      writeZipAtomic: (input, control) =>
+        archive.writeZipAtomic(input, withDefaultControl(control)),
+      withExtractedZip: (input, control, callback) =>
+        archive.withExtractedZip(input, control, callback),
     },
     resources: {
       getInput: resources.getInput,

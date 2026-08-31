@@ -109,8 +109,17 @@ describe("workflow: literature-deep-reading", function () {
     await createWorkflowArchiveApi().writeZipAtomic({
       targetPath: zipPath,
       entries: [
-        { name: "array-buffer.bin", bytes: source.buffer },
-        { name: "data-view.bin", bytes: new DataView(source.buffer, 1, 3) },
+        {
+          name: "array-buffer.bin",
+          content: { kind: "bytes", bytes: source.buffer },
+        },
+        {
+          name: "data-view.bin",
+          content: {
+            kind: "bytes",
+            bytes: new DataView(source.buffer, 1, 3),
+          },
+        },
       ],
     });
 
@@ -340,7 +349,7 @@ describe("workflow: literature-deep-reading", function () {
     });
     assert.match(
       request.steps[1].input?.source_bundle_path || "",
-      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]literature-deep-reading[\\/]source_bundle_path[\\/].+\.zip$/,
+      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]literature-deep-reading-[^\\/]+[\\/]source_bundle_path[\\/].+\.zip$/,
     );
 
     const bundle = new ZipBundleReader(

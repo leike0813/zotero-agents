@@ -15,7 +15,8 @@ Implementation baseline: `4dbddc24e884921262c559428bf851db5eadf2d7`. Apply after
 ## 3. Native Application and Repository
 
 - [x] 3.1 Harden existing `applyTopicPlan` to the closed request/result/receipt contract and reuse existing staged-tag promotion, repository transactions, and typed Host ports; verify process integration tests pass without creating a second promotion owner.
-- [x] 3.2 Implement v4 audit storage/migration, isolated staging, bounded append, active basis, concurrent-run conflict, atomic promotion, cancellation, abort, crash cleanup, and telemetry inside application/repository owners; verify migration, Rust invariant, and repository tests pass.
+- [ ] 3.2 Implement v4 audit storage/migration, isolated staging, bounded append, active basis, concurrent-run conflict, atomic promotion, cancellation, abort, crash cleanup, and telemetry inside application/repository owners; verify migration, Rust invariant, and repository tests pass.
+  - 注：除 operation telemetry（ADR §9.12 `TagAuditOperationSummaryDto`）外其余子项已完成；telemetry 未实现，留待后续 Synthesis operation/history 专项 contract 切片。
 - [x] 3.3 Implement prepare/commit regulation acknowledgement with a process-valid pinned Host receipt, fresh Broker evidence, and native snapshot/revision/vocabulary CAS; verify mismatched, failed, old-process, newer-snapshot, and confirmed unchanged cases.
 
 ## 4. Grouped TypeScript Projection

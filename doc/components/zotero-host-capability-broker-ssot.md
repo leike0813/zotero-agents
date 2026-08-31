@@ -180,7 +180,7 @@ UI/dialog/editor capabilities are host interactions, not agent defaults. They sh
 
 ## Library Page Query Boundary
 
-Broker `library.listItems`, `syncSnapshot`, `readinessAudit`, and `searchItems` share `zoteroLibraryPageQuery.ts` as their library-selection SSOT. The service normalizes library, collection, tag, item type, and text criteria; builds one parameterized SQLite predicate for both count and page queries; orders by `items.itemID`; selects `limit + 1` IDs; and hydrates only the returned page through array-form `Zotero.Items.getAsync(ids)`. These broker paths must not use `Zotero.Items.getAll()` as a pagination fallback.
+Broker `library.listItems`, `syncSnapshot`, and `readinessAudit` share `zoteroLibraryPageQuery.ts` as their library-selection SSOT. The service normalizes library, collection, tag, item type, and text criteria; builds one parameterized SQLite predicate for both count and page queries; orders by `items.itemID`; selects `limit + 1` IDs; and hydrates only the returned page through array-form `Zotero.Items.getAsync(ids)`. These broker paths must not use `Zotero.Items.getAll()` as a pagination fallback.
 
 Text queries match title, creator, date, publication, abstract, tag, or item key as independent fields under Zotero SQLite `NOCASE` semantics. `%` and `_` are escaped as literal query characters. The structural predicate excludes deleted items, child notes, and child attachments before paging.
 

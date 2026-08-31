@@ -18,7 +18,7 @@ import {
 import { registerHostBridgeExportFile } from "./hostBridgeFileRegistry";
 import {
   createWorkflowArchiveApi,
-  type WorkflowArchiveEntry,
+  type WorkflowArchiveEntryDto,
 } from "../workflows/archive";
 import {
   SYNTHESIS_PAPER_ARTIFACT_TYPES,
@@ -1007,10 +1007,13 @@ export async function publishDirectResearchBundle(args: {
     const zipPath = joinPath(archiveRoot, args.zipName);
     let archiveRegistered = false;
     try {
-      const archiveEntries: WorkflowArchiveEntry[] = allEntries.map(
+      const archiveEntries: WorkflowArchiveEntryDto[] = allEntries.map(
         (entry) => ({
           name: entry.path,
-          sourcePath: joinPath(stagingRoot, entry.path),
+          content: {
+            kind: "file",
+            sourcePath: joinPath(stagingRoot, entry.path),
+          },
         }),
       );
       await createWorkflowArchiveApi().writeZipAtomic({
@@ -2856,8 +2859,8 @@ export function createCanonicalResearchBundleMaterializer(dependencies: {
           }
           if (attachment.file.state === "missing") {
             const issue = {
-              code: "resource_missing" as const,
-              target: "attachment" as const,
+              code: "attachment_file_missing" as const,
+              attachmentRef: attachment.ref,
             };
             if (request.missingFilePolicy === "require_complete") {
               throw new Error("Required research attachment is missing");
@@ -2892,9 +2895,15 @@ export function createCanonicalResearchBundleMaterializer(dependencies: {
             });
           } catch (error) {
             if (request.missingFilePolicy === "require_complete") throw error;
+            const nativeCode = String(
+              (error as { code?: unknown } | null)?.code || "",
+            ).toUpperCase();
             const issue = {
-              code: "resource_unreadable" as const,
-              target: "attachment" as const,
+              code:
+                nativeCode === "EACCES" || nativeCode === "EPERM"
+                  ? ("attachment_file_permission_denied" as const)
+                  : ("attachment_file_unreadable" as const),
+              attachmentRef: attachment.ref,
             };
             issues.push(issue);
             paperIssues.push(issue);

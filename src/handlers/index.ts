@@ -1,4 +1,10 @@
 import { measureAsyncTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
+import {
+  ensureRuntimeDirectoryStrict,
+  resolveRuntimeTemporaryDirectory,
+  writeRuntimeTextFileStrict,
+} from "../modules/runtimePersistence";
+import { joinPath } from "../utils/path";
 
 type ItemRef = Zotero.Item | number | string;
 type NotePayload = { content: string };
@@ -438,17 +444,18 @@ async function ensureFileFromPath(options: AttachmentPathOptions) {
       const missing = filePath || dataPath || "unknown";
       throw new Error(`Attachment file not found: ${missing}`);
     }
-    const tmpDir = Zotero.getTempDirectory();
-    tmpDir.append("zotero-skills-fixtures");
-    await Zotero.File.createDirectoryIfMissingAsync(tmpDir as any);
-    const tmpFile = Zotero.File.pathToFile(tmpDir.path);
     const name =
       extractFileNameFromPath(filePath) ||
       extractFileNameFromPath(dataPath) ||
       `${options.itemKey || "attachment"}.bin`;
-    tmpFile.append(name);
-    await Zotero.File.putContentsAsync(tmpFile, "");
-    file = tmpFile;
+    const tmpDirPath = joinPath(
+      resolveRuntimeTemporaryDirectory(),
+      "zotero-skills-fixtures",
+    );
+    await ensureRuntimeDirectoryStrict(tmpDirPath);
+    const tmpFilePath = joinPath(tmpDirPath, name);
+    await writeRuntimeTextFileStrict(tmpFilePath, "");
+    file = Zotero.File.pathToFile(tmpFilePath);
   }
   return file;
 }
@@ -894,11 +901,6 @@ export const handlers = {
           nextCollectionCount: nextIds.length,
         });
       }
-    },
-  },
-  command: {
-    run: async (_commandId: string, _args?: unknown, _context?: unknown) => {
-      return;
     },
   },
 };

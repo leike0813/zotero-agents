@@ -8,6 +8,7 @@ import {
   digestRuntimeFileSource,
   inspectRuntimeFileSource,
 } from "../modules/runtimeFileTransfer";
+import { createWorkflowHostError } from "./workflowHostErrorContract";
 
 const RESERVED_FILE_SEGMENTS = new Set([
   "con",
@@ -92,8 +93,10 @@ export async function materializeWorkflowInputFile(
   const hasContent = Object.prototype.hasOwnProperty.call(args || {}, "content");
   const hasBytes = Object.prototype.hasOwnProperty.call(args || {}, "bytes");
   if (hasContent === hasBytes) {
-    throw new Error(
+    throw createWorkflowHostError(
+      "invalid_request",
       "materializeWorkflowInputFile requires exactly one of content or bytes",
+      { reason: "invalid_combination", field: "content" },
     );
   }
   const targetPath = joinPath(
@@ -140,6 +143,10 @@ export function createWorkflowInputMaterializer(scope: {
         bytes: request.content.bytes,
       });
     }
-    throw new Error("Workflow input content variant is invalid");
+    throw createWorkflowHostError(
+      "invalid_request",
+      "Workflow input content variant is invalid",
+      { reason: "invalid_value", field: "content" },
+    );
   };
 }

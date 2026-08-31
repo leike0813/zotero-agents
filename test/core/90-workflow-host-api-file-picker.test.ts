@@ -210,7 +210,7 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     const hostApi = createWorkflowHostApi();
     const selected = await hostApi.file.pickDirectory({
       title: "Export Notes",
-      directory: "D:/exports",
+      initialDirectory: "D:/exports",
     });
 
     assert.equal(selected, "D:/exports/reference-notes");
@@ -253,8 +253,8 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     const hostApi = createWorkflowHostApi();
     const selected = await hostApi.file.pickFile({
       title: "Import Digest",
-      filters: [["Markdown", "*.md"]],
-      directory: "D:/imports",
+      filters: [{ label: "Markdown", extensions: ["md"] }],
+      initialDirectory: "D:/imports",
     });
 
     assert.equal(selected, "D:/imports/digest.md");
@@ -400,9 +400,9 @@ describeFilePickerSuite("workflow host api file pickers", function () {
 
     const selected = await createWorkflowHostApi().file.pickSaveFile({
       title: "Export Literature Bundle",
-      filters: [["ZIP bundle", "*.zip"]],
+      filters: [{ label: "ZIP bundle", extensions: ["zip"] }],
       suggestedName: "literature-bundle.zip",
-      directory: "D:/exports",
+      initialDirectory: "D:/exports",
     });
 
     assert.equal(selected, "D:/exports/literature-bundle.zip");
@@ -433,6 +433,73 @@ describeFilePickerSuite("workflow host api file pickers", function () {
       }),
       null,
     );
+  });
+
+  it("normalizes extension lists into picker masks", async function () {
+    const calls: Array<Record<string, unknown>> = [];
+    (globalThis as RuntimeWithToolkit).ztoolkit = {
+      FilePicker: class {
+        constructor(
+          _title: string,
+          _mode: string,
+          filters: [string, string][],
+        ) {
+          calls.push({ filters });
+        }
+        async open() {
+          return null;
+        }
+      },
+    };
+
+    await createWorkflowHostApi().file.pickFile({
+      filters: [
+        { label: "Images", extensions: ["jpg", ".png", "*.webp"] },
+      ],
+    });
+
+    assert.deepEqual(calls, [
+      { filters: [["Images", "*.jpg;*.png;*.webp"]] },
+    ]);
+  });
+
+  it("rejects picker filters that exceed fixed group and extension bounds", async function () {
+    const hostApi = createWorkflowHostApi();
+    const oversizedGroups = Array.from({ length: 33 }, (_, index) => ({
+      label: `group-${index}`,
+      extensions: ["md"],
+    }));
+    const oversizedExtensions = [
+      {
+        label: "too-many",
+        extensions: Array.from({ length: 65 }, (_, index) => `e${index}`),
+      },
+    ];
+    for (const filters of [oversizedGroups, oversizedExtensions]) {
+      let error: unknown;
+      try {
+        await hostApi.file.pickFile({ filters });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.equal((error as { code?: string })?.code, "resource_limited");
+    }
+  });
+
+  it("rejects picker filters without a label or extensions", async function () {
+    const hostApi = createWorkflowHostApi();
+    for (const filters of [
+      [{ label: "", extensions: ["md"] }],
+      [{ label: "Markdown", extensions: [] }],
+    ]) {
+      let error: unknown;
+      try {
+        await hostApi.file.pickFile({ filters });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.equal((error as { code?: string })?.code, "invalid_request");
+    }
   });
 
   it("uses native multi-file picker with the active dialog window when available", async function () {

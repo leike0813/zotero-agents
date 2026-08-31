@@ -51,6 +51,7 @@ Hook receives `runtime` with these fields:
 | `workflowSourceKind` | `”builtin” \| “user” \| “”` | Source location type |
 | `hookName` | `"preflight" \| "buildRequest" \| "applyResult" \| ""` | Current hook name |
 | `locale` | `string \| undefined` | Resolved display locale |
+| `signal` | `AbortSignal \| undefined` | Read-only per-hook-run execution signal; aborts when the run ends or an upstream caller signal fires |
 | `fetch` | `typeof fetch \| null` | Fetch API (if available) |
 | `Buffer` | `typeof Buffer \| null` | Node Buffer (if available) |
 | `btoa` | `typeof btoa \| null` | Base64 encode (if available) |

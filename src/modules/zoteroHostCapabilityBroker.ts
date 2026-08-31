@@ -289,12 +289,6 @@ export type ZoteroHostCollectionOpenArgs = {
   libraryID?: number | string;
 };
 
-export type ZoteroHostItemSearchArgs = {
-  query: string;
-  limit?: number | string;
-  libraryId?: number | string;
-};
-
 export type ZoteroHostLibraryListArgs = {
   libraryId?: number | string;
   collection?: ZoteroHostCollectionRefInput;
@@ -707,9 +701,6 @@ export interface ZoteroHostCapabilityBroker {
     readinessAudit(
       args: ZoteroHostLibraryReadinessAuditArgs,
     ): Promise<ZoteroHostLibraryReadinessAuditResponse>;
-    searchItems(
-      args: ZoteroHostItemSearchArgs,
-    ): Promise<ZoteroHostItemSummaryDto[]>;
     getItemDetail(
       ref: ZoteroHostItemRefInput,
       control?: WorkflowCallControl,
@@ -860,8 +851,6 @@ const PAYLOAD_IMAGE_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAAJ9GlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS42LWMxNDUgNzkuMTYzNDk5LCAyMDE4LzA4LzEzLTE2OjQwOjIyICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RFdnQ9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZUV2ZW50IyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTkgKFdpbmRvd3MpIiB4bXA6Q3JlYXRlRGF0ZT0iMjAyNi0wNS0yMFQyMjowODo0MCswODowMCIgeG1wOk1vZGlmeURhdGU9IjIwMjYtMDUtMjFUMDA6MDA6MDUrMDg6MDAiIHhtcDpNZXRhZGF0YURhdGU9IjIwMjYtMDUtMjFUMDA6MDA6MDUrMDg6MDAiIGRjOmZvcm1hdD0iaW1hZ2UvcG5nIiBwaG90b3Nob3A6Q29sb3JNb2RlPSIzIiBwaG90b3Nob3A6SUNDUHJvZmlsZT0ic1JHQiBJRUM2MTk2Ni0yLjEiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6ODlhNTNjMGYtMDBiMy1lYTQ5LWI3ZDAtODM5MDg0ZjJhYzc3IiB4bXBNTTpEb2N1bWVudElEPSJhZG9iZTpkb2NpZDpwaG90b3Nob3A6MDgwODY0ZDAtNmJmMi0zMTQ5LTk5YTctODYzMTY3YzRlNWVmIiB4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ9InhtcC5kaWQ6YzQzYzZkZDgtZGI3Yy0yYzQ4LWI4ZjctZjQyM2VlMmQ5OGUyIj4gPHhtcE1NOkhpc3Rvcnk+IDxyZGY6U2VxPiA8cmRmOmxpIHN0RXZ0OmFjdGlvbj0iY3JlYXRlZCIgc3RFdnQ6aW5zdGFuY2VJRD0ieG1wLmlpZDpjNDNjNmRkOC1kYjdjLTJjNDgtYjhmNy1mNDIzZWUyZDk4ZTIiIHN0RXZ0OndoZW49IjIwMjYtMDUtMjBUMjI6MDg6NDArMDg6MDAiIHN0RXZ0OnNvZnR3YXJlQWdlbnQ9IkFkb2JlIFBob3Rvc2hvcCBDQyAyMDE5IChXaW5kb3dzKSIvPiA8cmRmOmxpIHN0RXZ0OmFjdGlvbj0iY29udmVydGVkIiBzdEV2dDpwYXJhbWV0ZXJzPSJmcm9tIGltYWdlL3BuZyB0byBhcHBsaWNhdGlvbi92bmQuYWRvYmUucGhvdG9zaG9wIi8+IDxyZGY6bGkgc3RFdnQ6YWN0aW9uPSJzYXZlZCIgc3RFdnQ6aW5zdGFuY2VJRD0ieG1wLmlpZDoyNzFiM2YwZi0xMmU5LTFjNDAtODUwYS04MDY4Y2Y1YzM4MmMiIHN0RXZ0OndoZW49IjIwMjYtMDUtMjBUMjM6Mzg6MDcrMDg6MDAiIHN0RXZ0OnNvZnR3YXJlQWdlbnQ9IkFkb2JlIFBob3Rvc2hvcCBDQyAyMDE5IChXaW5kb3dzKSIgc3RFdnQ6Y2hhbmdlZD0iLyIvPiA8cmRmOmxpIHN0RXZ0Omluc3RhbmNlSUQ9InhtcC5paWQ6YzRkNzc5NWYtZmVlMi1iMDQzLTk1NmItYWMyYzg2NWMwOGNiIiBzdEV2dDp3aGVuPSIyMDI2LTA1LTIxVDAwOjAwOjA1KzA4OjAwIiBzdEV2dDpzb2Z0d2FyZUFnZW50PSJBZG9iZSBQaG90b3Nob3AgQ0MgMjAxOSAoV2luZG93cykiIHN0RXZ0OmNoYW5nZWQ9Ii8iLz4gPHJkZjpsaSBzdEV2dDphY3Rpb249ImNvbnZlcnRlZCIgc3RFdnQ6cGFyYW1ldGVycz0iZnJvbSBhcHBsaWNhdGlvbi92bmQuYWRvYmUucGhvdG9zaG9wIHRvIGltYWdlL3BuZyIvPiA8cmRmOmxpIHN0RXZ0OmFjdGlvbj0iZGVyaXZlZCIgc3RFdnQ6cGFyYW1ldGVycz0iY29udmVydGVkIGZyb20gYXBwbGljYXRpb24vdm5kLmFkb2JlLnBob3Rvc2hvcCB0byBpbWFnZS9wbmciLz4gPHJkZjpsaSBzdEV2dDphY3Rpb249InNhdmVkIiBzdEV2dDppbnN0YW5jZUlEPSJ4bXAuaWlkOjg5YTUzYzBmLTAwYjMtZWE0OS1iN2QwLTgzOTA4NGYyYWM3NyIgc3RFdnQ6d2hlbj0iMjAyNi0wNS0yMVQwMDowMDowNSswODowMCIgc3RFdnQ6c29mdHdhcmVBZ2VudD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTkgKFdpbmRvd3MpIiBzdEV2dDpjaGFuZ2VkPSIvIi8+IDwvcmRmOlNlcT4gPC94bXBNTTpIaXN0b3J5PiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDpjNGQ3Nzk1Zi1mZWUyLWIwNDMtOTU2Yi1hYzJjODY1YzA4Y2IiIHN0UmVmOmRvY3VtZW50SUQ9InhtcC5kaWQ6YzQzYzZkZDgtZGI3Yy0yYzQ4LWI4ZjctZjQyM2VlMmQ5OGUyIiBzdFJlZjpvcmlnaW5hbERvY3VtZW50SUQ9InhtcC5kaWQ6YzQzYzZkZDgtZGI3Yy0yYzQ4LWI4ZjctZjQyM2VlMmQ5OGUyIi8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+EN29wgAACL5JREFUWIWFl39wVNUVxz/3/dxkdxNDEkK0QXTUgYqISou/RRSsdVQoZSw69Ucda7GidhSnHZEidfAX4y+srRXUKopWQK3tdKrTKpXqiKUVW0EJQRETAmTzczfZ9/bde/rH280mSPDu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";
 const PAYLOAD_IMAGE_FALLBACK_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
-const SEARCH_LIMIT_DEFAULT = 20;
-const SEARCH_LIMIT_MAX = 50;
 const LIBRARY_LIST_LIMIT_DEFAULT = 25;
 const LIBRARY_LIST_LIMIT_MAX = 100;
 const LIBRARY_READINESS_CHECKS: ZoteroHostLibraryReadinessCheck[] = [
@@ -1436,6 +1425,10 @@ function canonicalParentRef(item: Zotero.Item): ZoteroHostItemRefInput | null {
   return canonicalItemRef(parent);
 }
 
+function compareCanonicalTextCodeUnits(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonicalTags(item: Zotero.Item) {
   let raw: unknown;
   try {
@@ -1462,6 +1455,39 @@ function canonicalTags(item: Zotero.Item) {
     }
     return value;
   });
+}
+
+function failClosedMutationTags(
+  item: Zotero.Item,
+  ref: ZoteroHostItemRefInput,
+): string[] {
+  try {
+    return canonicalTags(item);
+  } catch (error) {
+    if (
+      error instanceof ZoteroHostCapabilityError &&
+      error.code === "resource_limited"
+    ) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "resource_limited",
+        "read",
+        "none",
+        error.details as WorkflowHostErrorDetailsByCode["resource_limited"],
+        error.message,
+        [{ kind: "item", ref }],
+      );
+    }
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "execution_failed",
+      "read",
+      "retry_same_operation",
+      { phase: "read", recovery: "retry_same_operation" },
+      "current item tags could not be read completely",
+      [{ kind: "item", ref }],
+    );
+  }
 }
 
 function canonicalCreators(item: Zotero.Item): CreatorDto[] {
@@ -1824,6 +1850,26 @@ function canonicalNoteSummaryDto(item: Zotero.Item): NoteSummaryDto {
   };
 }
 
+async function canonicalAttachmentRole(
+  item: Zotero.Item,
+): Promise<AttachmentDetailDto["role"]> {
+  let role: AttachmentDetailDto["role"] =
+    canonicalAttachmentLinkMode(item) === "embedded_image"
+      ? "note_image"
+      : "ordinary";
+  const parentRef = canonicalParentRef(item);
+  if (parentRef) {
+    const parent = requireItem(parentRef);
+    if (parent.isNote?.()) {
+      const blocks = await listNotePayloadBlocksForItem(parent);
+      if (blocks.some((block) => block.attachmentKey === trimText(item.key))) {
+        role = "note_payload";
+      }
+    }
+  }
+  return role;
+}
+
 async function canonicalAttachmentDetail(
   item: Zotero.Item,
 ): Promise<AttachmentDetailDto> {
@@ -1836,17 +1882,7 @@ async function canonicalAttachmentDetail(
       throw canonicalReadFailure("attachment");
     }
   }
-  let role: AttachmentDetailDto["role"] =
-    summary.linkMode === "embedded_image" ? "note_image" : "ordinary";
-  if (summary.parentRef) {
-    const parent = requireItem(summary.parentRef);
-    if (parent.isNote?.()) {
-      const blocks = await listNotePayloadBlocksForItem(parent);
-      if (blocks.some((block) => block.attachmentKey === summary.ref.key)) {
-        role = "note_payload";
-      }
-    }
-  }
+  const role = await canonicalAttachmentRole(item);
   return {
     ref: summary.ref,
     parentRef: summary.parentRef,
@@ -2243,18 +2279,9 @@ function serializeLibraryItemSummary(
 function serializeLibrarySyncSnapshotItem(
   item: Zotero.Item,
 ): ZoteroHostLibrarySyncSnapshotItemDto {
-  const summary = serializeZoteroItemSummary(item);
-  const libraryId = summary.libraryId;
+  const summary = canonicalRegularSummary(item);
   const noteIds = getChildItemIds(item, "getNotes");
   const attachmentIds = getChildItemIds(item, "getAttachments");
-  const collections = summary.collections.flatMap((entry) => {
-    if (typeof entry === "string" && entry.trim()) {
-      return [{ libraryId, key: entry.trim() }];
-    }
-    const collection = resolveZotero().Collections?.get?.(Number(entry));
-    const key = trimText(collection?.key);
-    return key ? [{ libraryId, key }] : [];
-  });
   let annotationCount = 0;
   for (const attachmentId of attachmentIds) {
     const attachment = resolveZotero().Items.get(attachmentId);
@@ -2283,16 +2310,18 @@ function serializeLibrarySyncSnapshotItem(
     FIELD_TEXT_LIMIT,
   );
   const base = {
-    ref: { libraryId, key: summary.key },
+    ref: summary.ref,
+    kind: "regular" as const,
     itemType: summary.itemType,
     title: summary.title,
-    creators: summary.creators,
-    year: summary.year,
-    date: summary.date,
-    publicationTitle: summary.publicationTitle,
-    tags: summary.tags,
-    collections,
+    parentRef: summary.parentRef,
     state: "active" as const,
+    tags: summary.tags,
+    collectionRefs: summary.collectionRefs,
+    creators: summary.creators,
+    date: summary.date,
+    year: summary.year,
+    publicationTitle: summary.publicationTitle,
     identifiers: {
       doi: readField(item, "DOI") || null,
       isbn: readField(item, "ISBN") || null,
@@ -4802,6 +4831,168 @@ function assertExpectedCollectionRevision(
   return version;
 }
 
+function membershipRefIdentity(ref: ZoteroHostItemRefInput) {
+  return `${ref.libraryId}:${ref.key}`;
+}
+
+function normalizeCollectionMembershipRefs(
+  operation: "collection.create" | "collection.updateMembership",
+  add: ZoteroHostItemRefInput[],
+  remove: ZoteroHostItemRefInput[],
+  options: { allowEmpty?: boolean } = {},
+) {
+  const normalizeRefs = (refs: ZoteroHostItemRefInput[]) =>
+    Array.from(
+      new Map(
+        refs
+          .map(canonicalItemRef)
+          .map((ref) => [membershipRefIdentity(ref), ref]),
+      ).values(),
+    ).sort((left, right) => {
+      const leftId = membershipRefIdentity(left);
+      const rightId = membershipRefIdentity(right);
+      return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+    });
+  const addRefs = normalizeRefs(add);
+  const removeRefs = normalizeRefs(remove);
+  if (
+    (!options.allowEmpty && addRefs.length + removeRefs.length === 0) ||
+    addRefs.length + removeRefs.length > mutationPreviewTargetLimit ||
+    addRefs.some((ref) =>
+      removeRefs.some(
+        (other) => membershipRefIdentity(other) === membershipRefIdentity(ref),
+      ),
+    )
+  ) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "invalid_request",
+      "validation",
+      "refresh_and_retry_new_operation",
+      { reason: "invalid_combination", operation },
+      "membership delta is empty, overlapping, or exceeds the hard limit",
+    );
+  }
+  return { addRefs, removeRefs };
+}
+
+function resolveCollectionMembershipTargets(
+  operation: "collection.create" | "collection.updateMembership",
+  refs: ZoteroHostItemRefInput[],
+  libraryId: number,
+) {
+  return refs.map((ref) => {
+    if (ref.libraryId !== libraryId) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "invalid_request",
+        "validation",
+        "refresh_and_retry_new_operation",
+        { reason: "invalid_combination", operation },
+        "collection membership targets must belong to one library",
+      );
+    }
+    const item = requireItem(ref, "member item");
+    if (normalizeLibraryId(item.libraryID) !== libraryId) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "invalid_request",
+        "validation",
+        "refresh_and_retry_new_operation",
+        { reason: "invalid_combination", operation },
+        "collection membership targets must belong to one library",
+      );
+    }
+    if (canonicalItemState(item) !== "active") {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "invalid_request",
+        "validation",
+        "refresh_and_retry_new_operation",
+        { reason: "invalid_value", operation },
+        "collection membership targets must be active items",
+      );
+    }
+    if (item.isAttachment?.() || (item as any).isAnnotation?.()) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "invalid_ref",
+        "validation",
+        "refresh_and_retry_new_operation",
+        { kind: "item", reason: "wrong_kind" },
+        "collection membership targets must be regular items or notes",
+      );
+    }
+    return { ref, item };
+  });
+}
+
+function assertCollectionPlacementTarget(
+  operation: "collection.update",
+  collection: Zotero.Collection,
+  collectionRef: ZoteroHostCollectionRefInput,
+  parentRef: ZoteroHostCollectionRefInput,
+) {
+  const parent = resolveCollection(parentRef);
+  if (!parent) throw notFoundError("collection", parentRef);
+  if (
+    normalizeLibraryId((parent as any).libraryID) !== collectionRef.libraryId
+  ) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "invalid_request",
+      "validation",
+      "refresh_and_retry_new_operation",
+      { reason: "invalid_combination", operation },
+      "collection parent must belong to the same library",
+    );
+  }
+  const targetId = Number((collection as any).id);
+  const visited = new Set<number>();
+  let cursor: Zotero.Collection | null = parent;
+  while (cursor) {
+    const cursorId = Number((cursor as any).id);
+    if (cursorId === targetId) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "invalid_request",
+        "validation",
+        "refresh_and_retry_new_operation",
+        { reason: "invalid_combination", operation },
+        "collection parent would create a cycle",
+      );
+    }
+    if (visited.has(cursorId)) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "conflict",
+        "validation",
+        "refresh_and_retry_new_operation",
+        { reason: "ambiguous_state" },
+        "collection ancestor chain contains a cycle",
+      );
+    }
+    visited.add(cursorId);
+    const parentId: number = Number((cursor as any).parentID || 0);
+    if (!parentId) break;
+    cursor =
+      (resolveZotero().Collections as unknown as {
+        get?: (id: number) => Zotero.Collection | undefined;
+      }).get?.(parentId) || null;
+    if (!cursor) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "conflict",
+        "validation",
+        "refresh_and_retry_new_operation",
+        { reason: "ambiguous_state" },
+        "collection ancestor chain could not be fully read",
+      );
+    }
+  }
+  return parent;
+}
+
 async function executeOtherCanonicalMutation(
   request: Exclude<
     MutationExecuteRequest,
@@ -4863,7 +5054,7 @@ async function executeOtherCanonicalMutation(
                 "tag delta is invalid",
               );
             }
-            const current = getTags(item);
+            const current = failClosedMutationTags(item, itemRef);
             const next = current
               .filter((tag) => !remove.includes(tag))
               .concat(add.filter((tag) => !current.includes(tag)))
@@ -4890,8 +5081,57 @@ async function executeOtherCanonicalMutation(
           case "item.removeRelated": {
             const sourceRef = canonicalItemRef(request.sourceRef);
             const relatedRef = canonicalItemRef(request.relatedRef);
+            const rejectRelatedValidation = (
+              reason:
+                | "invalid_value"
+                | "invalid_combination",
+              message: string,
+              field?: string,
+            ): never => {
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "invalid_request",
+                "validation",
+                "refresh_and_retry_new_operation",
+                {
+                  reason,
+                  operation: request.operation,
+                  ...(field ? { field } : {}),
+                },
+                message,
+              );
+            };
+            if (
+              sourceRef.libraryId === relatedRef.libraryId &&
+              sourceRef.key === relatedRef.key
+            ) {
+              rejectRelatedValidation(
+                "invalid_combination",
+                "related item endpoints must be distinct",
+              );
+            }
+            if (sourceRef.libraryId !== relatedRef.libraryId) {
+              rejectRelatedValidation(
+                "invalid_combination",
+                "related item endpoints must belong to one library",
+              );
+            }
             const source = requireItem(sourceRef, "source item");
             const related = requireItem(relatedRef, "related item");
+            if (canonicalItemState(source) !== "active") {
+              rejectRelatedValidation(
+                "invalid_value",
+                "source item is deleted or trashed",
+                "sourceRef",
+              );
+            }
+            if (canonicalItemState(related) !== "active") {
+              rejectRelatedValidation(
+                "invalid_value",
+                "related item is deleted or trashed",
+                "relatedRef",
+              );
+            }
             const before = assertExpectedItemRevision(
               source,
               request.expectedRevision,
@@ -4919,7 +5159,19 @@ async function executeOtherCanonicalMutation(
                   after,
                 },
               ],
-              result: { sourceRef, relatedRef, related: shouldBePresent },
+              result: {
+                sourceRef,
+                relatedRef,
+                outcome:
+                  request.operation === "item.addRelated"
+                    ? changed
+                      ? "added"
+                      : "already_present"
+                    : changed
+                      ? "removed"
+                      : "already_absent",
+                sourceRevision: after.revision,
+              },
             };
           }
           case "item.remove": {
@@ -4998,8 +5250,26 @@ async function executeOtherCanonicalMutation(
                 throw notFoundError("collection", request.placement.parentRef);
               libraryId = normalizeLibraryId((parent as any).libraryID);
             }
-            const members = (request.initialMemberRefs || []).map((ref) =>
-              requireItem(canonicalItemRef(ref), "initial member"),
+            const initialMemberRefs = (request.initialMemberRefs || []).map(
+              (ref) => canonicalItemRef(ref),
+            );
+            const members = initialMemberRefs.length
+              ? resolveCollectionMembershipTargets(
+                  request.operation,
+                  normalizeCollectionMembershipRefs(
+                    request.operation,
+                    initialMemberRefs,
+                    [],
+                    { allowEmpty: true },
+                  ).addRefs,
+                  libraryId,
+                )
+              : [];
+            const memberBefore = new Map(
+              members.map(({ ref, item }) => [
+                membershipRefIdentity(ref),
+                canonicalItemVersion(item),
+              ]),
             );
             let created: Zotero.Collection | null = null;
             try {
@@ -5012,8 +5282,26 @@ async function executeOtherCanonicalMutation(
                   parentID: Number((parent as any).id),
                 });
               }
-              for (const member of members)
-                await handlers.collection.add(member, created);
+              for (const { item } of members)
+                await handlers.collection.add(item, created);
+              const createdId = Number((created as any).id);
+              for (const { ref } of members) {
+                if (
+                  !requireItem(ref, "initial member")
+                    .getCollections()
+                    .includes(createdId)
+                ) {
+                  throw new MutationAuthorityExecutionError(
+                    "unknown",
+                    "execution_failed",
+                    "verification",
+                    "reconcile",
+                    { phase: "verification", recovery: "reconcile" },
+                    "initial collection membership could not be confirmed",
+                    [{ kind: "item", ref }],
+                  );
+                }
+              }
             } catch (error) {
               if (created) {
                 try {
@@ -5054,6 +5342,14 @@ async function executeOtherCanonicalMutation(
                   before: null,
                   after,
                 },
+                ...members.map(({ ref: memberRef }) => ({
+                  entity: { kind: "item" as const, ref: memberRef },
+                  effect: "updated" as const,
+                  before: memberBefore.get(membershipRefIdentity(memberRef))!,
+                  after: canonicalItemVersion(
+                    requireItem(memberRef, "initial member"),
+                  ),
+                })),
               ],
               result: {
                 collection: canonicalMutationCollectionResult(created),
@@ -5074,11 +5370,12 @@ async function executeOtherCanonicalMutation(
             if (request.patch.parentRef !== undefined) {
               if (request.patch.parentRef === null) patch.parentID = null;
               else {
-                const parent = resolveCollection(
+                const parent = assertCollectionPlacementTarget(
+                  request.operation,
+                  collection,
+                  collectionRef,
                   canonicalCollectionRef(request.patch.parentRef),
                 );
-                if (!parent)
-                  throw notFoundError("collection", request.patch.parentRef);
                 patch.parentID = Number((parent as any).id);
               }
             }
@@ -5113,60 +5410,18 @@ async function executeOtherCanonicalMutation(
               collection,
               request.expectedRevision,
             );
-            const refIdentity = (ref: ZoteroHostItemRefInput) =>
-              `${ref.libraryId}:${ref.key}`;
-            const normalizeRefs = (refs: ZoteroHostItemRefInput[]) =>
-              Array.from(
-                new Map(
-                  refs
-                    .map(canonicalItemRef)
-                    .map((ref) => [refIdentity(ref), ref]),
-                ).values(),
-              ).sort((left, right) =>
-                refIdentity(left).localeCompare(refIdentity(right)),
-              );
-            const addRefs = normalizeRefs(request.add);
-            const removeRefs = normalizeRefs(request.remove);
-            if (
-              addRefs.length + removeRefs.length === 0 ||
-              addRefs.length + removeRefs.length > mutationPreviewTargetLimit ||
-              addRefs.some((ref) =>
-                removeRefs.some(
-                  (other) => refIdentity(other) === refIdentity(ref),
-                ),
-              )
-            ) {
-              throw new MutationAuthorityExecutionError(
-                "failed",
-                "invalid_request",
-                "validation",
-                "refresh_and_retry_new_operation",
-                { reason: "invalid_combination", operation: request.operation },
-                "membership delta is empty, overlapping, or exceeds the hard limit",
-              );
-            }
+            const refIdentity = membershipRefIdentity;
+            const { addRefs, removeRefs } = normalizeCollectionMembershipRefs(
+              request.operation,
+              request.add,
+              request.remove,
+            );
             const collectionId = Number((collection as { id?: unknown }).id);
-            const targets = [...addRefs, ...removeRefs].map((ref) => ({
-              ref,
-              item: requireItem(ref, "member item"),
-            }));
-            for (const { item } of targets) {
-              if (
-                normalizeLibraryId(item.libraryID) !== collectionRef.libraryId
-              ) {
-                throw new MutationAuthorityExecutionError(
-                  "failed",
-                  "invalid_request",
-                  "validation",
-                  "refresh_and_retry_new_operation",
-                  {
-                    reason: "invalid_combination",
-                    operation: request.operation,
-                  },
-                  "collection membership targets must belong to one library",
-                );
-              }
-            }
+            const targets = resolveCollectionMembershipTargets(
+              request.operation,
+              [...addRefs, ...removeRefs],
+              collectionRef.libraryId,
+            );
             const itemBefore = new Map(
               targets.map(({ ref, item }) => [
                 refIdentity(ref),
@@ -5572,11 +5827,36 @@ async function executeDestructiveCanonicalMutation(
   }
 }
 
+const CANONICAL_MUTATION_OPERATIONS: ReadonlySet<string> = new Set([
+  "item.create",
+  "item.updateMetadata",
+  "item.changeType",
+  "item.remove",
+  "item.updateTags",
+  "item.addRelated",
+  "item.removeRelated",
+  "collection.create",
+  "collection.update",
+  "collection.updateMembership",
+  "collection.remove",
+]);
+
 async function executeCanonicalMutation(
   request: MutationExecuteRequest,
   scope: ZoteroHostMutationCallerScope,
   control?: WorkflowCallControl,
 ): Promise<MutationExecutionResult<JsonObject>> {
+  if (!CANONICAL_MUTATION_OPERATIONS.has(String(request?.operation))) {
+    throw capabilityError(
+      "unsupported_operation",
+      "mutation operation is unsupported",
+      {
+        memberOrOperation:
+          trimText((request as { operation?: unknown } | null)?.operation) ||
+          "mutations.execute",
+      },
+    );
+  }
   if (request?.operation === "item.create") {
     return executeItemCreate(request, scope, control);
   }
@@ -5818,7 +6098,7 @@ async function executeStatusTagTransition(
           item,
           normalized.expectedRevision,
         );
-        const current = getTags(item);
+        const current = failClosedMutationTags(item, itemRef);
         const addTags = addKeys.map(getBuiltinStatusTag);
         const removeTags = removeKeys.map(getBuiltinStatusTag);
         const added = addTags.filter((tag) => !current.includes(tag));
@@ -5850,7 +6130,20 @@ async function executeStatusTagTransition(
           }
         }
         const afterItem = requireItem(itemRef, "status item");
-        const finalTags = getTags(afterItem);
+        let finalTags: string[];
+        try {
+          finalTags = canonicalTags(afterItem);
+        } catch {
+          throw new MutationAuthorityExecutionError(
+            "unknown",
+            "execution_failed",
+            "verification",
+            "reconcile",
+            { phase: "verification", recovery: "reconcile" },
+            "status transition final tags could not be read completely",
+            [{ kind: "item", ref: itemRef }],
+          );
+        }
         if (
           addTags.some((tag) => !finalTags.includes(tag)) ||
           removeTags.some((tag) => finalTags.includes(tag))
@@ -6765,6 +7058,17 @@ async function executeAttachmentMutation(
           | AttachmentRemoveRequestDto;
         const attachmentRef = canonicalItemRef(input.attachmentRef);
         const attachment = requireAttachment(attachmentRef);
+        if ((await canonicalAttachmentRole(attachment)) !== "ordinary") {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "invalid_ref",
+            "read",
+            "refresh_and_retry_new_operation",
+            { kind: "attachment", reason: "wrong_kind" },
+            `${operation} requires an ordinary attachment`,
+            [{ kind: "item", ref: attachmentRef }],
+          );
+        }
         const before = await assertExpectedAttachmentRevision(
           attachment,
           input.expectedRevision,
@@ -7111,21 +7415,23 @@ function buildItemChangeTypePreview(request: {
 
 function canonicalCollectionVersion(collection: Zotero.Collection) {
   const members = (() => {
+    let children: Zotero.Item[];
     try {
-      return collection
-        .getChildItems(false, false)
-        .map((item) => ({
-          libraryId: normalizeLibraryId(item.libraryID),
-          key: trimText(item.key),
-        }))
-        .sort((left, right) =>
-          `${left.libraryId}:${left.key}`.localeCompare(
-            `${right.libraryId}:${right.key}`,
-          ),
-        );
+      children = collection.getChildItems(false, false);
     } catch {
-      return [];
+      throw canonicalReadFailure("collection");
     }
+    if (!Array.isArray(children)) throw canonicalReadFailure("collection");
+    return children
+      .map((item) => ({
+        libraryId: normalizeLibraryId(item.libraryID),
+        key: trimText(item.key),
+      }))
+      .sort((left, right) => {
+        const leftId = `${left.libraryId}:${left.key}`;
+        const rightId = `${right.libraryId}:${right.key}`;
+        return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+      });
   })();
   return {
     revision: hashSynthesisContractCanonicalJson({
@@ -7254,8 +7560,6 @@ async function previewCanonicalMutation(
         );
       }
     }
-    const allItems =
-      (await resolveZotero().Items.getAll?.(collectionRef.libraryId)) || [];
     const deletedCollections = descendants.map((entry) => ({
       ref: {
         libraryId: collectionRef.libraryId,
@@ -7263,18 +7567,60 @@ async function previewCanonicalMutation(
       },
       revision: canonicalCollectionVersion(entry).revision,
     }));
-    const detachedMemberships = descendants.flatMap((entry, index) =>
-      allItems
-        .filter((item) => item.getCollections?.().includes((entry as any).id))
-        .map((item) => ({
-          collectionRef: deletedCollections[index].ref,
-          itemRef: {
-            libraryId: normalizeLibraryId(item.libraryID),
-            key: trimText(item.key),
-          },
-          itemRevision: canonicalItemVersion(item).revision,
-        })),
-    );
+    const detachedMemberships: Array<{
+      collectionRef: (typeof deletedCollections)[number]["ref"];
+      itemRef: { libraryId: number; key: string };
+      itemRevision: string;
+    }> = [];
+    for (const [index, entry] of descendants.entries()) {
+      const collectionId = parsePositiveInteger((entry as any).id);
+      if (!collectionId) {
+        throw capabilityError(
+          "execution_failed",
+          "collection descendant identity is invalid",
+          { phase: "read", recovery: "refresh_and_retry_new_operation" },
+        );
+      }
+      let cursor: string | undefined;
+      do {
+        const page: Awaited<ReturnType<typeof queryZoteroLibraryPage>> =
+          await queryZoteroLibraryPage(
+            {
+              libraryId: collectionRef.libraryId,
+              collectionId,
+              limit: LIBRARY_LIST_LIMIT_MAX,
+              ...(cursor ? { cursor } : {}),
+            },
+            {
+              defaultLibraryId: collectionRef.libraryId,
+              defaultLimit: LIBRARY_LIST_LIMIT_MAX,
+              maxLimit: LIBRARY_LIST_LIMIT_MAX,
+            },
+          );
+        for (const item of page.items) {
+          detachedMemberships.push({
+            collectionRef: deletedCollections[index].ref,
+            itemRef: {
+              libraryId: normalizeLibraryId(item.libraryID),
+              key: trimText(item.key),
+            },
+            itemRevision: canonicalItemVersion(item).revision,
+          });
+          if (detachedMemberships.length > mutationPreviewTargetLimit) {
+            throw capabilityError(
+              "resource_limited",
+              "collection membership detach plan is too large",
+              {
+                resource: "items",
+                limit: mutationPreviewTargetLimit,
+                observed: detachedMemberships.length,
+              },
+            );
+          }
+        }
+        cursor = page.nextCursor || undefined;
+      } while (cursor);
+    }
     built = {
       semanticInput: { ...request, collectionRef },
       plan: {
@@ -7805,6 +8151,11 @@ async function traverseLibraryItems(
       kind: "library",
     });
   }
+  const coverageTuples: Array<{
+    ref: { libraryId: number; key: string };
+    revision: string;
+    tagDigest: string;
+  }> = [];
   let cursor = input.resumeCursor;
   let visitedItems = 0;
   let visitedBatches = 0;
@@ -7846,26 +8197,25 @@ async function traverseLibraryItems(
         if (item.kind !== "regular") {
           throw canonicalReadFailure("item");
         }
-        const revision = canonicalItemVersion(requireItem(item.ref)).revision;
-        const tags = Array.from(new Set(item.tags)).sort((left, right) =>
-          left.localeCompare(right),
+        const tags = Array.from(new Set(item.tags)).sort(
+          compareCanonicalTextCodeUnits,
         );
         const tagDigest = await sha256Hex(
           new TextEncoder().encode(JSON.stringify(tags)),
         );
         if (!tagDigest) throw canonicalReadFailure("item");
-        return { ...item, revision, tags, tagDigest };
+        return { ...item, tags, tagDigest };
       }),
     );
     if (items.length) {
       const batch = { batchIndex: visitedBatches, items };
       await onBatch(batch);
       for (const item of items) {
-        coverage.update(
-          new TextEncoder().encode(
-            `${JSON.stringify([item.ref, item.revision, item.tagDigest])}\n`,
-          ),
-        );
+        coverageTuples.push({
+          ref: item.ref,
+          revision: item.revision,
+          tagDigest: item.tagDigest,
+        });
       }
       visitedItems += items.length;
       visitedBatches += 1;
@@ -7874,6 +8224,22 @@ async function traverseLibraryItems(
       return { outcome: "canceled", libraryId, visitedItems, visitedBatches };
     }
     if (!page.hasMore) {
+      coverageTuples.sort(
+        (left, right) =>
+          left.ref.libraryId - right.ref.libraryId ||
+          (left.ref.key < right.ref.key
+            ? -1
+            : left.ref.key > right.ref.key
+              ? 1
+              : 0),
+      );
+      for (const tuple of coverageTuples) {
+        coverage.update(
+          new TextEncoder().encode(
+            `${JSON.stringify([tuple.ref, tuple.revision, tuple.tagDigest])}\n`,
+          ),
+        );
+      }
       const completionEvidence = await issueTraversalEvidence(
         criteriaDigest,
         coverage.digestHex(),
@@ -8859,26 +9225,6 @@ export function createZoteroHostCapabilityBroker(
       syncSnapshot: syncLibrarySnapshot,
       cancelSnapshot: cancelLibrarySnapshot,
       readinessAudit,
-      async searchItems(args: ZoteroHostItemSearchArgs) {
-        const query = trimText(args?.query, FIELD_TEXT_LIMIT);
-        if (!query) {
-          throw new Error("query must be non-empty");
-        }
-        const page = await listLibraryItems({
-          libraryId: normalizeLibraryId(args?.libraryId),
-          query,
-          limit: Math.min(
-            SEARCH_LIMIT_MAX,
-            Math.max(
-              1,
-              parsePositiveInteger(args?.limit) || SEARCH_LIMIT_DEFAULT,
-            ),
-          ),
-        });
-        return page.items.map((summary) =>
-          serializeZoteroItemSummary(requireItem(summary.ref)),
-        );
-      },
       async getItemDetail(
         ref: ZoteroHostItemRefInput,
         control: WorkflowCallControl = {},
@@ -8901,8 +9247,8 @@ export function createZoteroHostCapabilityBroker(
             field: "itemRef",
           });
         }
-        const tags = Array.from(new Set(detail.item.tags)).sort((left, right) =>
-          left.localeCompare(right),
+        const tags = Array.from(new Set(detail.item.tags)).sort(
+          compareCanonicalTextCodeUnits,
         );
         const tagDigest = await sha256Hex(
           new TextEncoder().encode(JSON.stringify(tags)),

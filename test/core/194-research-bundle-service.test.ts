@@ -770,6 +770,88 @@ describe("Research Bundle service", function () {
     assert.equal(cleanupCalls, 1);
   });
 
+  it("maps missing, permission, and read failures to distinct stable issue codes", async function () {
+    const paperRef = { libraryId: 1, key: "ISSUEMAP" };
+    const attachment = (key: string, file: Record<string, unknown>) => ({
+      ref: { libraryId: 1, key },
+      parentRef: paperRef,
+      revision: "attachment-revision",
+      title: key,
+      filename: `${key}.pdf`,
+      contentType: "application/pdf",
+      charset: null,
+      url: null,
+      linkMode: "stored_file",
+      role: "ordinary",
+      file,
+    });
+    const materialize = createCanonicalResearchBundleMaterializer({
+      resources: {
+        async stageFile(args: { sourcePath: string }) {
+          if (args.sourcePath.includes("denied")) {
+            const error = new Error("permission denied");
+            (error as any).code = "EACCES";
+            throw error;
+          }
+          throw new Error("read failed");
+        },
+        async cleanup() {},
+      },
+      async readPaper(ref) {
+        return {
+          source: { ref, revision: `revision:${ref.key}` },
+          item: {
+            schema: "zotero-agents.portable-regular-item.v1",
+            itemType: "journalArticle",
+            fields: { title: ref.key },
+            creators: [],
+            tags: [],
+          },
+          collectionRefs: [],
+          relatedRefs: [],
+          notes: [],
+          attachments: [
+            attachment("MISSINGFILE", { state: "missing" }),
+            attachment("DENIEDFILE", {
+              state: "available",
+              path: "/denied/source.pdf",
+              sizeBytes: 3,
+              modifiedAt: null,
+            }),
+            attachment("BROKENFILE", {
+              state: "available",
+              path: "/broken/source.pdf",
+              sizeBytes: 3,
+              modifiedAt: null,
+            }),
+          ],
+          annotations: [],
+        };
+      },
+    });
+    const result = await materialize({
+      paperRefs: [paperRef],
+      missingFilePolicy: "record_missing",
+    });
+    assert.equal(result.completeness, "incomplete");
+    assert.deepEqual(
+      result.issues.map((issue) => [
+        issue.code,
+        (issue as any).attachmentRef?.key,
+      ]),
+      [
+        ["attachment_file_missing", "MISSINGFILE"],
+        ["attachment_file_permission_denied", "DENIEDFILE"],
+        ["attachment_file_unreadable", "BROKENFILE"],
+      ],
+    );
+    for (const paper of result.papers) {
+      for (const entry of paper.attachments) {
+        assert.equal(entry.file.state, "missing");
+      }
+    }
+  });
+
   it("materializes unique resolvable workflow paper refs without aborting on missing papers", async function () {
     const papers = new Map<string, DirectResearchBundlePaper>([
       [
@@ -994,7 +1076,8 @@ describe("Research Bundle service", function () {
         published.delivery.bundle.fileId,
       );
       await createWorkflowArchiveApi().withExtractedZip(
-        resolved.source.path,
+        { sourcePath: resolved.source.path },
+        {},
         async (extracted) => {
           assert.equal(
             await extracted.readText("papers/1_AAAA/source.md"),

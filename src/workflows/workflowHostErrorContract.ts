@@ -518,6 +518,18 @@ export function createWorkflowHostErrorData<Code extends WorkflowHostErrorCode>(
   } as unknown as Extract<WorkflowHostErrorData, { code: Code }>;
 }
 
+export function assertWorkflowCallNotCanceled(
+  control?: Readonly<{ signal?: AbortSignal }>,
+): void {
+  if (control?.signal?.aborted) {
+    throw createWorkflowHostError(
+      "canceled",
+      "Workflow Host call was canceled",
+      { reason: "caller_signal" },
+    );
+  }
+}
+
 export function createWorkflowHostError<Code extends WorkflowHostErrorCode>(
   code: Code,
   message: string,

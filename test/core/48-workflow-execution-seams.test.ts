@@ -1031,6 +1031,95 @@ describe("workflow execution seams", function () {
     });
   });
 
+  it("exposes a read-only execution signal that aborts when the hook run ends", async function () {
+    const capturedSignals: AbortSignal[] = [];
+    const workflow = {
+      manifest: {
+        id: "execution-signal",
+        label: "Execution Signal",
+        provider: "pass-through",
+        ...parentInputPlanningV2,
+        hooks: {
+          buildRequest: "hooks/buildRequest.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      hooks: {
+        buildRequest: async (args: any) => {
+          const signal = args.runtime.signal as AbortSignal;
+          capturedSignals.push(signal);
+          assert.isFalse(signal.aborted);
+          return {
+            kind: "pass-through.run.v1",
+            taskName: "Execution Signal",
+            selectionContext: args.selectionContext,
+          };
+        },
+        applyResult: async () => ({ ok: true }),
+      },
+    } as any;
+
+    const requests = await executeBuildRequests({
+      workflow,
+      selectionContext: {
+        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
+        summary: { parentCount: 1 },
+      },
+    });
+
+    assert.lengthOf(requests, 1);
+    assert.lengthOf(capturedSignals, 1);
+    assert.isTrue(capturedSignals[0].aborted);
+  });
+
+  it("links the caller-provided runtime signal into host cancellation", async function () {
+    const upstream = new AbortController();
+    upstream.abort();
+    let observedSignalAborted: boolean | undefined;
+    let observedHostErrorCode: string | undefined;
+    const workflow = {
+      manifest: {
+        id: "execution-signal-upstream",
+        label: "Execution Signal Upstream",
+        provider: "pass-through",
+        ...parentInputPlanningV2,
+        hooks: {
+          buildRequest: "hooks/buildRequest.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      hooks: {
+        buildRequest: async (args: any) => {
+          observedSignalAborted = (args.runtime.signal as AbortSignal).aborted;
+          try {
+            await args.runtime.hostApi.file.readText("E:/missing/probe.txt");
+          } catch (error) {
+            observedHostErrorCode = (error as { code?: string })?.code;
+          }
+          return {
+            kind: "pass-through.run.v1",
+            taskName: "Execution Signal Upstream",
+            selectionContext: args.selectionContext,
+          };
+        },
+        applyResult: async () => ({ ok: true }),
+      },
+    } as any;
+
+    const requests = await executeBuildRequests({
+      workflow,
+      selectionContext: {
+        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
+        summary: { parentCount: 1 },
+      },
+      runtime: { signal: upstream.signal },
+    });
+
+    assert.lengthOf(requests, 1);
+    assert.isTrue(observedSignalAborted);
+    assert.equal(observedHostErrorCode, "canceled");
+  });
+
   it("expands preflight replacement units and records aggregate metadata", async function () {
     const buildPreflights: any[] = [];
     const workflow = {

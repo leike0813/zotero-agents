@@ -42,7 +42,6 @@ export function createFailClosedZoteroHostCapabilityBroker(
       syncSnapshot: unexpected("library.syncSnapshot"),
       cancelSnapshot: unexpected("library.cancelSnapshot"),
       readinessAudit: unexpected("library.readinessAudit"),
-      searchItems: unexpected("library.searchItems"),
       getItemDetail: unexpected("library.getItemDetail"),
       getItemNotes: unexpected("library.getItemNotes"),
       getNoteDetail: unexpected("library.getNoteDetail"),

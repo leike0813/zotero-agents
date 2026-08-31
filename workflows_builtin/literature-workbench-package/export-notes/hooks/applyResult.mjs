@@ -39,7 +39,7 @@ async function applyResultImpl({ request, runtime }) {
     };
   }
 
-  const remoteOutput = host.resources?.mode === "non-interactive";
+  const remoteOutput = host.interactionMode === "non_interactive";
   const allocatedOutput = remoteOutput
     ? await host.resources.allocateOutput({
         slotId: "notes",
@@ -75,11 +75,12 @@ async function applyResultImpl({ request, runtime }) {
         if (remoteOutput) {
           archiveEntries.push({
             name: `${folderName}/${file.fileName}`,
-            ...(typeof file.content === "string"
-              ? { text: file.content }
-              : file.bytes
-                ? { bytes: file.bytes }
-                : { sourcePath: file.sourcePath }),
+            content:
+              typeof file.content === "string"
+                ? { kind: "text", text: file.content }
+                : file.bytes
+                  ? { kind: "bytes", bytes: file.bytes }
+                  : { kind: "file", sourcePath: file.sourcePath },
           });
         } else {
           await host.file.makeDirectory({ path: targetDir });

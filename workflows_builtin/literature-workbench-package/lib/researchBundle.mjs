@@ -149,11 +149,11 @@ export async function buildResearchProduct(args) {
   const entries = [];
   const addText = (assetId, path, content, contentType = "text/plain") => {
     assets.push({ assetId, productAssetPath: path, contentType, source: { kind: "inline-text", text: content } });
-    entries.push({ name: path, text: content });
+    entries.push({ name: path, content: { kind: "text", text: content } });
   };
   const addFile = (assetId, path, sourcePath, contentType) => {
     assets.push({ assetId, productAssetPath: path, contentType, source: { kind: "local-file", path: sourcePath } });
-    entries.push({ name: path, sourcePath });
+    entries.push({ name: path, content: { kind: "file", sourcePath } });
   };
   const sharedMaterialization = await host.researchBundles.materializePapers({
     paperRefs: selection.papers.map((paper) => parsePaperRef(paper.paper_ref)),
@@ -353,7 +353,7 @@ export async function buildResearchProduct(args) {
   const index = renderResearchBundleIndex({ topics: topicManifest, papers: paperManifest });
   addText("index", "index.md", index, "text/markdown");
   addText("readme", "README.md", readme, "text/markdown");
-  const measured = await host.archive.measureEntries(entries);
+  const measured = await host.archive.measureEntries({ entries });
   const manifest = {
     schema_id: RESEARCH_PRODUCT_SCHEMA,
     schema_version: "2.0.0",
@@ -361,7 +361,12 @@ export async function buildResearchProduct(args) {
     topics: topicManifest,
     papers: paperManifest,
     bibliography,
-    files: measured.files,
+    files: Object.fromEntries(
+      Object.entries(measured.files || {}).map(([path, integrity]) => [
+        path,
+        { size: integrity?.sizeBytes ?? 0, sha256: integrity?.sha256 || "" },
+      ]),
+    ),
     warnings,
   };
   assets.push({ assetId: "manifest", productAssetPath: "manifest.json", contentType: "application/json", source: { kind: "inline-text", text: `${JSON.stringify(manifest, null, 2)}\n` } });

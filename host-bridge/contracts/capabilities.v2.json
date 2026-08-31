@@ -2420,14 +2420,31 @@
                   "required": ["libraryId", "key"],
                   "additionalProperties": false
                 },
+                "kind": { "const": "regular" },
                 "itemType": { "type": "string" },
                 "title": { "type": "string" },
-                "creators": { "type": "array", "items": { "type": "string" } },
-                "year": { "type": "string" },
-                "date": { "type": "string" },
-                "publicationTitle": { "type": "string" },
+                "parentRef": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "libraryId": { "type": "integer", "minimum": 1 },
+                        "key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "required": ["libraryId", "key"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "state": { "const": "active" },
+                "revision": { "type": "string", "minLength": 1 },
                 "tags": { "type": "array", "items": { "type": "string" } },
-                "collections": {
+                "collectionRefs": {
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -2443,8 +2460,46 @@
                     "additionalProperties": false
                   }
                 },
-                "revision": { "type": "string", "minLength": 1 },
-                "state": { "const": "active" },
+                "creators": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "representation": { "const": "two_field" },
+                          "creatorType": { "type": "string" },
+                          "firstName": { "type": "string" },
+                          "lastName": { "type": "string" }
+                        },
+                        "required": [
+                          "representation",
+                          "creatorType",
+                          "firstName",
+                          "lastName"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "representation": { "const": "single_field" },
+                          "creatorType": { "type": "string" },
+                          "name": { "type": "string", "minLength": 1 }
+                        },
+                        "required": [
+                          "representation",
+                          "creatorType",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "date": { "type": "string" },
+                "year": { "type": ["string", "null"] },
+                "publicationTitle": { "type": "string" },
                 "identifiers": {
                   "type": "object",
                   "properties": {
@@ -2465,16 +2520,18 @@
               },
               "required": [
                 "ref",
+                "kind",
                 "itemType",
                 "title",
-                "creators",
-                "year",
-                "date",
-                "publicationTitle",
-                "tags",
-                "collections",
-                "revision",
+                "parentRef",
                 "state",
+                "revision",
+                "tags",
+                "collectionRefs",
+                "creators",
+                "date",
+                "year",
+                "publicationTitle",
                 "identifiers",
                 "url",
                 "noteCount",

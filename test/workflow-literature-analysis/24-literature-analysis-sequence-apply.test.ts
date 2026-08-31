@@ -30,28 +30,31 @@ describe("workflow: literature-analysis sequence step apply", function () {
         file: {
           ...baseHostApi.file,
           materializeWorkflowInputFile: async (args: {
-            workflowId?: string;
             key?: string;
             fileName?: string;
-            content?: string;
-            bytes?: Uint8Array | ArrayBuffer;
+            content?:
+              | { kind: "text"; text: string }
+              | { kind: "bytes"; bytes: Uint8Array | ArrayBuffer };
           }) => {
             const filePath = path.join(
               tempDir,
               "runtime",
               "tmp",
               "workflow-inputs",
-              String(args.workflowId || "workflow"),
+              "tag-regulator",
               String(args.key || "input"),
               String(args.fileName || "input.dat"),
             );
             await fs.mkdir(path.dirname(filePath), { recursive: true });
-            if (typeof args.content === "string") {
-              await fs.writeFile(filePath, args.content, "utf8");
+            if (args.content?.kind === "text") {
+              await fs.writeFile(filePath, args.content.text, "utf8");
             } else {
               await fs.writeFile(
                 filePath,
-                Buffer.from(args.bytes || new Uint8Array()),
+                Buffer.from(
+                  (args.content as { bytes?: Uint8Array | ArrayBuffer })
+                    ?.bytes || new Uint8Array(),
+                ),
               );
             }
             return { path: filePath };

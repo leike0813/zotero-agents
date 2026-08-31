@@ -1,16 +1,11 @@
 import { joinPath } from "../utils/path";
 import { recordLeakProbeTempArtifactForTests } from "../modules/testLeakProbeTempArtifacts";
+import { executeOneShotSubprocess } from "../platform/subprocess";
 import {
   ensureRuntimeDirectoryStrict,
   readRuntimeTextFileStrict,
   resolveRuntimeTemporaryDirectory,
 } from "../modules/runtimePersistence";
-
-type DynamicImport = (specifier: string) => Promise<any>;
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
 
 function hasZoteroZipRuntime() {
   const runtime = globalThis as {
@@ -124,30 +119,37 @@ export class ZipBundleReader {
           kind: "zip-extracted-dir",
           path: tmpDir,
         });
-        const childProcess = await dynamicImport("child_process");
-        const util = await dynamicImport("util");
-        const execFileAsync = util.promisify(childProcess.execFile);
         const processObj = globalThis as {
           process?: { platform?: string };
         };
 
-        if (processObj.process?.platform === "win32") {
-          const command = [
-            "Expand-Archive",
-            `-LiteralPath '${this.bundlePath.replace(/'/g, "''")}'`,
-            `-DestinationPath '${tmpDir.replace(/'/g, "''")}'`,
-            "-Force",
-          ].join(" ");
-          await execFileAsync("powershell", [
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            command,
-          ]);
-          return tmpDir;
+        const request =
+          processObj.process?.platform === "win32"
+            ? {
+                command: "powershell",
+                args: [
+                  "-NoProfile",
+                  "-NonInteractive",
+                  "-Command",
+                  [
+                    "Expand-Archive",
+                    `-LiteralPath '${this.bundlePath.replace(/'/g, "''")}'`,
+                    `-DestinationPath '${tmpDir.replace(/'/g, "''")}'`,
+                    "-Force",
+                  ].join(" "),
+                ],
+                hidden: true,
+              }
+            : {
+                command: "unzip",
+                args: ["-q", this.bundlePath, "-d", tmpDir],
+              };
+        const result = await executeOneShotSubprocess(request);
+        if (result.outcome !== "exited" || result.exitCode !== 0) {
+          throw new Error(
+            `Failed to extract workflow bundle: ${result.stderr || result.outcome}`,
+          );
         }
-
-        await execFileAsync("unzip", ["-q", this.bundlePath, "-d", tmpDir]);
         return tmpDir;
       })();
     }
