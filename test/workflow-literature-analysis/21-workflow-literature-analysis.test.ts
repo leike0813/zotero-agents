@@ -792,6 +792,64 @@ describe("workflow: literature-analysis", function () {
     },
   );
 
+  itFullOnly(
+    "builds score-only when schema headings have readable payload evidence",
+    async function () {
+      const workflow = await getLiteratureDigestWorkflow();
+      const { parent, attachment } = await createDigestAttachmentParent({
+        title: "Workflow Schema Payload Parent",
+      });
+      const hostApi = createWorkflowHostApi();
+      const artifacts = [
+        {
+          noteKind: "digest",
+          title: "Digest",
+          payloadType: "digest-markdown",
+          format: "markdown" as const,
+          value: "# Digest",
+        },
+        {
+          noteKind: "references",
+          title: "References",
+          payloadType: "references-json",
+          format: "json" as const,
+          value: [],
+        },
+        {
+          noteKind: "citation-analysis",
+          title: "Citation Analysis",
+          payloadType: "citation-analysis-json",
+          format: "json" as const,
+          value: {},
+        },
+      ];
+      for (const artifact of artifacts) {
+        const note = await handlers.parent.addNote(parent, {
+          content: `<div data-schema-version="9"><h1>${artifact.title}</h1></div>`,
+        });
+        await hostApi.notes.upsertPayload({
+          operationId: `schema-payload:${note.libraryID}:${note.key}`,
+          noteRef: { libraryId: note.libraryID, key: note.key },
+          payload: {
+            payloadType: artifact.payloadType,
+            noteKind: artifact.noteKind,
+            schemaVersion: `${artifact.payloadType}.v1`,
+            format: artifact.format,
+            value: artifact.value,
+          },
+        });
+      }
+
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: await buildSelectionContext([attachment]),
+      })) as LiteratureAnalysisSequenceRequest[];
+
+      assert.lengthOf(requests, 1);
+      assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
+    },
+  );
+
   const headingOnlyFormats = [
     {
       label: "legacy h1",
@@ -2634,9 +2692,10 @@ describe("workflow: literature-analysis", function () {
         bundleReader: bundle,
       });
 
-      const noteItems = (parent.getNotes() || [])
+      const allNoteItems = (parent.getNotes() || [])
         .map((id) => Zotero.Items.get(id))
         .filter(Boolean) as Zotero.Item[];
+      const noteItems = allNoteItems.filter((note) => !note.deleted);
       const generated = noteItems.filter((note) =>
         parseNoteKind(note.getNote()),
       );
@@ -2653,6 +2712,12 @@ describe("workflow: literature-analysis", function () {
       assert.lengthOf(digestNotes, 1);
       assert.lengthOf(referencesNotes, 1);
       assert.lengthOf(citationAnalysisNotes, 1);
+      assert.lengthOf(
+        allNoteItems.filter(
+          (note) => note.deleted && parseNoteKind(note.getNote()) === "digest",
+        ),
+        1,
+      );
       await assertStoredPayloadExists(digestNotes[0], "digest-markdown");
       await assertStoredPayloadExists(referencesNotes[0], "references-json");
       await assertStoredPayloadExists(

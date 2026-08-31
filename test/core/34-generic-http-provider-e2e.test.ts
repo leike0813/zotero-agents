@@ -93,10 +93,13 @@ async function createGenericWorkflowRoot() {
   await writeUtf8(
     joinPath(root, "hooks", "applyResult.js"),
     `
-export async function applyResult({ parent, runResult, runtime }) {
+export async function applyResult({ request, runResult, runtime }) {
+  const target = request.targetParentRef;
   const payload = runResult?.resultJson || {};
-  const note = await runtime.handlers.parent.addNote(parent, {
-    content: "<h1>Generic HTTP Echo</h1><pre>" + JSON.stringify(payload, null, 2) + "</pre>",
+  const note = await runtime.hostApi.notes.create({
+    operationId: "generic-http:" + target.libraryId + ":" + target.key,
+    placement: { kind: "child", parentRef: target },
+    content: { format: "html", value: "<h1>Generic HTTP Echo</h1><pre>" + JSON.stringify(payload, null, 2) + "</pre>" },
   });
   return { note };
 }

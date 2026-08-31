@@ -46,7 +46,7 @@ async function createPassThroughWorkflowRoot() {
       "  const selection = runResult?.resultJson?.selectionContext;",
       "  await runtime.hostApi.notes.create({",
       "    operationId: `pass-through:${target.libraryId}:${target.key}`,",
-      "    parentRef: target,",
+      "    placement: { kind: 'child', parentRef: target },",
       "    content: { format: 'html', value: `<p data-zs-pass-through='ok'>${String(selection?.selectionType || '')}</p>` },",
       "  });",
       "  return { ok: true };",

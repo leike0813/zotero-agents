@@ -12,8 +12,19 @@ import {
   buildParentSnapshot,
   selectIdentifier,
 } from "../../lib/metadataCurator.mjs";
+import { parseWorkbenchNoteKind } from "../../lib/noteCodecs.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { normalizeLiteratureScoreArtifact } from "../../lib/literatureScoreNote.mjs";
+
+const generatedPayloadTypesByNoteKind = {
+  digest: ["digest-markdown"],
+  references: ["references-json"],
+  "citation-analysis": [
+    "citation-analysis-json",
+    "citation-analysis-markdown",
+  ],
+  "literature-score": ["literature-score-json"],
+};
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -76,13 +87,41 @@ function resolveReadinessSpec(manifest) {
   return spec;
 }
 
+function resolveSchemaGeneratedNoteKind(noteContent) {
+  const text = String(noteContent || "");
+  if (!/<(?:div|section)\b[^>]*data-schema-version\s*=/i.test(text)) {
+    return "";
+  }
+  return parseGeneratedNoteKind(text) ||
+    (/<h1[^>]*>\s*Literature Score\s*<\/h1>/i.test(text)
+      ? "literature-score"
+      : "");
+}
+
+async function resolveReadinessNoteKind(host, note) {
+  const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
+  const markerKind = parseWorkbenchNoteKind(detail.content);
+  if (markerKind) {
+    return markerKind;
+  }
+  const schemaKind = resolveSchemaGeneratedNoteKind(detail.content);
+  for (const payloadType of generatedPayloadTypesByNoteKind[schemaKind] || []) {
+    try {
+      await host.library.getNotePayload(note.ref, { payloadType });
+      return schemaKind;
+    } catch {
+      // Try the next payload representation for this generated note kind.
+    }
+  }
+  return "";
+}
+
 async function inspectReadiness(parentItem, manifest, runtime) {
   const spec = resolveReadinessSpec(manifest);
   const host = requireHostApi(runtime);
   const notes = await Promise.all(
     (await host.library.getItemNotes(portableItemRef(parentItem))).map(async (note) => {
-      const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
-      return { note, kind: parseGeneratedNoteKind(detail.content) };
+      return { note, kind: await resolveReadinessNoteKind(host, note) };
     }),
   );
   const artifacts = {};

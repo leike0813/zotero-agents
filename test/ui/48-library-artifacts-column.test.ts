@@ -758,7 +758,9 @@ async function createEmbeddedPayloadAttachment(
   const envelope = buildWorkbenchPayloadEnvelope({
     noteKind: options.noteKind,
     payloadType: options.payloadType,
-    payload: options.payload,
+    schemaVersion: "1",
+    format: "json",
+    value: options.payload,
     noteId: note.id,
     noteKey: note.key,
     parentId: note.parentID,

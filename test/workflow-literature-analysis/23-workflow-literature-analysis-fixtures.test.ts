@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { WORKFLOW_HOST_API_VERSION } from "../../src/workflows/workflowHostContract";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import type { LoadedWorkflow } from "../../src/workflows/types";
@@ -11,13 +12,22 @@ import {
   workflowsPath,
 } from "./workflow-test-utils";
 
+type FixtureParent = {
+  id?: number;
+  key?: string;
+  libraryID?: number;
+  itemType?: string;
+  title?: string;
+  data?: Record<string, unknown>;
+};
+
 type FilteredSelection = {
   items?: { attachments?: Array<{ filePath?: string }> };
 };
 
 type BuiltRequest = {
   kind: string;
-  targetParentID: number;
+  targetParentRef: { libraryId: number; key: string };
   sourceAttachmentPaths?: string[];
   steps?: Array<{
     id?: string;
@@ -35,50 +45,52 @@ type WorkflowParameterSpec = {
   default?: string;
 };
 
-function collectParentIds(context: unknown) {
+function collectParents(context: unknown) {
   const selection = context as {
     items?: {
-      parents?: Array<{ item?: { id?: number } }>;
-      attachments?: Array<{ parent?: { id?: number | null } }>;
-      children?: Array<{ parent?: { id?: number | null } }>;
-      notes?: Array<{ parent?: { id?: number | null } }>;
+      parents?: Array<{ item?: FixtureParent }>;
+      attachments?: Array<{ parent?: FixtureParent }>;
+      children?: Array<{ parent?: FixtureParent }>;
+      notes?: Array<{ parent?: FixtureParent }>;
     };
   };
-  const ids = new Set<number>();
+  const parentsById = new Map<number, FixtureParent>();
   const parents = selection.items?.parents || [];
   const attachments = selection.items?.attachments || [];
   const children = selection.items?.children || [];
   const notes = selection.items?.notes || [];
 
   for (const entry of parents) {
-    const id = entry.item?.id;
+    const parent = entry.item;
+    const id = parent?.id;
     if (typeof id === "number" && Number.isFinite(id)) {
-      ids.add(id);
+      parentsById.set(id, parent);
     }
   }
-  for (const entry of attachments) {
-    const id = entry.parent?.id;
-    if (typeof id === "number" && Number.isFinite(id)) {
-      ids.add(id);
+  for (const entry of [...attachments, ...children, ...notes]) {
+    const parent = entry.parent;
+    const id = parent?.id;
+    if (typeof id === "number" && Number.isFinite(id) && parent) {
+      parentsById.set(id, parent);
     }
   }
-  for (const entry of children) {
-    const id = entry.parent?.id;
-    if (typeof id === "number" && Number.isFinite(id)) {
-      ids.add(id);
-    }
+  return Array.from(parentsById.values());
+}
+
+function findFixtureParent(ref: { libraryId: number; key: string }) {
+  for (const fixtureCase of LITERATURE_ANALYSIS_FIXTURE_CASES) {
+    const parent = collectParents(fixtureCase.context).find(
+      (candidate) =>
+        candidate.libraryID === ref.libraryId && candidate.key === ref.key,
+    );
+    if (parent) return parent;
   }
-  for (const entry of notes) {
-    const id = entry.parent?.id;
-    if (typeof id === "number" && Number.isFinite(id)) {
-      ids.add(id);
-    }
-  }
-  return Array.from(ids);
+  return null;
 }
 
 async function clearExistingNotesForFixtureParents(context: unknown) {
-  for (const parentId of collectParentIds(context)) {
+  for (const { id: parentId } of collectParents(context)) {
+    if (typeof parentId !== "number") continue;
     const parent = Zotero.Items.get(parentId) as
       | (Zotero.Item & { getNotes?: () => number[] })
       | undefined;
@@ -122,8 +134,35 @@ describeFixtureMatrixSuite(
       const baseHostApi = createWorkflowHostApi();
       return {
         ...hookRuntime,
+        hostApiVersion: WORKFLOW_HOST_API_VERSION,
         hostApi: {
           ...baseHostApi,
+          library: {
+            ...baseHostApi.library,
+            async getItemDetail(ref: { libraryId: number; key: string }) {
+              const parent = findFixtureParent(ref);
+              if (!parent) return baseHostApi.library.getItemDetail(ref);
+              const fields = {
+                ...(parent.data || {}),
+                title: parent.title || parent.data?.title || "",
+              };
+              return {
+                kind: "regular" as const,
+                item: {
+                  ref,
+                  itemType: parent.itemType || "journalArticle",
+                  fields,
+                  creators: Array.isArray(parent.data?.creators)
+                    ? parent.data.creators
+                    : [],
+                },
+              };
+            },
+            async getItemNotes(ref: { libraryId: number; key: string }) {
+              if (findFixtureParent(ref)) return [];
+              return baseHostApi.library.getItemNotes(ref);
+            },
+          },
           synthesis: {
             ...(baseHostApi as any).synthesis,
             async exportTagVocabularyForRegulator() {
@@ -222,7 +261,13 @@ describeFixtureMatrixSuite(
           );
 
           assert.equal(request.kind, "skillrunner.sequence.v1");
-          assert.equal(request.targetParentID, expected.targetParentID);
+          const expectedParent = collectParents(fixtureCase.context).find(
+            (parent) => parent.id === expected.targetParentID,
+          );
+          assert.deepEqual(request.targetParentRef, {
+            libraryId: expectedParent?.libraryID,
+            key: expectedParent?.key,
+          });
           assert.deepEqual(request.sourceAttachmentPaths, [
             expected.uploadPath,
           ]);

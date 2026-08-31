@@ -107,17 +107,27 @@ then falls back to V1 (base64-encoded tail marker found after `IEND`).
 
 ```typescript
 {
-  schemaVersion: string;
-  kind: string;         // WORKBENCH_EMBEDDED_PAYLOAD_MARKER
+  schemaVersion: 1;            // Envelope schema
+  payloadStorageVersion: 2;
+  kind: "zotero-skills-workbench-note-payload";
   createdAt: string;
-  updatedAt: string;
-  noteKey?: string;
-  noteId?: number;
-  parentId?: number;
-  payloadHash: string;  // CRC32-based
-  payload: unknown;     // The original payload
+  noteKey: string;
+  noteId: number | null;
+  parentId: number | null;
+  noteKind: string;
+  payloadType: string;
+  logicalSchemaVersion: string;
+  format: "json" | "markdown" | "text";
+  payloadHash: string;
+  payload: unknown;
 }
 ```
+
+The caller supplies the logical payload identity as
+`{ payloadType, noteKind, schemaVersion, format, value }`. The envelope stores
+that `schemaVersion` as `logicalSchemaVersion`; its own numeric `schemaVersion`
+continues to version the envelope. `payloadHash` is the SHA-256 digest of the
+canonical JSON representation of those five logical fields.
 
 ---
 
