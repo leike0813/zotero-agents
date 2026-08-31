@@ -16,6 +16,17 @@ import {
 type TestDomain = "all" | "core" | "ui" | "workflow";
 type TestMode = "lite" | "full";
 
+export function shouldUseHeadlessZoteroTest(
+  platform: NodeJS.Platform = process.platform,
+  env: Pick<NodeJS.ProcessEnv, "DISPLAY" | "WAYLAND_DISPLAY"> = process.env,
+) {
+  return (
+    platform === "linux" &&
+    !String(env.DISPLAY || "").trim() &&
+    !String(env.WAYLAND_DISPLAY || "").trim()
+  );
+}
+
 const ZOTERO_TEST_ENTRIES = {
   lite: {
     core: "test/zotero/core/lite",
@@ -232,6 +243,7 @@ export default defineConfig({
 
   test: {
     entries: TEST_ENTRIES,
+    headless: shouldUseHeadlessZoteroTest(),
     startupDelay: 100,
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
     hooks: {

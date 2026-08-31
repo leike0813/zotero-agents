@@ -19,6 +19,7 @@ import {
   patchGeneratedZoteroTestRunner,
   patchZoteroTestRunnerHtml,
 } from "../../../scripts/patch-zotero-test-runner";
+import { shouldUseHeadlessZoteroTest } from "../../../zotero-plugin.config";
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html>
@@ -95,6 +96,19 @@ function Reporter(runner) {
 </html>`;
 
 describe("zotero test infrastructure helpers", function () {
+  describe("Zotero display environment", function () {
+    it("uses headless mode only when Linux has no display server", function () {
+      assert.isTrue(shouldUseHeadlessZoteroTest("linux", {}));
+      assert.isFalse(shouldUseHeadlessZoteroTest("linux", { DISPLAY: ":0" }));
+      assert.isFalse(
+        shouldUseHeadlessZoteroTest("linux", {
+          WAYLAND_DISPLAY: "wayland-0",
+        }),
+      );
+      assert.isFalse(shouldUseHeadlessZoteroTest("darwin", {}));
+    });
+  });
+
   describe("wrapper forwarded args", function () {
     it("injects --no-watch by default for zotero test targets", function () {
       assert.deepEqual(buildForwardedTestArgs("test:zotero:cli", []), [
