@@ -6,6 +6,6 @@
   "requires": {
     "plugin": ">=0.9.0",
     "content_api": "^3.0.0",
-    "zotero": ">=7 <10"
+    "zotero": ">=7 <11"
   }
 }

@@ -4,7 +4,7 @@
 
 # 项目特点及目标
 
-1. 插件目标版本为 Zotero 7 + Zotero 9。
+1. 插件目标版本为 Zotero 7、Zotero 9 和 Zotero 10。
 2. 插件以 zotero-plugin-template 项目为模板开发。
 3. 插件采用模块化、工作流可插拔的设计理念。插件本体提供通用的 UI 界面及菜单。内部通过统一的工作流协议，由各组件分别按流程执行任务。插件本身不包含任何具体的业务逻辑。业务逻辑由用户通过“可插拔”的工作流文件或工作流包来声明和定义。
 4. 插件主要以通过ACP协议调用Agent工具为目标开发，兼容旧的Skill-Runner后端服务，但也应设计为兼容其他通用的REST API后端。
@@ -132,6 +132,15 @@
 - 开发过程注重文档化
 - 采用TDD模式：每一步开发前先写测试用例，再围绕测试实现
 - **切勿将Node.js环境中才能使用的代码用于插件环境**
+
+# Zotero 源码参考基线
+
+- `reference/Zotero-7` 固定到 tag `7.0.32`（commit `188c54c186fbbaa6889145986d43ba64160a44fa`）。
+- `reference/Zotero-9` 固定到 tag `9.0.6`（commit `7132587c2d6d56725debe64908733a8140bc6be3`）。
+- `reference/Zotero-10` 固定到 tag `10.0.1`（commit `36749bd0bd4fdac9ee46c16f7aa7bed094a0851f`）。
+- 三个目录是 shallow submodule，只初始化 Zotero 主仓；嵌套 submodule 仅在明确需要审计对应源码时按路径初始化。
+- 三个目录在 `.gitignore` 中精确排除，默认 `rg`、CodeGraph、Prettier、ESLint 和 TypeScript 检查不得扫描这些参考源码；有意调查时使用 `git -C reference/Zotero-10 …`、`rg --no-ignore …` 等显式命令。
+- 更新基线时，先选择稳定 tag 并核对 tag 指向的 commit，再更新 gitlink；同时审阅 `test/zotero/compatibility-matrix.json`、兼容性文档与公开支持声明。不得跟踪维护分支头。
 
 # Host Bridge Agent-facing Surface硬约束
 

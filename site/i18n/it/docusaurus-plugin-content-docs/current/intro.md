@@ -18,7 +18,7 @@ Il quarto livello è l'**Host Bridge**. Tramite la CLI `zotero-bridge` e il serv
 
 Il valore fondamentale di Zotero Agents è rendere la biblioteca Zotero un ambiente di ricerca in cui gli agent possono lavorare concretamente. Ogni fase di lettura, analisi, revisione e preparazione alla scrittura può essere accumulata come conoscenza per la fase successiva della ricerca.
 
-> **Versioni Zotero Supportate**: Questo plugin supporta Zotero 7 e Zotero 9. Lo sviluppo primario e i test sono effettuati su Zotero 9. Zotero 8 è teoricamente pienamente supportato (il framework del plugin è invariato tra 8/9). Anche Zotero 7 dovrebbe funzionare in teoria ma non è stato testato approfonditamente; la manutenzione futura si concentrerà su Zotero 9. Gli utenti di Zotero 7 che incontrano problemi dovrebbero segnalarli su [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Versioni Zotero supportate**: questo plugin supporta Zotero 7, 9 e 10. Su Windows e Linux vengono testate le versioni rappresentative 7.0.32, 9.0.6 e 10.0.1. Per Zotero 10 su macOS, l'evidenza attuale è uno smoke test formale dell'XPI non bloccante; non implica la copertura di tutte le precedenti versioni di manutenzione.
 
 :::tip Suggerimento
 Il plugin viene distribuito **senza logica di business integrata**. Tutti i workflow sono forniti tramite **pacchetti di workflow ufficiali** separati che gli utenti devono scaricare e installare dopo aver installato il plugin. Vedi la [Guida all'Installazione](/installation) per i dettagli.

@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -75,11 +75,11 @@ Zotero Agents は、Zotero 文献ライブラリのための**オールインワ
 
 ### システム要件
 
-- [Zotero 9](https://www.zotero.org/download/) または [Zotero 7](https://www.zotero.org/download/)（バージョン ≥ 6.999）
+- [Zotero 10](https://www.zotero.org/download/)、[Zotero 9](https://www.zotero.org/download/)、または [Zotero 7](https://www.zotero.org/download/)（バージョン ≥ 7.0）
 - ACP バックエンドを使用する場合：対応する Agent CLI ツールがローカルにインストールされていること（`npx` による自動インストールも可）
 - Skill-Runner バックエンドを使用する場合：[Skill-Runner](https://github.com/leike0813/Skill-Runner) インスタンスがデプロイされていること
 
-> **Zotero バージョンについて**：本プラグインは Zotero 9 で開発・テストされています。Zotero 8 も理論上は完全に対応可能です（Zotero 8/9 のプラグインフレームワークに大きな変更はありません）。Zotero 7 も理論上はサポート可能ですが、十分なテストができていないため、今後のメンテナンスの重点は Zotero 9 に置かれます。Zotero 7 で問題が発生した場合は、[Issues](https://github.com/leike0813/zotero-agents/issues) からご報告ください。
+> **Zotero バージョンについて**：本プラグインは Zotero 7、9、10 をサポートします。Windows と Linux では代表バージョン 7.0.32、9.0.6、10.0.1 をテストしています。macOS 上の Zotero 10 は、現時点では非ブロッキングの正式 XPI スモークテストが証拠であり、過去のすべてのパッチ版を網羅するものではありません。
 
 ### バックエンドの種類
 

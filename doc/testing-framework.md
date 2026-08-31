@@ -531,6 +531,34 @@ SHA-256、runner、架构和门禁策略的唯一事实源。当前固定代表�
 - Zotero 10.0.1：Windows x64、Linux x64；
 - Zotero 10.0.1：macOS Intel、Apple Silicon 的正式 XPI smoke 证据。
 
+### 源码参考基线与审计边界
+
+兼容调查使用三个 shallow submodule，分别固定到与矩阵一致的稳定版本：
+
+- `reference/Zotero-7`：tag `7.0.32`，commit `188c54c186fbbaa6889145986d43ba64160a44fa`；
+- `reference/Zotero-9`：tag `9.0.6`，commit `7132587c2d6d56725debe64908733a8140bc6be3`；
+- `reference/Zotero-10`：tag `10.0.1`，commit `36749bd0bd4fdac9ee46c16f7aa7bed094a0851f`。
+
+这些工作树默认被搜索和索引工具排除，也不由 CI 的 content submodule
+步骤初始化。需要调查时按路径执行：
+
+```bash
+git submodule update --init --depth 1 \
+  reference/Zotero-7 reference/Zotero-9 reference/Zotero-10
+git -C reference/Zotero-10 describe --tags --exact-match
+git -C reference/Zotero-10 rev-parse HEAD
+```
+
+更新基线时只选择稳定 tag，先核对 tag 解析出的 commit，再更新 gitlink；同一
+变更必须复查 `test/zotero/compatibility-matrix.json`、本节和公开支持声明。嵌套
+submodule 默认不初始化；只有审计确实触达 reader、translator、note-editor 等
+独立源码时，才按具体路径初始化。
+
+源码审计只覆盖插件实际调用边界。Zotero 10 当前审查项包括 collection tree
+多选、ItemTree 行结构、Search/FullText、Local API、item type 与附件路径校验、
+WAL/数据库访问和 Firefox 140。源码形状审阅用于定位风险，最终兼容结论仍以
+manifest、构建和真实宿主 receipt 分层取证，不能用源码相似替代行为测试。
+
 Windows/Linux 单元是阻塞门禁。pull request 运行六个 `lite` 行为单元；
 `main` 与 release 运行六个 `full` 行为单元和六个正式 XPI 安装 smoke。
 macOS 两个单元使用 GitHub 托管的 Intel 与 ARM64 runner，暂时

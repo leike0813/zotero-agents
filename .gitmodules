@@ -13,3 +13,15 @@
 [submodule "reference/Skill-Runner"]
 	path = reference/Skill-Runner
 	url = https://github.com/leike0813/Skill-Runner
+[submodule "reference/Zotero-7"]
+	path = reference/Zotero-7
+	url = https://github.com/zotero/zotero.git
+	shallow = true
+[submodule "reference/Zotero-9"]
+	path = reference/Zotero-9
+	url = https://github.com/zotero/zotero.git
+	shallow = true
+[submodule "reference/Zotero-10"]
+	path = reference/Zotero-10
+	url = https://github.com/zotero/zotero.git
+	shallow = true

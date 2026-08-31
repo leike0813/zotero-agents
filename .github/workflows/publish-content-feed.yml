@@ -33,7 +33,7 @@ jobs:
         uses: zotero-plugin-dev/workflows/setup-js@main
 
       - name: Initialize content submodules
-        run: git submodule update --init
+        run: git submodule update --init skills_builtin
 
       - name: Build content feeds
         run: npm run build:content-feed -- --channels "$CONTENT_PACKAGE_CHANNELS"

@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Por trás de tudo isso estão três subsistemas que trabalham em conjunto: um **
 
 ### Requisitos do sistema
 
-- [Zotero 9](https://www.zotero.org/download/) ou [Zotero 7](https://www.zotero.org/download/) (versão ≥ 6.999)
+- [Zotero 10](https://www.zotero.org/download/), [Zotero 9](https://www.zotero.org/download/) ou [Zotero 7](https://www.zotero.org/download/) (versão ≥ 7.0)
 - Se usar o backend ACP: é necessário ter instalada localmente a ferramenta CLI do agente correspondente (também funciona com `npx` para instalação automática)
 - Se usar o backend Skill-Runner: é necessário ter implantada uma instância do [Skill-Runner](https://github.com/leike0813/Skill-Runner)
 
-> **Sobre a versão do Zotero**: Este plugin é desenvolvido e testado no Zotero 9. O Zotero 8 deve ser totalmente compatível (o framework de plugins do Zotero 8/9 não mudou significativamente); o Zotero 7 também deve funcionar em teoria, mas não foi testado a fundo por limitações de capacidade, e a manutenção futura se concentrará no Zotero 9. Se encontrar problemas no Zotero 7, relate-os em [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Sobre as versões do Zotero**: Este plugin oferece suporte ao Zotero 7, 9 e 10. No Windows e no Linux, as versões representativas 7.0.32, 9.0.6 e 10.0.1 são testadas. Para o Zotero 10 no macOS, a evidência atual é um smoke test formal do XPI não bloqueante; isso não representa cobertura de todas as versões de correção anteriores.
 
 ### Tipos de backend
 

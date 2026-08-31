@@ -96,7 +96,7 @@ jobs:
         with:
           toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
       - name: Initialize content submodules
-        run: git submodule update --init
+        run: git submodule update --init skills_builtin
       - name: Run release gate (blocking)
         run: npm run test:gate:release
 

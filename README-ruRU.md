@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Zotero Agents — это **комплексная агентская рабоч�
 
 ### Системные требования
 
-- [Zotero 9](https://www.zotero.org/download/) или [Zotero 7](https://www.zotero.org/download/) (версия ≥ 6.999)
+- [Zotero 10](https://www.zotero.org/download/), [Zotero 9](https://www.zotero.org/download/) или [Zotero 7](https://www.zotero.org/download/) (версия ≥ 7.0)
 - При использовании бэкенда ACP: на локальной машине должен быть установлен соответствующий CLI-инструмент агента (допустима автоматическая установка через `npx`)
 - При использовании бэкенда Skill-Runner: развёрнут экземпляр [Skill-Runner](https://github.com/leike0813/Skill-Runner)
 
-> **О версиях Zotero**: Плагин разрабатывается и тестируется на Zotero 9. Zotero 8 теоретически должен полностью поддерживаться (плагинные фреймворки Zotero 8/9 существенно не отличаются); Zotero 7 также предположительно поддерживается, но из-за ограничений ресурсов глубокое тестирование не проводилось — основная поддержка будет сосредоточена на Zotero 9. Если вы столкнулись с проблемами при использовании Zotero 7, сообщите об этом в [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **О версиях Zotero**: Плагин поддерживает Zotero 7, 9 и 10. В Windows и Linux тестируются репрезентативные версии 7.0.32, 9.0.6 и 10.0.1. Для Zotero 10 на macOS текущим подтверждением служит неблокирующий формальный smoke-тест XPI; он не означает охват всех предыдущих исправлений.
 
 ### Типы бэкендов
 
