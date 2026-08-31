@@ -364,6 +364,35 @@ export type PortableRegularItemDto = {
   tags: string[];
 };
 
+export type MetadataLookupRequestDto = {
+  type: "DOI" | "ISBN" | "arXiv" | "PMID";
+  value: string;
+};
+
+export type MetadataTranslationEvidenceDto = {
+  normalizedIdentifier: string;
+  candidateCount: number;
+  matchingCandidateCount: number;
+  translators: Array<{ id: string; label: string }>;
+};
+
+export type MetadataLookupResultDto =
+  | {
+      outcome: "matched";
+      item: PortableRegularItemDto;
+      evidence: MetadataTranslationEvidenceDto;
+    }
+  | {
+      outcome: "ambiguous";
+      candidates: PortableRegularItemDto[];
+      evidence: MetadataTranslationEvidenceDto;
+    }
+  | {
+      outcome: "not_found";
+      reason: "no_translator" | "no_candidate" | "identifier_mismatch";
+      evidence: MetadataTranslationEvidenceDto;
+    };
+
 export type MaterializedAttachmentFileDto =
   | {
       state: "available";
@@ -1149,8 +1178,15 @@ export type NoteContentInput = {
 
 export type NoteCreateRequestDto = {
   operationId: string;
-  parentRef?: PortableItemRef;
+  placement:
+    | {
+        kind: "top_level";
+        libraryId?: number;
+        collectionRefs?: PortableCollectionRef[];
+      }
+    | { kind: "child"; parentRef: PortableItemRef };
   content: NoteContentInput;
+  initialTags?: string[];
 };
 export type NoteUpdateContentRequestDto = {
   operationId: string;
@@ -1164,23 +1200,27 @@ export type NoteRemoveRequestDto = {
   disposition: RemovalDisposition;
   expectedRevision?: string;
 };
+export type LogicalNotePayloadDto = {
+  payloadType: string;
+  noteKind: string;
+  schemaVersion: string;
+  format: "json" | "markdown" | "text";
+  value: JsonValue;
+};
 export type NotePayloadUpsertRequestDto = {
   operationId: string;
   noteRef: PortableItemRef;
   expectedRevision?: string;
-  payloadType: string;
-  noteKind: string;
-  payload: JsonValue;
+  payload: LogicalNotePayloadDto;
 };
 export type NoteRemovalResultDto = JsonObject & {
   noteRef: PortableItemRef;
   outcome: RemovalOutcome;
 };
 export type NotePayloadUpsertResultDto = JsonObject & {
-  note: MutationItemResultDto;
-  payloadType: string;
-  payloadHash: string;
-  replaced: number;
+  note: NoteSummaryDto;
+  payload: NotePayloadSummaryDto;
+  outcome: "created" | "replaced" | "unchanged";
 };
 
 export type WorkflowFileRef =
@@ -1253,7 +1293,7 @@ export type AttachmentRemoveRequestDto = {
   expectedRevision?: string;
 };
 export type AttachmentReplaceFileResultDto = JsonObject & {
-  attachment: JsonObject;
+  attachment: AttachmentDetailDto;
   outcome: "replaced" | "unchanged";
 };
 export type AttachmentMoveResultDto = JsonObject & {
@@ -1300,8 +1340,6 @@ export type {
 
 import type {
   ZoteroHostCapabilityBroker,
-  ZoteroHostMetadataTranslateIdentifierArgs,
-  ZoteroHostMetadataTranslateIdentifierResponse,
 } from "../modules/zoteroHostCapabilityBroker";
 export type WorkflowHostLiveReadAdapters = {
   context: Pick<
@@ -1735,8 +1773,6 @@ export type WorkflowFileRemoveResultDto = { removed: boolean };
 export type LibrarySnapshotRequestDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotRequestDto;
 export type LibrarySnapshotBatchDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotBatchDto;
 export type LibrarySnapshotResultDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotWorkflowResultDto;
-export type MetadataLookupRequestDto = ZoteroHostMetadataTranslateIdentifierArgs;
-export type MetadataLookupResultDto = ZoteroHostMetadataTranslateIdentifierResponse;
 export type StatusTagPolicyDto = Readonly<Record<StatusTagKey, StatusTagValue>>;
 export type WorkflowFileCopyRequestDto = {
   sourcePath: string;

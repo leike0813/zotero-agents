@@ -14,6 +14,7 @@ import {
 import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
+  canonicalLogicalNotePayloadHash,
   decodeBase64Utf8,
   encodeBase64Utf8,
   getNotePayloadDetail,
@@ -56,6 +57,10 @@ import type {
   LibraryTraversalCompletionEvidenceDto,
   LibraryTraversalRequestDto,
   LibraryTraversalResultDto,
+  LogicalNotePayloadDto,
+  MetadataLookupRequestDto,
+  MetadataLookupResultDto,
+  MetadataTranslationEvidenceDto,
   NavigationSelectionInputDto,
   NavigationResultDto,
   NoteDetailDto,
@@ -588,56 +593,6 @@ export type ZoteroHostMutationExecuteResponse =
       error: ZoteroHostMutationError;
     });
 
-export type ZoteroHostMetadataIdentifierType =
-  | "DOI"
-  | "ISBN"
-  | "arXiv"
-  | "PMID";
-
-export type ZoteroHostMetadataTranslateIdentifierArgs = {
-  type?: ZoteroHostMetadataIdentifierType | string;
-  value?: string;
-  normalized?: string;
-};
-
-export type ZoteroHostMetadataTranslatorDto = {
-  translatorID: string;
-  label: string;
-  priority?: number;
-  translatorType?: number | string;
-};
-
-export type ZoteroHostMetadataItemDto = {
-  itemType: string;
-  fields: Record<string, string | number | boolean>;
-  creators: ZoteroHostMetadataCreatorDto[];
-  title?: string;
-  DOI?: string;
-  ISBN?: string;
-  ISSN?: string;
-  url?: string;
-  abstractNote?: string;
-  date?: string;
-  publicationTitle?: string;
-  archiveID?: string;
-  PMID?: string;
-  extra?: string;
-};
-
-export type ZoteroHostMetadataDiagnosticDto = {
-  code: string;
-  message: string;
-  details?: JsonObject;
-};
-
-export type ZoteroHostMetadataTranslateIdentifierResponse = {
-  ok: boolean;
-  item: ZoteroHostMetadataItemDto | null;
-  itemCount: number;
-  translators: ZoteroHostMetadataTranslatorDto[];
-  diagnostics: ZoteroHostMetadataDiagnosticDto[];
-};
-
 export type ZoteroHostAnnotationExportDto = {
   format: string;
   annotations: ZoteroHostAnnotationDto[];
@@ -746,8 +701,8 @@ export interface ZoteroHostCapabilityBroker {
   };
   readonly metadata: {
     translateIdentifier(
-      args: ZoteroHostMetadataTranslateIdentifierArgs,
-    ): Promise<ZoteroHostMetadataTranslateIdentifierResponse>;
+      args: MetadataLookupRequestDto,
+    ): Promise<MetadataLookupResultDto>;
   };
   readonly bibliography: WorkflowBibliographyOwner;
   readonly mutations: {
@@ -1490,13 +1445,7 @@ function failClosedMutationTags(
   }
 }
 
-function canonicalCreators(item: Zotero.Item): CreatorDto[] {
-  let raw: unknown;
-  try {
-    raw = (item as any).getCreators?.();
-  } catch {
-    throw canonicalReadFailure("item");
-  }
+function canonicalCreatorsFromRaw(raw: unknown): CreatorDto[] {
   if (!Array.isArray(raw)) throw canonicalReadFailure("item");
   if (raw.length > 100) {
     throw capabilityError(
@@ -1512,6 +1461,22 @@ function canonicalCreators(item: Zotero.Item): CreatorDto[] {
   return raw.map((creator: any) => {
     const creatorType = String(creator?.creatorType || "").trim();
     if (!creatorType) throw canonicalReadFailure("item");
+    if (creator?.representation === "single_field") {
+      const name = String(creator?.name || "").trim();
+      if (!name) throw canonicalReadFailure("item");
+      return { representation: "single_field", creatorType, name };
+    }
+    if (creator?.representation === "two_field") {
+      const firstName = String(creator?.firstName || "").trim();
+      const lastName = String(creator?.lastName || "").trim();
+      if (!firstName && !lastName) throw canonicalReadFailure("item");
+      return {
+        representation: "two_field",
+        creatorType,
+        firstName,
+        lastName,
+      };
+    }
     const name = String(creator?.name || "").trim();
     if (name) {
       return { representation: "single_field", creatorType, name };
@@ -1526,6 +1491,16 @@ function canonicalCreators(item: Zotero.Item): CreatorDto[] {
       lastName,
     };
   });
+}
+
+function canonicalCreators(item: Zotero.Item): CreatorDto[] {
+  let raw: unknown;
+  try {
+    raw = (item as any).getCreators?.();
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  return canonicalCreatorsFromRaw(raw);
 }
 
 function canonicalCollectionRefs(item: Zotero.Item) {
@@ -2045,213 +2020,368 @@ async function serializeCanonicalItemDetail(
   }
 }
 
-function normalizeMetadataIdentifierType(
-  value: unknown,
-): ZoteroHostMetadataIdentifierType | "" {
-  const type = trimText(value);
-  if (
-    type === "DOI" ||
-    type === "ISBN" ||
-    type === "arXiv" ||
-    type === "PMID"
-  ) {
-    return type;
+type MetadataIdentifierType = MetadataLookupRequestDto["type"];
+
+const METADATA_INPUT_CHARACTER_LIMIT = 2_048;
+const METADATA_TRANSLATOR_LIMIT = 32;
+const METADATA_TRANSLATOR_ID_LIMIT = 128;
+const METADATA_TRANSLATOR_LABEL_LIMIT = 256;
+const METADATA_CANDIDATE_LIMIT = 64;
+const METADATA_RESPONSE_BYTE_LIMIT = 4 * 1024 * 1024;
+
+function isbn13CheckDigit(value: string) {
+  const sum = [...value].reduce(
+    (total, digit, index) =>
+      total + Number(digit) * (index % 2 === 0 ? 1 : 3),
+    0,
+  );
+  return String((10 - (sum % 10)) % 10);
+}
+
+const METADATA_IDENTIFIER_NORMALIZERS: Record<
+  MetadataIdentifierType,
+  (value: string) => string
+> = {
+  DOI(value) {
+    const normalized = value
+      .trim()
+      .replace(/^https?:\/\/(?:dx\.)?doi\.org\//iu, "")
+      .replace(/^doi:\s*/iu, "")
+      .toLowerCase();
+    return /^10\.\d{4,9}\/\S+$/u.test(normalized) ? normalized : "";
+  },
+  ISBN(value) {
+    const normalized = value
+      .trim()
+      .replace(
+        /^https?:\/\/(?:openlibrary\.org|isbnsearch\.org)\/isbn\//iu,
+        "",
+      )
+      .replace(/^isbn(?:-1[03])?:\s*/iu, "")
+      .replace(/[\s-]/gu, "")
+      .toUpperCase();
+    if (/^\d{13}$/u.test(normalized)) {
+      return isbn13CheckDigit(normalized.slice(0, 12)) === normalized[12]
+        ? normalized
+        : "";
+    }
+    if (!/^\d{9}[\dX]$/u.test(normalized)) return "";
+    const checksum = [...normalized].reduce(
+      (total, digit, index) =>
+        total + (digit === "X" ? 10 : Number(digit)) * (10 - index),
+      0,
+    );
+    if (checksum % 11 !== 0) return "";
+    const prefix = `978${normalized.slice(0, 9)}`;
+    return `${prefix}${isbn13CheckDigit(prefix)}`;
+  },
+  arXiv(value) {
+    const normalized = value
+      .trim()
+      .replace(/^arxiv:\s*/iu, "")
+      .replace(/^https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\//iu, "")
+      .replace(/\.pdf(?:[?#].*)?$/iu, "")
+      .replace(/[?#].*$/u, "")
+      .replace(/v\d+$/iu, "")
+      .toLowerCase();
+    return /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?\/\d{7})$/u.test(
+      normalized,
+    )
+      ? normalized
+      : "";
+  },
+  PMID(value) {
+    const normalized = value
+      .trim()
+      .replace(/^pmid:\s*/iu, "")
+      .replace(
+        /^https?:\/\/(?:www\.)?pubmed\.ncbi\.nlm\.nih\.gov\//iu,
+        "",
+      )
+      .replace(/[/?#].*$/u, "");
+    return /^\d{1,12}$/u.test(normalized) ? normalized : "";
+  },
+};
+
+function normalizeMetadataRequest(value: unknown): {
+  type: MetadataIdentifierType;
+  normalizedIdentifier: string;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw capabilityError("invalid_request", "metadata lookup is invalid", {
+      reason: "invalid_type",
+    });
   }
-  return "";
+  const input = value as Record<string, unknown>;
+  const keys = Object.keys(input);
+  const extra = keys.find((key) => key !== "type" && key !== "value");
+  if (extra || keys.length !== 2) {
+    throw capabilityError("invalid_request", "metadata lookup is invalid", {
+      reason: "invalid_schema",
+      ...(extra ? { field: extra } : {}),
+    });
+  }
+  if (
+    input.type !== "DOI" &&
+    input.type !== "ISBN" &&
+    input.type !== "arXiv" &&
+    input.type !== "PMID"
+  ) {
+    throw capabilityError("invalid_request", "metadata type is invalid", {
+      reason: "unsupported_value",
+      field: "type",
+    });
+  }
+  if (typeof input.value !== "string" || !input.value.trim()) {
+    throw capabilityError("invalid_request", "metadata value is invalid", {
+      reason: typeof input.value === "string" ? "invalid_value" : "invalid_type",
+      field: "value",
+    });
+  }
+  if (input.value.length > METADATA_INPUT_CHARACTER_LIMIT) {
+    throw capabilityError("invalid_request", "metadata value is too long", {
+      reason: "invalid_value",
+      field: "value",
+    });
+  }
+  const normalizedIdentifier =
+    METADATA_IDENTIFIER_NORMALIZERS[input.type](input.value);
+  if (!normalizedIdentifier) {
+    throw capabilityError("invalid_request", "metadata value is invalid", {
+      reason: input.type === "ISBN" ? "checksum_failed" : "invalid_format",
+      field: "value",
+    });
+  }
+  return { type: input.type, normalizedIdentifier };
 }
 
 function serializeMetadataTranslators(
-  translators: unknown,
-): ZoteroHostMetadataTranslatorDto[] {
-  return (Array.isArray(translators) ? translators : [])
-    .map((translator) => {
-      const source = translator as Record<string, unknown>;
-      return {
-        translatorID: trimText(source?.translatorID),
-        label: trimText(source?.label),
-        priority:
-          typeof source?.priority === "number" ? source.priority : undefined,
-        translatorType:
-          typeof source?.translatorType === "number" ||
-          typeof source?.translatorType === "string"
-            ? source.translatorType
-            : undefined,
-      };
-    })
-    .filter((translator) => translator.translatorID || translator.label);
+  raw: unknown,
+): MetadataTranslationEvidenceDto["translators"] {
+  if (!Array.isArray(raw)) {
+    throw capabilityError("execution_failed", "translator list is invalid", {
+      phase: "adapter",
+      recovery: "retry_same_operation",
+    });
+  }
+  if (raw.length > METADATA_TRANSLATOR_LIMIT) {
+    throw capabilityError("resource_limited", "translator limit exceeded", {
+      resource: "translators",
+      limit: METADATA_TRANSLATOR_LIMIT,
+      observed: raw.length,
+    });
+  }
+  return raw.map((value) => {
+    const translator = value as Record<string, unknown>;
+    const id = String(translator?.translatorID ?? "").trim();
+    const label = String(translator?.label ?? "").trim();
+    for (const [text, limit] of [
+      [id, METADATA_TRANSLATOR_ID_LIMIT],
+      [label, METADATA_TRANSLATOR_LABEL_LIMIT],
+    ] as const) {
+      if (text.length > limit) {
+        throw capabilityError("resource_limited", "translator text exceeds the limit", {
+          resource: "characters",
+          limit,
+          observed: text.length,
+        });
+      }
+    }
+    return { id, label };
+  });
 }
 
-function serializeMetadataCreators(
-  creators: unknown,
-): ZoteroHostMetadataCreatorDto[] {
-  return (Array.isArray(creators) ? creators : [])
-    .map((creator) => {
-      const source = creator as Record<string, unknown>;
-      return {
-        firstName: trimText(source?.firstName),
-        lastName: trimText(source?.lastName),
-        name: trimText(source?.name),
-        creatorType: trimText(source?.creatorType),
-      };
-    })
-    .map((creator) => {
-      return Object.fromEntries(
-        Object.entries(creator).filter(([, value]) => Boolean(value)),
-      ) as ZoteroHostMetadataCreatorDto;
-    })
-    .filter((creator) => Object.keys(creator).length > 0)
-    .slice(0, 50);
-}
-
-function readMetadataPlainField(
-  item: Record<string, unknown>,
+function readMetadataCandidateField(
+  source: Record<string, unknown>,
   field: string,
-  limit = FIELD_TEXT_LIMIT,
 ) {
-  return trimText(item[field], limit);
+  let raw: unknown;
+  try {
+    const fields = source.fields as Record<string, unknown> | undefined;
+    const data = source.data as Record<string, unknown> | undefined;
+    raw =
+      typeof (source as { getField?: unknown }).getField === "function"
+        ? (source as { getField: (name: string) => unknown }).getField(field)
+        : fields?.[field] ?? data?.[field] ?? source[field];
+  } catch {
+    throw canonicalReadFailure("item");
+  }
+  const text = String(raw ?? "").trim();
+  if (text.length > FIELD_TEXT_LIMIT) {
+    throw capabilityError("resource_limited", "item field exceeds the limit", {
+      resource: "characters",
+      limit: FIELD_TEXT_LIMIT,
+      observed: text.length,
+    });
+  }
+  return text;
 }
 
-function serializeMetadataItem(
-  item: unknown,
-): ZoteroHostMetadataItemDto | null {
-  if (!item || typeof item !== "object") {
-    return null;
+function serializeMetadataItem(item: unknown): PortableRegularItemDto {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    throw canonicalReadFailure("item");
   }
   const source = item as Record<string, unknown>;
-  const fields: Record<string, string | number | boolean> = {};
-  for (const field of DETAIL_FIELDS) {
-    const value =
-      typeof (source as { getField?: unknown }).getField === "function"
-        ? readField(item as Zotero.Item, field, FIELD_TEXT_LIMIT)
-        : readMetadataPlainField(source, field, FIELD_TEXT_LIMIT);
-    if (value) {
-      fields[field] = value;
-    }
+  const fields: Record<string, string> = {};
+  for (const field of [...DETAIL_FIELDS, "archiveID", "PMID", "extra"]) {
+    const text = readMetadataCandidateField(source, field);
+    if (text) fields[field] = text;
   }
-  for (const field of ["archiveID", "PMID", "extra"]) {
-    const value = readMetadataPlainField(source, field, FIELD_TEXT_LIMIT);
-    if (value) {
-      fields[field] = value;
-    }
-  }
-  let creators: ZoteroHostMetadataCreatorDto[] = [];
+  let rawCreators: unknown = source.creators;
   try {
-    creators = serializeMetadataCreators(
-      typeof (source as { getCreators?: unknown }).getCreators === "function"
-        ? (source as { getCreators: () => unknown }).getCreators()
-        : source.creators,
-    );
-  } catch {
-    creators = [];
-  }
-  const dto: ZoteroHostMetadataItemDto = {
-    itemType: trimText(source.itemType) || "journalArticle",
-    fields,
-    creators,
-  };
-  for (const field of [
-    "title",
-    "DOI",
-    "ISBN",
-    "ISSN",
-    "url",
-    "abstractNote",
-    "date",
-    "publicationTitle",
-    "archiveID",
-    "PMID",
-    "extra",
-  ] as const) {
-    const value = trimText(fields[field]);
-    if (value) {
-      dto[field] = value;
+    if (typeof (source as { getCreators?: unknown }).getCreators === "function") {
+      rawCreators = (source as { getCreators: () => unknown }).getCreators();
     }
+  } catch {
+    throw canonicalReadFailure("item");
   }
-  return dto;
+  const itemType = String(source.itemType ?? "journalArticle").trim();
+  if (!itemType || itemType.length > FIELD_TEXT_LIMIT) {
+    throw canonicalReadFailure("item");
+  }
+  return {
+    schema: "zotero-agents.portable-regular-item.v1",
+    itemType,
+    fields,
+    creators: canonicalCreatorsFromRaw(rawCreators ?? []),
+    tags: [],
+  };
+}
+
+function metadataCandidateMatches(
+  type: MetadataIdentifierType,
+  normalizedIdentifier: string,
+  item: PortableRegularItemDto,
+) {
+  const field =
+    type === "arXiv" ? "archiveID" : type === "PMID" ? "PMID" : type;
+  return (
+    METADATA_IDENTIFIER_NORMALIZERS[type](item.fields[field] ?? "") ===
+    normalizedIdentifier
+  );
+}
+
+function boundedMetadataResult(result: MetadataLookupResultDto) {
+  const bytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+  if (bytes > METADATA_RESPONSE_BYTE_LIMIT) {
+    throw capabilityError("resource_limited", "metadata result exceeds the limit", {
+      resource: "response_bytes",
+      limit: METADATA_RESPONSE_BYTE_LIMIT,
+      observed: bytes,
+    });
+  }
+  return result;
 }
 
 async function translateMetadataIdentifier(
-  args: ZoteroHostMetadataTranslateIdentifierArgs = {},
-): Promise<ZoteroHostMetadataTranslateIdentifierResponse> {
-  const type = normalizeMetadataIdentifierType(args?.type);
-  const value = trimText(args?.normalized || args?.value, FIELD_TEXT_LIMIT);
-  const empty = (
-    code: string,
-    message: string,
-    details?: JsonObject,
-  ): ZoteroHostMetadataTranslateIdentifierResponse => ({
-    ok: false,
-    item: null,
-    itemCount: 0,
-    translators: [],
-    diagnostics: [{ code, message, ...(details ? { details } : {}) }],
-  });
-  if (!type || !value) {
-    return empty(
-      "invalid_identifier",
-      "metadata.translateIdentifier requires a supported non-empty identifier.",
-    );
-  }
-
+  args: MetadataLookupRequestDto,
+): Promise<MetadataLookupResultDto> {
+  const { type, normalizedIdentifier } = normalizeMetadataRequest(args);
   const Translate = (resolveZotero() as any).Translate;
   if (!Translate?.Search) {
-    return empty(
-      "translate_search_unavailable",
-      "Zotero Translate.Search is unavailable.",
-    );
+    throw capabilityError("unavailable", "metadata translation is unavailable", {
+      reason: "capability",
+    });
   }
 
   try {
     const translate = new Translate.Search();
     if (type === "ISBN") {
-      translate.setSearch?.({ itemType: "book", ISBN: value });
+      if (typeof translate.setSearch !== "function") {
+        throw capabilityError("unavailable", "metadata translation is unavailable", {
+          reason: "capability",
+        });
+      }
+      translate.setSearch({ itemType: "book", ISBN: normalizedIdentifier });
     } else {
-      translate.setIdentifier?.({ [type]: value });
+      if (typeof translate.setIdentifier !== "function") {
+        throw capabilityError("unavailable", "metadata translation is unavailable", {
+          reason: "capability",
+        });
+      }
+      translate.setIdentifier({ [type]: normalizedIdentifier });
     }
-    const rawTranslators = (await translate.getTranslators?.()) || [];
+    if (typeof translate.getTranslators !== "function") {
+      throw capabilityError("unavailable", "metadata translation is unavailable", {
+        reason: "capability",
+      });
+    }
+    const rawTranslators = await translate.getTranslators();
     const translators = serializeMetadataTranslators(rawTranslators);
-    if (!Array.isArray(rawTranslators) || rawTranslators.length === 0) {
-      return {
-        ok: false,
-        item: null,
-        itemCount: 0,
-        translators,
-        diagnostics: [
-          {
-            code: "no_translators",
-            message: `No Zotero translator found for ${type}.`,
-          },
-        ],
-      };
-    }
-    translate.setTranslator?.(rawTranslators);
-    const rawItems =
-      (await translate.translate?.({
-        libraryID: false,
-        saveAttachments: false,
-      })) || [];
-    const itemList = Array.isArray(rawItems) ? rawItems : [];
-    const item = serializeMetadataItem(itemList[0]);
-    return {
-      ok: Boolean(item),
-      item,
-      itemCount: itemList.length,
+    const emptyEvidence: MetadataTranslationEvidenceDto = {
+      normalizedIdentifier,
+      candidateCount: 0,
+      matchingCandidateCount: 0,
       translators,
-      diagnostics: item
-        ? []
-        : [
-            {
-              code: "no_items",
-              message: "No items returned from any translator.",
-              details: { itemCount: itemList.length, translators },
-            },
-          ],
     };
-  } catch (error) {
-    return empty(
-      "translate_search_failed",
-      error instanceof Error ? error.message : String(error),
+    if (rawTranslators.length === 0) {
+      return boundedMetadataResult({
+        outcome: "not_found",
+        reason: "no_translator",
+        evidence: emptyEvidence,
+      });
+    }
+    if (
+      typeof translate.setTranslator !== "function" ||
+      typeof translate.translate !== "function"
+    ) {
+      throw capabilityError("unavailable", "metadata translation is unavailable", {
+        reason: "capability",
+      });
+    }
+    translate.setTranslator(rawTranslators);
+    const rawItems = await translate.translate({
+      libraryID: false,
+      saveAttachments: false,
+    });
+    if (!Array.isArray(rawItems)) {
+      throw capabilityError("execution_failed", "translator result is invalid", {
+        phase: "adapter",
+        recovery: "retry_same_operation",
+      });
+    }
+    if (rawItems.length > METADATA_CANDIDATE_LIMIT) {
+      throw capabilityError("resource_limited", "candidate limit exceeded", {
+        resource: "candidates",
+        limit: METADATA_CANDIDATE_LIMIT,
+        observed: rawItems.length,
+      });
+    }
+    const candidates = rawItems.map(serializeMetadataItem);
+    const matches = candidates.filter((item) =>
+      metadataCandidateMatches(type, normalizedIdentifier, item),
     );
+    const evidence: MetadataTranslationEvidenceDto = {
+      normalizedIdentifier,
+      candidateCount: candidates.length,
+      matchingCandidateCount: matches.length,
+      translators,
+    };
+    if (matches.length === 1) {
+      return boundedMetadataResult({
+        outcome: "matched",
+        item: matches[0],
+        evidence,
+      });
+    }
+    if (matches.length > 1) {
+      return boundedMetadataResult({
+        outcome: "ambiguous",
+        candidates: matches,
+        evidence,
+      });
+    }
+    return boundedMetadataResult({
+      outcome: "not_found",
+      reason: candidates.length === 0 ? "no_candidate" : "identifier_mismatch",
+      evidence,
+    });
+  } catch (error) {
+    if (error instanceof ZoteroHostCapabilityError) throw error;
+    throw capabilityError("execution_failed", "metadata translation failed", {
+      phase: "adapter",
+      recovery: "retry_same_operation",
+    }, true);
   }
 }
 
@@ -3147,7 +3277,15 @@ function normalizeNoteContentInput(input: NoteContentInput) {
       field: "content.format",
     });
   }
-  const value = normalizeContent(input.value);
+  let value: string;
+  try {
+    value = normalizeContent(input.value);
+  } catch {
+    throw capabilityError("invalid_request", "note content is invalid", {
+      reason: "invalid_value",
+      field: "content.value",
+    });
+  }
   const embeddedImages = Array.isArray(input.embeddedImages)
     ? input.embeddedImages
     : [];
@@ -3202,6 +3340,177 @@ function normalizeNoteContentInput(input: NoteContentInput) {
     }
   }
   return { format: input.format, value, bindings };
+}
+
+function resolveNoteCreateRequest(request: NoteCreateRequestDto) {
+  const requestKeys = Object.keys(request as object);
+  const unexpectedRequestKey = requestKeys.find(
+    (key) =>
+      key !== "operationId" &&
+      key !== "placement" &&
+      key !== "content" &&
+      key !== "initialTags",
+  );
+  if (unexpectedRequestKey) {
+    throw capabilityError("invalid_request", "note create request is invalid", {
+      reason: "invalid_schema",
+      field: unexpectedRequestKey,
+      operation: "notes.create",
+    });
+  }
+  const placement = request.placement as unknown as Record<string, unknown>;
+  if (!placement || typeof placement !== "object" || Array.isArray(placement)) {
+    throw capabilityError("invalid_request", "note placement is invalid", {
+      reason: "invalid_type",
+      field: "placement",
+      operation: "notes.create",
+    });
+  }
+  const kind = placement.kind;
+  const allowedPlacementKeys =
+    kind === "top_level"
+      ? new Set(["kind", "libraryId", "collectionRefs"])
+      : kind === "child"
+        ? new Set(["kind", "parentRef"])
+        : null;
+  const unexpectedPlacementKey = allowedPlacementKeys
+    ? Object.keys(placement).find((key) => !allowedPlacementKeys.has(key))
+    : undefined;
+  if (!allowedPlacementKeys || unexpectedPlacementKey) {
+    throw capabilityError("invalid_request", "note placement is invalid", {
+      reason: "invalid_schema",
+      field: unexpectedPlacementKey
+        ? `placement.${unexpectedPlacementKey}`
+        : "placement.kind",
+      operation: "notes.create",
+    });
+  }
+
+  let initialTags: string[] = [];
+  if (request.initialTags !== undefined) {
+    if (!Array.isArray(request.initialTags)) {
+      throw capabilityError("invalid_request", "initialTags is invalid", {
+        reason: "invalid_type",
+        field: "initialTags",
+        operation: "notes.create",
+      });
+    }
+    if (request.initialTags.length > TAG_LIMIT_MAX) {
+      throw capabilityError("resource_limited", "initialTags exceeds the limit", {
+        resource: "entries",
+        limit: TAG_LIMIT_MAX,
+        observed: request.initialTags.length,
+      });
+    }
+    initialTags = Array.from(
+      new Set(
+        request.initialTags.map((entry, index) => {
+          if (typeof entry !== "string" || !entry.trim()) {
+            throw capabilityError("invalid_request", "initialTags is invalid", {
+              reason: "invalid_value",
+              field: `initialTags.${index}`,
+              operation: "notes.create",
+            });
+          }
+          const tag = entry.trim();
+          if (tag.length > TAG_TEXT_LIMIT) {
+            throw capabilityError("resource_limited", "initial tag exceeds the limit", {
+              resource: "characters",
+              limit: TAG_TEXT_LIMIT,
+              observed: tag.length,
+            });
+          }
+          return tag;
+        }),
+      ),
+    );
+  }
+
+  if (kind === "child") {
+    const parentRef = canonicalItemRef(
+      placement.parentRef as ZoteroHostItemRefInput,
+    );
+    const parent = requireItem(parentRef, "parent item");
+    if (canonicalItemState(parent) !== "active") {
+      throw capabilityError("invalid_ref", "parent item is not active", {
+        kind: "item",
+        reason: "wrong_kind",
+      });
+    }
+    return {
+      placement: { kind: "child" as const, parentRef },
+      parent,
+      libraryId: normalizeLibraryId(parent.libraryID),
+      collections: [] as Zotero.Collection[],
+      initialTags,
+    };
+  }
+
+  if (
+    placement.libraryId !== undefined &&
+    (typeof placement.libraryId !== "number" ||
+      !Number.isSafeInteger(placement.libraryId) ||
+      placement.libraryId <= 0)
+  ) {
+    throw capabilityError("invalid_request", "note libraryId is invalid", {
+      reason: "invalid_value",
+      field: "placement.libraryId",
+      operation: "notes.create",
+    });
+  }
+  const libraryId =
+    (placement.libraryId as number | undefined) || normalizeLibraryId(undefined);
+  if (
+    placement.collectionRefs !== undefined &&
+    !Array.isArray(placement.collectionRefs)
+  ) {
+    throw capabilityError("invalid_request", "collectionRefs is invalid", {
+      reason: "invalid_type",
+      field: "placement.collectionRefs",
+      operation: "notes.create",
+    });
+  }
+  const collectionRefs = Array.from(
+    new Map(
+      ((placement.collectionRefs as ZoteroHostCollectionRefInput[]) || []).map(
+        (entry) => {
+          const ref = canonicalCollectionRef(entry);
+          return [`${ref.libraryId}\n${ref.key}`, ref] as const;
+        },
+      ),
+    ).values(),
+  );
+  const collections = collectionRefs.map((ref) => {
+    const collection = resolveCollection(ref);
+    if (!collection) throw notFoundError("collection", ref);
+    if (
+      (collection as unknown as { deleted?: unknown }).deleted === true ||
+      (collection as unknown as { isDeleted?: () => boolean }).isDeleted?.()
+    ) {
+      throw capabilityError("invalid_ref", "collection is not active", {
+        kind: "collection",
+        reason: "wrong_kind",
+      });
+    }
+    if (normalizeLibraryId((collection as any).libraryID) !== libraryId) {
+      throw capabilityError("invalid_request", "note placement crosses libraries", {
+        reason: "invalid_combination",
+        operation: "notes.create",
+      });
+    }
+    return collection;
+  });
+  return {
+    placement: {
+      kind: "top_level" as const,
+      libraryId,
+      ...(collectionRefs.length ? { collectionRefs } : {}),
+    },
+    parent: null,
+    libraryId,
+    collections,
+    initialTags,
+  };
 }
 
 function bindNoteImageSlots(
@@ -3971,33 +4280,60 @@ function okPreview(args: {
   };
 }
 
-async function upsertNotePayloadAttachment(request: ZoteroHostMutationRequest) {
-  const note = requireNote(request.note || request.target);
-  const payloadType = normalizePayloadType(request.payloadType);
-  const noteKind = trimText(request.noteKind, 80);
-  const payloadFormat = normalizePayloadFormat(
-    request.payloadFormat,
-    payloadType,
+function logicalPayloadHashFromBlock(block: ZoteroNotePayloadBlock) {
+  if (!block.logicalSchemaVersion) return "";
+  return canonicalLogicalNotePayloadHash({
+    payloadType: block.payloadType,
+    noteKind: block.noteKind,
+    schemaVersion: block.logicalSchemaVersion,
+    format: block.format,
+    value:
+      block.format === "markdown"
+        ? block.markdown ?? block.payload
+        : block.payload,
+  });
+}
+
+function stripInlinePayloadForType(noteContent: unknown, payloadType: string) {
+  const escaped = payloadType.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(noteContent || "").replace(
+    new RegExp(
+      `<span\\b(?=[^>]*\\bdata-zs-payload\\s*=\\s*(?:"${escaped}"|'${escaped}'|${escaped}))(?:[^>]*?)><\\/span>`,
+      "giu",
+    ),
+    "",
   );
-  const payloadInput =
-    payloadFormat === "json"
-      ? request.payload
-      : {
-          format: payloadFormat,
-          content:
-            request.payload === undefined
-              ? request.content
-              : typeof request.payload === "object" && request.payload !== null
-                ? (request.payload as Record<string, unknown>).content
-                : request.payload,
-        };
-  const normalized = normalizeJsonSafePayload(payloadInput);
-  const previous = (await listNotePayloadBlocksForItem(note)).filter(
-    (entry) =>
-      entry.source === "embedded-image-attachment" &&
-      entry.payloadType === payloadType &&
-      entry.attachmentKey,
-  );
+}
+
+async function upsertNotePayloadAttachment(
+  note: Zotero.Item,
+  payload: LogicalNotePayloadDto,
+  previous: ZoteroNotePayloadBlock[],
+) {
+  if (previous.length > 1) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "conflict",
+      "validation",
+      "refresh_and_retry_new_operation",
+      { reason: "ambiguous_state", kind: "note" },
+      "note payload is ambiguous",
+    );
+  }
+  const requestedHash = canonicalLogicalNotePayloadHash(payload);
+  if (
+    previous.length === 1 &&
+    logicalPayloadHashFromBlock(previous[0]) === requestedHash
+  ) {
+    return {
+      note,
+      payload: canonicalPayloadSummary(previous[0], note),
+      outcome: "unchanged" as const,
+      createdAttachment: null,
+      removedAttachment: null,
+    };
+  }
+  const payloadType = payload.payloadType;
   const envelope = buildWorkbenchPayloadEnvelope({
     noteId: note.id || null,
     noteKey: note.key,
@@ -4006,35 +4342,97 @@ async function upsertNotePayloadAttachment(request: ZoteroHostMutationRequest) {
         .parentID ||
       (note as unknown as { parentItemID?: unknown }).parentItemID ||
       null,
-    noteKind,
+    noteKind: payload.noteKind,
     payloadType,
-    payload: normalized.payload,
+    schemaVersion: payload.schemaVersion,
+    format: payload.format,
+    value: payload.value,
   });
   const bytes = buildWorkbenchPayloadImageBytes(envelope);
   const zotero = resolveZotero();
   if (typeof zotero.Attachments?.importEmbeddedImage !== "function") {
-    throw new Error("Zotero embedded image import is unavailable");
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "unavailable",
+      "staging",
+      "retry_same_operation",
+      { reason: "capability", kind: "attachment" },
+      "Zotero embedded image import is unavailable",
+    );
   }
-  const attachment = await zotero.Attachments.importEmbeddedImage({
-    blob: blobFromBytes(bytes, "image/png"),
-    parentItemID: note.id,
-  });
+  let attachment: Zotero.Item;
+  try {
+    attachment = await zotero.Attachments.importEmbeddedImage({
+      blob: blobFromBytes(bytes, "image/png"),
+      parentItemID: note.id,
+    });
+  } catch (error) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "execution_failed",
+      "staging",
+      "retry_same_operation",
+      { phase: "staging", recovery: "retry_same_operation" },
+      error instanceof Error ? error.message : "payload staging failed",
+      [
+        {
+          kind: "item",
+          ref: {
+            libraryId: normalizeLibraryId(note.libraryID),
+            key: trimText(note.key),
+          },
+        },
+      ],
+    );
+  }
   const attachmentKey = trimText(attachment?.key);
-  if (attachmentKey) {
+  const originalContent = String(note.getNote?.() || "");
+  try {
+    if (!attachmentKey) throw new Error("payload attachment has no key");
     await updateNoteContentDirect(
       note,
       appendPayloadAnchor(
-        (note as unknown as { getNote?: () => unknown }).getNote?.(),
+        stripInlinePayloadForType(originalContent, payloadType),
         payloadType,
         attachmentKey,
       ),
     );
-  }
-  let replaced = 0;
-  for (const old of previous) {
-    if (!old.attachmentKey || old.attachmentKey === attachmentKey) {
-      continue;
+  } catch (error) {
+    note.setNote?.(originalContent);
+    const attachmentRef = {
+      kind: "item" as const,
+      ref: {
+        libraryId: normalizeLibraryId(attachment.libraryID),
+        key: trimText(attachment.key),
+      },
+    };
+    let residualRefs: typeof attachmentRef[] = [];
+    try {
+      await handlers.attachment.remove(attachment);
+    } catch {
+      residualRefs = [attachmentRef];
     }
+    throw new MutationAuthorityExecutionError(
+      residualRefs.length ? "repair_required" : "failed",
+      "execution_failed",
+      "compensation",
+      residualRefs.length ? "manual_repair" : "retry_same_operation",
+      {
+        phase: "cleanup",
+        recovery: residualRefs.length
+          ? "manual_repair"
+          : "retry_same_operation",
+        affectedCount: 1,
+        residualCount: residualRefs.length,
+      },
+      error instanceof Error ? error.message : "note payload commit failed",
+      [attachmentRef],
+      residualRefs,
+    );
+  }
+  let removedAttachment: Zotero.Item | null = null;
+  const old = previous[0];
+  if (old?.attachmentKey && old.attachmentKey !== attachmentKey) {
     const oldAttachment =
       zotero.Items.getByLibraryAndKey?.(
         normalizeLibraryId(
@@ -4042,36 +4440,90 @@ async function upsertNotePayloadAttachment(request: ZoteroHostMutationRequest) {
         ),
         old.attachmentKey,
       ) || null;
-    if (!oldAttachment) {
-      continue;
-    }
-    const parentId =
-      (
-        oldAttachment as unknown as {
-          parentID?: unknown;
-          parentItemID?: unknown;
+    if (oldAttachment) {
+      const parentId =
+        (
+          oldAttachment as unknown as {
+            parentID?: unknown;
+            parentItemID?: unknown;
+          }
+        ).parentID ||
+        (oldAttachment as unknown as { parentItemID?: unknown }).parentItemID;
+      if (Number(parentId) === Number(note.id)) {
+        try {
+          await handlers.attachment.remove(oldAttachment);
+          removedAttachment = oldAttachment;
+        } catch (error) {
+          const residualRef = {
+            kind: "item" as const,
+            ref: {
+              libraryId: normalizeLibraryId(oldAttachment.libraryID),
+              key: trimText(oldAttachment.key),
+            },
+          };
+          throw new MutationAuthorityExecutionError(
+            "repair_required",
+            "execution_failed",
+            "compensation",
+            "manual_repair",
+            {
+              phase: "cleanup",
+              recovery: "manual_repair",
+              affectedCount: 2,
+              residualCount: 1,
+            },
+            error instanceof Error
+              ? error.message
+              : "old payload cleanup failed",
+            [
+              {
+                kind: "item",
+                ref: {
+                  libraryId: normalizeLibraryId(note.libraryID),
+                  key: trimText(note.key),
+                },
+              },
+              residualRef,
+            ],
+            [residualRef],
+          );
         }
-      ).parentID ||
-      (oldAttachment as unknown as { parentItemID?: unknown }).parentItemID;
-    if (Number(parentId) !== Number(note.id)) {
-      continue;
+      }
     }
-    await handlers.attachment.remove(oldAttachment);
-    replaced += 1;
   }
   return {
     note,
-    payload: {
-      noteKey: trimText(note.key),
-      payloadType,
-      noteKind,
-      attachmentKey,
-      payloadStorageVersion: 2,
-      payloadHash: trimText(envelope.payloadHash),
-      anchorStatus: attachmentKey ? "present" : "missing",
-      bytes: bytes.length,
-      replaced,
-    },
+    payload: canonicalPayloadSummary(
+      {
+        source: "embedded-image-attachment",
+        sourceStorage: "embedded-image-attachment-v2",
+        payloadStorageVersion: 2,
+        payloadHash: requestedHash,
+        logicalSchemaVersion: payload.schemaVersion,
+        anchorStatus: "present",
+        payloadType,
+        noteKind: payload.noteKind,
+        version: payload.schemaVersion,
+        encoding: "embedded-image-attachment",
+        encodedValue: "",
+        estimatedSize: new TextEncoder().encode(
+          payload.format === "json"
+            ? JSON.stringify(payload.value)
+            : String(payload.value),
+        ).byteLength,
+        payload: payload.value,
+        ...(payload.format === "markdown"
+          ? { markdown: String(payload.value) }
+          : {}),
+        format: payload.format,
+        attachmentKey,
+        attachmentId: attachment.id || null,
+      },
+      note,
+    ),
+    outcome: previous.length === 0 ? ("created" as const) : ("replaced" as const),
+    createdAttachment: attachment,
+    removedAttachment,
   };
 }
 
@@ -4298,16 +4750,6 @@ async function executeMutationOrThrow(
         ...preview,
         result: {
           notes: [serializeNote(updated)],
-        },
-      };
-    }
-    case "note.upsertPayload": {
-      const result = await upsertNotePayloadAttachment(request);
-      return {
-        ...preview,
-        result: {
-          notes: [serializeNote(result.note)],
-          payloads: [result.payload],
         },
       };
     }
@@ -6225,6 +6667,112 @@ function assertExpectedNoteRevision(
   return version;
 }
 
+function normalizeLogicalNotePayloadRequest(
+  request: NotePayloadUpsertRequestDto,
+): LogicalNotePayloadDto {
+  const requestKeys = Object.keys(request as object);
+  const unexpectedRequestKey = requestKeys.find(
+    (key) =>
+      key !== "operationId" &&
+      key !== "noteRef" &&
+      key !== "expectedRevision" &&
+      key !== "payload",
+  );
+  if (unexpectedRequestKey || !request.payload) {
+    throw capabilityError("invalid_request", "payload request is invalid", {
+      reason: "invalid_schema",
+      field: unexpectedRequestKey || "payload",
+      operation: "notes.upsertPayload",
+    });
+  }
+  const raw = request.payload as unknown as Record<string, unknown>;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw capabilityError("invalid_request", "logical payload is invalid", {
+      reason: "invalid_type",
+      field: "payload",
+      operation: "notes.upsertPayload",
+    });
+  }
+  const keys = Object.keys(raw);
+  const unexpected = keys.find(
+    (key) =>
+      key !== "payloadType" &&
+      key !== "noteKind" &&
+      key !== "schemaVersion" &&
+      key !== "format" &&
+      key !== "value",
+  );
+  if (unexpected || keys.length !== 5) {
+    throw capabilityError("invalid_request", "logical payload is invalid", {
+      reason: "invalid_schema",
+      field: unexpected ? `payload.${unexpected}` : "payload",
+      operation: "notes.upsertPayload",
+    });
+  }
+  const payloadType = String(raw.payloadType || "").trim();
+  const noteKind = String(raw.noteKind || "").trim();
+  const schemaVersion = String(raw.schemaVersion || "").trim();
+  const format = raw.format;
+  if (!NOTE_PAYLOAD_TYPE_RE.test(payloadType)) {
+    throw capabilityError("invalid_request", "payload type is invalid", {
+      reason: "invalid_value",
+      field: "payload.payloadType",
+      operation: "notes.upsertPayload",
+    });
+  }
+  if (!noteKind || noteKind.length > 80 || !schemaVersion || schemaVersion.length > 200) {
+    throw capabilityError("invalid_request", "payload identity is invalid", {
+      reason: "invalid_value",
+      field: !noteKind || noteKind.length > 80 ? "payload.noteKind" : "payload.schemaVersion",
+      operation: "notes.upsertPayload",
+    });
+  }
+  if (format !== "json" && format !== "markdown" && format !== "text") {
+    throw capabilityError("invalid_request", "payload format is invalid", {
+      reason: "invalid_value",
+      field: "payload.format",
+      operation: "notes.upsertPayload",
+    });
+  }
+  if ((format === "markdown" || format === "text") && typeof raw.value !== "string") {
+    throw capabilityError("invalid_request", "payload value is invalid", {
+      reason: "invalid_type",
+      field: "payload.value",
+      operation: "notes.upsertPayload",
+    });
+  }
+  let serialized: string;
+  if (format === "json") {
+    try {
+      assertJsonValue(raw.value, "payload.value");
+      serialized = JSON.stringify(raw.value);
+    } catch {
+      throw capabilityError("invalid_request", "payload value is invalid", {
+        reason: "invalid_type",
+        field: "payload.value",
+        operation: "notes.upsertPayload",
+      });
+    }
+  } else {
+    serialized = raw.value as string;
+  }
+  const bytes = new TextEncoder().encode(serialized).byteLength;
+  if (bytes > NOTE_PAYLOAD_MAX_BYTES) {
+    throw capabilityError("resource_limited", "note payload exceeds the limit", {
+      resource: "bytes",
+      limit: NOTE_PAYLOAD_MAX_BYTES,
+      observed: bytes,
+    });
+  }
+  return {
+    payloadType,
+    noteKind,
+    schemaVersion,
+    format,
+    value: raw.value as JsonValue,
+  };
+}
+
 type ResolvedNoteImageBinding = {
   slot: string;
   blob: Blob;
@@ -6366,6 +6914,10 @@ async function executeNoteMutation(
       operation,
     });
   }
+  const noteCreate =
+    operation === "notes.create"
+      ? resolveNoteCreateRequest(request as NoteCreateRequestDto)
+      : null;
   const noteContent =
     operation === "notes.create" || operation === "notes.updateContent"
       ? normalizeNoteContentInput(
@@ -6376,7 +6928,34 @@ async function executeNoteMutation(
   const resolvedImages = noteContent
     ? resolveNoteImageBindings(noteContent, scope)
     : [];
-  const normalized = { ...request, operationId } as unknown as JsonObject;
+  const logicalPayload =
+    operation === "notes.upsertPayload"
+      ? normalizeLogicalNotePayloadRequest(
+          request as NotePayloadUpsertRequestDto,
+        )
+      : null;
+  if (logicalPayload) {
+    const note = requireNote(
+      canonicalItemRef((request as NotePayloadUpsertRequestDto).noteRef),
+    );
+    const matches = (await listNotePayloadBlocksForItem(note)).filter(
+      (block) => block.payloadType === logicalPayload.payloadType,
+    );
+    if (matches.length > 1) {
+      throw capabilityError("conflict", "note payload is ambiguous", {
+        reason: "ambiguous_state",
+        kind: "note",
+      });
+    }
+  }
+  const normalized = (noteCreate
+    ? {
+        operationId,
+        placement: noteCreate.placement,
+        content: (request as NoteCreateRequestDto).content,
+        initialTags: noteCreate.initialTags,
+      }
+    : { ...request, operationId }) as unknown as JsonObject;
   assertWorkflowHostStrictJsonValue(normalized);
   try {
     return await executeReservedMutation<JsonObject>({
@@ -6387,18 +6966,16 @@ async function executeNoteMutation(
       control,
       async execute() {
         if (operation === "notes.create") {
-          const input = request as NoteCreateRequestDto;
           const content = noteContent as NonNullable<typeof noteContent>;
-          const parent = input.parentRef
-            ? requireItem(canonicalItemRef(input.parentRef), "parent item")
-            : null;
           let note: Zotero.Item;
           try {
-            note = parent
-              ? await handlers.parent.addNote(parent, {
-                  content: content.value,
-                })
-              : await handlers.note.create({ content: content.value });
+            note = await handlers.note.create({
+              content: content.value,
+              parent: noteCreate!.parent,
+              libraryID: noteCreate!.libraryId,
+              tags: noteCreate!.initialTags,
+              collections: noteCreate!.collections,
+            });
           } catch (error) {
             throw new MutationAuthorityExecutionError(
               "unknown",
@@ -6681,26 +7258,26 @@ async function executeNoteMutation(
           };
         }
 
-        const input = request as NotePayloadUpsertRequestDto;
         let payloadResult: Awaited<
           ReturnType<typeof upsertNotePayloadAttachment>
         >;
         try {
-          payloadResult = await upsertNotePayloadAttachment({
-            operation: "note.upsertPayload",
-            note: noteRef,
-            payloadType: input.payloadType,
-            noteKind: input.noteKind,
-            payload: input.payload,
-            payloadFormat: "json",
-          });
+          const matches = (await listNotePayloadBlocksForItem(note)).filter(
+            (block) => block.payloadType === logicalPayload!.payloadType,
+          );
+          payloadResult = await upsertNotePayloadAttachment(
+            note,
+            logicalPayload!,
+            matches,
+          );
         } catch (error) {
+          if (error instanceof MutationAuthorityExecutionError) throw error;
           throw new MutationAuthorityExecutionError(
-            "unknown",
+            "failed",
             "execution_failed",
             "commit",
-            "reconcile",
-            { phase: "commit", recovery: "reconcile" },
+            "retry_same_operation",
+            { phase: "commit", recovery: "retry_same_operation" },
             error instanceof Error
               ? error.message
               : "note payload upsert failed",
@@ -6709,23 +7286,52 @@ async function executeNoteMutation(
         }
         const afterNote = requireNote(noteRef);
         const after = canonicalNoteVersion(afterNote);
+        const noteChanged = payloadResult.outcome !== "unchanged";
+        const attachmentChanges = [];
+        if (payloadResult.createdAttachment) {
+          attachmentChanges.push({
+            entity: {
+              kind: "item" as const,
+              ref: canonicalItemRef(payloadResult.createdAttachment),
+            },
+            effect: "created" as const,
+            before: null,
+            after: canonicalItemVersion(payloadResult.createdAttachment),
+          });
+        }
+        if (payloadResult.removedAttachment) {
+          attachmentChanges.push({
+            entity: {
+              kind: "item" as const,
+              ref: canonicalItemRef(payloadResult.removedAttachment),
+            },
+            effect: "deleted" as const,
+            before: canonicalItemVersion(payloadResult.removedAttachment),
+            after: {
+              revision: hashSynthesisContractCanonicalJson({
+                ref: canonicalItemRef(payloadResult.removedAttachment),
+                state: "deleted",
+                operationId,
+              }),
+              state: "deleted" as const,
+            },
+          });
+        }
         return {
-          outcome:
-            before.revision === after.revision ? "unchanged" : "committed",
+          outcome: noteChanged ? "committed" : "unchanged",
           changes: [
             {
               entity: { kind: "item", ref: noteRef },
-              effect:
-                before.revision === after.revision ? "unchanged" : "updated",
+              effect: noteChanged ? "updated" : "unchanged",
               before,
               after,
             },
+            ...attachmentChanges,
           ],
           result: strictJsonObject({
-            note: canonicalNoteResult(afterNote),
-            payloadType: payloadResult.payload.payloadType,
-            payloadHash: payloadResult.payload.payloadHash,
-            replaced: payloadResult.payload.replaced,
+            note: canonicalNoteSummaryDto(afterNote),
+            payload: payloadResult.payload,
+            outcome: payloadResult.outcome,
           }),
         };
       },
@@ -7139,6 +7745,7 @@ async function executeAttachmentMutation(
               attachment,
             );
           } catch (error) {
+            if (error instanceof MutationAuthorityExecutionError) throw error;
             throw new MutationAuthorityExecutionError(
               "unknown",
               "execution_failed",
@@ -9419,7 +10026,10 @@ export function createZoteroHostCapabilityBroker(
                 ? await executeNoteMutation(
                     {
                       operationId,
-                      parentRef: canonicalItemRef(request.parent!),
+                      placement: {
+                        kind: "child",
+                        parentRef: canonicalItemRef(request.parent!),
+                      },
                       content: {
                         format: "html",
                         value: normalizeContent(request.content),
@@ -9449,9 +10059,27 @@ export function createZoteroHostCapabilityBroker(
                         noteRef: canonicalItemRef(
                           request.note || request.target!,
                         ),
-                        payloadType: normalizePayloadType(request.payloadType),
-                        noteKind: trimText(request.noteKind, 80),
-                        payload: request.payload as JsonValue,
+                        payload: {
+                          payloadType: normalizePayloadType(request.payloadType),
+                          noteKind: trimText(request.noteKind, 80),
+                          schemaVersion: trimText(
+                            (request.payload as Record<string, unknown> | null)
+                              ?.schemaVersion ||
+                              (request.payload as Record<string, unknown> | null)
+                                ?.schema ||
+                              (request.payload as Record<string, unknown> | null)
+                                ?.version ||
+                              `${normalizePayloadType(request.payloadType)}.v1`,
+                            200,
+                          ),
+                          format: normalizePayloadFormat(
+                            request.payloadFormat,
+                            normalizePayloadType(request.payloadType),
+                          ),
+                          value: (request.payload === undefined
+                            ? request.content
+                            : request.payload) as JsonValue,
+                        },
                       },
                       "notes.upsertPayload",
                       scope,
@@ -9472,6 +10100,8 @@ export function createZoteroHostCapabilityBroker(
             const result = execution.result as JsonObject;
             if (operation === "note.upsertPayload") {
               const note = result.note as JsonObject;
+              const payload = result.payload as JsonObject;
+              const source = payload.source as JsonObject;
               return {
                 ...preview,
                 ok: true,
@@ -9479,11 +10109,14 @@ export function createZoteroHostCapabilityBroker(
                   payloads: [
                     {
                       noteKey: String((note.ref as JsonObject).key || ""),
-                      payloadType: String(result.payloadType || ""),
-                      noteKind: trimText(request.noteKind, 80),
-                      attachmentKey: "",
-                      bytes: 0,
-                      replaced: Number(result.replaced) || 0,
+                      payloadType: String(payload.payloadType || ""),
+                      noteKind: String(payload.noteKind || ""),
+                      attachmentKey:
+                        source?.kind === "embedded_attachment"
+                          ? String((source.attachmentRef as JsonObject)?.key || "")
+                          : "",
+                      bytes: Number(payload.estimatedBytes) || 0,
+                      replaced: result.outcome === "replaced" ? 1 : 0,
                     },
                   ],
                 },

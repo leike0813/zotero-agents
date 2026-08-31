@@ -58,19 +58,51 @@ function makeRuntimeWithTranslate(args: {
         async translateIdentifier() {
           if (args.throwMessage) throw new Error(args.throwMessage);
           const items = args.items || [];
+          const evidence = {
+            normalizedIdentifier: "test-identifier",
+            candidateCount: items.length,
+            matchingCandidateCount: items.length ? 1 : 0,
+            translators: [{ id: "translator-1", label: "Mock Translator" }],
+          };
+          if (items.length === 0) {
+            return {
+              outcome: "not_found",
+              reason: "no_candidate",
+              evidence,
+            };
+          }
+          const item = items[0];
           return {
-            ok: items.length > 0,
-            item: items[0] || null,
-            itemCount: items.length,
-            translators: [
-              {
-                translatorID: "translator-1",
-                label: "Mock Translator",
-                priority: 100,
-                translatorType: 8,
-              },
-            ],
-            diagnostics: [],
+            outcome: "matched",
+            item: {
+              schema: "zotero-agents.portable-regular-item.v1",
+              itemType: String(item.itemType || "journalArticle"),
+              fields: Object.fromEntries(
+                Object.entries(item).filter(
+                  ([key, value]) =>
+                    key !== "itemType" &&
+                    key !== "creators" &&
+                    typeof value === "string",
+                ),
+              ),
+              creators: (Array.isArray(item.creators) ? item.creators : []).map(
+                (creator: any) =>
+                  creator.name
+                    ? {
+                        representation: "single_field",
+                        creatorType: creator.creatorType || "author",
+                        name: creator.name,
+                      }
+                    : {
+                        representation: "two_field",
+                        creatorType: creator.creatorType || "author",
+                        firstName: creator.firstName || "",
+                        lastName: creator.lastName || "",
+                      },
+              ),
+              tags: [],
+            },
+            evidence,
           };
         },
       },
@@ -847,16 +879,20 @@ describe("workflow: literature-metadata-curator", function () {
         async (args: any) => {
           requestedType = args?.type || "";
           return {
-            ok: true,
+            outcome: "matched",
             item: {
+              schema: "zotero-agents.portable-regular-item.v1",
               itemType: entry.parent.itemType,
               fields: { ...entry.item },
               creators: [],
-              ...entry.item,
+              tags: [],
             },
-            itemCount: 1,
-            translators: [{ translatorID: "host-api", label: "Host API" }],
-            diagnostics: [],
+            evidence: {
+              normalizedIdentifier: String((args as any)?.value || ""),
+              candidateCount: 1,
+              matchingCandidateCount: 1,
+              translators: [{ id: "host-api", label: "Host API" }],
+            },
           };
         },
       );
@@ -935,7 +971,7 @@ describe("workflow: literature-metadata-curator", function () {
 
     assert.equal(outcome.kind, "continue");
     assert.equal((outcome as any).context.parent.id, parent.id);
-    assert.equal((outcome as any).context.diagnostics[0].code, "no_items");
+    assert.equal((outcome as any).context.diagnostics[0].code, "no_candidate");
   });
 
   it("continues to fallback with hostApi metadata diagnostics when candidates are inconclusive", async function () {
@@ -944,17 +980,14 @@ describe("workflow: literature-metadata-curator", function () {
       doi: "10.1000/host-inconclusive",
     });
     const runtime = makeHostApiOnlyRuntime(parent, async () => ({
-      ok: false,
-      item: null,
-      itemCount: 0,
-      translators: [{ translatorID: "host-api", label: "Host API" }],
-      diagnostics: [
-        {
-          code: "no_items",
-          message: "No items returned from any translator.",
-          details: { itemCount: 0 },
-        },
-      ],
+      outcome: "not_found",
+      reason: "no_candidate",
+      evidence: {
+        normalizedIdentifier: "10.1000/host-inconclusive",
+        candidateCount: 0,
+        matchingCandidateCount: 0,
+        translators: [{ id: "host-api", label: "Host API" }],
+      },
     }));
     const outcome = await preflight({
       selectionContext: await selectionFor(parent),
@@ -963,7 +996,7 @@ describe("workflow: literature-metadata-curator", function () {
 
     assert.equal(outcome.kind, "continue");
     assert.equal((outcome as any).context.identifier.type, "DOI");
-    assert.equal((outcome as any).context.diagnostics[0].code, "no_items");
+    assert.equal((outcome as any).context.diagnostics[0].code, "no_candidate");
   });
 
   it("continues to fallback when selected parent has no supported identifier", async function () {
@@ -989,25 +1022,25 @@ describe("workflow: literature-metadata-curator", function () {
     });
     const selectionContext = await selectionFor(parent);
     const runtime = makeHostApiOnlyRuntime(parent, async () => ({
-      ok: true,
+      outcome: "matched",
       item: {
+        schema: "zotero-agents.portable-regular-item.v1",
         itemType: "journalArticle",
-        DOI: "10.1000/host-api-parent",
-        title: "Host API metadata",
         fields: {
           DOI: "10.1000/host-api-parent",
           title: "Host API metadata",
         },
         creators: [],
+        tags: [],
       },
-      itemCount: 1,
-      translators: [
-        {
-          translatorID: "host-api-translator",
-          label: "Host API Translator",
-        },
-      ],
-      diagnostics: [],
+      evidence: {
+        normalizedIdentifier: "10.1000/host-api-parent",
+        candidateCount: 1,
+        matchingCandidateCount: 1,
+        translators: [
+          { id: "host-api-translator", label: "Host API Translator" },
+        ],
+      },
     }));
 
     const outcome = await preflight({

@@ -638,9 +638,19 @@ export async function attachWorkbenchPayloadToNote(args) {
   const mutation = await host.notes.upsertPayload({
     operationId: `note-payload:${noteRef.libraryId}:${noteRef.key}:${payloadType}:${Date.now().toString(36)}`,
     noteRef,
-    payloadType,
-    noteKind,
-    payload: args?.payload,
+    payload: {
+      payloadType,
+      noteKind,
+      schemaVersion: normalizeText(
+        args?.schemaVersion ||
+          args?.payload?.schemaVersion ||
+          args?.payload?.schema ||
+          args?.payload?.version ||
+          `${payloadType}.v1`,
+      ),
+      format: args?.payloadFormat === "text" ? "text" : "json",
+      value: args?.payload,
+    },
   });
   if (mutation.outcome !== "committed" && mutation.outcome !== "unchanged") {
     throw new Error(mutation.attempt?.error?.message || "workbench payload upsert failed");
@@ -650,7 +660,6 @@ export async function attachWorkbenchPayloadToNote(args) {
     payloadType,
     noteKind,
     payloadStorageVersion: 2,
-    payloadHash: mutation.result.payloadHash,
     anchorStatus: "present",
     bytes: 0,
   };

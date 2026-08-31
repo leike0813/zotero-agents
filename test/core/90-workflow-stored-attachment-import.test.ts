@@ -106,6 +106,43 @@ describe("Workflow Stored Attachment Import", function () {
     assert.deepEqual(copiedTargets, []);
   });
 
+  it("rejects entry and byte budget overflow before staging", async function () {
+    for (const request of [
+      {
+        path: "/source/main.pdf",
+        companionFiles: Array.from({ length: 10_000 }, (_, index) => ({
+          sourcePath: `/source/${index}.bin`,
+          relativePath: `assets/${index}.bin`,
+        })),
+      },
+      { path: "/source/main.pdf" },
+    ]) {
+      let copied = false;
+      const importStoredFile = createWorkflowStoredAttachmentImport({
+        getStagingRoot: () => "/managed/tmp/attachment-import",
+        async validateSource() {
+          return { sizeBytes: 4 * 1024 * 1024 * 1024 + 1 };
+        },
+        async ensureDirectory() {},
+        async copyFile() {
+          copied = true;
+        },
+        async removePath() {},
+        async importStoredFromPath() {
+          return createAttachment();
+        },
+        async removeAttachment() {},
+      });
+      try {
+        await importStoredFile(request);
+        assert.fail("expected stored attachment budget overflow");
+      } catch (error) {
+        assert.match(String(error), /entry limit|byte limit/);
+      }
+      assert.isFalse(copied);
+    }
+  });
+
   it("stages all sources before mutation and copies nested companions into attachment storage", async function () {
     let imported = false;
     const copiedTargets: string[] = [];

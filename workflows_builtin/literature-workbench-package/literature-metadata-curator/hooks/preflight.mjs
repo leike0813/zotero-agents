@@ -1,23 +1,12 @@
 import {
   buildFallbackContext,
   buildParentSnapshot,
-  candidateMatchesIdentifier,
   canonicalResultFromMetadata,
   hasCoreBibliographicMetadata,
-  normalizeString,
   resolveParentItem,
   selectIdentifier,
 } from "../../lib/metadataCurator.mjs";
 import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
-
-function summarizeTranslators(translators) {
-  return (Array.isArray(translators) ? translators : []).map((translator) => ({
-    translatorID: normalizeString(translator?.translatorID),
-    label: normalizeString(translator?.label),
-    priority: translator?.priority,
-    translatorType: translator?.translatorType,
-  }));
-}
 
 async function translateIdentifier({ runtime, identifier }) {
   const translateIdentifierHostApi =
@@ -28,22 +17,18 @@ async function translateIdentifier({ runtime, identifier }) {
         type: identifier.type,
         value: identifier.value,
       });
-      const translators = summarizeTranslators(translated?.translators);
-      const itemCount = Number(translated?.itemCount || 0);
       if (
-        translated?.ok &&
+        translated?.outcome === "matched" &&
         translated?.item &&
-        candidateMatchesIdentifier(translated.item, identifier) &&
         hasCoreBibliographicMetadata(translated.item)
       ) {
         return {
           ok: true,
           item: translated.item,
-          translators,
-          itemCount,
+          evidence: translated.evidence,
         };
       }
-      if (translated?.ok && translated?.item) {
+      if (translated?.outcome === "matched") {
         return {
           ok: false,
           reason: "candidate_not_trustworthy",
@@ -52,41 +37,36 @@ async function translateIdentifier({ runtime, identifier }) {
               code: "candidate_not_trustworthy",
               message:
                 "Zotero Translate.Search returned candidates, but none matched the selected identifier with enough metadata.",
-              details: {
-                itemCount,
-                translators,
-              },
+              details: translated.evidence,
             },
           ],
         };
       }
+      const reason =
+        translated?.outcome === "ambiguous"
+          ? "ambiguous"
+          : translated?.reason || "no_candidate";
       return {
         ok: false,
-        reason: translated?.diagnostics?.[0]?.code || "no_items",
-        diagnostics:
-          Array.isArray(translated?.diagnostics) &&
-          translated.diagnostics.length > 0
-            ? translated.diagnostics
-            : [
-                {
-                  code: itemCount ? "candidate_not_trustworthy" : "no_items",
-                  message: itemCount
-                    ? "Zotero Translate.Search returned candidates, but none matched the selected identifier with enough metadata."
-                    : "No items returned from any translator.",
-                  details: {
-                    itemCount,
-                    translators,
-                  },
-                },
-              ],
+        reason,
+        diagnostics: [
+          {
+            code: reason,
+            message:
+              reason === "ambiguous"
+                ? "Zotero Translate.Search returned multiple exact identifier matches."
+                : "Zotero Translate.Search did not return an exact identifier match.",
+            details: translated?.evidence,
+          },
+        ],
       };
     } catch (error) {
       return {
         ok: false,
-        reason: "translate_search_failed",
+        reason: error?.code || "execution_failed",
         diagnostics: [
           {
-            code: "translate_search_failed",
+            code: error?.code || "execution_failed",
             message: error instanceof Error ? error.message : String(error),
           },
         ],
@@ -154,8 +134,7 @@ async function preflightImpl({ selectionContext, executionOptions, runtime }) {
             {
               identifierType: identifier.type,
               identifier: identifier.value,
-              itemCount: translated.itemCount,
-              translators: translated.translators,
+              ...translated.evidence,
             },
           ],
         }),

@@ -14,8 +14,11 @@ import {
   copyRuntimeFile,
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
+  moveRuntimePath,
   readRuntimeBytes,
   removeRuntimePath,
+  scanRuntimeTree,
+  statRuntimePathStrict,
 } from "../modules/runtimePersistence";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
 import { handlers } from "../handlers";
@@ -29,6 +32,11 @@ import {
 } from "../utils/localizationGovernance";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { joinPath } from "../utils/path";
+import {
+  getBaseName,
+  getParentPath,
+  normalizeNativeLocalPath,
+} from "../platform/path";
 import type {
   WorkflowHostApiV12,
   WorkflowHostLiveReadAdapters,
@@ -53,7 +61,11 @@ import {
 } from "./workflowNoteImagePreparation";
 import { createWorkflowBibliographyOwner } from "./bibliography";
 import { createWorkflowClipboardOwner } from "./clipboard";
-import { createWorkflowStoredAttachmentImport } from "./workflowStoredAttachmentImport";
+import {
+  createWorkflowStoredAttachmentImport,
+  createWorkflowStoredAttachmentStager,
+  WorkflowStoredAttachmentInputError,
+} from "./workflowStoredAttachmentImport";
 import {
   createResearchBundleImportEffects,
   createResearchBundleImporter,
@@ -87,6 +99,20 @@ export type WorkflowHostLeafScope = Readonly<{
 export function createWorkflowHostCapabilityBroker(
   resources?: Pick<WorkflowResourceApi, "get">,
 ) {
+  const validateStoredSource = async (path: string) => {
+    let stat;
+    try {
+      stat = await statRuntimePathStrict(path);
+    } catch {
+      stat = null;
+    }
+    if (!stat?.exists || stat.isDir) {
+      throw new WorkflowStoredAttachmentInputError(
+        "Stored attachment source must be a regular file",
+      );
+    }
+    return { sizeBytes: stat.size };
+  };
   const importStoredFile = createWorkflowStoredAttachmentImport({
     getStagingRoot: () =>
       joinPath(
@@ -97,6 +123,7 @@ export function createWorkflowHostCapabilityBroker(
     copyFile: (sourcePath, targetPath) =>
       copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
     removePath: removeRuntimePath,
+    validateSource: validateStoredSource,
     importStoredFromPath: (request) =>
       handlers.attachment.importStoredFromPath(request),
     removeAttachment: (attachment) => handlers.attachment.remove(attachment),
@@ -110,6 +137,61 @@ export function createWorkflowHostCapabilityBroker(
     if (!resources) throw new Error("workflow resource resolver is unavailable");
     return (await resources.get(source.resourceRef as ResourceRef)).path;
   };
+  const fileSetDigest = async (root: string) => {
+    const manifest = await scanRuntimeTree(root);
+    if (manifest.issues.length) {
+      throw new Error("Managed attachment content could not be inspected");
+    }
+    const entries = [];
+    for (const entry of manifest.entries) {
+      if (entry.kind !== "file") continue;
+      entries.push([
+        entry.relativePath.replace(/\\/g, "/"),
+        await sha256Hex(await readRuntimeBytes(entry.absolutePath)),
+      ]);
+    }
+    return sha256Hex(
+      new TextEncoder().encode(JSON.stringify(entries)),
+    );
+  };
+  const derivedMimeType = (filename: string) => {
+    const extension = filename.split(".").at(-1)?.toLowerCase();
+    return (
+      {
+        pdf: "application/pdf",
+        html: "text/html",
+        htm: "text/html",
+        json: "application/json",
+        md: "text/markdown",
+        txt: "text/plain",
+      }[extension || ""] || "application/octet-stream"
+    );
+  };
+  const replaceFailure = (
+    message: string,
+    recovery:
+      | "retry_same_operation"
+      | "refresh_and_retry_new_operation"
+      | "reconcile"
+      | "manual_repair",
+    outcome: "failed" | "unknown" | "repair_required" = "failed",
+    ref?: PortableItemRef,
+  ) =>
+    new MutationAuthorityExecutionError(
+      outcome,
+      "execution_failed",
+      outcome === "repair_required" ? "compensation" : "commit",
+      recovery,
+      {
+        phase: outcome === "repair_required" ? "cleanup" : "commit",
+        recovery,
+        ...(ref ? { affectedCount: 1 } : {}),
+        ...(outcome === "repair_required" && ref ? { residualCount: 1 } : {}),
+      },
+      message,
+      ref ? [{ kind: "item", ref }] : [],
+      outcome === "repair_required" && ref ? [{ kind: "item", ref }] : [],
+    );
   return createZoteroHostCapabilityBroker({
     async createStoredFile(request, parent) {
       if (request.source.kind !== "stored_file") {
@@ -130,6 +212,254 @@ export function createWorkflowHostCapabilityBroker(
           })),
         ),
       });
+    },
+    async replaceFile(request, attachment) {
+      const ref = {
+        libraryId: Number(attachment.libraryID),
+        key: String(attachment.key),
+      };
+      const linkMode = Number(
+        (attachment as any).attachmentLinkMode ??
+          (attachment as any).getAttachmentLinkMode?.(),
+      );
+      const storedTarget = linkMode === 0 || linkMode === 1;
+      const linkedTarget = linkMode === 2;
+      if (
+        (!storedTarget && !linkedTarget) ||
+        (storedTarget && request.source.kind !== "stored_file") ||
+        (linkedTarget && request.source.kind !== "linked_file")
+      ) {
+        throw new MutationAuthorityExecutionError(
+          "failed",
+          "invalid_request",
+          "validation",
+          "refresh_and_retry_new_operation",
+          {
+            reason: "invalid_combination",
+            operation: "attachments.replaceFile",
+          },
+          "attachment source does not match its link mode",
+          [{ kind: "item", ref }],
+        );
+      }
+
+      const oldPath = String(
+        (await attachment.getFilePathAsync?.()) || "",
+      ).trim();
+      if (!oldPath) {
+        throw replaceFailure(
+          "attachment file path is unavailable",
+          "refresh_and_retry_new_operation",
+          "failed",
+          ref,
+        );
+      }
+      if (request.source.kind === "linked_file") {
+        const path = normalizeNativeLocalPath(request.source.path);
+        if (!path) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "invalid_request",
+            "validation",
+            "refresh_and_retry_new_operation",
+            {
+              reason: "invalid_value",
+              field: "source.path",
+              operation: "attachments.replaceFile",
+            },
+            "linked attachment path is invalid",
+            [{ kind: "item", ref }],
+          );
+        }
+        let stat;
+        try {
+          stat = await statRuntimePathStrict(path);
+        } catch {
+          stat = null;
+        }
+        if (!stat?.exists || stat.isDir) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "invalid_request",
+            "validation",
+            "refresh_and_retry_new_operation",
+            {
+              reason: "invalid_value",
+              field: "source.path",
+              operation: "attachments.replaceFile",
+            },
+            "linked attachment path must be a readable regular file",
+            [{ kind: "item", ref }],
+          );
+        }
+        if (normalizeNativeLocalPath(oldPath) === path) return attachment;
+        const oldFilename = String((attachment as any).attachmentFilename || "");
+        const oldContentType = String(
+          (attachment as any).attachmentContentType || "",
+        );
+        try {
+          (attachment as any).setFilePath(path);
+          (attachment as any).attachmentFilename = getBaseName(path);
+          (attachment as any).attachmentContentType = derivedMimeType(path);
+          await attachment.saveTx();
+          return attachment;
+        } catch {
+          (attachment as any).setFilePath(oldPath);
+          (attachment as any).attachmentFilename = oldFilename;
+          (attachment as any).attachmentContentType = oldContentType;
+          throw replaceFailure(
+            "linked attachment relocation could not be confirmed",
+            "reconcile",
+            "unknown",
+            ref,
+          );
+        }
+      }
+
+      const sourceMain = await resolveSourcePath(request.source.main.source);
+      const storageRoot = getParentPath(oldPath);
+      if (!storageRoot) {
+        throw replaceFailure(
+          "managed attachment storage is unavailable",
+          "reconcile",
+          "unknown",
+          ref,
+        );
+      }
+      const stager = createWorkflowStoredAttachmentStager({
+        getStagingRoot: () => getParentPath(storageRoot),
+        validateSource: validateStoredSource,
+        ensureDirectory: ensureRuntimeDirectory,
+        copyFile: (sourcePath, targetPath) =>
+          copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
+        removePath: removeRuntimePath,
+      });
+      let staged;
+      try {
+        staged = await stager({
+          path: sourceMain,
+          targetFilename: request.source.main.targetFilename,
+          companionFiles: await Promise.all(
+            (request.source.companions || []).map(async (companion) => ({
+              sourcePath: await resolveSourcePath(companion.source),
+              relativePath: companion.targetRelativePath,
+            })),
+          ),
+        });
+      } catch (error) {
+        if (error instanceof WorkflowStoredAttachmentInputError) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            error.resource ? "resource_limited" : "invalid_request",
+            "validation",
+            "refresh_and_retry_new_operation",
+            error.resource || {
+              reason: "invalid_value",
+              field: "source",
+              operation: "attachments.replaceFile",
+            },
+            error.message,
+            [{ kind: "item", ref }],
+          );
+        }
+        throw replaceFailure(
+          error instanceof Error ? error.message : "attachment staging failed",
+          "retry_same_operation",
+          "failed",
+          ref,
+        );
+      }
+      if ((await fileSetDigest(staged.stagingDirectory)) === (await fileSetDigest(storageRoot))) {
+        await staged.cleanup();
+        return attachment;
+      }
+      const backupRoot = `${storageRoot}.replace-backup-${Date.now().toString(36)}`;
+      let oldMoved = false;
+      let newMoved = false;
+      try {
+        await moveRuntimePath({ sourcePath: storageRoot, targetPath: backupRoot });
+        oldMoved = true;
+        await moveRuntimePath({
+          sourcePath: staged.stagingDirectory,
+          targetPath: storageRoot,
+        });
+        newMoved = true;
+      } catch (primary) {
+        if (!oldMoved) {
+          try {
+            await staged.cleanup();
+          } catch {
+            // The original managed content is still authoritative.
+          }
+        }
+        if (oldMoved && !newMoved) {
+          try {
+            await moveRuntimePath({ sourcePath: backupRoot, targetPath: storageRoot });
+            await staged.cleanup();
+          } catch {
+            throw replaceFailure(
+              "managed attachment switch could not be reconciled",
+              "reconcile",
+              "unknown",
+              ref,
+            );
+          }
+        }
+        throw replaceFailure(
+          primary instanceof Error ? primary.message : "attachment switch failed",
+          "retry_same_operation",
+          "failed",
+          ref,
+        );
+      }
+
+      const nextPath = joinPath(storageRoot, staged.mainFilename);
+      const oldFilename = String((attachment as any).attachmentFilename || "");
+      const oldContentType = String(
+        (attachment as any).attachmentContentType || "",
+      );
+      try {
+        (attachment as any).setFilePath(nextPath);
+        (attachment as any).attachmentFilename = staged.mainFilename;
+        (attachment as any).attachmentContentType = derivedMimeType(
+          staged.mainFilename,
+        );
+        await attachment.saveTx();
+      } catch {
+        try {
+          await moveRuntimePath({ sourcePath: storageRoot, targetPath: staged.stagingDirectory });
+          await moveRuntimePath({ sourcePath: backupRoot, targetPath: storageRoot });
+          await staged.cleanup();
+          (attachment as any).setFilePath(oldPath);
+          (attachment as any).attachmentFilename = oldFilename;
+          (attachment as any).attachmentContentType = oldContentType;
+        } catch {
+          throw replaceFailure(
+            "managed attachment commit could not be reconciled",
+            "reconcile",
+            "unknown",
+            ref,
+          );
+        }
+        throw replaceFailure(
+          "managed attachment commit failed",
+          "retry_same_operation",
+          "failed",
+          ref,
+        );
+      }
+      try {
+        const removed = await removeRuntimePath(backupRoot);
+        if (removed === false) throw new Error("backup cleanup was not confirmed");
+      } catch {
+        throw replaceFailure(
+          "old managed attachment content remains",
+          "manual_repair",
+          "repair_required",
+          ref,
+        );
+      }
+      return attachment;
     },
   });
 }
@@ -497,7 +827,7 @@ export function createWorkflowResearchBundleImportApi(args: {
                   "notes.create",
                   `${graphId}:${note.noteId}`,
                 ),
-                parentRef,
+                placement: { kind: "child", parentRef },
                 content: {
                   format: "html",
                   value: content,
@@ -505,6 +835,7 @@ export function createWorkflowResearchBundleImportApi(args: {
                     ? { embeddedImages: imageBindings }
                     : {}),
                 },
+                ...(note.tags.length ? { initialTags: note.tags } : {}),
               },
               callerScope,
               control,
@@ -513,23 +844,6 @@ export function createWorkflowResearchBundleImportApi(args: {
             ).note,
           );
 
-          if (note.tags.length) {
-            await mutationResult(
-              {
-                operation: "item.updateTags",
-                operationId: await researchImportEffectOperationId(
-                  operationId,
-                  consistencyGroupId,
-                  "item.updateTags",
-                  `${graphId}:${note.noteId}`,
-                ),
-                itemRef: noteResult.ref,
-                add: note.tags,
-                remove: [],
-              },
-              control,
-            );
-          }
           for (const payload of note.payloads) {
             requireConfirmedMutationResult(
               await broker.notes.upsertPayload(
@@ -541,9 +855,13 @@ export function createWorkflowResearchBundleImportApi(args: {
                     `${graphId}:${note.noteId}:${payload.summary.payloadType}`,
                   ),
                   noteRef: noteResult.ref,
-                  payloadType: payload.summary.payloadType,
-                  noteKind: payload.summary.noteKind,
-                  payload: payload.value,
+                  payload: {
+                    payloadType: payload.summary.payloadType,
+                    noteKind: payload.summary.noteKind,
+                    schemaVersion: payload.summary.version,
+                    format: payload.summary.format,
+                    value: payload.value,
+                  },
                 },
                 callerScope,
                 control,

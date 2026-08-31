@@ -163,7 +163,7 @@ async function upsertBaseNote(args, content) {
   if (!args.existingNotes?.length) {
     return requireCommittedMutation(await hostApi.notes.create({
       operationId: `literature-score:create:${Date.now().toString(36)}`,
-      parentRef: portableItemRef(args.parentItem),
+      placement: { kind: "child", parentRef: portableItemRef(args.parentItem) },
       content: { format: "html", value: content },
     })).note;
   }

@@ -204,7 +204,7 @@ async function upsertUniqueGeneratedNote(args) {
       async () => requireCommittedMutation(
         await requireHostApi(args.runtime).notes.create({
           operationId: `generated-note:create:${noteKind}:${Date.now().toString(36)}`,
-          parentRef: portableItemRef(args.parentItem),
+          placement: { kind: "child", parentRef: portableItemRef(args.parentItem) },
           content: {
             format: "html",
             value: args.content,
@@ -427,7 +427,7 @@ async function ensureDigestNoteForRepresentativeImage(args) {
     async () => requireCommittedMutation(
       await requireHostApi(args.runtime).notes.create({
         operationId: `generated-note:create:digest:${Date.now().toString(36)}`,
-        parentRef: portableItemRef(args.parentItem),
+        placement: { kind: "child", parentRef: portableItemRef(args.parentItem) },
         content: { format: "html", value: args.initialContent },
       }),
     ).note,
@@ -1095,7 +1095,7 @@ export async function importCustomNotes(args) {
     const noteItem = requireCommittedMutation(
       await requireHostApi(runtime).notes.create({
         operationId: `custom-note:create:${Date.now().toString(36)}:${createdNotes.length}`,
-        parentRef: portableItemRef(parentItem),
+        placement: { kind: "child", parentRef: portableItemRef(parentItem) },
         content: { format: "html", value: noteContent },
       }),
     ).note;

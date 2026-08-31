@@ -26,7 +26,9 @@ type StoredAttachmentImportArgs = Omit<
 
 export type WorkflowStoredAttachmentImportDependencies = {
   getStagingRoot: () => string;
-  validateSource?: (path: string) => Promise<void>;
+  validateSource?: (
+    path: string,
+  ) => Promise<{ sizeBytes: number } | undefined | void>;
   ensureDirectory: (path: string) => Promise<void>;
   copyFile: (sourcePath: string, targetPath: string) => Promise<void>;
   removePath: (path: string) => Promise<unknown>;
@@ -42,23 +44,43 @@ type ValidatedCompanion = {
   normalizedTarget: string;
 };
 
+const STORED_ATTACHMENT_ENTRY_LIMIT = 10_000;
+const STORED_ATTACHMENT_TOTAL_BYTE_LIMIT = 4 * 1024 * 1024 * 1024;
+
+export class WorkflowStoredAttachmentInputError extends Error {
+  constructor(
+    message: string,
+    readonly resource?: {
+      resource: "entries" | "bytes";
+      limit: number;
+      observed: number;
+    },
+  ) {
+    super(message);
+    this.name = "WorkflowStoredAttachmentInputError";
+  }
+}
+
 function normalizeCompanionPath(value: unknown) {
   const normalized = String(value || "").trim().replace(/\\/g, "/");
   const segments = normalized.split("/");
   if (
     !normalized ||
+    normalized.includes("\0") ||
     normalized.startsWith("/") ||
     /^[A-Za-z]:\//.test(normalized) ||
     segments.some((segment) => !segment || segment === "." || segment === "..")
   ) {
-    throw new Error(`Unsafe companion file path: ${String(value || "")}`);
+    throw new WorkflowStoredAttachmentInputError(
+      `Unsafe companion file path: ${String(value || "")}`,
+    );
   }
   return segments;
 }
 
 function requireNativePath(value: unknown, label: string) {
   const path = normalizeNativeLocalPath(String(value || ""));
-  if (!path) throw new Error(`${label} is invalid`);
+  if (!path) throw new WorkflowStoredAttachmentInputError(`${label} is invalid`);
   return path;
 }
 
@@ -83,7 +105,7 @@ function createStagingDirectory(root: string) {
 }
 
 async function removeStagingDirectory(
-  dependencies: WorkflowStoredAttachmentImportDependencies,
+  dependencies: Pick<WorkflowStoredAttachmentImportDependencies, "removePath">,
   stagingDirectory: string,
 ) {
   const removed = await dependencies.removePath(stagingDirectory);
@@ -92,12 +114,30 @@ async function removeStagingDirectory(
   }
 }
 
-export function createWorkflowStoredAttachmentImport(
-  dependencies: WorkflowStoredAttachmentImportDependencies,
+export type WorkflowStagedAttachmentSources = {
+  stagingDirectory: string;
+  mainFilename: string;
+  stagedMainPath: string;
+  entries: Array<{ relativePath: string; stagedPath: string }>;
+  cleanup(): Promise<void>;
+};
+
+export function createWorkflowStoredAttachmentStager(
+  dependencies: Pick<
+    WorkflowStoredAttachmentImportDependencies,
+    | "getStagingRoot"
+    | "validateSource"
+    | "ensureDirectory"
+    | "copyFile"
+    | "removePath"
+  >,
 ) {
-  return async function importStoredFile(
-    request: WorkflowStoredAttachmentImportRequest,
-  ) {
+  return async function stageStoredAttachmentSources(
+    request: Pick<
+      WorkflowStoredAttachmentImportRequest,
+      "path" | "targetFilename" | "companionFiles"
+    >,
+  ): Promise<WorkflowStagedAttachmentSources> {
     const path = requireNativePath(request?.path, "Stored attachment path");
     const companions: ValidatedCompanion[] = (
       request?.companionFiles || []
@@ -109,30 +149,105 @@ export function createWorkflowStoredAttachmentImport(
           "Companion source path",
         ),
         segments,
-        normalizedTarget: segments.join("/").toLocaleLowerCase(),
+        normalizedTarget: segments.join("/").toLowerCase(),
       };
     });
+    const entryCount = companions.length + 1;
+    if (entryCount > STORED_ATTACHMENT_ENTRY_LIMIT) {
+      throw new WorkflowStoredAttachmentInputError(
+        "Stored attachment entry limit exceeded",
+        {
+          resource: "entries",
+          limit: STORED_ATTACHMENT_ENTRY_LIMIT,
+          observed: entryCount,
+        },
+      );
+    }
     const requestedFilename = String(request?.targetFilename || "").trim();
-    if (requestedFilename && getBaseName(requestedFilename) !== requestedFilename) {
-      throw new Error("Stored attachment target filename is invalid");
+    if (
+      requestedFilename.includes("\0") ||
+      (requestedFilename && getBaseName(requestedFilename) !== requestedFilename)
+    ) {
+      throw new WorkflowStoredAttachmentInputError(
+        "Stored attachment target filename is invalid",
+      );
     }
     const mainFilename = requestedFilename || getBaseName(path);
     if (!mainFilename) {
-      throw new Error("Stored attachment filename is invalid");
+      throw new WorkflowStoredAttachmentInputError(
+        "Stored attachment filename is invalid",
+      );
     }
-    const targets = new Set([mainFilename.toLocaleLowerCase()]);
+    const targets = new Set([mainFilename.toLowerCase()]);
     for (const companion of companions) {
       if (targets.has(companion.normalizedTarget)) {
-        throw new Error(
+        throw new WorkflowStoredAttachmentInputError(
           `Stored attachment targets collide: ${companion.segments.join("/")}`,
         );
       }
       targets.add(companion.normalizedTarget);
     }
-    await dependencies.validateSource?.(path);
-    for (const companion of companions) {
-      await dependencies.validateSource?.(companion.sourcePath);
+    let totalBytes = 0;
+    for (const sourcePath of [path, ...companions.map((entry) => entry.sourcePath)]) {
+      const validation = await dependencies.validateSource?.(sourcePath);
+      totalBytes += Math.max(0, Number(validation?.sizeBytes || 0));
+      if (totalBytes > STORED_ATTACHMENT_TOTAL_BYTE_LIMIT) {
+        throw new WorkflowStoredAttachmentInputError(
+          "Stored attachment byte limit exceeded",
+          {
+            resource: "bytes",
+            limit: STORED_ATTACHMENT_TOTAL_BYTE_LIMIT,
+            observed: totalBytes,
+          },
+        );
+      }
     }
+    const stagingDirectory = createStagingDirectory(
+      dependencies.getStagingRoot(),
+    );
+    const stagedMainPath = joinPath(stagingDirectory, mainFilename);
+    const entries = companions.map((companion) => ({
+      relativePath: companion.segments.join("/"),
+      stagedPath: joinPath(stagingDirectory, ...companion.segments),
+      sourcePath: companion.sourcePath,
+    }));
+    try {
+      await dependencies.ensureDirectory(getParentPath(stagedMainPath));
+      await dependencies.copyFile(path, stagedMainPath);
+      for (const entry of entries) {
+        await dependencies.ensureDirectory(getParentPath(entry.stagedPath));
+        await dependencies.copyFile(entry.sourcePath, entry.stagedPath);
+      }
+      return {
+        stagingDirectory,
+        mainFilename,
+        stagedMainPath,
+        entries: entries.map(({ relativePath, stagedPath }) => ({
+          relativePath,
+          stagedPath,
+        })),
+        cleanup: () => removeStagingDirectory(dependencies, stagingDirectory),
+      };
+    } catch (primaryError) {
+      try {
+        await removeStagingDirectory(dependencies, stagingDirectory);
+      } catch (cleanupError) {
+        attachCleanupFailure(primaryError, cleanupError);
+      }
+      throw primaryError;
+    }
+  };
+}
+
+export function createWorkflowStoredAttachmentImport(
+  dependencies: WorkflowStoredAttachmentImportDependencies,
+) {
+  const stageStoredAttachmentSources =
+    createWorkflowStoredAttachmentStager(dependencies);
+  return async function importStoredFile(
+    request: WorkflowStoredAttachmentImportRequest,
+  ) {
+    const path = requireNativePath(request?.path, "Stored attachment path");
     const importArgs: StoredAttachmentImportArgs = {
       parent: request?.parent,
       path,
@@ -141,37 +256,12 @@ export function createWorkflowStoredAttachmentImport(
       charset: request?.charset,
       url: request?.url,
     };
-    const stagingDirectory = createStagingDirectory(
-      dependencies.getStagingRoot(),
-    );
-    const stagedMainPath = joinPath(
-      stagingDirectory,
-      "main",
-      mainFilename,
-    );
-    const stagedCompanions = companions.map((companion, index) => ({
-      ...companion,
-      stagedPath: joinPath(
-        stagingDirectory,
-        String(index),
-        ...companion.segments,
-      ),
-    }));
+    const staged = await stageStoredAttachmentSources(request);
     let attachment: Zotero.Item | null = null;
     try {
-      await dependencies.ensureDirectory(getParentPath(stagedMainPath));
-      await dependencies.copyFile(path, stagedMainPath);
-      for (const companion of stagedCompanions) {
-        await dependencies.ensureDirectory(getParentPath(companion.stagedPath));
-        await dependencies.copyFile(
-          companion.sourcePath,
-          companion.stagedPath,
-        );
-      }
-
       attachment = await dependencies.importStoredFromPath({
         ...importArgs,
-        path: stagedMainPath,
+        path: staged.stagedMainPath,
       });
       const storedPath = String(
         (await attachment.getFilePathAsync?.()) || "",
@@ -180,12 +270,12 @@ export function createWorkflowStoredAttachmentImport(
       if (!storageRoot) {
         throw new Error("Stored attachment storage directory is unavailable");
       }
-      for (const companion of stagedCompanions) {
-        const targetPath = joinPath(storageRoot, ...companion.segments);
+      for (const companion of staged.entries) {
+        const targetPath = joinPath(storageRoot, companion.relativePath);
         await dependencies.ensureDirectory(getParentPath(targetPath));
         await dependencies.copyFile(companion.stagedPath, targetPath);
       }
-      await removeStagingDirectory(dependencies, stagingDirectory);
+      await staged.cleanup();
       return attachment;
     } catch (primaryError) {
       if (attachment) {
@@ -196,7 +286,7 @@ export function createWorkflowStoredAttachmentImport(
         }
       }
       try {
-        await removeStagingDirectory(dependencies, stagingDirectory);
+        await staged.cleanup();
       } catch (cleanupError) {
         attachCleanupFailure(primaryError, cleanupError);
       }

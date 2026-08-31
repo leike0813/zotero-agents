@@ -7,7 +7,13 @@ import {
 import { joinPath } from "../utils/path";
 
 type ItemRef = Zotero.Item | number | string;
-type NotePayload = { content: string };
+type NotePayload = {
+  content: string;
+  parent?: ItemRef | null;
+  libraryID?: number;
+  tags?: string[];
+  collections?: Array<number | string | Zotero.Collection>;
+};
 type FileSpec = { file: any } | { filePath: string };
 type FieldPatch = Record<string, string | number | boolean | null>;
 type CreatorPatch = Array<{
@@ -626,7 +632,18 @@ export const handlers = {
   note: {
     create: async (note: NotePayload) => {
       const newNote = new Zotero.Item("note");
+      const parent = note.parent ? resolveItem(note.parent) : null;
+      if (parent) {
+        newNote.parentID = parent.id;
+        newNote.libraryID = parent.libraryID;
+      } else if (note.libraryID) {
+        newNote.libraryID = note.libraryID;
+      }
       newNote.setNote(note.content);
+      for (const tag of note.tags || []) newNote.addTag(tag);
+      for (const collection of note.collections || []) {
+        newNote.addToCollection(resolveCollectionId(collection));
+      }
       await saveItemTx(newNote, "handlers:note.create:saveTx");
       return newNote;
     },

@@ -5,6 +5,14 @@ import {
   createWorkflowHostApi,
   resetWorkflowHostApiForTests,
 } from "../../src/workflows/hostApi";
+import { createWorkflowHostCapabilityBroker } from "../../src/workflows/workflowHostOwners";
+import {
+  readRuntimeBytes,
+  removeRuntimePath,
+  runtimePathExists,
+} from "../../src/modules/runtimePersistence";
+import { joinPath } from "../../src/utils/path";
+import { mkTempDir, writeUtf8 } from "../zotero/workflow-test-utils";
 import {
   resolveWorkflowHostContractVersion,
   WORKFLOW_HOST_API_VERSION,
@@ -35,6 +43,7 @@ import {
   ZoteroHostCapabilityError,
 } from "../../src/modules/zoteroHostCapabilityBroker";
 import { pinVerifiedMutationReceipt } from "../../src/modules/zoteroHostMutationAuthority";
+import { MutationAuthorityExecutionError } from "../../src/modules/zoteroHostMutationAuthority";
 import {
   createWorkflowLibraryItemSnapshotApi,
   withWorkflowLibraryItemSnapshot,
@@ -145,7 +154,13 @@ async function expectWorkflowHostError(
 }
 
 async function withMockTranslate<T>(
-  args: { items?: Array<Record<string, unknown>>; translators?: unknown[] },
+  args: {
+    items?: Array<Record<string, unknown>>;
+    translators?: unknown[];
+    onGetTranslators?: () => void;
+    onTranslate?: () => void;
+    translateError?: Error;
+  },
   callback: () => Promise<T>,
 ): Promise<T> {
   class Search {
@@ -161,13 +176,13 @@ async function withMockTranslate<T>(
     }
 
     async getTranslators() {
+      args.onGetTranslators?.();
       return (
-        args.translators || [
+        args.translators ??
+        [
           {
             translatorID: "metadata-translator",
             label: "Metadata Translator",
-            priority: 100,
-            translatorType: 8,
           },
         ]
       );
@@ -178,10 +193,12 @@ async function withMockTranslate<T>(
     }
 
     async translate(options: unknown) {
+      args.onTranslate?.();
       assert.deepEqual(options, {
         libraryID: false,
         saveAttachments: false,
       });
+      if (args.translateError) throw args.translateError;
       return args.items || [];
     }
   }
@@ -276,6 +293,245 @@ describe("zotero host broker capability api", function () {
     await resetDefaultSynthesisClientForTests();
   });
 
+  it("closes metadata identifier input before invoking a translator", async function () {
+    let calls = 0;
+    await withMockTranslate({ onGetTranslators: () => calls++ }, async () => {
+      const translate = createZoteroHostCapabilityBroker().metadata
+        .translateIdentifier;
+      const invalidInputs = [
+        { type: "DOI", normalized: "10.1000/legacy" },
+        { type: "HANDLE", value: "10.1000/open-type" },
+        { type: "DOI", value: "10.1000/knob", limit: 1 },
+        { type: "DOI", value: `10.1000/${"x".repeat(2_049)}` },
+        { type: "ISBN", value: "978-0-306-40615-8" },
+      ];
+      for (const input of invalidInputs) {
+        await expectBrokerError(translate(input as never), "invalid_request");
+      }
+    });
+    assert.strictEqual(calls, 0);
+  });
+
+  it("returns the closed metadata outcomes from exact matches with uniform evidence", async function () {
+    const translate = createZoteroHostCapabilityBroker().metadata
+      .translateIdentifier;
+    const run = (items: Array<Record<string, unknown>>) =>
+      withMockTranslate({ items }, () =>
+        translate({ type: "DOI", value: "https://doi.org/10.1000/target" }),
+      );
+
+    const matched = await run([
+      { itemType: "journalArticle", DOI: "10.1000/other", title: "Other" },
+      { itemType: "journalArticle", DOI: "10.1000/TARGET", title: "Match" },
+    ]);
+    assert.strictEqual(matched.outcome, "matched");
+    if (matched.outcome !== "matched") assert.fail("expected matched outcome");
+    assert.strictEqual(matched.item.fields.title, "Match");
+    assert.deepEqual(matched.evidence, {
+      normalizedIdentifier: "10.1000/target",
+      candidateCount: 2,
+      matchingCandidateCount: 1,
+      translators: [{ id: "metadata-translator", label: "Metadata Translator" }],
+    });
+
+    const ambiguous = await run([
+      { itemType: "journalArticle", DOI: "10.1000/target", title: "First" },
+      { itemType: "book", DOI: "10.1000/target", title: "Second" },
+    ]);
+    assert.strictEqual(ambiguous.outcome, "ambiguous");
+    if (ambiguous.outcome !== "ambiguous")
+      assert.fail("expected ambiguous outcome");
+    assert.deepEqual(
+      ambiguous.candidates.map((candidate) => candidate.fields.title),
+      ["First", "Second"],
+    );
+    assert.strictEqual(ambiguous.evidence.matchingCandidateCount, 2);
+
+    const mismatch = await run([
+      { itemType: "journalArticle", DOI: "10.1000/other" },
+    ]);
+    assert.deepInclude(mismatch, {
+      outcome: "not_found",
+      reason: "identifier_mismatch",
+    });
+    const noCandidate = await run([]);
+    assert.deepInclude(noCandidate, {
+      outcome: "not_found",
+      reason: "no_candidate",
+    });
+    const noTranslator = await withMockTranslate({ translators: [] }, () =>
+      translate({ type: "DOI", value: "10.1000/target" }),
+    );
+    assert.deepInclude(noTranslator, {
+      outcome: "not_found",
+      reason: "no_translator",
+    });
+    for (const result of [matched, ambiguous, mismatch, noCandidate, noTranslator]) {
+      assert.hasAllKeys(result.evidence, [
+        "normalizedIdentifier",
+        "candidateCount",
+        "matchingCandidateCount",
+        "translators",
+      ]);
+    }
+  });
+
+  it("fails metadata lookup instead of truncating hard-budget overflow", async function () {
+    const translate = createZoteroHostCapabilityBroker().metadata
+      .translateIdentifier;
+    const translatorOverflow = await withMockTranslate(
+      {
+        translators: Array.from({ length: 33 }, (_, index) => ({
+          translatorID: `translator-${index}`,
+          label: `Translator ${index}`,
+        })),
+      },
+      () =>
+        expectBrokerError(
+          translate({ type: "DOI", value: "10.1000/target" }),
+          "resource_limited",
+        ),
+    );
+    assert.deepEqual(translatorOverflow.details, {
+      resource: "translators",
+      limit: 32,
+      observed: 33,
+    });
+
+    const candidateOverflow = await withMockTranslate(
+      {
+        items: Array.from({ length: 65 }, (_, index) => ({
+          itemType: "journalArticle",
+          DOI: `10.1000/${index}`,
+        })),
+      },
+      () =>
+        expectBrokerError(
+          translate({ type: "DOI", value: "10.1000/target" }),
+          "resource_limited",
+        ),
+    );
+    assert.deepEqual(candidateOverflow.details, {
+      resource: "candidates",
+      limit: 64,
+      observed: 65,
+    });
+
+    const creatorOverflow = await withMockTranslate(
+      {
+        items: [
+          {
+            itemType: "journalArticle",
+            DOI: "10.1000/target",
+            creators: Array.from({ length: 101 }, (_, index) => ({
+              creatorType: "author",
+              name: `Creator ${index}`,
+            })),
+          },
+        ],
+      },
+      () =>
+        expectBrokerError(
+          translate({ type: "DOI", value: "10.1000/target" }),
+          "resource_limited",
+        ),
+    );
+    assert.deepEqual(creatorOverflow.details, {
+      resource: "entries",
+      limit: 100,
+      observed: 101,
+    });
+
+    for (const translator of [
+      { translatorID: "x".repeat(129), label: "Translator" },
+      { translatorID: "translator", label: "x".repeat(257) },
+    ]) {
+      const error = await withMockTranslate(
+        { translators: [translator] },
+        () =>
+          expectBrokerError(
+            translate({ type: "DOI", value: "10.1000/target" }),
+            "resource_limited",
+          ),
+      );
+      assert.hasAllKeys(error.details, ["resource", "limit", "observed"]);
+    }
+
+    const largeFields = Object.fromEntries(
+      [
+        "title",
+        "abstractNote",
+        "date",
+        "publicationTitle",
+        "journalAbbreviation",
+        "url",
+        "pages",
+        "volume",
+        "issue",
+        "publisher",
+        "place",
+        "ISBN",
+        "ISSN",
+        "language",
+        "shortTitle",
+        "archiveID",
+        "PMID",
+        "extra",
+      ].map((field) => [field, "x".repeat(4_000)]),
+    );
+    const responseOverflow = await withMockTranslate(
+      {
+        items: Array.from({ length: 64 }, () => ({
+          itemType: "journalArticle",
+          ...largeFields,
+          DOI: "10.1000/target",
+        })),
+      },
+      () =>
+        expectBrokerError(
+          translate({ type: "DOI", value: "10.1000/target" }),
+          "resource_limited",
+        ),
+    );
+    assert.strictEqual(responseOverflow.details.resource, "response_bytes");
+    assert.strictEqual(responseOverflow.details.limit, 4 * 1024 * 1024);
+    assert.isAbove(Number(responseOverflow.details.observed), 4 * 1024 * 1024);
+  });
+
+  it("keeps translator absence as a normal result and failures in stable taxonomy", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const previousTranslate = (Zotero as any).Translate;
+    delete (Zotero as any).Translate;
+    try {
+      await expectBrokerError(
+        broker.metadata.translateIdentifier({
+          type: "DOI",
+          value: "10.1000/target",
+        }),
+        "unavailable",
+      );
+    } finally {
+      (Zotero as any).Translate = previousTranslate;
+    }
+
+    await withMockTranslate(
+      { translateError: new Error("translator exploded") },
+      async () => {
+        const error = await expectBrokerError(
+          broker.metadata.translateIdentifier({
+            type: "DOI",
+            value: "10.1000/target",
+          }),
+          "execution_failed",
+        );
+        assert.deepEqual(error.details, {
+          phase: "adapter",
+          recovery: "retry_same_operation",
+        });
+      },
+    );
+  });
+
   it("reserves canonical mutations once and replays the original confirmed result", async function () {
     let sequence = 0;
     configureZoteroHostMutationRuntimeForTests({
@@ -316,7 +572,10 @@ describe("zotero host broker capability api", function () {
     const scope = { ownerId: "note-authority-test" };
     const createRequest = {
       operationId: "note-create-once",
-      parentRef: { libraryId: parent.libraryID, key: parent.key },
+      placement: {
+        kind: "child" as const,
+        parentRef: { libraryId: parent.libraryID, key: parent.key },
+      },
       content: {
         format: "html" as const,
         value: "<div><p>canonical note</p></div>",
@@ -371,6 +630,175 @@ describe("zotero host broker capability api", function () {
     );
   });
 
+  it("creates top-level and child notes from the closed placement union", async function () {
+    const collection = await createCollection("Canonical Note Placement");
+    const parent = await createParentItem("Canonical Note Placement Parent");
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "note-placement-test" };
+    const originalSave = Zotero.Item.prototype.saveTx;
+    const firstSaveState: Array<{ tags: string[]; collections: unknown[] }> = [];
+    Zotero.Item.prototype.saveTx = async function (...args: unknown[]) {
+      if (this.isNote?.() && !this.id) {
+        firstSaveState.push({
+          tags: this.getTags().map((entry: { tag: string }) => entry.tag),
+          collections: this.getCollections(),
+        });
+      }
+      return originalSave.apply(this, args as never);
+    };
+    try {
+      const topLevelRequest = {
+        operationId: "note-create-top-level-placement",
+        placement: {
+          kind: "top_level" as const,
+          collectionRefs: [
+            { libraryId: collection.libraryID, key: collection.key },
+          ],
+        },
+        content: { format: "text" as const, value: "top-level note" },
+        initialTags: ["placed", "placed"],
+      };
+      const created = await broker.notes.create(topLevelRequest, scope);
+      const replayed = await broker.notes.create(topLevelRequest, scope);
+      assert.strictEqual(created.outcome, "committed");
+      assert.deepEqual(replayed, created);
+      assert.lengthOf(firstSaveState, 1);
+      assert.deepEqual(firstSaveState[0], {
+        tags: ["placed"],
+        collections: [collection.id],
+      });
+      const topLevelNote = Zotero.Items.getByLibraryAndKey(
+        (created.result.note as any).ref.libraryId,
+        (created.result.note as any).ref.key,
+      );
+      assert.strictEqual(topLevelNote.libraryID, Zotero.Libraries.userLibraryID);
+
+      const child = await broker.notes.create(
+        {
+          operationId: "note-create-child-placement",
+          placement: {
+            kind: "child",
+            parentRef: { libraryId: parent.libraryID, key: parent.key },
+          },
+          content: { format: "html", value: "<div>child note</div>" },
+        },
+        scope,
+      );
+      assert.strictEqual(child.outcome, "committed");
+      const childNote = Zotero.Items.getByLibraryAndKey(
+        (child.result.note as any).ref.libraryId,
+        (child.result.note as any).ref.key,
+      );
+      assert.strictEqual(childNote.parentItemID, parent.id);
+      assert.strictEqual(childNote.libraryID, parent.libraryID);
+    } finally {
+      Zotero.Item.prototype.saveTx = originalSave;
+    }
+  });
+
+  it("rejects invalid note placement, tags, and content before commit", async function () {
+    const parent = await createParentItem("Invalid Note Placement Parent");
+    const foreign = await createCollection("Foreign Note Placement");
+    foreign.libraryID = parent.libraryID + 1;
+    const deleted = await createCollection("Deleted Note Placement");
+    (deleted as any).deleted = true;
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "invalid-note-placement-test" };
+    const originalSave = Zotero.Item.prototype.saveTx;
+    let noteWrites = 0;
+    Zotero.Item.prototype.saveTx = async function (...args: unknown[]) {
+      if (this.isNote?.()) noteWrites += 1;
+      return originalSave.apply(this, args as never);
+    };
+    const childPlacement = {
+      kind: "child" as const,
+      parentRef: { libraryId: parent.libraryID, key: parent.key },
+    };
+    try {
+      const requests = [
+        {
+          operationId: "note-invalid-flat-parent",
+          parentRef: childPlacement.parentRef,
+          content: { format: "text", value: "invalid" },
+        },
+        {
+          operationId: "note-invalid-title",
+          placement: childPlacement,
+          title: "standalone title",
+          content: { format: "text", value: "invalid" },
+        },
+        {
+          operationId: "note-invalid-child-library",
+          placement: { ...childPlacement, libraryId: parent.libraryID },
+          content: { format: "text", value: "invalid" },
+        },
+        {
+          operationId: "note-invalid-child-collections",
+          placement: { ...childPlacement, collectionRefs: [] },
+          content: { format: "text", value: "invalid" },
+        },
+        {
+          operationId: "note-invalid-missing-collection",
+          placement: {
+            kind: "top_level",
+            collectionRefs: [{ libraryId: 1, key: "MISSING1" }],
+          },
+          content: { format: "text", value: "invalid" },
+        },
+        {
+          operationId: "note-invalid-foreign-collection",
+          placement: {
+            kind: "top_level",
+            libraryId: parent.libraryID,
+            collectionRefs: [
+              { libraryId: foreign.libraryID, key: foreign.key },
+            ],
+          },
+          content: { format: "text", value: "invalid" },
+        },
+        {
+          operationId: "note-invalid-deleted-collection",
+          placement: {
+            kind: "top_level",
+            collectionRefs: [
+              { libraryId: deleted.libraryID, key: deleted.key },
+            ],
+          },
+          content: { format: "text", value: "invalid" },
+        },
+        {
+          operationId: "note-invalid-empty-content",
+          placement: childPlacement,
+          content: { format: "text", value: "" },
+        },
+        {
+          operationId: "note-invalid-large-content",
+          placement: childPlacement,
+          content: { format: "text", value: "x".repeat(50_001) },
+        },
+        {
+          operationId: "note-invalid-empty-tag",
+          placement: childPlacement,
+          content: { format: "text", value: "invalid" },
+          initialTags: [""],
+        },
+      ];
+      for (const request of requests) {
+        await expectBrokerError(
+          broker.notes.create(request as never, scope),
+          request.operationId.includes("missing-collection")
+            ? "not_found"
+            : request.operationId.includes("deleted-collection")
+              ? "invalid_ref"
+            : "invalid_request",
+        );
+      }
+      assert.strictEqual(noteWrites, 0);
+    } finally {
+      Zotero.Item.prototype.saveTx = originalSave;
+    }
+  });
+
   it("consumes prepared-image slots inside one replay-safe note mutation", async function () {
     const preparedScope = createWorkflowPreparedImageScope({
       runScopeId: "note-image-run",
@@ -410,7 +838,10 @@ describe("zotero host broker capability api", function () {
     try {
       const request = {
         operationId: "note-create-with-prepared-image",
-        parentRef: { libraryId: parent.libraryID, key: parent.key },
+        placement: {
+          kind: "child" as const,
+          parentRef: { libraryId: parent.libraryID, key: parent.key },
+        },
         content: {
           format: "html" as const,
           value:
@@ -517,7 +948,10 @@ describe("zotero host broker capability api", function () {
       const result = await broker.notes.create(
         {
           operationId: "note-image-staging-failure",
-          parentRef: { libraryId: parent.libraryID, key: parent.key },
+          placement: {
+            kind: "child",
+            parentRef: { libraryId: parent.libraryID, key: parent.key },
+          },
           content: {
             format: "html",
             value:
@@ -627,17 +1061,21 @@ describe("zotero host broker capability api", function () {
           {
             operationId: "payload-write-unknown",
             noteRef: { libraryId: note.libraryID, key: note.key },
-            payloadType: "literature-matching-metadata-json",
-            noteKind: "digest",
-            payload: { schema: "literature_matching_metadata.v1" },
+            payload: {
+              payloadType: "literature-matching-metadata-json",
+              noteKind: "digest",
+              schemaVersion: "literature_matching_metadata.v1",
+              format: "json",
+              value: { schema: "literature_matching_metadata.v1" },
+            },
           },
           { ownerId: "note-payload-authority-test" },
         );
 
-      assert.strictEqual(result.outcome, "unknown");
-      if (result.outcome !== "unknown") assert.fail("expected unknown attempt");
+      assert.strictEqual(result.outcome, "failed");
+      if (result.outcome !== "failed") assert.fail("expected failed attempt");
       assert.strictEqual(result.attempt.error.code, "execution_failed");
-      assert.strictEqual(result.attempt.error.recovery, "reconcile");
+      assert.strictEqual(result.attempt.error.recovery, "retry_same_operation");
       assert.deepInclude(result.attempt.affectedRefs, {
         kind: "item",
         ref: { libraryId: note.libraryID, key: note.key },
@@ -645,6 +1083,232 @@ describe("zotero host broker capability api", function () {
       assertStrictJsonValue(result);
     } finally {
       Zotero.Attachments.importEmbeddedImage = originalImport;
+    }
+  });
+
+  it("creates, replaces, and short-circuits canonical logical note payloads", async function () {
+    const parent = await createParentItem("Logical Payload Parent");
+    const note = await handlers.parent.addNote(parent, {
+      content: "<div><p>payload basis</p></div>",
+    });
+    const noteRef = { libraryId: note.libraryID, key: note.key };
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "logical-payload-test" };
+    const originalImport = Zotero.Attachments.importEmbeddedImage;
+    let imports = 0;
+    Zotero.Attachments.importEmbeddedImage = async (args) => {
+      imports += 1;
+      return originalImport(args);
+    };
+    try {
+      const payload = {
+        payloadType: "logical-json",
+        noteKind: "digest",
+        schemaVersion: "logical.v1",
+        format: "json" as const,
+        value: { value: 1 },
+      };
+      const created = await broker.notes.upsertPayload(
+        { operationId: "logical-payload-create", noteRef, payload },
+        scope,
+      );
+      assert.strictEqual(created.outcome, "committed");
+      if (created.outcome !== "committed") assert.fail("expected create");
+      assert.hasAllKeys(created.result, ["note", "payload", "outcome"]);
+      assert.strictEqual((created.result as any).outcome, "created");
+      assert.strictEqual((created.result as any).payload.payloadType, "logical-json");
+
+      const replayed = await broker.notes.upsertPayload(
+        { operationId: "logical-payload-create", noteRef, payload },
+        scope,
+      );
+      assert.deepEqual(replayed, created);
+      assert.strictEqual(imports, 1);
+
+      const unchanged = await broker.notes.upsertPayload(
+        { operationId: "logical-payload-unchanged", noteRef, payload },
+        scope,
+      );
+      assert.strictEqual(unchanged.outcome, "unchanged");
+      assert.strictEqual((unchanged.result as any).outcome, "unchanged");
+      assert.strictEqual(imports, 1);
+
+      const replaced = await broker.notes.upsertPayload(
+        {
+          operationId: "logical-payload-replace",
+          noteRef,
+          payload: { ...payload, schemaVersion: "logical.v2" },
+        },
+        scope,
+      );
+      assert.strictEqual(replaced.outcome, "committed");
+      assert.strictEqual((replaced.result as any).outcome, "replaced");
+      assert.strictEqual(imports, 2);
+    } finally {
+      Zotero.Attachments.importEmbeddedImage = originalImport;
+    }
+  });
+
+  it("rejects unsafe logical payload input and duplicate payload identity before write", async function () {
+    const parent = await createParentItem("Payload Validation Parent");
+    const note = await handlers.parent.addNote(parent, {
+      content: "<div><p>payload basis</p></div>",
+    });
+    const noteRef = { libraryId: note.libraryID, key: note.key };
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "payload-validation-test" };
+    const base = {
+      payloadType: "validation-json",
+      noteKind: "digest",
+      schemaVersion: "validation.v1",
+      format: "json" as const,
+      value: { value: 1 },
+    };
+    for (const request of [
+      {
+        operationId: "payload-invalid-encoding",
+        noteRef,
+        payload: base,
+        encoding: "base64",
+      },
+      {
+        operationId: "payload-invalid-markdown",
+        noteRef,
+        payload: { ...base, format: "markdown", value: { value: 1 } },
+      },
+      {
+        operationId: "payload-too-large",
+        noteRef,
+        payload: { ...base, format: "text", value: "x".repeat(1024 * 1024 + 1) },
+      },
+    ]) {
+      await expectBrokerError(
+        broker.notes.upsertPayload(request as never, scope),
+        request.operationId === "payload-too-large"
+          ? "resource_limited"
+          : "invalid_request",
+      );
+    }
+
+    await broker.notes.upsertPayload(
+      { operationId: "payload-duplicate-seed", noteRef, payload: base },
+      scope,
+    );
+    const attachmentId = note.getAttachments()[0];
+    const attachment = Zotero.Items.get(attachmentId);
+    const bytes = await readRuntimeBytes(await attachment.getFilePathAsync());
+    await Zotero.Attachments.importEmbeddedImage({
+      blob: new Blob([bytes], { type: "image/png" }),
+      parentItemID: note.id,
+    });
+    const beforeAttachments = note.getAttachments().length;
+    await expectBrokerError(
+      broker.notes.upsertPayload(
+        { operationId: "payload-duplicate-conflict", noteRef, payload: base },
+        scope,
+      ),
+      "conflict",
+    );
+    assert.strictEqual(note.getAttachments().length, beforeAttachments);
+  });
+
+  it("compensates a staged payload attachment and exposes cleanup residuals", async function () {
+    for (const cleanupFails of [false, true]) {
+      const parent = await createParentItem(`Payload Compensation ${cleanupFails}`);
+      const note = await handlers.parent.addNote(parent, {
+        content: "<div><p>payload basis</p></div>",
+      });
+      const originalSave = note.saveTx.bind(note);
+      const originalImport = Zotero.Attachments.importEmbeddedImage;
+      const originalRemove = handlers.attachment.remove;
+      let stagedKey = "";
+      Zotero.Attachments.importEmbeddedImage = async (args) => {
+        const attachment = await originalImport(args);
+        stagedKey = attachment.key;
+        return attachment;
+      };
+      note.saveTx = async () => {
+        throw new Error("note payload commit failed");
+      };
+      if (cleanupFails) {
+        handlers.attachment.remove = async () => {
+          throw new Error("payload cleanup failed");
+        };
+      }
+      try {
+        const result = await createZoteroHostCapabilityBroker().notes.upsertPayload(
+          {
+            operationId: `payload-compensation-${cleanupFails}`,
+            noteRef: { libraryId: note.libraryID, key: note.key },
+            payload: {
+              payloadType: "compensation-json",
+              noteKind: "digest",
+              schemaVersion: "compensation.v1",
+              format: "json",
+              value: { value: 1 },
+            },
+          },
+          { ownerId: `payload-compensation-${cleanupFails}` },
+        );
+        assert.strictEqual(
+          result.outcome,
+          cleanupFails ? "repair_required" : "failed",
+        );
+        assert.include(result.attempt.error.message, "note payload commit failed");
+        assert.lengthOf(result.attempt.residualRefs, cleanupFails ? 1 : 0);
+        assert.isNotEmpty(stagedKey);
+        assert.strictEqual(
+          Boolean(Zotero.Items.getByLibraryAndKey(note.libraryID, stagedKey)),
+          cleanupFails,
+        );
+      } finally {
+        note.saveTx = originalSave;
+        Zotero.Attachments.importEmbeddedImage = originalImport;
+        handlers.attachment.remove = originalRemove;
+      }
+    }
+  });
+
+  it("reports repair-required when replaced payload cleanup is unconfirmed", async function () {
+    const parent = await createParentItem("Payload Cleanup Parent");
+    const note = await handlers.parent.addNote(parent, {
+      content: "<div><p>payload basis</p></div>",
+    });
+    const noteRef = { libraryId: note.libraryID, key: note.key };
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "payload-cleanup-test" };
+    const payload = {
+      payloadType: "cleanup-json",
+      noteKind: "digest",
+      schemaVersion: "cleanup.v1",
+      format: "json" as const,
+      value: { value: 1 },
+    };
+    await broker.notes.upsertPayload(
+      { operationId: "payload-cleanup-seed", noteRef, payload },
+      scope,
+    );
+    const oldAttachment = Zotero.Items.get(note.getAttachments()[0]);
+    const originalRemove = handlers.attachment.remove;
+    handlers.attachment.remove = async () => {
+      throw new Error("old payload cleanup failed");
+    };
+    try {
+      const result = await broker.notes.upsertPayload(
+        {
+          operationId: "payload-cleanup-replace",
+          noteRef,
+          payload: { ...payload, schemaVersion: "cleanup.v2" },
+        },
+        scope,
+      );
+      assert.strictEqual(result.outcome, "repair_required");
+      assert.deepInclude(result.attempt.residualRefs, {
+        kind: "item",
+        ref: { libraryId: oldAttachment.libraryID, key: oldAttachment.key },
+      });
+    } finally {
+      handlers.attachment.remove = originalRemove;
     }
   });
 
@@ -1125,6 +1789,216 @@ describe("zotero host broker capability api", function () {
     assert.strictEqual(removed.receipt.operation, "attachments.remove");
     assert.notInclude(JSON.stringify(removed.receipt), attachmentPath);
     assertStrictJsonValue(removed);
+  });
+
+  it("replaces stored managed content once and replays its confirmed receipt", async function () {
+    const root = await mkTempDir("attachment-replace-stored");
+    try {
+      const storageRoot = joinPath(root, "storage", "ATTACHMENT");
+      const oldMain = joinPath(storageRoot, "before.pdf");
+      const sourceMain = joinPath(root, "source", "after.pdf");
+      const sourceCompanion = joinPath(root, "source", "assets", "data.bin");
+      await writeUtf8(oldMain, "old managed content");
+      await writeUtf8(sourceMain, "new managed content");
+      await writeUtf8(sourceCompanion, "companion content");
+
+      const attachment = new Zotero.Item("attachment") as Zotero.Item & {
+        attachmentLinkMode: number;
+        getAttachmentLinkMode: () => number;
+      };
+      attachment.attachmentLinkMode = 0;
+      attachment.getAttachmentLinkMode = () => 0;
+      attachment.setFilePath(oldMain);
+      await attachment.saveTx();
+      const request = {
+        operationId: "stored-replace-once",
+        attachmentRef: {
+          libraryId: attachment.libraryID,
+          key: attachment.key,
+        },
+        source: {
+          kind: "stored_file" as const,
+          main: {
+            source: { kind: "local_path" as const, path: sourceMain },
+            targetFilename: "after.pdf",
+          },
+          companions: [
+            {
+              source: {
+                kind: "local_path" as const,
+                path: sourceCompanion,
+              },
+              targetRelativePath: "assets/data.bin",
+            },
+          ],
+        },
+      };
+      const broker = createWorkflowHostCapabilityBroker();
+      const first = await broker.attachments.replaceFile(request, {
+        ownerId: "stored-replace-owner",
+      });
+      assert.strictEqual(first.outcome, "committed");
+      if (first.outcome !== "committed") assert.fail("expected replacement");
+      assert.strictEqual((first.result as any).outcome, "replaced");
+      assert.strictEqual(
+        new TextDecoder().decode(
+          await readRuntimeBytes(joinPath(storageRoot, "after.pdf")),
+        ),
+        "new managed content",
+      );
+      assert.strictEqual(
+        new TextDecoder().decode(
+          await readRuntimeBytes(joinPath(storageRoot, "assets", "data.bin")),
+        ),
+        "companion content",
+      );
+      assert.isFalse(await runtimePathExists(oldMain));
+
+      await removeRuntimePath(sourceMain);
+      await removeRuntimePath(sourceCompanion);
+      const replay = await broker.attachments.replaceFile(request, {
+        ownerId: "stored-replace-owner",
+      });
+      assert.deepEqual(replay, first);
+    } finally {
+      await removeRuntimePath(root);
+    }
+  });
+
+  it("relocates linked files without touching external content and rejects mode mismatches", async function () {
+    const root = await mkTempDir("attachment-replace-linked");
+    try {
+      const oldPath = joinPath(root, "old.pdf");
+      const newPath = joinPath(root, "new.pdf");
+      await writeUtf8(oldPath, "old external content");
+      await writeUtf8(newPath, "new external content");
+      const attachment = new Zotero.Item("attachment") as Zotero.Item & {
+        attachmentLinkMode: number;
+        getAttachmentLinkMode: () => number;
+      };
+      attachment.attachmentLinkMode = 2;
+      attachment.getAttachmentLinkMode = () => 2;
+      attachment.setFilePath(oldPath);
+      await attachment.saveTx();
+      const broker = createWorkflowHostCapabilityBroker();
+      const scope = { ownerId: "linked-replace-owner" };
+      const missing = await broker.attachments.replaceFile(
+        {
+          operationId: "linked-replace-missing",
+          attachmentRef: {
+            libraryId: attachment.libraryID,
+            key: attachment.key,
+          },
+          source: { kind: "linked_file", path: joinPath(root, "missing.pdf") },
+        },
+        scope,
+      );
+      assert.strictEqual(missing.outcome, "failed");
+      assert.strictEqual(await attachment.getFilePathAsync?.(), oldPath);
+
+      const replaced = await broker.attachments.replaceFile(
+        {
+          operationId: "linked-replace-success",
+          attachmentRef: {
+            libraryId: attachment.libraryID,
+            key: attachment.key,
+          },
+          source: { kind: "linked_file", path: newPath },
+        },
+        scope,
+      );
+      assert.strictEqual(replaced.outcome, "committed");
+      assert.strictEqual(await attachment.getFilePathAsync?.(), newPath);
+      assert.strictEqual(
+        new TextDecoder().decode(await readRuntimeBytes(oldPath)),
+        "old external content",
+      );
+      assert.strictEqual(
+        new TextDecoder().decode(await readRuntimeBytes(newPath)),
+        "new external content",
+      );
+
+      const unchanged = await broker.attachments.replaceFile(
+        {
+          operationId: "linked-replace-unchanged",
+          attachmentRef: {
+            libraryId: attachment.libraryID,
+            key: attachment.key,
+          },
+          source: { kind: "linked_file", path: newPath },
+        },
+        scope,
+      );
+      assert.strictEqual(unchanged.outcome, "unchanged");
+      assert.strictEqual((unchanged.result as any).outcome, "unchanged");
+
+      const mismatch = await broker.attachments.replaceFile(
+        {
+          operationId: "linked-replace-mismatch",
+          attachmentRef: {
+            libraryId: attachment.libraryID,
+            key: attachment.key,
+          },
+          source: {
+            kind: "stored_file",
+            main: { source: { kind: "local_path", path: newPath } },
+          },
+        },
+        scope,
+      );
+      assert.strictEqual(mismatch.outcome, "failed");
+      assert.strictEqual(mismatch.attempt.error.code, "invalid_request");
+      assert.strictEqual(await attachment.getFilePathAsync?.(), newPath);
+    } finally {
+      await removeRuntimePath(root);
+    }
+  });
+
+  it("preserves typed attachment replacement failure outcomes and residual refs", async function () {
+    const attachment = new Zotero.Item("attachment") as Zotero.Item & {
+      attachmentLinkMode: number;
+      getAttachmentLinkMode: () => number;
+    };
+    attachment.attachmentLinkMode = 0;
+    attachment.getAttachmentLinkMode = () => 0;
+    attachment.setFilePath("/managed/original.pdf");
+    await attachment.saveTx();
+    const ref = { libraryId: attachment.libraryID, key: attachment.key };
+    const broker = createZoteroHostCapabilityBroker({
+      async replaceFile() {
+        throw new MutationAuthorityExecutionError(
+          "repair_required",
+          "execution_failed",
+          "compensation",
+          "manual_repair",
+          {
+            phase: "cleanup",
+            recovery: "manual_repair",
+            affectedCount: 1,
+            residualCount: 1,
+          },
+          "old managed content remains",
+          [{ kind: "item", ref }],
+          [{ kind: "item", ref }],
+        );
+      },
+    });
+    const result = await broker.attachments.replaceFile(
+      {
+        operationId: "stored-replace-repair",
+        attachmentRef: ref,
+        source: {
+          kind: "stored_file",
+          main: {
+            source: { kind: "local_path", path: "/source/replacement.pdf" },
+          },
+        },
+      },
+      { ownerId: "stored-replace-repair-owner" },
+    );
+    assert.strictEqual(result.outcome, "repair_required");
+    assert.lengthOf(result.attempt.residualRefs, 1);
+    assert.strictEqual(result.attempt.error.details.residualCount, 1);
   });
 
   it("rejects attachment metadata, move, and removal writes for note-owned roles", async function () {
@@ -2403,9 +3277,13 @@ describe("zotero host broker capability api", function () {
       {
         operationId: "canonical-read-payload",
         noteRef: { libraryId: note.libraryID, key: note.key },
-        payloadType: "canonical-json",
-        noteKind: "test",
-        payload: { schema: "canonical.v1", value: 7 },
+        payload: {
+          payloadType: "canonical-json",
+          noteKind: "test",
+          schemaVersion: "canonical.v1",
+          format: "json",
+          value: { schema: "canonical.v1", value: 7 },
+        },
       },
       { ownerId: "canonical-read-test" },
     );

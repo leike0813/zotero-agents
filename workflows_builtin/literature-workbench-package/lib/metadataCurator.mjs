@@ -300,8 +300,9 @@ export function normalizeMetadataFields(source) {
   if (!isObject(source)) {
     return fields;
   }
+  const values = isObject(source.fields) ? source.fields : source;
   for (const field of FIELD_ALLOWLIST) {
-    const value = source[field];
+    const value = values[field];
     if (
       typeof value === "string" ||
       typeof value === "number" ||
@@ -326,6 +327,19 @@ export function normalizeCreators(value) {
       continue;
     }
     const creatorType = normalizeString(entry.creatorType) || "author";
+    if (entry.representation === "single_field") {
+      const name = normalizeString(entry.name);
+      if (name) creators.push({ name, creatorType });
+      continue;
+    }
+    if (entry.representation === "two_field") {
+      const firstName = normalizeString(entry.firstName);
+      const lastName = normalizeString(entry.lastName);
+      if (firstName || lastName) {
+        creators.push({ firstName, lastName, creatorType });
+      }
+      continue;
+    }
     const name = normalizeString(entry.name);
     if (name) {
       creators.push({ name, creatorType });

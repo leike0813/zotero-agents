@@ -324,7 +324,7 @@ export async function createConversationNote(args) {
   const note = requireCommittedMutation(
     await requireHostApi(args.runtime).notes.create({
       operationId: `conversation-note:${Date.now().toString(36)}`,
-      parentRef: portableItemRef(args.parentItem),
+      placement: { kind: "child", parentRef: portableItemRef(args.parentItem) },
       content: { format: "html", value: buildConversationNoteContent(args) },
     }),
   ).note;
