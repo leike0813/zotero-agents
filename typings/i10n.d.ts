@@ -1333,6 +1333,7 @@ export type FluentMessageId =
   | 'synthesis-sidecar-degraded'
   | 'synthesis-sidecar-error'
   | 'synthesis-sidecar-instance'
+  | 'synthesis-sidecar-manual-recovery'
   | 'synthesis-sidecar-next-recovery'
   | 'synthesis-sidecar-offline'
   | 'synthesis-sidecar-ready'
