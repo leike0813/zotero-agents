@@ -1085,6 +1085,7 @@ synthesis-sidecar-recovering = Sidecar 복구 중
 synthesis-sidecar-degraded = Sidecar 성능 저하
 synthesis-sidecar-error = Sidecar 사용 불가
 synthesis-sidecar-offline = Sidecar 오프라인
+synthesis-sidecar-manual-recovery = 기존 Synthesis 데이터를 교체하기 전에 자동 시작이 중지되었습니다. 진단을 확인하고 호환성 문제를 해결한 뒤 다시 시도하세요.
 synthesis-sidecar-state = 상태
 synthesis-sidecar-version = 버전
 synthesis-sidecar-instance = 인스턴스

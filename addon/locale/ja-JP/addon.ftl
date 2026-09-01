@@ -1023,6 +1023,7 @@ synthesis-sidecar-recovering = Sidecar 復旧中
 synthesis-sidecar-degraded = Sidecar 縮退
 synthesis-sidecar-error = Sidecar 利用不可
 synthesis-sidecar-offline = Sidecar オフライン
+synthesis-sidecar-manual-recovery = 既存の Synthesis データを置き換える前に自動起動を停止しました。診断を確認し、互換性の問題を修正してから再試行してください。
 synthesis-sidecar-state = 状態
 synthesis-sidecar-version = バージョン
 synthesis-sidecar-instance = インスタンス

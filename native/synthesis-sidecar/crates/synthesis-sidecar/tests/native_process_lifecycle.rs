@@ -15,6 +15,10 @@ use synthesis_canonical_store::{
 };
 use synthesis_protocol::{canonical_json, canonical_sha256};
 use synthesis_repository::{DurableImportApply, DurableTopicBasis, Repository, RepositoryIdentity};
+#[cfg(feature = "test-support")]
+use synthesis_repository::{
+    create_legacy_test_database, insert_legacy_test_topic_graph_rows, read_test_topic_graph_rows,
+};
 use synthesis_sidecar::{ServePhase, serve};
 use synthesis_test_support::TestRoot;
 
@@ -282,6 +286,95 @@ fn prepare_import_crash_window(
     canonical.close().expect("close canonical store");
 }
 
+#[cfg(feature = "test-support")]
+fn prepare_legacy_startup_fixture(root: &Path, materialized_definition_status: &str) {
+    let database_path = root.join("state/synthesis.db");
+    fs::create_dir_all(database_path.parent().expect("state parent")).expect("state root");
+    create_legacy_test_database(&database_path).expect("legacy database");
+    insert_legacy_test_topic_graph_rows(
+        &database_path,
+        &[
+            (
+                "topic:materialized",
+                "materialized",
+                materialized_definition_status,
+            ),
+            ("topic:planned", "placeholder", "placeholder"),
+            ("topic:stale", "placeholder", "stale"),
+            ("topic:deleted-materialized", "materialized", "deleted"),
+            ("topic:deleted-placeholder", "placeholder", "deleted"),
+        ],
+    )
+    .expect("legacy graph rows");
+
+    let prepared = prepare_topic(CanonicalTopicDraft {
+        topic_id: "topic:materialized".into(),
+        manifest: json!({
+            "schema":"topic.manifest.v1",
+            "sections":{"summary":{"path":"summary.json"}},
+            "topic_id":"topic:materialized",
+        }),
+        artifact: json!({"schema":"topic.artifact.v1","title":"Materialized"}),
+        metadata: json!({
+            "data":{
+                "topic_id":"topic:materialized",
+                "updated_at":"2026-08-15T00:00:00.000Z",
+                "bundle_hash":"legacy-bundle",
+            }
+        }),
+        sections: BTreeMap::from([("summary".into(), json!({"text":"ready"}))]),
+        markdown: BTreeMap::from([("synthesis.md".into(), "# Materialized\n".into())]),
+    })
+    .expect("prepare canonical topic");
+    let canonical_root = root.join("data/synthesis");
+    let mut canonical =
+        CanonicalStore::initialize_production(&canonical_root, canonical_identity())
+            .expect("initialize canonical");
+    let receipt_id = "receipt:legacy-fixture";
+    let source_hash = "a".repeat(64);
+    canonical
+        .stage_prepared_import_batch(
+            receipt_id.into(),
+            source_hash.clone(),
+            vec![prepared.for_promotion(None)],
+        )
+        .expect("stage canonical topic");
+    canonical
+        .commit_import_batch(receipt_id, &source_hash)
+        .expect("commit canonical topic");
+    canonical.close().expect("close canonical");
+    fs::remove_file(canonical_root.join("identity.json")).expect("remove canonical identity");
+
+    let sidecar_root = canonical_root.join("sidecar");
+    fs::create_dir_all(&sidecar_root).expect("legacy sidecar root");
+    let write_source = |name: &str, field: &str, value: Value| {
+        let mut topics = serde_json::Map::new();
+        topics.insert("topic:materialized".into(), value);
+        let mut data = serde_json::Map::new();
+        data.insert(field.into(), Value::Object(topics));
+        fs::write(
+            sidecar_root.join(name),
+            serde_json::to_vec_pretty(&json!({"data":data})).expect("legacy source json"),
+        )
+        .expect("write legacy source");
+    };
+    write_source(
+        "topic-definitions.json",
+        "topics",
+        json!({"id":"topic:materialized","title":"Materialized","definition":"definition"}),
+    );
+    write_source(
+        "resolvers.json",
+        "resolvers",
+        json!({"tag":"topic:materialized"}),
+    );
+    write_source(
+        "resolved-paper-sets.json",
+        "paper_sets",
+        json!({"papers":[]}),
+    );
+}
+
 fn run_until_ready_then_shutdown(config_path: &Path, discovery_path: &Path, lifecycle_token: &str) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_synthesis-sidecar"))
         .arg("serve")
@@ -403,6 +496,99 @@ fn partial_startup_failure_releases_ownership_without_publishing_ready() {
 
     drop(reverse_host);
     fs::remove_dir_all(root).expect("remove partial startup root");
+}
+
+#[test]
+#[cfg(feature = "test-support")]
+fn legacy_graph_only_topics_do_not_block_native_startup() {
+    let root = test_root("legacy-graph-only-startup");
+    let reverse_host = ReverseHost::start();
+    prepare_legacy_startup_fixture(&root, "has_synthesis");
+    CanonicalStore::preflight_legacy_production(
+        &root.join("data/synthesis"),
+        &std::collections::BTreeSet::from(["topic:materialized".to_owned()]),
+        &std::collections::BTreeSet::from([
+            "topic:deleted-materialized".to_owned(),
+            "topic:deleted-placeholder".to_owned(),
+            "topic:planned".to_owned(),
+            "topic:stale".to_owned(),
+        ]),
+    )
+    .expect("valid legacy canonical fixture");
+    let source_path = root.join("data/synthesis/sidecar/topic-definitions.json");
+    let source_before = fs::read(&source_path).expect("legacy source before");
+    let (config_path, discovery_path, lifecycle_token) =
+        write_launch_config(&root, reverse_host.port);
+
+    run_until_ready_then_shutdown(&config_path, &discovery_path, &lifecycle_token);
+
+    let repository = Repository::open_production(
+        &root.join("state/synthesis.db"),
+        repository_identity(),
+        "2026-08-15T00:01:00.000Z",
+    )
+    .expect("reopen migrated repository");
+    repository.close().expect("close migrated repository");
+    let topic_ids = read_test_topic_graph_rows(&root.join("state/synthesis.db"))
+        .expect("read migrated graph rows")
+        .into_iter()
+        .map(|(topic_id, _, _)| topic_id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        topic_ids,
+        vec![
+            "topic:deleted-materialized",
+            "topic:deleted-placeholder",
+            "topic:materialized",
+            "topic:planned",
+            "topic:stale",
+        ]
+    );
+    assert_eq!(
+        fs::read_dir(root.join("state/synthesis-migration-backups"))
+            .expect("migration backup root")
+            .count(),
+        1
+    );
+    assert_eq!(
+        fs::read(source_path).expect("legacy source after"),
+        source_before
+    );
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove legacy startup root");
+}
+
+#[test]
+#[cfg(feature = "test-support")]
+fn invalid_legacy_topic_state_fails_before_migration_and_releases_ownership() {
+    let root = test_root("invalid-legacy-topic-state");
+    let reverse_host = ReverseHost::start();
+    prepare_legacy_startup_fixture(&root, "stale");
+    let database_path = root.join("state/synthesis.db");
+    let database_before = fs::read(&database_path).expect("database before");
+    let source_path = root.join("data/synthesis/sidecar/topic-definitions.json");
+    let source_before = fs::read(&source_path).expect("canonical source before");
+    let (config_path, discovery_path, _) = write_launch_config(&root, reverse_host.port);
+
+    let first = serve(&config_path).expect_err("invalid graph state must fail");
+    let second = serve(&config_path).expect_err("released ownership must permit retry");
+
+    assert_eq!(first.phase(), ServePhase::Startup);
+    assert_eq!(first.code(), "repository_legacy_topic_graph_state_invalid");
+    assert_eq!(second.code(), first.code());
+    assert!(!discovery_path.exists());
+    assert_eq!(
+        fs::read(database_path).expect("database after"),
+        database_before
+    );
+    assert_eq!(
+        fs::read(source_path).expect("canonical source after"),
+        source_before
+    );
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove invalid legacy root");
 }
 
 #[test]

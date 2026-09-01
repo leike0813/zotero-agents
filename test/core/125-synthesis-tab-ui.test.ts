@@ -8,6 +8,7 @@ import {
   getSynthesisUiOperationKey,
   normalizeSynthesisUiSnapshot,
 } from "../../src/modules/synthesis/uiModel";
+import { projectSynthesisSidecarFailureCard } from "../../src/synthesisWorkbenchI18n";
 import {
   isSynthesisLibraryReadModelInvalidationEvent,
   isSynthesisLiteratureScoreInvalidationEvent,
@@ -35,6 +36,21 @@ import {
 } from "../../src/shared/synthesisCitationGraphWindow";
 
 describe("Synthesis tab UI model", function () {
+  it("presents manual sidecar recovery with preserved data guidance and actions", function () {
+    assert.deepEqual(
+      projectSynthesisSidecarFailureCard({
+        lifecycle: "unavailable",
+        recoveryState: "manual-recovery-required",
+        reasonCode: "repository_legacy_topic_graph_state_invalid",
+      }),
+      {
+        messageKey: "synthesis-sidecar-manual-recovery",
+        reasonCode: "repository_legacy_topic_graph_state_invalid",
+        actions: ["retrySynthesisSidecar", "openSynthesisSidecarDiagnostics"],
+      },
+    );
+  });
+
   async function readPngSize(filePath: string) {
     const bytes = await fs.readFile(filePath);
     return {

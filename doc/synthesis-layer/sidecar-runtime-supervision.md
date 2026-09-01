@@ -118,6 +118,16 @@ without changing the source, canonical tree, or backup directory. Candidate
 construction and validation remain private; publication is atomic and a
 failed candidate can be rebuilt on the next explicit recovery attempt.
 
+Topic classification is also read-only and closed. Only
+`materialized/has_synthesis` rows require a complete canonical projection;
+`placeholder/placeholder`, `placeholder/stale`, and materialized or placeholder
+`deleted` rows are preserved as graph-only facts. Canonical metadata for those
+known graph-only identities may be incomplete or absent. Any other Topic state,
+or canonical metadata for an identity absent from both inventories, fails before
+backup or candidate construction with a stable reason code. Workbench then
+shows manual-recovery guidance, diagnostics, and retry without claiming that
+legacy data was replaced.
+
 ## Recovery
 
 Unexpected process exit uses bounded in-session restart delays. Every launch

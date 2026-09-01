@@ -31,6 +31,8 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-sidecar-degraded": "Sidecar degraded",
   "synthesis-sidecar-error": "Sidecar unavailable",
   "synthesis-sidecar-offline": "Sidecar offline",
+  "synthesis-sidecar-manual-recovery":
+    "Automatic startup stopped before replacing existing Synthesis data. Review diagnostics, correct the compatibility issue, then retry.",
   "synthesis-sidecar-state": "State",
   "synthesis-sidecar-version": "Version",
   "synthesis-sidecar-instance": "Instance",
@@ -846,6 +848,24 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-operation-deleteTopicArtifact": "Deleting topic artifact",
   "synthesis-operation-purgeDeletedTopicArtifacts": "Purging deleted artifacts",
 } as const;
+
+export function projectSynthesisSidecarFailureCard(status: {
+  lifecycle: string;
+  recoveryState: string;
+  reasonCode?: string;
+}) {
+  return {
+    messageKey:
+      status.recoveryState === "manual-recovery-required"
+        ? ("synthesis-sidecar-manual-recovery" as const)
+        : undefined,
+    reasonCode: status.reasonCode,
+    actions: [
+      "retrySynthesisSidecar",
+      "openSynthesisSidecarDiagnostics",
+    ] as const,
+  };
+}
 
 export type SynthesisWorkbenchMessageKey =
   keyof typeof SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES;

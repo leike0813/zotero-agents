@@ -1085,6 +1085,7 @@ synthesis-sidecar-recovering = Sidecar em recuperação
 synthesis-sidecar-degraded = Sidecar degradado
 synthesis-sidecar-error = Sidecar indisponível
 synthesis-sidecar-offline = Sidecar offline
+synthesis-sidecar-manual-recovery = A inicialização automática foi interrompida antes de substituir os dados existentes do Synthesis. Revise o diagnóstico, corrija o problema de compatibilidade e tente novamente.
 synthesis-sidecar-state = Estado
 synthesis-sidecar-version = Versão
 synthesis-sidecar-instance = Instância

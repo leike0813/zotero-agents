@@ -717,8 +717,16 @@ pub fn prepare_production_schema(database_path: &Path, backup_root: &Path) -> Re
     prepare_production_schema_with_legacy_topics(database_path, backup_root, &[])
 }
 
-pub fn legacy_production_topic_ids(database_path: &Path) -> Result<Option<Vec<String>>, String> {
-    legacy_ts_migration::legacy_topic_ids(database_path)
+pub use legacy_ts_migration::LegacyProductionTopicInventory;
+#[cfg(any(test, feature = "test-support"))]
+pub use legacy_ts_migration::{
+    create_legacy_test_database, insert_legacy_test_topic_graph_rows, read_test_topic_graph_rows,
+};
+
+pub fn legacy_production_topic_inventory(
+    database_path: &Path,
+) -> Result<Option<LegacyProductionTopicInventory>, String> {
+    legacy_ts_migration::legacy_topic_inventory(database_path)
 }
 
 pub fn prepare_production_schema_with_legacy_topics(

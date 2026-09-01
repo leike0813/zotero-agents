@@ -31,6 +31,7 @@ import {
 import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
   formatSynthesisWorkbenchMessage,
+  projectSynthesisSidecarFailureCard,
   type SynthesisWorkbenchI18nEnvelope,
   type SynthesisWorkbenchMessageKey,
 } from "./synthesisWorkbenchI18n";
@@ -2297,6 +2298,7 @@ function renderWorkbenchMain(main: HTMLElement, snapshot: Snapshot) {
       (sidecarStatus.lifecycle === "unavailable" &&
         sidecarStatus.recoveryState !== "scheduled"));
   if (sidecarFailure) {
+    const failure = projectSynthesisSidecarFailureCard(sidecarStatus);
     const card = el("aside", "sidecar-failure-card");
     const copy = el("div", "sidecar-failure-copy");
     copy.appendChild(el("strong", "", t("synthesis-sidecar-error")));
@@ -2304,21 +2306,31 @@ function renderWorkbenchMain(main: HTMLElement, snapshot: Snapshot) {
       el(
         "div",
         "muted",
-        sidecarStatus.reasonCode || t("synthesis-sidecar-offline"),
+        failure.messageKey
+          ? t(failure.messageKey)
+          : failure.reasonCode || t("synthesis-sidecar-offline"),
       ),
     );
+    if (failure.messageKey && failure.reasonCode) {
+      copy.appendChild(
+        el("code", "sidecar-failure-reason", failure.reasonCode),
+      );
+    }
     card.appendChild(copy);
     const actions = el("div", "sidecar-failure-actions");
-    actions.appendChild(
-      makeButton(t("synthesis-action-retry"), "retrySynthesisSidecar", {}),
-    );
-    actions.appendChild(
-      makeButton(
-        t("synthesis-diagnostics"),
-        "openSynthesisSidecarDiagnostics",
-        {},
-      ),
-    );
+    failure.actions.forEach((action) => {
+      actions.appendChild(
+        makeButton(
+          t(
+            action === "retrySynthesisSidecar"
+              ? "synthesis-action-retry"
+              : "synthesis-diagnostics",
+          ),
+          action,
+          {},
+        ),
+      );
+    });
     card.appendChild(actions);
     main.appendChild(card);
   }

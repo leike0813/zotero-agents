@@ -1085,6 +1085,7 @@ synthesis-sidecar-recovering = Sidecar 復原中
 synthesis-sidecar-degraded = Sidecar 已降級
 synthesis-sidecar-error = Sidecar 無法使用
 synthesis-sidecar-offline = Sidecar 離線
+synthesis-sidecar-manual-recovery = 自動啟動已在取代現有 Synthesis 資料前停止。請查看診斷資訊，修正相容性問題後再試。
 synthesis-sidecar-state = 狀態
 synthesis-sidecar-version = 版本
 synthesis-sidecar-instance = 執行個體

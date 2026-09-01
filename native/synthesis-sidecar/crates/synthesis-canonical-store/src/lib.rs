@@ -1092,7 +1092,11 @@ fn collect_markdown(
 }
 
 impl CanonicalStore {
-    pub fn preflight_legacy_production(root: &Path) -> Result<Vec<LegacyCanonicalTopic>, String> {
+    pub fn preflight_legacy_production(
+        root: &Path,
+        canonical_topic_ids: &BTreeSet<String>,
+        graph_only_topic_ids: &BTreeSet<String>,
+    ) -> Result<Vec<LegacyCanonicalTopic>, String> {
         if !root.is_absolute()
             || root.file_name().and_then(|value| value.to_str()) != Some("synthesis")
         {
@@ -1110,25 +1114,32 @@ impl CanonicalStore {
         let resolvers = legacy_topic_map(&root.join("sidecar/resolvers.json"), "resolvers")?;
         let paper_sets =
             legacy_topic_map(&root.join("sidecar/resolved-paper-sets.json"), "paper_sets")?;
-        let topic_ids = definitions.keys().cloned().collect::<BTreeSet<_>>();
-        if topic_ids.is_empty()
-            || resolvers.keys().cloned().collect::<BTreeSet<_>>() != topic_ids
-            || paper_sets.keys().cloned().collect::<BTreeSet<_>>() != topic_ids
+        if !canonical_topic_ids.is_disjoint(graph_only_topic_ids) {
+            return Err("canonical_legacy_topic_sources_mismatch".into());
+        }
+        let known_topic_ids = canonical_topic_ids
+            .union(graph_only_topic_ids)
+            .collect::<BTreeSet<_>>();
+        if definitions
+            .keys()
+            .chain(resolvers.keys())
+            .chain(paper_sets.keys())
+            .any(|topic_id| !known_topic_ids.contains(topic_id))
         {
             return Err("canonical_legacy_topic_sources_mismatch".into());
         }
-        topic_ids
-            .into_iter()
+        canonical_topic_ids
+            .iter()
             .map(|topic_id| {
                 let definition = definitions
-                    .get(&topic_id)
+                    .get(topic_id)
                     .cloned()
                     .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?;
                 if definition.get("id").and_then(Value::as_str) != Some(topic_id.as_str()) {
                     return Err("canonical_legacy_topic_sources_mismatch".into());
                 }
-                let snapshot = read_topic_snapshot(root, &topic_id)?;
-                if snapshot.topic_id != topic_id
+                let snapshot = read_topic_snapshot(root, topic_id)?;
+                if snapshot.topic_id.as_str() != topic_id
                     || snapshot.manifest.get("topic_id").and_then(Value::as_str)
                         != Some(topic_id.as_str())
                 {
@@ -1136,8 +1147,14 @@ impl CanonicalStore {
                 }
                 Ok(LegacyCanonicalTopic {
                     topic_definition: definition,
-                    topic_resolver: resolvers[&topic_id].clone(),
-                    resolved_paper_set: paper_sets[&topic_id].clone(),
+                    topic_resolver: resolvers
+                        .get(topic_id)
+                        .cloned()
+                        .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?,
+                    resolved_paper_set: paper_sets
+                        .get(topic_id)
+                        .cloned()
+                        .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?,
                     snapshot: canonical_topic_view(&snapshot)?,
                 })
             })
@@ -2346,9 +2363,11 @@ mod tests {
 
         let sidecar = production_root.join("sidecar");
         fs::create_dir_all(&sidecar).expect("sidecar");
-        let write_legacy = |name: &str, field: &str, value: Value| {
+        let write_legacy = |name: &str, field: &str, values: Vec<(&str, Value)>| {
             let mut keyed = serde_json::Map::new();
-            keyed.insert("topic:r7".into(), value);
+            for (topic_id, value) in values {
+                keyed.insert(topic_id.into(), value);
+            }
             let mut data = serde_json::Map::new();
             data.insert(field.into(), Value::Object(keyed));
             fs::write(
@@ -2363,22 +2382,51 @@ mod tests {
         write_legacy(
             "topic-definitions.json",
             "topics",
-            json!({"id":"topic:r7","title":"R7","definition":"definition"}),
+            vec![
+                (
+                    "topic:r7",
+                    json!({"id":"topic:r7","title":"R7","definition":"definition"}),
+                ),
+                (
+                    "topic:planned",
+                    json!({"id":"topic:planned","title":"Planned"}),
+                ),
+            ],
         );
-        write_legacy("resolvers.json", "resolvers", json!({"tag":"topic:r7"}));
+        write_legacy(
+            "resolvers.json",
+            "resolvers",
+            vec![
+                ("topic:r7", json!({"tag":"topic:r7"})),
+                ("topic:deleted", json!({"tag":"topic:deleted"})),
+            ],
+        );
         write_legacy(
             "resolved-paper-sets.json",
             "paper_sets",
-            json!({"papers":[]}),
+            vec![("topic:r7", json!({"papers":[]}))],
         );
+        let canonical_topic_ids = BTreeSet::from(["topic:r7".to_owned()]);
+        let graph_only_topic_ids =
+            BTreeSet::from(["topic:deleted".to_owned(), "topic:planned".to_owned()]);
         let metadata_before = fs::read(current.join("metadata.json")).expect("metadata before");
-        let topics = CanonicalStore::preflight_legacy_production(&production_root)
-            .expect("legacy preflight");
+        let definitions_before =
+            fs::read(sidecar.join("topic-definitions.json")).expect("definitions before");
+        let topics = CanonicalStore::preflight_legacy_production(
+            &production_root,
+            &canonical_topic_ids,
+            &graph_only_topic_ids,
+        )
+        .expect("legacy preflight");
         assert_eq!(topics.len(), 1);
         assert_eq!(topics[0].topic_resolver, json!({"tag":"topic:r7"}));
         assert_eq!(
             fs::read(current.join("metadata.json")).expect("metadata after"),
             metadata_before
+        );
+        assert_eq!(
+            fs::read(sidecar.join("topic-definitions.json")).expect("definitions after"),
+            definitions_before
         );
 
         let conflict = fs::read_to_string(sidecar.join("resolved-paper-sets.json"))
@@ -2386,7 +2434,12 @@ mod tests {
             .replace("topic:r7", "topic:other");
         fs::write(sidecar.join("resolved-paper-sets.json"), conflict).expect("write conflict");
         assert_eq!(
-            CanonicalStore::preflight_legacy_production(&production_root).unwrap_err(),
+            CanonicalStore::preflight_legacy_production(
+                &production_root,
+                &canonical_topic_ids,
+                &graph_only_topic_ids,
+            )
+            .unwrap_err(),
             "canonical_legacy_topic_sources_mismatch"
         );
         fs::remove_dir_all(parent).expect("cleanup");

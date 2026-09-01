@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use synthesis_application::{RepositoryPort, project_legacy_canonical_topic};
 use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
 use synthesis_repository::{
-    Repository, RepositoryIdentity, legacy_production_topic_ids,
+    Repository, RepositoryIdentity, legacy_production_topic_inventory,
     prepare_production_schema_with_legacy_topics,
 };
 
@@ -222,27 +222,32 @@ impl RunningRuntime {
                 .parent()
                 .ok_or_else(|| "repository_production_path_invalid".to_owned())?
                 .join("synthesis-migration-backups");
-            let legacy_topics = startup_step("source-classify", || {
-                match legacy_production_topic_ids(&config.repository_db_path)? {
-                    Some(database_topic_ids) => {
-                        let topics =
-                            CanonicalStore::preflight_legacy_production(&config.canonical_root)?;
-                        let projected = topics
-                            .iter()
-                            .map(project_legacy_canonical_topic)
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let projected_topic_ids = projected
-                            .iter()
-                            .map(|(state, _)| state.topic_id.clone())
-                            .collect::<Vec<_>>();
-                        if database_topic_ids != projected_topic_ids {
-                            return Err("canonical_legacy_topic_sources_mismatch".into());
+            let legacy_topics =
+                startup_step(
+                    "source-classify",
+                    || match legacy_production_topic_inventory(&config.repository_db_path)? {
+                        Some(inventory) => {
+                            let topics = CanonicalStore::preflight_legacy_production(
+                                &config.canonical_root,
+                                &inventory.canonical_topic_ids,
+                                &inventory.graph_only_topic_ids,
+                            )?;
+                            let projected = topics
+                                .iter()
+                                .map(project_legacy_canonical_topic)
+                                .collect::<Result<Vec<_>, _>>()?;
+                            let projected_topic_ids = projected
+                                .iter()
+                                .map(|(state, _)| state.topic_id.clone())
+                                .collect::<std::collections::BTreeSet<_>>();
+                            if inventory.canonical_topic_ids != projected_topic_ids {
+                                return Err("canonical_legacy_topic_sources_mismatch".into());
+                            }
+                            Ok(projected)
                         }
-                        Ok(projected)
-                    }
-                    None => Ok(Vec::new()),
-                }
-            })?;
+                        None => Ok(Vec::new()),
+                    },
+                )?;
             startup_step("repository-migrate", || {
                 prepare_production_schema_with_legacy_topics(
                     &config.repository_db_path,

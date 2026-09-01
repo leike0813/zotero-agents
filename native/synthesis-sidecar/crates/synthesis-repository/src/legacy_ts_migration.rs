@@ -801,24 +801,58 @@ pub(crate) fn migrate_if_known_legacy_ts(
     result.map(|_| true)
 }
 
-pub(crate) fn legacy_topic_ids(database_path: &Path) -> Result<Option<Vec<String>>, String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LegacyProductionTopicInventory {
+    pub canonical_topic_ids: BTreeSet<String>,
+    pub graph_only_topic_ids: BTreeSet<String>,
+}
+
+pub(crate) fn legacy_topic_inventory(
+    database_path: &Path,
+) -> Result<Option<LegacyProductionTopicInventory>, String> {
     let connection = open_production_database_read_only(database_path)?;
     if classify_legacy_ts_schema(&connection)?.is_none() {
         return Ok(None);
     }
     let mut statement = connection
-        .prepare("SELECT topic_id FROM synt_topic_graph_node ORDER BY topic_id")
+        .prepare(
+            "SELECT topic_id,node_type,definition_status
+               FROM synt_topic_graph_node
+              ORDER BY topic_id",
+        )
         .map_err(map_sqlite_error)?;
-    let values = statement
-        .query_map([], |row| row.get(0))
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .map_err(map_sqlite_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(map_sqlite_error)?;
-    Ok(Some(values))
+    let mut inventory = LegacyProductionTopicInventory {
+        canonical_topic_ids: BTreeSet::new(),
+        graph_only_topic_ids: BTreeSet::new(),
+    };
+    for (topic_id, node_type, definition_status) in rows {
+        match (node_type.as_str(), definition_status.as_str()) {
+            ("materialized", "has_synthesis") => {
+                inventory.canonical_topic_ids.insert(topic_id);
+            }
+            ("placeholder", "placeholder" | "stale")
+            | ("materialized" | "placeholder", "deleted") => {
+                inventory.graph_only_topic_ids.insert(topic_id);
+            }
+            _ => return Err("repository_legacy_topic_graph_state_invalid".into()),
+        }
+    }
+    Ok(Some(inventory))
 }
 
-#[cfg(test)]
-pub(crate) fn create_legacy_test_database(database_path: &Path) -> Result<(), String> {
+#[cfg(any(test, feature = "test-support"))]
+pub fn create_legacy_test_database(database_path: &Path) -> Result<(), String> {
     let connection = Connection::open(database_path).map_err(map_sqlite_error)?;
     for (table, columns) in LEGACY_TABLES {
         if *table == "synt_schema_meta" {
@@ -843,4 +877,117 @@ pub(crate) fn create_legacy_test_database(database_path: &Path) -> Result<(), St
         )
         .map_err(map_sqlite_error)?;
     Ok(())
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub fn insert_legacy_test_topic_graph_rows(
+    database_path: &Path,
+    rows: &[(&str, &str, &str)],
+) -> Result<(), String> {
+    let mut connection = Connection::open(database_path).map_err(map_sqlite_error)?;
+    let transaction = connection.transaction().map_err(map_sqlite_error)?;
+    {
+        let mut statement = transaction
+            .prepare(
+                "INSERT INTO synt_topic_graph_node(
+                   topic_id,title,definition,aliases_json,node_type,definition_status,
+                   current_artifact_path,is_root,level,paper_count,last_synthesis_at,
+                   created_at,updated_at
+                 ) VALUES (?1,?2,'','[]',?3,?4,'',0,'',0,'',?5,?5)",
+            )
+            .map_err(map_sqlite_error)?;
+        for (topic_id, node_type, definition_status) in rows {
+            statement
+                .execute(rusqlite::params![
+                    topic_id,
+                    topic_id,
+                    node_type,
+                    definition_status,
+                    "2026-08-15T00:00:00.000Z",
+                ])
+                .map_err(map_sqlite_error)?;
+        }
+    }
+    transaction.commit().map_err(map_sqlite_error)
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub fn read_test_topic_graph_rows(
+    database_path: &Path,
+) -> Result<Vec<(String, String, String)>, String> {
+    let connection = open_existing_database_read_only(database_path)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT topic_id,node_type,definition_status
+               FROM synt_topic_graph_node
+              ORDER BY topic_id",
+        )
+        .map_err(map_sqlite_error)?;
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(map_sqlite_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_sqlite_error)
+}
+
+#[cfg(test)]
+#[test]
+fn legacy_topic_inventory_classifies_supported_graph_states() {
+    let root = synthesis_test_support::TestRoot::new("legacy-topic-inventory");
+    let database_path = root.join("synthesis.db");
+    create_legacy_test_database(&database_path).expect("create legacy database");
+    insert_legacy_test_topic_graph_rows(
+        &database_path,
+        &[
+            ("topic:materialized", "materialized", "has_synthesis"),
+            ("topic:planned", "placeholder", "placeholder"),
+            ("topic:stale", "placeholder", "stale"),
+            ("topic:deleted-materialized", "materialized", "deleted"),
+            ("topic:deleted-placeholder", "placeholder", "deleted"),
+        ],
+    )
+    .expect("insert graph nodes");
+
+    let inventory = legacy_topic_inventory(&database_path)
+        .expect("read topic inventory")
+        .expect("legacy inventory");
+    assert_eq!(
+        inventory.canonical_topic_ids,
+        BTreeSet::from(["topic:materialized".to_owned()])
+    );
+    assert_eq!(
+        inventory.graph_only_topic_ids,
+        BTreeSet::from([
+            "topic:deleted-materialized".to_owned(),
+            "topic:deleted-placeholder".to_owned(),
+            "topic:planned".to_owned(),
+            "topic:stale".to_owned(),
+        ])
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn legacy_topic_inventory_rejects_unknown_graph_states() {
+    for (node_type, definition_status) in [
+        ("materialized", "stale"),
+        ("materialized", "placeholder"),
+        ("placeholder", "has_synthesis"),
+        ("unknown", "deleted"),
+        ("materialized", "unknown"),
+    ] {
+        let root = synthesis_test_support::TestRoot::new("legacy-topic-invalid-state");
+        let database_path = root.join("synthesis.db");
+        create_legacy_test_database(&database_path).expect("create legacy database");
+        insert_legacy_test_topic_graph_rows(
+            &database_path,
+            &[("topic:invalid", node_type, definition_status)],
+        )
+        .expect("insert invalid graph node");
+
+        assert_eq!(
+            legacy_topic_inventory(&database_path).unwrap_err(),
+            "repository_legacy_topic_graph_state_invalid"
+        );
+    }
 }
