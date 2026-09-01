@@ -43,6 +43,7 @@ export type SynthesisSidecarRuntimeBuildRecipe = Readonly<{
     platform: SynthesisSidecarRuntimeTarget;
     target: string;
     binary: string;
+    rustFlags?: string;
     useZig: boolean;
     nativeSmoke: boolean;
   }>[];
@@ -84,6 +85,10 @@ export function readSynthesisSidecarRuntimeBuildRecipe(
         SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target.platform] ||
       !target.runner.trim() ||
       !target.binary.trim() ||
+      target.rustFlags !==
+        (target.platform === "win32-x64"
+          ? "-C target-feature=+crt-static"
+          : undefined) ||
       typeof target.useZig !== "boolean" ||
       typeof target.nativeSmoke !== "boolean" ||
       target.useZig !==

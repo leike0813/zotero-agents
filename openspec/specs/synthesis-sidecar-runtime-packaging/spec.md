@@ -17,6 +17,15 @@ provenance, protocol, capabilities, target triple, and platform signature.
 - **WHEN** installation verifies the selected target bundle
 - **THEN** verification fails before any executable is launched
 
+### Requirement: The Windows runtime SHALL be self-contained
+
+The `win32-x64` release executable SHALL statically link the MSVC C runtime and
+MUST NOT require a separately installed Visual C++ Redistributable.
+
+#### Scenario: The Windows runtime starts on a clean supported host
+- **WHEN** the verified executable is launched without a system-installed MSVC runtime
+- **THEN** it reaches the sidecar CLI entrypoint without a loader dependency failure
+
 ### Requirement: Installation SHALL expose one current runtime
 
 The installer SHALL materialize the verified packaged bundle at

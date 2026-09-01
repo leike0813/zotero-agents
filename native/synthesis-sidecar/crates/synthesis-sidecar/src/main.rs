@@ -1,3 +1,6 @@
+#[cfg(all(windows, not(debug_assertions), not(target_feature = "crt-static")))]
+compile_error!("Windows release builds of synthesis-sidecar must statically link the CRT");
+
 mod runtime_cli;
 
 use std::path::Path;

@@ -555,6 +555,15 @@ describe("Synthesis sidecar native runtime packaging", function () {
       useZig: false,
       nativeSmoke: true,
     });
+    assert.deepInclude(recipe.targets, {
+      runner: "windows-2025",
+      platform: "win32-x64",
+      target: "x86_64-pc-windows-msvc",
+      binary: "synthesis-sidecar.exe",
+      useZig: false,
+      nativeSmoke: true,
+      rustFlags: "-C target-feature=+crt-static",
+    });
 
     const invalidRecipeRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-native-recipe-"),
@@ -570,6 +579,20 @@ describe("Synthesis sidecar native runtime packaging", function () {
         ...recipe,
         targets: recipe.targets.map((target, index) =>
           index === 0 ? { ...target, target: "invalid-target" } : target,
+        ),
+      }),
+    );
+    assert.throws(() =>
+      readSynthesisSidecarRuntimeBuildRecipe({ root: invalidRecipeRoot }),
+    );
+    fs.writeFileSync(
+      invalidRecipePath,
+      JSON.stringify({
+        ...recipe,
+        targets: recipe.targets.map((target) =>
+          target.platform === "win32-x64"
+            ? { ...target, rustFlags: "" }
+            : target,
         ),
       }),
     );
@@ -597,6 +620,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
         prebuild?: {
           needs?: string;
           strategy?: { matrix?: { include?: string } };
+          steps?: Array<{ name?: string; env?: Record<string, string> }>;
         };
       };
     };
@@ -605,6 +629,12 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.equal(
       workflow.jobs?.prebuild?.strategy?.matrix?.include,
       "${{ fromJSON(needs.plan.outputs.build_matrix) }}",
+    );
+    assert.equal(
+      workflow.jobs?.prebuild?.steps?.find(
+        (step) => step.name === "Build and package target",
+      )?.env?.RUSTFLAGS,
+      "${{ matrix.rustFlags }}",
     );
     assert.include(
       workflowSource,

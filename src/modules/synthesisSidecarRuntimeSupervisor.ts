@@ -10,6 +10,7 @@ import {
   type SynthesisWorkbenchSidecarStatus,
 } from "../../packages/synthesis-contracts/src";
 import { sha256Hex } from "../platform/hash";
+import { readRuntimeEnv } from "../platform/env";
 import { joinPath } from "../utils/path";
 import { yieldToEventLoop } from "../utils/runtimeCompatibility";
 import { getMozillaSubprocessModule } from "../platform/subprocess";
@@ -205,9 +206,6 @@ async function hashText(value: string) {
 }
 
 function sealedEnvironment() {
-  const source =
-    (globalThis as { process?: { env?: Record<string, string | undefined> } })
-      .process?.env || {};
   const environment: Record<string, string> = {};
   for (const key of [
     "SystemRoot",
@@ -219,7 +217,7 @@ function sealedEnvironment() {
     "LC_ALL",
     "TZ",
   ]) {
-    const value = source[key];
+    const value = readRuntimeEnv(key);
     if (value) {
       environment[key] = value;
     }
@@ -638,6 +636,8 @@ export function createSynthesisProductionRuntimeSupervisor(
         arguments: ["serve", "--config", paths.configPath],
         workdir: paths.sessionRoot,
         environment: sealedEnvironment(),
+        environmentAppend: false,
+        stderr: "pipe",
       });
       current.proc = proc;
       void drainStream(current, proc.stdout, "stdout").catch(() => undefined);

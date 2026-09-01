@@ -306,7 +306,13 @@ describe("Synthesis production runtime supervisor", function () {
     fs.writeFileSync(legacyActivePath, "legacy-active\n");
     fs.writeFileSync(legacyVersionPath, "legacy-version\n");
 
-    const invocations: Array<{ arguments?: string[] }> = [];
+    type Invocation = {
+      arguments?: string[];
+      environment?: Record<string, string>;
+      environmentAppend?: boolean;
+      stderr?: "ignore" | "stdout" | "pipe";
+    };
+    const invocations: Invocation[] = [];
     const configs: LaunchConfig[] = [];
     const diagnosticEvents: Record<string, unknown>[] = [];
     let closeProcess = () => undefined;
@@ -332,7 +338,7 @@ describe("Synthesis production runtime supervisor", function () {
       },
       resolvedInstall: readyInstall(),
       subprocess: {
-        call: async (invocation: { arguments?: string[] }) => {
+        call: async (invocation: Invocation) => {
           invocations.push(invocation);
           const configPath = invocation.arguments?.[2] || "";
           const config = JSON.parse(
@@ -389,6 +395,10 @@ describe("Synthesis production runtime supervisor", function () {
       "serve",
       "--config",
     ]);
+    assert.equal(invocations[0]?.environmentAppend, false);
+    assert.equal(invocations[0]?.stderr, "pipe");
+    assert.notProperty(invocations[0]?.environment || {}, "PATH");
+    assert.notProperty(invocations[0]?.environment || {}, "NODE_OPTIONS");
     assert.equal(configs[0]?.schema, "synthesis-sidecar-launch-config.v4");
     assert.deepEqual(configs[0]?.startupTrace, startupTrace);
     assert.equal(configs[0]?.repositoryDbPath, repositoryDbPath);

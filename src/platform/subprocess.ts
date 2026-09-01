@@ -12,6 +12,7 @@ export type MozillaSubprocessModule = {
     arguments?: string[];
     environment?: Record<string, string>;
     environmentAppend?: boolean;
+    stderr?: "ignore" | "stdout" | "pipe";
     workdir?: string;
   }) => Promise<{
     stdin?: {
