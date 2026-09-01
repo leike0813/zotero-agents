@@ -1,13 +1,13 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "db37d9b18ac7fcf7745a1104587a4788acad214c871fea1104b7310be30fce91",
+  "bundleId": "c7f949dc3e4baacfcb3977d11ec771ec8509c0b30b2ee0676fde9150dae99751",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "linux-arm",
   "targetTriple": "armv7-unknown-linux-gnueabihf",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "13fbd6d1ae8fcfc0a951a4c6fc6d6a9fdafcbb5a3d5755372e0b94aee826ceb3",
+  "buildFingerprint": "86e2fdb31afc1e976e7e608dae831552ffb537683c85cf0338a6a1abcf3a519c",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
@@ -19,10 +19,10 @@
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-09-01T11:54:25.000Z",
+  "createdAt": "2026-09-01T16:45:00.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "14d0c3fe1f1756e4663dc5f214da53870aa0f4e2b1fb70ea22448e80f62a03bf",
+    "sourceFingerprint": "f4883c6d3efecb9640e0a6cb7872e0bf6e998e9653e9f13f9406fb43f0d3ebad",
     "toolchain": "nightly-2026-07-25",
     "cargoLockSha256": "5c891779150a6771ddb9eeca779411b50a43dd3ab7c8e669cd0ffc6e0745fa5f",
     "licenseInventory": "licenses.json"
@@ -43,13 +43,13 @@
     {
       "path": "provenance.json",
       "bytes": 387,
-      "sha256": "cdebff6285f87ab7cecede9c3f3344d9d9174fb5131d8a7e755d85addf7fb5a3",
+      "sha256": "e0314c74da6b871307747b5fc7addf945607edbb4757f1c777615a7b64fd3ea4",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 6911700,
-      "sha256": "b4b4de80394e075a29ff991c20d67f7a1860b715eb6f035b6463101112828ae3",
+      "bytes": 6909316,
+      "sha256": "9dd768b34388fafee4890746e377de1a7069a61c5bff80c7d03e806dec61d01d",
       "executable": true
     }
   ]
