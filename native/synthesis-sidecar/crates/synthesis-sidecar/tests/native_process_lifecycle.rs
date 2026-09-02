@@ -13,6 +13,8 @@ use synthesis_canonical_store::{
     CanonicalIdentity, CanonicalStore, CanonicalTopicDraft, PreparedCanonicalPromotion,
     prepare_topic,
 };
+#[cfg(feature = "test-support")]
+use synthesis_canonical_store::{CanonicalTopicState, canonical_topic_path_id};
 use synthesis_protocol::{canonical_json, canonical_sha256};
 use synthesis_repository::{DurableImportApply, DurableTopicBasis, Repository, RepositoryIdentity};
 #[cfg(feature = "test-support")]
@@ -288,6 +290,19 @@ fn prepare_import_crash_window(
 
 #[cfg(feature = "test-support")]
 fn prepare_legacy_startup_fixture(root: &Path, materialized_definition_status: &str) {
+    prepare_legacy_startup_fixture_for_topic(
+        root,
+        materialized_definition_status,
+        "topic:materialized",
+    );
+}
+
+#[cfg(feature = "test-support")]
+fn prepare_legacy_startup_fixture_for_topic(
+    root: &Path,
+    materialized_definition_status: &str,
+    materialized_topic_id: &str,
+) -> String {
     let database_path = root.join("state/synthesis.db");
     fs::create_dir_all(database_path.parent().expect("state parent")).expect("state root");
     create_legacy_test_database(&database_path).expect("legacy database");
@@ -295,7 +310,7 @@ fn prepare_legacy_startup_fixture(root: &Path, materialized_definition_status: &
         &database_path,
         &[
             (
-                "topic:materialized",
+                materialized_topic_id,
                 "materialized",
                 materialized_definition_status,
             ),
@@ -308,16 +323,16 @@ fn prepare_legacy_startup_fixture(root: &Path, materialized_definition_status: &
     .expect("legacy graph rows");
 
     let prepared = prepare_topic(CanonicalTopicDraft {
-        topic_id: "topic:materialized".into(),
+        topic_id: materialized_topic_id.into(),
         manifest: json!({
             "schema":"topic.manifest.v1",
             "sections":{"summary":{"path":"summary.json"}},
-            "topic_id":"topic:materialized",
+            "topic_id":materialized_topic_id,
         }),
-        artifact: json!({"schema":"topic.artifact.v1","title":"Materialized"}),
+        artifact: json!({"schema":"topic.artifact.v1","title":materialized_topic_id}),
         metadata: json!({
             "data":{
-                "topic_id":"topic:materialized",
+                "topic_id":materialized_topic_id,
                 "updated_at":"2026-08-15T00:00:00.000Z",
                 "bundle_hash":"legacy-bundle",
             }
@@ -326,6 +341,7 @@ fn prepare_legacy_startup_fixture(root: &Path, materialized_definition_status: &
         markdown: BTreeMap::from([("synthesis.md".into(), "# Materialized\n".into())]),
     })
     .expect("prepare canonical topic");
+    let canonical_path_id = prepared.view().path_id;
     let canonical_root = root.join("data/synthesis");
     let mut canonical =
         CanonicalStore::initialize_production(&canonical_root, canonical_identity())
@@ -349,7 +365,7 @@ fn prepare_legacy_startup_fixture(root: &Path, materialized_definition_status: &
     fs::create_dir_all(&sidecar_root).expect("legacy sidecar root");
     let write_source = |name: &str, field: &str, value: Value| {
         let mut topics = serde_json::Map::new();
-        topics.insert("topic:materialized".into(), value);
+        topics.insert(materialized_topic_id.into(), value);
         let mut data = serde_json::Map::new();
         data.insert(field.into(), Value::Object(topics));
         fs::write(
@@ -361,18 +377,19 @@ fn prepare_legacy_startup_fixture(root: &Path, materialized_definition_status: &
     write_source(
         "topic-definitions.json",
         "topics",
-        json!({"id":"topic:materialized","title":"Materialized","definition":"definition"}),
+        json!({"id":materialized_topic_id,"title":materialized_topic_id,"definition":"definition"}),
     );
     write_source(
         "resolvers.json",
         "resolvers",
-        json!({"tag":"topic:materialized"}),
+        json!({"tag":materialized_topic_id}),
     );
     write_source(
         "resolved-paper-sets.json",
         "paper_sets",
         json!({"papers":[]}),
     );
+    canonical_path_id
 }
 
 fn run_until_ready_then_shutdown(config_path: &Path, discovery_path: &Path, lifecycle_token: &str) {
@@ -557,6 +574,78 @@ fn legacy_graph_only_topics_do_not_block_native_startup() {
 
     drop(reverse_host);
     fs::remove_dir_all(root).expect("remove legacy startup root");
+}
+
+#[test]
+#[cfg(feature = "test-support")]
+fn historical_unicode_topic_path_does_not_block_native_startup() {
+    let root = test_root("legacy-unicode-topic-path-startup");
+    let reverse_host = ReverseHost::start();
+    let canonical_path_id =
+        prepare_legacy_startup_fixture_for_topic(&root, "has_synthesis", "中文主题");
+    assert_eq!(
+        canonical_path_id,
+        canonical_topic_path_id("中文主题").expect("canonical path id")
+    );
+    let canonical_root = root.join("data/synthesis");
+    let canonical_topic_root = canonical_root.join("topics").join(&canonical_path_id);
+    let legacy_topic_root = canonical_root.join("topics/63974b299");
+    fs::rename(&canonical_topic_root, &legacy_topic_root).expect("install historical path");
+    let artifact_path = legacy_topic_root.join("current/artifact.json");
+    let artifact_before = fs::read(&artifact_path).expect("legacy artifact before");
+    let (config_path, discovery_path, lifecycle_token) =
+        write_launch_config(&root, reverse_host.port);
+
+    run_until_ready_then_shutdown(&config_path, &discovery_path, &lifecycle_token);
+
+    let mut canonical =
+        CanonicalStore::open_production(&canonical_root, canonical_identity()).expect("reopen");
+    let state = canonical
+        .read_topic("中文主题")
+        .expect("read migrated topic");
+    let CanonicalTopicState::Ready(view) = state else {
+        panic!("expected historical Unicode topic to remain readable");
+    };
+    assert_eq!(view.path_id, canonical_path_id);
+    let updated = prepare_topic(CanonicalTopicDraft {
+        topic_id: "中文主题".into(),
+        manifest: json!({
+            "schema":"topic.manifest.v1",
+            "topic_id":"中文主题",
+            "sections":{"summary":{"path":"summary.json"}}
+        }),
+        artifact: json!({"schema":"topic.artifact.v1","title":"中文主题","version":2}),
+        metadata: json!({"data":{"topic_id":"中文主题","version":2}}),
+        sections: BTreeMap::from([("summary".into(), json!({"text":"updated"}))]),
+        markdown: BTreeMap::from([("synthesis.md".into(), "# 中文主题\n\nupdated\n".into())]),
+    })
+    .expect("prepare update");
+    canonical
+        .promote_prepared(updated.for_promotion(Some(view.basis.clone())))
+        .expect("promote updated topic");
+    assert!(
+        canonical_root
+            .join("topics/63974b2998633977/current/artifact.json")
+            .is_file()
+    );
+    assert!(
+        canonical
+            .archive_current("中文主题", "legacy-unicode-deleted")
+            .expect("archive updated topic")
+    );
+    canonical.close().expect("close canonical");
+    assert_eq!(
+        fs::read(artifact_path).expect("legacy artifact after"),
+        artifact_before
+    );
+    assert!(
+        canonical_root
+            .join("deleted/legacy-unicode-deleted/current/artifact.json")
+            .is_file()
+    );
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove historical unicode startup root");
 }
 
 #[test]

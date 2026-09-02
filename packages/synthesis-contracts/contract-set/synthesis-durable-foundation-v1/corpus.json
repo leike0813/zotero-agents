@@ -190,7 +190,24 @@
       "metadataHash": null,
       "sections": [],
       "diagnostics": []
-    }
+    },
+    "topicPathIds": [
+      {
+        "topicId": "topic:r7",
+        "pathId": "topic-r7",
+        "historicalTypeScriptPathId": "topic-r7"
+      },
+      {
+        "topicId": "中文主题",
+        "pathId": "63974b2998633977",
+        "historicalTypeScriptPathId": "63974b299"
+      },
+      {
+        "topicId": "主题分类",
+        "pathId": "587094eaada43728",
+        "historicalTypeScriptPathId": "587094eaa"
+      }
+    ]
   },
   "applications": [
     { "kind": "workbench", "operation": "prewarm" },

@@ -11,6 +11,9 @@ import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as REPOSITORY_SCHEMA_VER
 import { checkSynthesisCrossLanguageContracts } from "../../scripts/check-synthesis-cross-language-contracts";
 import { checkSynthesisRustLicenseInventory } from "../../scripts/check-synthesis-rust-license-inventory";
 import { findSynthesisContractBoundaryViolations } from "../../scripts/check-synthesis-service-boundary";
+import { canonicalSynthesisTopicPathId } from "../../packages/synthesis-application/src/topicCanonical";
+import fs from "node:fs";
+import path from "node:path";
 
 function canonicalErrorCode(action: () => unknown) {
   try {
@@ -25,6 +28,21 @@ function canonicalErrorCode(action: () => unknown) {
 
 describe("Synthesis cross-language sidecar contract", function () {
   this.timeout(30_000);
+
+  it("derives current Topic path IDs from the shared corpus", function () {
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          import.meta.dirname,
+          "../../packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    ) as { canonical: { topicPathIds: Array<{ topicId: string; pathId: string }> } };
+    for (const vector of corpus.canonical.topicPathIds) {
+      assert.equal(canonicalSynthesisTopicPathId(vector.topicId), vector.pathId);
+    }
+  });
 
   it("strictly compiles the complete manifest and conforms to both corpora", async function () {
     const result = await checkSynthesisCrossLanguageContracts();

@@ -18,7 +18,7 @@ state.
 | Synthesis production lock | `state/synthesis.lock` | OS file-lock target held by the Rust process for its lifetime. File contents are not ownership authority. |
 | Native WebDAV runtime state | `state/native-webdav-state.json` with `.pending` and `.previous` siblings | Secret-free queue, retry, conflict, and last-run state persisted atomically by Rust; it is local runtime state rather than a durable exchange asset. |
 | Schema migration backups | `state/synthesis-migration-backups/**` | Deterministically named, schema-verified copies created by Rust immediately before a registered schema migration. Same-schema startup creates no backup. |
-| Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
+| Topic artifact store | `data/synthesis/topics/<topicPathId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/<deletedPathId>/current/**` | Soft-deleted Topic current trees addressed only by the recorded tombstone ID; Workbench metadata comes from `synt_topic_deleted_artifact` |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
@@ -48,7 +48,7 @@ zotero-agents/
     synthesis-migration-backups/**   # only for registered migrations
   data/
     synthesis/
-      topics/<topicId>/current/**
+      topics/<topicPathId>/current/**
       sidecar/**             # legacy/migration, sync transaction, debug only
       deleted/**
       state/                 # legacy cleanup residue only
@@ -69,6 +69,22 @@ zotero-agents/
 `state/zotero-agents.db` stores workflow/plugin runtime ledgers. `data/synthesis/sidecar`
 must not be called `state`: it is scoped to topic artifact companion files and
 must not be confused with the persistence-root `state/` directory.
+
+### Topic canonical directory identity
+
+`topicPathId` is derived identically by TypeScript and Rust. Existing ASCII slug
+normalization is preserved and capped at 80 characters. If normalization produces
+an empty slug, the path is the first 16 lowercase hexadecimal characters of the
+SHA-256 of canonical JSON `{"topic_id": <topicId>}` after removing the
+`sha256:` prefix.
+
+Profiles written by the historical TypeScript implementation may contain a
+9-character hash directory caused by its old fallback slice bounds. The canonical
+store may read that exact legacy directory when the current 16-character directory
+is absent, after validating Topic identity and snapshot hashes. New promotions always
+write the 16-character directory. Legacy bytes are not deleted or rewritten by
+startup compatibility handling, and an existing invalid current directory does not
+fall back to the legacy directory.
 
 `runtime/synthesis/service-runtime` is owned exclusively by the XPI runtime
 installer. Native manifest v3 binds the complete Rust file inventory,

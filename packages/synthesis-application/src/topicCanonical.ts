@@ -236,7 +236,7 @@ export function canonicalSynthesisTopicPathId(topicId: string) {
     slug ||
     hashSynthesisEngineCanonicalJson({ topic_id: identity }).slice(
       "sha256:".length,
-      16,
+      "sha256:".length + 16,
     )
   );
 }
