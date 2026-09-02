@@ -87,7 +87,7 @@ export function readSynthesisSidecarRuntimeBuildRecipe(
       !target.binary.trim() ||
       target.rustFlags !==
         (target.platform === "win32-x64"
-          ? "-C target-feature=+crt-static"
+          ? "-C target-feature=+crt-static -C debuginfo=1"
           : undefined) ||
       typeof target.useZig !== "boolean" ||
       typeof target.nativeSmoke !== "boolean" ||
@@ -130,7 +130,9 @@ const VERIFICATION_STATIC_INPUTS = [] as const;
 const PREBUILD_PIPELINE_STATIC_INPUTS = [
   ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
   "packages/synthesis-contracts/src/sidecarRuntimeRelease.ts",
+  "schemas/synthesis-sidecar-runtime-symbol-manifest.v1.schema.json",
   "scripts/download-synthesis-sidecar-runtime-cache.ts",
+  "scripts/package-synthesis-sidecar-runtime-symbols.ts",
   "scripts/publish-synthesis-sidecar-runtime-prebuild.ts",
   "scripts/resolve-synthesis-sidecar-runtime-cache.ts",
   "scripts/stage-synthesis-sidecar-runtime-prebuilds.ts",

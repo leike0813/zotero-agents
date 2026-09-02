@@ -30,6 +30,11 @@ import {
   resolveHarnessSynthesisLocale,
 } from "../../src/modules/harness/synthesisWorkbenchI18nEnvelope";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { resolveAssistantWorkspaceAuditLogLevel } from "../../src/modules/assistantWorkspaceSidebar";
+import {
+  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS,
+  ASSISTANT_WORKSPACE_SHELL_ACTIONS,
+} from "../../src/shared/assistantWireContract";
 
 async function createDatabase(filePath: string) {
   const sqlite = await import("node:sqlite");
@@ -154,7 +159,9 @@ async function createPluginStateFixture() {
         conversationId: "conv-2",
         conversationTitle: "Second ACP Session",
         status: "connected",
-        items: [{ id: "msg-2", role: "assistant", text: "Second conversation" }],
+        items: [
+          { id: "msg-2", role: "assistant", text: "Second conversation" },
+        ],
       })}'
     );
     INSERT INTO plugin_task_rows VALUES (
@@ -693,9 +700,11 @@ describe("UI readonly harness", function () {
   }
 
   async function withAssistantSession(
-    run: (session: Awaited<
-      ReturnType<typeof createAssistantReadonlyPublicationSession>
-    >) => Promise<void>,
+    run: (
+      session: Awaited<
+        ReturnType<typeof createAssistantReadonlyPublicationSession>
+      >,
+    ) => Promise<void>,
   ) {
     const fixture = await createPluginStateFixture();
     const restorePrefs = installAssistantHarnessPrefs();
@@ -959,6 +968,68 @@ describe("UI readonly harness", function () {
       });
       assert.deepEqual(childAcked.publications, []);
     });
+  });
+
+  it("exports only lifecycle-ready and failures for workspace UI protocol actions", function () {
+    setDebugModeOverrideForTests(true);
+    try {
+      const events = [
+        [
+          "shell-set-tab",
+          "shell",
+          ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB,
+          "ok",
+        ],
+        [
+          "child-publication-ack",
+          "acp-chat",
+          ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.PUBLICATION_ACK,
+          "ok",
+        ],
+        [
+          "child-render-observation",
+          "acp-chat",
+          ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.PUBLICATION_RENDER_OBSERVATION,
+          "ok",
+        ],
+        [
+          "child-load-page",
+          "skillrunner",
+          ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.LOAD_TRANSCRIPT_PAGE,
+          "ok",
+        ],
+        ["shell-ready", "shell", ASSISTANT_WORKSPACE_SHELL_ACTIONS.READY, "ok"],
+        [
+          "child-ready",
+          "skillrunner",
+          ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.READY,
+          "ok",
+        ],
+        [
+          "shell-set-tab-failed",
+          "shell",
+          ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB,
+          "error",
+        ],
+      ] as const;
+      const exported = events.flatMap(([stage, tab, action, result]) => {
+        const level = resolveAssistantWorkspaceAuditLogLevel({
+          tab,
+          action,
+          result,
+        });
+        return level ? [{ stage, level }] : [];
+      });
+
+      assert.deepEqual(exported, [
+        { stage: "shell-ready", level: "info" },
+        { stage: "child-ready", level: "info" },
+        { stage: "shell-set-tab-failed", level: "warn" },
+      ]);
+      assert.equal(exported.length, 3);
+    } finally {
+      setDebugModeOverrideForTests(undefined);
+    }
   });
 
   it("keeps the Assistant harness on the publication plane", async function () {

@@ -926,18 +926,6 @@ export async function handleChildAction(
           ? { requestId: owner.requestId, runKey: owner.runKey }
           : {};
   const actionPayload = { ...childPayload, ...ownerPayload };
-  shellHost.logAssistantWorkspaceDebug(
-    host,
-    "child-action-start",
-    "Assistant Workspace child action handling started.",
-    {
-      target,
-      tab,
-      action,
-      actionId: String(payload.actionId || ""),
-      payloadKeys: Object.keys(childPayload),
-    },
-  );
   if (action === "publication-ack") {
     recordWorkspacePublicationAck(host, childPayload);
     return;
@@ -959,12 +947,6 @@ export async function handleChildAction(
       return;
     }
     if (duplicateGeneration && hasPublishedChildBaselineInit(host, tab)) {
-      shellHost.logAssistantWorkspaceDebug(
-        host,
-        "child-ready-duplicate",
-        "Assistant Workspace duplicate child ready ignored.",
-        { target, tab, documentGeneration },
-      );
       return;
     }
     if (source && tab !== host.activeTab) {

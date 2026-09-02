@@ -1404,6 +1404,203 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     });
   }
 
+  it("shares one initialization baseline for the same owner generation", async function () {
+    let generation = "document-1";
+    let navigationReads = 0;
+    let transcriptReads = 0;
+    let regionReads = 0;
+    const posts: AssistantWorkspacePublication[] = [];
+    const adapter = defineAssistantWorkspacePublicationAdapter({
+      source: "skillrunner" as const,
+      supportedKinds: expectedKinds.filter(
+        (kind) => kind !== "plan" && kind !== "service-status",
+      ),
+      selectedOwner: () => skillrunnerOwner,
+      mapChange: () => ({
+        owner: skillrunnerOwner,
+        targetsActiveOwner: true,
+        publicationKinds: [],
+      }),
+      readOwnerNavigation: async () => {
+        navigationReads += 1;
+        return skillrunnerNavigation;
+      },
+      readOwnerRegions: async ({ kinds }) => {
+        regionReads += 1;
+        return Object.fromEntries(
+          kinds
+            .filter((kind) => skillrunnerRegions[kind])
+            .map((kind) => [kind, skillrunnerRegions[kind]]),
+        ) as Partial<AssistantWorkspacePublicationRuntimePayloadByKind>;
+      },
+      readTranscriptPage: async () => {
+        transcriptReads += 1;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return skillrunnerTranscript;
+      },
+    });
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "shared-initialization",
+      getActiveOwner: () => skillrunnerOwner,
+      post: (publication) => {
+        posts.push(publication);
+        if (publication.publicationKind === "transcript") {
+          queueMicrotask(() => {
+            coordinator.acknowledge({
+              publicationId: publication.publicationId,
+              stage: "render-complete",
+              outcome: "accepted",
+              reason: null,
+              failure: null,
+            });
+          });
+        }
+        return true;
+      },
+    });
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator,
+      activity: () => "matching-target",
+      initializationGeneration: () => generation,
+    });
+
+    const automatic = runtime.initialize({
+      adapter,
+      context: {},
+      cause: "owner-switch",
+    });
+    const explicit = runtime.initialize({
+      adapter,
+      context: {},
+      cause: "activation",
+    });
+    assert.strictEqual(automatic, explicit);
+    await Promise.all([automatic, explicit]);
+    assert.deepEqual(
+      { navigationReads, transcriptReads, regionReads },
+      { navigationReads: 1, transcriptReads: 1, regionReads: 1 },
+    );
+
+    generation = "document-2";
+    await runtime.initialize({
+      adapter,
+      context: {},
+      cause: "activation",
+    });
+    assert.deepEqual(
+      { navigationReads, transcriptReads, regionReads },
+      { navigationReads: 2, transcriptReads: 2, regionReads: 2 },
+    );
+    assert.isNotEmpty(posts);
+  });
+
+  it("prevents a superseded owner initialization from publishing stale regions", async function () {
+    const ownerA = skillrunnerOwner;
+    const ownerB = createSkillRunnerWorkspaceOwner({
+      requestId: "sr-request-2",
+      runKey: "sr-run-2",
+    });
+    let selectedOwner = ownerA;
+    let releaseOwnerA: (() => void) | undefined;
+    const ownerABlocked = new Promise<void>((resolve) => {
+      releaseOwnerA = resolve;
+    });
+    const posts: AssistantWorkspacePublication[] = [];
+    const navigationFor = (owner: SkillRunnerOwner) => ({
+      ...skillrunnerNavigation,
+      selectedOwner: owner,
+      entries: skillrunnerNavigation.entries.map((entry) => ({
+        ...entry,
+        owner,
+      })),
+    });
+    const adapter = defineAssistantWorkspacePublicationAdapter({
+      source: "skillrunner" as const,
+      supportedKinds: expectedKinds.filter(
+        (kind) => kind !== "plan" && kind !== "service-status",
+      ),
+      selectedOwner: () => selectedOwner,
+      mapChange: () => ({
+        owner: selectedOwner,
+        targetsActiveOwner: true,
+        publicationKinds: [],
+      }),
+      readOwnerNavigation: async () => {
+        const owner = selectedOwner;
+        if (owner.ownerKey === ownerA.ownerKey) await ownerABlocked;
+        return navigationFor(owner);
+      },
+      readOwnerRegions: async () => skillrunnerRegions,
+      readTranscriptPage: async ({ owner }) => ({
+        ...skillrunnerTranscript,
+        owner,
+        page: skillrunnerTranscript.page
+          ? { ...skillrunnerTranscript.page, owner }
+          : null,
+      }),
+    });
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "superseded-initialization",
+      getActiveOwner: () => selectedOwner,
+      post: (publication) => {
+        posts.push(publication);
+        if (publication.publicationKind === "transcript") {
+          queueMicrotask(() => {
+            coordinator.acknowledge({
+              publicationId: publication.publicationId,
+              stage: "render-complete",
+              outcome: "accepted",
+              reason: null,
+              failure: null,
+            });
+          });
+        }
+        return true;
+      },
+    });
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator,
+      activity: () => "matching-target",
+      initializationGeneration: () => "document-1",
+    });
+
+    const stale = runtime.initialize({
+      adapter,
+      context: {},
+      cause: "activation",
+    });
+    await Promise.resolve();
+    selectedOwner = ownerB;
+    await runtime.initialize({
+      adapter,
+      context: {},
+      cause: "owner-switch",
+    });
+    releaseOwnerA?.();
+    assert.deepEqual(await stale, []);
+    assert.isFalse(
+      posts.some(
+        (publication) => publication.owner.ownerKey === ownerA.ownerKey,
+      ),
+    );
+    assert.deepEqual(
+      posts
+        .slice(0, 3)
+        .map((publication) => [
+          publication.owner.ownerKey,
+          publication.publicationKind,
+          publication.publicationKind === "transcript"
+            ? (publication.payload as { status?: string }).status
+            : null,
+        ]),
+      [
+        [null, "owner-navigation", null],
+        [ownerB.ownerKey, "transcript", "loading"],
+        [ownerB.ownerKey, "transcript", "ready"],
+      ],
+    );
+  });
+
   it("drops lazy owner details that arrive after an owner switch", async function () {
     const ownerA = skillsOwner;
     const ownerB = { ...ownerA, ownerKey: "request-2", requestId: "request-2" };

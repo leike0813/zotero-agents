@@ -145,6 +145,47 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
     ]);
   });
 
+  it("shares the refresh-triggered and explicit activation baseline", async function () {
+    const seeded = harness.seedTask({
+      requestId: "req-shared-activation",
+      status: "running",
+    });
+    const capture = await attachReadModelHost(seeded.runKey);
+    try {
+      await capture.runtime.flush();
+      const next = harness.seedTask({
+        requestId: "req-shared-activation-next",
+        status: "running",
+      });
+      capture.publications.length = 0;
+
+      await refreshSkillRunnerSidebarHostSnapshot({
+        forceInit: true,
+        runKey: next.runKey,
+      });
+      await capture.runtime.initialize({
+        adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+        context: undefined,
+        cause: "activation",
+      });
+
+      assert.equal(
+        capture.publications.filter(
+          (publication) => publication.publicationKind === "owner-navigation",
+        ).length,
+        1,
+      );
+      assert.deepEqual(
+        transcriptPublications(capture.publications).map(
+          (publication) => (publication.payload as { status?: string }).status,
+        ),
+        ["loading", "ready"],
+      );
+    } finally {
+      capture.stop();
+    }
+  });
+
   it("projects conversation entries to canonical transcript items", function () {
     const entries: SkillRunnerConversationEntry[] = [
       conversationEntry({

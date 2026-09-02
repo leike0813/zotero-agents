@@ -135,6 +135,11 @@ export type AssistantWorkspacePublicationRuntimeHooks = {
     reason: AssistantWorkspacePublicationDropReason;
   }) => void;
   onOwnerCleared?: (owner: AssistantWorkspaceOwner) => void;
+  onInitializationFailed?: (args: {
+    source: AssistantWorkspaceOwner["source"];
+    owner: AssistantWorkspaceOwner | null;
+    error: unknown;
+  }) => void;
   onMaterialized?: (args: {
     owner: AssistantWorkspaceOwner;
     kind: AssistantWorkspacePublicationKind;
@@ -235,9 +240,11 @@ async function publishAssistantWorkspaceInitialization<
   transcriptPage?: TPageRequest;
   serviceStatus?: AssistantWorkspaceServiceStatus;
   hooks?: AssistantWorkspacePublicationRuntimeHooks;
+  isCurrent: () => boolean;
 }) {
   const force = args.cause === "initialization";
   const navigation = await args.adapter.readOwnerNavigation();
+  if (!args.isCurrent()) return [];
   const publicationIds: string[] = [];
   const navigationPublication = args.coordinator.publishDomainChange({
     owner: createAssistantWorkspaceUnownedScope(args.adapter.source),
@@ -250,6 +257,7 @@ async function publishAssistantWorkspaceInitialization<
     publicationIds.push(navigationPublication.publicationId);
   }
   if (args.serviceStatus) {
+    if (!args.isCurrent()) return [];
     const servicesPublication = args.coordinator.publishDomainChange({
       owner: createAssistantWorkspaceUnownedScope(args.adapter.source),
       kind: "service-status",
@@ -269,6 +277,7 @@ async function publishAssistantWorkspaceInitialization<
         >)
       : null;
   if (!owner) {
+    if (!args.isCurrent()) return [];
     const idlePublication = args.coordinator.publishTranscriptSnapshot({
       owner: createAssistantWorkspaceUnownedScope(args.adapter.source),
       cause: args.cause,
@@ -278,6 +287,7 @@ async function publishAssistantWorkspaceInitialization<
     if (idlePublication) publicationIds.push(idlePublication.publicationId);
     return publicationIds;
   }
+  if (!args.isCurrent()) return [];
   const loadingPublication = args.coordinator.publishTranscriptSnapshot({
     owner,
     cause: args.cause,
@@ -287,6 +297,7 @@ async function publishAssistantWorkspaceInitialization<
   if (loadingPublication) {
     publicationIds.push(loadingPublication.publicationId);
   }
+  if (!args.isCurrent()) return [];
   const transcript = await readProfiledTranscriptPage({
     adapter: args.adapter,
     owner,
@@ -294,6 +305,7 @@ async function publishAssistantWorkspaceInitialization<
     request: args.transcriptPage,
     cause: args.cause,
   });
+  if (!args.isCurrent()) return [];
   args.hooks?.onMaterialized?.({
     owner,
     kind: "transcript",
@@ -314,6 +326,7 @@ async function publishAssistantWorkspaceInitialization<
       await args.coordinator.waitForPostedPublication(
         publication.publicationId,
       );
+      if (!args.isCurrent()) return [];
     }
   }
   const requestedKinds = INITIAL_OWNER_PUBLICATION_KINDS.filter((kind) =>
@@ -324,7 +337,9 @@ async function publishAssistantWorkspaceInitialization<
     kinds: requestedKinds,
     context: args.context,
   });
+  if (!args.isCurrent()) return [];
   for (const publicationKind of requestedKinds) {
+    if (!args.isCurrent()) return [];
     const payload = regions[publicationKind];
     if (!payload) continue;
     args.hooks?.onMaterialized?.({
@@ -375,6 +390,13 @@ type PendingRuntimeLane = {
   readNavigation: () => Promise<AssistantWorkspaceOwnerNavigation>;
 };
 
+type InitializationAttempt = {
+  generation: string | undefined;
+  ownerKey: string;
+  epoch: number;
+  promise: Promise<string[]>;
+};
+
 /**
  * Single host-side authority for ACP Workspace publication scheduling.
  *
@@ -391,6 +413,14 @@ export class AssistantWorkspacePublicationRuntime {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushing: Promise<void> | null = null;
   private readonly detailsRequestEpoch = new Map<string, number>();
+  private readonly initializationEpoch = new Map<
+    AssistantWorkspaceOwner["source"],
+    number
+  >();
+  private readonly initializations = new Map<
+    AssistantWorkspaceOwner["source"],
+    InitializationAttempt
+  >();
 
   constructor(
     private readonly options: {
@@ -398,6 +428,9 @@ export class AssistantWorkspacePublicationRuntime {
       activity: (
         source: AssistantWorkspaceOwner["source"],
       ) => AssistantWorkspacePublicationActivity;
+      initializationGeneration?: (
+        source: AssistantWorkspaceOwner["source"],
+      ) => string | undefined;
       hooks?: AssistantWorkspacePublicationRuntimeHooks;
     },
   ) {}
@@ -479,6 +512,12 @@ export class AssistantWorkspacePublicationRuntime {
         adapter: args.adapter,
         context: args.context,
         cause: previousOwner ? "owner-switch" : "activation",
+      }).catch((error) => {
+        this.options.hooks?.onInitializationFailed?.({
+          source: args.adapter.source,
+          owner: selectedOwner,
+          error,
+        });
       });
       return { status: "initializing" as const, owner, mapped };
     }
@@ -570,7 +609,7 @@ export class AssistantWorkspacePublicationRuntime {
     return { status: "scheduled" as const, owner, mapped };
   }
 
-  async initialize<
+  initialize<
     TSource extends AssistantWorkspaceOwner["source"],
     TChange,
     TContext,
@@ -589,21 +628,61 @@ export class AssistantWorkspacePublicationRuntime {
     >;
     transcriptPage?: TPageRequest;
     serviceStatus?: AssistantWorkspaceServiceStatus;
-  }) {
+  }): Promise<string[]> {
     if (this.options.activity(args.adapter.source) !== "matching-target") {
-      return [];
+      return Promise.resolve([]);
     }
     const selectedOwner = args.adapter.selectedOwner();
+    const generation = this.options.initializationGeneration?.(
+      args.adapter.source,
+    );
+    const ownerKey = selectedOwner?.ownerKey || "unowned";
+    const current = this.initializations.get(args.adapter.source);
+    if (
+      current &&
+      current.generation === generation &&
+      current.ownerKey === ownerKey
+    ) {
+      return current.promise;
+    }
+    const epoch = (this.initializationEpoch.get(args.adapter.source) || 0) + 1;
+    this.initializationEpoch.set(args.adapter.source, epoch);
     if (selectedOwner) {
       this.synchronizeOwner(selectedOwner);
     } else {
       this.clearSourceOwner(args.adapter.source);
     }
-    return publishAssistantWorkspaceInitialization({
+    const isCurrent = () => {
+      const attempt = this.initializations.get(args.adapter.source);
+      return (
+        attempt?.epoch === epoch &&
+        attempt.generation === generation &&
+        attempt.ownerKey === ownerKey &&
+        this.options.activity(args.adapter.source) === "matching-target" &&
+        (args.adapter.selectedOwner()?.ownerKey || "unowned") === ownerKey &&
+        this.options.initializationGeneration?.(args.adapter.source) ===
+          generation
+      );
+    };
+    const promise = publishAssistantWorkspaceInitialization({
       ...args,
       coordinator: this.options.coordinator,
       hooks: this.options.hooks,
+      isCurrent,
     });
+    const attempt: InitializationAttempt = {
+      generation,
+      ownerKey,
+      epoch,
+      promise,
+    };
+    this.initializations.set(args.adapter.source, attempt);
+    void promise.catch(() => {
+      if (this.initializations.get(args.adapter.source) === attempt) {
+        this.initializations.delete(args.adapter.source);
+      }
+    });
+    return promise;
   }
 
   async requestTranscriptPage<
@@ -858,6 +937,7 @@ export class AssistantWorkspacePublicationRuntime {
     this.flushTimer = null;
     this.pending.clear();
     this.detailsRequestEpoch.clear();
+    this.invalidateInitializations();
     this.options.coordinator.reset();
   }
 
@@ -871,6 +951,7 @@ export class AssistantWorkspacePublicationRuntime {
       this.owners.clear();
       return;
     }
+    this.invalidateInitializations(source);
     const owner = this.owners.get(source);
     if (owner) {
       this.options.coordinator.clearOwner(owner);
@@ -902,6 +983,21 @@ export class AssistantWorkspacePublicationRuntime {
     }
     this.owners.set(owner.source, owner);
     return true;
+  }
+
+  private invalidateInitializations(
+    source?: AssistantWorkspaceOwner["source"],
+  ) {
+    const sources = source
+      ? [source]
+      : (["acp-chat", "acp-skills", "skillrunner"] as const);
+    for (const currentSource of sources) {
+      this.initializations.delete(currentSource);
+      this.initializationEpoch.set(
+        currentSource,
+        (this.initializationEpoch.get(currentSource) || 0) + 1,
+      );
+    }
   }
 
   private clearSourceOwner(source: AssistantWorkspaceOwner["source"]) {

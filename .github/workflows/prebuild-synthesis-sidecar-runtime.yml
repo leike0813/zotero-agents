@@ -83,7 +83,7 @@ jobs:
             --source-fingerprint="${{ steps.identities.outputs.source_fingerprint }}" \
             --exclude-run-id="$GITHUB_RUN_ID" \
             --output=.scaffold/cache-resolution.json
-          jq -e '.schema == "synthesis-sidecar-runtime-cache-resolution.v3"' .scaffold/cache-resolution.json > /dev/null
+          jq -e '.schema == "synthesis-sidecar-runtime-cache-resolution.v4"' .scaffold/cache-resolution.json > /dev/null
           jq -c --slurpfile cache .scaffold/cache-resolution.json --argjson recipe '${{ steps.recipe.outputs.recipe }}' -n '
             $cache[0].platforms as $cache
             | $recipe
@@ -94,7 +94,10 @@ jobs:
                   cacheSourceSha: $cache[$entry.platform].sourceSha,
                   cacheArtifactId: $cache[$entry.platform].artifact.artifactId,
                   cacheArtifactSize: $cache[$entry.platform].artifact.sizeInBytes,
-                  cacheArchiveUrl: $cache[$entry.platform].artifact.archiveDownloadUrl
+                  cacheArchiveUrl: $cache[$entry.platform].artifact.archiveDownloadUrl,
+                  cacheSymbolsArtifactId: ($cache[$entry.platform].symbolsArtifact.artifactId // null),
+                  cacheSymbolsArtifactSize: ($cache[$entry.platform].symbolsArtifact.sizeInBytes // null),
+                  cacheSymbolsArchiveUrl: ($cache[$entry.platform].symbolsArtifact.archiveDownloadUrl // null)
                 } else {cacheCandidate:false} end
               ))
           ' > .scaffold/build-matrix.json
@@ -147,6 +150,21 @@ jobs:
             --expected-build-fingerprint="${{ needs.plan.outputs.build_fingerprint }}" \
             --expected-source-fingerprint="${{ needs.plan.outputs.source_fingerprint }}" \
             --output-root=.scaffold/prebuild
+          if [ "${{ matrix.platform }}" = "win32-x64" ]; then
+            mkdir -p .scaffold/prebuild-symbols/win32-x64
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+              "${{ matrix.cacheSymbolsArchiveUrl }}" \
+              -o .scaffold/prebuild-symbols.zip
+            unzip -j -q .scaffold/prebuild-symbols.zip \
+              -d .scaffold/prebuild-symbols/win32-x64
+            npx tsx -e 'import fs from "node:fs"; import { createHash } from "node:crypto"; import { rebuildSynthesisSidecarRuntimeSymbolManifest } from "./scripts/package-synthesis-sidecar-runtime-symbols.ts"; const m=rebuildSynthesisSidecarRuntimeSymbolManifest(JSON.parse(fs.readFileSync(process.argv[1],"utf8"))); const r=JSON.parse(fs.readFileSync(process.argv[5],"utf8")); const executable=r.files.find((entry)=>entry.path===r.executable); const archive=fs.readFileSync(process.argv[6]); if(m.sourceCommit!==process.argv[2]||m.sourceFingerprint!==process.argv[3]||m.buildFingerprint!==process.argv[4]||m.executable.sha256!==executable?.sha256||m.archive.bytes!==archive.byteLength||m.archive.sha256!==createHash("sha256").update(archive).digest("hex")) throw new Error("cached symbol identity mismatch")' \
+              .scaffold/prebuild-symbols/win32-x64/manifest.json \
+              "${{ matrix.cacheSourceSha }}" \
+              "${{ needs.plan.outputs.source_fingerprint }}" \
+              "${{ needs.plan.outputs.build_fingerprint }}" \
+              .scaffold/prebuild/bundles/win32-x64/manifest.json \
+              .scaffold/prebuild-symbols/win32-x64/synthesis-sidecar.pdb.gz
+          fi
       - name: Build and package target
         if: ${{ !matrix.cacheCandidate || steps.cache.outcome != 'success' }}
         env:
@@ -163,6 +181,17 @@ jobs:
           binary="native/synthesis-sidecar/target/${{ matrix.target }}/release/${{ matrix.binary }}"
           created_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
           npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.platform }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.platform }}"
+          if [ "${{ matrix.platform }}" = "win32-x64" ]; then
+            pdb="$(find "native/synthesis-sidecar/target/${{ matrix.target }}/release" -maxdepth 1 -iname '*.pdb' -print -quit)"
+            test -n "$pdb"
+            npx tsx scripts/package-synthesis-sidecar-runtime-symbols.ts \
+              --source-commit="${{ inputs.source_sha }}" \
+              --source-fingerprint="${{ needs.plan.outputs.source_fingerprint }}" \
+              --build-fingerprint="${{ needs.plan.outputs.build_fingerprint }}" \
+              --executable="$binary" \
+              --pdb="$pdb" \
+              --output=.scaffold/synthesis-sidecar-symbols/win32-x64
+          fi
           tar -czf ".scaffold/synthesis-sidecar-runtime-${{ matrix.platform }}.tar.gz" -C .scaffold/synthesis-sidecar-runtime "${{ matrix.platform }}"
       - name: Run current native smoke
         if: ${{ matrix.nativeSmoke }}
@@ -203,10 +232,25 @@ jobs:
             smoke='{"status":"not_applicable"}'
           fi
           jq -n --arg target "${{ matrix.platform }}" --arg mode "$mode" --arg artifact_run_id "$artifact_run_id" --arg artifact_source_sha "$artifact_source_sha" --arg archive_sha "$archive_sha" --arg archive_bytes "$archive_bytes" --argjson smoke "$smoke" '{target:$target,mode:$mode,artifactRunId:($artifact_run_id|tonumber),artifactSourceSha:$artifact_source_sha,archiveSha256:$archive_sha,archiveBytes:($archive_bytes|tonumber),smoke:$smoke}' > ".scaffold/evidence/${{ matrix.platform }}.json"
+          if [ "${{ matrix.platform }}" = "win32-x64" ]; then
+            if [ "${{ matrix.cacheCandidate }}" = "true" ] && [ "${{ steps.cache.outcome }}" = "success" ]; then
+              source_symbols=.scaffold/prebuild-symbols/win32-x64
+            else
+              source_symbols=.scaffold/synthesis-sidecar-symbols/win32-x64
+            fi
+            mkdir -p .scaffold/current-symbols/win32-x64
+            cp "$source_symbols/manifest.json" "$source_symbols/synthesis-sidecar.pdb.gz" .scaffold/current-symbols/win32-x64/
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: synthesis-sidecar-runtime-${{ matrix.platform }}
           path: .scaffold/current-artifact/synthesis-sidecar-runtime-${{ matrix.platform }}.tar.gz
+          if-no-files-found: error
+      - if: ${{ matrix.platform == 'win32-x64' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthesis-sidecar-runtime-symbols-win32-x64
+          path: .scaffold/current-symbols/win32-x64
           if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -243,6 +287,8 @@ jobs:
           find .scaffold/downloads -name '*.json' -path '*runtime-evidence-*' -exec cp {} .scaffold/evidence/ \;
           test "$(find .scaffold/prebuild -name '*.tar.gz' | wc -l)" -eq 7
           test "$(find .scaffold/evidence -name '*.json' | wc -l)" -eq 7
+          mkdir -p .scaffold/symbols/win32-x64
+          cp .scaffold/downloads/synthesis-sidecar-runtime-symbols-win32-x64/* .scaffold/symbols/win32-x64/
           npx tsx scripts/publish-synthesis-sidecar-runtime-prebuild.ts \
             --repo="$GITHUB_REPOSITORY" \
             --source-sha="${{ inputs.source_sha }}" \
@@ -253,6 +299,7 @@ jobs:
             --prebuild-pipeline-revision="${{ needs.plan.outputs.prebuild_pipeline_revision }}" \
             --archive-root=.scaffold/prebuild \
             --evidence-root=.scaffold/evidence \
+            --symbol-root=.scaffold/symbols/win32-x64 \
             --output=prebuild-result.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

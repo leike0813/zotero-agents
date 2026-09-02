@@ -420,20 +420,8 @@ async function runAcpChatBackendRefreshBoundary(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
 ) {
-  shellHost.logAssistantWorkspaceDebug(
-    host,
-    "acp-chat-backend-refresh-start",
-    "ACP Chat backend refresh boundary started.",
-    { target },
-  );
   try {
     await refreshAcpConversationBackends();
-    shellHost.logAssistantWorkspaceDebug(
-      host,
-      "acp-chat-backend-refresh-ok",
-      "ACP Chat backend refresh boundary completed.",
-      { target },
-    );
   } catch (error) {
     appendRuntimeLog({
       level: "warn",
@@ -447,12 +435,6 @@ async function runAcpChatBackendRefreshBoundary(
     });
   } finally {
     host.acpChatBackendRefreshTimer = null;
-    shellHost.logAssistantWorkspaceDebug(
-      host,
-      "acp-chat-backend-refresh-settle",
-      "ACP Chat backend refresh boundary settled.",
-      { target },
-    );
   }
 }
 
@@ -460,20 +442,8 @@ export async function preloadAcpChatBackendsForWorkspaceInit(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
 ) {
-  shellHost.logAssistantWorkspaceDebug(
-    host,
-    "acp-chat-backend-preload-start",
-    "ACP Chat backend preload before workspace commit started.",
-    { target },
-  );
   try {
     await refreshAcpConversationBackends();
-    shellHost.logAssistantWorkspaceDebug(
-      host,
-      "acp-chat-backend-preload-ok",
-      "ACP Chat backend preload before workspace commit completed.",
-      { target },
-    );
   } catch (error) {
     appendRuntimeLog({
       level: "warn",
@@ -486,12 +456,6 @@ export async function preloadAcpChatBackendsForWorkspaceInit(
         "ACP Chat backend registry could not be loaded before workspace init.",
       error,
     });
-    shellHost.logAssistantWorkspaceDebug(
-      host,
-      "acp-chat-backend-preload-error",
-      "ACP Chat backend preload before workspace commit failed.",
-      { target },
-    );
   }
 }
 
@@ -500,20 +464,8 @@ export function scheduleAcpChatBackendRefreshBoundary(
   target: AcpSidebarTarget,
 ) {
   if (host.acpChatBackendRefreshTimer) {
-    shellHost.logAssistantWorkspaceDebug(
-      host,
-      "acp-chat-backend-refresh-coalesced",
-      "ACP Chat backend refresh boundary request coalesced.",
-      { target },
-    );
     return;
   }
-  shellHost.logAssistantWorkspaceDebug(
-    host,
-    "acp-chat-backend-refresh-scheduled",
-    "ACP Chat backend refresh boundary scheduled.",
-    { target },
-  );
   host.acpChatBackendRefreshTimer = setTimeout(() => {
     void runAcpChatBackendRefreshBoundary(host, target);
   }, 0);
@@ -556,20 +508,8 @@ async function activateSkillRunnerWorkspaceSurface(
       options?.force !== true &&
       phase !== "init")
   ) {
-    shellHost.logAssistantWorkspaceDebug(
-      host,
-      "skillrunner-snapshot-skip",
-      "SkillRunner sidebar surface activation skipped.",
-      { phase, force: options?.force === true },
-    );
     return false;
   }
-  shellHost.logAssistantWorkspaceDebug(
-    host,
-    "skillrunner-snapshot-start",
-    "SkillRunner sidebar surface activation requested.",
-    { phase, force: options?.force === true },
-  );
   shellHost.attachSkillRunnerToShell(host, {
     allowInactive: options?.force === true || phase === "init",
   });
@@ -710,12 +650,6 @@ export async function publishAssistantWorkspaceStatePulse(
     );
     return false;
   }
-  shellHost.logAssistantWorkspaceDebug(
-    host,
-    "workspace-pulse",
-    "Assistant Workspace state pulse publishing.",
-    { reason, tab, phase, target },
-  );
   if (phase === "init" && reason !== "child-ready") {
     shellHost.postShellInit(host, host.activeTab);
   }
@@ -765,25 +699,10 @@ export function schedulePostSnapshot(
 ) {
   host.pendingSnapshotTab = tab;
   if (host.postSnapshotTimer) {
-    shellHost.logAssistantWorkspaceDebug(
-      host,
-      "snapshot-post-coalesced",
-      "Assistant Workspace snapshot post request coalesced.",
-    );
     return;
   }
-  shellHost.logAssistantWorkspaceDebug(
-    host,
-    "snapshot-post-scheduled",
-    "Assistant Workspace snapshot post scheduled.",
-  );
   host.postSnapshotTimer = setTimeout(() => {
     host.postSnapshotTimer = null;
-    shellHost.logAssistantWorkspaceDebug(
-      host,
-      "snapshot-post-fired",
-      "Assistant Workspace scheduled snapshot post fired.",
-    );
     void flushScheduledWorkspacePost(host);
   }, 16);
 }
@@ -878,11 +797,6 @@ export function inspectAssistantWorkspaceReplayPostSnapshotTimer(args: {
             return false;
           }
           if (!runtimeOwned) host.postSnapshotTimer = null;
-          shellHost.logAssistantWorkspaceDebug(
-            host,
-            "snapshot-post-fired",
-            "Assistant Workspace scheduled snapshot post fired.",
-          );
           if (runtimeOwned) {
             void host.publicationRuntime?.flush();
           } else {
@@ -911,11 +825,6 @@ export function inspectAssistantWorkspaceReplayPostSnapshotTimer(args: {
           currentToken = setTimeout(
             () => {
               host.postSnapshotTimer = null;
-              shellHost.logAssistantWorkspaceDebug(
-                host,
-                "snapshot-post-fired",
-                "Assistant Workspace scheduled snapshot post fired.",
-              );
               flushScheduledWorkspacePost(host);
             },
             Math.max(0, remainingMs),

@@ -265,9 +265,15 @@ impl RuntimeOwnership {
             Err(TryLockError::WouldBlock) => return Err("production_lock_conflict".into()),
             Err(TryLockError::Error(error)) => return Err(error.to_string()),
         }
+        let discovery_path = config.profile_runtime_root.join("discovery.json");
+        match fs::remove_file(&discovery_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("stale_discovery_cleanup_failed".into()),
+        }
         Ok(Self {
             _production_lock: lock,
-            discovery_path: config.profile_runtime_root.join("discovery.json"),
+            discovery_path,
             service_instance_id: format!("rust-{}", std::process::id()),
         })
     }
@@ -336,12 +342,47 @@ mod tests {
         let root = TestRoot::new("synthesis-production-lock");
         let config = config(&root);
         let first = RuntimeOwnership::acquire(&config).expect("first lock");
+        fs::create_dir_all(&config.profile_runtime_root).expect("runtime root");
+        fs::write(
+            config.profile_runtime_root.join("discovery.json"),
+            b"stale-but-owned",
+        )
+        .expect("owned discovery");
         assert_eq!(
             RuntimeOwnership::acquire(&config).unwrap_err(),
             "production_lock_conflict"
         );
+        assert!(config.profile_runtime_root.join("discovery.json").exists());
         drop(first);
         RuntimeOwnership::acquire(&config).expect("lock after release");
+    }
+
+    #[test]
+    fn lock_winner_removes_stale_discovery_before_ready() {
+        let root = TestRoot::new("synthesis-stale-discovery");
+        let config = config(&root);
+        fs::create_dir_all(&config.profile_runtime_root).expect("runtime root");
+        let discovery = config.profile_runtime_root.join("discovery.json");
+        fs::write(&discovery, b"stale").expect("stale discovery");
+
+        let ownership = RuntimeOwnership::acquire(&config).expect("acquire ownership");
+        assert!(!discovery.exists());
+        drop(ownership);
+    }
+
+    #[test]
+    fn stale_discovery_cleanup_failure_releases_the_lock() {
+        let root = TestRoot::new("synthesis-stale-discovery-failure");
+        let config = config(&root);
+        let discovery = config.profile_runtime_root.join("discovery.json");
+        fs::create_dir_all(&discovery).expect("blocking discovery directory");
+
+        assert_eq!(
+            RuntimeOwnership::acquire(&config).unwrap_err(),
+            "stale_discovery_cleanup_failed"
+        );
+        fs::remove_dir(&discovery).expect("remove blocking directory");
+        RuntimeOwnership::acquire(&config).expect("lock released after cleanup failure");
     }
 
     #[test]
