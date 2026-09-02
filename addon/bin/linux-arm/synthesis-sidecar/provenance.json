@@ -2,7 +2,7 @@
   "schema": "synthesis-rust-sidecar-provenance.v2",
   "target": "linux-arm",
   "targetTriple": "armv7-unknown-linux-gnueabihf",
-  "sourceFingerprint": "5ad14c252fb6309e64612bd0d2d2b3af0e3f8e338214455e0bffd2e7837a505f",
+  "sourceFingerprint": "543693aa10309fe9eb265b1c789bc9814fbc1da070f70ddbbb758c9bea080a93",
   "toolchain": "nightly-2026-07-25",
   "cargoLockSha256": "5c891779150a6771ddb9eeca779411b50a43dd3ab7c8e669cd0ffc6e0745fa5f",
   "licenseInventory": "licenses.json"
