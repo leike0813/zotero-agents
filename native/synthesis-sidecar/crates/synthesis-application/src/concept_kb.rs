@@ -100,6 +100,8 @@ impl ConceptConfidence {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConceptProposal {
+    #[serde(default)]
+    pub local_id: Option<String>,
     pub label: String,
     #[serde(default)]
     pub aliases: Vec<String>,
@@ -130,6 +132,7 @@ pub fn decode_stored_concept_proposal(text: &str) -> Result<ConceptProposal, Str
     proposal.remove("merge_hints");
     proposal.remove("mergeHints");
     for (stored, canonical) in [
+        ("local_id", "localId"),
         ("concept_type", "conceptType"),
         ("short_definition", "shortDefinition"),
         ("topic_relevance", "topicRelevance"),
@@ -1059,6 +1062,11 @@ fn concept_proposal_from_sidecar(value: &Value) -> Option<ConceptProposal> {
         Some(_) => return None,
     };
     Some(ConceptProposal {
+        local_id: object
+            .get("local_id")
+            .or_else(|| object.get("localId"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         label,
         aliases,
         concept_type: {
@@ -1560,6 +1568,7 @@ mod tests {
             Arc::new(|| "reviewed".into()),
         );
         let proposal = ConceptProposal {
+            local_id: None,
             label: "Review concept".into(),
             aliases: Vec::new(),
             concept_type: "method".into(),
@@ -1658,5 +1667,28 @@ mod tests {
         assert_eq!(page.reviews[0].status, "approved");
         drop(app);
         drop(owner);
+    }
+
+    #[test]
+    fn decodes_historical_local_id_proposal() {
+        let proposal = decode_stored_concept_proposal(
+            r#"{
+                "local_id":"concept:historical",
+                "label":"Historical concept",
+                "aliases":[],
+                "concept_type":"method",
+                "domain":"test",
+                "short_definition":"short",
+                "definition":"definition",
+                "confidence":"medium",
+                "evidence":[],
+                "relations":[],
+                "merge_hints":[]
+            }"#,
+        );
+        assert_eq!(
+            proposal.expect("historical proposal").local_id.as_deref(),
+            Some("concept:historical")
+        );
     }
 }

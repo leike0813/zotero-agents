@@ -346,6 +346,7 @@ fn main() -> Result<(), String> {
     let concept =
         ConceptKbApplication::with_clock(port.clone(), Arc::new(ConceptCompute), now.clone());
     let proposal = |label: String, confidence: ConceptConfidence| ConceptProposal {
+        local_id: None,
         short_definition: format!("{label} short"),
         definition: format!("{label} definition"),
         label,

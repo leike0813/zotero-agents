@@ -3107,7 +3107,8 @@ export async function openTaskManagerDialog(args?: {
   const isNoisyRefreshReason = (reason: RefreshReason) =>
     reason === "task-update" ||
     reason === "backend-health" ||
-    reason === "periodic";
+    reason === "periodic" ||
+    reason === "diagnostic-update";
 
   const scheduleDeferredDashboardRefresh = (reason: RefreshReason) => {
     if (deferredDashboardRefreshTimer) {

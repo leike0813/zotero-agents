@@ -109,6 +109,16 @@ async function postSnapshot(page: Page, includeSecondTrace = false) {
   await page.locator(".synthesis-sidecar-layout").waitFor();
 }
 
+async function postTracePayload(
+  page: Page,
+  payload: ReturnType<typeof traceSnapshot>,
+) {
+  await page.evaluate((snapshot) => {
+    window.postMessage({ type: "dashboard:snapshot", payload: snapshot }, "*");
+  }, payload);
+  await page.locator(".synthesis-sidecar-layout").waitFor();
+}
+
 describe("Synthesis Sidecar Dashboard", function () {
   this.timeout(20_000);
   let browser: Browser;
@@ -236,6 +246,84 @@ describe("Synthesis Sidecar Dashboard", function () {
     assert.equal(
       await page.locator(".synthesis-sidecar-events tbody tr").count(),
       2,
+    );
+  });
+
+  it("bounds visible traces, prioritizes active and failed rows, and retains selection", async function () {
+    await openDashboard();
+    await page.locator(`tr[data-trace-id="${TRACE_ID}"]`).click();
+    const payload = traceSnapshot();
+    const traces = payload.synthesisSidecarView.traceSnapshot.traces;
+    for (let index = 0; index < 130; index += 1) {
+      const traceId = index.toString(16).padStart(32, "a").slice(-32);
+      traces.push({
+        traceId,
+        active: false,
+        droppedCount: 0,
+        startedAtMs: index + 10,
+        updatedAtMs: index + 10,
+        events: [
+          {
+            schema: "synthesis-sidecar-observation.v2",
+            traceId,
+            spanId: index.toString(16).padStart(16, "b").slice(-16),
+            attempt: 0,
+            source: "host",
+            boundary: "operation",
+            phase: "terminal",
+            outcome: "succeeded",
+            occurredAtMs: index + 10,
+            identities: { operation: `client.success${index}` },
+          },
+        ],
+      } as (typeof traces)[number]);
+    }
+    const failed =
+      traceSnapshot(true).synthesisSidecarView.traceSnapshot.traces[1];
+    traces.push(failed);
+    traces.push({
+      ...failed,
+      traceId: "e".repeat(32),
+      active: true,
+      updatedAtMs: 1,
+      events: failed.events.map((event) => ({
+        ...event,
+        traceId: "e".repeat(32),
+        outcome: "started",
+      })),
+    });
+    payload.synthesisSidecarView.traceSnapshot.eventCount = traces.reduce(
+      (sum, trace) => sum + trace.events.length,
+      0,
+    );
+
+    await postTracePayload(page, payload);
+
+    const rows = page.locator(".synthesis-sidecar-events tbody tr");
+    assert.equal(await rows.count(), 100);
+    assert.equal(
+      await rows.first().getAttribute("data-trace-id"),
+      "e".repeat(32),
+    );
+    assert.equal(
+      await rows.nth(1).getAttribute("data-trace-id"),
+      "4".repeat(32),
+    );
+    assert.equal(
+      await page.locator(`tr[data-trace-id="${TRACE_ID}"]`).count(),
+      1,
+    );
+  });
+
+  it("filters traces by operation and capability", async function () {
+    await openDashboard();
+    await postSnapshot(page, true);
+    await page.getByPlaceholder("Filter traces").fill("client.listTopics");
+    const rows = page.locator(".synthesis-sidecar-events tbody tr");
+    assert.equal(await rows.count(), 2);
+    assert.equal(
+      await page.locator(`tr[data-trace-id="${"4".repeat(32)}"]`).count(),
+      1,
     );
   });
 });

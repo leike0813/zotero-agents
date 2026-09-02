@@ -872,16 +872,18 @@ fn resolve_current_topic(root: &Path, topic_id: &str) -> Result<ResolvedCurrentT
     validate_identity_part(topic_id)?;
     let path_id = canonical_topic_path_id(topic_id)?;
     let current = root.join("topics").join(&path_id).join("current");
-    if current.exists() {
+    if current.exists() && descriptor(&current, topic_id, &path_id).is_ok() {
         return Ok(ResolvedCurrentTopic { path_id, current });
     }
     if let Some(legacy_path_id) = historical_typescript_topic_path_id(topic_id)? {
         let legacy_current = root.join("topics").join(legacy_path_id).join("current");
         if legacy_current.exists() {
-            return Ok(ResolvedCurrentTopic {
-                path_id,
-                current: legacy_current,
-            });
+            if descriptor(&legacy_current, topic_id, &path_id).is_ok() || !current.exists() {
+                return Ok(ResolvedCurrentTopic {
+                    path_id,
+                    current: legacy_current,
+                });
+            }
         }
     }
     Ok(ResolvedCurrentTopic { path_id, current })
@@ -1556,8 +1558,13 @@ impl CanonicalStore {
 
     pub fn receipt(&self, topic_id: &str) -> Result<Option<CanonicalReceipt>, String> {
         validate_identity_part(topic_id)?;
-        let path_id = canonical_topic_path_id(topic_id)?;
-        let path = self.topic_root(&path_id)?.join("receipt.json");
+        let resolved = resolve_current_topic(&self.root, topic_id)?;
+        let path_id = resolved.path_id;
+        let topic_root = resolved
+            .current
+            .parent()
+            .ok_or_else(|| "canonical_path_invalid".to_owned())?;
+        let path = topic_root.join("receipt.json");
         if !path.exists() {
             return Ok(None);
         }
@@ -2226,7 +2233,7 @@ mod tests {
             .join(&prepared.snapshot.path_id);
         let mut store = CanonicalStore::initialize_production(&production_root, identity())
             .expect("initialize");
-        store
+        let receipt = store
             .promote_prepared(prepared.for_promotion(None))
             .expect("promote");
         store.close().expect("close");
@@ -2241,6 +2248,14 @@ mod tests {
             panic!("expected a historical topic to be readable");
         };
         assert_eq!(view.path_id, "63974b2998633977");
+        assert_eq!(
+            store
+                .receipt("中文主题")
+                .expect("receipt")
+                .expect("legacy receipt")
+                .transaction_id,
+            receipt.transaction_id
+        );
         let updated = prepare_topic(CanonicalTopicDraft {
             topic_id: "中文主题".into(),
             manifest: json!({
@@ -2268,6 +2283,49 @@ mod tests {
                 .is_file()
         );
         store.close().expect("close");
+        fs::remove_dir_all(parent).expect("cleanup");
+    }
+
+    #[test]
+    fn prefers_valid_legacy_topic_when_current_canonical_snapshot_is_invalid() {
+        let parent = root("legacy-topic-invalid-current");
+        let production_root = parent.join("data/synthesis");
+        let prepared = prepare_topic(CanonicalTopicDraft {
+            topic_id: "中文主题".into(),
+            manifest: json!({
+                "schema":"topic.manifest.v1",
+                "topic_id":"中文主题",
+                "sections":{"summary":{"path":"summary.json"}}
+            }),
+            artifact: json!({"schema":"topic.artifact.v1","title":"legacy"}),
+            metadata: json!({"data":{"topic_id":"中文主题"}}),
+            sections: BTreeMap::from([("summary".into(), json!({"text":"ready"}))]),
+            markdown: BTreeMap::new(),
+        })
+        .expect("prepare");
+        let canonical_path_id = prepared.view().path_id.clone();
+        let mut store = CanonicalStore::initialize_production(&production_root, identity())
+            .expect("initialize");
+        store
+            .promote_prepared(prepared.for_promotion(None))
+            .expect("promote");
+        store.close().expect("close");
+        fs::remove_file(production_root.join("identity.json")).expect("remove identity");
+        let canonical_path = production_root.join("topics").join(&canonical_path_id);
+        fs::rename(&canonical_path, production_root.join("topics/63974b299"))
+            .expect("install legacy path");
+        fs::create_dir_all(canonical_path.join("current")).expect("invalid current");
+        fs::write(canonical_path.join("current/artifact.json"), b"not-json")
+            .expect("write invalid current");
+
+        let store = CanonicalStore::open_production(&production_root, identity()).expect("reopen");
+        let CanonicalTopicState::Ready(view) = store.read_topic("中文主题").expect("read")
+        else {
+            panic!("expected valid legacy fallback");
+        };
+        assert_eq!(view.path_id, canonical_path_id);
+        assert_eq!(view.artifact["title"], "legacy");
+        drop(store);
         fs::remove_dir_all(parent).expect("cleanup");
     }
 

@@ -14728,8 +14728,6 @@ function sigmaGraphModelSignature(snapshot: Snapshot) {
     nodes: snapshot.graph.visibleNodes.map((node) => [
       node.id,
       node.label,
-      node.x,
-      node.y,
       node.kind,
       node.visibility,
       node.display_tier,
@@ -14800,6 +14798,18 @@ function sigmaNodeAttributes(
     display_tier: node.display_tier || "library",
     searchable: graphNodeSearchText(node),
   };
+}
+
+function applySigmaGraphLayout(snapshot: Snapshot, graph: Graph) {
+  for (const node of snapshot.graph.visibleNodes) {
+    if (!graph.hasNode(node.id)) continue;
+    if (typeof node.x === "number" && Number.isFinite(node.x)) {
+      graph.setNodeAttribute(node.id, "x", node.x);
+    }
+    if (typeof node.y === "number" && Number.isFinite(node.y)) {
+      graph.setNodeAttribute(node.id, "y", node.y);
+    }
+  }
 }
 
 function sigmaEdgeAttributes(edge: GraphEdge) {
@@ -14919,6 +14929,10 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     state.graph &&
     state.graphModelSignature === modelSignature
   ) {
+    if (state.graphLayoutSignature !== layoutSignature) {
+      applySigmaGraphLayout(snapshot, state.graph);
+      state.graphLayoutSignature = layoutSignature;
+    }
     const preserveTransientHover =
       state.graphQuerySignature === querySignature &&
       state.graphBasisHash === snapshot.graph.graph_hash;
@@ -15691,6 +15705,7 @@ function graphSurfaceRenderSignature(snapshot: Snapshot) {
     graphHash: snapshot.graph.graph_hash,
     layoutAlgorithm: snapshot.graph.layoutAlgorithm,
     model: sigmaGraphModelSignature(snapshot),
+    layout: sigmaGraphLayoutSignature(snapshot),
     topicScopes: (snapshot.graph.topicScopes || []).map((scope) => [
       scope.topicId,
       scope.title,

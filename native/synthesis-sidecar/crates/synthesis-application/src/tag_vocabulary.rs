@@ -1171,10 +1171,7 @@ impl TagVocabularyApplication {
     }
 
     pub fn promote(&self, request: &TagPromoteRequest) -> TagMutationResult {
-        if request.expected_vocabulary_hash.is_empty()
-            || request.tags.is_empty()
-            || request.tags.len() > 100
-        {
+        if request.expected_vocabulary_hash.is_empty() || request.tags.is_empty() {
             return self.result(TagMutationStatus::InvalidRequest, Vec::new(), Vec::new());
         }
         if self.ensure_staged_bindings_migrated().is_err() {
@@ -2576,6 +2573,65 @@ mod tests {
             250
         );
 
+        drop(app);
+        drop(owner);
+    }
+
+    #[test]
+    fn promotes_more_than_one_hundred_selected_tags_as_one_mutation() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-large-promote".into(),
+                    data_root_id: "data-large-promote".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let host = Arc::new(Host::new(true));
+        let app = TagVocabularyApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            host,
+            Arc::new(Resolver),
+            Arc::new(|| "2026-08-03T00:00:00.000Z".into()),
+        );
+        assert_eq!(
+            app.save(None, &candidate("tag:large-promote")).status,
+            TagMutationStatus::Committed
+        );
+        let staged = (0..101)
+            .map(|index| TagStagedSuggestionRecord {
+                tag: format!("method:bulk-{index}"),
+                facet: "method".into(),
+                parent_bindings_json: format!(
+                    r#"[{{"libraryId":1,"itemKey":"B{index:07}"}}]"#
+                ),
+                created_at: "2026-08-03T00:00:00.000Z".into(),
+                updated_at: "2026-08-03T00:00:00.000Z".into(),
+                ..TagStagedSuggestionRecord::default()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(app.stage(0, &staged).status, TagMutationStatus::Committed);
+        let tags = staged.iter().map(|row| row.tag.clone()).collect::<Vec<_>>();
+        let result = app.promote(&TagPromoteRequest {
+            expected_vocabulary_hash: "tag:large-promote".into(),
+            expected_staged_revision: 1,
+            tags,
+        });
+        assert_eq!(result.status, TagMutationStatus::Committed);
+        assert_eq!(result.changed_tags.len(), 101);
+        assert_eq!(
+            app.load_vocabulary()
+                .expect("load")
+                .entries
+                .iter()
+                .filter(|entry| entry.tag.starts_with("method:bulk-"))
+                .count(),
+            101
+        );
         drop(app);
         drop(owner);
     }

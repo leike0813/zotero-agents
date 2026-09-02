@@ -110,15 +110,89 @@ pub(crate) struct MaintenanceOperationView {
     pub receipt: Option<Value>,
 }
 
+const PUBLIC_MAINTENANCE_RECEIPT_STATUSES: &[&str] = &[
+    "promoted",
+    "unchanged",
+    "failed",
+    "invalid_request",
+    "repair_required",
+    "stopping",
+    "committed",
+    "not_found",
+    "basis_mismatch",
+    "concept_kb_busy",
+    "topic_graph_busy",
+    "conflict",
+    "tag_vocabulary_busy",
+    "engine_failed",
+    "worker_failed",
+    "graph_application_busy",
+    "worker_busy",
+];
+
+fn is_public_maintenance_receipt(value: &Value) -> bool {
+    if value.get("schema").and_then(Value::as_str) == Some("synthesis.maintenance_receipt.v1") {
+        return matches!(
+            value.get("outcome").and_then(Value::as_str),
+            Some("completed" | "failed" | "canceled" | "timed_out")
+        ) && value.get("state_changed").is_some_and(Value::is_boolean)
+            && value.get("retryable").is_some_and(Value::is_boolean)
+            && value.get("diagnostics").is_some_and(Value::is_array);
+    }
+    if value.get("schema_id").and_then(Value::as_str) == Some("synthesis.webdav_sync_state") {
+        return true;
+    }
+    let Some(status) = value.get("status").and_then(Value::as_str) else {
+        return false;
+    };
+    if !PUBLIC_MAINTENANCE_RECEIPT_STATUSES.contains(&status) || value.get("operation_id").is_some()
+    {
+        return false;
+    }
+    value.get("warnings").is_some_and(Value::is_array)
+        || value.get("diagnostics").is_some_and(Value::is_array)
+}
+
+fn canonicalize_maintenance_receipt(
+    value: &Value,
+    outcome: &str,
+    retryable: bool,
+    diagnostic_code: &str,
+) -> Value {
+    if is_public_maintenance_receipt(value) {
+        return value.clone();
+    }
+    json!({
+        "schema":"synthesis.maintenance_receipt.v1",
+        "outcome":outcome,
+        "state_changed":false,
+        "retryable":value.get("retryable").and_then(Value::as_bool).unwrap_or(retryable),
+        "diagnostics":[{"code":diagnostic_code,"severity":"error"}],
+    })
+}
+
 fn receipt_from_record(row: &OperationRecord) -> Option<Value> {
     serde_json::from_str::<Value>(&row.diagnostics_json)
         .ok()
         .and_then(|value| value.as_array().cloned())
         .and_then(|entries| {
             entries.into_iter().find_map(|entry| {
-                (entry.get("code").and_then(Value::as_str) == Some("public_maintenance_receipt"))
-                    .then(|| entry.get("receipt").cloned())
-                    .flatten()
+                if entry.get("code").and_then(Value::as_str) != Some("public_maintenance_receipt") {
+                    return None;
+                }
+                let receipt = entry.get("receipt")?;
+                let outcome = match row.status.as_str() {
+                    "completed" => "completed",
+                    "canceled" => "canceled",
+                    "timed_out" => "timed_out",
+                    _ => "failed",
+                };
+                Some(canonicalize_maintenance_receipt(
+                    receipt,
+                    outcome,
+                    true,
+                    "worker_result_invalid",
+                ))
             })
         })
 }
@@ -585,7 +659,12 @@ fn finish_public_maintenance_operation(
             row.status = "completed".into();
             row.phase = "completed".into();
             row.phase_label = "Completed".into();
-            let receipt = outcome.expect("completed outcome has receipt");
+            let receipt = canonicalize_maintenance_receipt(
+                outcome.expect("completed outcome has receipt"),
+                "completed",
+                false,
+                "worker_result_invalid",
+            );
             row.processed_count = receipt
                 .get("processed_paper_refs")
                 .and_then(Value::as_array)
@@ -616,7 +695,12 @@ fn finish_public_maintenance_operation(
             row.phase_label = label.into();
             row.failed_count = row.total_count.max(1);
             let receipt = match outcome {
-                Ok(receipt) => receipt.clone(),
+                Ok(receipt) => canonicalize_maintenance_receipt(
+                    receipt,
+                    receipt_outcome,
+                    true,
+                    "worker_result_invalid",
+                ),
                 Err(code) => json!({
                     "schema":"synthesis.maintenance_receipt.v1",
                     "outcome":receipt_outcome,
@@ -1178,6 +1262,36 @@ mod tests {
             classify_public_maintenance_terminal(Err("operation_timeout"), Some(&status_rule)),
             PublicMaintenanceTerminal::TimedOut("operation_timeout".into())
         );
+    }
+
+    #[test]
+    fn projects_legacy_worker_failure_receipts_to_the_public_union() {
+        let row = OperationRecord {
+            operation_id: "maintenance:matching".into(),
+            operation_type: "client.runAdvancedReferenceMatchingNow".into(),
+            status: "failed".into(),
+            basis_kind: PUBLIC_MAINTENANCE_BASIS_KIND.into(),
+            diagnostics_json: serde_json::to_string(&vec![json!({
+                "code":"public_maintenance_receipt",
+                "receipt":{
+                    "ok":false,
+                    "status":"matcher_failed",
+                    "operation_id":"maintenance:matching",
+                    "retryable":true,
+                    "diagnostics":[{"code":"matcher_failed","severity":"error"}]
+                }
+            })])
+            .expect("diagnostics"),
+            ..OperationRecord::default()
+        };
+        let receipt = maintenance_operation_view(&row)
+            .expect("view")
+            .receipt
+            .expect("receipt");
+        assert_eq!(receipt["schema"], "synthesis.maintenance_receipt.v1");
+        assert_eq!(receipt["outcome"], "failed");
+        assert_eq!(receipt["retryable"], true);
+        assert_eq!(receipt["diagnostics"][0]["code"], "worker_result_invalid");
     }
 
     #[test]

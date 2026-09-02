@@ -1079,9 +1079,11 @@ function runWorkbenchCommandOnce(
     refreshFromService: isSyncRuntimeCommand(command),
   });
   ensureCommandProgressPolling(runtime);
+  let commandSucceeded = false;
   const start = () =>
     run()
       .then(() => {
+        commandSucceeded = true;
         runtime.lastCompletedCommand = {
           ...operation,
           status: "completed",
@@ -1115,10 +1117,19 @@ function runWorkbenchCommandOnce(
           markSurfaceDirty(runtime, surface),
         );
         const activeSurface = surfaceForTab(runtime.state.selectedTab);
-        if (invalidatedSurfaces.includes(activeSurface)) {
-          void sendSurface(runtime, activeSurface, {
-            refreshFromService: options.refreshFromService !== false,
-          });
+        const activeSurfaceRefresh = invalidatedSurfaces.includes(activeSurface)
+          ? sendSurface(runtime, activeSurface, {
+              refreshFromService: options.refreshFromService !== false,
+            })
+          : Promise.resolve();
+        if (
+          commandSucceeded &&
+          isCitationGraphCacheCommand(command) &&
+          activeSurface === "graph"
+        ) {
+          void activeSurfaceRefresh
+            .then(() => refreshGraphLayoutIfNeeded(runtime))
+            .catch((error) => reportWorkbenchError(error, runtime.window));
         }
       });
   if (options.deferStart) {
@@ -1126,6 +1137,16 @@ function runWorkbenchCommandOnce(
     return;
   }
   void start();
+}
+
+function isCitationGraphCacheCommand(
+  command: SynthesisUiActionOperation["command"],
+) {
+  return (
+    command === "rebuildCitationGraphCacheNow" ||
+    command === "refreshCitationGraphCacheIncrementalNow" ||
+    command === "retryCitationGraphCacheRebuild"
+  );
 }
 
 async function observePublicMaintenanceOperation(
@@ -2541,42 +2562,54 @@ async function recomputeWorkbenchCitationGraphLayout(
       runtime.graphLayoutRefreshes.entries(),
     ).find(([otherKey]) => otherKey !== key)?.[1];
     if (otherRefresh) await otherRefresh.catch(() => undefined);
-    try {
-      const client = await getDefaultSynthesisClient();
-      const result = classifySynthesisWorkbenchGraphMutationResult(
-        (await observePublicMaintenanceOperation(
-          client,
-          await client.graph.recomputeCitationGraphLayout({
-            algorithm: layoutAlgorithm,
-            ...(force ? { force: true } : {}),
-          }),
-          {
-            deadlineMs: 130_000,
-            isDisposed: () => Boolean(runtime.cleanedUp),
-          },
-        )) as SynthesisGraphCommandResult,
-      );
-      runtime.graphLayoutFailure = undefined;
-      return result;
-    } catch (error) {
-      if (isSynthesisWorkbenchGraphApplicationBusyError(error)) {
-        runtime.graphLayoutFailure = undefined;
-        await observeCurrentCitationGraphLayout(runtime, layoutAlgorithm);
-        return { status: "busy_observed" };
-      }
-      if (basis) {
-        runtime.graphLayoutFailure = createSynthesisWorkbenchGraphLayoutFailure(
-          {
-            ...basis,
-            error,
-          },
+    const client = await getDefaultSynthesisClient();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const result = classifySynthesisWorkbenchGraphMutationResult(
+          (await observePublicMaintenanceOperation(
+            client,
+            await client.graph.recomputeCitationGraphLayout({
+              algorithm: layoutAlgorithm,
+              ...(force ? { force: true } : {}),
+            }),
+            {
+              deadlineMs: 130_000,
+              isDisposed: () => Boolean(runtime.cleanedUp),
+            },
+          )) as SynthesisGraphCommandResult,
         );
+        runtime.graphLayoutFailure = undefined;
+        return result;
+      } catch (error) {
+        if (!isSynthesisWorkbenchGraphApplicationBusyError(error)) {
+          if (basis) {
+            runtime.graphLayoutFailure =
+              createSynthesisWorkbenchGraphLayoutFailure({
+                ...basis,
+                error,
+              });
+            await sendSurface(runtime, "graph", {
+              refreshFromService: false,
+            }).catch(() => undefined);
+          }
+          throw error;
+        }
+        runtime.graphLayoutFailure = undefined;
+        const observed = await observeCurrentCitationGraphLayout(
+          runtime,
+          layoutAlgorithm,
+          { maxAttempts: 8 },
+        );
+        if (observed || attempt === 2) {
+          return { status: "busy_observed" };
+        }
         await sendSurface(runtime, "graph", {
-          refreshFromService: false,
-        }).catch(() => undefined);
+          refreshFromService: true,
+        });
+        await delay(250 * (attempt + 1));
       }
-      throw error;
     }
+    return { status: "busy_observed" };
   })();
   runtime.graphLayoutRefreshes.set(key, refresh);
   try {
@@ -2591,13 +2624,18 @@ async function recomputeWorkbenchCitationGraphLayout(
 async function observeCurrentCitationGraphLayout(
   runtime: SynthesisWorkbenchRuntime,
   layoutAlgorithm: SynthesisUiLayoutAlgorithm,
+  options: { maxAttempts?: number } = {},
 ) {
-  const deadline = Date.now() + 130_000;
+  const maxAttempts = Math.max(1, options.maxAttempts || 20);
   const expectedGraphHash = String(
     runtime.snapshotInput?.graph?.graph_hash || "",
   ).trim();
   const client = await getDefaultSynthesisClient();
-  while (!runtime.cleanedUp && Date.now() < deadline) {
+  for (
+    let attempt = 0;
+    !runtime.cleanedUp && attempt < maxAttempts;
+    attempt += 1
+  ) {
     const layout = await client.graph.getPersistedLayout({
       scope: "full",
       algorithm: layoutAlgorithm,

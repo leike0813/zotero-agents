@@ -21,6 +21,7 @@
     productExpandedTreePathsById: Object.create(null),
     synthesisEventId: "",
     synthesisTraceId: "",
+    synthesisTraceFilter: "",
     synthesisStatusFilter: "",
     synthesisComponentFilter: "",
     synthesisCorrelationFilter: "",
@@ -4108,6 +4109,57 @@
     }
     if (traceSnapshot && Array.isArray(traceSnapshot.traces)) {
       const traces = traceSnapshot.traces;
+      const traceOutcome = function (trace) {
+        if (trace.active === true) return "started";
+        return trace.events.some(function (event) {
+          return event.outcome === "failed";
+        })
+          ? "failed"
+          : "succeeded";
+      };
+      const traceSearchText = function (trace) {
+        return [
+          trace.traceId,
+          ...trace.events.flatMap(function (event) {
+            return [
+              event.identities && event.identities.operation,
+              event.identities && event.identities.capability,
+            ];
+          }),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+      };
+      const selectedFromState = traces.find(function (trace) {
+        return trace.traceId === state.synthesisTraceId;
+      });
+      const rankedTraces = traces
+        .filter(function (trace) {
+          const needle = String(state.synthesisTraceFilter || "")
+            .trim()
+            .toLowerCase();
+          return !needle || traceSearchText(trace).includes(needle);
+        })
+        .sort(function (left, right) {
+          const priority = function (trace) {
+            return trace.active === true ? 0 : traceOutcome(trace) === "failed" ? 1 : 2;
+          };
+          return (priority(left) - priority(right)) || right.updatedAtMs - left.updatedAtMs;
+        });
+      const selected =
+        selectedFromState ||
+        rankedTraces[0] ||
+        traces
+          .slice()
+          .sort(function (left, right) {
+            return right.updatedAtMs - left.updatedAtMs;
+          })[0];
+      const visibleTraces = rankedTraces.slice(0, 100);
+      if (selected && !visibleTraces.some(function (trace) { return trace.traceId === selected.traceId; })) {
+        if (visibleTraces.length >= 100) visibleTraces.pop();
+        visibleTraces.push(selected);
+      }
       main.appendChild(el("h2", "page-title", "Synthesis Sidecar"));
       if (traces.length === 0) {
         main.appendChild(
@@ -4135,20 +4187,19 @@
       });
       main.appendChild(summary);
 
-      const selected =
-        traces.find(function (trace) {
-          return trace.traceId === state.synthesisTraceId;
-        }) ||
-        traces
-          .slice()
-          .reverse()
-          .find(function (trace) {
-            return trace.events.some(function (event) {
-              return event.outcome === "failed";
-            });
-          }) ||
-        traces[traces.length - 1];
       state.synthesisTraceId = selected ? selected.traceId : "";
+      const traceFilter = el("label", "synthesis-sidecar-filter synthesis-sidecar-filter-grow");
+      traceFilter.appendChild(el("span", "card-label", "Trace / operation / capability"));
+      const traceInput = document.createElement("input");
+      traceInput.className = "workflow-settings-field-control mono";
+      traceInput.value = state.synthesisTraceFilter || "";
+      traceInput.placeholder = "Filter traces";
+      traceInput.addEventListener("input", function () {
+        state.synthesisTraceFilter = traceInput.value;
+        render();
+      });
+      traceFilter.appendChild(traceInput);
+      main.appendChild(traceFilter);
       const layout = el("div", "synthesis-sidecar-layout");
       const tableWrap = el("div", "table-wrap synthesis-sidecar-events");
       tableWrap.dataset.dashboardScrollKey = "synthesis-sidecar:events";
@@ -4163,7 +4214,7 @@
       thead.appendChild(header);
       table.appendChild(thead);
       const tbody = document.createElement("tbody");
-      traces.forEach(function (trace) {
+      visibleTraces.forEach(function (trace) {
         const root = trace.events.find(function (event) {
           return !event.parentSpanId;
         });

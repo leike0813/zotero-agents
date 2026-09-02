@@ -1,6 +1,6 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use synthesis_application::concept_kb::decode_stored_concept_proposal;
 use synthesis_application::topic_graph::TopicPlanReconcileRequest;
@@ -763,7 +763,314 @@ fn topic_list_wire(result: TopicListResult) -> Value {
     })
 }
 
-fn topic_detail_wire(result: TopicDetailResult) -> Value {
+fn project_object(value: &Value, keys: &[&str]) -> Map<String, Value> {
+    value
+        .as_object()
+        .map(|object| {
+            keys.iter()
+                .filter_map(|key| {
+                    object
+                        .get(*key)
+                        .cloned()
+                        .map(|value| ((*key).into(), value))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn project_string_list(value: &Value, object_keys: &[&str]) -> Value {
+    let values = value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            entry.as_str().or_else(|| {
+                object_keys
+                    .iter()
+                    .find_map(|key| entry.get(*key).and_then(Value::as_str))
+            })
+        })
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    Value::Array(values.into_iter().map(Value::String).collect())
+}
+
+fn project_topic_definition(value: &Value, fallback: &Value) -> Value {
+    let mut object = project_object(
+        if value.is_object() { value } else { fallback },
+        &[
+            "id",
+            "title",
+            "name",
+            "definition",
+            "scope",
+            "discipline",
+            "research_field",
+            "aliases",
+            "scope_include",
+            "scope_exclude",
+        ],
+    );
+    if let Some(scope_boundary) = value.get("scope_boundary") {
+        object.insert(
+            "scope_boundary".into(),
+            Value::Object(project_object(scope_boundary, &["include", "exclude"])),
+        );
+    }
+    Value::Object(object)
+}
+
+fn project_resolved_paper(value: &Value) -> Result<Value, String> {
+    let paper_ref = value
+        .get("paper_ref")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let mut object = project_object(
+        value,
+        &[
+            "paper_ref",
+            "item_key",
+            "title",
+            "year",
+            "summary",
+            "synthesis_role",
+            "match_reasons",
+            "authors",
+            "role",
+            "context_selection_score",
+            "caveats",
+        ],
+    );
+    object.insert("paper_ref".into(), Value::String(paper_ref.into()));
+    for key in ["match_reasons", "authors", "caveats"] {
+        if let Some(value) = object.get(key).cloned() {
+            object.insert(key.into(), project_string_list(&value, &[]));
+        }
+    }
+    if let Some(value) = value.get("digest_ref") {
+        let digest = project_object(
+            value,
+            &[
+                "paper_ref",
+                "payload_type",
+                "note_key",
+                "path",
+                "locator",
+                "payload_hash",
+                "library_id",
+            ],
+        );
+        if digest.get("paper_ref").is_some() && digest.get("payload_type").is_some() {
+            object.insert("digest_ref".into(), Value::Object(digest));
+        }
+    }
+    if let Some(value) = value.get("literature_quality") {
+        let quality = project_object(
+            value,
+            &[
+                "status",
+                "schema",
+                "rubric_id",
+                "paper_type",
+                "overall_score",
+                "confidence",
+                "confidence_adjusted_score",
+                "quality_prior",
+                "payload_hash",
+                "diagnostics",
+            ],
+        );
+        if quality.get("status").is_some() {
+            object.insert("literature_quality".into(), Value::Object(quality));
+        }
+    }
+    Ok(Value::Object(object))
+}
+
+fn project_text_summary(value: &Value) -> Value {
+    let mut object = project_object(
+        value,
+        &["text", "analysis", "overview", "brief", "report_excerpt"],
+    );
+    if let Some(value) = value.get("key_takeaways") {
+        object.insert("key_takeaways".into(), project_string_list(value, &[]));
+    }
+    Value::Object(object)
+}
+
+fn project_coverage(value: &Value) -> Value {
+    let mut object = project_object(
+        value,
+        &[
+            "verdict",
+            "reason",
+            "paper_count",
+            "external_literature_count",
+            "coverage_verdict",
+            "coverage_reason",
+            "external_context_summary",
+        ],
+    );
+    for (key, object_keys) in [
+        ("caveats", &["note", "reason"][..]),
+        ("coverage_caveats", &["note", "reason"][..]),
+        (
+            "suggested_collection_directions",
+            &["direction", "reason"][..],
+        ),
+    ] {
+        if let Some(value) = value.get(key) {
+            object.insert(key.into(), project_string_list(value, object_keys));
+        }
+    }
+    Value::Object(object)
+}
+
+fn project_topic_artifact(value: &Value, topic: &TopicRecord) -> Result<Value, String> {
+    let mut object = project_object(
+        value,
+        &[
+            "schema_id",
+            "schema_version",
+            "language",
+            "taxonomy",
+            "improvement_dimensions",
+            "claims",
+            "timeline_events",
+            "debates",
+            "statistics",
+            "synthesis_report",
+            "future_directions",
+            "review_outline",
+            "source_artifacts",
+            "diagnostics",
+        ],
+    );
+    let fallback_topic = serde_json::to_value(&topic.topic_definition)
+        .map_err(|_| "production_projection_invalid".to_owned())?;
+    object.insert(
+        "topic".into(),
+        project_topic_definition(
+            value.get("topic").unwrap_or(&fallback_topic),
+            &fallback_topic,
+        ),
+    );
+    object.insert(
+        "summary".into(),
+        project_text_summary(value.get("summary").unwrap_or(&json!({}))),
+    );
+    object.insert(
+        "coverage".into(),
+        project_coverage(value.get("coverage").unwrap_or(&json!({}))),
+    );
+    let papers = if let Some(papers) = value.get("source_papers").and_then(Value::as_array) {
+        papers
+            .iter()
+            .map(project_resolved_paper)
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        topic
+            .resolved_paper_set
+            .papers
+            .iter()
+            .map(|paper| {
+                serde_json::to_value(paper)
+                    .map_err(|_| "production_projection_invalid".to_owned())
+                    .and_then(|value| project_resolved_paper(&value))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    object.insert("source_papers".into(), Value::Array(papers));
+    Ok(Value::Object(object))
+}
+
+fn project_manifest(value: &Value) -> Value {
+    let mut object = project_object(
+        value,
+        &[
+            "schema_id",
+            "schema_version",
+            "topic_id",
+            "operation",
+            "language",
+            "artifact_hash",
+            "metadata_hash",
+            "section_hashes",
+        ],
+    );
+    for key in ["sections", "sidecars"] {
+        if let Some(entries) = value.get(key).and_then(Value::as_object) {
+            let projected = entries
+                .iter()
+                .map(|(name, entry)| {
+                    (
+                        name.clone(),
+                        Value::Object(project_object(
+                            entry,
+                            &[
+                                "key",
+                                "path",
+                                "hash",
+                                "skill_id",
+                                "stage_id",
+                                "content_type",
+                                "schema_id",
+                            ],
+                        )),
+                    )
+                })
+                .collect();
+            object.insert(key.into(), Value::Object(projected));
+        }
+    }
+    Value::Object(object)
+}
+
+fn project_metadata(value: &Value, topic: &TopicRecord) -> Value {
+    let source = value.as_object();
+    let data = source.and_then(|value| value.get("data"));
+    let artifact_metadata = data
+        .and_then(|value| value.get("artifact_metadata"))
+        .map(|value| {
+            let mut metadata = project_object(
+                value,
+                &[
+                    "topic_id",
+                    "runtime",
+                    "markdown_path",
+                    "analysis_source_path",
+                    "update_reason",
+                ],
+            );
+            if let Some(depends_on) = value.get("depends_on") {
+                metadata.insert(
+                    "depends_on".into(),
+                    Value::Object(project_object(depends_on, &["papers", "artifacts"])),
+                );
+            }
+            Value::Object(metadata)
+        })
+        .unwrap_or_else(|| json!({}));
+    json!({
+        "schema_id":"synthesis.topic_artifact_metadata",
+        "schema_version":"1.0.0",
+        "created_at":source.and_then(|value| value.get("created_at")).and_then(Value::as_str).unwrap_or(&topic.updated_at),
+        "updated_at":source.and_then(|value| value.get("updated_at")).and_then(Value::as_str).unwrap_or(&topic.updated_at),
+        "data":{
+            "topic_id":topic.topic_id,
+            "title":topic.title,
+            "definition":topic.definition,
+            "language":topic.language,
+            "operation":match topic.operation.as_str() { "create" | "update_full" | "update_patch" => topic.operation.as_str(), _ => "create" },
+            "artifact_metadata":artifact_metadata,
+        }
+    })
+}
+
+fn topic_detail_wire(result: TopicDetailResult) -> Result<Value, String> {
     match result {
         TopicDetailResult::Absent {
             topic_id,
@@ -772,42 +1079,33 @@ fn topic_detail_wire(result: TopicDetailResult) -> Value {
         | TopicDetailResult::Invalid {
             topic_id,
             diagnostics,
-        } => json!({
+        } => Ok(json!({
             "ok":false,
             "status":"unavailable",
             "topicId":topic_id,
             "title":"",
             "source_papers":[],
             "diagnostics":diagnostics,
-        }),
+        })),
         TopicDetailResult::Ready {
             topic_id,
             topic,
             snapshot,
         } => {
-            let artifact = snapshot.artifact;
-            let topic_section = artifact
-                .get("topic")
-                .cloned()
-                .unwrap_or_else(|| json!(&topic.topic_definition));
+            let artifact = project_topic_artifact(&snapshot.artifact, &topic)?;
+            let topic_section = artifact.get("topic").cloned().unwrap_or_else(|| json!({}));
             let source_papers = artifact
                 .get("source_papers")
-                .and_then(Value::as_array)
                 .cloned()
-                .unwrap_or_else(|| {
-                    topic
-                        .resolved_paper_set
-                        .papers
-                        .iter()
-                        .map(|paper| json!(paper))
-                        .collect()
-                });
+                .unwrap_or_else(|| json!([]));
             let title = topic_section
                 .get("title")
                 .and_then(Value::as_str)
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or(&topic.title);
-            json!({
+            let manifest = project_manifest(&snapshot.manifest);
+            let metadata = project_metadata(&snapshot.metadata, &topic);
+            Ok(json!({
                 "ok":true,
                 "status":"ready",
                 "topicId":topic_id,
@@ -815,7 +1113,7 @@ fn topic_detail_wire(result: TopicDetailResult) -> Value {
                 "language":topic.language,
                 "updated_at":topic.updated_at,
                 "artifact_hash":topic.artifact_hash,
-                "paper_count":source_papers.len(),
+                "paper_count":source_papers.as_array().map_or(0, Vec::len),
                 "topic":topic_section,
                 "summary":artifact.get("summary").cloned().unwrap_or_else(|| json!({})),
                 "taxonomy":artifact.get("taxonomy").cloned().unwrap_or_else(|| json!({})),
@@ -832,10 +1130,10 @@ fn topic_detail_wire(result: TopicDetailResult) -> Value {
                 "source_artifacts":artifact.get("source_artifacts").cloned().unwrap_or_else(|| json!({})),
                 "diagnostics":artifact.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
                 "artifact":artifact,
-                "manifest":snapshot.manifest,
-                "metadata":snapshot.metadata,
+                "manifest":manifest,
+                "metadata":metadata,
                 "pathId":snapshot.path_id,
-            })
+            }))
         }
     }
 }
@@ -1299,7 +1597,7 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
         let reader = match topic_id {
             Some(topic_id) => topic_detail_wire(self.apps.topics.detail(TopicDetailRequest {
                 topic_id: topic_id.to_owned(),
-            })?),
+            })?)?,
             None => json!({
                 "ok":false,"status":"unavailable","topicId":"","title":"",
                 "source_papers":[],"diagnostics":["reader_topic_unselected"],
@@ -1317,7 +1615,7 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
         wire(apps.topics.find_by_paper_refs(decode_find_request(args)?)?)
     }),
     ProductionClientRouteEntry::new("client.readTopicDetail", |apps, args| {
-        apps.topics.detail(one(args)?).map(topic_detail_wire)
+        apps.topics.detail(one(args)?).and_then(topic_detail_wire)
     }),
     ProductionClientRouteEntry::new("client.listWorkflowTopicOptions", |apps, args| {
         match decode_workflow_filter(args)? {
@@ -1441,6 +1739,34 @@ mod tests {
                 "collection_key":[]
             })])
             .is_err()
+        );
+    }
+
+    #[test]
+    fn projects_historical_topic_nested_fields_into_the_public_shape() {
+        let paper = project_resolved_paper(&json!({
+            "paper_ref": "1:ITEM1",
+            "title": "Paper",
+            "triage": {"status": "included"},
+            "match_reasons": ["resolver"],
+        }))
+        .expect("valid paper");
+        assert_eq!(paper["paper_ref"], "1:ITEM1");
+        assert!(paper.get("triage").is_none());
+
+        let coverage = project_coverage(&json!({
+            "verdict": "partial",
+            "coverage_caveats": [{"note": "small corpus", "type": "scope"}],
+            "suggested_collection_directions": [{
+                "direction": "Add surveys",
+                "reason": "Improve context",
+                "priority": "high"
+            }]
+        }));
+        assert_eq!(coverage["coverage_caveats"], json!(["small corpus"]));
+        assert_eq!(
+            coverage["suggested_collection_directions"],
+            json!(["Add surveys"])
         );
     }
 }

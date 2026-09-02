@@ -876,6 +876,38 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".graph-zoom-slider");
   });
 
+  it("refreshes the first graph rebuild and applies layout-only Sigma updates", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const appSource = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const commandBlock = extractFunctionBlock(
+      tabSource,
+      "runWorkbenchCommandOnce",
+    );
+    const observeBlock = extractFunctionBlock(
+      tabSource,
+      "observeCurrentCitationGraphLayout",
+    );
+    const syncBlock = extractFunctionBlock(appSource, "syncSigmaGraph");
+    const signatureBlock = extractFunctionBlock(
+      appSource,
+      "graphSurfaceRenderSignature",
+    );
+
+    assert.include(commandBlock, "isCitationGraphCacheCommand(command)");
+    assert.include(commandBlock, "refreshGraphLayoutIfNeeded(runtime)");
+    assert.include(observeBlock, "maxAttempts");
+    assert.include(syncBlock, "state.graphLayoutSignature !== layoutSignature");
+    assert.include(syncBlock, "applySigmaGraphLayout(snapshot, state.graph)");
+    assert.include(appSource, 'graph.setNodeAttribute(node.id, "x", node.x)');
+    assert.include(
+      signatureBlock,
+      "layout: sigmaGraphLayoutSignature(snapshot)",
+    );
+  });
+
   it("normalizes Synthesis background jobs without inventing progress", function () {
     const snapshot = buildSynthesisUiSnapshot({
       libraryId: 1,
