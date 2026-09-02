@@ -73,17 +73,24 @@ export function synthesisProductionRouteConfig(args: {
     dataRootId: args.dataRootId ?? "3".repeat(64),
     bundleId: "4".repeat(64),
     implementation: "rust-native",
-    target: process.platform === "win32" ? "windows-x64" : "linux-x64",
+    target: process.platform === "win32" ? "win32-x64" : "linux-x64",
     targetTriple:
       process.platform === "win32"
         ? "x86_64-pc-windows-msvc"
         : "x86_64-unknown-linux-gnu",
     buildFingerprint: "5".repeat(64),
-    platformSignature: {
-      scheme: "not-applicable",
-      status: "not-applicable",
-      signer: null,
-    },
+    platformSignature:
+      process.platform === "win32"
+        ? {
+            scheme: "authenticode",
+            status: "unsigned-candidate",
+            signer: null,
+          }
+        : {
+            scheme: "not-applicable",
+            status: "not-applicable",
+            signer: null,
+          },
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-repository-foundation.v4",

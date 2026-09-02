@@ -3,7 +3,7 @@ use crate::admission::{AdmissionError, SingleFlightAdmission};
 use crate::ports::TagVocabularyRepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -356,6 +356,19 @@ pub struct TagLegacyBindingMigrationSummary {
     pub dropped_bindings: usize,
 }
 
+struct TagPromotionPlan {
+    promoted: Vec<TagStagedSuggestionRecord>,
+    skipped: Vec<String>,
+    consumed: HashSet<String>,
+}
+
+struct TagCaseRepair {
+    replacement: TagVocabularyReplacement,
+    replaced_pending_effect_ids: Vec<String>,
+    pending_effects: Vec<TagEffectRecord>,
+    repaired_groups: usize,
+}
+
 type Clock = Arc<dyn Fn() -> String + Send + Sync>;
 
 pub struct TagVocabularyApplication {
@@ -418,6 +431,52 @@ impl TagVocabularyApplication {
             .map_err(|_| "unavailable".to_owned())?;
         self.run_staged_binding_migration()
             .map_err(|_| "unavailable".into())
+    }
+
+    pub fn repair_case_collisions(&self) -> Result<usize, String> {
+        let candidate = self.repository.load_candidate()?;
+        let effects = self.repository.list_effects()?;
+        let now = (self.now)();
+        let Some(repair) = plan_case_collision_repair(&candidate, &effects, &now)? else {
+            return Ok(0);
+        };
+        let receipt = case_repair_operation(
+            "completed",
+            repair.repaired_groups,
+            &[],
+            self.library_id,
+            &now,
+        );
+        match self.repository.repair_case_collisions(
+            &candidate.state.vocabulary_hash,
+            candidate.state.staged_revision,
+            &repair.replacement,
+            &repair.replaced_pending_effect_ids,
+            &repair.pending_effects,
+            &receipt,
+        ) {
+            Ok(true) => Ok(repair.repaired_groups),
+            Ok(false) => {
+                let _ = self.repository.upsert_operation(&case_repair_operation(
+                    "failed",
+                    repair.repaired_groups,
+                    &["tag_vocabulary_case_repair_basis_mismatch".into()],
+                    self.library_id,
+                    &now,
+                ));
+                Err("basis_mismatch".into())
+            }
+            Err(_) => {
+                let _ = self.repository.upsert_operation(&case_repair_operation(
+                    "failed",
+                    repair.repaired_groups,
+                    &["tag_vocabulary_case_repair_failed".into()],
+                    self.library_id,
+                    &now,
+                ));
+                Err("repair_required".into())
+            }
+        }
     }
 
     fn run_staged_binding_migration(&self) -> Result<TagLegacyBindingMigrationSummary, String> {
@@ -949,8 +1008,7 @@ impl TagVocabularyApplication {
     ) -> Result<TagPromoteResult, String> {
         self.ensure_initialized()?;
         self.ensure_staged_bindings_migrated()?;
-        let requested = normalized_tag_set(&request.tags);
-        if requested.is_empty() {
+        if normalized_tag_set(&request.tags).is_empty() {
             return Ok(TagPromoteResult {
                 promoted: Vec::new(),
                 skipped: Vec::new(),
@@ -958,28 +1016,8 @@ impl TagVocabularyApplication {
         }
         let candidate = self.repository.load_candidate()?;
         let staged = self.repository.list_staged()?;
-        let existing = candidate
-            .entries
-            .iter()
-            .map(|entry| entry.tag.to_lowercase())
-            .collect::<HashSet<_>>();
-        let mut promoted = staged
-            .iter()
-            .filter(|entry| {
-                requested.contains(&entry.tag.to_lowercase())
-                    && !existing.contains(&entry.tag.to_lowercase())
-            })
-            .map(|entry| entry.tag.clone())
-            .collect::<Vec<_>>();
-        let mut skipped = staged
-            .iter()
-            .filter(|entry| {
-                requested.contains(&entry.tag.to_lowercase())
-                    && existing.contains(&entry.tag.to_lowercase())
-            })
-            .map(|entry| entry.tag.clone())
-            .collect::<Vec<_>>();
-        if !promoted.is_empty() {
+        let plan = plan_staged_promotion(&candidate.entries, &staged, &request.tags)?;
+        if !plan.promoted.is_empty() {
             let result = self.promote(&TagPromoteRequest {
                 expected_vocabulary_hash: candidate.state.vocabulary_hash,
                 expected_staged_revision: candidate.state.staged_revision,
@@ -987,6 +1025,12 @@ impl TagVocabularyApplication {
             });
             ensure_mutation(result)?;
         }
+        let mut promoted = plan
+            .promoted
+            .into_iter()
+            .map(|row| row.tag)
+            .collect::<Vec<_>>();
+        let mut skipped = plan.skipped;
         promoted.sort();
         skipped.sort();
         Ok(TagPromoteResult { promoted, skipped })
@@ -1121,6 +1165,9 @@ impl TagVocabularyApplication {
             Ok(replacement) => replacement,
             Err(error) => return self.result(worker_status(&error), Vec::new(), Vec::new()),
         };
+        if validate_candidate(&replacement).is_err() {
+            return self.result(TagMutationStatus::EngineFailed, Vec::new(), Vec::new());
+        }
         if lease.canceled().load(Ordering::Relaxed) {
             return self.result(TagMutationStatus::Stopping, Vec::new(), Vec::new());
         }
@@ -1204,37 +1251,25 @@ impl TagVocabularyApplication {
         if lease.canceled().load(Ordering::Relaxed) {
             return self.result(TagMutationStatus::Stopping, Vec::new(), Vec::new());
         }
-        let selected = request
-            .tags
-            .iter()
-            .map(|tag| tag.to_lowercase())
-            .collect::<HashSet<_>>();
         let mut replacement = match self.repository.load_candidate() {
             Ok(candidate) => candidate,
             Err(_) => {
                 return self.result(TagMutationStatus::RepairRequired, Vec::new(), Vec::new());
             }
         };
-        let existing = replacement
-            .entries
-            .iter()
-            .map(|entry| entry.tag.to_lowercase())
-            .collect::<HashSet<_>>();
-        let promoted = staged
-            .iter()
-            .filter(|row| {
-                selected.contains(&row.tag.to_lowercase())
-                    && !existing.contains(&row.tag.to_lowercase())
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        if promoted.is_empty() {
+        let plan = match plan_staged_promotion(&replacement.entries, &staged, &request.tags) {
+            Ok(plan) => plan,
+            Err(_) => {
+                return self.result(TagMutationStatus::InvalidRequest, Vec::new(), Vec::new());
+            }
+        };
+        if plan.promoted.is_empty() {
             return self.result(TagMutationStatus::Unchanged, Vec::new(), Vec::new());
         }
         let now = (self.now)();
         replacement
             .entries
-            .extend(promoted.iter().map(|row| TagVocabularyEntryRecord {
+            .extend(plan.promoted.iter().map(|row| TagVocabularyEntryRecord {
                 tag: row.tag.clone(),
                 facet: row.facet.clone(),
                 note: row.note.clone(),
@@ -1277,17 +1312,13 @@ impl TagVocabularyApplication {
         replacement.state.staged_revision = next_revision;
         replacement.state.index_stale = 1;
         replacement.state.updated_at = now.clone();
-        let promoted_keys = promoted
-            .iter()
-            .map(|row| row.tag.to_lowercase())
-            .collect::<HashSet<_>>();
         let retained = staged
             .iter()
-            .filter(|row| !promoted_keys.contains(&row.tag.to_lowercase()))
+            .filter(|row| !plan.consumed.contains(&row.tag.to_lowercase()))
             .cloned()
             .collect::<Vec<_>>();
         let mut effects = Vec::new();
-        for row in &promoted {
+        for row in &plan.promoted {
             let bindings =
                 match serde_json::from_str::<Vec<TagParentBinding>>(&row.parent_bindings_json) {
                     Ok(bindings) => bindings,
@@ -1300,14 +1331,14 @@ impl TagVocabularyApplication {
                     }
                 };
             for binding in bindings {
-                let effect_hash = match canonical_json_hash(&json!({
-                    "tag": row.tag,
-                    "parent": {
-                        "libraryId": binding.library_id,
-                        "itemKey": binding.item_key,
-                    }
-                })) {
-                    Ok(hash) => hash,
+                let effect = match pending_tag_effect(
+                    &row.tag,
+                    &binding,
+                    &vocabulary_hash,
+                    next_revision,
+                    &now,
+                ) {
+                    Ok(effect) => effect,
                     Err(_) => {
                         return self.result(
                             TagMutationStatus::RepairRequired,
@@ -1316,22 +1347,7 @@ impl TagVocabularyApplication {
                         );
                     }
                 };
-                effects.push(TagEffectRecord {
-                    effect_id: format!(
-                        "staged-tag:{}",
-                        effect_hash.strip_prefix("sha256:").unwrap_or(&effect_hash)
-                    ),
-                    vocabulary_hash: vocabulary_hash.clone(),
-                    staged_revision: next_revision,
-                    library_id: binding.library_id,
-                    item_key: binding.item_key,
-                    tag: row.tag.clone(),
-                    status: "pending".into(),
-                    diagnostics_json: "[]".into(),
-                    created_at: now.clone(),
-                    updated_at: now.clone(),
-                    ..TagEffectRecord::default()
-                });
+                effects.push(effect);
             }
         }
         let promotion = TagVocabularyPromotion {
@@ -1355,7 +1371,7 @@ impl TagVocabularyApplication {
         let (_, warnings) = self.apply_effect_batches(&promotion.effects, &now);
         self.result(
             TagMutationStatus::Committed,
-            promoted_keys.into_iter().collect(),
+            plan.promoted.into_iter().map(|row| row.tag).collect(),
             warnings,
         )
     }
@@ -2037,6 +2053,302 @@ fn normalized_tag_set(tags: &[String]) -> HashSet<String> {
         .collect()
 }
 
+fn plan_staged_promotion(
+    canonical: &[TagVocabularyEntryRecord],
+    staged: &[TagStagedSuggestionRecord],
+    requested: &[String],
+) -> Result<TagPromotionPlan, String> {
+    let existing = canonical
+        .iter()
+        .map(|entry| entry.tag.to_lowercase())
+        .collect::<HashSet<_>>();
+    let mut groups = BTreeMap::<String, Vec<&TagStagedSuggestionRecord>>::new();
+    for row in staged {
+        groups.entry(row.tag.to_lowercase()).or_default().push(row);
+    }
+    let mut handled = HashSet::new();
+    let mut promoted = Vec::new();
+    let mut skipped = Vec::new();
+    let mut consumed = HashSet::new();
+    for selection in requested {
+        let selection = selection.trim();
+        let key = selection.to_lowercase();
+        if key.is_empty() || !handled.insert(key.clone()) {
+            continue;
+        }
+        let Some(group) = groups.get(&key) else {
+            continue;
+        };
+        if existing.contains(&key) {
+            skipped.extend(group.iter().map(|row| row.tag.clone()));
+            continue;
+        }
+        let winner = group
+            .iter()
+            .copied()
+            .find(|row| row.tag == selection)
+            .unwrap_or(group[0]);
+        let mut winner = winner.clone();
+        let mut bindings = BTreeMap::new();
+        for row in group {
+            for binding in serde_json::from_str::<Vec<TagParentBinding>>(&row.parent_bindings_json)
+                .map_err(|_| "invalid_request".to_owned())?
+            {
+                bindings.insert((binding.library_id, binding.item_key.clone()), binding);
+            }
+            if row.tag != winner.tag {
+                skipped.push(row.tag.clone());
+            }
+        }
+        winner.parent_bindings_json =
+            serde_json::to_string(&bindings.into_values().collect::<Vec<_>>())
+                .map_err(|_| "invalid_request".to_owned())?;
+        promoted.push(winner);
+        consumed.insert(key);
+    }
+    Ok(TagPromotionPlan {
+        promoted,
+        skipped,
+        consumed,
+    })
+}
+
+fn plan_case_collision_repair(
+    candidate: &TagVocabularyReplacement,
+    effects: &[TagEffectRecord],
+    now: &str,
+) -> Result<Option<TagCaseRepair>, String> {
+    let mut groups = BTreeMap::<String, Vec<&TagVocabularyEntryRecord>>::new();
+    for entry in &candidate.entries {
+        groups
+            .entry(entry.tag.to_lowercase())
+            .or_default()
+            .push(entry);
+    }
+    groups.retain(|_, entries| entries.len() > 1);
+    if groups.is_empty() {
+        return Ok(None);
+    }
+
+    let mut redirects = HashMap::<String, String>::new();
+    let mut winners = HashMap::<String, TagVocabularyEntryRecord>::new();
+    for (key, entries) in &groups {
+        let mut ranked = entries.clone();
+        ranked.sort_by(|left, right| {
+            let left_exact_builtin = BUILTIN_TAGS.contains(&left.tag.as_str());
+            let right_exact_builtin = BUILTIN_TAGS.contains(&right.tag.as_str());
+            (!left_exact_builtin)
+                .cmp(&(!right_exact_builtin))
+                .then_with(|| (left.source != "builtin").cmp(&(right.source != "builtin")))
+                .then_with(|| (left.deprecated != 0).cmp(&(right.deprecated != 0)))
+                .then_with(|| {
+                    timestamp_order(&left.created_at).cmp(&timestamp_order(&right.created_at))
+                })
+                .then_with(|| {
+                    timestamp_order(&left.updated_at).cmp(&timestamp_order(&right.updated_at))
+                })
+                .then_with(|| left.tag.cmp(&right.tag))
+        });
+        let mut winner = (*ranked[0]).clone();
+        let mut aliases = BTreeSet::new();
+        let mut abbrevs = BTreeSet::new();
+        let mut usage_count = 0_i64;
+        let mut created_at = String::new();
+        let mut last_synced_at = String::new();
+        for entry in entries {
+            redirects.insert(entry.tag.clone(), winner.tag.clone());
+            for alias in serde_json::from_str::<Vec<String>>(&entry.aliases_json)
+                .map_err(|_| "repository_invalid".to_owned())?
+            {
+                aliases.insert(alias);
+            }
+            for abbrev in serde_json::from_str::<Vec<String>>(&entry.abbrev_json)
+                .map_err(|_| "repository_invalid".to_owned())?
+            {
+                abbrevs.insert(abbrev);
+            }
+            usage_count = usage_count.saturating_add(entry.usage_count);
+            if !entry.created_at.is_empty()
+                && (created_at.is_empty() || entry.created_at < created_at)
+            {
+                created_at = entry.created_at.clone();
+            }
+            if entry.last_synced_at > last_synced_at {
+                last_synced_at = entry.last_synced_at.clone();
+            }
+        }
+        winner.aliases_json = serde_json::to_string(&aliases.into_iter().collect::<Vec<_>>())
+            .map_err(|_| "repository_invalid".to_owned())?;
+        winner.abbrev_json = serde_json::to_string(&abbrevs.into_iter().collect::<Vec<_>>())
+            .map_err(|_| "repository_invalid".to_owned())?;
+        winner.usage_count = usage_count;
+        winner.created_at = created_at;
+        winner.last_synced_at = last_synced_at;
+        winner.updated_at = now.into();
+        winners.insert(key.clone(), winner);
+    }
+
+    let mut replacement = candidate.clone();
+    let mut emitted = HashSet::new();
+    replacement.entries = candidate
+        .entries
+        .iter()
+        .filter_map(|entry| {
+            let key = entry.tag.to_lowercase();
+            if let Some(winner) = winners.get(&key) {
+                emitted.insert(key).then(|| winner.clone())
+            } else {
+                Some(entry.clone())
+            }
+        })
+        .collect();
+    for entry in &mut replacement.entries {
+        if let Some(winner) = redirects.get(&entry.replacement) {
+            entry.replacement = winner.clone();
+        }
+    }
+    for alias in &mut replacement.aliases {
+        if let Some(winner) = redirects.get(&alias.tag) {
+            alias.tag = winner.clone();
+            alias.updated_at = now.into();
+        }
+    }
+    for abbrev in &mut replacement.abbrevs {
+        if let Some(winner) = redirects.get(&abbrev.abbrev_value) {
+            abbrev.abbrev_value = winner.clone();
+            abbrev.updated_at = now.into();
+        }
+    }
+    for warning in &mut replacement.warnings {
+        if let Some(winner) = redirects.get(&warning.tag) {
+            warning.tag = winner.clone();
+            warning.updated_at = now.into();
+        }
+    }
+    protect_builtin_candidate(&mut replacement, now)?;
+    replacement.state.updated_at = now.into();
+    refresh_candidate_hash(&mut replacement)?;
+    validate_candidate(&replacement)?;
+
+    let replaced_pending_effect_ids = effects
+        .iter()
+        .filter(|effect| effect.status == "pending" && redirects.contains_key(&effect.tag))
+        .map(|effect| effect.effect_id.clone())
+        .collect::<Vec<_>>();
+    let terminal_effect_ids = effects
+        .iter()
+        .filter(|effect| effect.status != "pending")
+        .map(|effect| effect.effect_id.clone())
+        .collect::<HashSet<_>>();
+    let mut bindings = BTreeMap::<(String, i64, String), TagParentBinding>::new();
+    for effect in effects.iter().filter(|effect| effect.status == "pending") {
+        let Some(tag) = redirects.get(&effect.tag) else {
+            continue;
+        };
+        bindings.insert(
+            (tag.clone(), effect.library_id, effect.item_key.clone()),
+            TagParentBinding {
+                library_id: effect.library_id,
+                item_key: effect.item_key.clone(),
+            },
+        );
+    }
+    let mut pending_effects = Vec::new();
+    for ((tag, _, _), binding) in bindings {
+        let effect = pending_tag_effect(
+            &tag,
+            &binding,
+            &replacement.state.vocabulary_hash,
+            replacement.state.staged_revision,
+            now,
+        )?;
+        if !terminal_effect_ids.contains(&effect.effect_id) {
+            pending_effects.push(effect);
+        }
+    }
+    Ok(Some(TagCaseRepair {
+        replacement,
+        replaced_pending_effect_ids,
+        pending_effects,
+        repaired_groups: groups.len(),
+    }))
+}
+
+fn timestamp_order(value: &str) -> (bool, &str) {
+    (value.is_empty(), value)
+}
+
+fn pending_tag_effect(
+    tag: &str,
+    binding: &TagParentBinding,
+    vocabulary_hash: &str,
+    staged_revision: i64,
+    now: &str,
+) -> Result<TagEffectRecord, String> {
+    let effect_hash = canonical_json_hash(&json!({
+        "tag": tag,
+        "parent": {
+            "libraryId": binding.library_id,
+            "itemKey": binding.item_key,
+        }
+    }))?;
+    Ok(TagEffectRecord {
+        effect_id: format!(
+            "staged-tag:{}",
+            effect_hash.strip_prefix("sha256:").unwrap_or(&effect_hash)
+        ),
+        vocabulary_hash: vocabulary_hash.into(),
+        staged_revision,
+        library_id: binding.library_id,
+        item_key: binding.item_key.clone(),
+        tag: tag.into(),
+        status: "pending".into(),
+        diagnostics_json: "[]".into(),
+        created_at: now.into(),
+        updated_at: now.into(),
+        ..TagEffectRecord::default()
+    })
+}
+
+fn case_repair_operation(
+    status: &str,
+    repaired_groups: usize,
+    diagnostics: &[String],
+    library_id: i64,
+    now: &str,
+) -> OperationRecord {
+    OperationRecord {
+        operation_id: "tag-vocabulary-case-repair".into(),
+        operation_type: "tag_vocabulary_case_repair".into(),
+        library_id,
+        scope_kind: "library".into(),
+        scope_ref: library_id.to_string(),
+        status: status.into(),
+        label: "Repair Tag vocabulary case collisions".into(),
+        phase: status.into(),
+        phase_label: if status == "completed" {
+            "Completed"
+        } else {
+            "Failed"
+        }
+        .into(),
+        progress_mode: "determinate".into(),
+        processed_count: if status == "completed" {
+            repaired_groups as i64
+        } else {
+            0
+        },
+        failed_count: i64::from(status == "failed"),
+        total_count: repaired_groups as i64,
+        diagnostics_json: serde_json::to_string(diagnostics).unwrap_or_else(|_| "[]".into()),
+        created_at: now.into(),
+        started_at: now.into(),
+        completed_at: now.into(),
+        updated_at: now.into(),
+        ..OperationRecord::default()
+    }
+}
+
 fn merge_public_entries(
     local: &[TagVocabularyEntry],
     imported: &[TagVocabularyEntry],
@@ -2082,7 +2394,7 @@ fn validate_candidate(candidate: &TagVocabularyReplacement) -> Result<(), String
         || candidate
             .entries
             .iter()
-            .map(|entry| &entry.tag)
+            .map(|entry| entry.tag.to_lowercase())
             .collect::<HashSet<_>>()
             .len()
             != candidate.entries.len()
@@ -2390,6 +2702,136 @@ mod tests {
         }
     }
 
+    fn collided_candidate(hash: &str) -> TagVocabularyReplacement {
+        TagVocabularyReplacement {
+            state: TagApplicationStateRecord {
+                singleton_id: 1,
+                vocabulary_hash: hash.into(),
+                staged_revision: 4,
+                index_hash: "old-index".into(),
+                index_basis_hash: hash.into(),
+                index_json: "{}".into(),
+                index_stale: 0,
+                updated_at: "2026-09-01T00:00:00.000Z".into(),
+            },
+            entries: vec![
+                TagVocabularyEntryRecord {
+                    tag: "method:CNN".into(),
+                    facet: "method".into(),
+                    note: "winner metadata".into(),
+                    source: "winner-source".into(),
+                    aliases_json: r#"["upper-alias"]"#.into(),
+                    abbrev_json: r#"["CNN"]"#.into(),
+                    usage_count: 2,
+                    last_synced_at: "2026-09-01T00:00:00.000Z".into(),
+                    created_at: "2026-08-01T00:00:00.000Z".into(),
+                    updated_at: "2026-08-02T00:00:00.000Z".into(),
+                    ..TagVocabularyEntryRecord::default()
+                },
+                TagVocabularyEntryRecord {
+                    tag: "method:cnn".into(),
+                    facet: "method".into(),
+                    note: "loser metadata".into(),
+                    source: "loser-source".into(),
+                    aliases_json: r#"["lower-alias"]"#.into(),
+                    abbrev_json: r#"["cnn"]"#.into(),
+                    usage_count: 3,
+                    last_synced_at: "2026-09-02T00:00:00.000Z".into(),
+                    created_at: "2026-08-02T00:00:00.000Z".into(),
+                    updated_at: "2026-08-03T00:00:00.000Z".into(),
+                    ..TagVocabularyEntryRecord::default()
+                },
+                TagVocabularyEntryRecord {
+                    tag: "method:consumer".into(),
+                    facet: "method".into(),
+                    replacement: "method:cnn".into(),
+                    aliases_json: "[]".into(),
+                    abbrev_json: "[]".into(),
+                    created_at: "2026-08-04T00:00:00.000Z".into(),
+                    updated_at: "2026-08-04T00:00:00.000Z".into(),
+                    ..TagVocabularyEntryRecord::default()
+                },
+            ],
+            aliases: vec![TagAliasRecord {
+                alias: "neural-network".into(),
+                tag: "method:cnn".into(),
+                created_at: "2026-08-04T00:00:00.000Z".into(),
+                updated_at: "2026-08-04T00:00:00.000Z".into(),
+            }],
+            abbrevs: vec![TagAbbrevRecord {
+                abbrev_key: "cnn".into(),
+                abbrev_value: "method:cnn".into(),
+                created_at: "2026-08-04T00:00:00.000Z".into(),
+                updated_at: "2026-08-04T00:00:00.000Z".into(),
+            }],
+            warnings: vec![TagValidationWarningRecord {
+                warning_id: "warning-case".into(),
+                code: "fixture".into(),
+                severity: "warning".into(),
+                tag: "method:cnn".into(),
+                message: "fixture".into(),
+                created_at: "2026-08-04T00:00:00.000Z".into(),
+                updated_at: "2026-08-04T00:00:00.000Z".into(),
+            }],
+            ..TagVocabularyReplacement::default()
+        }
+    }
+
+    fn collided_effects(hash: &str) -> Vec<TagEffectRecord> {
+        [
+            ("pending-upper-a", "method:CNN", "A", "pending"),
+            ("pending-lower-a", "method:cnn", "A", "pending"),
+            ("pending-lower-b", "method:cnn", "B", "pending"),
+            ("terminal-lower-c", "method:cnn", "C", "applied"),
+        ]
+        .into_iter()
+        .map(|(effect_id, tag, item_key, status)| TagEffectRecord {
+            effect_id: effect_id.into(),
+            vocabulary_hash: hash.into(),
+            staged_revision: 4,
+            library_id: 1,
+            item_key: item_key.into(),
+            tag: tag.into(),
+            status: status.into(),
+            occurred_at: if status == "applied" {
+                "2026-09-01T00:00:00.000Z"
+            } else {
+                ""
+            }
+            .into(),
+            diagnostics_json: "[]".into(),
+            created_at: "2026-09-01T00:00:00.000Z".into(),
+            updated_at: "2026-09-01T00:00:00.000Z".into(),
+        })
+        .collect()
+    }
+
+    fn seed_collided_vocabulary(owner: &Arc<Mutex<Repository>>, hash: &str) {
+        let replacement = collided_candidate(hash);
+        assert!(
+            owner
+                .lock()
+                .unwrap()
+                .replace_tag_vocabulary_state(None, &replacement)
+                .expect("seed candidate")
+        );
+        assert!(
+            owner
+                .lock()
+                .unwrap()
+                .promote_tag_vocabulary_state(
+                    hash,
+                    4,
+                    &TagVocabularyPromotion {
+                        replacement,
+                        staged: Vec::new(),
+                        effects: collided_effects(hash),
+                    },
+                )
+                .expect("seed effects")
+        );
+    }
+
     #[test]
     fn initializes_builtin_policy_from_a_persisted_empty_hash_basis() {
         let root = root();
@@ -2498,6 +2940,254 @@ mod tests {
             TagMutationStatus::Stopping
         );
         app.shutdown(Duration::from_secs(1)).expect("shutdown");
+        drop(app);
+        drop(owner);
+    }
+
+    #[test]
+    fn promotes_case_variant_staged_rows_as_one_canonical_tag() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-case-promotion".into(),
+                    data_root_id: "data-case-promotion".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let app = TagVocabularyApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            Arc::new(Host::new(true)),
+            Arc::new(Resolver),
+            Arc::new(|| "2026-09-02T00:00:00.000Z".into()),
+        );
+        let mut invalid = candidate("tag:case-collision");
+        invalid.entries.push(TagVocabularyEntryRecord {
+            tag: "METHOD:STABLE".into(),
+            facet: "method".into(),
+            aliases_json: "[]".into(),
+            abbrev_json: "[]".into(),
+            created_at: "fixed".into(),
+            updated_at: "fixed".into(),
+            ..TagVocabularyEntryRecord::default()
+        });
+        assert_eq!(
+            app.save(None, &invalid).status,
+            TagMutationStatus::InvalidRequest
+        );
+        assert_eq!(
+            app.save(None, &candidate("tag:case-promotion")).status,
+            TagMutationStatus::Committed
+        );
+        assert_eq!(
+            app.stage(
+                0,
+                &[
+                    TagStagedSuggestionRecord {
+                        tag: "method:CNN".into(),
+                        facet: "method".into(),
+                        note: "upper metadata".into(),
+                        source_flow: "upper-source".into(),
+                        parent_bindings_json:
+                            r#"[{"libraryId":1,"itemKey":"A"},{"libraryId":1,"itemKey":"B"}]"#
+                                .into(),
+                        created_at: "2026-09-01T00:00:00.000Z".into(),
+                        updated_at: "2026-09-01T00:00:00.000Z".into(),
+                    },
+                    TagStagedSuggestionRecord {
+                        tag: "method:cnn".into(),
+                        facet: "method".into(),
+                        note: "winner metadata".into(),
+                        source_flow: "winner-source".into(),
+                        parent_bindings_json:
+                            r#"[{"libraryId":1,"itemKey":"B"},{"libraryId":1,"itemKey":"C"}]"#
+                                .into(),
+                        created_at: "2026-09-02T00:00:00.000Z".into(),
+                        updated_at: "2026-09-02T00:00:00.000Z".into(),
+                    },
+                ],
+            )
+            .status,
+            TagMutationStatus::Committed
+        );
+
+        let result = app
+            .promote_public(&TagSelectionRequest {
+                tags: vec!["method:cnn".into(), "method:CNN".into()],
+            })
+            .expect("case variants promote");
+
+        assert_eq!(result.promoted, ["method:cnn"]);
+        assert_eq!(result.skipped, ["method:CNN"]);
+        assert!(app.list_public_staged().expect("staged").is_empty());
+        let snapshot = app.load_public_vocabulary().expect("readable vocabulary");
+        let promoted = snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.tag.eq_ignore_ascii_case("method:cnn"))
+            .expect("promoted entry");
+        assert_eq!(promoted.tag, "method:cnn");
+        assert_eq!(promoted.note.as_deref(), Some("winner metadata"));
+        assert_eq!(promoted.source.as_deref(), Some("winner-source"));
+        let effects = owner.lock().unwrap().list_tag_effects().expect("effects");
+        assert_eq!(effects.len(), 3);
+        assert!(effects.iter().all(|effect| effect.tag == "method:cnn"));
+
+        drop(app);
+        drop(owner);
+    }
+
+    #[test]
+    fn repairs_historical_case_collisions_and_reconciles_winner_effects() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-case-repair".into(),
+                    data_root_id: "data-case-repair".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        seed_collided_vocabulary(&owner, "tag:case-repair");
+        let app = TagVocabularyApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            Arc::new(Host::new(true)),
+            Arc::new(Resolver),
+            Arc::new(|| "2026-09-02T00:00:00.000Z".into()),
+        );
+
+        assert_eq!(app.repair_case_collisions().expect("repair"), 1);
+        let snapshot = app.load_public_vocabulary().expect("read repaired");
+        let winner = snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.tag == "method:CNN")
+            .expect("winner");
+        assert_eq!(winner.note.as_deref(), Some("winner metadata"));
+        assert_eq!(winner.source.as_deref(), Some("winner-source"));
+        assert_eq!(winner.aliases, ["lower-alias", "upper-alias"]);
+        assert_eq!(winner.abbrev, ["CNN", "cnn"]);
+        assert_eq!(winner.usage_count, Some(5));
+        assert_eq!(
+            winner.last_synced_at.as_deref(),
+            Some("2026-09-02T00:00:00.000Z")
+        );
+        assert_eq!(
+            snapshot
+                .entries
+                .iter()
+                .find(|entry| entry.tag == "method:consumer")
+                .and_then(|entry| entry.replacement.as_deref()),
+            Some("method:CNN")
+        );
+        assert_eq!(snapshot.aliases["neural-network"], "method:CNN");
+        assert_eq!(snapshot.abbrev["cnn"], "method:CNN");
+
+        let before_reconcile = owner.lock().unwrap().list_tag_effects().unwrap();
+        assert_eq!(
+            before_reconcile
+                .iter()
+                .filter(|effect| effect.status == "pending")
+                .count(),
+            2
+        );
+        assert!(
+            before_reconcile
+                .iter()
+                .filter(|effect| effect.status == "pending")
+                .all(|effect| effect.tag == "method:CNN")
+        );
+        assert!(before_reconcile.iter().any(|effect| {
+            effect.effect_id == "terminal-lower-c"
+                && effect.status == "applied"
+                && effect.tag == "method:cnn"
+        }));
+        assert_eq!(app.reconcile_pending_effects(100).expect("reconcile"), 2);
+        assert_eq!(
+            owner
+                .lock()
+                .unwrap()
+                .get_operation("tag-vocabulary-case-repair")
+                .unwrap()
+                .unwrap()
+                .status,
+            "completed"
+        );
+        let effects_after_first_repair = owner.lock().unwrap().list_tag_effects().unwrap();
+        assert_eq!(app.repair_case_collisions().expect("idempotent repair"), 0);
+        assert_eq!(
+            owner.lock().unwrap().list_tag_effects().unwrap(),
+            effects_after_first_repair
+        );
+
+        drop(app);
+        drop(owner);
+    }
+
+    #[test]
+    fn failed_case_repair_rolls_back_and_can_retry() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-case-repair-retry".into(),
+                    data_root_id: "data-case-repair-retry".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        seed_collided_vocabulary(&owner, "tag:case-repair-retry");
+        owner
+            .lock()
+            .unwrap()
+            .execute(
+                "CREATE TRIGGER fail_case_repair BEFORE INSERT ON synt_tag_vocabulary_entry BEGIN SELECT RAISE(ABORT, 'fixture'); END",
+                &[],
+            )
+            .expect("failure trigger");
+        let before_entries = owner.lock().unwrap().list_tag_vocabulary_entries().unwrap();
+        let before_effects = owner.lock().unwrap().list_tag_effects().unwrap();
+        let app = TagVocabularyApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            Arc::new(Host::new(true)),
+            Arc::new(Resolver),
+            Arc::new(|| "2026-09-02T00:00:00.000Z".into()),
+        );
+
+        assert!(app.repair_case_collisions().is_err());
+        assert_eq!(
+            owner.lock().unwrap().list_tag_vocabulary_entries().unwrap(),
+            before_entries
+        );
+        assert_eq!(
+            owner.lock().unwrap().list_tag_effects().unwrap(),
+            before_effects
+        );
+        assert_eq!(
+            owner
+                .lock()
+                .unwrap()
+                .get_operation("tag-vocabulary-case-repair")
+                .unwrap()
+                .unwrap()
+                .status,
+            "failed"
+        );
+        owner
+            .lock()
+            .unwrap()
+            .execute("DROP TRIGGER fail_case_repair", &[])
+            .expect("drop failure trigger");
+        assert_eq!(app.repair_case_collisions().expect("retry repair"), 1);
+
         drop(app);
         drop(owner);
     }

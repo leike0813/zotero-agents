@@ -243,6 +243,7 @@ pub(crate) fn build_production_applications(
         host.clone(),
     )
     .with_library_id(config.as_deref().map_or(0, |config| config.library_id));
+    let _ = tags.repair_case_collisions();
     let _ = tags.ensure_staged_bindings_migrated();
     let tag_audits = TagAuditApplication::new(
         repository.clone(),

@@ -723,6 +723,40 @@ impl Repository {
         })
     }
 
+    pub fn repair_tag_vocabulary_case_collisions(
+        &mut self,
+        expected_vocabulary_hash: &str,
+        expected_staged_revision: i64,
+        replacement: &TagVocabularyReplacement,
+        replaced_pending_effect_ids: &[String],
+        pending_effects: &[TagEffectRecord],
+        receipt: &OperationRecord,
+    ) -> Result<bool, String> {
+        self.transaction(|repository| {
+            let Some(state) = repository.get_tag_application_state()? else {
+                return Ok(false);
+            };
+            if state.vocabulary_hash != expected_vocabulary_hash
+                || state.staged_revision != expected_staged_revision
+            {
+                return Ok(false);
+            }
+            replace_tag_candidate(repository, replacement)?;
+            for effect_id in replaced_pending_effect_ids {
+                repository.execute(
+                    "DELETE FROM synt_tag_effect WHERE effect_id=?1 AND status='pending'",
+                    &[json!(effect_id)],
+                )?;
+            }
+            pending_effects
+                .iter()
+                .try_for_each(|effect| put_tag_effect(repository, effect))?;
+            put_tag_state(repository, &replacement.state)?;
+            repository.upsert_operation(receipt)?;
+            Ok(true)
+        })
+    }
+
     pub fn promote_tag_index(
         &mut self,
         expected_vocabulary_hash: &str,

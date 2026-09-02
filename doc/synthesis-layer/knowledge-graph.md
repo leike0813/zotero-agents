@@ -304,7 +304,21 @@ the reverse-Host adapter.
 
 Staged suggestions remain application-owned: new tags are proposed via
 `stageTagSuggestions()`, then promoted to the live vocabulary via
-`promoteStagedTagSuggestions()` with Host Tag effects after commit.
+`promoteStagedTagSuggestions()` with Host Tag effects after commit. Canonical
+tag identity is case-insensitive. When one request selects staged spellings
+that differ only by case, the first selected spelling supplies the canonical
+entry, bindings from every variant are merged, and one effect is emitted per
+unique parent. The successful transaction consumes every variant in that
+group while reporting non-winning spellings as skipped.
+
+Production startup asks the Tag Vocabulary application to repair historical
+case-colliding canonical groups before readiness. The application chooses one
+deterministic winner, redirects aggregate references, rebuilds only affected
+pending effects, refreshes the canonical hash, marks the index stale, and
+commits the completed repair receipt in the same repository transaction.
+Failure rolls the transaction back and is recorded without preventing sidecar
+readiness; a later startup retries while collisions remain. Tag reads never
+perform repair writes.
 
 ---
 

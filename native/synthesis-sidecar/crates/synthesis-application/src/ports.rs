@@ -104,6 +104,15 @@ pub trait TagVocabularyRepositoryPort: Send + Sync {
         expected_staged_revision: i64,
         promotion: &TagVocabularyPromotion,
     ) -> Result<bool, String>;
+    fn repair_case_collisions(
+        &self,
+        expected_vocabulary_hash: &str,
+        expected_staged_revision: i64,
+        replacement: &TagVocabularyReplacement,
+        replaced_pending_effect_ids: &[String],
+        pending_effects: &[TagEffectRecord],
+        receipt: &OperationRecord,
+    ) -> Result<bool, String>;
     fn promote_index(
         &self,
         expected_vocabulary_hash: &str,
@@ -730,6 +739,28 @@ impl TagVocabularyRepositoryPort for RepositoryPort {
                 expected_vocabulary_hash,
                 expected_staged_revision,
                 promotion,
+            )
+    }
+
+    fn repair_case_collisions(
+        &self,
+        expected_vocabulary_hash: &str,
+        expected_staged_revision: i64,
+        replacement: &TagVocabularyReplacement,
+        replaced_pending_effect_ids: &[String],
+        pending_effects: &[TagEffectRecord],
+        receipt: &OperationRecord,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .repair_tag_vocabulary_case_collisions(
+                expected_vocabulary_hash,
+                expected_staged_revision,
+                replacement,
+                replaced_pending_effect_ids,
+                pending_effects,
+                receipt,
             )
     }
 

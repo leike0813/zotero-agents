@@ -2201,8 +2201,68 @@ describe("Synthesis Rust production client route", function () {
       legacyDatabase.exec(
         "UPDATE synt_tag_application_state SET staged_revision=staged_revision+1 WHERE singleton_id=1",
       );
+      const insertCollidedTag = legacyDatabase.prepare(
+        "INSERT INTO synt_tag_vocabulary_entry(tag,facet,note,source,deprecated,replacement,aliases_json,abbrev_json,usage_count,last_synced_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      );
+      insertCollidedTag.run(
+        "method:ProcessCase",
+        "method",
+        "startup repair winner",
+        "fixture",
+        0,
+        "",
+        "[]",
+        "[]",
+        1,
+        "",
+        "2026-08-01T00:00:00.000Z",
+        "2026-08-01T00:00:00.000Z",
+      );
+      insertCollidedTag.run(
+        "method:processcase",
+        "method",
+        "startup repair loser",
+        "fixture",
+        0,
+        "",
+        "[]",
+        "[]",
+        1,
+        "",
+        "2026-08-02T00:00:00.000Z",
+        "2026-08-02T00:00:00.000Z",
+      );
+      legacyDatabase.exec(
+        "CREATE TRIGGER fail_case_repair BEFORE INSERT ON synt_tag_vocabulary_entry BEGIN SELECT RAISE(ABORT, 'fixture'); END",
+      );
       legacyDatabase.exec("COMMIT");
       legacyDatabase.close();
+      harness = await startSynthesisProductionRouteHarness({
+        id: "tag-dto-repair-failure",
+        root,
+      });
+      const failedRepairDatabase = new DatabaseSync(databasePath);
+      assert.equal(
+        failedRepairDatabase
+          .prepare(
+            "SELECT status FROM synt_operation WHERE operation_id='tag-vocabulary-case-repair'",
+          )
+          .get().status,
+        "failed",
+      );
+      assert.equal(
+        failedRepairDatabase
+          .prepare(
+            "SELECT COUNT(*) AS count FROM synt_tag_vocabulary_entry WHERE lower(tag)='method:processcase'",
+          )
+          .get().count,
+        2,
+      );
+      failedRepairDatabase.close();
+      await harness.stop();
+      const retryDatabase = new DatabaseSync(databasePath);
+      retryDatabase.exec("DROP TRIGGER fail_case_repair");
+      retryDatabase.close();
       harness = await startSynthesisProductionRouteHarness({
         id: "tag-dto-reopen",
         root,
@@ -2240,6 +2300,18 @@ describe("Synthesis Rust production client route", function () {
         },
       });
       const reopened = await harness.client.tags.loadTagVocabulary();
+      assert.include(
+        (reopened.entries as Array<Record<string, unknown>>).map(
+          (entry) => entry.tag,
+        ),
+        "method:ProcessCase",
+      );
+      assert.notInclude(
+        (reopened.entries as Array<Record<string, unknown>>).map(
+          (entry) => entry.tag,
+        ),
+        "method:processcase",
+      );
       assert.include(
         (reopened.entries as Array<Record<string, unknown>>).map(
           (entry) => entry.tag,
@@ -2316,6 +2388,30 @@ describe("Synthesis Rust production client route", function () {
         }),
         { promoted: ["method:legacy-binding"], skipped: [] },
       );
+      const repairedWorkbench = (await harness.call(
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["tags", {}] },
+      )) as { tags?: { entries?: Array<Record<string, unknown>> } };
+      assert.include(
+        repairedWorkbench.tags?.entries?.map((entry) => entry.tag),
+        "method:ProcessCase",
+      );
+      await harness.stop();
+      harness = await startSynthesisProductionRouteHarness({
+        id: "tag-dto-cold-reopen",
+        root,
+      });
+      assert.include(
+        (
+          (await harness.client.tags.loadTagVocabulary()).entries as Array<
+            Record<string, unknown>
+          >
+        ).map((entry) => entry.tag),
+        "method:ProcessCase",
+      );
+      await harness.call("client.getSynthesisWorkbenchSurfaceInput", {
+        args: ["tags", {}],
+      });
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });
