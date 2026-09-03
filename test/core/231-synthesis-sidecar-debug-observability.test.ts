@@ -13,6 +13,7 @@ import {
   SynthesisSidecarRpcError,
 } from "../../src/modules/synthesisSidecarRpcClient";
 import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesisProductionRpcPolicy";
+import { createSynthesisSidecarControlClient } from "../../src/modules/synthesisSidecarControlClient";
 import { parseNativeDiagnosticEvent } from "../../src/modules/synthesisSidecarRuntimeSupervisor";
 import {
   createSynthesisSidecarTraceContext,
@@ -120,6 +121,126 @@ describe("Synthesis sidecar debug observability", function () {
     unsubscribe();
     assert.deepEqual(readSynthesisSidecarTraceSnapshot().traces, []);
     assert.deepEqual(patches, []);
+  });
+
+  it("does not retain routine successful health observations", async function () {
+    const corpus = JSON.parse(
+      await fs.readFile(
+        "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
+        "utf8",
+      ),
+    ) as {
+      discovery: Parameters<
+        ReturnType<typeof createSynthesisSidecarControlClient>["health"]
+      >[0]["discovery"];
+      health: unknown;
+    };
+    const client = createSynthesisSidecarControlClient({
+      fetch: async () =>
+        new Response(JSON.stringify(corpus.health), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+
+    await client.health({
+      discovery: corpus.discovery,
+      clientToken: "client-token",
+      lifecycleToken: "lifecycle-token",
+    });
+
+    assert.deepEqual(readSynthesisSidecarTraceSnapshot().traces, []);
+  });
+
+  it("retains complete traces for abnormal health observations", async function () {
+    const corpus = JSON.parse(
+      await fs.readFile(
+        "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
+        "utf8",
+      ),
+    ) as {
+      discovery: Parameters<
+        ReturnType<typeof createSynthesisSidecarControlClient>["health"]
+      >[0]["discovery"];
+      health: Record<string, unknown>;
+    };
+    const connection = {
+      discovery: corpus.discovery,
+      clientToken: "client-token",
+      lifecycleToken: "lifecycle-token",
+    };
+    const cases: Array<{
+      name: string;
+      expectedOutcome: "failed" | "timed-out";
+      timeoutMs?: number;
+      fetch: typeof fetch;
+    }> = [
+      {
+        name: "HTTP failure",
+        expectedOutcome: "failed",
+        fetch: async () => new Response("unavailable", { status: 503 }),
+      },
+      {
+        name: "timeout",
+        expectedOutcome: "timed-out",
+        timeoutMs: 1,
+        fetch: async (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(new Error("sidecar_control_timeout")),
+              { once: true },
+            );
+          }),
+      },
+      {
+        name: "identity mismatch",
+        expectedOutcome: "failed",
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              ...corpus.health,
+              serviceInstanceId: "different-service-instance",
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      },
+    ];
+
+    for (const testCase of cases) {
+      resetSynthesisSidecarTraceForTests();
+      const client = createSynthesisSidecarControlClient({
+        fetch: testCase.fetch,
+        timeoutMs: testCase.timeoutMs,
+      });
+      let failure: unknown;
+      try {
+        await client.health(connection);
+      } catch (error) {
+        failure = error;
+      }
+
+      assert.instanceOf(failure, Error, testCase.name);
+      const traces = readSynthesisSidecarTraceSnapshot().traces;
+      assert.lengthOf(traces, 1, testCase.name);
+      assert.deepEqual(
+        traces[0]!.events.map((event) => ({
+          phase: event.phase,
+          outcome: event.outcome,
+        })),
+        [
+          { phase: "health", outcome: "started" },
+          {
+            phase: "health-terminal",
+            outcome: testCase.expectedOutcome,
+          },
+        ],
+        testCase.name,
+      );
+    }
   });
 
   it("batches patches and preserves root, first failure, terminal, and dropped count", function () {

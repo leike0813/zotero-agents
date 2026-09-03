@@ -1,6 +1,16 @@
 import { assert } from "chai";
 import fs from "fs/promises";
+import { JSDOM } from "jsdom";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
+import {
+  createSynthesisClientFromPort,
+  type SynthesisClientPort,
+} from "../../src/modules/synthesisClient/clientPortAdapter";
+import {
+  resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
+} from "../../src/modules/synthesisClient/defaultClient";
+import { mountSynthesisWorkbenchRuntime } from "../../src/modules/synthesisWorkbenchTab";
 import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
@@ -35,7 +45,269 @@ import {
   retrySynthesisCitationGraphWindow,
 } from "../../src/shared/synthesisCitationGraphWindow";
 
+async function waitUntil(predicate: () => boolean) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("condition_not_reached");
+}
+
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+type WorkbenchChromeMessage = {
+  type?: string;
+  payload?: {
+    actions?: {
+      inFlight?: Array<{ command?: string }>;
+      lastCompleted?: { command?: string };
+      lastFailed?: { command?: string };
+    };
+    maintenance?: {
+      backgroundJobs?: { rows?: Array<{ status?: string }> };
+    };
+  };
+};
+
+type WorkbenchBridge = {
+  postMessage(action: string, payload: Record<string, unknown>): Promise<void>;
+};
+
+async function mountTestWorkbench(
+  port: Partial<SynthesisClientPort>,
+  snapshotInput?: { libraryId: number },
+) {
+  const client = createSynthesisClientFromPort(port as SynthesisClientPort);
+  setDefaultSynthesisClientCompositionFactoryForTests(() => ({
+    client,
+    invalidate() {},
+    async dispose() {},
+  }));
+  const dom = new JSDOM('<div id="root"></div>', {
+    url: "https://example.test/",
+  });
+  const root = dom.window.document.getElementById("root")!;
+  dom.window.confirm = () => true;
+  const mounted = await mountSynthesisWorkbenchRuntime({
+    root,
+    hostWindow: dom.window as unknown as Window,
+    chromeWindow: dom.window as unknown as _ZoteroTypes.MainWindow,
+    ...(snapshotInput ? { snapshotInput } : {}),
+  });
+  const messages: WorkbenchChromeMessage[] = [];
+  const frame = root.querySelector("iframe")!;
+  const frameWindow = frame.contentWindow!;
+  frameWindow.postMessage = ((message: WorkbenchChromeMessage) => {
+    messages.push(message);
+  }) as typeof frameWindow.postMessage;
+  frame.dispatchEvent(new dom.window.Event("load"));
+  await waitUntil(
+    () =>
+      typeof (
+        frameWindow as unknown as {
+          __zoteroSkillsSynthesisWorkbenchBridge?: unknown;
+        }
+      ).__zoteroSkillsSynthesisWorkbenchBridge === "object",
+  );
+  const bridge = (
+    frameWindow as unknown as {
+      __zoteroSkillsSynthesisWorkbenchBridge: WorkbenchBridge;
+    }
+  ).__zoteroSkillsSynthesisWorkbenchBridge;
+
+  return {
+    bridge,
+    messages,
+    async cleanup() {
+      mounted.cleanup();
+      setDefaultSynthesisClientCompositionFactoryForTests(null);
+      await resetDefaultSynthesisClientForTests();
+      dom.window.close();
+    },
+  };
+}
+
 describe("Synthesis tab UI model", function () {
+  it("keeps observing accepted maintenance through transient unavailability", async function () {
+    const operationId = "maintenance:advanced-matching:test";
+    let operationReads = 0;
+    const workbench = await mountTestWorkbench(
+      {
+        runAdvancedReferenceMatchingNow: async () => ({
+          schema: "synthesis.maintenance_operation.v1",
+          operation_id: operationId,
+          status: "pending",
+        }),
+        getPublicMaintenanceOperation: async () => {
+          operationReads += 1;
+          if (operationReads === 1) {
+            throw new SynthesisClientError(
+              "unavailable",
+              "The native Synthesis request failed",
+              { sidecarCode: "service_unavailable" },
+            );
+          }
+          if (operationReads === 3) {
+            throw new SynthesisClientError(
+              "unavailable",
+              "The native Synthesis owner is not ready",
+              { sidecarCode: "service_not_ready" },
+            );
+          }
+          return {
+            schema: "synthesis.maintenance_operation.v1",
+            operation_id: operationId,
+            status: "completed",
+            receipt: {},
+          };
+        },
+      },
+      { libraryId: 1 },
+    );
+
+    try {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runAdvancedReferenceMatchingNow",
+        args: {},
+      });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.type === "synthesis:chrome" &&
+            message.payload?.actions?.lastCompleted?.command ===
+              "runAdvancedReferenceMatchingNow",
+        ),
+      );
+
+      const chromeMessages = workbench.messages.filter(
+        (message) => message.type === "synthesis:chrome",
+      );
+      assert.isTrue(
+        chromeMessages.some((message) =>
+          message.payload?.actions?.inFlight?.some(
+            (operation) =>
+              operation.command === "runAdvancedReferenceMatchingNow",
+          ),
+        ),
+      );
+      const completed = chromeMessages.at(-1)!;
+      assert.deepEqual(completed.payload?.actions?.inFlight, []);
+      assert.equal(
+        completed.payload?.actions?.lastCompleted?.command,
+        "runAdvancedReferenceMatchingNow",
+      );
+      assert.equal(operationReads, 2);
+
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runAdvancedReferenceMatchingNow",
+        args: {},
+      });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.type === "synthesis:chrome" &&
+            message.payload?.actions?.lastFailed?.command ===
+              "runAdvancedReferenceMatchingNow",
+        ),
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, 300));
+      assert.equal(operationReads, 3);
+    } finally {
+      await workbench.cleanup();
+    }
+  });
+
+  it("does not let a stale progress failure replace terminal maintenance state", async function () {
+    const operationId = "maintenance:advanced-matching:race";
+    const staleProgress = deferred<never>();
+    const terminalChrome = deferred<Record<string, unknown>>();
+    let operationCanComplete = false;
+    let backgroundReads = 0;
+    let chromeReads = 0;
+    const runningJob = {
+      job_id: operationId,
+      source: "operation" as const,
+      status: "running" as const,
+      label: "Advanced Matching",
+      progress: { mode: "indeterminate" as const },
+    };
+    const workbench = await mountTestWorkbench({
+      runAdvancedReferenceMatchingNow: async () => ({
+        schema: "synthesis.maintenance_operation.v1",
+        operation_id: operationId,
+        status: "pending",
+      }),
+      getPublicMaintenanceOperation: async () =>
+        operationCanComplete
+          ? {
+              schema: "synthesis.maintenance_operation.v1",
+              operation_id: operationId,
+              status: "completed",
+              receipt: {},
+            }
+          : {
+              schema: "synthesis.maintenance_operation.v1",
+              operation_id: operationId,
+              status: "running",
+            },
+      getSynthesisBackgroundJobRows: async () => {
+        backgroundReads += 1;
+        return backgroundReads === 1 ? [runningJob] : staleProgress.promise;
+      },
+      getSynthesisWorkbenchChromeInput: async () => {
+        chromeReads += 1;
+        return terminalChrome.promise;
+      },
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+
+    try {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runAdvancedReferenceMatchingNow",
+        args: {},
+      });
+
+      await waitUntil(() =>
+        workbench.messages.some((message) =>
+          Array.isArray(message.payload?.maintenance?.backgroundJobs?.rows)
+            ? message.payload.maintenance.backgroundJobs.rows.some(
+                (job) => job.status === "running",
+              )
+            : false,
+        ),
+      );
+      await waitUntil(() => backgroundReads >= 2);
+      operationCanComplete = true;
+      await waitUntil(() => chromeReads >= 1);
+      staleProgress.reject(new Error("service_unavailable"));
+      terminalChrome.resolve({
+        libraryId: 1,
+        maintenance: { backgroundJobs: [] },
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+
+      const lastChrome = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)!;
+      assert.deepEqual(
+        lastChrome.payload?.maintenance?.backgroundJobs?.rows,
+        [],
+      );
+    } finally {
+      staleProgress.promise.catch(() => undefined);
+      await workbench.cleanup();
+    }
+  });
   it("presents manual sidecar recovery with preserved data guidance and actions", function () {
     assert.deepEqual(
       projectSynthesisSidecarFailureCard({

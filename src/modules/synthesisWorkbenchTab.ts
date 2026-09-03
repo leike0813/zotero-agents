@@ -1051,6 +1051,9 @@ async function refreshWorkbenchCommandProgress(
       refreshFromService: false,
     });
   } catch {
+    if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+      return;
+    }
     await sendChrome(runtime, {
       refreshFromService: false,
     });
@@ -1171,9 +1174,20 @@ async function observePublicMaintenanceOperation(
       );
     }
     await delay(250);
-    operation = await client.maintenance.getOperation({
-      operation_id: operation.operation_id,
-    });
+    try {
+      operation = await client.maintenance.getOperation({
+        operation_id: operation.operation_id,
+      });
+    } catch (error) {
+      if (
+        error instanceof SynthesisClientError &&
+        error.code === "unavailable" &&
+        error.details?.sidecarCode === "service_unavailable"
+      ) {
+        continue;
+      }
+      throw error;
+    }
   }
   if (operation.status === "completed") {
     return operation.receipt && typeof operation.receipt === "object"

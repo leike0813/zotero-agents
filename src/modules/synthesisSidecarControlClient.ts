@@ -287,28 +287,38 @@ function createControlClient<
   ) {
     const trace = createSynthesisSidecarTraceContext();
     const startedAt = Date.now();
-    recordSynthesisSidecarTraceEvent({
-      context: trace,
-      source: "host",
-      boundary: "supervisor",
-      phase,
-      outcome: "started",
-      identities: { operation: phase, trigger: "internal" },
-    });
-    try {
-      const result = await operation(trace);
+    const recordStarted = () =>
       recordSynthesisSidecarTraceEvent({
         context: trace,
         source: "host",
         boundary: "supervisor",
-        phase: `${phase}-terminal`,
-        outcome: "succeeded",
+        phase,
+        outcome: "started",
+        occurredAtMs: startedAt,
         identities: { operation: phase, trigger: "internal" },
-        metrics: { durationMs: Math.max(0, Date.now() - startedAt) },
       });
+    if (phase !== "health") {
+      recordStarted();
+    }
+    try {
+      const result = await operation(trace);
+      if (phase !== "health") {
+        recordSynthesisSidecarTraceEvent({
+          context: trace,
+          source: "host",
+          boundary: "supervisor",
+          phase: `${phase}-terminal`,
+          outcome: "succeeded",
+          identities: { operation: phase, trigger: "internal" },
+          metrics: { durationMs: Math.max(0, Date.now() - startedAt) },
+        });
+      }
       return result;
     } catch (error) {
       const value = error instanceof Error ? error.message : "control_failed";
+      if (phase === "health") {
+        recordStarted();
+      }
       recordSynthesisSidecarTraceEvent({
         context: trace,
         source: "host",
