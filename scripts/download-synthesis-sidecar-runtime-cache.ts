@@ -62,7 +62,7 @@ async function downloadArtifactZip(args: {
 }): Promise<number> {
   const token = await readGhAuthToken();
   await mkdir(path.dirname(args.destination), { recursive: true });
-  const result = await execFileAsync(
+  await execFileAsync(
     "curl",
     [
       "-fsSL",
@@ -83,12 +83,6 @@ async function downloadArtifactZip(args: {
     ],
     { windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
   );
-  if (result.status !== 0) {
-    const stderr = (result.stderr || "").trim();
-    throw new Error(
-      `curl failed for ${args.archiveUrl} (exit ${result.status})${stderr ? `: ${stderr}` : ""}`,
-    );
-  }
   const statResult = await stat(args.destination);
   if (!statResult.isFile() || statResult.size === 0) {
     throw new Error(
@@ -112,16 +106,10 @@ async function extractZipToTarGz(args: {
   await mkdir(stagingDir, { recursive: true });
   // Extract the zip wrapper, then the tar.gz inside it, then re-tar as a
   // tar.gz with the same fixed layout the staging script expects.
-  const unzip = await execFileAsync(
-    "unzip",
-    ["-o", "-q", args.zipPath, "-d", stagingDir],
-    { windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
-  );
-  if (unzip.status !== 0) {
-    throw new Error(
-      `unzip failed for ${args.zipPath} (exit ${unzip.status}): ${(unzip.stderr || "").trim()}`,
-    );
-  }
+  await execFileAsync("unzip", ["-o", "-q", args.zipPath, "-d", stagingDir], {
+    windowsHide: true,
+    maxBuffer: 64 * 1024 * 1024,
+  });
   // The zip contains exactly one tar.gz named after the artifact.
   const tarGzInZip = path.join(
     stagingDir,

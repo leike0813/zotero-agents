@@ -87,7 +87,7 @@ export function readSynthesisSidecarRuntimeBuildRecipe(
       !target.binary.trim() ||
       target.rustFlags !==
         (target.platform === "win32-x64"
-          ? "-C target-feature=+crt-static -C debuginfo=1"
+          ? "-C target-feature=+crt-static -C debuginfo=1 -C link-arg=/Brepro"
           : undefined) ||
       typeof target.useZig !== "boolean" ||
       typeof target.nativeSmoke !== "boolean" ||

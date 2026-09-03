@@ -12,7 +12,7 @@
       "platform": "win32-x64",
       "target": "x86_64-pc-windows-msvc",
       "binary": "synthesis-sidecar.exe",
-      "rustFlags": "-C target-feature=+crt-static -C debuginfo=1",
+      "rustFlags": "-C target-feature=+crt-static -C debuginfo=1 -C link-arg=/Brepro",
       "useZig": false,
       "nativeSmoke": true
     },

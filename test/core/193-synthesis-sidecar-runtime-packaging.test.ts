@@ -754,7 +754,8 @@ describe("Synthesis sidecar native runtime packaging", function () {
       binary: "synthesis-sidecar.exe",
       useZig: false,
       nativeSmoke: true,
-      rustFlags: "-C target-feature=+crt-static -C debuginfo=1",
+      rustFlags:
+        "-C target-feature=+crt-static -C debuginfo=1 -C link-arg=/Brepro",
     });
 
     const invalidRecipeRoot = fs.mkdtempSync(
