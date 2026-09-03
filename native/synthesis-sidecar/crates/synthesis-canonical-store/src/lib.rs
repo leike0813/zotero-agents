@@ -877,13 +877,13 @@ fn resolve_current_topic(root: &Path, topic_id: &str) -> Result<ResolvedCurrentT
     }
     if let Some(legacy_path_id) = historical_typescript_topic_path_id(topic_id)? {
         let legacy_current = root.join("topics").join(legacy_path_id).join("current");
-        if legacy_current.exists() {
-            if descriptor(&legacy_current, topic_id, &path_id).is_ok() || !current.exists() {
-                return Ok(ResolvedCurrentTopic {
-                    path_id,
-                    current: legacy_current,
-                });
-            }
+        if legacy_current.exists()
+            && (descriptor(&legacy_current, topic_id, &path_id).is_ok() || !current.exists())
+        {
+            return Ok(ResolvedCurrentTopic {
+                path_id,
+                current: legacy_current,
+            });
         }
     }
     Ok(ResolvedCurrentTopic { path_id, current })

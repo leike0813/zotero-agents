@@ -3296,9 +3296,7 @@ mod tests {
             .map(|index| TagStagedSuggestionRecord {
                 tag: format!("method:bulk-{index}"),
                 facet: "method".into(),
-                parent_bindings_json: format!(
-                    r#"[{{"libraryId":1,"itemKey":"B{index:07}"}}]"#
-                ),
+                parent_bindings_json: format!(r#"[{{"libraryId":1,"itemKey":"B{index:07}"}}]"#),
                 created_at: "2026-08-03T00:00:00.000Z".into(),
                 updated_at: "2026-08-03T00:00:00.000Z".into(),
                 ..TagStagedSuggestionRecord::default()

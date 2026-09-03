@@ -299,16 +299,17 @@ mod tests {
     use serde_json::json;
     use synthesis_test_support::TestRoot;
 
-    fn repository(label: &str) -> Repository {
+    fn repository(label: &str) -> (TestRoot, Repository) {
         let root = TestRoot::new(label);
-        Repository::open(
+        let repository = Repository::open(
             root.path(),
             RepositoryIdentity {
                 profile_id: "profile".into(),
                 data_root_id: label.into(),
             },
         )
-        .expect("repository")
+        .expect("repository");
+        (root, repository)
     }
 
     fn generation(id: &str, snapshot_id: &str) -> LibrarySnapshotGenerationRecord {
@@ -339,7 +340,7 @@ mod tests {
 
     #[test]
     fn incomplete_generation_cannot_replace_current_generation() {
-        let mut repository = repository("library-snapshot-incomplete");
+        let (_root, mut repository) = repository("library-snapshot-incomplete");
         repository
             .begin_library_snapshot_generation(&generation("g1", "s1"))
             .expect("begin current");
@@ -382,7 +383,7 @@ mod tests {
 
     #[test]
     fn complete_empty_generation_atomically_replaces_current_rows() {
-        let mut repository = repository("library-snapshot-empty");
+        let (_root, mut repository) = repository("library-snapshot-empty");
         repository
             .begin_library_snapshot_generation(&generation("g1", "s1"))
             .expect("begin current");

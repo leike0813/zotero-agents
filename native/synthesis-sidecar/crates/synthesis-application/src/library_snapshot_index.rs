@@ -191,7 +191,13 @@ mod tests {
     use synthesis_repository::{Repository, RepositoryIdentity};
     use synthesis_test_support::TestRoot;
 
-    fn application(label: &str) -> (LibrarySnapshotIndexApplication, Arc<Mutex<Repository>>) {
+    fn application(
+        label: &str,
+    ) -> (
+        TestRoot,
+        LibrarySnapshotIndexApplication,
+        Arc<Mutex<Repository>>,
+    ) {
         let root = TestRoot::new(label);
         let owner = Arc::new(Mutex::new(
             Repository::open(
@@ -204,7 +210,7 @@ mod tests {
             .expect("repository"),
         ));
         let port = Arc::new(RepositoryPort::new(Arc::clone(&owner)));
-        (LibrarySnapshotIndexApplication::new(port), owner)
+        (root, LibrarySnapshotIndexApplication::new(port), owner)
     }
 
     fn page(snapshot_id: &str, outcome: &str, items: Vec<Value>) -> Value {
@@ -243,7 +249,7 @@ mod tests {
 
     #[test]
     fn incomplete_page_stays_staged_and_complete_empty_snapshot_can_promote() {
-        let (application, owner) = application("library-snapshot-application");
+        let (_root, application, owner) = application("library-snapshot-application");
         assert!(
             !application
                 .consume_page(

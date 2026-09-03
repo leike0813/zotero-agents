@@ -749,9 +749,9 @@ pub fn host_coverage_digest(entries: &[TagAuditStagingRecord]) -> String {
 mod tests {
     use super::*;
     use crate::RepositoryPort;
-    use std::fs;
     use std::sync::Mutex;
     use synthesis_repository::{Repository, RepositoryIdentity, TagApplicationStateRecord};
+    use synthesis_test_support::TestRoot;
 
     struct Runtime;
     impl TagAuditRuntimePort for Runtime {
@@ -779,13 +779,9 @@ mod tests {
 
     #[test]
     fn validates_append_evidence_and_publishes_through_the_application() {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-tag-audit-application-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let root = TestRoot::new("tag-audit-application");
         let mut repository = Repository::open(
-            &root,
+            root.path(),
             RepositoryIdentity {
                 profile_id: "profile-r7".into(),
                 data_root_id: "data-r7".into(),
@@ -854,7 +850,6 @@ mod tests {
             })
             .unwrap();
         assert!(matches!(result, TagAuditRunResult::Published { .. }));
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     struct CountingRuntime {
@@ -866,21 +861,15 @@ mod tests {
             "2026-08-30T00:00:00.000Z".into()
         }
         fn opaque_id(&self, kind: &str) -> String {
-            let sequence = self
-                .next
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let sequence = self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             format!("{kind}-{}", sequence + 1)
         }
     }
 
-    fn repository_with_vocabulary(label: &str) -> (std::path::PathBuf, Arc<RepositoryPort>) {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-tag-audit-application-{label}-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
+    fn repository_with_vocabulary(label: &str) -> (TestRoot, Arc<RepositoryPort>) {
+        let root = TestRoot::new(label);
         let mut repository = Repository::open(
-            &root,
+            root.path(),
             RepositoryIdentity {
                 profile_id: "profile-r7".into(),
                 data_root_id: "data-r7".into(),
@@ -923,7 +912,7 @@ mod tests {
 
     #[test]
     fn coverage_digest_matches_sorted_host_line_format() {
-        let (root, port) = repository_with_vocabulary("coverage-digest");
+        let (_root, port) = repository_with_vocabulary("coverage-digest");
         let run_record = TagAuditRunRecord {
             audit_run_id: "run-1".into(),
             library_id: 1,
@@ -943,16 +932,14 @@ mod tests {
             .unwrap()
             .begin_tag_audit_run(&run_record)
             .unwrap();
-        let staging_record = |item_key: &str, revision: &str, digest: &str| {
-            TagAuditStagingRecord {
-                audit_run_id: "run-1".into(),
-                library_id: 1,
-                item_key: item_key.into(),
-                audited_revision: revision.into(),
-                audited_tag_digest: digest.into(),
-                evaluation_state: "compliant".into(),
-                non_compliant_tags_json: "[]".into(),
-            }
+        let staging_record = |item_key: &str, revision: &str, digest: &str| TagAuditStagingRecord {
+            audit_run_id: "run-1".into(),
+            library_id: 1,
+            item_key: item_key.into(),
+            audited_revision: revision.into(),
+            audited_tag_digest: digest.into(),
+            evaluation_state: "compliant".into(),
+            non_compliant_tags_json: "[]".into(),
         };
         // Insert rows in the reverse of their canonical key order; the
         // coverage digest must still follow (libraryId, key) ascending.
@@ -985,12 +972,11 @@ mod tests {
         hash.update(b"[{\"libraryId\":1,\"key\":\"BBBB2222\"},\"revision-b\",\"digest-b\"]\n");
         let expected = format!("{:x}", hash.finalize());
         assert_eq!(host_coverage_digest(&staging), expected);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
     fn begin_reclaims_inactive_same_host_runs_but_preserves_active_runs() {
-        let (root, port) = repository_with_vocabulary("stale-sweep");
+        let (_root, port) = repository_with_vocabulary("stale-sweep");
         let app = TagAuditApplication::new(
             port.clone(),
             Arc::new(Fresh),
@@ -1000,8 +986,11 @@ mod tests {
         );
         let first = app.begin(&begin_request("host-1", &[])).unwrap();
         assert_eq!(
-            app.begin(&begin_request("host-1", std::slice::from_ref(&first.audit_run_id)))
-                .unwrap_err(),
+            app.begin(&begin_request(
+                "host-1",
+                std::slice::from_ref(&first.audit_run_id)
+            ))
+            .unwrap_err(),
             "tag_audit_operation_in_progress"
         );
         let second = app.begin(&begin_request("host-1", &[])).unwrap();
@@ -1012,8 +1001,7 @@ mod tests {
             .unwrap();
         assert_eq!(first_record.status, "abandoned");
         let entries: Vec<TagAuditStagingEntry> = Vec::new();
-        let batch_digest =
-            canonical_json_hash(&serde_json::to_value(&entries).unwrap()).unwrap();
+        let batch_digest = canonical_json_hash(&serde_json::to_value(&entries).unwrap()).unwrap();
         assert_eq!(
             app.append(&TagAuditRunAppendRequest {
                 run: first,
@@ -1024,12 +1012,11 @@ mod tests {
             .unwrap_err(),
             "tag_audit_run_fenced"
         );
-        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
     fn re_promote_returns_the_persisted_snapshot_revision() {
-        let (root, port) = repository_with_vocabulary("re-promote");
+        let (_root, port) = repository_with_vocabulary("re-promote");
         let app = TagAuditApplication::new(
             port.clone(),
             Arc::new(Fresh),
@@ -1083,6 +1070,5 @@ mod tests {
             .unwrap();
         assert_eq!(persisted.snapshot_revision, first.snapshot_revision);
         assert_eq!(persisted.source_run_id, run.audit_run_id);
-        fs::remove_dir_all(root).expect("cleanup");
     }
 }
