@@ -1,13 +1,13 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "8f0521e44fdede170fe92531ab9bbbed6292b9f0b614549c77d86a2f1b4b2ff9",
+  "bundleId": "f49c353bb00b31c6f37daf23831b65b208bd508d9969d77a5e09ff22f680aee5",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "darwin-x64",
   "targetTriple": "x86_64-apple-darwin",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "9d84cc2175247f11dc1091d614d813f5b253f95cf89c91ea15e310b8c8081e7f",
+  "buildFingerprint": "8c6a3c69fa8d05752416f672e065d80464dc75aee0ba506f022e6b2712822c32",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
@@ -19,7 +19,7 @@
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-09-03T04:12:48.000Z",
+  "createdAt": "2026-09-03T09:48:27.000Z",
   "expiresAt": null,
   "provenance": {
     "sourceFingerprint": "785d33887dcb66b3c5fc6caa188cadf3acf8019e9445dd462bd4c807a9b98c33",
@@ -49,7 +49,7 @@
     {
       "path": "synthesis-sidecar",
       "bytes": 7027512,
-      "sha256": "58fc3b3d346cb3ec730dc9ff72903b5ef7c0e0fed4e23a077e428773496b0986",
+      "sha256": "98722fa1cf4c270b0c28c3fa408f44fa73706473a113291ea0bc856c81f32d22",
       "executable": true
     }
   ]
