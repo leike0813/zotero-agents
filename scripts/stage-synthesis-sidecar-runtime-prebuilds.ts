@@ -18,7 +18,7 @@ import {
   computeSynthesisRustSidecarSourceFingerprint,
   assertSynthesisSidecarRuntimeArchiveLayout,
   sha256File,
-  tarArgsForWindows,
+  synthesisSidecarRuntimeTar,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -35,8 +35,12 @@ function required(name: string) {
   return value;
 }
 
-function run(command: string, args: string[]) {
-  const result = spawnSync(command, args, { stdio: "inherit" });
+function run(
+  command: string,
+  args: string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+) {
+  const result = spawnSync(command, args, { ...options, stdio: "inherit" });
   if (result.error || result.status !== 0) {
     throw result.error || new Error(`${command} exited ${result.status}`);
   }
@@ -73,6 +77,7 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
     sha256: string;
     bytes: number;
   }>;
+  const tar = synthesisSidecarRuntimeTar();
   for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
     const bundleRoot = path.join(args.inputRoot, target);
     const bundle = await verifySynthesisSidecarRuntimeBundleDirectory({
@@ -89,19 +94,22 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
     }
     const file = synthesisSidecarRuntimeArchiveName(target);
     const archive = path.join(staging, file);
-    run("tar", [
-      ...tarArgsForWindows(),
-      "--sort=name",
-      "--mtime=@0",
-      "--owner=0",
-      "--group=0",
-      "--numeric-owner",
-      "-czf",
-      archive,
-      "-C",
-      args.inputRoot,
-      target,
-    ]);
+    run(
+      tar.command,
+      [
+        "--sort=name",
+        "--mtime=@0",
+        "--owner=0",
+        "--group=0",
+        "--numeric-owner",
+        "-czf",
+        file,
+        "-C",
+        args.inputRoot.replace(/\\/g, "/"),
+        target,
+      ],
+      { cwd: staging, env: tar.env },
+    );
     const bytes = (await fs.stat(archive)).size;
     if (bytes > 15 * 1024 * 1024)
       throw new Error(`${target} archive exceeds 15 MiB`);
@@ -181,20 +189,22 @@ export async function stageSynthesisSidecarRuntimePrebuildArchives(args: {
         "Prebuild archive input has missing or unexpected archives",
       );
     }
+    const tar = synthesisSidecarRuntimeTar();
     for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
       const archivePath = path.join(
         args.archiveRoot,
         synthesisSidecarRuntimeArchiveName(target),
       );
       assertSynthesisSidecarRuntimeArchiveLayout({ archivePath, target });
-      run("tar", [
-        ...tarArgsForWindows(),
-        "--same-permissions",
-        "-xzf",
-        archivePath,
-        "-C",
-        extractedRoot,
-      ]);
+      run(
+        tar.command,
+        [
+          "--same-permissions",
+          "-xzf",
+          path.relative(extractedRoot, archivePath).replace(/\\/g, "/"),
+        ],
+        { cwd: extractedRoot, env: tar.env },
+      );
     }
     return await stageSynthesisSidecarRuntimePrebuildSet({
       inputRoot: extractedRoot,

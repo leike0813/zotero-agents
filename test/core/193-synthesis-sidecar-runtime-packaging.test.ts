@@ -55,6 +55,7 @@ import {
   rebuildSynthesisSidecarRuntimeSymbolManifest,
 } from "../../scripts/package-synthesis-sidecar-runtime-symbols";
 import { publishImmutableSynthesisSidecarRuntimeSet } from "../../scripts/publish-synthesis-sidecar-runtime-prebuild";
+import { extractSynthesisSidecarRuntimeArchive } from "../../scripts/download-synthesis-sidecar-runtime-cache";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -314,7 +315,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
     ]);
   });
 
-  it("discovers cross-SHA cache candidates without trusting expired artifacts", async function () {
+  it("reuses cache candidates only from the exact source SHA", async function () {
     const currentSha = "1".repeat(40);
     const donorSha = "2".repeat(40);
     const resolution = await resolveSynthesisSidecarRuntimeCache({
@@ -323,31 +324,44 @@ describe("Synthesis sidecar native runtime packaging", function () {
       sourceFingerprint: "a".repeat(64),
       buildFingerprint: "b".repeat(64),
       listRuns: async () => [
-        { databaseId: 9, conclusion: "failure", sourceSha: donorSha },
+        { databaseId: 10, conclusion: "failure", sourceSha: donorSha },
+        { databaseId: 9, conclusion: "failure", sourceSha: currentSha },
       ],
-      listArtifacts: async () => [
-        ...SYNTHESIS_SIDECAR_RUNTIME_TARGETS.map((target, index) => ({
-          artifactId: index + 1,
-          name: `synthesis-sidecar-runtime-${target}`,
-          sizeInBytes: 100 + index,
-          archiveDownloadUrl: `https://example.test/${target}`,
-          expired: target === "linux-arm",
-        })),
-        {
-          artifactId: 99,
-          name: "synthesis-sidecar-runtime-symbols-win32-x64",
-          sizeInBytes: 200,
-          archiveDownloadUrl: "https://example.test/win32-x64-symbols",
-          expired: false,
-        },
-      ],
+      listArtifacts: async ({ runId }) =>
+        runId === 10
+          ? [
+              {
+                artifactId: 100,
+                name: "synthesis-sidecar-runtime-linux-x64",
+                sizeInBytes: 999,
+                archiveDownloadUrl: "https://example.test/donor-linux-x64",
+                expired: false,
+              },
+            ]
+          : [
+              ...SYNTHESIS_SIDECAR_RUNTIME_TARGETS.map((target, index) => ({
+                artifactId: index + 1,
+                name: `synthesis-sidecar-runtime-${target}`,
+                sizeInBytes: 100 + index,
+                archiveDownloadUrl: `https://example.test/${target}`,
+                expired: target === "linux-arm",
+              })),
+              {
+                artifactId: 99,
+                name: "synthesis-sidecar-runtime-symbols-win32-x64",
+                sizeInBytes: 200,
+                archiveDownloadUrl: "https://example.test/win32-x64-symbols",
+                expired: false,
+              },
+            ],
     });
     assert.equal(
       resolution.schema,
       "synthesis-sidecar-runtime-cache-resolution.v4",
     );
     assert.isTrue(resolution.platforms["linux-x64"].candidate);
-    assert.equal(resolution.platforms["linux-x64"].sourceSha, donorSha);
+    assert.equal(resolution.platforms["linux-x64"].sourceSha, currentSha);
+    assert.equal(resolution.platforms["linux-x64"].runId, 9);
     assert.isFalse(resolution.platforms["linux-arm"].candidate);
     assert.equal(resolution.platforms["linux-arm"].reason, "artifact_expired");
   });
@@ -359,7 +373,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
       sourceFingerprint: "a".repeat(64),
       buildFingerprint: "b".repeat(64),
       listRuns: async () => [
-        { databaseId: 9, conclusion: "success", sourceSha: "2".repeat(40) },
+        { databaseId: 9, conclusion: "success", sourceSha: "1".repeat(40) },
       ],
       listArtifacts: async () => [
         {
@@ -375,6 +389,32 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.equal(
       resolution.platforms["win32-x64"].reason,
       "matching_symbol_artifact_missing",
+    );
+  });
+
+  it("extracts a cached archive through the host tar boundary", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-sidecar-extract-"));
+    const source = path.join(root, "source", "linux-x64");
+    const archive = path.join(root, "runtime.tar.gz");
+    const output = path.join(root, "output");
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(path.join(source, "probe.txt"), "extracted\n");
+    execFileSync(
+      "tar",
+      ["-czf", "runtime.tar.gz", "-C", "source", "linux-x64"],
+      {
+        cwd: root,
+      },
+    );
+
+    await extractSynthesisSidecarRuntimeArchive({
+      archivePath: archive,
+      outputRoot: output,
+    });
+
+    assert.equal(
+      fs.readFileSync(path.join(output, "linux-x64", "probe.txt"), "utf8"),
+      "extracted\n",
     );
   });
 
@@ -460,11 +500,14 @@ describe("Synthesis sidecar native runtime packaging", function () {
     const candidateSet = path.join(root, "set");
     const firstSymbols = path.join(root, "symbols-first");
     const secondSymbols = path.join(root, "symbols-second");
+    const conflictingSymbols = path.join(root, "symbols-conflicting");
     const executablePath = path.join(root, "synthesis-sidecar.exe");
     const pdbPath = path.join(root, "synthesis-sidecar.pdb");
     const aggregate = "a".repeat(64);
     const sourceFingerprint = "c".repeat(64);
     const buildFingerprint = "b".repeat(64);
+    const firstSha = "1".repeat(40);
+    const secondSha = "2".repeat(40);
     execFileSync("git", ["init", "--bare", remote], { stdio: "pipe" });
     fs.mkdirSync(candidateSet);
     fs.writeFileSync(
@@ -472,17 +515,18 @@ describe("Synthesis sidecar native runtime packaging", function () {
       Buffer.from([0, 1]),
     );
     fs.writeFileSync(executablePath, bytes("same executable"));
-    fs.writeFileSync(pdbPath, bytes("same pdb"));
+    fs.writeFileSync(pdbPath, bytes("first pdb"));
     await packageSynthesisSidecarRuntimeSymbols({
-      sourceCommit: "1".repeat(40),
+      sourceCommit: firstSha,
       sourceFingerprint,
       buildFingerprint,
       executablePath,
       pdbPath,
       outputRoot: firstSymbols,
     });
+    fs.writeFileSync(pdbPath, bytes("second pdb"));
     await packageSynthesisSidecarRuntimeSymbols({
-      sourceCommit: "2".repeat(40),
+      sourceCommit: secondSha,
       sourceFingerprint,
       buildFingerprint,
       executablePath,
@@ -495,18 +539,16 @@ describe("Synthesis sidecar native runtime packaging", function () {
       temporaryRoot: path.join(root, "first"),
       candidateSet,
       aggregate,
-      candidateSymbols: firstSymbols,
-      buildFingerprint,
+      candidateSymbols: { root: firstSymbols, sourceSha: firstSha },
     });
     const second = await publishImmutableSynthesisSidecarRuntimeSet({
       remote,
       temporaryRoot: path.join(root, "second"),
       candidateSet,
       aggregate,
-      candidateSymbols: secondSymbols,
-      buildFingerprint,
+      candidateSymbols: { root: secondSymbols, sourceSha: secondSha },
     });
-    assert.equal(second, first);
+    assert.notEqual(second, first);
 
     const checkout = path.join(root, "checkout");
     execFileSync(
@@ -520,27 +562,41 @@ describe("Synthesis sidecar native runtime packaging", function () {
       ],
       { stdio: "pipe" },
     );
-    const symbolManifest = JSON.parse(
-      fs.readFileSync(
-        path.join(
-          checkout,
-          "symbols",
-          buildFingerprint,
-          "win32-x64",
-          "manifest.json",
-        ),
-        "utf8",
-      ),
-    ) as Record<string, unknown>;
-    assert.equal(symbolManifest.sourceCommit, "1".repeat(40));
     assert.isTrue(fs.existsSync(path.join(checkout, "sets", aggregate)));
-    assert.deepEqual(
-      fs
-        .readdirSync(
-          path.join(checkout, "symbols", buildFingerprint, "win32-x64"),
-        )
-        .sort(),
-      ["manifest.json", "synthesis-sidecar.pdb.gz"],
+    for (const sourceSha of [firstSha, secondSha]) {
+      const symbolRoot = path.join(checkout, "symbols", sourceSha, "win32-x64");
+      const symbolManifest = JSON.parse(
+        fs.readFileSync(path.join(symbolRoot, "manifest.json"), "utf8"),
+      ) as Record<string, unknown>;
+      assert.equal(symbolManifest.sourceCommit, sourceSha);
+      assert.deepEqual(fs.readdirSync(symbolRoot).sort(), [
+        "manifest.json",
+        "synthesis-sidecar.pdb.gz",
+      ]);
+    }
+
+    fs.writeFileSync(pdbPath, bytes("conflicting first pdb"));
+    await packageSynthesisSidecarRuntimeSymbols({
+      sourceCommit: firstSha,
+      sourceFingerprint,
+      buildFingerprint,
+      executablePath,
+      pdbPath,
+      outputRoot: conflictingSymbols,
+    });
+    await publishImmutableSynthesisSidecarRuntimeSet({
+      remote,
+      temporaryRoot: path.join(root, "conflict"),
+      candidateSet,
+      aggregate,
+      candidateSymbols: { root: conflictingSymbols, sourceSha: firstSha },
+    }).then(
+      () => assert.fail("expected immutable Windows symbol conflict"),
+      (error) =>
+        assert.include(
+          error instanceof Error ? error.message : String(error),
+          "Windows symbols",
+        ),
     );
   });
 

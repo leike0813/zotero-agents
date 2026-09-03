@@ -173,8 +173,11 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
     maximum: args.maximumRuns ?? 100,
   });
   const filteredRuns = args.excludeRunId
-    ? runs.filter((run) => run.databaseId !== args.excludeRunId)
-    : runs;
+    ? runs.filter(
+        (run) =>
+          run.databaseId !== args.excludeRunId && run.sourceSha === sourceSha,
+      )
+    : runs.filter((run) => run.sourceSha === sourceSha);
   const exploredRunIds = filteredRuns.map((run) => run.databaseId);
 
   const platforms = {} as Record<

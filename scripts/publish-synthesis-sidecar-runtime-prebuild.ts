@@ -36,22 +36,6 @@ function runGit(cwd: string, args: string[], allowFailure = false) {
   return result;
 }
 
-type ImmutableFileDigest = Readonly<{
-  file: string;
-  sha256: string;
-}>;
-
-type ExistingSetComparison = {
-  candidate: string;
-  store: string;
-  candidateFiles: readonly ImmutableFileDigest[];
-  existingFiles: readonly ImmutableFileDigest[];
-};
-
-type ExistingSetEquivalence = (
-  args: ExistingSetComparison,
-) => boolean | Promise<boolean>;
-
 async function exactFiles(root: string) {
   const entries = await fs.readdir(root, { withFileTypes: true });
   if (entries.some((entry) => !entry.isFile() || entry.isSymbolicLink())) {
@@ -71,7 +55,7 @@ async function exactFiles(root: string) {
 async function copyOrVerifySet(
   candidate: string,
   store: string,
-  equivalentExisting?: ExistingSetEquivalence,
+  label: string,
 ) {
   const existing = await fs.stat(store).catch(() => null);
   if (existing) {
@@ -79,50 +63,16 @@ async function copyOrVerifySet(
       exactFiles(candidate),
       exactFiles(store),
     ]);
-    const exactMatch =
-      JSON.stringify(candidateFiles) === JSON.stringify(existingFiles);
-    const equivalentMatch =
-      !exactMatch && equivalentExisting
-        ? await equivalentExisting({
-            candidate,
-            store,
-            candidateFiles,
-            existingFiles,
-          })
-        : false;
-    if (!exactMatch && !equivalentMatch) {
-      throw new Error("Immutable prebuild set already exists with other bytes");
+    if (JSON.stringify(candidateFiles) !== JSON.stringify(existingFiles)) {
+      throw new Error(
+        `Immutable prebuild ${label} already exists with other bytes`,
+      );
     }
     return false;
   }
   await fs.mkdir(path.dirname(store), { recursive: true });
   await fs.cp(candidate, store, { recursive: true, errorOnExist: true });
   return true;
-}
-
-async function equivalentSymbolSet({
-  candidate,
-  store,
-  candidateFiles,
-  existingFiles,
-}: ExistingSetComparison) {
-  const withoutManifest = (files: readonly ImmutableFileDigest[]) =>
-    files.filter(({ file }) => file !== "manifest.json");
-  if (
-    JSON.stringify(withoutManifest(candidateFiles)) !==
-    JSON.stringify(withoutManifest(existingFiles))
-  ) {
-    return false;
-  }
-  const [candidateManifest, existingManifest] = await Promise.all([
-    fs.readFile(path.join(candidate, "manifest.json"), "utf8"),
-    fs.readFile(path.join(store, "manifest.json"), "utf8"),
-  ]);
-  const { sourceCommit: _candidateSourceCommit, ...candidateIdentity } =
-    rebuildSynthesisSidecarRuntimeSymbolManifest(JSON.parse(candidateManifest));
-  const { sourceCommit: _existingSourceCommit, ...existingIdentity } =
-    rebuildSynthesisSidecarRuntimeSymbolManifest(JSON.parse(existingManifest));
-  return JSON.stringify(candidateIdentity) === JSON.stringify(existingIdentity);
 }
 
 async function readTargetEvidence(args: {
@@ -177,9 +127,16 @@ export async function publishImmutableSynthesisSidecarRuntimeSet(args: {
   temporaryRoot: string;
   candidateSet: string;
   aggregate: string;
-  candidateSymbols?: string;
-  buildFingerprint?: string;
+  candidateSymbols?: Readonly<{ root: string; sourceSha: string }>;
 }) {
+  if (
+    args.candidateSymbols &&
+    !/^[a-f0-9]{40}$/.test(args.candidateSymbols.sourceSha)
+  ) {
+    throw new Error(
+      "Windows symbol source SHA must be 40 lowercase hex characters",
+    );
+  }
   for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt += 1) {
     const store = path.join(args.temporaryRoot, `store-${attempt}`);
     const branchExists =
@@ -216,19 +173,24 @@ export async function publishImmutableSynthesisSidecarRuntimeSet(args: {
     const setChanged = await copyOrVerifySet(
       args.candidateSet,
       path.join(store, "sets", args.aggregate),
+      "runtime set",
     );
-    const symbolsChanged =
-      args.candidateSymbols && args.buildFingerprint
-        ? await copyOrVerifySet(
-            args.candidateSymbols,
-            path.join(store, "symbols", args.buildFingerprint, "win32-x64"),
-            equivalentSymbolSet,
-          )
-        : false;
+    const symbolsChanged = args.candidateSymbols
+      ? await copyOrVerifySet(
+          args.candidateSymbols.root,
+          path.join(
+            store,
+            "symbols",
+            args.candidateSymbols.sourceSha,
+            "win32-x64",
+          ),
+          "Windows symbols",
+        )
+      : false;
     if (setChanged || symbolsChanged) {
       const paths = [`sets/${args.aggregate}`];
       if (symbolsChanged) {
-        paths.push(`symbols/${args.buildFingerprint}/win32-x64`);
+        paths.push(`symbols/${args.candidateSymbols?.sourceSha}/win32-x64`);
       }
       runGit(store, ["add", ...paths]);
       runGit(store, [
@@ -315,6 +277,7 @@ export async function publishSynthesisSidecarRuntimePrebuild(args: {
     );
     const symbolArchiveStat = await fs.stat(symbolArchivePath);
     if (
+      symbolManifest.sourceCommit !== args.sourceSha ||
       symbolManifest.sourceFingerprint !== args.sourceFingerprint ||
       symbolManifest.buildFingerprint !== args.buildFingerprint ||
       symbolManifest.archive.sha256 !== (await sha256File(symbolArchivePath)) ||
@@ -327,8 +290,10 @@ export async function publishSynthesisSidecarRuntimePrebuild(args: {
       temporaryRoot,
       candidateSet: staged.setDirectory,
       aggregate: staged.aggregate,
-      candidateSymbols: args.symbolRoot,
-      buildFingerprint: args.buildFingerprint,
+      candidateSymbols: {
+        root: args.symbolRoot,
+        sourceSha: symbolManifest.sourceCommit,
+      },
     });
     const result = rebuildSynthesisSidecarRuntimePrebuildResult({
       schema: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA,

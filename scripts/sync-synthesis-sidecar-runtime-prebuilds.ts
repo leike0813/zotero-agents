@@ -16,7 +16,7 @@ import {
   assertSynthesisSidecarRuntimeArchiveLayout,
   sha256File,
   synthesisSidecarRuntimeAddonBundleRoot,
-  tarArgsForWindows,
+  synthesisSidecarRuntimeTar,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -33,8 +33,12 @@ function required(name: string) {
   return value;
 }
 
-function run(command: string, args: string[]) {
-  const result = spawnSync(command, args, { stdio: "inherit" });
+function run(
+  command: string,
+  args: string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+) {
+  const result = spawnSync(command, args, { ...options, stdio: "inherit" });
   if (result.error || result.status !== 0)
     throw result.error || new Error(`${command} exited ${result.status}`);
 }
@@ -91,6 +95,7 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
   await fs.rm(bundleStaging, { recursive: true, force: true });
   await fs.mkdir(bundleStaging, { recursive: true });
   try {
+    const tar = synthesisSidecarRuntimeTar();
     for (const archive of manifest.archives) {
       const archivePath = path.join(setRoot, archive.file);
       if ((await sha256File(archivePath)) !== archive.sha256) {
@@ -100,7 +105,11 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
         archivePath,
         target: archive.target,
       });
-      run("tar", [...tarArgsForWindows(), "-xzf", archivePath, "-C", bundleStaging]);
+      run(
+        tar.command,
+        ["-xzf", path.relative(bundleStaging, archivePath).replace(/\\/g, "/")],
+        { cwd: bundleStaging, env: tar.env },
+      );
       const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
         root: path.join(bundleStaging, archive.target),
         target: archive.target,

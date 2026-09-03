@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -319,20 +319,55 @@ export async function sha256File(filePath: string) {
   return sha256Bytes(await fs.readFile(filePath));
 }
 
-// git-for-windows' msys2 tar treats an absolute Windows path like
-// `D:\foo\bar.tar.gz` as a remote host spec (`D:`) and refuses to open it.
-// `--force-local` forces local interpretation; on Linux/macOS it is a no-op.
-export function tarArgsForWindows(): string[] {
-  return process.platform === "win32" ? ["--force-local"] : [];
+type SynthesisSidecarRuntimeTar = Readonly<{
+  command: string;
+  env: NodeJS.ProcessEnv;
+}>;
+
+let cachedTar: SynthesisSidecarRuntimeTar | undefined;
+
+export function synthesisSidecarRuntimeTar(): SynthesisSidecarRuntimeTar {
+  if (cachedTar) return cachedTar;
+  if (process.platform !== "win32") {
+    return (cachedTar = { command: "tar", env: process.env });
+  }
+  const gitExecPath = spawnSync("git", ["--exec-path"], {
+    encoding: "utf8",
+  });
+  if (gitExecPath.error || gitExecPath.status !== 0) {
+    throw gitExecPath.error || new Error("Unable to locate Git for Windows");
+  }
+  const bin = path.resolve(gitExecPath.stdout.trim(), "../../..", "usr/bin");
+  const command = path.join(bin, "tar.exe");
+  if (!existsSync(command) || !existsSync(path.join(bin, "gzip.exe"))) {
+    throw new Error("Git for Windows GNU tar and gzip are required");
+  }
+  const pathKey =
+    Object.keys(process.env).find((key) => key.toLowerCase() === "path") ||
+    "PATH";
+  return (cachedTar = {
+    command,
+    env: {
+      ...process.env,
+      [pathKey]: `${bin}${path.delimiter}${process.env[pathKey] || ""}`,
+    },
+  });
 }
 
 export function assertSynthesisSidecarRuntimeArchiveLayout(args: {
   archivePath: string;
   target: SynthesisSidecarRuntimeTarget;
 }) {
-  const result = spawnSync("tar", [...tarArgsForWindows(), "-tzf", args.archivePath], {
-    encoding: "utf8",
-  });
+  const tar = synthesisSidecarRuntimeTar();
+  const result = spawnSync(
+    tar.command,
+    ["-tzf", path.basename(args.archivePath)],
+    {
+      cwd: path.dirname(args.archivePath),
+      encoding: "utf8",
+      env: tar.env,
+    },
+  );
   if (result.error || result.status !== 0) {
     throw (
       result.error || new Error(`Unable to inspect archive ${args.archivePath}`)

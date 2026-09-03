@@ -11,7 +11,7 @@ import {
 } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 import {
   assertSynthesisSidecarRuntimeArchiveLayout,
-  tarArgsForWindows,
+  synthesisSidecarRuntimeTar,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -131,6 +131,22 @@ async function sha256File(filePath: string): Promise<string> {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+export async function extractSynthesisSidecarRuntimeArchive(args: {
+  archivePath: string;
+  outputRoot: string;
+}) {
+  await mkdir(args.outputRoot, { recursive: true });
+  const tar = synthesisSidecarRuntimeTar();
+  await execFileAsync(
+    tar.command,
+    [
+      "-xzf",
+      path.relative(args.outputRoot, args.archivePath).replace(/\\/g, "/"),
+    ],
+    { cwd: args.outputRoot, env: tar.env, windowsHide: true },
+  );
+}
+
 export async function downloadSynthesisSidecarRuntimeCache(args: {
   artifactId: number;
   archiveUrl: string;
@@ -181,9 +197,9 @@ export async function downloadSynthesisSidecarRuntimeCache(args: {
     recursive: true,
     force: true,
   });
-  await mkdir(bundleRoot, { recursive: true });
-  await execFileAsync("tar", [...tarArgsForWindows(), "-xzf", tarGzPath, "-C", bundleRoot], {
-    windowsHide: true,
+  await extractSynthesisSidecarRuntimeArchive({
+    archivePath: tarGzPath,
+    outputRoot: bundleRoot,
   });
   const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
     root: path.join(bundleRoot, args.target),

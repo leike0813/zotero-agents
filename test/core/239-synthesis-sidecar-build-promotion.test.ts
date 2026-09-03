@@ -242,7 +242,7 @@ describe("Synthesis sidecar build promotion", function () {
       (error) =>
         assert.include(
           error instanceof Error ? error.message : String(error),
-          "Immutable prebuild set already exists with other bytes",
+          "runtime set",
         ),
     );
   });
