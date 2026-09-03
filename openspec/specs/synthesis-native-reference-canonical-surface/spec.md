@@ -39,6 +39,14 @@ Reference refresh and advanced matching SHALL consume bounded reverse-Host pages
 - **WHEN** registration succeeds but Host-fed job, durable proposal, or public DTO parity is incomplete
 - **THEN** the operation remains not ready
 
+### Requirement: Reference Host page reads SHALL use a capability-specific deadline
+
+`library.items.list_page` SHALL retain the general 1 MiB response-body bound and use a ten-second call timeout. The Host endpoint and native client MUST enforce the same selected timeout, while unlisted reverse-Host capabilities retain the general two-second default.
+
+#### Scenario: Reference Host page exceeds the general deadline
+- **WHEN** a valid `library.items.list_page` response completes after two seconds and before ten seconds
+- **THEN** the reverse-Host returns the complete bounded page
+
 ### Requirement: Reference operations SHALL use generic spans and facts
 
 Reference refresh and Advanced Matching SHALL use the common boundary model.
@@ -57,4 +65,3 @@ Reference index, ranking, attention, review, and workbench projections SHALL be 
 - **WHEN** a runtime route supplies a valid typed projection query
 - **THEN** the application returns a typed semantic projection from one coherent durable basis
 - **AND** no projection selection, ranking, or effective-identity rule is reimplemented in the runtime adapter.
-

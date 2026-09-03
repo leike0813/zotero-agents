@@ -301,7 +301,11 @@ describe("host HTTP response governance", function () {
     assert.equal(output.closeCount, 1);
   });
 
-  it("uses the reference artifact deadline for scan, payload, and representative-image reads", function () {
+  it("uses capability-specific reverse-host deadlines", function () {
+    assert.equal(
+      synthesisReverseHostCallTimeoutMs("library.items.list_page"),
+      10_000,
+    );
     assert.equal(
       synthesisReverseHostCallTimeoutMs("library.artifacts.scan_page"),
       10_000,

@@ -12,12 +12,23 @@ use crate::runtime_diagnostics::{
 
 const REVERSE_HOST_PATH: &str = "/synthesis/v1/host-call";
 const REVERSE_HOST_TIMEOUT: Duration = Duration::from_secs(2);
-const REFERENCE_ARTIFACT_TIMEOUT: Duration = Duration::from_secs(10);
+const REFERENCE_HOST_READ_TIMEOUT: Duration = Duration::from_secs(10);
 const EXPORT_DELIVERY_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES: u64 = 16 * 1024;
 const MAX_REVERSE_HOST_RESPONSE_BODY_BYTES: u64 = 1024 * 1024;
 const MAX_REFERENCE_ARTIFACT_RESPONSE_BODY_BYTES: u64 = 8 * 1024 * 1024;
 static REVERSE_HOST_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn reverse_host_timeout(capability: &str) -> Duration {
+    match capability {
+        "library.items.list_page"
+        | "library.artifacts.scan_page"
+        | "library.artifacts.read"
+        | "library.representative_image.read" => REFERENCE_HOST_READ_TIMEOUT,
+        capability if capability.starts_with("delivery.export.") => EXPORT_DELIVERY_TIMEOUT,
+        _ => REVERSE_HOST_TIMEOUT,
+    }
+}
 
 fn response_header(bytes: &[u8], max_body_bytes: u64) -> Result<(u16, usize), String> {
     let header = std::str::from_utf8(bytes)
@@ -144,24 +155,11 @@ pub(crate) fn call_reverse_host(
     let sequence = REVERSE_HOST_REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let request_id = format!("native:{now}:{sequence}");
     let operation_id = format!("native:{capability}:{now}:{sequence}");
-    let reference_artifact = matches!(
-        capability,
-        "library.artifacts.scan_page"
-            | "library.artifacts.read"
-            | "library.representative_image.read"
-    );
     let artifact_read = matches!(
         capability,
         "library.artifacts.read" | "library.representative_image.read"
     );
-    let export_delivery = capability.starts_with("delivery.export.");
-    let timeout = bounded_timeout(if reference_artifact {
-        REFERENCE_ARTIFACT_TIMEOUT
-    } else if export_delivery {
-        EXPORT_DELIVERY_TIMEOUT
-    } else {
-        REVERSE_HOST_TIMEOUT
-    })?;
+    let timeout = bounded_timeout(reverse_host_timeout(capability))?;
     let max_response_body_bytes = if artifact_read {
         MAX_REFERENCE_ARTIFACT_RESPONSE_BODY_BYTES
     } else {
@@ -239,6 +237,20 @@ pub(crate) fn probe_reverse_host(config: &NativeLaunchConfig) -> Result<(), Stri
 mod tests {
     use super::*;
     use std::io::{Cursor, Error, ErrorKind};
+
+    #[test]
+    fn selects_capability_specific_reverse_host_timeouts() {
+        for (capability, expected) in [
+            ("library.items.list_page", Duration::from_secs(10)),
+            ("library.artifacts.scan_page", Duration::from_secs(10)),
+            ("library.artifacts.read", Duration::from_secs(10)),
+            ("library.representative_image.read", Duration::from_secs(10)),
+            ("delivery.export.publish_archive", Duration::from_secs(30)),
+            ("webdav.describe", Duration::from_secs(2)),
+        ] {
+            assert_eq!(reverse_host_timeout(capability), expected, "{capability}");
+        }
+    }
 
     struct CompleteWithoutEof {
         bytes: Cursor<Vec<u8>>,

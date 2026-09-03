@@ -231,6 +231,10 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
     callTimeoutMs: 30_000,
   }),
+  "library.items.list_page": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: 10_000,
+  }),
   "library.artifacts.scan_page": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
     callTimeoutMs: 10_000,
