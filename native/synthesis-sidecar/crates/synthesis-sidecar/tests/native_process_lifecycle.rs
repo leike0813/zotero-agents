@@ -839,6 +839,34 @@ fn discovery_is_the_ready_commit_and_shutdown_receipt_precedes_terminal_cleanup(
 }
 
 #[test]
+fn parent_input_close_exits_successfully_and_removes_discovery() {
+    let root = test_root("parent-eof-shutdown");
+    let reverse_host = ReverseHost::start();
+    let (config_path, discovery_path, _) = write_launch_config(&root, reverse_host.port);
+    fs::create_dir_all(discovery_path.parent().expect("discovery parent"))
+        .expect("runtime directory");
+    fs::write(&discovery_path, b"stale").expect("stale discovery");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_synthesis-sidecar"))
+        .arg("serve")
+        .arg("--config")
+        .arg(&config_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("spawn sidecar");
+
+    let discovery = wait_for_discovery(&mut child, &discovery_path);
+    assert_eq!(discovery["lifecycleState"], "ready");
+    drop(child.stdin.take());
+    assert!(wait_for_exit(&mut child).success());
+    assert!(!discovery_path.exists());
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove lifecycle root");
+}
+
+#[test]
 fn canonical_inspect_serves_the_raw_topic_descriptor_shape() {
     let root = test_root("canonical-inspect");
     let reverse_host = ReverseHost::start();

@@ -25,11 +25,12 @@ export type SynthesisSidecarRuntimeCacheEntry = Readonly<{
   runId: number | null;
   sourceSha: string | null;
   artifact: SynthesisSidecarRuntimeCacheArtifact | null;
+  symbolsArtifact: SynthesisSidecarRuntimeCacheArtifact | null;
   reason: string;
 }>;
 
 export type SynthesisSidecarRuntimeCacheResolution = Readonly<{
-  schema: "synthesis-sidecar-runtime-cache-resolution.v3";
+  schema: "synthesis-sidecar-runtime-cache-resolution.v4";
   repository: string;
   sourceSha: string;
   buildFingerprint: string;
@@ -186,6 +187,7 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
       runId: null,
       sourceSha: null,
       artifact: null,
+      symbolsArtifact: null,
       reason: "no_run_with_artifact",
     };
   }
@@ -200,6 +202,40 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
       const artifactName = `${ARTIFACT_NAME_PREFIX}${target}`;
       const artifact = artifacts.find((entry) => entry.name === artifactName);
       if (!artifact) continue;
+      const symbolsArtifact =
+        target === "win32-x64"
+          ? artifacts.find(
+              (entry) =>
+                entry.name === "synthesis-sidecar-runtime-symbols-win32-x64",
+            )
+          : undefined;
+      if (target === "win32-x64" && !symbolsArtifact) {
+        platforms[target] = {
+          candidate: false,
+          runId: run.databaseId,
+          sourceSha: run.sourceSha,
+          artifact: null,
+          symbolsArtifact: null,
+          reason: "matching_symbol_artifact_missing",
+        };
+        continue;
+      }
+      if (symbolsArtifact?.expired) {
+        platforms[target] = {
+          candidate: false,
+          runId: run.databaseId,
+          sourceSha: run.sourceSha,
+          artifact: null,
+          symbolsArtifact: {
+            artifactId: symbolsArtifact.artifactId,
+            sizeInBytes: symbolsArtifact.sizeInBytes,
+            archiveDownloadUrl: symbolsArtifact.archiveDownloadUrl,
+            expired: true,
+          },
+          reason: "matching_symbol_artifact_expired",
+        };
+        continue;
+      }
       if (artifact.expired) {
         platforms[target] = {
           candidate: false,
@@ -211,6 +247,7 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
             archiveDownloadUrl: artifact.archiveDownloadUrl,
             expired: true,
           },
+          symbolsArtifact: null,
           reason: "artifact_expired",
         };
         continue;
@@ -225,13 +262,21 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
           archiveDownloadUrl: artifact.archiveDownloadUrl,
           expired: false,
         },
+        symbolsArtifact: symbolsArtifact
+          ? {
+              artifactId: symbolsArtifact.artifactId,
+              sizeInBytes: symbolsArtifact.sizeInBytes,
+              archiveDownloadUrl: symbolsArtifact.archiveDownloadUrl,
+              expired: false,
+            }
+          : null,
         reason: `artifact_candidate_pending_fingerprint_validation (${artifact.sizeInBytes} bytes)`,
       };
     }
   }
 
   return {
-    schema: "synthesis-sidecar-runtime-cache-resolution.v3",
+    schema: "synthesis-sidecar-runtime-cache-resolution.v4",
     repository: repo,
     sourceSha,
     buildFingerprint,

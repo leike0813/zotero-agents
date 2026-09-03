@@ -263,20 +263,6 @@ const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
 const ASSISTANT_WORKSPACE_BRIDGE_KEY = ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY;
 const localize = getStringOrFallback;
 
-// High-frequency control-plane actions that should not flood the info channel.
-// `ready` (shell and child) stays at info because it is a lifecycle event,
-// not control-plane chatter.
-const ASSISTANT_WORKSPACE_DEBUG_LEVEL_SHELL_ACTIONS = new Set<string>([
-  ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB,
-  ASSISTANT_WORKSPACE_SHELL_ACTIONS.CLOSE_SIDEBAR,
-]);
-const ASSISTANT_WORKSPACE_DEBUG_LEVEL_CHILD_ACTIONS = new Set<string>([
-  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.PUBLICATION_ACK,
-  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.PUBLICATION_RENDER_OBSERVATION,
-  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.LOAD_TRANSCRIPT_PAGE,
-  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.REQUEST_OWNER_DETAILS,
-]);
-
 export function resolveAssistantWorkspaceAuditLogLevel(args: {
   tab: AssistantWorkspaceLogTab;
   action: string;
@@ -285,11 +271,10 @@ export function resolveAssistantWorkspaceAuditLogLevel(args: {
   if (args.result === "error") {
     return "warn" as const;
   }
-  const set =
-    args.tab === "shell"
-      ? ASSISTANT_WORKSPACE_DEBUG_LEVEL_SHELL_ACTIONS
-      : ASSISTANT_WORKSPACE_DEBUG_LEVEL_CHILD_ACTIONS;
-  return set.has(args.action) ? ("debug" as const) : ("info" as const);
+  return args.action === ASSISTANT_WORKSPACE_SHELL_ACTIONS.READY ||
+    args.action === ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.READY
+    ? ("info" as const)
+    : null;
 }
 
 configureAssistantWorkspacePublicationShellHost({
@@ -550,7 +535,7 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
   if (!activeTarget) {
     return false;
   }
-  clearShellHandshake(host, "close-active-sidebar");
+  clearShellHandshake(host);
   clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
   detachSkillRunnerFromShell(host, "close-active-sidebar");
@@ -613,16 +598,6 @@ function postShellMessage(
   }
   installShellBridge(host);
   const messagePayload = payload || {};
-  logAssistantWorkspaceDebug(
-    host,
-    "shell-post",
-    "Assistant Workspace shell message posted.",
-    {
-      type,
-      tab: String(messagePayload.tab || ""),
-      phase: String(messagePayload.phase || ""),
-    },
-  );
   const profilerPublication =
     type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_PUBLICATION &&
     messagePayload.publication &&
@@ -770,21 +745,10 @@ function isAssistantShellReadyEnvelope(
   );
 }
 
-function clearShellHandshake(
-  host: AssistantWorkspaceHostRuntime,
-  reason: string,
-) {
+function clearShellHandshake(host: AssistantWorkspaceHostRuntime) {
   if (host.shellHandshakeTimer) {
     clearTimeout(host.shellHandshakeTimer);
     host.shellHandshakeTimer = null;
-  }
-  if (host.shellHandshakeAttempt > 0) {
-    logAssistantWorkspaceDebug(
-      host,
-      "shell-handshake-clear",
-      "Assistant Workspace shell handshake cleared.",
-      { reason, attempts: host.shellHandshakeAttempt },
-    );
   }
   host.shellHandshakeAttempt = 0;
 }
@@ -794,29 +758,11 @@ function scheduleShellHandshake(
   reason: string,
 ) {
   if (host.shell.ready) {
-    logAssistantWorkspaceDebug(
-      host,
-      "shell-handshake-drop-ready",
-      "Assistant Workspace shell handshake skipped because the shell is ready.",
-      { reason },
-    );
     return;
   }
   if (host.shellHandshakeTimer) {
-    logAssistantWorkspaceDebug(
-      host,
-      "shell-handshake-coalesced",
-      "Assistant Workspace shell handshake request coalesced.",
-      { reason, attempts: host.shellHandshakeAttempt },
-    );
     return;
   }
-  logAssistantWorkspaceDebug(
-    host,
-    "shell-handshake-scheduled",
-    "Assistant Workspace shell handshake scheduled.",
-    { reason, attempts: host.shellHandshakeAttempt },
-  );
   host.shellHandshakeTimer = setTimeout(() => {
     host.shellHandshakeTimer = null;
     runShellHandshakeTick(host, reason);
@@ -831,74 +777,32 @@ function runShellHandshakeTick(
     return;
   }
   if (host.shell.ready) {
-    clearShellHandshake(host, "ready-before-tick");
+    clearShellHandshake(host);
     return;
   }
   host.shellHandshakeAttempt += 1;
   const frameWindow = resolveCurrentShellWindow(host);
-  logAssistantWorkspaceDebug(
-    host,
-    "shell-handshake-tick",
-    "Assistant Workspace shell handshake tick.",
-    {
-      reason,
-      attempts: host.shellHandshakeAttempt,
-      hasFrameWindow: !!frameWindow,
-    },
-  );
   if (!frameWindow) {
     scheduleShellHandshake(host, "retry-no-frame");
     return;
   }
   installShellBridge(host);
   if (!host.activeTarget) {
-    logAssistantWorkspaceDebug(
-      host,
-      "shell-handshake-drop-no-target",
-      "Assistant Workspace shell handshake could not post init because no active target is set.",
-      { reason, attempts: host.shellHandshakeAttempt },
-    );
     scheduleShellHandshake(host, "retry-no-target");
     return;
   }
-  logAssistantWorkspaceDebug(
-    host,
-    "shell-handshake-post",
-    "Assistant Workspace shell handshake posting lightweight init.",
-    { reason, attempts: host.shellHandshakeAttempt },
-  );
   postShellInit(host, host.activeTab);
 }
 
 async function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
   if (host.shell.ready) {
-    logAssistantWorkspaceDebug(
-      host,
-      "shell-ready-duplicate",
-      "Assistant Workspace shell ready was received again and ignored.",
-    );
-    clearShellHandshake(host, "duplicate-ready");
+    clearShellHandshake(host);
     return;
   }
   host.shell.ready = true;
   host.shell.loaded = true;
-  clearShellHandshake(host, "ready-ack");
-  logAssistantWorkspaceDebug(
-    host,
-    "shell-handshake-ack",
-    "Assistant Workspace shell handshake acknowledged.",
-  );
-  logAssistantWorkspaceDebug(
-    host,
-    "shell-ready",
-    "Assistant Workspace shell ready accepted.",
-  );
+  clearShellHandshake(host);
   if (hasPublishedWorkspaceBaselineInit(host)) {
-    logAssistantWorkspaceDebug(
-      host,
-      "shell-ready-init-skip",
-      "Assistant Workspace shell ready acknowledged after baseline init was already published.",
-    );
     return;
   }
   await ensureAssistantWorkspaceBaselineInit(host, "shell-ready");
@@ -962,24 +866,8 @@ function installShellBridge(host: AssistantWorkspaceHostRuntime) {
     postMessage: async (type, payload) => {
       const currentShellWindow = resolveCurrentShellWindow(host);
       const bridgeIsCurrent = currentShellWindow === bridgeWindow;
-      const action =
-        payload && typeof payload === "object" && !Array.isArray(payload)
-          ? String(payload.action || "").trim()
-          : "";
       const activeTarget = host.activeTarget;
       const isReadyEnvelope = isAssistantShellReadyEnvelope(type, payload);
-      logAssistantWorkspaceDebug(
-        host,
-        "shell-bridge-post-message",
-        "Assistant Workspace shell bridge postMessage invoked.",
-        {
-          type,
-          action,
-          activeTarget,
-          bridgeIsCurrent,
-          isReadyEnvelope,
-        },
-      );
       if (!bridgeIsCurrent) {
         return {
           ok: false,
@@ -1009,12 +897,6 @@ function installShellBridge(host: AssistantWorkspaceHostRuntime) {
   writeAssistantWorkspaceBridgeTarget(wrappedTarget, bridge);
   host.shell.bridge = bridge;
   host.shell.bridgeWindow = frameWindow;
-  logAssistantWorkspaceDebug(
-    host,
-    "shell-bridge-installed",
-    "Assistant Workspace shell bridge installed.",
-    { hasWrappedTarget: !!wrappedTarget },
-  );
   if (!host.shell.ready) {
     scheduleShellHandshake(host, "bridge-installed");
   }
@@ -1060,12 +942,6 @@ function installMessageBridge(host: AssistantWorkspaceHostRuntime) {
       frameWindow &&
       event.source === frameWindow
     ) {
-      logAssistantWorkspaceDebug(
-        host,
-        "message-shell-ready",
-        "Assistant Workspace shell ready message received from the current shell window.",
-        { type: data.type },
-      );
       acceptAssistantShellReady(host);
       return;
     }
@@ -1088,18 +964,6 @@ function installMessageBridge(host: AssistantWorkspaceHostRuntime) {
       );
       return;
     }
-    logAssistantWorkspaceDebug(
-      host,
-      "message-received",
-      "Assistant Workspace message received.",
-      {
-        target,
-        type: data.type,
-        sourceMatchesShell: Boolean(
-          event.source && frameWindow && event.source === frameWindow,
-        ),
-      },
-    );
     void handleAssistantWorkspaceMessage(host, target, data);
   };
   host.win.addEventListener("message", onMessage);
@@ -1125,19 +989,6 @@ async function handleAssistantWorkspaceMessage(
   const logTab = resolveAssistantWorkspaceActionLogTab(
     data.type || "",
     actionPayload,
-  );
-  logAssistantWorkspaceDebug(
-    host,
-    "message-handle-start",
-    "Assistant Workspace message handling started.",
-    {
-      target,
-      type: data.type || "",
-      tab,
-      logTab,
-      action,
-      actionId,
-    },
   );
   const duplicateShellReady =
     data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.ACTION &&
@@ -1219,6 +1070,7 @@ function logAssistantShellAction(args: {
   error?: string;
 }) {
   const level = resolveAssistantWorkspaceAuditLogLevel(args);
+  if (!level) return;
   appendRuntimeLog({
     level,
     scope: "system",
@@ -1350,12 +1202,6 @@ async function handleShellAction(
   payload: AssistantWorkspaceShellActionEnvelope,
 ) {
   const action = String(payload.action || "").trim();
-  logAssistantWorkspaceDebug(
-    host,
-    "shell-action-start",
-    "Assistant Workspace shell action handling started.",
-    { action, requestedTab: String(payload.tab || "") },
-  );
   if (action === "ready") {
     await acceptAssistantShellReady(host);
     return;
@@ -1867,6 +1713,9 @@ export function installAssistantWorkspaceSidebarShell(
       if (!host.activeTarget) return "inactive-source";
       return host.activeTab === source ? "matching-target" : "opposite-active";
     },
+    initializationGeneration(source) {
+      return host.readyTabGenerations.get(source);
+    },
     hooks: {
       onRequested({ owner, kinds, causality }) {
         if (
@@ -1949,6 +1798,19 @@ export function installAssistantWorkspaceSidebarShell(
           }
         }
       },
+      onInitializationFailed({ source, owner, error }) {
+        appendRuntimeLog({
+          level: "error",
+          scope: "system",
+          component: "assistant-shell",
+          operation: "workspace-initialization",
+          phase: "error",
+          stage: "surface-publication",
+          message: "Assistant Workspace surface initialization failed.",
+          details: { source, ownerKey: owner?.ownerKey || null },
+          error,
+        });
+      },
     },
   });
   mountLibraryPane(host);
@@ -2005,19 +1867,9 @@ export function installAssistantWorkspaceSidebarShell(
     subscribeAssistantExecutionDisplayMode(() => {
       if (!host.streamingRenderPreferenceInitialized) {
         host.streamingRenderPreferenceInitialized = true;
-        logAssistantWorkspaceDebug(
-          host,
-          "streaming-preference-initial-skip",
-          "Assistant Workspace streaming preference initial callback skipped.",
-        );
         return;
       }
       if (host.streamingRenderPreferenceLocalWriteDepth > 0) {
-        logAssistantWorkspaceDebug(
-          host,
-          "streaming-preference-local-skip",
-          "Assistant Workspace streaming preference local write callback skipped.",
-        );
         return;
       }
       postAssistantWorkspacePublicationConfiguration(host);
@@ -2079,7 +1931,7 @@ export function removeAssistantWorkspaceSidebarShell(
     host.postSnapshotTimer = null;
   }
   host.publicationRuntime?.reset();
-  clearShellHandshake(host, "remove-shell");
+  clearShellHandshake(host);
   clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
   if (host.shell.frame && host.shell.frameLoadHandler) {

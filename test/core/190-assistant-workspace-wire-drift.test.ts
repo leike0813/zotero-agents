@@ -99,7 +99,7 @@ describe("assistant wire contract shared registry", function () {
         tab: "shell" as const,
         action: ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB,
         result: "ok" as const,
-        expected: "debug",
+        expected: null,
       },
       {
         tab: "shell" as const,
@@ -116,7 +116,7 @@ describe("assistant wire contract shared registry", function () {
           tab: "acp-chat" as const,
           action,
           result: "ok" as const,
-          expected: "debug",
+          expected: null,
         })),
       {
         tab: "acp-skills" as const,

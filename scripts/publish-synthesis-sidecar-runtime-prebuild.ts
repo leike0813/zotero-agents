@@ -17,6 +17,7 @@ import {
 } from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
 import { sha256File } from "./synthesis-sidecar-runtime-release-governance";
 import { stageSynthesisSidecarRuntimePrebuildArchives } from "./stage-synthesis-sidecar-runtime-prebuilds";
+import { rebuildSynthesisSidecarRuntimeSymbolManifest } from "./package-synthesis-sidecar-runtime-symbols";
 
 const MAX_PUBLISH_ATTEMPTS = 3;
 
@@ -120,6 +121,8 @@ export async function publishImmutableSynthesisSidecarRuntimeSet(args: {
   temporaryRoot: string;
   candidateSet: string;
   aggregate: string;
+  candidateSymbols?: string;
+  buildFingerprint?: string;
 }) {
   for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt += 1) {
     const store = path.join(args.temporaryRoot, `store-${attempt}`);
@@ -154,12 +157,23 @@ export async function publishImmutableSynthesisSidecarRuntimeSet(args: {
       ]);
       runGit(store, ["remote", "add", "origin", args.remote]);
     }
-    const changed = await copyOrVerifySet(
+    const setChanged = await copyOrVerifySet(
       args.candidateSet,
       path.join(store, "sets", args.aggregate),
     );
-    if (changed) {
-      runGit(store, ["add", `sets/${args.aggregate}`]);
+    const symbolsChanged =
+      args.candidateSymbols && args.buildFingerprint
+        ? await copyOrVerifySet(
+            args.candidateSymbols,
+            path.join(store, "symbols", args.buildFingerprint, "win32-x64"),
+          )
+        : false;
+    if (setChanged || symbolsChanged) {
+      const paths = [`sets/${args.aggregate}`];
+      if (symbolsChanged) {
+        paths.push(`symbols/${args.buildFingerprint}/win32-x64`);
+      }
+      runGit(store, ["add", ...paths]);
       runGit(store, [
         "-c",
         "user.name=github-actions[bot]",
@@ -202,6 +216,7 @@ export async function publishSynthesisSidecarRuntimePrebuild(args: {
   prebuildPipelineRevision: string;
   archiveRoot: string;
   evidenceRoot: string;
+  symbolRoot: string;
   outputPath?: string;
   remoteUrl?: string;
 }) {
@@ -232,11 +247,31 @@ export async function publishSynthesisSidecarRuntimePrebuild(args: {
         archiveBytes: archive.bytes,
       };
     }
+    const symbolManifest = rebuildSynthesisSidecarRuntimeSymbolManifest(
+      JSON.parse(
+        await fs.readFile(path.join(args.symbolRoot, "manifest.json"), "utf8"),
+      ),
+    );
+    const symbolArchivePath = path.join(
+      args.symbolRoot,
+      symbolManifest.archive.file,
+    );
+    const symbolArchiveStat = await fs.stat(symbolArchivePath);
+    if (
+      symbolManifest.sourceFingerprint !== args.sourceFingerprint ||
+      symbolManifest.buildFingerprint !== args.buildFingerprint ||
+      symbolManifest.archive.sha256 !== (await sha256File(symbolArchivePath)) ||
+      symbolManifest.archive.bytes !== symbolArchiveStat.size
+    ) {
+      throw new Error("Windows symbol artifact identity mismatch");
+    }
     const prebuildCommit = await publishImmutableSynthesisSidecarRuntimeSet({
       remote: args.remoteUrl || defaultRemote(args.repository),
       temporaryRoot,
       candidateSet: staged.setDirectory,
       aggregate: staged.aggregate,
+      candidateSymbols: args.symbolRoot,
+      buildFingerprint: args.buildFingerprint,
     });
     const result = rebuildSynthesisSidecarRuntimePrebuildResult({
       schema: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_RESULT_SCHEMA,
@@ -283,7 +318,7 @@ function required(name: string) {
 
 function help() {
   process.stdout.write(
-    "Usage: tsx scripts/publish-synthesis-sidecar-runtime-prebuild.ts --repo=<owner/name> --source-sha=<sha> --request-id=<id> --run-id=<id> --source-fingerprint=<sha256> --build-fingerprint=<sha256> --prebuild-pipeline-revision=<sha256> --archive-root=<path> --evidence-root=<path> --output=<path> [--remote-url=<url>]\n",
+    "Usage: tsx scripts/publish-synthesis-sidecar-runtime-prebuild.ts --repo=<owner/name> --source-sha=<sha> --request-id=<id> --run-id=<id> --source-fingerprint=<sha256> --build-fingerprint=<sha256> --prebuild-pipeline-revision=<sha256> --archive-root=<path> --evidence-root=<path> --symbol-root=<path> --output=<path> [--remote-url=<url>]\n",
   );
 }
 
@@ -299,6 +334,7 @@ async function main() {
     prebuildPipelineRevision: required("prebuild-pipeline-revision"),
     archiveRoot: path.resolve(required("archive-root")),
     evidenceRoot: path.resolve(required("evidence-root")),
+    symbolRoot: path.resolve(required("symbol-root")),
     outputPath: path.resolve(required("output")),
     remoteUrl: option("remote-url"),
   });

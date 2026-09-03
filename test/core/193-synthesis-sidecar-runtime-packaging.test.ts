@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { createServer, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 import { parse as parseYaml } from "yaml";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
@@ -49,6 +50,11 @@ import {
   resolveSynthesisSidecarRuntimeCache,
   runSynthesisSidecarRuntimeCacheCommand,
 } from "../../scripts/resolve-synthesis-sidecar-runtime-cache";
+import {
+  packageSynthesisSidecarRuntimeSymbols,
+  rebuildSynthesisSidecarRuntimeSymbolManifest,
+} from "../../scripts/package-synthesis-sidecar-runtime-symbols";
+import { publishImmutableSynthesisSidecarRuntimeSet } from "../../scripts/publish-synthesis-sidecar-runtime-prebuild";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -207,6 +213,14 @@ describe("Synthesis sidecar native runtime packaging", function () {
       inputs.prebuildPipeline,
       ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
     );
+    assert.include(
+      inputs.prebuildPipeline,
+      "scripts/package-synthesis-sidecar-runtime-symbols.ts",
+    );
+    assert.notInclude(
+      inputs.build,
+      "scripts/package-synthesis-sidecar-runtime-symbols.ts",
+    );
     const identities = await computeSynthesisSidecarRuntimeIdentities(ROOT);
     for (const value of [
       identities.sourceFingerprint,
@@ -311,23 +325,57 @@ describe("Synthesis sidecar native runtime packaging", function () {
       listRuns: async () => [
         { databaseId: 9, conclusion: "failure", sourceSha: donorSha },
       ],
-      listArtifacts: async () =>
-        SYNTHESIS_SIDECAR_RUNTIME_TARGETS.map((target, index) => ({
+      listArtifacts: async () => [
+        ...SYNTHESIS_SIDECAR_RUNTIME_TARGETS.map((target, index) => ({
           artifactId: index + 1,
           name: `synthesis-sidecar-runtime-${target}`,
           sizeInBytes: 100 + index,
           archiveDownloadUrl: `https://example.test/${target}`,
           expired: target === "linux-arm",
         })),
+        {
+          artifactId: 99,
+          name: "synthesis-sidecar-runtime-symbols-win32-x64",
+          sizeInBytes: 200,
+          archiveDownloadUrl: "https://example.test/win32-x64-symbols",
+          expired: false,
+        },
+      ],
     });
     assert.equal(
       resolution.schema,
-      "synthesis-sidecar-runtime-cache-resolution.v3",
+      "synthesis-sidecar-runtime-cache-resolution.v4",
     );
     assert.isTrue(resolution.platforms["linux-x64"].candidate);
     assert.equal(resolution.platforms["linux-x64"].sourceSha, donorSha);
     assert.isFalse(resolution.platforms["linux-arm"].candidate);
     assert.equal(resolution.platforms["linux-arm"].reason, "artifact_expired");
+  });
+
+  it("requires the matching Windows symbol artifact before reusing a cache run", async function () {
+    const resolution = await resolveSynthesisSidecarRuntimeCache({
+      repo: "example/zotero-agents",
+      sourceSha: "1".repeat(40),
+      sourceFingerprint: "a".repeat(64),
+      buildFingerprint: "b".repeat(64),
+      listRuns: async () => [
+        { databaseId: 9, conclusion: "success", sourceSha: "2".repeat(40) },
+      ],
+      listArtifacts: async () => [
+        {
+          artifactId: 1,
+          name: "synthesis-sidecar-runtime-win32-x64",
+          sizeInBytes: 100,
+          archiveDownloadUrl: "https://example.test/win32-x64",
+          expired: false,
+        },
+      ],
+    });
+    assert.isFalse(resolution.platforms["win32-x64"].candidate);
+    assert.equal(
+      resolution.platforms["win32-x64"].reason,
+      "matching_symbol_artifact_missing",
+    );
   });
 
   it("writes cache resolution output when its parent directory does not exist", async function () {
@@ -347,9 +395,123 @@ describe("Synthesis sidecar native runtime packaging", function () {
     const resolution = JSON.parse(fs.readFileSync(output, "utf8"));
     assert.equal(
       resolution.schema,
-      "synthesis-sidecar-runtime-cache-resolution.v3",
+      "synthesis-sidecar-runtime-cache-resolution.v4",
     );
     assert.equal(resolution.repository, "example/zotero-agents");
+  });
+
+  it("packages deterministic Windows symbols outside runtime bundles", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-sidecar-symbols-"));
+    const executablePath = path.join(root, "synthesis-sidecar.exe");
+    const pdbPath = path.join(root, "synthesis-sidecar.pdb");
+    const first = path.join(root, "first");
+    const second = path.join(root, "second");
+    fs.writeFileSync(executablePath, "exe-bytes");
+    fs.writeFileSync(pdbPath, "pdb-bytes-with-debug-records");
+    const args = {
+      sourceCommit: "1".repeat(40),
+      sourceFingerprint: "2".repeat(64),
+      buildFingerprint: "3".repeat(64),
+      executablePath,
+      pdbPath,
+    };
+    const manifest = await packageSynthesisSidecarRuntimeSymbols({
+      ...args,
+      outputRoot: first,
+    });
+    await packageSynthesisSidecarRuntimeSymbols({
+      ...args,
+      outputRoot: second,
+    });
+    const rebuilt = rebuildSynthesisSidecarRuntimeSymbolManifest(
+      JSON.parse(fs.readFileSync(path.join(first, "manifest.json"), "utf8")),
+    );
+    const compressed = fs.readFileSync(
+      path.join(first, "synthesis-sidecar.pdb.gz"),
+    );
+    assert.deepEqual(rebuilt, manifest);
+    assert.throws(() =>
+      rebuildSynthesisSidecarRuntimeSymbolManifest({
+        ...manifest,
+        archive: { ...manifest.archive, unexpected: true },
+      }),
+    );
+    assert.equal(sha256(compressed), manifest.archive.sha256);
+    assert.equal(sha256(gunzipSync(compressed)), manifest.pdb.sha256);
+    assert.deepEqual(
+      compressed,
+      fs.readFileSync(path.join(second, "synthesis-sidecar.pdb.gz")),
+    );
+    assert.deepEqual(fs.readdirSync(first).sort(), [
+      "manifest.json",
+      "synthesis-sidecar.pdb.gz",
+    ]);
+    const runtime = createBundle("win32-x64");
+    assert.isFalse(
+      [...runtime.assets.keys()].some((name) => name.endsWith(".pdb")),
+    );
+  });
+
+  it("publishes symbols as an immutable sibling of the seven-runtime set", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-sidecar-symbol-store-"),
+    );
+    const remote = path.join(root, "remote.git");
+    const candidateSet = path.join(root, "set");
+    const symbols = path.join(root, "symbols");
+    const aggregate = "a".repeat(64);
+    const buildFingerprint = "b".repeat(64);
+    execFileSync("git", ["init", "--bare", remote], { stdio: "pipe" });
+    fs.mkdirSync(candidateSet);
+    fs.writeFileSync(
+      path.join(candidateSet, "manifest.json"),
+      Buffer.from([0, 1]),
+    );
+    fs.mkdirSync(symbols);
+    fs.writeFileSync(path.join(symbols, "manifest.json"), Buffer.from([0, 2]));
+    fs.writeFileSync(
+      path.join(symbols, "synthesis-sidecar.pdb.gz"),
+      Buffer.from([0, 3]),
+    );
+
+    const first = await publishImmutableSynthesisSidecarRuntimeSet({
+      remote,
+      temporaryRoot: path.join(root, "first"),
+      candidateSet,
+      aggregate,
+      candidateSymbols: symbols,
+      buildFingerprint,
+    });
+    const second = await publishImmutableSynthesisSidecarRuntimeSet({
+      remote,
+      temporaryRoot: path.join(root, "second"),
+      candidateSet,
+      aggregate,
+      candidateSymbols: symbols,
+      buildFingerprint,
+    });
+    assert.equal(second, first);
+    const checkout = path.join(root, "checkout");
+    execFileSync(
+      "git",
+      [
+        "clone",
+        "--branch",
+        "synthesis-sidecar-runtime-prebuilds",
+        remote,
+        checkout,
+      ],
+      { stdio: "pipe" },
+    );
+    assert.isTrue(fs.existsSync(path.join(checkout, "sets", aggregate)));
+    assert.deepEqual(
+      fs
+        .readdirSync(
+          path.join(checkout, "symbols", buildFingerprint, "win32-x64"),
+        )
+        .sort(),
+      ["manifest.json", "synthesis-sidecar.pdb.gz"],
+    );
   });
 
   it("strictly rebuilds the XPI-owned native manifest", function () {
@@ -562,7 +724,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
       binary: "synthesis-sidecar.exe",
       useZig: false,
       nativeSmoke: true,
-      rustFlags: "-C target-feature=+crt-static",
+      rustFlags: "-C target-feature=+crt-static -C debuginfo=1",
     });
 
     const invalidRecipeRoot = fs.mkdtempSync(
