@@ -452,14 +452,18 @@ describe("Synthesis sidecar native runtime packaging", function () {
     );
   });
 
-  it("publishes symbols as an immutable sibling of the seven-runtime set", async function () {
+  it("publishes symbols immutably across source commits", async function () {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-sidecar-symbol-store-"),
     );
     const remote = path.join(root, "remote.git");
     const candidateSet = path.join(root, "set");
-    const symbols = path.join(root, "symbols");
+    const firstSymbols = path.join(root, "symbols-first");
+    const secondSymbols = path.join(root, "symbols-second");
+    const executablePath = path.join(root, "synthesis-sidecar.exe");
+    const pdbPath = path.join(root, "synthesis-sidecar.pdb");
     const aggregate = "a".repeat(64);
+    const sourceFingerprint = "c".repeat(64);
     const buildFingerprint = "b".repeat(64);
     execFileSync("git", ["init", "--bare", remote], { stdio: "pipe" });
     fs.mkdirSync(candidateSet);
@@ -467,19 +471,31 @@ describe("Synthesis sidecar native runtime packaging", function () {
       path.join(candidateSet, "manifest.json"),
       Buffer.from([0, 1]),
     );
-    fs.mkdirSync(symbols);
-    fs.writeFileSync(path.join(symbols, "manifest.json"), Buffer.from([0, 2]));
-    fs.writeFileSync(
-      path.join(symbols, "synthesis-sidecar.pdb.gz"),
-      Buffer.from([0, 3]),
-    );
+    fs.writeFileSync(executablePath, bytes("same executable"));
+    fs.writeFileSync(pdbPath, bytes("same pdb"));
+    await packageSynthesisSidecarRuntimeSymbols({
+      sourceCommit: "1".repeat(40),
+      sourceFingerprint,
+      buildFingerprint,
+      executablePath,
+      pdbPath,
+      outputRoot: firstSymbols,
+    });
+    await packageSynthesisSidecarRuntimeSymbols({
+      sourceCommit: "2".repeat(40),
+      sourceFingerprint,
+      buildFingerprint,
+      executablePath,
+      pdbPath,
+      outputRoot: secondSymbols,
+    });
 
     const first = await publishImmutableSynthesisSidecarRuntimeSet({
       remote,
       temporaryRoot: path.join(root, "first"),
       candidateSet,
       aggregate,
-      candidateSymbols: symbols,
+      candidateSymbols: firstSymbols,
       buildFingerprint,
     });
     const second = await publishImmutableSynthesisSidecarRuntimeSet({
@@ -487,10 +503,11 @@ describe("Synthesis sidecar native runtime packaging", function () {
       temporaryRoot: path.join(root, "second"),
       candidateSet,
       aggregate,
-      candidateSymbols: symbols,
+      candidateSymbols: secondSymbols,
       buildFingerprint,
     });
     assert.equal(second, first);
+
     const checkout = path.join(root, "checkout");
     execFileSync(
       "git",
@@ -503,6 +520,19 @@ describe("Synthesis sidecar native runtime packaging", function () {
       ],
       { stdio: "pipe" },
     );
+    const symbolManifest = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          checkout,
+          "symbols",
+          buildFingerprint,
+          "win32-x64",
+          "manifest.json",
+        ),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    assert.equal(symbolManifest.sourceCommit, "1".repeat(40));
     assert.isTrue(fs.existsSync(path.join(checkout, "sets", aggregate)));
     assert.deepEqual(
       fs

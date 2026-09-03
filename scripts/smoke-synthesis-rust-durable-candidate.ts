@@ -739,7 +739,14 @@ async function main() {
     const sessionId = String(
       (begun.body.data as Record<string, unknown>)?.sessionId || "",
     );
-    if (!sessionId) throw new Error("Native transfer did not begin");
+    if (begun.response.status !== 200 || !sessionId) {
+      throw new Error(
+        `Native transfer did not begin: ${JSON.stringify({
+          status: begun.response.status,
+          body: begun.body,
+        })}`,
+      );
+    }
     for (const page of inputPages.reverse()) {
       const staged = await call(
         endpoint,

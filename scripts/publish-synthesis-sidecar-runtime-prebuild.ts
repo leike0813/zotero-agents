@@ -36,6 +36,22 @@ function runGit(cwd: string, args: string[], allowFailure = false) {
   return result;
 }
 
+type ImmutableFileDigest = Readonly<{
+  file: string;
+  sha256: string;
+}>;
+
+type ExistingSetComparison = {
+  candidate: string;
+  store: string;
+  candidateFiles: readonly ImmutableFileDigest[];
+  existingFiles: readonly ImmutableFileDigest[];
+};
+
+type ExistingSetEquivalence = (
+  args: ExistingSetComparison,
+) => boolean | Promise<boolean>;
+
 async function exactFiles(root: string) {
   const entries = await fs.readdir(root, { withFileTypes: true });
   if (entries.some((entry) => !entry.isFile() || entry.isSymbolicLink())) {
@@ -52,14 +68,29 @@ async function exactFiles(root: string) {
   );
 }
 
-async function copyOrVerifySet(candidate: string, store: string) {
+async function copyOrVerifySet(
+  candidate: string,
+  store: string,
+  equivalentExisting?: ExistingSetEquivalence,
+) {
   const existing = await fs.stat(store).catch(() => null);
   if (existing) {
     const [candidateFiles, existingFiles] = await Promise.all([
       exactFiles(candidate),
       exactFiles(store),
     ]);
-    if (JSON.stringify(candidateFiles) !== JSON.stringify(existingFiles)) {
+    const exactMatch =
+      JSON.stringify(candidateFiles) === JSON.stringify(existingFiles);
+    const equivalentMatch =
+      !exactMatch && equivalentExisting
+        ? await equivalentExisting({
+            candidate,
+            store,
+            candidateFiles,
+            existingFiles,
+          })
+        : false;
+    if (!exactMatch && !equivalentMatch) {
       throw new Error("Immutable prebuild set already exists with other bytes");
     }
     return false;
@@ -67,6 +98,31 @@ async function copyOrVerifySet(candidate: string, store: string) {
   await fs.mkdir(path.dirname(store), { recursive: true });
   await fs.cp(candidate, store, { recursive: true, errorOnExist: true });
   return true;
+}
+
+async function equivalentSymbolSet({
+  candidate,
+  store,
+  candidateFiles,
+  existingFiles,
+}: ExistingSetComparison) {
+  const withoutManifest = (files: readonly ImmutableFileDigest[]) =>
+    files.filter(({ file }) => file !== "manifest.json");
+  if (
+    JSON.stringify(withoutManifest(candidateFiles)) !==
+    JSON.stringify(withoutManifest(existingFiles))
+  ) {
+    return false;
+  }
+  const [candidateManifest, existingManifest] = await Promise.all([
+    fs.readFile(path.join(candidate, "manifest.json"), "utf8"),
+    fs.readFile(path.join(store, "manifest.json"), "utf8"),
+  ]);
+  const { sourceCommit: _candidateSourceCommit, ...candidateIdentity } =
+    rebuildSynthesisSidecarRuntimeSymbolManifest(JSON.parse(candidateManifest));
+  const { sourceCommit: _existingSourceCommit, ...existingIdentity } =
+    rebuildSynthesisSidecarRuntimeSymbolManifest(JSON.parse(existingManifest));
+  return JSON.stringify(candidateIdentity) === JSON.stringify(existingIdentity);
 }
 
 async function readTargetEvidence(args: {
@@ -166,6 +222,7 @@ export async function publishImmutableSynthesisSidecarRuntimeSet(args: {
         ? await copyOrVerifySet(
             args.candidateSymbols,
             path.join(store, "symbols", args.buildFingerprint, "win32-x64"),
+            equivalentSymbolSet,
           )
         : false;
     if (setChanged || symbolsChanged) {
