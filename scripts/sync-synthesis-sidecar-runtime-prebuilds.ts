@@ -16,6 +16,7 @@ import {
   assertSynthesisSidecarRuntimeArchiveLayout,
   sha256File,
   synthesisSidecarRuntimeAddonBundleRoot,
+  tarArgsForWindows,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -99,7 +100,7 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
         archivePath,
         target: archive.target,
       });
-      run("tar", ["-xzf", archivePath, "-C", bundleStaging]);
+      run("tar", [...tarArgsForWindows(), "-xzf", archivePath, "-C", bundleStaging]);
       const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
         root: path.join(bundleStaging, archive.target),
         target: archive.target,

@@ -11,6 +11,7 @@ import {
 } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 import {
   assertSynthesisSidecarRuntimeArchiveLayout,
+  tarArgsForWindows,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -181,7 +182,7 @@ export async function downloadSynthesisSidecarRuntimeCache(args: {
     force: true,
   });
   await mkdir(bundleRoot, { recursive: true });
-  await execFileAsync("tar", ["-xzf", tarGzPath, "-C", bundleRoot], {
+  await execFileAsync("tar", [...tarArgsForWindows(), "-xzf", tarGzPath, "-C", bundleRoot], {
     windowsHide: true,
   });
   const verification = await verifySynthesisSidecarRuntimeBundleDirectory({

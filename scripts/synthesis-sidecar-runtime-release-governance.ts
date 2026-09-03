@@ -319,11 +319,18 @@ export async function sha256File(filePath: string) {
   return sha256Bytes(await fs.readFile(filePath));
 }
 
+// git-for-windows' msys2 tar treats an absolute Windows path like
+// `D:\foo\bar.tar.gz` as a remote host spec (`D:`) and refuses to open it.
+// `--force-local` forces local interpretation; on Linux/macOS it is a no-op.
+export function tarArgsForWindows(): string[] {
+  return process.platform === "win32" ? ["--force-local"] : [];
+}
+
 export function assertSynthesisSidecarRuntimeArchiveLayout(args: {
   archivePath: string;
   target: SynthesisSidecarRuntimeTarget;
 }) {
-  const result = spawnSync("tar", ["-tzf", args.archivePath], {
+  const result = spawnSync("tar", [...tarArgsForWindows(), "-tzf", args.archivePath], {
     encoding: "utf8",
   });
   if (result.error || result.status !== 0) {

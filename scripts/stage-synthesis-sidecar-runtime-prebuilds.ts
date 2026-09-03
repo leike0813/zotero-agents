@@ -18,6 +18,7 @@ import {
   computeSynthesisRustSidecarSourceFingerprint,
   assertSynthesisSidecarRuntimeArchiveLayout,
   sha256File,
+  tarArgsForWindows,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -89,6 +90,7 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
     const file = synthesisSidecarRuntimeArchiveName(target);
     const archive = path.join(staging, file);
     run("tar", [
+      ...tarArgsForWindows(),
       "--sort=name",
       "--mtime=@0",
       "--owner=0",
@@ -186,6 +188,7 @@ export async function stageSynthesisSidecarRuntimePrebuildArchives(args: {
       );
       assertSynthesisSidecarRuntimeArchiveLayout({ archivePath, target });
       run("tar", [
+        ...tarArgsForWindows(),
         "--same-permissions",
         "-xzf",
         archivePath,
