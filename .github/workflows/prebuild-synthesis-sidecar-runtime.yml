@@ -179,7 +179,7 @@ jobs:
             cargo +${{ needs.plan.outputs.rust_toolchain }} build --release --locked --target "${{ matrix.target }}" --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
           fi
           binary="native/synthesis-sidecar/target/${{ matrix.target }}/release/${{ matrix.binary }}"
-          created_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          created_at="$(git log -1 --format=%cd --date=iso-strict)"
           npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.platform }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.platform }}"
           if [ "${{ matrix.platform }}" = "win32-x64" ]; then
             pdb="$(find "native/synthesis-sidecar/target/${{ matrix.target }}/release" -maxdepth 1 -iname '*.pdb' -print -quit)"
