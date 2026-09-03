@@ -2,7 +2,7 @@ use super::{
     REFERENCE_REDIRECT_GRAPH_SCHEMA, REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY, SCHEMA_IDENTITIES,
     SCHEMA_SQL, SCHEMA_VERSION, TopicApplicationProjectionRecord, TopicApplicationStateRecord,
     map_sqlite_error, migration_backup_path, open_existing_database_read_only,
-    open_production_database_read_only, read_schema_version, repair_reference_redirect_cycles,
+    open_production_database_read_only, read_schema_version, repair_reference_redirect_graph,
     verify_required_application_schema,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -702,7 +702,7 @@ fn build_current_database(
             "synt_topic_interest_metadata",
         )?;
         let now = synthesis_protocol::utc_now_iso8601();
-        repair_reference_redirect_cycles(&connection, &now)?;
+        repair_reference_redirect_graph(&connection, &now)?;
         connection
             .execute(
                 "INSERT INTO synt_schema_meta(key,value) VALUES(?1,?2)",

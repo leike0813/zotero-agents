@@ -2011,6 +2011,12 @@ impl Repository {
                  ) AND canonical_reference_id NOT IN (
                    SELECT canonical_reference_id FROM synt_reference_binding
                    WHERE reviewer<>'reference-refresh-application'
+                 ) AND canonical_reference_id NOT IN (
+                   SELECT from_canonical_reference_id FROM synt_reference_redirect
+                 ) AND canonical_reference_id NOT IN (
+                   SELECT to_canonical_reference_id FROM synt_reference_redirect
+                 ) AND canonical_reference_id NOT IN (
+                   SELECT canonical_reference_id FROM synt_reference_revision_review
                  )",
                 &[],
             )?;
@@ -4345,6 +4351,83 @@ mod tests {
             json!("stale")
         );
         drop(repository);
+    }
+
+    #[test]
+    fn reference_projection_preserves_canonicals_required_by_redirects_and_reviews() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        for id in ["redirect-source", "redirect-target", "reviewed", "orphan"] {
+            repository
+                .upsert_canonical_reference_record(&CanonicalReferenceRecord {
+                    canonical_reference_id: format!("canonical:{id}"),
+                    title: id.into(),
+                    normalized_title: id.into(),
+                    authors_json: "[]".into(),
+                    identifiers_json: "{}".into(),
+                    metadata_hash: format!("sha256:{id}"),
+                    status: "active".into(),
+                    created_at: "1".into(),
+                    updated_at: "1".into(),
+                    ..CanonicalReferenceRecord::default()
+                })
+                .expect("canonical");
+        }
+        repository
+            .upsert_canonical_reference_redirect(&ReferenceRedirectFactRecord {
+                from_canonical_reference_id: "canonical:redirect-source".into(),
+                to_canonical_reference_id: "canonical:redirect-target".into(),
+                reason: "test".into(),
+                diagnostics_json: "[]".into(),
+                created_at: "1".into(),
+                updated_at: "1".into(),
+            })
+            .expect("redirect");
+        repository
+            .upsert_reference_revision_review_record(&ReferenceRevisionReviewRecord {
+                review_id: "review:1".into(),
+                source_ref: "1:AAAA1111".into(),
+                canonical_reference_id: "canonical:reviewed".into(),
+                status: "open".into(),
+                reason: "metadata_changed".into(),
+                payload_json: "{}".into(),
+                created_at: "1".into(),
+                updated_at: "1".into(),
+            })
+            .expect("review");
+
+        repository
+            .replace_reference_projection(&ReferenceProjectionReplacement {
+                reference_hash: "sha256:reference".into(),
+                input_hash: "sha256:input".into(),
+                scope: ReferenceProjectionScope::Full,
+                now: "2".into(),
+                ..ReferenceProjectionReplacement::default()
+            })
+            .expect("replace projection");
+
+        let mut canonical_ids = repository
+            .list_canonical_references()
+            .expect("canonicals")
+            .into_iter()
+            .map(|record| record.canonical_reference_id)
+            .collect::<Vec<_>>();
+        canonical_ids.sort();
+        assert_eq!(
+            canonical_ids,
+            vec![
+                "canonical:redirect-source",
+                "canonical:redirect-target",
+                "canonical:reviewed",
+            ]
+        );
     }
 
     #[test]

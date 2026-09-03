@@ -180,6 +180,36 @@ describe("Synthesis Sidecar Dashboard", function () {
     assert.equal(childPadding, "22px");
   });
 
+  it("reports a durable failure after successful pending admission", async function () {
+    await openDashboard();
+    const payload = traceSnapshot();
+    const trace = payload.synthesisSidecarView.traceSnapshot.traces[0];
+    trace.events[1] = {
+      ...trace.events[1],
+      source: "rust-sidecar",
+      boundary: "operation",
+      phase: "maintenance-terminal",
+      outcome: "failed",
+      facts: { semanticStatus: "failed" },
+    };
+    trace.events[2] = {
+      ...trace.events[2],
+      facts: { semanticStatus: "pending" },
+    };
+
+    await postTracePayload(page, payload);
+
+    assert.equal(
+      (
+        (await page
+          .locator(`tr[data-trace-id="${TRACE_ID}"] td`)
+          .first()
+          .textContent()) || ""
+      ).trim(),
+      "failed",
+    );
+  });
+
   it("copies the complete sanitized trace with visible success and failure", async function () {
     await openDashboard();
     await page.getByRole("button", { name: "Copy trace" }).click();

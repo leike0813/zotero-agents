@@ -4218,13 +4218,7 @@
         const root = trace.events.find(function (event) {
           return !event.parentSpanId;
         });
-        const terminal = trace.events
-          .slice()
-          .reverse()
-          .find(function (event) {
-            return !event.parentSpanId && event.outcome !== "started";
-          });
-        const outcome = terminal ? terminal.outcome : trace.active ? "started" : "succeeded";
+        const outcome = traceOutcome(trace);
         const operation =
           (root && root.identities && root.identities.operation) ||
           (root && root.identities && root.identities.capability) ||

@@ -34,7 +34,8 @@ const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
 const PRODUCTION_IDENTITY_SCHEMA: &str = "synthesis-rust-production-repository.v1";
 const REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY: &str = "reference_redirect_graph_schema_version";
 const REFERENCE_REDIRECT_GRAPH_SCHEMA_V1: &str = "synthesis-reference-redirect-graph.v1";
-const REFERENCE_REDIRECT_GRAPH_SCHEMA: &str = "synthesis-reference-redirect-graph.v2";
+const REFERENCE_REDIRECT_GRAPH_SCHEMA_V2: &str = "synthesis-reference-redirect-graph.v2";
+const REFERENCE_REDIRECT_GRAPH_SCHEMA: &str = "synthesis-reference-redirect-graph.v3";
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -756,7 +757,7 @@ fn stored_timestamp_millis(value: &str) -> i64 {
         .unwrap_or_default()
 }
 
-fn repair_reference_redirect_cycles(
+fn repair_reference_redirect_graph(
     connection: &Connection,
     now: &str,
 ) -> Result<Vec<RemovedReferenceRedirect>, String> {
@@ -783,9 +784,16 @@ fn repair_reference_redirect_cycles(
         .map_err(map_sqlite_error)?;
     drop(statement);
     let mut graph = ReferenceRedirectGraph::from_records(&redirects)?;
-    if graph.cycles().is_empty() {
-        return Ok(Vec::new());
-    }
+
+    let mut statement = connection
+        .prepare("SELECT canonical_reference_id FROM synt_reference_canonical")
+        .map_err(map_sqlite_error)?;
+    let canonical_ids = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(map_sqlite_error)?
+        .collect::<Result<BTreeSet<_>, _>>()
+        .map_err(map_sqlite_error)?;
+    drop(statement);
 
     let mut statement = connection
         .prepare(
@@ -836,8 +844,24 @@ fn repair_reference_redirect_cycles(
             .collect(),
     );
 
-    let removed = graph.repair_cycles(&preferred_roots);
+    let mut removed = graph.repair_cycles(&preferred_roots);
+    let cycle_removed = removed.len();
     graph.validate_acyclic()?;
+    let mut dangling_sources = Vec::new();
+    for (source, _) in graph.edges() {
+        if !canonical_ids.contains(&graph.resolve(source)?) {
+            dangling_sources.push(source.to_owned());
+        }
+    }
+    for source in dangling_sources {
+        if let Some(edge) = graph.remove_source(&source) {
+            removed.push(edge);
+        }
+    }
+    let dangling_removed = removed.len() - cycle_removed;
+    if removed.is_empty() {
+        return Ok(removed);
+    }
     for edge in &removed {
         connection
             .execute(
@@ -863,7 +887,7 @@ fn repair_reference_redirect_cycles(
     connection
         .execute(
             "UPDATE synt_cache_basis SET status='stale',active_operation_id='',
-               stale_reason='canonical_redirect_cycle_repair',updated_at=?1
+               stale_reason='canonical_redirect_graph_repair',updated_at=?1
              WHERE cache_kind IN ('citation_graph','related_items')",
             [now],
         )
@@ -876,12 +900,16 @@ fn repair_reference_redirect_cycles(
         )
         .map_err(map_sqlite_error)?;
     let diagnostics = serde_json::to_string(&json!({
-        "code":"canonical_redirect_cycle_repaired",
-        "rootSelection": if removed.iter().all(|edge| preferred_roots.contains(&edge.from_canonical_reference_id)) {
+        "code":"canonical_redirect_graph_repaired",
+        "rootSelection": if cycle_removed == 0 {
+            "not_applicable"
+        } else if removed[..cycle_removed].iter().all(|edge| preferred_roots.contains(&edge.from_canonical_reference_id)) {
             "evidence"
         } else {
             "stable_fallback"
         },
+        "cycleRemoved":cycle_removed,
+        "danglingRemoved":dangling_removed,
         "preferredRoots": preferred_roots,
         "removed":removed.iter().map(|edge| json!({
             "from":edge.from_canonical_reference_id,
@@ -895,7 +923,7 @@ fn repair_reference_redirect_cycles(
                operation_id,operation_type,status,label,phase,message,progress_mode,
                basis_kind,basis_value,diagnostics_json,created_at,started_at,completed_at,updated_at
              ) VALUES(?1,'canonical_redirect_repair','completed','Canonical redirect repair',
-               'completed','Canonical redirect cycles repaired.','determinate',
+               'completed','Canonical redirect graph repaired.','determinate',
                'reference_redirect_graph_schema',?2,?3,?4,?4,?4,?4)",
             params![
                 format!("canonical-redirect-repair:{REFERENCE_REDIRECT_GRAPH_SCHEMA}"),
@@ -925,7 +953,9 @@ fn prepare_reference_redirect_graph_schema(
     };
     match current.as_deref() {
         Some(REFERENCE_REDIRECT_GRAPH_SCHEMA) => return Ok(()),
-        Some(REFERENCE_REDIRECT_GRAPH_SCHEMA_V1) | None => {}
+        Some(REFERENCE_REDIRECT_GRAPH_SCHEMA_V1)
+        | Some(REFERENCE_REDIRECT_GRAPH_SCHEMA_V2)
+        | None => {}
         Some(_) => return Err("repository_schema_mismatch".into()),
     }
     let expected_schema = current.clone();
@@ -959,7 +989,7 @@ fn prepare_reference_redirect_graph_schema(
             return Err("repository_schema_changed_during_migration".into());
         }
         let now = synthesis_protocol::utc_now_iso8601();
-        repair_reference_redirect_cycles(&connection, &now)?;
+        repair_reference_redirect_graph(&connection, &now)?;
         connection
             .execute(
                 "INSERT OR REPLACE INTO synt_schema_meta(key,value) VALUES(?1,?2)",
@@ -3477,6 +3507,13 @@ mod tests {
                 "UPDATE synt_schema_meta
                    SET value='synthesis-reference-redirect-graph.v1'
                    WHERE key='reference_redirect_graph_schema_version';
+                 INSERT INTO synt_reference_canonical(
+                   canonical_reference_id,title,normalized_title,year,authors_json,
+                   identifiers_json,metadata_hash,status,created_at,updated_at
+                 ) VALUES
+                   ('canonical:a','A','a','','[]','{}','sha256:a','active','1','1'),
+                   ('canonical:b','B','b','','[]','{}','sha256:b','active','1','1'),
+                   ('canonical:c','C','c','','[]','{}','sha256:c','active','1','1');
                  INSERT INTO synt_reference_redirect(
                    from_canonical_reference_id,to_canonical_reference_id,reason,
                    diagnostics_json,created_at,updated_at
@@ -3532,6 +3569,123 @@ mod tests {
                 .iter()
                 .any(|operation| operation.status == "completed")
         );
+        repository.close().expect("close");
+        assert_eq!(
+            fs::read_dir(&backup_root)
+                .expect("backup root")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("backups")
+                .len(),
+            1
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn redirect_graph_v2_migration_repairs_unresolvable_components_once() {
+        let root = root("production-dangling-redirect");
+        let database_path = root.join("state").join("synthesis.db");
+        Repository::initialize_production(&database_path, identity())
+            .expect("initialize")
+            .close()
+            .expect("close");
+        let connection = Connection::open(&database_path).expect("open fixture");
+        connection
+            .execute_batch(
+                "UPDATE synt_schema_meta
+                   SET value='synthesis-reference-redirect-graph.v2'
+                   WHERE key='reference_redirect_graph_schema_version';
+                 INSERT INTO synt_reference_canonical(
+                   canonical_reference_id,title,normalized_title,year,authors_json,
+                   identifiers_json,metadata_hash,status,created_at,updated_at
+                 ) VALUES(
+                   'canonical:valid','Valid','valid','','[]','{}','sha256:valid',
+                   'active','1','1'
+                 );
+                 INSERT INTO synt_reference_redirect(
+                   from_canonical_reference_id,to_canonical_reference_id,reason,
+                   diagnostics_json,created_at,updated_at
+                 ) VALUES
+                   ('canonical:alias','canonical:valid','reference_matching','[]','1','1'),
+                   ('canonical:broken-a','canonical:broken-b','reference_matching','[]','1','1'),
+                   ('canonical:broken-b','canonical:missing','reference_matching','[]','1','1');
+                 INSERT INTO synt_reference_match_proposal(
+                   proposal_id,kind,status,source_canonical_reference_id,
+                   target_canonical_reference_id,reasons_json,updated_at
+                 ) VALUES
+                   ('proposal:broken-a','canonical_merge','open','canonical:broken-a',
+                    'canonical:broken-b','[\"cluster_exact\"]','1'),
+                   ('proposal:broken-b','canonical_merge','accepted','canonical:broken-b',
+                    'canonical:missing','[\"cluster_exact\"]','1');
+                 INSERT INTO synt_cache_basis(cache_key,cache_kind,status)
+                 VALUES
+                   ('citation:graph','citation_graph','ready'),
+                   ('related:items','related_items','ready');
+                 INSERT INTO synt_reference_matching_state(
+                   singleton_id,reference_hash,matching_hash,proposal_count,open_proposal_count,
+                   matching_ready,graph_ready,related_items_ready,updated_at
+                 ) VALUES(1,'reference','matching',2,1,1,1,1,'1');",
+            )
+            .expect("dangling fixture");
+        drop(connection);
+
+        let backup_root = root.join("state/synthesis-migration-backups");
+        prepare_production_schema(&database_path, &backup_root).expect("repair");
+        prepare_production_schema(&database_path, &backup_root).expect("idempotent");
+        let repository =
+            Repository::open_production(&database_path, identity(), "2026-09-03T00:00:00.000Z")
+                .expect("open repaired");
+        let redirects = repository.list_reference_redirects().expect("redirects");
+        assert_eq!(redirects.len(), 1);
+        assert_eq!(redirects[0].from_canonical_reference_id, "canonical:alias");
+        assert_eq!(redirects[0].to_canonical_reference_id, "canonical:valid");
+        let (proposals, _) = repository
+            .list_reference_match_proposals(0, 10)
+            .expect("proposals");
+        assert!(
+            proposals
+                .iter()
+                .all(|proposal| proposal.status == "superseded")
+        );
+        assert!(
+            repository
+                .query(
+                    "SELECT status FROM synt_cache_basis ORDER BY cache_key",
+                    &[],
+                )
+                .expect("cache state")
+                .iter()
+                .all(|row| row["status"] == json!("stale"))
+        );
+        let matching = repository
+            .get_reference_matching_state()
+            .expect("matching state")
+            .expect("matching state row");
+        assert!(!matching.graph_ready);
+        assert!(!matching.related_items_ready);
+        assert_eq!(
+            repository
+                .query(
+                    "SELECT value FROM synt_schema_meta
+                     WHERE key='reference_redirect_graph_schema_version'",
+                    &[],
+                )
+                .expect("schema marker")[0]["value"],
+            json!("synthesis-reference-redirect-graph.v3")
+        );
+        let repairs = repository
+            .list_operations(&OperationQuery {
+                operation_types: vec!["canonical_redirect_repair".into()],
+                include_completed: true,
+                limit: 10,
+                ..OperationQuery::default()
+            })
+            .expect("repair receipt");
+        assert_eq!(repairs.len(), 1);
+        assert_eq!(repairs[0].status, "completed");
+        let diagnostics: Value =
+            serde_json::from_str(&repairs[0].diagnostics_json).expect("repair diagnostics");
+        assert_eq!(diagnostics["danglingRemoved"], json!(2));
         repository.close().expect("close");
         assert_eq!(
             fs::read_dir(&backup_root)
