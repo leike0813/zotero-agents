@@ -10,6 +10,7 @@
 build
 logs
 node_modules
+native/synthesis-sidecar/target
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
