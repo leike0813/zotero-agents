@@ -1,25 +1,25 @@
 {
   "schema": "host-bridge.review-mirror.v2",
-  "generatedAt": "2026-07-28T08:08:25.957Z",
-  "sourceCommit": "bcca43902fd5509f49e0dcc8a3cdfbd3aebb440d",
+  "generatedAt": "2026-09-04T17:13:39.227Z",
+  "sourceCommit": "00ea929f22c7c0a4a15c4e223344c1881bd74c86",
   "surfaceDefinitions": {
     "path": "host-bridge/surfaces.json",
     "schema": "host-bridge.surface-definitions.v1",
-    "sha256": "336f49077fecd94f8d55944bcce1fcba81a39b1af35938a771ed789f1d41dbc4"
+    "sha256": "3cdf6f99cb4b5bb313d9d1e737f7c4ed10bbcb5668eb62fa2397cda50d930505"
   },
   "candidateReleaseSet": {
-    "schema": "host-bridge.release-set.v3",
+    "schema": "host-bridge.release-set.v4",
     "status": "planned",
-    "releaseSetId": "hbrs-f9f28ddce98be3008e13bbdb",
-    "payloadDigest": "sha256:f9f28ddce98be3008e13bbdb41ce77cca015c4082be798f1aa293390497bd015",
-    "sourceCommit": "de4bcf12a3589776f79c985d13a8500b1eea59ce"
+    "releaseSetId": "hbrs-8cfd5ff0d73952e858c6eb9c",
+    "payloadDigest": "sha256:8cfd5ff0d73952e858c6eb9c4c82728731c4e29d14ad8184c25849e5fe847edc",
+    "sourceCommit": "00ea929f22c7c0a4a15c4e223344c1881bd74c86"
   },
   "latestCompleteRelease": {
     "schema": "host-bridge.release-receipt.v2",
     "status": "complete",
-    "releaseSetId": "hbrs-f9f28ddce98be3008e13bbdb",
-    "payloadDigest": "sha256:f9f28ddce98be3008e13bbdb41ce77cca015c4082be798f1aa293390497bd015",
-    "sourceCommit": "de4bcf12a3589776f79c985d13a8500b1eea59ce"
+    "releaseSetId": "hbrs-8c6de08010d459a0e87e74f2",
+    "payloadDigest": "sha256:8c6de08010d459a0e87e74f22e242479404f2725c999f89497b8e2042640f49c",
+    "sourceCommit": "a0fe8e324834e2fcfd1b513552f9013e9be4b491"
   },
   "fileCount": 146,
   "surfaces": [

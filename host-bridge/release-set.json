@@ -1,11 +1,11 @@
 {
   "schema": "host-bridge.release-set.v4",
-  "releaseSetId": "hbrs-8c6de08010d459a0e87e74f2",
+  "releaseSetId": "hbrs-8cfd5ff0d73952e858c6eb9c",
   "status": "planned",
-  "payloadDigest": "sha256:8c6de08010d459a0e87e74f22e242479404f2725c999f89497b8e2042640f49c",
+  "payloadDigest": "sha256:8cfd5ff0d73952e858c6eb9c4c82728731c4e29d14ad8184c25849e5fe847edc",
   "source": {
     "repository": "leike0813/zotero-agents",
-    "commit": "a0fe8e324834e2fcfd1b513552f9013e9be4b491"
+    "commit": "00ea929f22c7c0a4a15c4e223344c1881bd74c86"
   },
   "protocol": "host-bridge.v2",
   "cliSchema": "zotero-bridge.cli.v5",
@@ -81,7 +81,7 @@
       "contentDigest": "014cb89a1493762094e5cc6d221ffe270d7a9df1c5ac269b612e19ad7db5f2b7",
       "repository": "leike0813/zotero-agents",
       "mutableRef": "host-bridge/zotero-bridge-cli-bundle",
-      "immutableTag": "host-bridge/hbrs-8c6de08010d459a0e87e74f2",
+      "immutableTag": "host-bridge/hbrs-8cfd5ff0d73952e858c6eb9c",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v6",
         "protocol": "host-bridge.v2",
@@ -96,7 +96,7 @@
       "contentDigest": "c94d8c084a3de308e970ba65fbfd78a7ffbf25858c5c2cc9a870bdb4a8a6881c",
       "repository": "leike0813/zotero-library-agent-bundle",
       "mutableRef": "main",
-      "immutableTag": "host-bridge/hbrs-8c6de08010d459a0e87e74f2",
+      "immutableTag": "host-bridge/hbrs-8cfd5ff0d73952e858c6eb9c",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v6",
         "protocol": "host-bridge.v2",
@@ -108,10 +108,10 @@
     },
     "librarianProfile": {
       "version": "0.5.2",
-      "contentDigest": "1e6817288b37011ed98cf1b6e26a7b39bb2aee993739daaf879b93e2fe04cbe5",
+      "contentDigest": "49cf168b3784819ea368f00c3a91e6badc5944a46d53c26004133883e2085f8a",
       "repository": "leike0813/zotero-librarian-profile",
       "mutableRef": "main",
-      "immutableTag": "host-bridge/hbrs-8c6de08010d459a0e87e74f2",
+      "immutableTag": "host-bridge/hbrs-8cfd5ff0d73952e858c6eb9c",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v6",
         "protocol": "host-bridge.v2",
