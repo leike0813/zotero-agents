@@ -10,6 +10,7 @@ type ShardId =
   | "core-synthesis"
   | "core-rest"
   | "node-core"
+  | "ui-webgl"
   | "ui"
   | "workflow";
 
@@ -113,11 +114,20 @@ const SHARDS: ShardDefinition[] = [
       filePath.startsWith("test/node/core/") && filePath.endsWith(".test.ts"),
   },
   {
+    id: "ui-webgl",
+    label: "WebGL UI lifecycle",
+    setupFiles: UI_SETUP_FILES,
+    select: (filePath) =>
+      filePath === "test/ui/157-literature-deep-reading-detr-visual.test.ts",
+  },
+  {
     id: "ui",
     label: "UI tests",
     setupFiles: UI_SETUP_FILES,
     select: (filePath) =>
-      filePath.startsWith("test/ui/") && filePath.endsWith(".test.ts"),
+      filePath.startsWith("test/ui/") &&
+      filePath.endsWith(".test.ts") &&
+      filePath !== "test/ui/157-literature-deep-reading-detr-visual.test.ts",
   },
   {
     id: "workflow",

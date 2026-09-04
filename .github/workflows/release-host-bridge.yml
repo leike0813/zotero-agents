@@ -39,7 +39,6 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
-          submodules: recursive
       - id: recipe
         shell: bash
         run: |
@@ -82,7 +81,6 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
-          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ needs.plan.outputs.node_version }}
@@ -141,7 +139,6 @@ jobs:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
           token: ${{ secrets.HOST_BRIDGE_RELEASE_TOKEN || github.token }}
-          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ needs.plan.outputs.node_version }}

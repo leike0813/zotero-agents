@@ -57,7 +57,11 @@ function readJson(path: string) {
 
 function copy(source: string, target: string) {
   mkdirSync(dirname(target), { recursive: true });
-  cpSync(source, target, { recursive: true, force: true });
+  cpSync(source, target, {
+    recursive: true,
+    force: true,
+    filter: (path) => !path.split(/[\\/]/).includes("__pycache__"),
+  });
 }
 
 function resetDirectory(path: string) {

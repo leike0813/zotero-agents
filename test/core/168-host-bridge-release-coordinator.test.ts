@@ -528,11 +528,6 @@ describe("Host Bridge release coordinator", function () {
     assert.include(workflow, "host-bridge-release-controller.ts");
     assert.notInclude(workflow, "  push:");
     assert.include(workflow, "workflow_dispatch:");
-    assert.strictEqual(
-      workflow.match(/submodules: recursive/g)?.length,
-      3,
-      "every Host Bridge checkout must materialize governed Skill submodules",
-    );
   });
 
   it("keeps prepared release sets independent of ambient workflow run identity", function () {
@@ -807,6 +802,18 @@ describe("Host Bridge release coordinator", function () {
     ]);
     for (const digest of Object.values(first)) {
       assert.match(digest, /^[a-f0-9]{64}$/);
+    }
+  });
+
+  it("excludes Python caches from release payloads", function () {
+    const cacheRoot = "profiles/hermes/zotero-librarian/scripts/__pycache__";
+    const before = stagedHostBridgePayloadDigests(process.cwd());
+    try {
+      mkdirSync(cacheRoot, { recursive: true });
+      writeFileSync(join(cacheRoot, "host-bridge-release-test.pyc"), "cache");
+      assert.deepEqual(stagedHostBridgePayloadDigests(process.cwd()), before);
+    } finally {
+      rmSync(cacheRoot, { recursive: true, force: true });
     }
   });
 
