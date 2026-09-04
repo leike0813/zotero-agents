@@ -515,7 +515,8 @@ manifest 只允许一个 code-native readonly literal 作为运行时 identity�
 
 Broker、Synthesis wire contract、mutation evidence、errors、snapshot data、research graph data与普通 Workflow Host DTO 都必须是 strict JSON。以下值是 exact manifest 明确列出的 trusted in-process control/payload seam，不属于 portable DTO，也不得进入 Host Bridge/MCP、receipt、durable state 或 workflow manifest：
 
-- `WorkflowCallControl.signal` 中的 `AbortSignal`；
+- `WorkflowCallControl.signal` 与 `WorkflowRuntimeContext.signal` 中的
+  `CancellationSignal`；
 - traversal、snapshot、archive 与 tag-audit callback；
 - editor renderer/action callbacks 与其 DOM root；
 - `file.readBytes/writeBytes` 与 archive entry content 使用的 `Uint8Array/ArrayBuffer`；
@@ -523,6 +524,25 @@ Broker、Synthesis wire contract、mutation evidence、errors、snapshot data、
 - archive callback 的泛型临时结果。
 
 这份例外清单是闭合的。它不允许 raw `Zotero.Item`、`Zotero.Collection`、window、DOM、native stream、`nsIFile`、Components object、IOUtils adapter、Node filesystem object、Synthesis repository/application 或任意 `unknown` bag 重新进入 v12 interface。
+
+`CancellationSignal` 是宿主无关的最小取消值，只承诺以下语义：
+
+```ts
+type CancellationSignal = Readonly<{
+  readonly aborted: boolean;
+  addEventListener(
+    type: "abort",
+    listener: () => void,
+    options?: { once?: boolean },
+  ): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}>;
+```
+
+接受 upstream 或 control signal 的输入仍可接收原生 `AbortSignal`，其结构
+与上述最小契约兼容；runtime 自己提供的 signal 不承诺 `reason`、`onabort`、
+`throwIfAborted()` 或 `dispatchEvent()`，也不承诺可直接作为原生 `fetch`
+signal。
 
 ### 3.9 Canonical shared DTOs
 
@@ -621,19 +641,42 @@ workflow consumers 禁止直接使用：
 潜在阻塞且存在真实取消点的 trusted in-process Workflow Host members 复用一个控制类型：
 
 ```ts
+type CancellationSignal = Readonly<{
+  readonly aborted: boolean;
+  addEventListener(
+    type: "abort",
+    listener: () => void,
+    options?: { once?: boolean },
+  ): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}>;
+
 type WorkflowCallControl = Readonly<{
-  signal?: AbortSignal;
+  signal?: CancellationSignal;
 }>;
 ```
 
-- domain input 与 output DTO 继续是 strict JSON；`AbortSignal` 只存在于独立的 in-process control parameter；
+- `WorkflowRuntimeContext.signal` 与 `WorkflowCallControl.signal` 都使用上述
+  `CancellationSignal`；domain input 与 output DTO 继续是 strict JSON，取消值
+  只存在于独立的 in-process control parameter；
 - ordinary async member 使用 `(input, control?)`；callback-scoped member 使用 `(input, control, callback)`，不把 `signal` 塞进 request bag；
 - callback-scoped member 的 control 参数必须显式传入，未提供 signal 时使用 `{}`，不得通过 overload 猜第二参数究竟是 control 还是 callback；
 - runtime 向 workflow 提供同一个只读 execution signal，caller 不自行创建平行 run-cancellation state；
+- 该 signal 只用于 Workflow Host cooperative cancellation；runtime 不提供
+  `reason`、`onabort`、`throwIfAborted()` 或 `dispatchEvent()`，也不保证它能直接
+  作为原生 `fetch` signal；
+- 接受 upstream 或 control signal 的输入仍兼容结构满足上述最小契约的原生
+  `AbortSignal`；
 - Workflow Host adapter 在调用开始前、可取消 internal adapter seam 与结果发布前检查 signal；底层原生操作不可中断时，至少不得在取消后发布迟到的成功结果；
 - broker public DTO 仍只接受 portable JSON；control 由 Workflow Host adapter 映射到 private cancellation seam，不进入 broker domain contract；
 - `WorkflowCallControl` 不投影给 Host Bridge/MCP，也不持久化、序列化或进入 capability metadata；
 - 同步、瞬时读取以及不存在真实取消点的 member 不机械增加 control 参数。
+
+`Workflow Host API v12` 的 version、exact surface manifest 与 23/21/87
+成员指标不因该取消值契约而改变。Zotero 插件 module scope 即使没有全局
+`AbortController`，runtime 仍必须为 `preflight`、`buildRequest` 与
+`applyResult` 创建并提供上述 signal；upstream abort linkage 与 hook 结束时
+的 abort 语义保持成立，不依赖全局构造器或全局 polyfill。
 
 `canceled` 只允许在 member 具备上述控制通道和 cancellation checks 时成为其公开错误；不得声明 caller 无法触发的虚假 cancellation semantic。
 
@@ -2109,7 +2152,7 @@ v12 主路径必须端到端 O(batch)：
 
 ### 9.5 Cancellation 与 progress
 
-- Workflow runtime 提供通用、只读 cancellation signal。
+- Workflow runtime 提供通用、只读 `CancellationSignal`。
 - Host 在 batch seam 检查取消，不逐 item 检查。
 - 取消后 staging 清理，旧 ledger 保持可见。
 - operation 必须显示 `canceled`，不能伪装为成功。

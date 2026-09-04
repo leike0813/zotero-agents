@@ -51,7 +51,7 @@ Hook receives `runtime` with these fields:
 | `workflowSourceKind` | `”builtin” \| “user” \| “”` | Source location type |
 | `hookName` | `"preflight" \| "buildRequest" \| "applyResult" \| ""` | Current hook name |
 | `locale` | `string \| undefined` | Resolved display locale |
-| `signal` | `AbortSignal \| undefined` | Read-only per-hook-run execution signal; aborts when the run ends or an upstream caller signal fires |
+| `signal` | `CancellationSignal \| undefined` | Read-only per-hook-run signal for cooperative Workflow Host cancellation; aborts when the run ends or an upstream caller signal fires |
 | `fetch` | `typeof fetch \| null` | Fetch API (if available) |
 | `Buffer` | `typeof Buffer \| null` | Node Buffer (if available) |
 | `btoa` | `typeof btoa \| null` | Base64 encode (if available) |
@@ -59,6 +59,14 @@ Hook receives `runtime` with these fields:
 | `TextEncoder` | `typeof TextEncoder \| null` | Text encoder (if available) |
 | `TextDecoder` | `typeof TextDecoder \| null` | Text decoder (if available) |
 | `FileReader` | `typeof globalThis.FileReader \| null` | FileReader API (if available) |
+
+`runtime.signal` is a runtime-owned, host-independent `CancellationSignal`.
+It exposes only `aborted`, `addEventListener("abort", ...)`, and
+`removeEventListener("abort", ...)` for cooperative Workflow Host
+cancellation. It does not promise `reason`, `onabort`, `throwIfAborted()`, or
+`dispatchEvent()`, and it is not guaranteed to be usable as a native `fetch`
+signal. A caller-supplied native `AbortSignal` remains structurally compatible
+where an upstream or `WorkflowCallControl` signal is accepted.
 
 ## Maintenance Checklist
 

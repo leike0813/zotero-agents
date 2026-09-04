@@ -95,6 +95,21 @@ export default [
     ],
   }),
   {
+    name: "zotero-agents/zotero-runtime-globals",
+    files: ["src/**/*.ts"],
+    ignores: ["src/sidebar/**"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        {
+          name: "AbortController",
+          message:
+            "Use createCancellationController() for host-independent cancellation or resolveNativeAbortControllerConstructor() at native API boundaries.",
+        },
+      ],
+    },
+  },
+  {
     name: "zotero-agents/sidebar-import-boundary",
     files: ["src/sidebar/**/*.{js,tsx}"],
     languageOptions: {

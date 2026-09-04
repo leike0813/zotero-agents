@@ -13,6 +13,7 @@ import type {
   MutationPreviewOperation,
   MutationReceipt,
   MutationRecovery,
+  WorkflowCallControl,
   WorkflowHostMutationReceiptOperation,
 } from "../workflows/types";
 import type {
@@ -71,9 +72,7 @@ type ConfirmedMutation<TResult extends object> = {
   changes: MutationChangeDto[];
 };
 
-export type MutationExecutionContext = Readonly<{
-  signal?: AbortSignal;
-}>;
+export type MutationExecutionContext = WorkflowCallControl;
 
 export class MutationAuthorityAdmissionError<
   Code extends WorkflowHostErrorCode = WorkflowHostErrorCode,

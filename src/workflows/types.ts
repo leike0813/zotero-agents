@@ -1,3 +1,7 @@
+import type { CancellationSignal } from "../utils/wait";
+
+export type { CancellationSignal } from "../utils/wait";
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
@@ -707,7 +711,7 @@ export type NavigationResultDto = {
 };
 
 export type WorkflowCallControl = Readonly<{
-  signal?: AbortSignal;
+  signal?: CancellationSignal;
 }>;
 
 export type WorkflowHostCreatorDto = {
@@ -2245,7 +2249,7 @@ export type WorkflowRuntimeContext = {
    * run. Callers must not create parallel run-cancellation state; pass it to
    * Workflow Host members through `WorkflowCallControl`.
    */
-  signal?: AbortSignal;
+  signal?: CancellationSignal;
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
   btoa?: typeof globalThis.btoa | null;

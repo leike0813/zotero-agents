@@ -63,7 +63,7 @@ Interactive and non-interactive adapters SHALL expose the same exact v12 surface
 - **THEN** every Synthesis member remains present and the attempted call reports the closed unavailable outcome
 
 ### Requirement: V12 member signatures SHALL preserve closed DTO and control semantics
-Every member SHALL use the exact request, result, nullability, callback, and `WorkflowCallControl` shape defined by the v12 contract and owner delta specs. Public request/result data SHALL be strict JSON except for the closed trusted in-process value list.
+Every member SHALL use the exact request, result, nullability, callback, and `WorkflowCallControl` shape defined by the v12 contract and owner delta specs. Public request/result data SHALL be strict JSON except for the closed trusted in-process value list, including the host-independent `CancellationSignal` used by `WorkflowCallControl`.
 
 #### Scenario: Callback-scoped member is invoked
 - **WHEN** a caller invokes traversal, snapshot, archive extraction, or tag audit
@@ -109,7 +109,7 @@ V12 activation SHALL not automatically expose new Workflow Host members through 
 - **THEN** Host Bridge/MCP contracts and permission policy remain unchanged
 
 ### Requirement: Workflow hook runs SHALL wire execution control into scoped host APIs
-Each workflow hook run SHALL create one runtime-owned abort signal, link (never replace) any upstream caller signal, and compose a scoped Workflow Host whose members fall back to that signal as their default `WorkflowCallControl` when the caller omits control. An explicit caller control, including an empty object, SHALL be respected over the default. The scoped host SHALL bind workflow input materialization to the current workflow/run identity. File, archive, and metadata members SHALL check the effective control signal and MUST NOT publish late success results after cancellation.
+Each workflow hook run SHALL create one runtime-owned host-independent `CancellationSignal`, link (never replace) any upstream caller signal, and compose a scoped Workflow Host whose members fall back to that signal as their default `WorkflowCallControl` when the caller omits control. An explicit caller control, including an empty object, SHALL be respected over the default. The runtime-owned signal SHALL be used only for Workflow Host cooperative cancellation; it SHALL not promise `reason`, `onabort`, `throwIfAborted()`, or `dispatchEvent()`, and SHALL not be assumed to be a native `fetch` signal. The scoped host SHALL bind workflow input materialization to the current workflow/run identity. File, archive, and metadata members SHALL check the effective control signal and MUST NOT publish late success results after cancellation.
 
 #### Scenario: Caller omits control
 - **WHEN** a workflow invokes a file, archive, or metadata member without a control argument
@@ -118,6 +118,13 @@ Each workflow hook run SHALL create one runtime-owned abort signal, link (never 
 #### Scenario: Caller passes explicit control
 - **WHEN** a workflow invokes the same member with its own control object
 - **THEN** the explicit control governs the call and the run default is not substituted
+
+#### Scenario: Zotero module scope lacks a native controller
+- **GIVEN** the Zotero plugin module scope has no global `AbortController`
+- **WHEN** a workflow executes `preflight`, `buildRequest`, and `applyResult`
+- **THEN** each hook executes with its runtime-owned `CancellationSignal`
+- **AND** an upstream caller signal, when supplied, remains linked to that signal
+- **AND** hook completion aborts the runtime-owned signal without requiring a global constructor
 
 ### Requirement: File, archive, and input materialization members SHALL use the aligned v12 contract
 File picker members SHALL accept the bounded `initialDirectory`/`filters` request DTO; `file.makeDirectory` SHALL support explicit recursive creation. Archive members SHALL accept `{ entries }` request shapes whose entry content is a closed discriminated union, report per-entry `sizeBytes`, detect duplicate entry paths under a single case-folded comparison, and verify written output against the measured plan before returning success. `archive.withExtractedZip` SHALL use the (input, control, callback) signature, scope extracted access to the callback lifetime, and fail closed on cancellation. File and archive failures SHALL use the stable Workflow Host error taxonomy rather than raw runtime exceptions.

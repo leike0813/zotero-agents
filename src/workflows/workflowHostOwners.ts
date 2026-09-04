@@ -1257,7 +1257,7 @@ export function createWorkflowLibraryItemSnapshotApi(
 ) {
   return async function withItemSnapshot(
     request: ZoteroHostLibrarySyncSnapshotRequest,
-    control: Readonly<{ signal?: AbortSignal }>,
+    control: WorkflowCallControl,
     onBatch: (batch: ZoteroLibrarySnapshotBatchDto) => void | Promise<void>,
   ): Promise<ZoteroLibrarySnapshotWorkflowResultDto> {
     if (control.signal?.aborted) {
@@ -1315,7 +1315,7 @@ export function createWorkflowLibraryItemSnapshotApi(
 
 export async function withWorkflowLibraryItemSnapshot(
   request: ZoteroHostLibrarySyncSnapshotRequest,
-  control: Readonly<{ signal?: AbortSignal }>,
+  control: WorkflowCallControl,
   onBatch: (batch: ZoteroLibrarySnapshotBatchDto) => void | Promise<void>,
 ): Promise<ZoteroLibrarySnapshotWorkflowResultDto> {
   return createWorkflowLibraryItemSnapshotApi()(request, control, onBatch);

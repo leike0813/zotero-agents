@@ -1,6 +1,7 @@
 import type {
   JsonObject,
   JsonValue,
+  WorkflowCallControl,
   WorkflowHostMutationReceiptOperation,
 } from "./types";
 
@@ -519,7 +520,7 @@ export function createWorkflowHostErrorData<Code extends WorkflowHostErrorCode>(
 }
 
 export function assertWorkflowCallNotCanceled(
-  control?: Readonly<{ signal?: AbortSignal }>,
+  control?: WorkflowCallControl,
 ): void {
   if (control?.signal?.aborted) {
     throw createWorkflowHostError(

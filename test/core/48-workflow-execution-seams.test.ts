@@ -50,6 +50,10 @@ import {
   executeBuildRequests,
   planWorkflowExecutionUnits,
 } from "../../src/workflows/runtime";
+import {
+  createCancellationController,
+  type CancellationSignal,
+} from "../../src/utils/wait";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 import {
   armAcpRuntimeSemanticTraceRecorder,
@@ -1031,8 +1035,8 @@ describe("workflow execution seams", function () {
     });
   });
 
-  it("exposes a read-only execution signal that aborts when the hook run ends", async function () {
-    const capturedSignals: AbortSignal[] = [];
+  it("executes without a global AbortController and aborts its signal when the hook run ends", async function () {
+    const capturedSignals: CancellationSignal[] = [];
     const workflow = {
       manifest: {
         id: "execution-signal",
@@ -1046,7 +1050,7 @@ describe("workflow execution seams", function () {
       },
       hooks: {
         buildRequest: async (args: any) => {
-          const signal = args.runtime.signal as AbortSignal;
+          const signal = args.runtime.signal as CancellationSignal;
           capturedSignals.push(signal);
           assert.isFalse(signal.aborted);
           return {
@@ -1059,13 +1063,29 @@ describe("workflow execution seams", function () {
       },
     } as any;
 
-    const requests = await executeBuildRequests({
-      workflow,
-      selectionContext: {
-        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
-        summary: { parentCount: 1 },
-      },
-    });
+    const abortControllerDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "AbortController",
+    );
+    let requests;
+    try {
+      delete (globalThis as { AbortController?: unknown }).AbortController;
+      requests = await executeBuildRequests({
+        workflow,
+        selectionContext: {
+          items: { parents: [{ item: { id: 101, title: "Parent" } }] },
+          summary: { parentCount: 1 },
+        },
+      });
+    } finally {
+      if (abortControllerDescriptor) {
+        Object.defineProperty(
+          globalThis,
+          "AbortController",
+          abortControllerDescriptor,
+        );
+      }
+    }
 
     assert.lengthOf(requests, 1);
     assert.lengthOf(capturedSignals, 1);
@@ -1073,7 +1093,7 @@ describe("workflow execution seams", function () {
   });
 
   it("links the caller-provided runtime signal into host cancellation", async function () {
-    const upstream = new AbortController();
+    const upstream = createCancellationController();
     upstream.abort();
     let observedSignalAborted: boolean | undefined;
     let observedHostErrorCode: string | undefined;
@@ -1090,7 +1110,8 @@ describe("workflow execution seams", function () {
       },
       hooks: {
         buildRequest: async (args: any) => {
-          observedSignalAborted = (args.runtime.signal as AbortSignal).aborted;
+          observedSignalAborted = (args.runtime.signal as CancellationSignal)
+            .aborted;
           try {
             await args.runtime.hostApi.file.readText("E:/missing/probe.txt");
           } catch (error) {

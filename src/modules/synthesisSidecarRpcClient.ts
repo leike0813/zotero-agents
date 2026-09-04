@@ -17,6 +17,7 @@ import {
   createSynthesisSidecarTraceContext,
   recordSynthesisSidecarTraceEvent,
 } from "./synthesisSidecarTrace";
+import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 
 export type SynthesisSidecarRpcConnection = {
   baseUrl: string;
@@ -107,15 +108,10 @@ async function readBoundedResponse(response: Response, maxBytes: number) {
 }
 
 function composedSignal(parent: AbortSignal | undefined, timeoutMs: number) {
-  const AbortControllerCtor = (
-    globalThis as {
-      AbortController?: typeof AbortController;
-    }
-  ).AbortController;
-  const controller =
-    typeof AbortControllerCtor === "function"
-      ? new AbortControllerCtor()
-      : undefined;
+  const AbortControllerCtor = resolveNativeAbortControllerConstructor();
+  const controller = AbortControllerCtor
+    ? new AbortControllerCtor()
+    : undefined;
   let timedOut = false;
   let rejectBoundary: (reason: Error) => void = () => undefined;
   const boundary = new Promise<never>((_resolve, reject) => {

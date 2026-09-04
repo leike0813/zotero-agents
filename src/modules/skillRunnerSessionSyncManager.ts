@@ -11,6 +11,7 @@ import {
 } from "./skillRunnerBackendHealthRegistry";
 import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
 import { applySkillRunnerRunEvent } from "./skillRunnerRunStore";
+import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 
 type SessionLoopState = {
   requestId: string;
@@ -393,6 +394,7 @@ export function ensureSkillRunnerSessionSync(args: {
   if (existing) {
     return;
   }
+  const AbortControllerCtor = resolveNativeAbortControllerConstructor();
   const session: SessionLoopState = {
     requestId,
     backend: args.backend,
@@ -404,8 +406,9 @@ export function ensureSkillRunnerSessionSync(args: {
     ),
     retryDelayMs: 800,
     generation: ++nextSessionGeneration,
-    abortController:
-      typeof AbortController === "function" ? new AbortController() : undefined,
+    abortController: AbortControllerCtor
+      ? new AbortControllerCtor()
+      : undefined,
   };
   sessions.set(key, session);
   if (!session.started) {

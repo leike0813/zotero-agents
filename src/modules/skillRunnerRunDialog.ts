@@ -40,6 +40,7 @@ import {
   normalizeStatus,
 } from "./skillRunnerProviderStateMachine";
 import { delay } from "../utils/runtimeCompatibility";
+import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 import {
   listActiveWorkflowTaskSummaries,
   subscribeWorkflowTaskChanges,
@@ -2659,7 +2660,7 @@ async function startRunObserver(entry: RunDialogEntry) {
   let chatRetryDelayMs = 800;
   let waitingAuthObserverTimer: ReturnType<typeof setTimeout> | undefined;
   let waitingAuthHandoffStarted = false;
-  const supportsAbortController = typeof AbortController === "function";
+  const AbortControllerCtor = resolveNativeAbortControllerConstructor();
   const client = buildSkillRunnerManagementClient({
     backend: entry.backend,
     alertWindow: entry.alertWindow || undefined,
@@ -3290,8 +3291,8 @@ async function startRunObserver(entry: RunDialogEntry) {
           await sleep(1000);
           continue;
         }
-        if (supportsAbortController) {
-          chatStreamAbortController = new AbortController();
+        if (AbortControllerCtor) {
+          chatStreamAbortController = new AbortControllerCtor();
         }
         await client.streamRunChat({
           requestId: entry.requestId,
@@ -3366,7 +3367,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       entry.observerOwnsSessionState = false;
       entry.refreshState = undefined;
       entry.refreshDisplay = undefined;
-      if (supportsAbortController) {
+      if (AbortControllerCtor) {
         await Promise.allSettled([
           runLoopTask ?? Promise.resolve(),
           refreshChain.catch(() => {}),

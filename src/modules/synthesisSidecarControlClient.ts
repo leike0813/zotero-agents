@@ -19,6 +19,7 @@ import {
   createSynthesisSidecarTraceContext,
   recordSynthesisSidecarTraceEvent,
 } from "./synthesisSidecarTrace";
+import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 
 export type SynthesisSidecarControlConnection = {
   discovery: SynthesisSidecarDiscovery;
@@ -45,15 +46,10 @@ async function withDeadline<T>(
   timeoutMs: number,
   task: (signal?: AbortSignal) => Promise<T>,
 ) {
-  const AbortControllerCtor = (
-    globalThis as {
-      AbortController?: typeof AbortController;
-    }
-  ).AbortController;
-  const controller =
-    typeof AbortControllerCtor === "function"
-      ? new AbortControllerCtor()
-      : undefined;
+  const AbortControllerCtor = resolveNativeAbortControllerConstructor();
+  const controller = AbortControllerCtor
+    ? new AbortControllerCtor()
+    : undefined;
   let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = globalThis.setTimeout(() => {

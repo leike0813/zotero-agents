@@ -3,6 +3,7 @@ import {
   recordSkillRunnerConnectionAuditEvent,
   resetSkillRunnerConnectionAudit,
 } from "./skillRunnerConnectionAuditStore";
+import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 
 export type SkillRunnerConnectionLane =
   | "submit"
@@ -161,13 +162,6 @@ function createSkippedError(reason: string) {
 
 function scopeKey(backendId: string, lane: SkillRunnerConnectionLane) {
   return `${backendId}:${lane}`;
-}
-
-function supportsAbortController() {
-  return (
-    typeof (globalThis as { AbortController?: unknown }).AbortController ===
-    "function"
-  );
 }
 
 export class SkillRunnerConnectionGovernor {
@@ -815,12 +809,8 @@ export class SkillRunnerConnectionGovernor {
   }
 
   private start<T>(entry: QueueEntry<T>) {
-    const AbortControllerCtor = (
-      globalThis as {
-        AbortController?: typeof AbortController;
-      }
-    ).AbortController;
-    if (supportsAbortController() && AbortControllerCtor) {
+    const AbortControllerCtor = resolveNativeAbortControllerConstructor();
+    if (AbortControllerCtor) {
       entry.controller = new AbortControllerCtor();
     }
     entry.startedAt = Date.now();

@@ -67,6 +67,7 @@ import type {
   WorkflowSelectionValidationMode,
 } from "./workflowInputPlanning";
 import { resolveWorkflowDisplayLocale } from "./localization";
+import { createCancellationController } from "../utils/wait";
 
 type AttachmentLike = {
   item?: {
@@ -652,7 +653,7 @@ function createHookRuntimeContext(args: {
   runtime: WorkflowRuntimeInfrastructureContext;
   workflow: LoadedWorkflow;
   hookName: "preflight" | "buildRequest" | "applyResult";
-  signal?: AbortSignal;
+  signal?: WorkflowRuntimeContext["signal"];
 }) {
   return {
     hostApi: args.runtime.hostApi,
@@ -698,7 +699,7 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
   // The runtime owns one read-only execution signal per hook run; workflows
   // receive it instead of creating parallel run-cancellation state. An
   // upstream signal from the caller scope is linked, never replaced.
-  const executionController = new AbortController();
+  const executionController = createCancellationController();
   const upstreamSignal = args.runtime.signal;
   const onUpstreamAbort = () => executionController.abort();
   if (upstreamSignal) {

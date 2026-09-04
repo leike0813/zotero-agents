@@ -16,6 +16,7 @@ import {
   writeRuntimeTextFileStrict,
 } from "./runtimePersistence";
 import { executeOneShotSubprocess } from "../platform/subprocess";
+import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -1011,8 +1012,8 @@ export class SkillRunnerCtlBridge {
     if (!fetchImpl) {
       return { ok: false, status: 0, body: null as unknown };
     }
-    const controller =
-      typeof AbortController === "function" ? new AbortController() : null;
+    const AbortControllerCtor = resolveNativeAbortControllerConstructor();
+    const controller = AbortControllerCtor ? new AbortControllerCtor() : null;
     const timer = controller
       ? setTimeout(() => {
           try {
