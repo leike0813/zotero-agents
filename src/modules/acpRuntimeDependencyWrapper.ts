@@ -88,14 +88,14 @@ export function wrapAcpBackendWithUv(args: {
   };
 }
 
-function summarizeProbeText(value: unknown) {
+function summarizeProbeText(value: unknown, fallback = "(empty)") {
   const compact = String(value || "")
     .replace(/\r/g, "\n")
     .split(/\s+/)
     .filter(Boolean)
     .join(" ");
   if (!compact) {
-    return "uv dependency probe failed with empty output";
+    return fallback;
   }
   return compact.length > 300 ? `${compact.slice(0, 297)}...` : compact;
 }
@@ -108,44 +108,76 @@ async function runDependencyProbeCommand(args: {
   cwd: string;
   env: Record<string, string>;
   timeoutMs: number;
-}): Promise<{ ok: boolean; summary?: string }> {
+  retryNonZeroExit?: boolean;
+}): Promise<{
+  ok: boolean;
+  summary?: string;
+  details?: Record<string, unknown>;
+}> {
   const launchPlan = buildRuntimeCommandLaunchPlan({
     command: args.commandName,
     resolvedCommand: args.resolution.resolvedPath,
     commandArgs: args.commandArgs,
     resolution: args.resolution,
   });
-  const result = await executeOneShotSubprocess({
-    command: launchPlan.command,
-    args: launchPlan.args,
-    cwd: args.cwd,
-    environment: buildSubprocessEnvironment({
-      ...(launchPlan.environment || {}),
-      ...args.env,
-    }),
-    timeoutMs: Math.max(1000, args.timeoutMs),
-    hidden: true,
+  const environment = buildSubprocessEnvironment({
+    ...(launchPlan.environment || {}),
+    ...args.env,
   });
+  const execute = () =>
+    executeOneShotSubprocess({
+      command: launchPlan.command,
+      args: launchPlan.args,
+      cwd: args.cwd,
+      environment,
+      timeoutMs: Math.max(1000, args.timeoutMs),
+      hidden: true,
+    });
+  const results = [await execute()];
+  const first = results[0];
+  if (
+    args.retryNonZeroExit &&
+    first.outcome === "exited" &&
+    typeof first.exitCode === "number" &&
+    first.exitCode !== 0
+  ) {
+    results.push(await execute());
+  }
+  const result = results[results.length - 1];
+  const probeAttempts = results.map((attempt, index) => ({
+    attempt: index + 1,
+    adapter: attempt.adapter,
+    outcome: attempt.outcome,
+    exitCode: attempt.exitCode,
+    stderrSummary: summarizeProbeText(attempt.stderr),
+  }));
+  const details = { probeAttempts };
   if (result.outcome === "exited" && result.exitCode === 0) {
-    return { ok: true };
+    return { ok: true, details };
   }
   if (result.outcome === "timed_out") {
     return {
       ok: false,
       summary: `${args.label} dependency probe timed out after ${args.timeoutMs}ms`,
+      details,
     };
   }
   if (result.outcome === "unavailable") {
     return {
       ok: false,
       summary: `No supported subprocess adapter is available for ${args.label} dependency probe`,
+      details,
     };
   }
   return {
     ok: false,
-    summary: summarizeProbeText(
-      `${args.label} dependency probe exited ${result.exitCode ?? "unknown"}: command=${launchPlan.commandLine}; stdout=${result.stdout}; stderr=${result.stderr}`,
-    ),
+    summary: `${args.label} dependency probe exited ${result.exitCode ?? "unknown"}: command=${launchPlan.commandLine}; stdout=${summarizeProbeText(result.stdout)}; ${probeAttempts
+      .map(
+        (attempt) =>
+          `attempt ${attempt.attempt} adapter=${attempt.adapter || "unknown"} outcome=${attempt.outcome} exit=${attempt.exitCode ?? "unknown"} stderr=${attempt.stderrSummary}`,
+      )
+      .join("; ")}`,
+    details,
   };
 }
 
@@ -169,6 +201,7 @@ export async function defaultAcpRuntimeDependencyProbe(args: {
       strategy: "uv",
       details: {
         uv: uvCommand,
+        ...(result.details || {}),
       },
     };
   }
@@ -208,7 +241,11 @@ async function probeDependenciesWithUv(args: {
   env: Record<string, string>;
   timeoutMs: number;
   uvCommand: RuntimeCommandResolution;
-}): Promise<{ ok: boolean; summary?: string }> {
+}): Promise<{
+  ok: boolean;
+  summary?: string;
+  details?: Record<string, unknown>;
+}> {
   const uvArgs = ["run", "--isolated"];
   for (const dependency of args.dependencies) {
     uvArgs.push("--with", dependency);
@@ -229,6 +266,7 @@ async function probeDependenciesWithUv(args: {
     cwd: args.cwd,
     env: args.env,
     timeoutMs: args.timeoutMs,
+    retryNonZeroExit: true,
   });
 }
 

@@ -136,6 +136,15 @@ command unchanged because Hermes owns its own Python runtime.
 - **THEN** the run SHALL fail with readiness `uv_dependency_resolution_failed`
 - **AND** it SHALL NOT fall back to system Python.
 
+#### Scenario: uv dependency probe retries one non-zero exit
+- **GIVEN** startup command resolution found uv available
+- **AND** the first per-job uv dependency probe exits with a non-zero status
+- **WHEN** the workflow runner resolves runtime dependencies
+- **THEN** it SHALL retry the same probe command once with the same working directory and environment
+- **AND** a successful retry SHALL satisfy dependency readiness
+- **AND** a failed retry SHALL retain the adapter, exit status, and stderr summary for both attempts
+- **AND** unavailable, timed-out, or launch-failed outcomes SHALL NOT be retried.
+
 #### Scenario: System Python fallback succeeds
 - **GIVEN** a skill declares `runtime.dependencies`
 - **AND** startup command resolution did not find uv available

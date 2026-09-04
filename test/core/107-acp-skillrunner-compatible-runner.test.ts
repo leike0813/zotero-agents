@@ -5666,7 +5666,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("uses Zotero Mozilla Subprocess for the default uv dependency probe", async function () {
+  it("retries one non-zero uv dependency probe and preserves terminal evidence", async function () {
     const root = await mkTempRoot();
     const resolvedUvPath = path.join(
       root,
@@ -5692,6 +5692,9 @@ describe("ACP SkillRunner-compatible runner", function () {
       environmentAppend?: boolean;
       workdir?: string;
     }> = [];
+    let exitCodes = [2, 0];
+    let stderrTexts = ["uv cache lock", ""];
+    let launchFailure = false;
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
         Subprocess: {
@@ -5705,10 +5708,21 @@ describe("ACP SkillRunner-compatible runner", function () {
             workdir?: string;
           }) => {
             calls.push(args);
+            if (launchFailure) {
+              throw new Error("uv launch failed");
+            }
+            const attempt = calls.length;
+            let stderrRead = false;
             return {
               stdout: { readString: async () => "" },
-              stderr: { readString: async () => "" },
-              wait: async () => ({ exitCode: 0 }),
+              stderr: {
+                readString: async () => {
+                  if (stderrRead) return "";
+                  stderrRead = true;
+                  return stderrTexts[attempt - 1] || "";
+                },
+              },
+              wait: async () => ({ exitCode: exitCodes[attempt - 1] }),
               kill: () => undefined,
             };
           },
@@ -5723,7 +5737,28 @@ describe("ACP SkillRunner-compatible runner", function () {
         timeoutMs: 1000,
       });
       assert.equal(result.ok, true);
-      assert.lengthOf(calls, 1);
+      assert.lengthOf(calls, 2);
+      const probeAttempts = result.details?.probeAttempts as Array<{
+        attempt: number;
+        adapter: string;
+        outcome: string;
+        exitCode: number;
+        stderrSummary: string;
+      }>;
+      assert.lengthOf(probeAttempts, 2);
+      assert.deepInclude(probeAttempts[0], {
+        attempt: 1,
+        adapter: "mozilla",
+        outcome: "exited",
+        exitCode: 2,
+      });
+      assert.include(probeAttempts[0].stderrSummary, "cache lock");
+      assert.deepInclude(probeAttempts[1], {
+        attempt: 2,
+        adapter: "mozilla",
+        outcome: "exited",
+        exitCode: 0,
+      });
       if (process.platform === "win32") {
         assert.match(calls[0].command, /cmd\.exe$/i);
         assert.deepEqual(calls[0].arguments?.slice(0, 3), ["/d", "/s", "/c"]);
@@ -5753,6 +5788,37 @@ describe("ACP SkillRunner-compatible runner", function () {
       }
       assert.equal(calls[0].environment?.FOO, "bar");
       assert.equal(calls[0].environmentAppend, true);
+
+      calls.length = 0;
+      exitCodes = [2, 3];
+      stderrTexts = ["first uv failure", "second uv failure"];
+      const failed = await defaultAcpRuntimeDependencyProbe({
+        dependencies: ["pandas"],
+        cwd: root,
+        env: { FOO: "bar" },
+        timeoutMs: 1000,
+      });
+      assert.equal(failed.ok, false);
+      assert.lengthOf(calls, 2);
+      const failedAttempts = failed.details?.probeAttempts as Array<{
+        stderrSummary: string;
+      }>;
+      assert.lengthOf(failedAttempts, 2);
+      assert.include(failedAttempts[0].stderrSummary, "first uv failure");
+      assert.include(failedAttempts[1].stderrSummary, "second uv failure");
+      assert.include(failed.summary, "first uv failure");
+      assert.include(failed.summary, "second uv failure");
+
+      calls.length = 0;
+      launchFailure = true;
+      const launchFailed = await defaultAcpRuntimeDependencyProbe({
+        dependencies: ["pandas"],
+        cwd: root,
+        env: { FOO: "bar" },
+        timeoutMs: 1000,
+      });
+      assert.equal(launchFailed.ok, false);
+      assert.lengthOf(calls, 1);
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
     }

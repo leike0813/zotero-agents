@@ -273,6 +273,7 @@ describe("runtime platform services", function () {
 
   it("resolves the production Mozilla adapter independently on each invocation", async function () {
     let invocation = 0;
+    const calls: Array<{ stderr?: string }> = [];
     const previousComponents = redefineGlobalProperty("Components", undefined);
     const previousCc = redefineGlobalProperty("Cc", undefined);
     const previousZotero = redefineGlobalProperty("Zotero", undefined);
@@ -280,10 +281,13 @@ describe("runtime platform services", function () {
       importESModule() {
         invocation += 1;
         const stdout = `mozilla-${invocation}`;
+        const stderr = `mozilla-err-${invocation}`;
         let stdoutRead = false;
+        let stderrRead = false;
         return {
           Subprocess: {
-            async call() {
+            async call(args: { stderr?: string }) {
+              calls.push(args);
               return {
                 stdout: {
                   async readString() {
@@ -292,7 +296,13 @@ describe("runtime platform services", function () {
                     return stdout;
                   },
                 },
-                stderr: { readString: async () => "" },
+                stderr: {
+                  async readString() {
+                    if (stderrRead) return "";
+                    stderrRead = true;
+                    return stderr;
+                  },
+                },
                 wait: async () => ({ exitValue: 0 }),
               };
             },
@@ -312,8 +322,14 @@ describe("runtime platform services", function () {
 
       assert.equal(first.adapter, "mozilla");
       assert.equal(first.stdout, "mozilla-1");
+      assert.equal(first.stderr, "mozilla-err-1");
       assert.equal(second.adapter, "mozilla");
       assert.equal(second.stdout, "mozilla-2");
+      assert.equal(second.stderr, "mozilla-err-2");
+      assert.deepEqual(
+        calls.map((call) => call.stderr),
+        ["pipe", "pipe"],
+      );
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);

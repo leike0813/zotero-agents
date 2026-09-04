@@ -235,6 +235,7 @@ function createMozillaAdapter(
         arguments: request.args,
         environment: request.environment,
         environmentAppend: true,
+        stderr: "pipe",
         workdir: request.cwd,
       });
       return {

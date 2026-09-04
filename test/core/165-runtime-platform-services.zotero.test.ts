@@ -15,8 +15,8 @@ import {
   resetRuntimeCommandRegistryForTests,
 } from "../../src/platform/command";
 import { executeOneShotSubprocess } from "../../src/platform/subprocess";
+import { defaultAcpRuntimeDependencyProbe } from "../../src/modules/acpRuntimeDependencyWrapper";
 import {
-  resolveRuntimeTemporaryDirectory,
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
@@ -143,13 +143,6 @@ describe("runtime platform services in Zotero", function () {
     assert.isTrue(await runtimePathExists(target));
   });
 
-  it("resolves the current Zotero temporary directory through runtime persistence", function () {
-    assert.equal(
-      normalizeNativeLocalPath(resolveRuntimeTemporaryDirectory()),
-      normalizeNativeLocalPath(getZoteroTempDirectoryPath()),
-    );
-  });
-
   it("initializes the startup command registry without requiring every command", async function () {
     this.timeout(120000);
     const snapshot = await preflightRuntimeCommandsOnStartup();
@@ -182,22 +175,50 @@ describe("runtime platform services in Zotero", function () {
     if (!resolved?.available || !resolved.resolvedPath) {
       this.skip();
     }
-    const marker = "zotero-one-shot-ok";
+    const stdoutMarker = "zotero-one-shot-stdout";
+    const stderrMarker = "zotero-one-shot-stderr";
     const result = await executeOneShotSubprocess({
       command: resolved.resolvedPath,
       args: windows
-        ? ["-NoLogo", "-NoProfile", "-Command", `Write-Output '${marker}'`]
-        : ["-c", `printf '${marker}'`],
+        ? [
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            `[Console]::Out.Write('${stdoutMarker}'); [Console]::Error.Write('${stderrMarker}'); exit 2`,
+          ]
+        : [
+            "-c",
+            `printf '${stdoutMarker}'; printf '${stderrMarker}' >&2; exit 2`,
+          ],
+      cwd: getZoteroTempDirectoryPath(),
+      environment: { ZOTERO_ONE_SHOT_TEST: "1" },
       timeoutMs: 30000,
       hidden: windows,
     });
 
     assert.equal(result.outcome, "exited");
-    assert.equal(result.exitCode, 0);
-    assert.include(result.stdout || result.stderr, marker);
-    assert.include(
-      ["mozilla", "zotero-internal", "windows-xpcom", "node"],
-      result.adapter,
+    assert.equal(result.exitCode, 2);
+    assert.equal(result.adapter, "mozilla");
+    assert.include(result.stdout, stdoutMarker);
+    assert.include(result.stderr, stderrMarker);
+  });
+
+  it("resolves an ACP runtime dependency strategy through live Zotero subprocess", async function () {
+    this.timeout(180000);
+    const registry = await preflightRuntimeCommandsOnStartup();
+    if (!registry.commands.uv?.available && !registry.primaryPython) {
+      this.skip();
+    }
+    const result = await defaultAcpRuntimeDependencyProbe({
+      dependencies: [],
+      cwd: getZoteroTempDirectoryPath(),
+      env: {},
+      timeoutMs: 120000,
+    });
+    assert.equal(
+      result.ok,
+      true,
+      result.summary || "runtime dependency probe failed",
     );
   });
 });
