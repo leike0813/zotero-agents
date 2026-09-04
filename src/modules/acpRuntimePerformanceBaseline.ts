@@ -6,6 +6,10 @@ import {
   type AcpRuntimePerformanceSnapshot,
   type AcpRuntimeProfileSnapshot,
 } from "./acpRuntimePerformanceProfiler";
+import {
+  parseSupportedZoteroMajor,
+  type SupportedZoteroMajor,
+} from "../shared/zoteroRuntimeVersion";
 
 export const ACP_RUNTIME_GOVERNANCE_BASELINE_SCHEMA =
   "zotero-agents.acp-runtime-governance-baseline.v1" as const;
@@ -27,7 +31,7 @@ export type AcpRuntimeCaptureMetadata = {
 export type AcpRuntimeCaptureEnvironment = {
   pluginVersion: string;
   zoteroVersion: string;
-  zoteroMajor: 7 | 9 | "unknown";
+  zoteroMajor: SupportedZoteroMajor;
   platform: string;
 };
 
@@ -214,10 +218,7 @@ function sanitizeEnvironment(
   return {
     pluginVersion: sanitizeToken(environment.pluginVersion, 32, "unknown"),
     zoteroVersion: sanitizeToken(environment.zoteroVersion, 32, "unknown"),
-    zoteroMajor:
-      environment.zoteroMajor === 7 || environment.zoteroMajor === 9
-        ? environment.zoteroMajor
-        : "unknown",
+    zoteroMajor: parseSupportedZoteroMajor(environment.zoteroMajor),
     platform: sanitizeToken(environment.platform, 24, "unknown"),
   };
 }

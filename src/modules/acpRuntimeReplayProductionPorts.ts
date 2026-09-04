@@ -1,4 +1,5 @@
 import { createAcpNdJsonMessageStream } from "./acpMessageStream";
+import { parseSupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";
 import {
   disableAcpRuntimePerformanceProfiler,
   enableAcpRuntimePerformanceProfiler,
@@ -148,15 +149,11 @@ export function createAcpRuntimeReplayProductionProfilerPort(): AcpRuntimeReplay
         sourceKind,
         surface,
       });
-      const zoteroMajorRaw = Number.parseInt(String(Zotero.version || "0"), 10);
       startAcpRuntimeProfile({
         requestId: syntheticRootId,
         displayMode: getAssistantExecutionDisplayMode(),
         transport: "unknown",
-        zoteroMajor:
-          zoteroMajorRaw === 7 || zoteroMajorRaw === 9
-            ? zoteroMajorRaw
-            : "unknown",
+        zoteroMajor: parseSupportedZoteroMajor(Zotero.version),
       });
       if (sourceKind === "acp-chat-conversation") {
         registerAcpRuntimeProfileAlias(

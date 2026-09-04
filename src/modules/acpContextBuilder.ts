@@ -11,16 +11,68 @@ function resolveItemTitle(
   return String(item?.getField?.("title") || "").trim();
 }
 
+export function resolveSelectedLibraryTreeRows(
+  win: _ZoteroTypes.MainWindow,
+): unknown[] {
+  const pane = (win as any).ZoteroPane;
+  for (const [owner, getRows] of [
+    [pane, pane?.getCollectionTreeRows],
+    [pane?.collectionsView, pane?.collectionsView?.getSelectedRows],
+  ] as const) {
+    if (typeof getRows !== "function") continue;
+    try {
+      const rows = getRows.call(owner);
+      if (Array.isArray(rows)) return rows;
+    } catch {
+      // Fall through to the next supported host shape.
+    }
+  }
+  const itemViewRows = pane?.itemsView?.collectionTreeRows;
+  if (Array.isArray(itemViewRows)) return itemViewRows;
+  const row = pane?.collectionsView?.selectedTreeRow;
+  return row ? [row] : [];
+}
+
 function resolveLibraryId(win: _ZoteroTypes.MainWindow) {
   const pane = (win as any).ZoteroPane;
-  const selectedLibraryId = Number(
-    pane?.getSelectedLibraryID?.() ||
-      pane?.collectionsView?.selectedTreeRow?.ref?.libraryID ||
-      0,
-  );
-  return Number.isFinite(selectedLibraryId) && selectedLibraryId > 0
-    ? String(Math.floor(selectedLibraryId))
-    : undefined;
+  const rows = resolveSelectedLibraryTreeRows(win);
+  let candidates: unknown[] = [];
+  if (typeof pane?.getSelectedLibraryIDs === "function") {
+    try {
+      const selected = pane.getSelectedLibraryIDs();
+      if (Array.isArray(selected)) candidates = selected;
+    } catch {
+      candidates = [];
+    }
+  }
+  if (candidates.length === 0) {
+    candidates = rows.map(
+      (row: any) => row?.ref?.libraryID ?? row?.ref?.libraryId,
+    );
+  }
+  if (
+    candidates.length === 0 &&
+    typeof pane?.getSelectedLibraryID === "function"
+  ) {
+    try {
+      candidates = [pane.getSelectedLibraryID()];
+    } catch {
+      candidates = [];
+    }
+  }
+  const libraryIds = new Set<string>();
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value) && value > 0) {
+      libraryIds.add(String(Math.floor(value)));
+    }
+  }
+  return libraryIds.size === 1 ? libraryIds.values().next().value : undefined;
+}
+
+function resolveLibraryContext(win: _ZoteroTypes.MainWindow) {
+  const libraryId = resolveLibraryId(win);
+  return libraryId ? { libraryId } : {};
 }
 
 function resolveSelectionParent(
@@ -79,7 +131,7 @@ function buildLibraryContext(win: _ZoteroTypes.MainWindow): AcpHostContext {
   const primary = resolveSelectionParent(items[0] as any);
   return {
     target: "library",
-    libraryId: resolveLibraryId(win),
+    ...resolveLibraryContext(win),
     selectionEmpty: items.length === 0,
     currentItem: buildCurrentItem(primary as any),
   };
@@ -100,7 +152,7 @@ function buildReaderContext(win: _ZoteroTypes.MainWindow): AcpHostContext {
   const primary = resolveSelectionParent(item as any);
   return {
     target: "reader",
-    libraryId: resolveLibraryId(win),
+    ...resolveLibraryContext(win),
     selectionEmpty: !primary,
     currentItem: buildCurrentItem((primary || item) as any),
   };

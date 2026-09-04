@@ -1,4 +1,5 @@
 import type { DialogHelper } from "zotero-plugin-toolkit";
+import { parseSupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import {
@@ -786,9 +787,7 @@ function compactError(error: unknown) {
 
 function resolveAcpRuntimeCaptureEnvironment() {
   const zoteroVersion = String(Zotero?.version || "unknown").trim();
-  const parsedMajor = Number.parseInt(zoteroVersion, 10);
-  const zoteroMajor =
-    parsedMajor === 7 || parsedMajor === 9 ? parsedMajor : "unknown";
+  const zoteroMajor = parseSupportedZoteroMajor(zoteroVersion);
   const platform = Zotero?.isWin ? "win32" : Zotero?.isMac ? "darwin" : "linux";
   return {
     pluginVersion: version,

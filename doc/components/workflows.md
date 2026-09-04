@@ -172,7 +172,7 @@ Gitee feed mirror 是可用性 fallback，发布失败或滞后不应阻断 GitH
   "requires": {
     "plugin": ">=0.4.0 <0.5.0",
     "content_api": "^3.0.0",
-    "zotero": ">=7 <10"
+    "zotero": ">=7 <11"
   },
   "artifact": {
     "url": "https://github.com/leike0813/zotero-agents-workflows/releases/download/official-workflows-v0.1.0/zotero-agents-official-workflows-0.1.0-stable.zip",
@@ -208,6 +208,19 @@ Prefs 的“官方 Workflow 包”区提供 channel 切换入口。普通模式�
 Gitee mirror；如果 primary 和 mirror 都可用但语义不一致，插件选择 primary，
 并将 mirror mismatch 记录为 degraded fallback，而不是阻断更新。发布 gate 默认
 只强校验 GitHub feed 与 GitHub release asset；Gitee mirror 校验是显式维护操作。
+
+### 正式发布频道选择
+
+正式发布必须显式指定频道，不存在隐式全频道默认值：
+
+```shell
+npm run release:content-package -- --dispatch --watch --channels stable,beta,dev
+```
+
+`--channels` 接受 `stable`、`beta`、`dev` 的任意非空组合；单频道与分批发布只
+构建、上传、更新和验证所选频道。发布端只替换 `content-feed/<channel>/feed.json`，
+不会清空分支、删除未选频道的 feed 或触发 Gitee 同步。要执行全频道发布，显式写出
+`stable,beta,dev`。
 
 ## Manifest（当前实现）
 

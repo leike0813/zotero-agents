@@ -2,10 +2,10 @@
 
 ## 시스템 요구사항
 
-- **Zotero**: 7.0 이상 (Zotero 9 권장)
+- **Zotero**: 7.0 이상 (Zotero 10 권장)
 - **플랫폼**: Windows 10+, macOS 12+, Linux (x86_64 / x86 / ARM64 / ARM)
 
-> **Zotero 버전 안내**: 이 플러그인은 Zotero 9에서 개발 및 테스트됩니다. Zotero 8은 이론적으로 완전히 지원됩니다(Zotero 8/9 간에 플러그인 프레임워크에 유의미한 변경사항이 없습니다). Zotero 7도 이론적으로 지원되어야 하지만 리소스 제한으로 인해 철저하게 테스트되지는 않았습니다. 향후 유지보수는 Zotero 9에 집중될 예정입니다. Zotero 7에서 문제가 발생하면 [Issues](https://github.com/leike0813/zotero-agents/issues)에 보고해 주세요.
+> **Zotero 버전 안내**: 이 플러그인은 Zotero 7, 9, 10을 지원합니다.
 
 ## 플러그인 설치
 

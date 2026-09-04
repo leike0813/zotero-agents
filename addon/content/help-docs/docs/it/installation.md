@@ -2,10 +2,10 @@
 
 ## Requisiti di Sistema
 
-- **Zotero**: 7.0 o successivo (Zotero 9 consigliato)
+- **Zotero**: 7.0 o successivo (Zotero 10 consigliato)
 - **Piattaforma**: Windows 10+, macOS 12+, Linux (x86_64 / x86 / ARM64 / ARM)
 
-> **Informazioni sulle Versioni di Zotero**: Questo plugin è sviluppato e testato su Zotero 9. Zotero 8 è teoricamente pienamente supportato (il framework del plugin non ha cambiamenti significativi tra Zotero 8/9); Zotero 7 dovrebbe essere supportato in teoria ma non è stato testato approfonditamente a causa di risorse limitate. La manutenzione futura si concentrerà su Zotero 9. Se incontri problemi su Zotero 7, segnalali su [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Informazioni sulle versioni di Zotero**: questo plugin supporta Zotero 7, 9 e 10.
 
 ## Installazione del Plugin
 

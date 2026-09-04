@@ -364,13 +364,14 @@ describe("zotero host broker capability api", function () {
       (Zotero as any).getMainWindow = () => ({
         ZoteroPane: {
           getSelectedItems: () => [],
-          getSelectedLibraryID: () => collection.libraryID,
-          collectionsView: { selectedTreeRow: { ref: collection } },
+          getSelectedLibraryIDs: () => [collection.libraryID],
+          getCollectionTreeRows: () => [{ ref: collection }],
         },
       });
       resetWorkflowHostApiForTests();
-      const currentCollection =
-        createWorkflowHostApi().context.getCurrentView().currentCollection;
+      const currentView = createWorkflowHostApi().context.getCurrentView();
+      assert.equal(currentView.libraryId, String(collection.libraryID));
+      const currentCollection = currentView.currentCollection;
       assert.equal(currentCollection?.id, collection.id);
       assert.equal(currentCollection?.key, collection.key);
       assert.equal(currentCollection?.name, collection.name);
@@ -390,6 +391,62 @@ describe("zotero host broker capability api", function () {
         createWorkflowHostApi().context.getCurrentView(),
         "currentCollection",
       );
+    } finally {
+      (Zotero as any).getMainWindow = previousGetMainWindow;
+    }
+  });
+
+  it("keeps scalar library context only for one selected library", async function () {
+    const first = await createCollection("First Portable Source");
+    const second = await createCollection("Second Portable Source");
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    try {
+      (Zotero as any).getMainWindow = () => ({
+        ZoteroPane: {
+          getSelectedItems: () => [],
+          getSelectedLibraryIDs: () => [first.libraryID, second.libraryID],
+          getCollectionTreeRows: () => [{ ref: first }, { ref: second }],
+        },
+      });
+      resetWorkflowHostApiForTests();
+      const sameLibraryView = createWorkflowHostApi().context.getCurrentView();
+      assert.equal(sameLibraryView.libraryId, String(first.libraryID));
+      assert.notProperty(sameLibraryView, "currentCollection");
+
+      (Zotero as any).getMainWindow = () => ({
+        ZoteroPane: {
+          getSelectedItems: () => [],
+          getSelectedLibraryIDs: () => [first.libraryID, first.libraryID + 1],
+          getCollectionTreeRows: () => [
+            { ref: first },
+            { ref: { ...second, libraryID: first.libraryID + 1 } },
+          ],
+        },
+      });
+      resetWorkflowHostApiForTests();
+      const crossLibraryView = createWorkflowHostApi().context.getCurrentView();
+      assert.notProperty(crossLibraryView, "libraryId");
+      assert.notProperty(crossLibraryView, "currentCollection");
+    } finally {
+      (Zotero as any).getMainWindow = previousGetMainWindow;
+    }
+  });
+
+  it("keeps the Zotero 7 and 9 single-selection host shape", async function () {
+    const collection = await createCollection("Legacy Portable Source");
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    try {
+      (Zotero as any).getMainWindow = () => ({
+        ZoteroPane: {
+          getSelectedItems: () => [],
+          getSelectedLibraryID: () => collection.libraryID,
+          collectionsView: { selectedTreeRow: { ref: collection } },
+        },
+      });
+      resetWorkflowHostApiForTests();
+      const currentView = createWorkflowHostApi().context.getCurrentView();
+      assert.equal(currentView.libraryId, String(collection.libraryID));
+      assert.equal(currentView.currentCollection?.id, collection.id);
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }

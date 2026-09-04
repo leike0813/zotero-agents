@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Detrás de todo esto hay tres subsistemas que trabajan en conjunto: un **motor d
 
 ### Requisitos del sistema
 
-- [Zotero 9](https://www.zotero.org/download/) o [Zotero 7](https://www.zotero.org/download/) (versión ≥ 6.999)
+- [Zotero 10](https://www.zotero.org/download/), [Zotero 9](https://www.zotero.org/download/) o [Zotero 7](https://www.zotero.org/download/) (versión ≥ 7.0)
 - Si utiliza el backend ACP: debe tener instalada localmente la herramienta CLI del agente correspondiente (también vale la uso de `npx` para instalación automática)
 - Si utiliza el backend Skill-Runner: debe tener desplegada una instancia de [Skill-Runner](https://github.com/leike0813/Skill-Runner)
 
-> **Sobre la versión de Zotero**: Este complemento se desarrolla y prueba en Zotero 9. Zotero 8 debería ser totalmente compatible (el marco de complementos de Zotero 8/9 no ha cambiado significativamente); Zotero 7 también debería funcionar en teoría, pero no se ha probado a fondo por limitaciones de capacidad, y el mantenimiento futuro se centrará en Zotero 9. Si encuentra problemas en Zotero 7, infórmelos en [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Sobre las versiones de Zotero**: Este complemento es compatible con Zotero 7, 9 y 10.
 
 ### Tipos de backend
 

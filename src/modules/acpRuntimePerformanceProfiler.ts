@@ -2,6 +2,7 @@ import {
   ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
   isDebugModeEnabled,
 } from "./debugMode";
+import type { SupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";
 
 export const ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA =
   "zotero-agents.acp-runtime-performance-profile.v1" as const;
@@ -161,7 +162,7 @@ export type AcpRuntimeProfileContext = {
   requestId: string;
   displayMode: "live" | "boundary" | "silent";
   transport: "stdio" | "websocket" | "unknown";
-  zoteroMajor: 7 | 9 | "unknown";
+  zoteroMajor: SupportedZoteroMajor;
 };
 
 export type AcpRuntimeMetricSnapshot = {

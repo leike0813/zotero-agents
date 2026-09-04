@@ -6,7 +6,10 @@ import {
   type HostBridgeFileDescriptor,
 } from "./hostBridgeFileRegistry";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
-import { buildCurrentAcpHostContext } from "./acpContextBuilder";
+import {
+  buildCurrentAcpHostContext,
+  resolveSelectedLibraryTreeRows,
+} from "./acpContextBuilder";
 import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
@@ -3229,7 +3232,14 @@ function getSelectedItems() {
 function getCurrentCollection() {
   const win =
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
-  const ref = win?.ZoteroPane?.collectionsView?.selectedTreeRow?.ref;
+  if (!win) {
+    return undefined;
+  }
+  const rows = resolveSelectedLibraryTreeRows(win);
+  if (rows.length !== 1) {
+    return undefined;
+  }
+  const ref = (rows[0] as any)?.ref;
   const id = parsePositiveInteger(ref?.id ?? ref?.collectionID);
   if (!id) {
     return undefined;

@@ -18,7 +18,7 @@ La cuarta capa es el **Host Bridge**. A través del CLI y servicio MCP `zotero-b
 
 El valor central de Zotero Agents es convertir la biblioteca Zotero en un entorno de investigación donde los agentes pueden trabajar de forma genuina. Cada lectura, análisis, revisión y paso de preparación de escritura puede acumularse como conocimiento para la siguiente fase de investigación.
 
-> **Versiones de Zotero soportadas**: Este complemento soporta Zotero 7 y Zotero 9. El desarrollo y las pruebas principales se realizan en Zotero 9. Zotero 8 está teóricamente soportado en su totalidad (el marco de complementos no ha cambiado entre 8/9). Zotero 7 también debería funcionar en teoría, pero no ha sido probado exhaustivamente; el mantenimiento futuro se centrará en Zotero 9. Los usuarios de Zotero 7 que encuentren problemas deben reportarlos en [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Versiones de Zotero compatibles**: Este complemento es compatible con Zotero 7, 9 y 10.
 
 :::tip Consejo
 El complemento se distribuye **sin lógica de negocio integrada**. Todos los flujos de trabajo se proporcionan a través de **paquetes de flujo de trabajo oficiales** separados que los usuarios deben descargar e instalar después de instalar el complemento. Consulta la [Guía de instalación](/installation) para más detalles.

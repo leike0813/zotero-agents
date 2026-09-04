@@ -472,6 +472,30 @@ describe("content package subscription", function () {
     }
   });
 
+  it("installs a Zotero 10-compatible package through the public feed API", async function () {
+    const previousVersion = Zotero.version;
+    const requires = { plugin: ">=0.5.0", zotero: ">=7 <11" };
+    const zip = makePackageZip({ requires });
+    const feed = makeFeed({ zip, requires });
+    try {
+      (Zotero as unknown as { version: string }).version = "10.0.1";
+      globalThis.fetch = (async (url: RequestInfo | URL) => {
+        const href = String(url);
+        if (href.endsWith("/stable/feed.json")) {
+          return jsonResponse(feed);
+        }
+        return bytesResponse(zip);
+      }) as typeof fetch;
+
+      const install = await installContentPackageFromFeed({
+        channel: "stable",
+      });
+      assert.isTrue(install.ok);
+    } finally {
+      (Zotero as unknown as { version: string }).version = previousVersion;
+    }
+  });
+
   it("allows feed-directed replacement with a lower package version", async function () {
     const zip2 = makePackageZip({ version: "2.0.0" });
     const feed2 = makeFeed({ zip: zip2, version: "2.0.0", revision: "rev-2" });

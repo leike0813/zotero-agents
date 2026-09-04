@@ -13,6 +13,7 @@ yarn.lock
 
 # TSC
 tsconfig.tsbuildinfo
+tsconfig.sidebar.tsbuildinfo
 
 # Rust
 cli/zotero-bridge/target/
@@ -24,6 +25,7 @@ native/acp-ws-bridge/target/
 build
 logs
 
+.mattpack/
 .agent/
 .vscode/
 .history/
@@ -31,9 +33,14 @@ logs
 .claude/
 .kilo/
 .kilocode/
+.kimi-code/
 .codebuddy/
 .qwen/
+.pi/
+.omp/
 .codebuddy/
+!.commandcode/taste/taste.md
+.commandcode/
 .codegraph/
 .agents/*
 !.agents/skills/
@@ -60,6 +67,9 @@ reference/Skill-Runner
 reference/Zotero_TagVocab
 reference/zotero
 reference/vscode-acp
+reference/Zotero-7
+reference/Zotero-9
+reference/Zotero-10
 
 artifact/test-diagnostics/
 artifact/content-packages/

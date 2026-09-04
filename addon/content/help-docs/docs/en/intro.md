@@ -18,7 +18,7 @@ The fourth layer is the **Host Bridge**. Through the `zotero-bridge` CLI and MCP
 
 The core value of Zotero Agents is making the Zotero library a research environment where agents can genuinely work. Every reading, analysis, review, and writing preparation step can be accumulated as knowledge for the next phase of research.
 
-> **Supported Zotero Versions**: This plugin supports Zotero 7 and Zotero 9. Primary development and testing are done on Zotero 9. Zotero 8 is theoretically fully supported (the plugin framework is unchanged between 8/9). Zotero 7 should also work in theory but has not been thoroughly tested; future maintenance will focus on Zotero 9. Zotero 7 users encountering issues should report them on [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Supported Zotero Versions**: This plugin supports Zotero 7, 9, and 10.
 
 :::tip Tip
 The plugin ships with **no built-in business logic**. All workflows are provided through separate **official workflow packages** that users must download and install after installing the plugin. See the [Installation Guide](#doc/installation) for details.

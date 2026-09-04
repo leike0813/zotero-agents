@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Zotero Agents 是 Zotero 文獻庫的**一站式 Agentic 工作台**——它不
 
 ### 系統需求
 
-- [Zotero 9](https://www.zotero.org/download/) 或 [Zotero 7](https://www.zotero.org/download/)（版本 ≥ 6.999）
+- [Zotero 10](https://www.zotero.org/download/)、[Zotero 9](https://www.zotero.org/download/) 或 [Zotero 7](https://www.zotero.org/download/)（版本 ≥ 7.0）
 - 若使用 ACP 後端：本機已安裝對應的 Agent CLI 工具（`npx` 自動安裝亦可）
 - 若使用 Skill-Runner 後端：已部署 [Skill-Runner](https://github.com/leike0813/Skill-Runner) 執行個體
 
-> **關於 Zotero 版本**：本外掛在 Zotero 9 上開發與測試。Zotero 8 理論上可完整支援（Zotero 8/9 的外掛框架沒有明顯改變）；Zotero 7 理論上也能支援，但受限於精力未進行深入測試，未來的維護重點將放在 Zotero 9 上。如果在 Zotero 7 使用過程中遇到問題，請在 [Issues](https://github.com/leike0813/zotero-agents/issues) 回報。
+> **關於 Zotero 版本**：本外掛支援 Zotero 7、9 和 10。
 
 ### 後端類型
 

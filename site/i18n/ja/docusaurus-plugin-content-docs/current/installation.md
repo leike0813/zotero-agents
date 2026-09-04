@@ -2,10 +2,10 @@
 
 ## システム要件
 
-- **Zotero**: 7.0以降（Zotero 9推奨）
+- **Zotero**: 7.0以降（Zotero 10推奨）
 - **プラットフォーム**: Windows 10以降、macOS 12以降、Linux（x86_64 / x86 / ARM64 / ARM）
 
-> **Zoteroバージョンについて**: 本プラグインはZotero 9で開発・テストされている。Zotero 8は理論上完全にサポートされている（プラグインフレームワークはZotero 8/9間で大きな変更なし）。Zotero 7も理論上サポートされるはずだが、リソースの制約により十分にテストされてはいない。今後のメンテナンスはZotero 9に注力する。Zotero 7で問題が発生した場合は[Issues](https://github.com/leike0813/zotero-agents/issues)で報告されたい。
+> **Zoteroバージョンについて**: 本プラグインはZotero 7、9、10をサポートします。
 
 ## プラグインのインストール
 

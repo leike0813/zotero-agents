@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -75,11 +75,11 @@ Im Hintergrund wirken drei zusammenarbeitende Teilsysteme: eine **plug-in-fähig
 
 ### Systemvoraussetzungen
 
-- [Zotero 9](https://www.zotero.org/download/) oder [Zotero 7](https://www.zotero.org/download/) (Version ≥ 6.999)
+- [Zotero 10](https://www.zotero.org/download/), [Zotero 9](https://www.zotero.org/download/) oder [Zotero 7](https://www.zotero.org/download/) (Version ≥ 7.0)
 - Bei Verwendung des ACP-Backends: Das passende Agent-CLI-Tool muss lokal installiert sein (automatische Installation über `npx` ist ebenfalls möglich)
 - Bei Verwendung des Skill-Runner-Backends: Eine [Skill-Runner](https://github.com/leike0813/Skill-Runner)-Instanz muss bereitgestellt sein
 
-> **Hinweis zu Zotero-Versionen**: Dieses Plugin wird auf Zotero 9 entwickelt und getestet. Zotero 8 sollte ebenfalls vollständig unterstützt werden (das Plugin-Framework von Zotero 8/9 hat sich nicht wesentlich geändert); Zotero 7 ist theoretisch ebenfalls kompatibel, wurde jedoch aus Zeitmangel nicht intensiv getestet, und die zukünftige Wartung wird sich auf Zotero 9 konzentrieren. Falls Sie unter Zotero 7 auf Probleme stoßen, melden Sie diese bitte über [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Hinweis zu Zotero-Versionen**: Dieses Plugin unterstützt Zotero 7, 9 und 10.
 
 ### Backend-Typen
 

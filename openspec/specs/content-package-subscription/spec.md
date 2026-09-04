@@ -76,6 +76,13 @@ and semver compatibility ranges for plugin, content API, and Zotero runtime.
 - **AND** it SHALL NOT expose arbitrary URL, revision, or local-history rollback
   targets in the preferences UI.
 
+#### Scenario: Content package 0.7.4 supports Zotero 10
+
+- **WHEN** stable or beta selects official Content Package 0.7.4
+- **THEN** the package SHALL require plugin `>=0.8.0`, content API `^3.0.0`, and Zotero `>=7 <11`
+- **AND** Zotero 10 SHALL be allowed to install the package
+- **AND** Zotero 11 and later SHALL be rejected by the compatibility check.
+
 ### Requirement: Content package installation SHALL be verified and transactional
 
 The installer SHALL verify package identity, channel, digest, and managed paths
@@ -181,4 +188,3 @@ The official content package builder MUST collect the repository-owned `skills_b
 - **WHEN** tracked builtin workflows and skills are collected for packaging
 - **THEN** the package SHALL contain the Tag Regulator `SKILL.md`, references, scripts, schemas, and runner metadata at the existing skill path
 - **AND** Tag Regulator SHALL NOT be added to the independently published public skill list
-

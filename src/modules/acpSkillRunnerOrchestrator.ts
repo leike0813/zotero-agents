@@ -1,4 +1,5 @@
 import type { BackendInstance } from "../backends/types";
+import { parseSupportedZoteroMajor } from "../shared/zoteroRuntimeVersion";
 import { listBackendInstances } from "../backends/registry";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../config/defaults";
 import type {
@@ -313,9 +314,8 @@ function recordAcpSkillRunAdapterDiagnostic(args: {
   });
 }
 
-function resolveAcpProfileZoteroMajor(): 7 | 9 | "unknown" {
-  const major = Number.parseInt(String(Zotero?.version || ""), 10);
-  return major === 7 || major === 9 ? major : "unknown";
+function resolveAcpProfileZoteroMajor() {
+  return parseSupportedZoteroMajor(Zotero?.version);
 }
 
 function createAssistantTurnAccumulator(requestId?: string) {

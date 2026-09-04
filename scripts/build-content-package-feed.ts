@@ -8,8 +8,12 @@ import { promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import { createZipFromNamedFiles } from "../src/providers/skillrunner/zipTransport";
 import { CONTENT_API_VERSION } from "../src/modules/contentPackageSubscription";
+import {
+  parseContentPackageChannels,
+  type ContentPackageChannel,
+} from "./content-package-channels";
 
-type Channel = "stable" | "beta" | "dev";
+type Channel = ContentPackageChannel;
 
 type NamedBytes = {
   name: string;
@@ -28,38 +32,21 @@ type GeneratedAtCommandRunner = (
   args: string[],
 ) => Promise<{ stdout: string; stderr: string }>;
 
-function argValue(name: string) {
+function argValue(name: string): string | undefined {
   const prefix = `${name}=`;
   const inline = process.argv.find((entry) => entry.startsWith(prefix));
   if (inline) {
     return inline.slice(prefix.length);
   }
   const index = process.argv.indexOf(name);
-  return index >= 0 ? process.argv[index + 1] || "" : "";
+  return index >= 0 ? process.argv[index + 1] || "" : undefined;
 }
 
-function normalizeChannel(value: string): Channel | "" {
-  const normalized = value.trim().toLowerCase();
-  return normalized === "stable" ||
-    normalized === "beta" ||
-    normalized === "dev"
-    ? normalized
-    : "";
-}
-
-function resolveChannels() {
-  const raw = argValue("--channels");
-  if (!raw) {
+export function resolveContentPackageBuildChannels(raw?: string) {
+  if (raw === undefined) {
     return DEFAULT_CHANNELS;
   }
-  const channels = raw
-    .split(",")
-    .map(normalizeChannel)
-    .filter((entry): entry is Channel => !!entry);
-  if (channels.length === 0) {
-    throw new Error("--channels must include at least one of stable,beta,dev");
-  }
-  return Array.from(new Set(channels));
+  return parseContentPackageChannels(raw);
 }
 
 function normalizeZipPath(value: string) {
@@ -209,7 +196,7 @@ async function readContentVersionDescriptor() {
     requires: {
       plugin: `>=${pkg.version}`,
       content_api: `^${CONTENT_API_VERSION}`,
-      zotero: ">=7 <10",
+      zotero: ">=7 <11",
     },
   };
   if (!(await pathExists(CONTENT_VERSION_FILE))) {
@@ -536,7 +523,9 @@ async function main() {
   const generatedAt = await resolveContentPackageGeneratedAt({ revision });
   const descriptor = await readContentVersionDescriptor();
   await fs.rm(outRoot, { recursive: true, force: true });
-  for (const channel of resolveChannels()) {
+  for (const channel of resolveContentPackageBuildChannels(
+    argValue("--channels"),
+  )) {
     await writeChannel({ outRoot, channel, revision, generatedAt, descriptor });
   }
 }

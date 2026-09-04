@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Behind the scenes, three subsystems work in concert: a **pluggable Workflow engi
 
 ### System Requirements
 
-- [Zotero 9](https://www.zotero.org/download/) or [Zotero 7](https://www.zotero.org/download/) (version ≥ 6.999)
+- [Zotero 7, 9, or 10](https://www.zotero.org/download/) (version ≥ 7.0)
 - If using the ACP backend: corresponding Agent CLI tools installed locally (`npx` auto-install also works)
 - If using the Skill-Runner backend: a deployed [Skill-Runner](https://github.com/leike0813/Skill-Runner) instance
 
-> **About Zotero versions**: This plugin is developed and tested on Zotero 9. Zotero 8 should be fully supported in theory (the plugin framework for Zotero 8/9 has not changed significantly); Zotero 7 should also work in theory, but due to limited bandwidth, it has not been thoroughly tested, and future maintenance will focus on Zotero 9. If you encounter issues on Zotero 7, please report them on [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **About Zotero versions**: This plugin supports Zotero 7, 9, and 10. Zotero 10 is recommended.
 
 ### Backend Types
 
