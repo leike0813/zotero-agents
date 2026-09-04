@@ -1,7 +1,7 @@
 {
   "schema": "host-bridge.review-mirror.v2",
-  "generatedAt": "2026-09-04T17:50:48.876Z",
-  "sourceCommit": "03096d844eec12c0b7a87cdd07ae26c86389271f",
+  "generatedAt": "2026-09-04T17:58:08.959Z",
+  "sourceCommit": "4540371f039c25daeeed70c91fb7b34f604e543d",
   "surfaceDefinitions": {
     "path": "host-bridge/surfaces.json",
     "schema": "host-bridge.surface-definitions.v1",
@@ -12,7 +12,7 @@
     "status": "planned",
     "releaseSetId": "hbrs-8cfd5ff0d73952e858c6eb9c",
     "payloadDigest": "sha256:8cfd5ff0d73952e858c6eb9c4c82728731c4e29d14ad8184c25849e5fe847edc",
-    "sourceCommit": "03096d844eec12c0b7a87cdd07ae26c86389271f"
+    "sourceCommit": "4540371f039c25daeeed70c91fb7b34f604e543d"
   },
   "latestCompleteRelease": {
     "schema": "host-bridge.release-receipt.v2",

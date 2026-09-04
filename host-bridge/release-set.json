@@ -5,7 +5,7 @@
   "payloadDigest": "sha256:8cfd5ff0d73952e858c6eb9c4c82728731c4e29d14ad8184c25849e5fe847edc",
   "source": {
     "repository": "leike0813/zotero-agents",
-    "commit": "03096d844eec12c0b7a87cdd07ae26c86389271f"
+    "commit": "4540371f039c25daeeed70c91fb7b34f604e543d"
   },
   "protocol": "host-bridge.v2",
   "cliSchema": "zotero-bridge.cli.v5",
