@@ -1176,7 +1176,7 @@ describe("workflow: literature-metadata-curator", function () {
     assert.equal(parent.getField("title"), "After metadata");
     assert.equal(parent.getField("DOI"), "10.1000/after");
     assert.equal(String(parent.getField("numPages") || ""), "");
-    assert.deepEqual((parent as any).getCreators(), [
+    assert.deepEqual(parent.getCreatorsJSON(), [
       {
         name: "张三",
         creatorType: "author",
@@ -1351,7 +1351,7 @@ describe("workflow: literature-metadata-curator", function () {
 
     assert.isTrue(result.applied);
     assert.equal(parent.getField("title"), "已核实的中文论文标题");
-    assert.deepEqual((parent as any).getCreators(), [
+    assert.deepEqual(parent.getCreatorsJSON(), [
       { firstName: "Existing", lastName: "Author", creatorType: "author" },
     ]);
   });
@@ -1383,7 +1383,7 @@ describe("workflow: literature-metadata-curator", function () {
     } as any)) as any;
 
     assert.isTrue(result.applied);
-    assert.deepEqual((parent as any).getCreators(), [
+    assert.deepEqual(parent.getCreatorsJSON(), [
       { firstName: "Existing", lastName: "Author", creatorType: "author" },
     ]);
     assert.include(

@@ -1496,7 +1496,7 @@ function canonicalCreatorsFromRaw(raw: unknown): CreatorDto[] {
 function canonicalCreators(item: Zotero.Item): CreatorDto[] {
   let raw: unknown;
   try {
-    raw = (item as any).getCreators?.();
+    raw = item.getCreatorsJSON();
   } catch {
     throw canonicalReadFailure("item");
   }

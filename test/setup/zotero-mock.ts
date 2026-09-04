@@ -5,6 +5,66 @@ import os from "os";
 import path from "path";
 
 type TagEntry = { tag: string; type?: number };
+type MockCreatorInput = {
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  creatorType?: string | number;
+  creatorTypeID?: number;
+  fieldMode?: 0 | 1;
+};
+type MockCreator = {
+  firstName: string;
+  lastName: string;
+  creatorTypeID: number;
+  fieldMode: 0 | 1;
+};
+
+const CREATOR_TYPE_NAMES = [
+  "",
+  "artist",
+  "contributor",
+  "performer",
+  "composer",
+  "wordsBy",
+  "sponsor",
+  "cosponsor",
+  "author",
+  "commenter",
+  "editor",
+  "translator",
+  "seriesEditor",
+  "bookAuthor",
+  "counsel",
+  "programmer",
+  "reviewedAuthor",
+  "recipient",
+  "director",
+  "scriptwriter",
+  "producer",
+  "interviewee",
+  "interviewer",
+  "cartographer",
+  "inventor",
+  "attorneyAgent",
+  "podcaster",
+  "guest",
+  "presenter",
+  "castMember",
+] as const;
+
+function creatorTypeID(input: MockCreatorInput) {
+  const id =
+    input.creatorTypeID ??
+    (typeof input.creatorType === "number"
+      ? input.creatorType
+      : CREATOR_TYPE_NAMES.indexOf(input.creatorType || ""));
+  if (!Number.isInteger(id) || id <= 0 || !CREATOR_TYPE_NAMES[id]) {
+    throw new Error("Creator data must include a valid creator type");
+  }
+  return id;
+}
+
 type MockParityRisk = "low" | "medium" | "high";
 type MockParityDriftStatus = "open" | "waived" | "closed";
 type MockParityDriftEntry = {
@@ -377,12 +437,7 @@ class MockItem {
   private filePath: string | null = null;
   attachmentFilename = "";
   attachmentContentType = "";
-  private creators: Array<{
-    firstName?: string;
-    lastName?: string;
-    name?: string;
-    creatorType?: string;
-  }> = [];
+  private creators: MockCreator[] = [];
   private deletedFlag = false;
 
   constructor(itemType: string) {
@@ -434,7 +489,7 @@ class MockItem {
       return "";
     }
     const preferred = String(
-      creator.lastName || creator.name || creator.firstName || "",
+      creator.lastName || creator.firstName || "",
     ).trim();
     return preferred;
   }
@@ -517,21 +572,42 @@ class MockItem {
     return [...this.collections];
   }
 
-  setCreators(
-    creators: Array<{
-      firstName?: string;
-      lastName?: string;
-      name?: string;
-      creatorType?: string;
-    }>,
-  ) {
+  setCreators(creators: MockCreatorInput[]) {
     this.creators = Array.isArray(creators)
-      ? creators.map((entry) => ({ ...(entry || {}) }))
+      ? creators.map((entry) => {
+          const fieldMode =
+            entry.fieldMode ?? (entry.name !== undefined ? 1 : 0);
+          return {
+            firstName: fieldMode === 1 ? "" : String(entry.firstName || ""),
+            lastName:
+              fieldMode === 1
+                ? String(entry.name ?? entry.lastName ?? "")
+                : String(entry.lastName || ""),
+            creatorTypeID: creatorTypeID(entry),
+            fieldMode,
+          };
+        })
       : [];
   }
 
   getCreators() {
     return this.creators.map((entry) => ({ ...entry }));
+  }
+
+  getCreatorsJSON() {
+    return this.creators.map((entry) => {
+      const creatorType = CREATOR_TYPE_NAMES[entry.creatorTypeID];
+      if (!creatorType) {
+        throw new Error("Creator data has an invalid creator type ID");
+      }
+      return entry.fieldMode === 1
+        ? { name: entry.lastName, creatorType }
+        : {
+            firstName: entry.firstName,
+            lastName: entry.lastName,
+            creatorType,
+          };
+    });
   }
 
   markDeleted(next = true) {
@@ -642,7 +718,7 @@ class MockItem {
       data.path = this.filePath;
     }
     if (this.creators.length > 0) {
-      data.creators = this.getCreators();
+      data.creators = this.getCreatorsJSON();
     }
     if (this.deletedFlag) {
       data.deleted = true;

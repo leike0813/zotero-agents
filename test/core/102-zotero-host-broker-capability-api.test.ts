@@ -3151,6 +3151,15 @@ describe("zotero host broker capability api", function () {
 
   it("keeps the canonical broker portable and strict JSON-safe", async function () {
     const item = await createParentItem("Strict Broker DTO");
+    item.setCreators([
+      {
+        firstName: "Ada",
+        lastName: "Lovelace",
+        creatorType: "author",
+      },
+      { name: "Analytical Engine Society", creatorType: "contributor" },
+    ]);
+    await item.saveTx();
     const collection = await createCollection("Strict Broker Collection");
     await handlers.collection.add([item], collection.id);
     const broker = createZoteroHostCapabilityBroker();
@@ -3172,6 +3181,19 @@ describe("zotero host broker capability api", function () {
     if (detail.kind !== "regular") assert.fail("expected regular detail");
     assert.deepEqual(detail.item.collectionRefs, [
       { libraryId: collection.libraryID, key: collection.key },
+    ]);
+    assert.deepEqual(detail.item.creators, [
+      {
+        representation: "two_field",
+        creatorType: "author",
+        firstName: "Ada",
+        lastName: "Lovelace",
+      },
+      {
+        representation: "single_field",
+        creatorType: "contributor",
+        name: "Analytical Engine Society",
+      },
     ]);
     assertStrictJsonValue(detail);
 

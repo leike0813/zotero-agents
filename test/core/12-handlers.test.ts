@@ -240,16 +240,13 @@ describeHandlersSuite("handlers", function () {
       });
       assert.equal(parent.getField("title"), "Curated Metadata Title");
       assert.equal(parent.getField("DOI"), "10.1000/example");
-      assert.deepEqual(
-        (parent as unknown as { getCreators: () => unknown[] }).getCreators(),
-        [
-          {
-            firstName: "Ada",
-            lastName: "Lovelace",
-            creatorType: "author",
-          },
-        ],
-      );
+      assert.deepEqual(parent.getCreatorsJSON(), [
+        {
+          firstName: "Ada",
+          lastName: "Lovelace",
+          creatorType: "author",
+        },
+      ]);
       assert.equal(saveCount, 1);
     } finally {
       await cleanupObject(parent);
@@ -299,10 +296,9 @@ describeHandlersSuite("handlers", function () {
       });
       assert.equal(parent.getField("title"), "Valid Metadata Title");
       assert.equal(String(parent.getField("numPages") || ""), "");
-      assert.deepEqual(
-        (parent as unknown as { getCreators: () => unknown[] }).getCreators(),
-        [{ name: "Metadata Consortium", creatorType: "author" }],
-      );
+      assert.deepEqual(parent.getCreatorsJSON(), [
+        { name: "Metadata Consortium", creatorType: "author" },
+      ]);
 
       await expectError(
         () =>

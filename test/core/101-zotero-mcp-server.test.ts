@@ -1671,7 +1671,7 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(item.itemType, "thesis");
     assert.strictEqual(item.getField("university"), "示例大学");
     assert.strictEqual(item.getField("thesisType"), "博士学位论文");
-    assert.deepEqual((item as any).getCreators(), [
+    assert.deepEqual(item.getCreatorsJSON(), [
       { name: "欧阳明", creatorType: "author" },
       { name: "示例研究院", creatorType: "contributor" },
     ]);

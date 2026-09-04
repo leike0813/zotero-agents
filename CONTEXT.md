@@ -41,7 +41,7 @@ The canonical process-local, JSON-safe capability interface for Zotero context, 
 _Avoid_: Workflow hostApi, Host Bridge API, MCP tool registry
 
 **Workflow Host API Projection**:
-The explicit member-level projection from the canonical broker into `WorkflowHostApi` v11, combined with trusted local workflow services and raw Zotero ref normalization. It is a separate compatibility surface and must not receive whole broker domains implicitly.
+The explicit member-level projection from the canonical broker into `WorkflowHostApi` v12, combined with trusted local workflow services and raw Zotero ref normalization. It is a separate compatibility surface and must not receive whole broker domains implicitly.
 _Avoid_: Broker alias, common host API, universal host facade
 
 **Workflow Host Contract Identity**:
