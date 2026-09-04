@@ -528,6 +528,11 @@ describe("Host Bridge release coordinator", function () {
     assert.include(workflow, "host-bridge-release-controller.ts");
     assert.notInclude(workflow, "  push:");
     assert.include(workflow, "workflow_dispatch:");
+    assert.strictEqual(
+      workflow.match(/submodules: recursive/g)?.length,
+      3,
+      "every Host Bridge checkout must materialize governed Skill submodules",
+    );
   });
 
   it("keeps prepared release sets independent of ambient workflow run identity", function () {
