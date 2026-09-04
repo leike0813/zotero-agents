@@ -24,8 +24,12 @@ export type GithubWorkflowRun = {
   workflowPath?: string;
 };
 
-async function runCommand(command: string, args: string[]) {
-  const result = await execFileAsync(command, args, { windowsHide: true });
+async function runCommand(command: string, args: string[], options?: { maxBuffer?: number }) {
+  const isWatch = command === "gh" && args[0] === "run" && args[1] === "watch";
+  const result = await execFileAsync(command, args, {
+    windowsHide: true,
+    maxBuffer: options?.maxBuffer ?? (isWatch ? 64 * 1024 * 1024 : 1024 * 1024),
+  });
   return {
     stdout: result.stdout || "",
     stderr: result.stderr || "",
@@ -283,11 +287,11 @@ export async function viewGithubWorkflowRun(args: {
   }
   return run;
 }
-
 export async function watchGithubWorkflowRun(args: {
   repo: string;
   runId: number;
   commandRunner?: CommandRunner;
+  maxBufferBytes?: number;
 }) {
   const commandRunner = args.commandRunner || runCommand;
   await commandRunner("gh", [
@@ -297,7 +301,7 @@ export async function watchGithubWorkflowRun(args: {
     "--repo",
     args.repo,
     "--exit-status",
-  ]);
+  ], { maxBuffer: args.maxBufferBytes ?? 64 * 1024 * 1024 });
 }
 
 export async function downloadGithubWorkflowArtifact(args: {
