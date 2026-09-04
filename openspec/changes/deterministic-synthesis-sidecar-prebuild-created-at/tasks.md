@@ -28,5 +28,5 @@
 
 ## 5. Remote Idempotence Evidence
 
-- [ ] 5.1 Commit and push the authorized implementation, dispatch the exact pushed SHA twice, and verify the second publication is a no-op.
+- [x] 5.1 Commit and push the authorized implementation, dispatch the exact pushed SHA twice, and verify the second publication is a no-op.
 - [ ] 5.2 Archive only after the remote evidence succeeds.
