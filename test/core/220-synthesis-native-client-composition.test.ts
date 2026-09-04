@@ -1516,6 +1516,69 @@ describe("Synthesis native client composition", function () {
     await composition.dispose();
   });
 
+  it("recovers a missing connection only before the first RPC dispatch", async function () {
+    const connection = {
+      discovery: {
+        host: "127.0.0.1" as const,
+        port: 1234,
+        profileId: "1".repeat(64),
+        serviceInstanceId: "service-recovered",
+      },
+      clientToken: "token",
+    };
+    let readyConnection: typeof connection | null = null;
+    let recoveries = 0;
+    let calls = 0;
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => readyConnection,
+      recoverReadyConnection: async () => {
+        recoveries += 1;
+        readyConnection = connection;
+      },
+      rpcClient: {
+        async call(args) {
+          calls += 1;
+          return args.rebuildResult({
+            topics: [],
+            cursor: "",
+            next_cursor: "",
+            has_more: false,
+            returned: 0,
+            total: 0,
+            limit: 50,
+            diagnostics: {
+              count: 0,
+              total_count: 0,
+              source: "rust-topic-application",
+            },
+          });
+        },
+      },
+    });
+
+    await composition.client.topics.list({ cursor: "", limit: 50 });
+    assert.equal(recoveries, 1);
+    assert.equal(calls, 1);
+
+    readyConnection = connection;
+    const failingComposition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => readyConnection,
+      recoverReadyConnection: async () => {
+        recoveries += 1;
+      },
+      rpcClient: {
+        async call() {
+          throw new SynthesisSidecarRpcError("service_unavailable", {});
+        },
+      },
+    });
+    const failure = await Promise.allSettled([
+      failingComposition.client.topics.list({ cursor: "", limit: 50 }),
+    ]);
+    assert.equal(failure[0]?.status, "rejected");
+    assert.equal(recoveries, 1);
+  });
+
   it("preserves stable sidecar Graph codes and bounded safe reasons", async function () {
     const composition = createNativeSynthesisClientComposition({
       getReadyConnection: () => ({

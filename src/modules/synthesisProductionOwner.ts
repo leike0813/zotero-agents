@@ -5,7 +5,10 @@ import {
 import { sha256Hex } from "../platform/hash";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { getRuntimePersistencePaths } from "./runtimePersistence";
-import { invalidateDefaultSynthesisClient } from "./synthesisClient/defaultClient";
+import {
+  invalidateDefaultSynthesisClient,
+  setDefaultSynthesisClientRecovery,
+} from "./synthesisClient/defaultClient";
 import { createSynthesisReverseHostEndpoint } from "./synthesisReverseHostEndpoint";
 import { createDefaultSynthesisReverseHostHandlers } from "./synthesisReverseHostHandlers";
 import {
@@ -128,6 +131,11 @@ export function createSynthesisProductionOwner(
   > | null = null;
   let stopTask: Promise<void> | null = null;
   let stopped = false;
+  let hasBeenReady = false;
+  let automaticRecoveryAttempted = false;
+  let automaticRecoveryTask: Promise<
+    NonNullable<ReturnType<ProductionSupervisor["getReadyConnection"]>>
+  > | null = null;
 
   function ensureSupervisor() {
     if (stopped) {
@@ -155,6 +163,8 @@ export function createSynthesisProductionOwner(
       const connection = await waitForReady(current);
       endpoint?.bindServiceInstance(connection.discovery.serviceInstanceId);
       await deps.afterReady?.(connection);
+      hasBeenReady = true;
+      automaticRecoveryAttempted = false;
       return connection;
     })();
     startTask = task;
@@ -171,6 +181,40 @@ export function createSynthesisProductionOwner(
     current.recover();
     startTask = null;
     return start();
+  }
+
+  async function recoverIfEligible() {
+    if (automaticRecoveryTask) {
+      return automaticRecoveryTask;
+    }
+    const current = supervisor;
+    const snapshot = current?.getSnapshot();
+    if (
+      stopped ||
+      !current ||
+      !hasBeenReady ||
+      automaticRecoveryAttempted ||
+      snapshot?.status !== "unavailable" ||
+      (snapshot.recoveryState !== "scheduled" &&
+        (snapshot.recoveryState !== "manual-recovery-required" ||
+          snapshot.reasonCode !== "sidecar_crash_loop_fused"))
+    ) {
+      return null;
+    }
+    automaticRecoveryAttempted = true;
+    if (snapshot.recoveryState === "manual-recovery-required") {
+      current.recover();
+    }
+    startTask = null;
+    const task = start();
+    automaticRecoveryTask = task;
+    try {
+      return await task;
+    } finally {
+      if (automaticRecoveryTask === task) {
+        automaticRecoveryTask = null;
+      }
+    }
   }
 
   function shutdown() {
@@ -190,6 +234,7 @@ export function createSynthesisProductionOwner(
     start,
     whenReady: start,
     recover,
+    recoverIfEligible,
     shutdown,
   };
 }
@@ -443,6 +488,9 @@ async function getDefaultSynthesisProductionOwner() {
     );
   }
   defaultProductionOwner ||= await defaultProductionOwnerTask;
+  setDefaultSynthesisClientRecovery(async () => {
+    await defaultProductionOwner?.recoverIfEligible();
+  });
   return defaultProductionOwner;
 }
 
@@ -478,6 +526,7 @@ export async function stopDefaultSynthesisProductionOwner() {
   const owner = await defaultProductionOwnerTask?.catch(() => null);
   defaultProductionOwner = null;
   defaultProductionOwnerTask = null;
+  setDefaultSynthesisClientRecovery(null);
   await owner?.shutdown();
   recordStartup({
     trace: shutdownTrace,

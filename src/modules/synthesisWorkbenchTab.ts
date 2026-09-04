@@ -161,6 +161,9 @@ type SynthesisWorkbenchRuntime = {
   dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>;
   surfaceRequestSeq: number;
   chromeReadRevision: number;
+  inFlightChromeRefresh?: Promise<void>;
+  queuedChromeRefresh?: boolean;
+  queuedServiceChromeRefresh?: boolean;
   latestSurfaceRequestBySurface: Partial<
     Record<SynthesisWorkbenchSurfaceName, number>
   >;
@@ -1318,31 +1321,62 @@ async function sendChrome(
   runtime: SynthesisWorkbenchRuntime,
   options: { refreshFromService?: boolean } = {},
 ) {
-  if (!runtime?.frameWindow) {
-    return;
+  const refreshFromService = options.refreshFromService !== false;
+  if (runtime.inFlightChromeRefresh) {
+    runtime.queuedChromeRefresh = true;
+    runtime.queuedServiceChromeRefresh =
+      runtime.queuedServiceChromeRefresh || refreshFromService;
+    return runtime.inFlightChromeRefresh;
   }
-  const readRevision = ++runtime.chromeReadRevision;
-  if (options.refreshFromService !== false && !runtime.snapshotInputLocked) {
-    const client = await getDefaultSynthesisClient();
-    const input = await client.workbench
-      .readChrome({
-        state: toSynthesisWorkbenchReadState(runtime.state),
-      })
-      .then(toSynthesisUiSnapshotInput)
-      .catch((error) => buildSnapshotErrorInput(error));
+
+  const perform = async (nextRefreshFromService: boolean) => {
+    if (!runtime?.frameWindow) {
+      return;
+    }
+    const readRevision = ++runtime.chromeReadRevision;
+    if (nextRefreshFromService && !runtime.snapshotInputLocked) {
+      const client = await getDefaultSynthesisClient();
+      const input = await client.workbench
+        .readChrome({
+          state: toSynthesisWorkbenchReadState(runtime.state),
+        })
+        .then(toSynthesisUiSnapshotInput)
+        .catch((error) => buildSnapshotErrorInput(error));
+      if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+        return;
+      }
+      mergeRuntimeSnapshotInput(runtime, input);
+    }
     if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
       return;
     }
-    mergeRuntimeSnapshotInput(runtime, input);
+    postWorkbenchMessage(
+      runtime,
+      "synthesis:chrome",
+      snapshotForRuntime(runtime),
+    );
+  };
+
+  const run = (async () => {
+    let nextRefreshFromService = refreshFromService;
+    for (;;) {
+      runtime.queuedChromeRefresh = false;
+      runtime.queuedServiceChromeRefresh = false;
+      await perform(nextRefreshFromService);
+      if (runtime.cleanedUp || !runtime.queuedChromeRefresh) {
+        return;
+      }
+      nextRefreshFromService = Boolean(runtime.queuedServiceChromeRefresh);
+    }
+  })();
+  runtime.inFlightChromeRefresh = run;
+  try {
+    await run;
+  } finally {
+    if (runtime.inFlightChromeRefresh === run) {
+      runtime.inFlightChromeRefresh = undefined;
+    }
   }
-  if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
-    return;
-  }
-  postWorkbenchMessage(
-    runtime,
-    "synthesis:chrome",
-    snapshotForRuntime(runtime),
-  );
 }
 
 function graphPageNumber(value: unknown, fallback = 0) {
@@ -4075,6 +4109,9 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
 
 function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.cleanedUp = true;
+  runtime.chromeReadRevision += 1;
+  runtime.queuedChromeRefresh = false;
+  runtime.queuedServiceChromeRefresh = false;
   runtime.graphGeneration += 1;
   runtime.graphWindow = undefined;
   runtime.graphPageLoop = undefined;
@@ -4238,6 +4275,8 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
     chromeReadRevision: 0,
+    queuedChromeRefresh: false,
+    queuedServiceChromeRefresh: false,
     latestSurfaceRequestBySurface: {},
     inFlightSurfaceRefreshes: {},
     queuedServiceSurfaceRefreshes: new Set(),
@@ -4319,6 +4358,8 @@ export async function openSynthesisWorkbenchTab(
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
     chromeReadRevision: 0,
+    queuedChromeRefresh: false,
+    queuedServiceChromeRefresh: false,
     latestSurfaceRequestBySurface: {},
     inFlightSurfaceRefreshes: {},
     queuedServiceSurfaceRefreshes: new Set(),

@@ -282,6 +282,138 @@ describe("Synthesis production runtime supervisor", function () {
     await owner.shutdown();
   });
 
+  it("shares one automatic recovery after a ready runtime and latches failure until ready again", async function () {
+    const connection = {
+      discovery: {
+        host: "127.0.0.1" as const,
+        port: 9135,
+        serviceInstanceId: "service-current",
+      },
+      clientToken: "7".repeat(64),
+    };
+    let ready = true;
+    let recoveries = 0;
+    let failRecovery = false;
+    let snapshot = {
+      status: "ready" as SynthesisSidecarSupervisorStatus,
+      recoveryState: "none" as const,
+      restartCount: 0,
+      supervisorInstanceId: "supervisor-ready",
+      readyAt: "2026-09-04T00:00:00.000Z",
+      reasonCode: undefined as string | undefined,
+    };
+    const subscribers = new Set<(value: typeof snapshot) => void>();
+    const publish = (next: typeof snapshot) => {
+      snapshot = next;
+      for (const subscriber of subscribers) subscriber(snapshot);
+    };
+    const owner = createSynthesisProductionOwner({
+      createReverseHostEndpoint: () => ({
+        start: () => ({
+          host: "127.0.0.1",
+          port: 9134,
+          authorizationToken: "8".repeat(64),
+        }),
+        bindServiceInstance: () => undefined,
+        stop: () => undefined,
+      }),
+      startProductionSupervisor: () => ({
+        subscribe: (subscriber) => {
+          subscribers.add(subscriber);
+          return () => subscribers.delete(subscriber);
+        },
+        getSnapshot: () => snapshot,
+        getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+        getReadyConnection: () => (ready ? connection : null),
+        recover: () => {
+          recoveries += 1;
+          if (failRecovery) {
+            publish({
+              ...snapshot,
+              status: "unavailable",
+              recoveryState: "manual-recovery-required",
+              supervisorInstanceId: "supervisor-recovery-failed",
+              reasonCode: "sidecar_crash_loop_fused",
+            });
+          }
+        },
+      }),
+      stopProductionSupervisor: async () => undefined,
+    });
+
+    await owner.start();
+    ready = false;
+    publish({
+      ...snapshot,
+      status: "unavailable",
+      recoveryState: "scheduled",
+      reasonCode: "sidecar_process_exited",
+    });
+    const first = owner.recoverIfEligible();
+    const second = owner.recoverIfEligible();
+    assert.equal(recoveries, 0);
+    ready = true;
+    publish({
+      ...snapshot,
+      status: "ready",
+      recoveryState: "none",
+      supervisorInstanceId: "supervisor-recovered",
+      readyAt: "2026-09-04T00:01:00.000Z",
+      reasonCode: undefined,
+    });
+    assert.equal(await first, connection);
+    assert.equal(await second, connection);
+
+    ready = false;
+    failRecovery = true;
+    publish({
+      ...snapshot,
+      status: "unavailable",
+      recoveryState: "manual-recovery-required",
+      reasonCode: "sidecar_crash_loop_fused",
+    });
+    const failure = await Promise.allSettled([owner.recoverIfEligible()]);
+    assert.equal(failure[0]?.status, "rejected");
+    assert.isNull(await owner.recoverIfEligible());
+    assert.equal(recoveries, 1);
+    await owner.shutdown();
+  });
+
+  it("does not automatically recover a runtime that has never been ready", async function () {
+    let recoveries = 0;
+    const owner = createSynthesisProductionOwner({
+      createReverseHostEndpoint: () => ({
+        start: () => ({
+          host: "127.0.0.1",
+          port: 9134,
+          authorizationToken: "8".repeat(64),
+        }),
+        bindServiceInstance: () => undefined,
+        stop: () => undefined,
+      }),
+      startProductionSupervisor: () => ({
+        subscribe: () => () => undefined,
+        getSnapshot: () => ({
+          status: "unavailable" as const,
+          recoveryState: "manual-recovery-required" as const,
+          reasonCode: "sidecar_crash_loop_fused",
+          supervisorInstanceId: "supervisor-startup-failed",
+          restartCount: 4,
+        }),
+        getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+        getReadyConnection: () => null,
+        recover: () => {
+          recoveries += 1;
+        },
+      }),
+      stopProductionSupervisor: async () => undefined,
+    });
+
+    assert.isNull(await owner.recoverIfEligible());
+    assert.equal(recoveries, 0);
+    await owner.shutdown();
+  });
+
   it("launches one serve command from a session config and leaves legacy state inert", async function () {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-supervisor-"));
     const runtimeRoot = path.join(root, "runtime");

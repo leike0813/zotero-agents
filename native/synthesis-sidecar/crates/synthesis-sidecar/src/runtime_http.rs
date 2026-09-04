@@ -83,7 +83,8 @@ impl fmt::Display for HttpReadError {
 
 pub(crate) fn configure_http_stream(stream: &TcpStream) -> Result<(), String> {
     stream
-        .set_read_timeout(Some(READ_IDLE_TIMEOUT))
+        .set_nonblocking(false)
+        .and_then(|_| stream.set_read_timeout(Some(READ_IDLE_TIMEOUT)))
         .and_then(|_| stream.set_write_timeout(Some(WRITE_TIMEOUT)))
         .map_err(|_| "http_transport_unavailable".to_owned())
 }

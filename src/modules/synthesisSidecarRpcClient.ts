@@ -9,6 +9,7 @@ import {
   type SynthesisSidecarProductionClientCapability,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
+  safeSynthesisSidecarObservationReason,
   type SynthesisSidecarObservationEvent,
   type SynthesisSidecarTraceContext,
 } from "../../packages/synthesis-contracts/src/sidecarObservability";
@@ -313,17 +314,20 @@ export function createSynthesisSidecarRpcClient(options?: {
         }
       } catch (error) {
         if (error instanceof SynthesisSidecarRpcError) {
+          const reason = safeSynthesisSidecarObservationReason(
+            error.details.reason,
+          );
           record({
             context: trace,
             source: "host",
             boundary: "host-rpc",
             phase: "terminal",
             outcome: "failed",
-            code:
-              typeof error.details.reason === "string"
-                ? error.details.reason
-                : error.code,
-            identities: { capability: args.capability },
+            code: error.code,
+            identities: {
+              capability: args.capability,
+              ...(reason ? { reason } : {}),
+            },
             metrics: { durationMs: Math.max(0, now() - startedAt) },
           });
           throw error;
@@ -361,7 +365,10 @@ export function createSynthesisSidecarRpcClient(options?: {
           phase: "terminal",
           outcome: "failed",
           code: transportErrors.unavailable,
-          identities: { capability: args.capability },
+          identities: {
+            capability: args.capability,
+            reason: "transport_unavailable",
+          },
           metrics: { durationMs: Math.max(0, now() - startedAt) },
         });
         return fail(transportErrors.unavailable);

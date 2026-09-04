@@ -22,6 +22,7 @@
       "properties": {
         "capability": { "$ref": "common.schema.json#/$defs/identifier" },
         "operation": { "$ref": "common.schema.json#/$defs/identifier" },
+        "reason": { "$ref": "common.schema.json#/$defs/identifier" },
         "trigger": { "$ref": "common.schema.json#/$defs/identifier" }
       }
     },

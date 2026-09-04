@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::runtime_capabilities::{RequestContext, error_response, handle_connection};
+use crate::runtime_capabilities::{RequestContext, handle_connection};
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
-use crate::runtime_http::{configure_http_stream, response};
+use crate::runtime_http::configure_http_stream;
 use crate::runtime_lifecycle::StopSignal;
 
 const MAX_ACTIVE_HTTP_CONNECTIONS: usize = 16;
@@ -29,6 +29,13 @@ struct ActiveConnectionLease {
 }
 
 impl ActiveConnections {
+    fn is_full(&self) -> Result<bool, String> {
+        self.state
+            .lock()
+            .map(|state| state.sockets.len() >= MAX_ACTIVE_HTTP_CONNECTIONS)
+            .map_err(|_| "http_connection_owner_unavailable".to_owned())
+    }
+
     fn admit(
         self: &Arc<Self>,
         stream: &TcpStream,
@@ -141,18 +148,29 @@ impl SidecarTransport {
             .map(|address| address.port())
     }
 
+    fn accept_if_capacity(&self) -> Result<Option<TcpStream>, String> {
+        if self.connections.is_full()? {
+            return Ok(None);
+        }
+        let listener = self
+            .listener
+            .as_ref()
+            .ok_or_else(|| "http_listener_stopped".to_owned())?;
+        match listener.accept() {
+            Ok((stream, _)) => Ok(Some(stream)),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
     pub(crate) fn poll(
         &mut self,
         context: &Arc<RequestContext>,
         stop_signal: &StopSignal,
     ) -> Result<bool, String> {
         reap_finished_handlers(&mut self.handlers, &mut self.handler_panicked);
-        let listener = self
-            .listener
-            .as_ref()
-            .ok_or_else(|| "http_listener_stopped".to_owned())?;
-        match listener.accept() {
-            Ok((mut stream, _)) => {
+        match self.accept_if_capacity()? {
+            Some(stream) => {
                 if let Err(error) = configure_http_stream(&stream) {
                     emit_debug(|| {
                         NativeDiagnosticEvent::new("process", "http-handler-failed", "failed")
@@ -164,31 +182,23 @@ impl SidecarTransport {
                     let _ = stream.shutdown(Shutdown::Both);
                     return Ok(true);
                 }
-                match self.connections.admit(&stream)? {
-                    Some(lease) => {
-                        let context = Arc::clone(context);
-                        self.handlers.push(thread::spawn(move || {
-                            let _lease = lease;
-                            if let Err(error) = handle_connection(stream, context) {
-                                emit_debug(|| {
-                                    NativeDiagnosticEvent::new(
-                                        "process",
-                                        "http-handler-failed",
-                                        "failed",
-                                    )
-                                    .code(error)
-                                });
-                            }
-                        }));
+                let lease = self
+                    .connections
+                    .admit(&stream)?
+                    .ok_or_else(|| "http_connection_capacity_invariant".to_owned())?;
+                let context = Arc::clone(context);
+                self.handlers.push(thread::spawn(move || {
+                    let _lease = lease;
+                    if let Err(error) = handle_connection(stream, context) {
+                        emit_debug(|| {
+                            NativeDiagnosticEvent::new("process", "http-handler-failed", "failed")
+                                .code(error)
+                        });
                     }
-                    None => {
-                        let _ = response(&mut stream, 503, error_response("service_unavailable"));
-                    }
-                }
+                }));
                 Ok(true)
             }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(false),
-            Err(error) => Err(error.to_string()),
+            None => Ok(false),
         }
     }
 
@@ -253,5 +263,36 @@ mod tests {
         owner.interrupt_all();
         let mut byte = [0_u8; 1];
         assert_eq!(server.read(&mut byte).expect("closed read"), 0);
+    }
+
+    #[test]
+    fn saturated_listener_leaves_next_connection_in_backlog() {
+        let transport = SidecarTransport::bind().expect("transport");
+        let mut clients = Vec::new();
+        let mut leases = Vec::new();
+        for _ in 0..MAX_ACTIVE_HTTP_CONNECTIONS {
+            let (client, server) = socket_pair();
+            clients.push(client);
+            leases.push(
+                transport
+                    .connections
+                    .admit(&server)
+                    .expect("admit")
+                    .expect("slot"),
+            );
+        }
+
+        let queued = TcpStream::connect(("127.0.0.1", transport.port().expect("port")))
+            .expect("queued client");
+        assert!(transport.accept_if_capacity().expect("saturated").is_none());
+
+        leases.pop();
+        assert!(
+            transport
+                .accept_if_capacity()
+                .expect("capacity released")
+                .is_some()
+        );
+        drop(queued);
     }
 }

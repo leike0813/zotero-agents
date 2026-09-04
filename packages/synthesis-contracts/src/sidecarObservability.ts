@@ -30,6 +30,7 @@ export const SYNTHESIS_SIDECAR_OBSERVATION_OUTCOMES = [
 export const SYNTHESIS_SIDECAR_OBSERVATION_IDENTITY_KEYS = [
   "capability",
   "operation",
+  "reason",
   "trigger",
 ] as const;
 
@@ -103,6 +104,12 @@ const TRACE_ID = /^[a-f0-9]{32}$/;
 const SPAN_ID = /^[a-f0-9]{16}$/;
 const HASH = /^sha256:[a-f0-9]{64}$/;
 
+export function safeSynthesisSidecarObservationReason(value: unknown) {
+  return typeof value === "string" && STABLE_VALUE.test(value)
+    ? value
+    : undefined;
+}
+
 function invalid(location: string): never {
   throw new SynthesisClientError(
     "invalid_request",
@@ -127,10 +134,11 @@ function exactKeys(
 }
 
 function stableString(value: unknown, location: string) {
-  if (typeof value !== "string" || !STABLE_VALUE.test(value)) {
+  const stable = safeSynthesisSidecarObservationReason(value);
+  if (!stable) {
     invalid(location);
   }
-  return value;
+  return stable;
 }
 
 function integer(value: unknown, location: string) {

@@ -128,6 +128,8 @@ async function mountTestWorkbench(
   return {
     bridge,
     messages,
+    refresh: mounted.refresh,
+    unmount: mounted.cleanup,
     async cleanup() {
       mounted.cleanup();
       setDefaultSynthesisClientCompositionFactoryForTests(null);
@@ -138,6 +140,71 @@ async function mountTestWorkbench(
 }
 
 describe("Synthesis tab UI model", function () {
+  it("coalesces overlapping chrome refreshes into one latest follow-up", async function () {
+    const reads: Array<ReturnType<typeof deferred<Record<string, unknown>>>> =
+      [];
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const workbench = await mountTestWorkbench({
+      getSynthesisWorkbenchChromeInput: async () => {
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        const read = deferred<Record<string, unknown>>();
+        reads.push(read);
+        try {
+          return await read.promise;
+        } finally {
+          activeReads -= 1;
+        }
+      },
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+
+    try {
+      const refreshes = [
+        workbench.refresh(),
+        workbench.refresh(),
+        workbench.refresh(),
+      ];
+      await waitUntil(() => reads.length >= 1);
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      assert.equal(maxActiveReads, 1);
+      assert.equal(reads.length, 1);
+
+      reads[0].resolve({ libraryId: 1 });
+      await waitUntil(() => reads.length === 2);
+      reads[1].resolve({ libraryId: 1 });
+      await Promise.all(refreshes);
+      assert.equal(reads.length, 2);
+      assert.equal(maxActiveReads, 1);
+    } finally {
+      reads.forEach((read) => read.resolve({ libraryId: 1 }));
+      await workbench.cleanup();
+    }
+  });
+
+  it("drops a queued chrome refresh when the Workbench is cleaned up", async function () {
+    const reads: Array<ReturnType<typeof deferred<Record<string, unknown>>>> =
+      [];
+    const workbench = await mountTestWorkbench({
+      getSynthesisWorkbenchChromeInput: async () => {
+        const read = deferred<Record<string, unknown>>();
+        reads.push(read);
+        return read.promise;
+      },
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+
+    const first = workbench.refresh();
+    const queued = workbench.refresh();
+    await waitUntil(() => reads.length >= 1);
+    workbench.unmount();
+    reads[0].resolve({ libraryId: 1 });
+    await Promise.all([first, queued]);
+    assert.equal(reads.length, 1);
+    await workbench.cleanup();
+  });
+
   it("keeps observing accepted maintenance through transient unavailability", async function () {
     const operationId = "maintenance:advanced-matching:test";
     let operationReads = 0;

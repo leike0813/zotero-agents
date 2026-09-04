@@ -8,6 +8,7 @@ import {
   rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisSidecarOutputTransferReference,
   rebuildSynthesisWorkbenchSurfaceResult,
+  safeSynthesisSidecarObservationReason,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -355,6 +356,7 @@ function normalizeRpcError(error: unknown) {
 function createNativePort(args: {
   isActive: () => boolean;
   getReadyConnection: () => NativeControlConnection | null;
+  recoverReadyConnection?: () => Promise<void>;
   rpcClient: NativeRpcClient;
 }): SynthesisClientPort {
   const capabilities = new Set<string>(
@@ -386,7 +388,14 @@ function createNativePort(args: {
           if (!args.isActive()) {
             throw unavailable("composition_disposed");
           }
-          const connection = args.getReadyConnection();
+          let connection = args.getReadyConnection();
+          if (!connection && args.recoverReadyConnection) {
+            await args.recoverReadyConnection();
+            if (!args.isActive()) {
+              throw unavailable("composition_disposed");
+            }
+            connection = args.getReadyConnection();
+          }
           if (!connection) {
             throw unavailable("service_not_ready");
           }
@@ -542,6 +551,9 @@ function createNativePort(args: {
           return result;
         } catch (error) {
           const normalized = normalizeRpcError(error);
+          const reason = safeSynthesisSidecarObservationReason(
+            normalized.details?.reason ?? normalized.details?.sidecarReason,
+          );
           audit.failed(normalized);
           recordSynthesisSidecarTraceEvent({
             context: trace,
@@ -550,7 +562,7 @@ function createNativePort(args: {
             phase: "terminal",
             outcome: "failed",
             code: normalized.code,
-            identities: { operation },
+            identities: { operation, ...(reason ? { reason } : {}) },
           });
           throw normalized;
         }
@@ -561,6 +573,7 @@ function createNativePort(args: {
 
 export function createNativeSynthesisClientComposition(options?: {
   getReadyConnection?: () => NativeControlConnection | null;
+  recoverReadyConnection?: () => Promise<void>;
   rpcClient?: NativeRpcClient;
 }): {
   client: SynthesisClient;
@@ -579,6 +592,7 @@ export function createNativeSynthesisClientComposition(options?: {
     createNativePort({
       isActive: () => active,
       getReadyConnection,
+      recoverReadyConnection: options?.recoverReadyConnection,
       rpcClient,
     }),
   );
@@ -593,9 +607,14 @@ export function createNativeSynthesisClientComposition(options?: {
   };
 }
 
-export function createReadyNativeSynthesisClientComposition() {
-  if (!getReadySynthesisProductionControlConnection()) {
+export function createReadyNativeSynthesisClientComposition(options?: {
+  recoverReadyConnection?: () => Promise<void>;
+}) {
+  if (
+    !getReadySynthesisProductionControlConnection() &&
+    !options?.recoverReadyConnection
+  ) {
     throw unavailable("production_owner_not_ready");
   }
-  return createNativeSynthesisClientComposition();
+  return createNativeSynthesisClientComposition(options);
 }

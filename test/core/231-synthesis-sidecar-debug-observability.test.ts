@@ -12,6 +12,7 @@ import {
   createSynthesisSidecarRpcClient,
   SynthesisSidecarRpcError,
 } from "../../src/modules/synthesisSidecarRpcClient";
+import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesisProductionRpcPolicy";
 import { createSynthesisSidecarControlClient } from "../../src/modules/synthesisSidecarControlClient";
 import { parseNativeDiagnosticEvent } from "../../src/modules/synthesisSidecarRuntimeSupervisor";
@@ -51,6 +52,7 @@ describe("Synthesis sidecar debug observability", function () {
       phase: "terminal",
       outcome: "succeeded",
       occurredAtMs: 0,
+      identities: { reason: "service_not_ready" },
       metrics: { sqlQueryCount: 0, sqlWriteCount: 0 },
       facts: {
         semanticStatus: "promoted",
@@ -68,6 +70,7 @@ describe("Synthesis sidecar debug observability", function () {
       warningCount: 0,
     });
     assert.deepEqual(event.metrics, { sqlQueryCount: 0, sqlWriteCount: 0 });
+    assert.deepEqual(event.identities, { reason: "service_not_ready" });
     for (const invalid of [
       { ...event, payload: { title: "private" } },
       { ...event, code: "private error at /tmp/library" },
@@ -121,6 +124,93 @@ describe("Synthesis sidecar debug observability", function () {
     unsubscribe();
     assert.deepEqual(readSynthesisSidecarTraceSnapshot().traces, []);
     assert.deepEqual(patches, []);
+  });
+
+  it("records a safe reason when client preflight has no ready service", async function () {
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => null,
+      rpcClient: {
+        async call() {
+          throw new Error("RPC must not be dispatched");
+        },
+      },
+    });
+    await Promise.allSettled([
+      composition.client.topics.list({ cursor: "", limit: 50 }),
+    ]);
+
+    const events = readSynthesisSidecarTraceSnapshot().traces[0]!.events;
+    assert.isFalse(events.some((event) => event.boundary === "host-rpc"));
+    const terminal = events.find(
+      (event) => event.boundary === "operation" && event.phase === "terminal",
+    )!;
+    assert.equal(terminal.code, "unavailable");
+    assert.deepEqual(terminal.identities, {
+      operation: "client.listTopics",
+      reason: "service_not_ready",
+    });
+  });
+
+  it("keeps RPC codes stable and classifies sidecar and transport reasons", async function () {
+    const connection = {
+      baseUrl: "http://127.0.0.1:1",
+      profileId: "profile-1",
+      clientToken: "secret-token",
+      serviceInstanceId: "service-1",
+    };
+    const cases = [
+      {
+        reason: "repository_unavailable",
+        fetch: (async (_input: unknown, init?: RequestInit) => {
+          const request = JSON.parse(String(init?.body || "{}"));
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              requestId: request.requestId,
+              serviceInstanceId: "service-1",
+              error: {
+                code: "service_unavailable",
+                details: { reason: "repository_unavailable" },
+              },
+            }),
+            { status: 503 },
+          );
+        }) as typeof fetch,
+      },
+      {
+        reason: "transport_unavailable",
+        fetch: (async () => {
+          throw new Error("private transport failure");
+        }) as typeof fetch,
+      },
+    ];
+
+    for (const testCase of cases) {
+      resetSynthesisSidecarTraceForTests();
+      const rpc = createSynthesisSidecarRpcClient({
+        transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+        fetch: testCase.fetch,
+      });
+      await Promise.allSettled([
+        rpc.call({
+          connection,
+          capability: "client.listTopics",
+          payload: {},
+          rebuildResult: (value) => value,
+        }),
+      ]);
+      const terminal =
+        readSynthesisSidecarTraceSnapshot().traces[0]!.events.find(
+          (event) =>
+            event.boundary === "host-rpc" && event.phase === "terminal",
+        )!;
+      assert.equal(terminal.code, "service_unavailable");
+      assert.deepEqual(terminal.identities, {
+        capability: "client.listTopics",
+        reason: testCase.reason,
+      });
+      assert.notInclude(JSON.stringify(terminal), "private transport failure");
+    }
   });
 
   it("does not retain routine successful health observations", async function () {
