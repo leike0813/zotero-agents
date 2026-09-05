@@ -13,7 +13,6 @@ import {
   listRuntimeLogs,
   type RuntimeLogListFilters,
 } from "./runtimeLogManager";
-import type { SynthesisSidecarTraceSnapshot } from "./synthesisSidecarTrace";
 import {
   cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
@@ -54,9 +53,6 @@ const SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE =
   typeof __debug_mode__ === "undefined"
     ? isSynthesisSidecarDiagnosticsAvailable()
     : __debug_mode__ && __synthesis_sidecar_diagnostics_enabled__;
-import type { AcpRuntimeSemanticTraceRecorderView } from "./acpRuntimeSemanticTraceRecorder";
-import type { AcpRuntimeReplayControllerView } from "./acpRuntimeReplayController";
-import type { SkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionAudit";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import { config, version } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
@@ -72,7 +68,6 @@ import {
   getWorkflowSettingsRevision,
   rebaseWorkflowProviderOptionsForBackendChange,
   updateWorkflowSettings,
-  type WorkflowSettingsUiDescriptor,
 } from "./workflowSettings";
 import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
 import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
@@ -113,7 +108,6 @@ import {
   exportSkillRunFeedbackMarkdownFile,
   SKILL_RUN_FEEDBACK_ASSET_ID,
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
-  type WorkflowProductPreview,
 } from "./workflowProductStore";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
 import { openRuntimeFilePicker } from "../platform/filePicker";
@@ -123,6 +117,16 @@ import {
 } from "./backgroundRefreshGovernance";
 import { cancelAcpSkillRun } from "./acpSkillRunActions";
 import { selectAcpSkillRun } from "./acpSkillRunWorkspaceSelection";
+import {
+  type DashboardActionEnvelope,
+  type DashboardHostMessage,
+  type DashboardLogRow,
+  type DashboardMessageType,
+  type DashboardRow,
+  type DashboardRuntimeLogFilters,
+  type DashboardSnapshot,
+  type DashboardWorkflowProductPreview,
+} from "../shared/dashboardWireContract";
 
 type DashboardState = {
   backends: BackendInstance[];
@@ -139,16 +143,7 @@ type DashboardState = {
   >;
   workflowSettingsSaveErrorById: Map<string, string>;
   workflowSettingsSaveTimerById: Map<string, number>;
-  runtimeLogFilters: {
-    levels?: string[];
-    diagnosticMode?: boolean;
-    workflowId?: string | string[];
-    requestId?: string;
-    jobId?: string;
-    backendId?: string | string[];
-    backendType?: string;
-    runId?: string;
-  };
+  runtimeLogFilters: DashboardRuntimeLogFilters;
   runtimeLogSelectedIdSet: Set<string>;
   homeWorkflowDocWorkflowId: string;
   selectedProductId: string;
@@ -187,179 +182,6 @@ function normalizeRuntimeLogFilters(
     : [...DEFAULT_RUNTIME_LOG_LEVELS];
   return normalized;
 }
-
-type DashboardRow = {
-  id: string;
-  rowKind?: "host-queued-workflow-unit";
-  queueId?: string;
-  workflowId: string;
-  workflowLabel: string;
-  backendId: string;
-  backendType: string;
-  backendLabel: string;
-  taskName: string;
-  state: string;
-  stateSemantics: {
-    normalized: string;
-    terminal: boolean;
-    waiting: boolean;
-  };
-  stateLabel: string;
-  runKey?: string;
-  requestId?: string;
-  requestKind?: string;
-  skillId?: string;
-  sequenceStepId?: string;
-  sequenceStepIndex?: number;
-  workflowRunId?: string;
-  engine?: string;
-  jobId?: string;
-  runId?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type DashboardLogRow = {
-  id: string;
-  ts: string;
-  level: string;
-  scope: string;
-  stage: string;
-  message: string;
-  workflowId?: string;
-  requestId?: string;
-  jobId?: string;
-  detailPayload: unknown;
-};
-
-type DashboardSnapshot = {
-  generatedAt: string;
-  title: string;
-  labels: Record<string, string>;
-  selectedTabKey: string;
-  tabs: Array<{
-    key: string;
-    label: string;
-    group: "system" | "backend";
-    backendId?: string;
-    backendType?: string;
-    disabled?: boolean;
-    disabledReason?: string;
-  }>;
-  summary: {
-    total: number;
-    running: number;
-    succeeded: number;
-    failed: number;
-    canceled: number;
-  };
-  runningRows: DashboardRow[];
-  homeWorkflows?: Array<{
-    workflowId: string;
-    workflowLabel: string;
-    providerId: string;
-    configurable: boolean;
-    official: boolean;
-    core: boolean;
-    quickRunEnabled: boolean;
-    quickRunDisabledReason?: string;
-  }>;
-  productStorageView?: {
-    section: "products" | "feedback";
-    products: ReturnType<typeof listWorkflowProducts>;
-    selectedProduct?: ReturnType<typeof getWorkflowProduct>;
-    selectedAssetId?: string;
-    selectedPreview?: WorkflowProductPreview;
-    feedbackProducts?: ReturnType<typeof listSkillRunFeedbackProducts>;
-    feedbackSkillOptions?: string[];
-    feedbackSkillFilter?: string;
-    selectedFeedbackProduct?: ReturnType<typeof getWorkflowProduct>;
-    selectedFeedbackProductIds?: string[];
-    selectedFeedbackPreview?: WorkflowProductPreview;
-    isExporting?: boolean;
-  };
-  homeWorkflowDocView?: {
-    workflowId: string;
-    workflowLabel: string;
-    html: string;
-    markdown: string;
-    baseFileUri: string;
-    missingReadme: boolean;
-  };
-  backendLoadError?: string;
-  workflowOptionsView?: {
-    workflows: Array<{
-      workflowId: string;
-      workflowLabel: string;
-      providerId: string;
-    }>;
-    selectedWorkflowId: string;
-    selectedDescriptor?: WorkflowSettingsUiDescriptor;
-    saveState: "idle" | "saving" | "saved" | "error";
-    saveError?: string;
-  };
-  backendView?: {
-    backendId: string;
-    backendType: string;
-    backendBaseUrl: string;
-    selectedSubview?: "runs" | "management";
-    managementUiUrl?: string;
-    title: string;
-    rows: DashboardRow[];
-    emptyRowsText: string;
-    selectedLogTaskId?: string;
-    selectedLogTaskRequestId?: string;
-    selectedLogTaskJobId?: string;
-    logRows: DashboardLogRow[];
-    selectedLogEntryId?: string;
-    selectedLogEntryPayload?: unknown;
-  };
-  runtimeLogsView?: {
-    filters: DashboardState["runtimeLogFilters"];
-    diagnosticMode: boolean;
-    totalEntries: number;
-    budget: {
-      maxEntries: number;
-      maxBytes: number;
-      estimatedBytes: number;
-      droppedEntries: number;
-      droppedByReason: {
-        entry_limit: number;
-        byte_budget: number;
-        expired: number;
-      };
-      retentionMode: string;
-      maxImportantEntries: number;
-      importantEntryCount: number;
-    };
-    logs: DashboardLogRow[];
-    selectedEntryIds: string[];
-    filterOptions: {
-      backends: { value: string; label: string }[];
-      workflows: { value: string; label: string }[];
-    };
-  };
-  synthesisSidecarView?: {
-    traceSnapshot: SynthesisSidecarTraceSnapshot;
-  };
-  skillRunnerConnectionAuditView?: {
-    generatedAt: string;
-    governor: SkillRunnerConnectionGovernorSnapshot;
-  };
-  acpTraceRecorderView?: AcpRuntimeSemanticTraceRecorderView;
-  acpReplayProfilerView?: AcpRuntimeReplayControllerView;
-  surfaceSignatures?: {
-    chrome: string;
-    selectedSurface: string;
-    selectedSurfaceKey: string;
-  };
-};
-
-type DashboardActionEnvelope = {
-  type: "dashboard:action";
-  action: string;
-  payload?: Record<string, unknown>;
-};
 
 function normalizeDashboardSignatureValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -1815,24 +1637,190 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-tab-title",
       "Runtime Logs",
     ),
-    synthesisSidecarTabTitle: "Synthesis Sidecar",
+    runtimeLogsLevelDebug: localize(
+      "task-dashboard-runtime-logs-level-debug",
+      "Debug",
+    ),
+    runtimeLogsLevelInfo: localize(
+      "task-dashboard-runtime-logs-level-info",
+      "Info",
+    ),
+    runtimeLogsLevelWarn: localize(
+      "task-dashboard-runtime-logs-level-warn",
+      "Warn",
+    ),
+    runtimeLogsLevelError: localize(
+      "task-dashboard-runtime-logs-level-error",
+      "Error",
+    ),
+    runtimeLogsClearConfirm: localize(
+      "task-dashboard-runtime-logs-clear-confirm",
+      "Are you sure you want to clear all runtime logs?",
+    ),
+    synthesisSidecarTabTitle: localize(
+      "task-dashboard-synthesis-sidecar-tab-title",
+      "Synthesis Sidecar",
+    ),
     synthesisSidecarCorrelationPlaceholder: localize(
       "task-dashboard-synthesis-sidecar-correlation-placeholder",
       "correlation / request / operation / attempt",
     ),
-    skillRunnerConnectionAuditTabTitle: "SkillRunner 连接审计",
-    skillRunnerConnectionAuditTitle: "SkillRunner 连接审计",
-    skillRunnerConnectionAuditEmpty: "暂无 SkillRunner 连接事件。",
-    skillRunnerConnectionAuditCopyJson: "复制 JSON",
-    skillRunnerConnectionAuditCopied: "连接审计 JSON 已复制。",
-    skillRunnerConnectionAuditMetricActive: "活跃连接",
-    skillRunnerConnectionAuditMetricQueued: "排队请求",
-    skillRunnerConnectionAuditMetricStreams: "Stream",
-    skillRunnerConnectionAuditMetricTimeouts: "超时",
-    skillRunnerConnectionAuditMetricLate: "迟到完成",
-    skillRunnerConnectionAuditByBackend: "按后端",
-    skillRunnerConnectionAuditByLane: "按 Lane",
-    skillRunnerConnectionAuditEvents: "最近事件",
+    synthesisSidecarEmpty: localize(
+      "task-dashboard-synthesis-sidecar-empty",
+      "No sidecar traces in this debug session.",
+    ),
+    synthesisSidecarFilterLabel: localize(
+      "task-dashboard-synthesis-sidecar-filter-label",
+      "Trace / operation / capability",
+    ),
+    synthesisSidecarFilterPlaceholder: localize(
+      "task-dashboard-synthesis-sidecar-filter-placeholder",
+      "Filter traces",
+    ),
+    synthesisSidecarColOutcome: localize(
+      "task-dashboard-synthesis-sidecar-col-outcome",
+      "Outcome",
+    ),
+    synthesisSidecarColTrace: localize(
+      "task-dashboard-synthesis-sidecar-col-trace",
+      "Trace",
+    ),
+    synthesisSidecarColOperation: localize(
+      "task-dashboard-synthesis-sidecar-col-operation",
+      "Operation",
+    ),
+    synthesisSidecarColStarted: localize(
+      "task-dashboard-synthesis-sidecar-col-started",
+      "Started",
+    ),
+    synthesisSidecarColSpans: localize(
+      "task-dashboard-synthesis-sidecar-col-spans",
+      "Spans",
+    ),
+    synthesisSidecarColDropped: localize(
+      "task-dashboard-synthesis-sidecar-col-dropped",
+      "Dropped",
+    ),
+    synthesisSidecarDetailTitle: localize(
+      "task-dashboard-synthesis-sidecar-detail-title",
+      "Causal trace",
+    ),
+    synthesisSidecarDetailEmpty: localize(
+      "task-dashboard-synthesis-sidecar-detail-empty",
+      "No trace selected",
+    ),
+    synthesisSidecarCopy: localize(
+      "task-dashboard-synthesis-sidecar-copy",
+      "Copy trace",
+    ),
+    synthesisSidecarCopyToast: localize(
+      "task-dashboard-synthesis-sidecar-copy-toast",
+      "Trace copied",
+    ),
+    synthesisSidecarSummaryTraces: localize(
+      "task-dashboard-synthesis-sidecar-summary-traces",
+      "Traces",
+    ),
+    synthesisSidecarSummaryEvents: localize(
+      "task-dashboard-synthesis-sidecar-summary-events",
+      "Events",
+    ),
+    synthesisSidecarSummaryActive: localize(
+      "task-dashboard-synthesis-sidecar-summary-active",
+      "Active",
+    ),
+    synthesisSidecarSummaryDropped: localize(
+      "task-dashboard-synthesis-sidecar-summary-dropped",
+      "Dropped",
+    ),
+    skillRunnerConnectionAuditTabTitle: localize(
+      "task-dashboard-skillrunner-audit-tab-title",
+      "SkillRunner Connection Audit",
+    ),
+    skillRunnerConnectionAuditTitle: localize(
+      "task-dashboard-skillrunner-audit-title",
+      "SkillRunner Connection Audit",
+    ),
+    skillRunnerConnectionAuditEmpty: localize(
+      "task-dashboard-skillrunner-audit-empty",
+      "No SkillRunner connection events.",
+    ),
+    skillRunnerConnectionAuditCopyJson: localize(
+      "task-dashboard-skillrunner-audit-copy-json",
+      "Copy JSON",
+    ),
+    skillRunnerConnectionAuditCopied: localize(
+      "task-dashboard-skillrunner-audit-copied",
+      "Connection audit JSON copied.",
+    ),
+    skillRunnerConnectionAuditMetricActive: localize(
+      "task-dashboard-skillrunner-audit-metric-active",
+      "Active connections",
+    ),
+    skillRunnerConnectionAuditMetricQueued: localize(
+      "task-dashboard-skillrunner-audit-metric-queued",
+      "Queued requests",
+    ),
+    skillRunnerConnectionAuditMetricStreams: localize(
+      "task-dashboard-skillrunner-audit-metric-streams",
+      "Streams",
+    ),
+    skillRunnerConnectionAuditMetricTimeouts: localize(
+      "task-dashboard-skillrunner-audit-metric-timeouts",
+      "Timeouts",
+    ),
+    skillRunnerConnectionAuditMetricLate: localize(
+      "task-dashboard-skillrunner-audit-metric-late",
+      "Late settlements",
+    ),
+    skillRunnerConnectionAuditByBackend: localize(
+      "task-dashboard-skillrunner-audit-by-backend",
+      "By backend",
+    ),
+    skillRunnerConnectionAuditByLane: localize(
+      "task-dashboard-skillrunner-audit-by-lane",
+      "By lane",
+    ),
+    skillRunnerConnectionAuditEvents: localize(
+      "task-dashboard-skillrunner-audit-events",
+      "Recent events",
+    ),
+    skillRunnerConnectionAuditColEvent: localize(
+      "task-dashboard-skillrunner-audit-col-event",
+      "Event",
+    ),
+    skillRunnerConnectionAuditColLane: localize(
+      "task-dashboard-skillrunner-audit-col-lane",
+      "Lane",
+    ),
+    skillRunnerConnectionAuditColOperation: localize(
+      "task-dashboard-skillrunner-audit-col-operation",
+      "Operation",
+    ),
+    skillRunnerConnectionAuditColDuration: localize(
+      "task-dashboard-skillrunner-audit-col-duration",
+      "Duration",
+    ),
+    skillRunnerConnectionAuditColReason: localize(
+      "task-dashboard-skillrunner-audit-col-reason",
+      "Reason",
+    ),
+    skillRunnerConnectionAuditMetricPhysicalDebt: localize(
+      "task-dashboard-skillrunner-audit-metric-physical-debt",
+      "Physical debt",
+    ),
+    skillRunnerConnectionAuditMetricDegradedBackends: localize(
+      "task-dashboard-skillrunner-audit-metric-degraded-backends",
+      "Degraded backends",
+    ),
+    skillRunnerConnectionAuditMetricSkippedLowPriority: localize(
+      "task-dashboard-skillrunner-audit-metric-skipped-low-priority",
+      "Skipped low-priority",
+    ),
+    skillRunnerConnectionAuditByPhysicalDebt: localize(
+      "task-dashboard-skillrunner-audit-by-physical-debt",
+      "Physical debt",
+    ),
     runtimeLogsClear: localize(
       "task-dashboard-runtime-logs-clear",
       "Clear Logs",
@@ -2203,7 +2191,7 @@ async function buildDashboardSnapshot(args: {
       selectedProduct?.assets[0] ||
       null;
     args.state.selectedProductAssetId = selectedAsset?.assetId || "";
-    let selectedPreview: WorkflowProductPreview | undefined;
+    let selectedPreview: DashboardWorkflowProductPreview | undefined;
     if (selectedProduct && selectedAsset) {
       selectedPreview = await readProductAssetPreview(
         selectedProduct.productId,
@@ -2225,7 +2213,7 @@ async function buildDashboardSnapshot(args: {
         args.state.selectedFeedbackProductIds.delete(selectedId);
       }
     }
-    let selectedFeedbackPreview: WorkflowProductPreview | undefined;
+    let selectedFeedbackPreview: DashboardWorkflowProductPreview | undefined;
     if (selectedFeedbackProduct) {
       const feedbackAsset =
         selectedFeedbackProduct.assets.find(
@@ -2881,7 +2869,7 @@ export async function openTaskManagerDialog(args?: {
   };
 
   const pushSnapshot = async (
-    messageType: "dashboard:init" | "dashboard:snapshot",
+    messageType: DashboardMessageType,
     reason: RefreshReason,
   ) => {
     if (!frameWindow) {
@@ -3052,13 +3040,11 @@ export async function openTaskManagerDialog(args?: {
       };
     }
 
-    frameWindow.postMessage(
-      {
-        type: messageType,
-        payload: snapshot,
-      },
-      "*",
-    );
+    const message: DashboardHostMessage = {
+      type: messageType,
+      payload: snapshot,
+    };
+    frameWindow.postMessage(message, "*");
   };
 
   let refreshChain: Promise<void> = Promise.resolve();
@@ -3075,7 +3061,7 @@ export async function openTaskManagerDialog(args?: {
     );
   };
   const enqueueRefresh = (
-    messageType: "dashboard:init" | "dashboard:snapshot",
+    messageType: DashboardMessageType,
     reason: RefreshReason,
   ) => {
     if (dashboardRefreshQueued && messageType === "dashboard:snapshot") {

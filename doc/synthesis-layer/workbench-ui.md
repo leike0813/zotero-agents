@@ -23,6 +23,31 @@ page nor trace context, process tails, trace stores, subscriptions, or patches.
 
 ## Surface-Scoped Refresh Architecture
 
+### Page ownership
+
+`src/synthesisWorkbenchApp.ts` bootstraps the hosted page with graph vendors.
+`src/synthesis/synthesisWorkbenchApp.ts` owns message ordering, current surface
+state and page disposal. Shared portable payloads live in
+`src/shared/synthesisWorkbenchWireContract.ts`; the host remains responsible
+for reads, commands and invalidation.
+
+The HTML supplies fixed `data-role` containers. The chrome renderer mounts
+independent Preact roots for navigation, title, sidecar indicator, active
+surface and status chrome. Each region compares its own visible selection;
+surface payloads and graph pages do not invalidate unrelated chrome. Business
+surface projections select the corresponding component under `src/synthesis`.
+
+The Graph region owns its imperative Sigma canvas and camera. Markdown and
+topic timelines use bounded imperative islands inside Reader. Translation
+resolves message keys during projection/rendering from the host envelope;
+there is no whole-page reverse text translation pass.
+
+Offline graph and topic exports have separate entries,
+`standaloneGraphApp.ts` and `standaloneTopicApp.ts`. They compose only their
+required graph/reader modules and handle local interactions without a live
+host. The deep-reading graph build uses the graph entry and retains the
+existing `citation-graph-synthesis-app.js` asset name.
+
 Workbench UI uses three read-model layers:
 
 - Shell: selected tab, navigation, and persistent surface containers.

@@ -1044,23 +1044,6 @@ describe("UI readonly harness", function () {
     assert.equal(server.includes("assistantReadonlyModel"), false);
   });
 
-  it("keeps SkillRunner connection audit renderer read-only in the Dashboard app", async function () {
-    const source = await readFile(
-      path.join(process.cwd(), "addon/content/dashboard/app.js"),
-      "utf8",
-    );
-    assert.match(source, /skillrunner-connection-audit/);
-    assert.match(source, /function renderSkillRunnerConnectionAudit/);
-    assert.match(
-      source,
-      /copyTextToClipboard\(JSON\.stringify\(view, null, 2\)\)/,
-    );
-    assert.doesNotMatch(
-      source,
-      /skillrunner-connection-audit[\s\S]{0,800}abortSkillRunnerConnections/,
-    );
-  });
-
   it("maps a minimal Zotero DB fixture to synthesis library inputs", async function () {
     const dir = await mkdtemp(path.join(tmpdir(), "zs-zotero-"));
     const dbPath = path.join(dir, "zotero.sqlite");

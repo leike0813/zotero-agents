@@ -25,18 +25,35 @@ Zotero Plugin Process (Host)                Web Panel (Child)
 - **整页模式**：`openTaskManagerDialog()` 创建独立 Dialog 窗口
 
 配套文档：
+
 - `doc/components/ui-shell.md` — UI 入口分发
 - `doc/components/dashboard-modules.md` — Dashboard 子模块（Active Tasks、Toolbar Button、Task History、Task Snapshot）
 
+### 页面源码与区域生命周期
+
+页面入口是 `src/dashboard/dashboardApp.ts`，通过 esbuild 输出到
+`addon/content/dashboard/app.js` 的构建路径。HTML 保留固定的导航、内容和
+toast 容器；`dashboardChromeRenderer.ts` 挂载独立 Preact 区域，
+`dashboardPanelModel.ts` 按区域投影 snapshot。区域仅比较自己的可见数据，
+相同 snapshot 不重建日志、trace 行或正在操作的表单。
+
+`src/shared/dashboardWireContract.ts` 是页面与宿主的消息及 action 类型来源。
+宿主仍持有 snapshot 收集、刷新治理和 action 分发；页面持有筛选、展开、
+焦点和滚动等交互状态。日志、trace 的高频更新由对应区域内部维护。
+
+后端管理和工作流设置子窗口分别由 `backendManagerApp.ts`、
+`workflowSettingsDialogApp.ts` 构建。工作流字段使用同一组表单组件。
+页面销毁时卸载 Preact roots 并清理所属计时器和消息监听。
+
 ## 入口与调用方
 
-| 入口事件 | 调用方 | 初始 Tab | 用途 |
-|---------|--------|---------|------|
-| `openTaskManager` | `src/hooks.ts:592` | home（默认） | 直接打开 Dashboard |
-| `openWorkflowSettings` | `src/hooks.ts:585` | `workflow-options` | 从设置入口打开 |
-| `openLogViewer` | `src/hooks.ts:684` | `runtime-logs` | 从日志入口打开 |
-| `mountTaskDashboardRuntime()` | `workspaceTab.ts` | 按参数指定 | 嵌入到 workspace sidebar |
-| `resetTaskManagerDialogRuntimeForTests()` | `testRuntimeCleanup.ts` | — | 测试清理 |
+| 入口事件                                  | 调用方                  | 初始 Tab           | 用途                     |
+| ----------------------------------------- | ----------------------- | ------------------ | ------------------------ |
+| `openTaskManager`                         | `src/hooks.ts:592`      | home（默认）       | 直接打开 Dashboard       |
+| `openWorkflowSettings`                    | `src/hooks.ts:585`      | `workflow-options` | 从设置入口打开           |
+| `openLogViewer`                           | `src/hooks.ts:684`      | `runtime-logs`     | 从日志入口打开           |
+| `mountTaskDashboardRuntime()`             | `workspaceTab.ts`       | 按参数指定         | 嵌入到 workspace sidebar |
+| `resetTaskManagerDialogRuntimeForTests()` | `testRuntimeCleanup.ts` | —                  | 测试清理                 |
 
 ## Dialog 生命周期
 
@@ -73,11 +90,11 @@ openTaskManagerDialog(args?)
 
 ### 消息协议
 
-| 消息类型 | 方向 | 用途 |
-|---------|------|------|
-| `dashboard:init` | H→C | 首次完整 snapshot |
-| `dashboard:snapshot` | H→C | 后续刷新 |
-| `dashboard:action` | C→H | 用户操作请求 |
+| 消息类型             | 方向 | 用途              |
+| -------------------- | ---- | ----------------- |
+| `dashboard:init`     | H→C  | 首次完整 snapshot |
+| `dashboard:snapshot` | H→C  | 后续刷新          |
+| `dashboard:action`   | C→H  | 用户操作请求      |
 
 ### 数据流
 
@@ -96,12 +113,12 @@ Web panel 发起 action → Host 从以下数据源收集信息 → 构造 snaps
 
 ### Backend 详情视图（按类型区分）
 
-| Backend 类型 | 展示内容 |
-|-------------|---------|
+| Backend 类型   | 展示内容                                                           |
+| -------------- | ------------------------------------------------------------------ |
 | `generic-http` | 任务表格 + runtime logs 过滤视图（requestId / jobId / workflowId） |
-| `skillrunner` | Run 表格 + 状态区 + 对话区 + reply / cancel 操作 |
-| `pass-through` | 不展示、不计数、不写入历史 |
-| `acp` | Skill run 状态视图 |
+| `skillrunner`  | Run 表格 + 状态区 + 对话区 + reply / cancel 操作                   |
+| `pass-through` | 不展示、不计数、不写入历史                                         |
+| `acp`          | Skill run 状态视图                                                 |
 
 ### 页面信息架构
 
@@ -141,15 +158,15 @@ type MountedTaskDashboardRuntime = {
 
 使用 `getString()` 获取 i18n 文本。关键键值：
 
-| Key | 默认值 | 用途 |
-|-----|--------|------|
-| `task-manager-title` | "Task Dashboard" | 对话框标题 |
-| `task-manager-close` | "Close" | 关闭按钮 |
-| `task-manager-column-task` | "Task" | 表格列 |
-| `task-manager-column-workflow` | "Workflow" | 表格列 |
-| `task-manager-column-status` | "Status" | 表格列 |
-| `task-manager-status-queued` | "Queued" | 状态标签 |
-| `task-manager-status-running` | "Running" | 状态标签 |
+| Key                            | 默认值           | 用途       |
+| ------------------------------ | ---------------- | ---------- |
+| `task-manager-title`           | "Task Dashboard" | 对话框标题 |
+| `task-manager-close`           | "Close"          | 关闭按钮   |
+| `task-manager-column-task`     | "Task"           | 表格列     |
+| `task-manager-column-workflow` | "Workflow"       | 表格列     |
+| `task-manager-column-status`   | "Status"         | 表格列     |
+| `task-manager-status-queued`   | "Queued"         | 状态标签   |
+| `task-manager-status-running`  | "Running"        | 状态标签   |
 
 ## 测试
 

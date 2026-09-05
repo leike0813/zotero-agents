@@ -16,6 +16,12 @@ import {
   type SynthesisWorkbenchI18nEnvelope,
   type SynthesisWorkbenchMessageKey,
 } from "../synthesisWorkbenchI18n";
+import type {
+  SynthesisWorkbenchBridge,
+  SynthesisWorkbenchHostMessageType as SynthesisBridgeMessageType,
+  SynthesisWorkbenchLegacyActionEnvelope as SynthesisWorkbenchActionEnvelope,
+  SynthesisWorkbenchTopicDetailResult as SynthesisTopicDetailDto,
+} from "../shared/synthesisWorkbenchWireContract";
 import { resolveAddonRef, resolveRuntimeToolkit } from "../utils/runtimeBridge";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
@@ -84,38 +90,9 @@ import {
   subscribeSynthesisWorkbenchSidecarStatus,
 } from "./synthesisSidecarRuntimeSupervisor";
 
-type SynthesisBridgeMessageType =
-  | "synthesis:init"
-  | "synthesis:snapshot"
-  | "synthesis:chrome"
-  | "synthesis:surface"
-  | "synthesis:surface-error"
-  | "synthesis:graph-page"
-  | "synthesis:topic-detail"
-  | "synthesis:digest";
-
-type SynthesisWorkbenchActionEnvelope = {
-  type: "synthesis:action";
-  action: string;
-  payload?: Record<string, unknown>;
-};
-
-type SynthesisTopicDetailDto = Record<string, unknown> & {
-  topicId?: string;
-  title?: string;
-  source_papers?: unknown[];
-};
-
 type SynthesisExportGraphSnapshot = ReturnType<
   typeof buildSynthesisUiSnapshot
 >["graph"];
-
-type SynthesisWorkbenchBridge = {
-  postMessage: (
-    action: string,
-    payload?: Record<string, unknown>,
-  ) => Promise<void>;
-};
 
 type ZoteroTabs = {
   add?: (options: Record<string, unknown>) => {
@@ -2067,7 +2044,7 @@ async function readSynthesisExportAssets() {
       "content/shared/vendor/markdown-it-texmath/texmath.min.js",
     ),
     readPackagedTextAsset("content/shared/markdown-renderer.js"),
-    readPackagedTextAsset("content/synthesis/app.bundle.js"),
+    readPackagedTextAsset("content/synthesis/topic-export.bundle.js"),
   ]);
   return {
     themeJs,

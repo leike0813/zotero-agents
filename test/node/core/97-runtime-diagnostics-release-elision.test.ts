@@ -32,7 +32,7 @@ describe("runtime diagnostics release elision", function () {
         "scripts/check-runtime-diagnostics-release-elision.ts",
         "utf8",
       ),
-      fs.readFile("addon/content/dashboard/app.js", "utf8"),
+      fs.readFile("src/dashboard/dashboardPanelModel.ts", "utf8"),
     ]);
     assert.include(esbuildSource, "runtime-diagnostics-production-manifest");
     assert.include(checkerSource, "runtime-diagnostics-production-manifest");

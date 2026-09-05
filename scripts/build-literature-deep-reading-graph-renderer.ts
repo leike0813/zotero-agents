@@ -32,7 +32,12 @@ const entry = path.join(
   "shared",
   "citationGraphStandalone.ts",
 );
-const synthesisEntry = path.join(repoRoot, "src", "synthesisWorkbenchApp.ts");
+const synthesisEntry = path.join(
+  repoRoot,
+  "src",
+  "synthesis",
+  "standaloneGraphApp.ts",
+);
 const topicTimelineEntry = path.join(
   repoRoot,
   "src",
@@ -77,6 +82,8 @@ async function main() {
     `"${esbuildBin}"`,
     `"${synthesisEntry}"`,
     "--bundle",
+    "--jsx=automatic",
+    "--jsx-import-source=preact",
     "--minify",
     "--format=iife",
     "--target=es2020",

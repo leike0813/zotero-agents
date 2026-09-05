@@ -1,16 +1,51 @@
-import {
-  rebuildSynthesisHostItemRefs,
-  type SynthesisHostItemRef,
-  type SynthesisWorkbenchSurfaceName,
-  type SynthesisWorkbenchTopicArtifactRow,
-  type SynthesisWorkbenchTopicFreshness,
-  type SynthesisWorkbenchTopicSourceMaterialsStatus,
-  type SynthesisWorkbenchTopicUpdateIntent,
-  type SynthesisWorkbenchSidecarStatus,
-} from "../../../packages/synthesis-contracts/src/index";
+import { rebuildSynthesisHostItemRefs } from "../../../packages/synthesis-contracts/src/index";
 import { projectCitationGraphVisibility } from "../../shared/citationGraphVisualRules";
+import type {
+  SynthesisHostItemRef,
+  SynthesisWorkbenchActionOperation,
+  SynthesisWorkbenchActionOperationStatus,
+  SynthesisWorkbenchActionStatus,
+  SynthesisWorkbenchArtifactCoverage,
+  SynthesisWorkbenchBindingStatus,
+  SynthesisWorkbenchCacheReadiness,
+  SynthesisWorkbenchCanonicalReferenceRow,
+  SynthesisWorkbenchCleanupProposalRow,
+  SynthesisWorkbenchConceptAliasRow,
+  SynthesisWorkbenchConceptOverlayEntry,
+  SynthesisWorkbenchConceptRelation,
+  SynthesisWorkbenchConceptReviewItem,
+  SynthesisWorkbenchConceptRow,
+  SynthesisWorkbenchConceptSenseRow,
+  SynthesisWorkbenchGraphEdgeView,
+  SynthesisWorkbenchGraphNodeView,
+  SynthesisWorkbenchHostCommandName,
+  SynthesisWorkbenchLayoutAlgorithm,
+  SynthesisWorkbenchMaintenanceSummary,
+  SynthesisWorkbenchReferenceMatchProposalRow,
+  SynthesisWorkbenchReferenceMatchTargetCandidate,
+  SynthesisWorkbenchRegistryReferenceRow,
+  SynthesisWorkbenchRegistryRow,
+  SynthesisWorkbenchSidecarStatus,
+  SynthesisWorkbenchSnapshot,
+  SynthesisWorkbenchSnapshotHostTypes,
+  SynthesisWorkbenchStagedTagRow,
+  SynthesisWorkbenchSurfaceName,
+  SynthesisWorkbenchTagImportPreview,
+  SynthesisWorkbenchTagRow,
+  SynthesisWorkbenchTopicArtifactRow,
+  SynthesisWorkbenchTopicDetailResult,
+  SynthesisWorkbenchTopicFreshness,
+  SynthesisWorkbenchTopicGraphEdge,
+  SynthesisWorkbenchTopicGraphInspector,
+  SynthesisWorkbenchTopicGraphNode,
+  SynthesisWorkbenchTopicGraphRelation,
+  SynthesisWorkbenchTopicGraphReviewItem,
+  SynthesisWorkbenchTopicSourceMaterialsStatus,
+  SynthesisWorkbenchTopicUpdateIntent,
+  SynthesisTagValidationWarning,
+} from "../../shared/synthesisWorkbenchWireContract";
 
-export type { SynthesisWorkbenchSurfaceName } from "../../../packages/synthesis-contracts/src/index";
+export type { SynthesisWorkbenchSurfaceName } from "../../shared/synthesisWorkbenchWireContract";
 
 export type SynthesisUiTab =
   | "overview"
@@ -22,15 +57,10 @@ export type SynthesisUiTab =
   | "graph"
   | "reader";
 
-export type SynthesisUiCoverage = "complete" | "partial" | "missing";
+export type SynthesisUiCoverage = SynthesisWorkbenchArtifactCoverage;
 export type SynthesisUiSourceMaterialsStatus =
   SynthesisWorkbenchTopicSourceMaterialsStatus;
-export type SynthesisUiCacheReadiness =
-  | "missing"
-  | "refreshing"
-  | "ready"
-  | "stale"
-  | "failed";
+export type SynthesisUiCacheReadiness = SynthesisWorkbenchCacheReadiness;
 
 export type SynthesisUiFreshness = SynthesisWorkbenchTopicFreshness;
 export type SynthesisUiDiscoveryStatus =
@@ -39,15 +69,11 @@ export type SynthesisUiDiscoveryStatus =
   | "rejected"
   | "unknown";
 
-export type SynthesisUiLayoutAlgorithm = "force" | "radial" | "components";
+export type SynthesisUiLayoutAlgorithm = SynthesisWorkbenchLayoutAlgorithm;
 
 export type SynthesisUiRegistryScopeFilter = "all" | "library" | "referenced";
 
-export type SynthesisUiBindingStatus =
-  | "candidate"
-  | "accepted"
-  | "rejected"
-  | "stale_target";
+export type SynthesisUiBindingStatus = SynthesisWorkbenchBindingStatus;
 
 export type SynthesisUiBindingStatusFilter =
   | "all"
@@ -97,400 +123,54 @@ export type SynthesisUiTopicUpdateIntent = SynthesisWorkbenchTopicUpdateIntent;
 
 export type SynthesisUiArtifactRow = SynthesisWorkbenchTopicArtifactRow;
 
-export type SynthesisUiRegistryRow = {
-  libraryId?: number;
-  itemKey?: string;
-  paper_ref: string;
-  title: string;
-  year?: string;
-  artifactCoverage: SynthesisUiCoverage;
-  ratingScore?: number;
-  missing_artifacts: string[];
-  index_scope?: "library" | "referenced";
-  literature_item_id?: string;
-  reference_count?: number;
-  unbound_reference_count?: number;
-  referenced_by_count?: number;
-  references?: SynthesisUiRegistryReferenceRow[];
-  needsTagRegulation?: boolean;
-};
-
-export type SynthesisUiRegistryReferenceRow = {
-  reference_instance_id: string;
-  reference_index: number;
-  title: string;
-  year?: string;
-  raw_reference?: string;
-  confidence?: string;
-  target_literature_item_id?: string;
-  target_title?: string;
-  target_paper_ref?: string;
-  target_binding: "library" | "external" | "none";
-  binding_status?: SynthesisUiBindingStatus;
-};
-
-export type SynthesisUiReferenceMatchProposalRow = {
-  proposal_id: string;
-  kind: "zotero_binding" | "canonical_merge";
-  status: "open" | "accepted" | "rejected" | "superseded" | "retargeted";
-  source_canonical_reference_id: string;
-  source_effective_canonical_reference_id?: string;
-  source_projected_literature_item_id?: string;
-  source_raw_reference_ids: string[];
-  target_canonical_reference_id?: string;
-  target_effective_canonical_reference_id?: string;
-  target_projected_literature_item_id?: string;
-  target_library_id?: number;
-  target_item_key?: string;
-  confidence?: string;
-  score?: number;
-  reasons?: string[];
-  evidence?: Record<string, unknown>;
-  diagnostics?: unknown[];
-  updated_at?: string;
-};
-
+export type SynthesisUiRegistryRow = SynthesisWorkbenchRegistryRow;
+export type SynthesisUiRegistryReferenceRow =
+  SynthesisWorkbenchRegistryReferenceRow;
+export type SynthesisUiReferenceMatchProposalRow =
+  SynthesisWorkbenchReferenceMatchProposalRow;
 export type SynthesisUiReferenceMatchTargetCandidate =
-  | {
-      kind: "zotero_item";
-      libraryId: number;
-      itemKey: string;
-      title: string;
-      year?: string;
-      paperRef?: string;
-    }
-  | {
-      kind: "canonical_reference";
-      canonicalReferenceId: string;
-      title: string;
-      year?: string;
-      rawReferenceIds?: string[];
-      bindingStatus?: SynthesisUiBindingStatus;
-      bindingTarget?: {
-        libraryId: number;
-        itemKey: string;
-        paperRef?: string;
-      };
-    };
-
-export type SynthesisUiCanonicalActionAvailability = {
-  allowed: boolean;
-  reason?: string;
-  blockers?: string[];
-};
-
-export type SynthesisUiCanonicalReferenceRow = {
-  row_id: string;
-  effective_canonical_id: string;
-  projected_literature_item_id: string;
-  title: string;
-  normalized_title?: string;
-  year?: string;
-  authors?: string[];
-  identifiers?: Record<string, unknown>;
-  identifiers_list?: Array<{ kind: string; value: string }>;
-  binding?: {
-    libraryId: number;
-    itemKey: string;
-    paperRef: string;
-    title?: string;
-    status?: SynthesisUiBindingStatus;
-  };
-  raw_reference_count: number;
-  raw_reference_samples?: unknown[];
-  physical_canonical_ids: string[];
-  effective_canonical_ids: string[];
-  incoming_redirects?: unknown[];
-  outgoing_redirects?: unknown[];
-  related_proposals?: unknown[];
-  duplicate_peers?: unknown[];
-  incoming_redirect_count: number;
-  outgoing_redirect_count: number;
-  proposal_count: number;
-  open_proposal_count: number;
-  graph_node_id?: string;
-  graph_in_degree: number;
-  graph_out_degree: number;
-  possible_duplicate_group?: string;
-  action_availability: {
-    merge: SynthesisUiCanonicalActionAvailability;
-    edit: SynthesisUiCanonicalActionAvailability;
-    archive: SynthesisUiCanonicalActionAvailability;
-  };
-  diagnostics?: unknown[];
-};
-
-export type SynthesisUiCleanupProposalRow = {
-  proposal_id: string;
-  status:
-    | "open"
-    | "resolved"
-    | "deferred"
-    | "blocked_by_upstream_review"
-    | "superseded"
-    | "retargeted"
-    | "approved"
-    | "rejected"
-    | "skipped";
-  kind?: string;
-  review_kind?: string;
-  priority?: number;
-  blocked_by_review_item_id?: string;
-  source_paper_ref: string;
-  source_paper_title?: string;
-  reference_instance_id?: string;
-  provisional_key?: string;
-  reference_title?: string;
-  reference_raw?: string;
-  target_paper_ref?: string;
-  target_paper_title?: string;
-  target_literature_item_id?: string;
-  target_work_id?: string;
-  target_work_title?: string;
-  reason: string;
-  diagnostics?: unknown[];
-  decision_summary?: string;
-  updated_at?: string;
-};
-
-export type SynthesisUiTagValidationWarning = {
-  code: string;
-  severity: "warning" | "error";
-  tag?: string;
-  message: string;
-};
-
-export type SynthesisUiTagRow = {
-  tag: string;
-  facet: string;
-  note?: string;
-  source?: string;
-  deprecated?: boolean;
-  replacement?: string;
-  aliases: string[];
-  abbrev: string[];
-  usage_count: number;
-  last_synced_at?: string;
-  validation_warnings: SynthesisUiTagValidationWarning[];
-  builtin: boolean;
-};
-
-export type SynthesisUiStagedTagRow = {
-  tag: string;
-  facet: string;
-  note?: string;
-  source_flow?: string;
-  parent_bindings: SynthesisHostItemRef[];
-  parent_count: number;
-  created_at?: string;
-  updated_at?: string;
-};
-
-export type SynthesisUiTagImportPreview = {
-  builtins: Array<{
-    tag: string;
-    local: SynthesisUiTagRow;
-    imported: SynthesisUiTagRow;
-  }>;
-  additions: SynthesisUiTagRow[];
-  unchanged: SynthesisUiTagRow[];
-  conflicts: Array<{
-    tag: string;
-    local: SynthesisUiTagRow;
-    imported: SynthesisUiTagRow;
-  }>;
-  warnings: SynthesisUiTagValidationWarning[];
-};
+  SynthesisWorkbenchReferenceMatchTargetCandidate;
+export type SynthesisUiCanonicalActionAvailability =
+  SynthesisWorkbenchCanonicalReferenceRow["action_availability"]["merge"];
+export type SynthesisUiCanonicalReferenceRow =
+  SynthesisWorkbenchCanonicalReferenceRow;
+export type SynthesisUiCleanupProposalRow =
+  SynthesisWorkbenchCleanupProposalRow;
+export type SynthesisUiTagValidationWarning = SynthesisTagValidationWarning;
+export type SynthesisUiTagRow = SynthesisWorkbenchTagRow;
+export type SynthesisUiStagedTagRow = SynthesisWorkbenchStagedTagRow;
+export type SynthesisUiTagImportPreview = SynthesisWorkbenchTagImportPreview;
 
 export type SynthesisUiTagImportAction =
   | "use-imported"
   | "merge-non-conflicting";
 
 export type SynthesisUiTopicGraphRelation =
-  | "broader_than"
-  | "related_to"
-  | "overlaps_with"
-  | "contrasts_with";
+  SynthesisWorkbenchTopicGraphRelation;
 
 export type SynthesisUiTopicGraphEdgeStatus =
-  | "suggested"
-  | "confirmed"
-  | "rejected"
-  | "stale"
-  | "deleted";
+  SynthesisWorkbenchTopicGraphEdge["status"];
 
 export type SynthesisUiTopicGraphMode =
   | "hierarchy"
   | "neighborhood"
   | "unplaced";
 
-export type SynthesisUiTopicGraphNode = {
-  topic_id: string;
-  title: string;
-  short_definition?: string;
-  definition?: string;
-  summary?: string;
-  aliases: string[];
-  node_type: "materialized" | "placeholder";
-  definition_status?: "has_synthesis" | "placeholder" | "deleted" | "stale";
-  current_artifact_path?: string;
-  is_root?: boolean;
-  level?: "top" | "normal";
-  paper_count: number;
-  last_synthesis_at?: string;
-  relation_statuses: SynthesisUiTopicGraphEdgeStatus[];
-};
-
-export type SynthesisUiTopicGraphEdge = {
-  edge_id: string;
-  source_topic_id: string;
-  target_topic_id: string;
-  relation: SynthesisUiTopicGraphRelation;
-  status: SynthesisUiTopicGraphEdgeStatus;
-  confidence?: number;
-  provenance: unknown[];
-  evidence_refs: unknown[];
-};
-
-export type SynthesisUiTopicGraphReviewItem = {
-  review_id: string;
-  status: "open" | "approved" | "rejected" | "deleted";
-  source_topic_id: string;
-  target_topic_id: string;
-  target_title?: string;
-  relation: SynthesisUiTopicGraphRelation;
-  confidence?: number;
-  provenance: unknown[];
-  evidence_refs: unknown[];
-  diagnostics: unknown[];
-};
-
-export type SynthesisUiTopicGraphInspector = {
-  topic?: SynthesisUiTopicGraphNode;
-  parents: SynthesisUiTopicGraphNode[];
-  children: SynthesisUiTopicGraphNode[];
-  related: Array<{
-    relation: SynthesisUiTopicGraphRelation;
-    status: SynthesisUiTopicGraphEdgeStatus;
-    node: SynthesisUiTopicGraphNode;
-  }>;
-  suggestedRelations: Array<{
-    edge_id: string;
-    relation: SynthesisUiTopicGraphRelation;
-    status: Extract<SynthesisUiTopicGraphEdgeStatus, "suggested">;
-    node: SynthesisUiTopicGraphNode;
-    source_topic_id: string;
-    target_topic_id: string;
-    confidence?: number;
-    provenance?: unknown[];
-    evidence_refs?: unknown[];
-  }>;
-  relationReviewItems: SynthesisUiTopicGraphReviewItem[];
-  suggestedCount: number;
-};
-
-export type SynthesisUiConceptRow = {
-  concept_id: string;
-  label: string;
-  aliases: string[];
-  concept_type: string;
-  domain: string;
-  status: "active" | "review" | "deprecated";
-  short_definition?: string;
-  definition?: string;
-  usage_note?: string;
-  editorial_note?: string;
-  sense_ids: string[];
-};
-
-export type SynthesisUiConceptSenseRow = {
-  sense_id: string;
-  concept_id: string;
-  label: string;
-  aliases: string[];
-  domain: string;
-  short_definition: string;
-  definition: string;
-  confidence: "high" | "medium" | "low";
-  source_topic_ids: string[];
-};
-
-export type SynthesisUiConceptAliasRow = {
-  alias_id: string;
-  alias: string;
-  normalized: string;
-  concept_id: string;
-  sense_id?: string;
-  status: "active" | "review" | "deprecated";
-  confidence: "high" | "medium" | "low";
-};
-
-export type SynthesisUiConceptOverlayEntry = {
-  concept_id: string;
-  sense_id?: string;
-  alias: string;
-  label: string;
-  short_definition?: string;
-  definition?: string;
-  confidence: "high" | "medium" | "low";
-};
-
-export type SynthesisUiConceptReviewItem = {
-  review_id: string;
-  status: "open" | "approved" | "merged" | "rejected";
-  reason:
-    | "low_confidence_concept"
-    | "ambiguous_concept_match"
-    | "alias_conflict"
-    | "alias_equivalence_audit";
-  topic_id: string;
-  label: string;
-  short_definition?: string;
-  definition?: string;
-  concept_type?: string;
-  domain?: string;
-  topic_relevance?: unknown;
-  evidence?: unknown;
-  diagnostics?: unknown[];
-  confidence: "high" | "medium" | "low";
-  candidate_concept_ids: string[];
-  audit_alias?: {
-    alias_id: string;
-    alias: string;
-    normalized: string;
-    concept_id: string;
-    sense_id?: string;
-  };
-};
-
-export type SynthesisUiGraphNode = {
-  id: string;
-  label: string;
-  kind: "library_paper" | "external_reference" | "unresolved_reference";
-  year?: string;
-  authors?: string[];
-  tags?: string[];
-  collections?: string[];
-  x?: number;
-  y?: number;
-  low_signal?: boolean;
-  external_degree?: number;
-  visibility?: "default" | "hover_only";
-  display_tier?: "library" | "shared_external" | "single_external";
-  metrics?: {
-    internal_in_degree?: number;
-    internal_out_degree?: number;
-  };
-};
-
-export type SynthesisUiGraphEdge = {
-  id: string;
-  source: string;
-  target: string;
-  primary_role?: string;
-  mention_count?: number;
-  visibility?: "default" | "hover_only";
-};
+export type SynthesisUiTopicGraphNode = SynthesisWorkbenchTopicGraphNode;
+export type SynthesisUiTopicGraphEdge = SynthesisWorkbenchTopicGraphEdge;
+export type SynthesisUiTopicGraphReviewItem =
+  SynthesisWorkbenchTopicGraphReviewItem;
+export type SynthesisUiTopicGraphInspector =
+  SynthesisWorkbenchTopicGraphInspector;
+export type SynthesisUiConceptRow = SynthesisWorkbenchConceptRow;
+export type SynthesisUiConceptSenseRow = SynthesisWorkbenchConceptSenseRow;
+export type SynthesisUiConceptAliasRow = SynthesisWorkbenchConceptAliasRow;
+export type SynthesisUiConceptRelation = SynthesisWorkbenchConceptRelation;
+export type SynthesisUiConceptOverlayEntry =
+  SynthesisWorkbenchConceptOverlayEntry;
+export type SynthesisUiConceptReviewItem = SynthesisWorkbenchConceptReviewItem;
+export type SynthesisUiGraphNode = SynthesisWorkbenchGraphNodeView;
+export type SynthesisUiGraphEdge = SynthesisWorkbenchGraphEdgeView;
 
 export type SynthesisUiGraphTopicScope = {
   topicId: string;
@@ -581,38 +261,8 @@ export type SynthesisUiCacheStatus = {
   allowedActions: string[];
 };
 
-export type SynthesisUiMaintenanceSummary = {
-  status:
-    | "ready"
-    | "stale"
-    | "partial"
-    | "missing"
-    | "queued"
-    | "running"
-    | "failed";
-  latestUsable: {
-    referenceSidecar?: {
-      updated_at?: string;
-      age_ms?: number;
-    };
-    citationGraph?: {
-      updated_at?: string;
-      age_ms?: number;
-      graph_hash?: string;
-    };
-  };
-  pendingDirtyCount: number;
-  activeWorkerCount: number;
-  activeWorkerKind?: string;
-  canonicalSyncPending: boolean;
-  canonicalEpoch: number;
-  lastFailure?: SynthesisUiSyncDiagnostic;
-  stale: string[];
-  partial: string[];
-  missing: string[];
-  recommendedCommands: string[];
-  diagnostics: SynthesisUiSyncDiagnostic[];
-};
+export type SynthesisUiMaintenanceSummary =
+  SynthesisWorkbenchMaintenanceSummary;
 
 export type SynthesisUiBackgroundJobStatus =
   | "submitted"
@@ -860,7 +510,7 @@ export type SynthesisUiSnapshotInput = {
     aliases?: Array<
       Partial<SynthesisUiConceptAliasRow> & { alias_id?: string }
     >;
-    relations?: Array<Record<string, unknown>>;
+    relations?: SynthesisUiConceptRelation[];
     manifest?: Record<string, unknown>;
     projection?: {
       target?: string;
@@ -887,188 +537,15 @@ export type SynthesisUiSnapshotInput = {
   };
 };
 
-export type SynthesisUiSnapshot = {
-  libraryId: number;
-  selectedTab: SynthesisUiTab;
-  sidecarStatus?: SynthesisWorkbenchSidecarStatus;
-  actions: SynthesisUiActionStatus;
-  maintenance: {
-    summary: SynthesisUiMaintenanceSummary;
-    backgroundJobs: SynthesisUiBackgroundJobSummary;
-  };
-  storage: SynthesisUiStorageStatus;
-  preferences: SynthesisUiPreferencesStatus;
-  sync: SynthesisUiSyncStatus;
-  conflicts: {
-    candidates: SynthesisUiConflictCandidate[];
-  };
-  deletedArtifacts: {
-    count: number;
-    rows: SynthesisUiDeletedArtifactRow[];
-  };
-  artifacts: {
-    filters: SynthesisUiState["artifacts"];
-    rows: SynthesisUiArtifactRow[];
-    visibleRows: SynthesisUiArtifactRow[];
-  };
-  registry: {
-    filters: SynthesisUiState["registry"];
-    rows: SynthesisUiRegistryRow[];
-    visibleRows: SynthesisUiRegistryRow[];
-    cleanupProposals: SynthesisUiCleanupProposalRow[];
-    matchProposals: SynthesisUiReferenceMatchProposalRow[];
-    matchTargetCandidates: SynthesisUiReferenceMatchTargetCandidate[];
-    canonicalRows: SynthesisUiCanonicalReferenceRow[];
-    visibleCanonicalRows: SynthesisUiCanonicalReferenceRow[];
-    canonicalDiagnostics: unknown[];
-    cacheStatus: SynthesisUiCacheStatus;
-  };
-  reviews: {
-    filters: SynthesisUiState["reviews"];
-    summary: SynthesisUiReviewSummary;
-  };
-  tags: {
-    filters: SynthesisUiState["tags"];
-    facets: string[];
-    rows: SynthesisUiTagRow[];
-    visibleRows: SynthesisUiTagRow[];
-    stagedRows: SynthesisUiStagedTagRow[];
-    visibleStagedRows: SynthesisUiStagedTagRow[];
-    stagedCount: number;
-    stagedFacets: string[];
-    selected?: SynthesisUiTagRow;
-    validationWarnings: SynthesisUiTagValidationWarning[];
-    projection: {
-      target: string;
-      stale: boolean;
-      last_rebuild_at?: string;
-      diagnostics: unknown[];
-    };
-    manifest: Record<string, unknown>;
-    importPreview?: SynthesisUiTagImportPreview;
-    importDraft: string;
-  };
-  topicGraph: {
-    filters: SynthesisUiState["topicGraph"];
-    nodes: SynthesisUiTopicGraphNode[];
-    edges: SynthesisUiTopicGraphEdge[];
-    reviewItems: SynthesisUiTopicGraphReviewItem[];
-    visibleNodes: SynthesisUiTopicGraphNode[];
-    visibleEdges: SynthesisUiTopicGraphEdge[];
-    inspector: SynthesisUiTopicGraphInspector;
-    manifest: Record<string, unknown>;
-    projection: {
-      target: string;
-      stale: boolean;
-      last_rebuild_at?: string;
-      diagnostics: unknown[];
-    };
-    diagnostics: unknown[];
-  };
-  concepts: {
-    filters: SynthesisUiState["concepts"];
-    rows: SynthesisUiConceptRow[];
-    visibleRows: SynthesisUiConceptRow[];
-    selected?: SynthesisUiConceptRow;
-    senses: SynthesisUiConceptSenseRow[];
-    aliases: SynthesisUiConceptAliasRow[];
-    relations: Array<Record<string, unknown>>;
-    reviewItems: SynthesisUiConceptReviewItem[];
-    overlayEntries: SynthesisUiConceptOverlayEntry[];
-    conceptTypes: string[];
-    projection: {
-      target: string;
-      stale: boolean;
-      last_rebuild_at?: string;
-      diagnostics: unknown[];
-    };
-    manifest: Record<string, unknown>;
-    diagnostics: unknown[];
-  };
-  graph: {
-    filters: Omit<SynthesisUiState["graph"], "selectedElement">;
-    graph_hash: string;
-    layoutStatus: SynthesisUiCacheReadiness;
-    layoutAlgorithm: SynthesisUiLayoutAlgorithm;
-    nodeKinds: SynthesisUiGraphNode["kind"][];
-    showLowSignalReferences: boolean;
-    selectedElement?: SynthesisUiGraphElement;
-    topicScopes: SynthesisUiGraphTopicScope[];
-    selectedTopicScope?: SynthesisUiGraphTopicScope;
-    nodes: SynthesisUiGraphNode[];
-    edges: SynthesisUiGraphEdge[];
-    hoverOnlyNodes: SynthesisUiGraphNode[];
-    hoverOnlyEdges: SynthesisUiGraphEdge[];
-    diagnostics: Record<string, unknown>;
-    window: SynthesisUiGraphWindow;
-    visibleNodes: SynthesisUiGraphNode[];
-    visibleEdges: SynthesisUiGraphEdge[];
-  };
-  reader: SynthesisUiState["reader"];
-  hostCommands: SynthesisUiHostCommandName[];
-};
+export type SynthesisUiSnapshot =
+  SynthesisWorkbenchSnapshot<SynthesisWorkbenchSnapshotHostTypes>;
 
 export type SynthesisUiAction = {
   action: string;
   payload?: Record<string, unknown>;
 };
 
-export type SynthesisUiHostCommandName =
-  | "openTopicArtifact"
-  | "exportTopicSynthesisReport"
-  | "exportTopicDetailHtml"
-  | "runSynthesizeTopic"
-  | "openZoteroItem"
-  | "runMissingArtifactWorkflow"
-  | "runRegistryItemWorkflow"
-  | "openPreferences"
-  | "manualRecomputeLayout"
-  | "runTagBootstrapper"
-  | "validateTagVocabulary"
-  | "importTagVocabulary"
-  | "previewTagVocabularyImport"
-  | "applyTagVocabularyImport"
-  | "exportTagVocabulary"
-  | "updateStagedTagSuggestion"
-  | "updateTagVocabularyEntry"
-  | "deleteTagVocabularyEntry"
-  | "promoteStagedTagSuggestions"
-  | "discardStagedTagSuggestions"
-  | "clearStagedTagSuggestions"
-  | "rebuildTagVocabularyIndex"
-  | "rebuildConceptKbIndex"
-  | "deleteConceptEntry"
-  | "applyConceptReviewAction"
-  | "updateConceptDisplayText"
-  | "rebuildTopicGraphIndex"
-  | "acceptTopicGraphRelation"
-  | "rejectTopicGraphRelation"
-  | "applyTopicGraphReviewAction"
-  | "rejectTopicDiscoveryHint"
-  | "restoreTopicDiscoveryHint"
-  | "refreshReferenceSidecarNow"
-  | "retryReferenceSidecarRefresh"
-  | "runAdvancedReferenceMatchingNow"
-  | "retryAdvancedReferenceMatching"
-  | "applyReferenceMatchProposalAction"
-  | "applyReferenceMatchProposalActions"
-  | "applyCanonicalRevisionReviewAction"
-  | "mergeEffectiveCanonicalReference"
-  | "applyCanonicalRevisionMergeRequests"
-  | "updateCanonicalReferenceMetadata"
-  | "archiveCanonicalReference"
-  | "refreshCitationGraphCacheIncrementalNow"
-  | "rebuildCitationGraphCacheNow"
-  | "retryCitationGraphCacheRebuild"
-  | "deleteTopicArtifact"
-  | "purgeDeletedTopicArtifacts"
-  | "submitTopicSynthesisUpdate"
-  | "resolveTopicPaperDigest"
-  | "syncWebDavNow"
-  | "pauseWebDavSync"
-  | "resumeWebDavSync"
-  | "retryWebDavSync"
-  | "resolveWebDavSyncConflict";
+export type SynthesisUiHostCommandName = SynthesisWorkbenchHostCommandName;
 
 export type SynthesisUiHostCommand = {
   command: SynthesisUiHostCommandName;
@@ -1076,28 +553,9 @@ export type SynthesisUiHostCommand = {
 };
 
 export type SynthesisUiActionOperationStatus =
-  | "pending"
-  | "running"
-  | "queued"
-  | "completed"
-  | "failed";
-
-export type SynthesisUiActionOperation = {
-  key: string;
-  command: SynthesisUiHostCommandName;
-  status: SynthesisUiActionOperationStatus;
-  label: string;
-  started_at?: string;
-  completed_at?: string;
-  message?: string;
-};
-
-export type SynthesisUiActionStatus = {
-  inFlight: SynthesisUiActionOperation[];
-  lastCompleted?: SynthesisUiActionOperation;
-  lastFailed?: SynthesisUiActionOperation;
-  warnings: SynthesisUiActionOperation[];
-};
+  SynthesisWorkbenchActionOperationStatus;
+export type SynthesisUiActionOperation = SynthesisWorkbenchActionOperation;
+export type SynthesisUiActionStatus = SynthesisWorkbenchActionStatus;
 
 export type SynthesisUiActionResult = {
   handled: boolean;

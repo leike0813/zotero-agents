@@ -15,10 +15,7 @@ import {
   resolveSkillRunnerModelNameForProvider,
 } from "../providers/skillrunner/modelCatalog";
 import { projectAcpProviderModelOptionsForUi } from "./acpModelOptionFolding";
-import type {
-  LoadedWorkflow,
-  WorkflowParameterOption,
-} from "../workflows/types";
+import type { LoadedWorkflow } from "../workflows/types";
 import {
   localizeWorkflowLabel,
   localizeWorkflowParameters,
@@ -65,6 +62,11 @@ import {
   localizeProviderRuntimeOptionText,
   localizeWorkflowRunOptionText,
 } from "./workflowSettingsOptionLocalization";
+import type {
+  DashboardWorkflowSchemaEntry,
+  DashboardWorkflowSettingsDescriptor,
+  DashboardWorkflowSettingsProfile,
+} from "../shared/dashboardWireContract";
 
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 
@@ -78,30 +80,7 @@ type WorkflowExecutionContext = {
   providerId: string;
 };
 
-type WorkflowSettingsSchemaEntry = {
-  key: string;
-  type: "string" | "number" | "boolean" | "array";
-  title?: string;
-  description?: string;
-  placeholder?: string;
-  enumValues?: string[];
-  options?: WorkflowParameterOption[];
-  allowCustom?: boolean;
-  defaultValue?: unknown;
-  required?: boolean;
-  disabled?: boolean;
-  visibleIfProviderOption?: {
-    key: string;
-    equals: boolean;
-  };
-  diagnostics?: Array<{
-    code: string;
-    message: string;
-  }>;
-  min?: number;
-  max?: number;
-  integer?: boolean;
-};
+type WorkflowSettingsSchemaEntry = DashboardWorkflowSchemaEntry;
 
 export function rebaseWorkflowProviderOptionsForBackendChange(args: {
   workflow: LoadedWorkflow;
@@ -133,32 +112,9 @@ export function rebaseWorkflowProviderOptionsForBackendChange(args: {
   });
 }
 
-type WorkflowSettingsProfileOption = {
-  id: string;
-  label: string;
-};
+type WorkflowSettingsProfileOption = DashboardWorkflowSettingsProfile;
 
-export type WorkflowSettingsUiDescriptor = {
-  workflowId: string;
-  workflowLabel: string;
-  providerId: string;
-  requiresBackendProfile: boolean;
-  profiles: WorkflowSettingsProfileOption[];
-  profileEditable: boolean;
-  profileMissing: boolean;
-  selectedProfile: string;
-  workflowParams: Record<string, unknown>;
-  providerOptions: Record<string, unknown>;
-  runOptions: WorkflowRunOptions;
-  hostOptions: NonNullable<WorkflowExecutionOptions["hostOptions"]>;
-  hostQueueSupported: boolean;
-  workflowSchemaEntries: WorkflowSettingsSchemaEntry[];
-  providerSchemaEntries: WorkflowSettingsSchemaEntry[];
-  runSchemaEntries: WorkflowSettingsSchemaEntry[];
-  hasConfigurableSettings: boolean;
-  blockedReason?: string;
-  missingRequiredWorkflowParams: string[];
-};
+export type WorkflowSettingsUiDescriptor = DashboardWorkflowSettingsDescriptor;
 
 type WorkflowSettingsCacheEntry = {
   rawText: string;

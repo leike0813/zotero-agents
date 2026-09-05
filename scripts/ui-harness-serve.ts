@@ -252,10 +252,16 @@ async function rebuildHarnessBundles(reason: string) {
       nextPrototypeWorkspaceBundle,
     ] = await Promise.all([
       buildBrowserBundle("src/workspaceApp.ts"),
-      buildBrowserBundle("src/synthesisWorkbenchApp.ts"),
-      buildBrowserBundle("src/sidebar/assistantWorkspaceApp.js", sidebarOptions),
+      buildBrowserBundle("src/synthesisWorkbenchApp.ts", sidebarOptions),
+      buildBrowserBundle(
+        "src/sidebar/assistantWorkspaceApp.js",
+        sidebarOptions,
+      ),
       buildBrowserBundle("src/sidebar/acpChildApp.js", sidebarOptions),
-      buildBrowserBundle("src/sidebar/prototypeWorkspaceApp.js", sidebarOptions),
+      buildBrowserBundle(
+        "src/sidebar/prototypeWorkspaceApp.js",
+        sidebarOptions,
+      ),
     ]);
     workspaceBundle = nextWorkspaceBundle;
     synthesisBundle = nextSynthesisBundle;

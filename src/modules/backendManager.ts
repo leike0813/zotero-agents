@@ -55,6 +55,7 @@ import {
   listGenericHttpBackendPresets,
 } from "./genericHttpBackendPresets";
 import { getRuntimeCommandRegistrySnapshot } from "../platform/command";
+import type { BackendManagerActionEnvelope } from "../shared/dashboardWireContract";
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const PROVIDER_SECTIONS = [
@@ -187,12 +188,6 @@ type BackendManagerSnapshot = {
       diagnostic?: string;
     };
   };
-};
-
-type BackendManagerActionEnvelope = {
-  type: "backend-manager-dialog:action";
-  action: string;
-  payload?: Record<string, unknown>;
 };
 
 type OpenBackendManagerDialogArgs = {
@@ -2682,7 +2677,10 @@ export async function openBackendManagerDialog(
         activeBackendManagerFrameWindow = frameWindow;
         const envelope = data as BackendManagerActionEnvelope;
         const action = String(envelope.action || "").trim();
-        const payload = envelope.payload || {};
+        const payload =
+          envelope.payload && typeof envelope.payload === "object"
+            ? envelope.payload
+            : {};
         if (action === "ready") {
           pushSnapshot("backend-manager-dialog:init");
           return;

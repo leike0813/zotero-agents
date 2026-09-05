@@ -25,37 +25,14 @@ import type {
   WorkflowResolvedArtifact,
   WorkflowResultContext,
 } from "./workflowExecution/resultContext";
+import type {
+  DashboardWorkflowProduct,
+  DashboardWorkflowProductAsset,
+  DashboardWorkflowProductPreview,
+} from "../shared/dashboardWireContract";
 
-export type WorkflowProductAsset = {
-  assetId: string;
-  label: string;
-  relativePath: string;
-  contentType?: string;
-  availability: "available" | "missing";
-  size?: number;
-  sha256?: string;
-  diagnostics?: string[];
-};
-
-export type WorkflowProductRecord = {
-  schemaVersion: 2;
-  productId: string;
-  productKey: string;
-  kind: string;
-  title: string;
-  workflowId: string;
-  workflowLabel: string;
-  backendId?: string;
-  backendType: string;
-  runKey?: string;
-  requestId: string;
-  runId?: string;
-  storageRevision: string;
-  assets: WorkflowProductAsset[];
-  metadata: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-};
+export type WorkflowProductAsset = DashboardWorkflowProductAsset;
+export type WorkflowProductRecord = DashboardWorkflowProduct;
 
 export type WorkflowProductRegistrationReceipt = {
   productId: string;
@@ -64,28 +41,7 @@ export type WorkflowProductRegistrationReceipt = {
   missingAssetCount: number;
 };
 
-export type WorkflowProductPreview = {
-  productId: string;
-  assetId: string;
-  path: string;
-  exists: boolean;
-  previewable: boolean;
-  truncated: boolean;
-  kind:
-    | "markdown"
-    | "json"
-    | "yaml"
-    | "toml"
-    | "latex"
-    | "text"
-    | "binary"
-    | "missing";
-  language: string;
-  text: string;
-  formattedText?: string;
-  size?: number;
-  error?: string;
-};
+export type WorkflowProductPreview = DashboardWorkflowProductPreview;
 
 export type ProductStorageAssetSource =
   | { kind: "result-artifact"; rawPath?: unknown; fallbackPath?: string }

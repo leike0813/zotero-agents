@@ -155,10 +155,13 @@ describe("backend manager risk regression", function () {
       "addon/content/dashboard/backend-manager.html",
       "utf8",
     );
-    const js = readFileSync(
-      "addon/content/dashboard/backend-manager.js",
-      "utf8",
-    );
+    const js = [
+      "src/dashboard/backendManagerApp.ts",
+      "src/dashboard/backendManagerRenderer.ts",
+      "src/dashboard/components/BackendManagerRegion.tsx",
+    ]
+      .map((path) => readFileSync(path, "utf8"))
+      .join("\n");
     const css = readFileSync(
       "addon/content/dashboard/backend-manager.css",
       "utf8",
@@ -223,19 +226,17 @@ describe("backend manager risk regression", function () {
       'PROVIDER_ORDER = ["acp", "skillrunner", "generic-http"]',
     );
     assert.include(js, "backend-provider-tabs");
-    assert.include(js, "renderAcpPresetDialog");
-    assert.include(js, "renderGenericHttpPresetDialog");
-    assert.include(js, "state.genericHttpPresetDialog");
+    assert.include(js, "BackendManagerAcpPresetDialogRegion");
+    assert.include(js, "BackendManagerGenericHttpPresetDialogRegion");
+    assert.include(js, "genericHttpPresetDialog");
     assert.include(js, "genericHttpPresetList");
     assert.include(js, "add-generic-http-preset");
     assert.include(js, "open-preset-link");
     assert.include(js, "authTokenPlaceholder");
-    assert.include(
-      js,
-      "function renderProvider(provider) {\n    const l = labels();",
-    );
-    assert.include(js, 'el("p", "backend-empty", l.noProfiles');
-    assert.include(js, "state.acpPresetDialog");
+    assert.include(js, "backend-provider-section");
+    assert.include(js, "backend-empty");
+    assert.include(js, "noProfiles");
+    assert.include(js, "acpPresetDialog");
     assert.include(js, "backend-preset-modal");
     assert.include(js, "backend-preset-preview");
     assert.include(js, "isNpxUnavailable");
@@ -249,20 +250,21 @@ describe("backend manager risk regression", function () {
     assert.notInclude(js, "state.acpSelectedPresetId");
     assert.include(js, "backend-http-grid");
     assert.include(js, "backend-acp-grid");
-    assert.include(js, 'input.type = "password"');
-    assert.include(js, 'input.autocomplete = "off"');
-    assert.include(js, "state.scrollByProvider");
-    assert.include(js, "state.pendingModelCacheRows");
-    assert.include(js, "state.skillRunnerReachableById");
+    assert.include(js, 'type="password"');
+    assert.include(js, 'autocomplete="off"');
+    assert.include(js, "scrollByProvider");
+    assert.include(js, "pendingModelCacheRows");
+    assert.include(js, "skillRunnerReachableById");
     assert.include(js, "syncSkillRunnerReachabilityFromSnapshot");
     assert.include(js, "showStatusMessage");
-    assert.include(js, "rememberScroll");
-    assert.include(js, "restoreScroll");
+    assert.include(js, "reportBodyScroll");
+    assert.include(js, "restoreBodyScrollTop");
+    assert.include(js, 'data-zs-role="backend-manager-body"');
     assert.include(js, "preventDefault");
     assert.include(js, "providerAddLabel");
     assert.include(js, "/\\{\\s*\\$provider\\s*\\}/g");
-    assert.include(js, "renderArgEditor");
-    assert.include(js, "renderEnvEditor");
+    assert.include(js, "ArgEditor");
+    assert.include(js, "EnvEditor");
     assert.include(js, "draft-changed");
     assert.include(css, ".backend-manager-root");
     assert.include(css, ".backend-manager-page body");

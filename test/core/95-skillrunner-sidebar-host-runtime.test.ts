@@ -149,8 +149,8 @@ describe("skillrunner sidebar host runtime", function () {
       "src/modules/taskManagerDialog.ts",
     );
     const workspaceTab = await readProjectFile("src/modules/workspaceTab.ts");
-    const dashboardApp = await readProjectFile(
-      "addon/content/dashboard/app.js",
+    const backendRegion = await readProjectFile(
+      "src/dashboard/components/BackendRegion.tsx",
     );
     const dashboardCss = await readProjectFile(
       "addon/content/dashboard/styles.css",
@@ -171,11 +171,11 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(taskManager, 'action === "mount-management-host"');
     assert.include(taskManager, 'action === "open-management-external"');
     assert.include(taskManager, "args.managementHost.mount");
-    assert.include(dashboardApp, "renderSkillRunnerManagementSubview");
-    assert.include(dashboardApp, "skillrunner-management-dashboard-host");
-    assert.include(dashboardApp, 'sendAction("mount-management-host"');
-    assert.include(dashboardApp, 'sendAction("show-runs"');
-    assert.include(dashboardApp, 'sendAction("open-management-external"');
+    assert.include(backendRegion, "function SkillRunnerManagementSubview");
+    assert.include(backendRegion, "skillrunner-management-dashboard-host");
+    assert.include(backendRegion, 'onAction("mount-management-host"');
+    assert.include(backendRegion, 'onAction("show-runs"');
+    assert.include(backendRegion, 'onAction("open-management-external"');
     assert.include(dashboardCss, ".management-host-panel");
     assert.include(dashboardCss, ".management-host-mount");
     assert.include(dashboardCss, ".management-host-frame");

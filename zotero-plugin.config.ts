@@ -3,7 +3,10 @@ import path from "node:path";
 import pkg from "./package.json";
 import { assertPluginHostBridgeAssets } from "./scripts/check-plugin-host-bridge-assets";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
-import { runtimeDiagnosticsSideEffectsPlugin } from "./scripts/runtime-diagnostics-esbuild";
+import {
+  dashboardSynthesisSidecarRegionElisionPlugin,
+  runtimeDiagnosticsSideEffectsPlugin,
+} from "./scripts/runtime-diagnostics-esbuild";
 import {
   ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
   ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
@@ -187,6 +190,8 @@ export default defineConfig({
       },
       {
         entryPoints: ["src/synthesisWorkbenchApp.ts"],
+        jsx: "automatic",
+        jsxImportSource: "preact",
         define: {
           __debug_mode__: String(DEBUG_MODE),
         },
@@ -196,7 +201,17 @@ export default defineConfig({
         outfile: ".scaffold/build/addon/content/synthesis/app.bundle.js",
       },
       {
-        entryPoints: ["addon/content/dashboard/app.js"],
+        entryPoints: ["src/synthesis/standaloneTopicApp.ts"],
+        bundle: true,
+        minifySyntax: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
+        target: "firefox115",
+        outfile:
+          ".scaffold/build/addon/content/synthesis/topic-export.bundle.js",
+      },
+      {
+        entryPoints: ["src/dashboard/dashboardApp.ts"],
         define: {
           __debug_mode__: String(DEBUG_MODE),
           __synthesis_sidecar_diagnostics_enabled__: String(
@@ -205,8 +220,36 @@ export default defineConfig({
         },
         bundle: true,
         minifySyntax: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
+        plugins: [dashboardSynthesisSidecarRegionElisionPlugin],
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/dashboard/app.js",
+      },
+      {
+        entryPoints: ["src/dashboard/workflowSettingsDialogApp.ts"],
+        define: {
+          __debug_mode__: String(DEBUG_MODE),
+          __synthesis_sidecar_diagnostics_enabled__: String(
+            SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
+          ),
+        },
+        bundle: true,
+        minifySyntax: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
+        target: "firefox115",
+        outfile:
+          ".scaffold/build/addon/content/dashboard/workflow-settings-dialog.js",
+      },
+      {
+        entryPoints: ["src/dashboard/backendManagerApp.ts"],
+        bundle: true,
+        minifySyntax: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/dashboard/backend-manager.js",
       },
       {
         entryPoints: ["src/workspaceApp.ts"],

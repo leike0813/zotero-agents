@@ -30,6 +30,7 @@ import {
   normalizeWorkflowRunOptions,
   type WorkflowRunOptions,
 } from "../workflows/zoteroHostAccessOptions";
+import type { WorkflowSettingsDialogActionEnvelope } from "../shared/dashboardWireContract";
 
 const WORKFLOW_SETTINGS_DIALOG_WIDTH = 700;
 const WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540;
@@ -150,12 +151,6 @@ type WorkflowSettingsDialogSnapshot = {
     canRefreshSkillRunnerModelCache?: boolean;
   };
   persistChecked: boolean;
-};
-
-type WorkflowSettingsDialogActionEnvelope = {
-  type: "workflow-settings-dialog:action";
-  action: string;
-  payload?: Record<string, unknown>;
 };
 
 type WorkflowSettingsDialogResult =
@@ -687,12 +682,12 @@ export async function openWorkflowSettingsWebDialog(args: {
       if (!action) {
         return;
       }
+      const payload = isObject(envelope.payload) ? envelope.payload : {};
       if (action === "ready") {
         pushSnapshot("workflow-settings-dialog:init");
         return;
       }
       if (action === "update-draft") {
-        const payload = envelope.payload || {};
         const changedSection = normalizeDraftChangedSection(
           payload.changedSection,
         );
@@ -732,12 +727,12 @@ export async function openWorkflowSettingsWebDialog(args: {
         return;
       }
       if (action === "toggle-persist") {
-        persistChecked = envelope.payload?.checked !== false;
+        persistChecked = payload.checked !== false;
         pushSnapshot("workflow-settings-dialog:snapshot");
         return;
       }
       if (action === "resize-to-content") {
-        resizeWorkflowSettingsDialogToContent(envelope.payload?.contentHeight);
+        resizeWorkflowSettingsDialogToContent(payload.contentHeight);
         return;
       }
       if (action === "refresh-acp-runtime-cache") {
@@ -828,18 +823,14 @@ export async function openWorkflowSettingsWebDialog(args: {
         let finalExecutionOptions: WorkflowExecutionOptions;
         try {
           const payloadExecutionOptions = normalizeExecutionOptions(
-            isObject(envelope.payload)
-              ? (envelope.payload.executionOptions as unknown)
-              : undefined,
+            payload.executionOptions,
           );
-          finalExecutionOptions =
-            isObject(envelope.payload) &&
-            Object.prototype.hasOwnProperty.call(
-              envelope.payload,
-              "executionOptions",
-            )
-              ? payloadExecutionOptions
-              : normalizeExecutionOptions(draft);
+          finalExecutionOptions = Object.prototype.hasOwnProperty.call(
+            payload,
+            "executionOptions",
+          )
+            ? payloadExecutionOptions
+            : normalizeExecutionOptions(draft);
           hostValidationReasonCode = "";
         } catch {
           hostValidationReasonCode = "invalid_host_queue_max_concurrency";

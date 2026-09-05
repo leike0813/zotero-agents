@@ -210,6 +210,14 @@ body {
   container-name: main-view;
 }
 
+/* Preact region mounts and region roots are layout-transparent wrappers (see
+   src/shared/preactRegionMount.ts); without this they would break the
+   flex/min-height chains of fill-height surfaces. */
+.region-managed-view,
+.region-managed-view > [data-region-content] {
+  display: contents;
+}
+
 .main.skillrunner-fill {
   display: flex;
   flex-direction: column;
