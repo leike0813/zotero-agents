@@ -3,6 +3,10 @@ import { readFile } from "fs/promises";
 import { handlers } from "../../src/handlers";
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflowExecute";
 import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import {
   clearRuntimeLogs,
   listRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
@@ -2509,12 +2513,23 @@ describe("workflow execution seams", function () {
       },
     } as unknown as _ZoteroTypes.MainWindow;
 
+    setZoteroLibrarySourcePageQueryAdapterForTests({
+      async queryAsync(_sql, _params, context) {
+        assert.include([parentA.id, parentB.id], context.criteria.parentItemId);
+        assert.include(["notes", "attachments", "annotations"], context.domain);
+        return context.kind === "count" ? [{ total: 0 }] : [];
+      },
+      async hydrateItems() {
+        assert.fail("the fixture parents have no children to hydrate");
+      },
+    });
     try {
       await executeWorkflowFromCurrentSelection({
         win,
         workflow: workflow!,
       });
     } finally {
+      resetZoteroLibrarySourcePageQueryAdapterForTests();
       if (createdToolkit) {
         delete runtime.ztoolkit;
       } else {

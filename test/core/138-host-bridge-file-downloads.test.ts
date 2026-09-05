@@ -28,6 +28,10 @@ import {
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
 import { setPref } from "../../src/utils/prefs";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -606,27 +610,45 @@ describe("host bridge file downloads", function () {
     const parent = new Zotero.Item("journalArticle");
     parent.setField("title", "Bridge Attachment Parent");
     await parent.saveTx();
-    const previousGet = Zotero.Items.get;
     const attachmentId = 991234;
-    (parent as any).getAttachments = () => [attachmentId];
-    (Zotero.Items as any).get = (id: number) => {
-      if (id === attachmentId) {
-        return {
-          id: attachmentId,
-          key: "ATTACH1",
-          libraryID: Zotero.Libraries.userLibraryID,
-          parentItemID: parent.id,
-          getField: (field: string) =>
-            field === "title"
-              ? "Attachment"
-              : field === "contentType"
-                ? "text/plain"
-                : "",
-          getFilePathAsync: async () => filePath,
-        };
-      }
-      return previousGet.call(Zotero.Items, id);
-    };
+    const attachment = {
+      id: attachmentId,
+      key: "ATTACH01",
+      itemType: "attachment",
+      libraryID: Zotero.Libraries.userLibraryID,
+      parentItemID: parent.id,
+      deleted: false,
+      version: 1,
+      attachmentLinkMode: 0,
+      attachmentFilename: "attachment.txt",
+      attachmentContentType: "text/plain",
+      fileSize: 16,
+      isNote: () => false,
+      isAttachment: () => true,
+      isRegularItem: () => false,
+      getAttachmentLinkMode: () => 0,
+      getCollections: () => [],
+      getTags: () => [],
+      getField: (field: string) =>
+        field === "title"
+          ? "Attachment"
+          : field === "contentType"
+            ? "text/plain"
+            : "",
+      getFilePathAsync: async () => filePath,
+    } as unknown as Zotero.Item;
+    setZoteroLibrarySourcePageQueryAdapterForTests({
+      async queryAsync(_sql, _params, context) {
+        if (context.domain !== "attachments") {
+          return context.kind === "count" ? [{ total: 0 }] : [];
+        }
+        if (context.kind === "count") return [{ total: 1 }];
+        return [{ itemID: attachmentId }];
+      },
+      async hydrateItems(ids) {
+        return ids.filter((id) => id === attachmentId).map(() => attachment);
+      },
+    });
 
     try {
       const parsed = await bridgeRequest({
@@ -648,14 +670,14 @@ describe("host bridge file downloads", function () {
       assert.notProperty(attachment, "path");
       assert.notInclude(parsed.body, filePath);
       assert.deepInclude(attachmentPage, {
-        nextCursor: "",
+        nextCursor: null,
         hasMore: false,
         returned: 1,
         total: 1,
         limit: 25,
       });
     } finally {
-      (Zotero.Items as any).get = previousGet;
+      resetZoteroLibrarySourcePageQueryAdapterForTests();
       await parent.eraseTx();
       await fs.rm(root, { recursive: true, force: true });
     }

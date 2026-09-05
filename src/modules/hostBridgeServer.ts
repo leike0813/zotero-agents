@@ -154,6 +154,11 @@ import type { BackendInstance } from "../backends/types";
 import { invalidateDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import { getPref, setPref } from "../utils/prefs";
 import {
+  createCancellationController,
+  type CancellationController,
+  type CancellationSignal,
+} from "../utils/wait";
+import {
   beginHostHttpRequestRead,
   HostHttpRequestReadError,
   type HostHttpRequestReadResult,
@@ -214,6 +219,7 @@ type HttpRequest = {
   body: string;
   bodyBytes: Uint8Array;
   bodyByteLength: number;
+  signal?: CancellationSignal;
   parseError?: string;
 };
 
@@ -250,6 +256,7 @@ type AcceptedHostConnection = {
   transportContext: HostBridgeTransportContext;
   outputStream: any;
   requestRead: ProfiledHostBridgeRequestReadOperation;
+  requestControl: CancellationController;
   responseTransfer?:
     | RuntimeFileResponseTransfer
     | RuntimeMemoryResponseTransfer;
@@ -1525,6 +1532,10 @@ function methodNotAllowed(message: string, allow: string) {
   );
 }
 
+function requestWorkflowCallControl(request: HttpRequest) {
+  return request.signal ? { signal: request.signal } : undefined;
+}
+
 async function callCapability(
   request: HttpRequest,
   transportContext: HostBridgeTransportContext,
@@ -1629,6 +1640,7 @@ async function callCapability(
       {
         getStatus: getHostBridgeServerStatus,
         connectionMode: parseConnectionModeHeader(request, transportContext),
+        control: requestWorkflowCallControl(request),
         ...(synthesisClientResolverForTests
           ? { resolveSynthesisClient: synthesisClientResolverForTests }
           : {}),
@@ -3999,6 +4011,7 @@ async function getSynthesisCacheStatus(
       {
         getStatus: getHostBridgeServerStatus,
         connectionMode: parseConnectionModeHeader(request, transportContext),
+        control: requestWorkflowCallControl(request),
         ...(synthesisClientResolverForTests
           ? { resolveSynthesisClient: synthesisClientResolverForTests }
           : {}),
@@ -4737,6 +4750,7 @@ function closeTransportOnce(connection: AcceptedHostConnection) {
 }
 
 function abortAcceptedConnection(connection: AcceptedHostConnection) {
+  connection.requestControl.abort();
   connection.requestRead.abort();
   connection.responseTransfer?.abort();
   closeOutputOnce(connection);
@@ -4758,6 +4772,7 @@ async function processAcceptedConnection(connection: AcceptedHostConnection) {
   let responseWriteStarted = false;
   try {
     const request = await connection.requestRead.completion;
+    request.signal = connection.requestControl.signal;
     if (connection.generation !== serverGeneration) {
       return;
     }
@@ -4832,6 +4847,7 @@ function listen(serverSocket: any, generation: number) {
       let inputStream: any;
       let outputStream: any;
       let requestRead: ProfiledHostBridgeRequestReadOperation | undefined;
+      const requestControl = createCancellationController();
       try {
         outputStream = transport.openOutputStream(0, 0, 0);
         inputStream = transport.openInputStream(0, 0, 0);
@@ -4842,12 +4858,14 @@ function listen(serverSocket: any, generation: number) {
           transportContext: transportContextFromAcceptedTransport(transport),
           outputStream,
           requestRead,
+          requestControl,
           outputClosed: false,
           transportClosed: false,
         };
         acceptedConnections.add(connection);
         void processAcceptedConnection(connection);
       } catch (error) {
+        requestControl.abort();
         requestRead?.abort();
         if (!requestRead) {
           try {
@@ -5303,6 +5321,7 @@ export async function handleHostBridgeHttpRequestForTests(args: {
   rawRequestBytes?: Uint8Array;
   peerHost?: string;
   peerPort?: number;
+  signal?: CancellationSignal;
   disableAutomaticOperationId?: boolean;
 }) {
   const transportContext = transportContextFromAcceptedTransport({
@@ -5314,6 +5333,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
       parseHttpRequestBytes(args.rawRequestBytes),
       args.disableAutomaticOperationId === true,
     );
+    if (args.signal) {
+      request.signal = args.signal;
+    }
     const raw = await handleHttpRequest(request, transportContext);
     if (raw.kind === "memory") {
       return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
@@ -5333,6 +5355,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     bodyByteLength: utf8ByteLength(body),
     parseError: parsedPath.parseError,
   };
+  if (args.signal) {
+    request.signal = args.signal;
+  }
   const raw = await handleHttpRequest(
     ensureTestOperationId(request, args.disableAutomaticOperationId === true),
     transportContext,

@@ -10,6 +10,7 @@ import { copyTextToClipboard } from "../../lib/clipboard.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import {
   portableItemRef,
+  readHostPages,
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
@@ -321,10 +322,13 @@ async function collectNotesFromItem(host, detail) {
   }
   const parentRef = detail.kind === "regular" ? detail.item.ref : detail.item.parentRef;
   if (!parentRef) return [];
+  const notes = await readHostPages({
+    readPage: (page) => host.library.getItemNotes(parentRef, page),
+    getItems: (page) => page.notes,
+    operation: "debug note inspector read",
+  });
   return Promise.all(
-    (await host.library.getItemNotes(parentRef)).map((note) =>
-      host.library.getNoteDetail(note.ref, { format: "html" }),
-    ),
+    notes.map((note) => host.library.getNoteDetail(note.ref, { format: "html" })),
   );
 }
 
@@ -363,8 +367,12 @@ async function resolveAttachmentDetail(host, noteItem, attachmentRef, runtime) {
   if (!key || !noteItem) {
     return detail;
   }
-  const attachment = (await host.library.getItemAttachments(noteItem.ref))
-    .find((entry) => entry.ref.key === key);
+  const attachments = await readHostPages({
+    readPage: (page) => host.library.getItemAttachments(noteItem.ref, page),
+    getItems: (page) => page.attachments,
+    operation: "debug note inspector attachment read",
+  });
+  const attachment = attachments.find((entry) => entry.ref.key === key);
   if (!attachment) {
     return detail;
   }
@@ -472,7 +480,12 @@ export async function analyzeNoteItemForDebug(args) {
     seenAttachments.add(seenKey);
     attachmentDetails.push(detail);
   }
-  for (const ref of await args.host.library.getItemAttachments(noteItem.ref)) {
+  const attachments = await readHostPages({
+    readPage: (page) => args.host.library.getItemAttachments(noteItem.ref, page),
+    getItems: (page) => page.attachments,
+    operation: "debug note inspector attachment read",
+  });
+  for (const ref of attachments) {
     const detail = await resolveAttachmentDetail(
       args.host,
       noteItem,

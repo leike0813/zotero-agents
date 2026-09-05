@@ -206,7 +206,7 @@ contradiction test:
 5. 分别验证选项和 provider profile。
 6. 目前提交范围和当前授权。
 
-执行：
+Execution:
 
 - 四个附件作为单独的单元提交。
 - 三跑成功。
@@ -260,7 +260,7 @@ contradiction test:
 - 精确的数字提取需要可检查的内容和页面locators。
 - OCR 的不确定性必须保持可见。
 
-执行：
+Execution:
 
 1. 解析精确的扫描附件。
 2. 传送并验证字节。

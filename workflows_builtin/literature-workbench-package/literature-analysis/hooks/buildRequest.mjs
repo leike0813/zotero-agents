@@ -1,5 +1,6 @@
 import {
   portableItemRef,
+  readHostPages,
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
@@ -119,8 +120,14 @@ async function resolveReadinessNoteKind(host, note) {
 async function inspectReadiness(parentItem, manifest, runtime) {
   const spec = resolveReadinessSpec(manifest);
   const host = requireHostApi(runtime);
+  const noteSummaries = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemNotes(portableItemRef(parentItem), page),
+    getItems: (page) => page.notes,
+    operation: "literature-analysis readiness note read",
+  });
   const notes = await Promise.all(
-    (await host.library.getItemNotes(portableItemRef(parentItem))).map(async (note) => {
+    noteSummaries.map(async (note) => {
       return { note, kind: await resolveReadinessNoteKind(host, note) };
     }),
   );

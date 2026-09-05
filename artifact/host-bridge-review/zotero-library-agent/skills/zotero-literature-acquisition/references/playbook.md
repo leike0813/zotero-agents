@@ -227,7 +227,7 @@ next_action: report | import-proposal | acquire-file | human-review
 - 当前 Zotero 匹配；
 - 导入还是再利用的决定；
 - 集合会员效应；
-- 附件来源和预期准备情况；
+- attachment source and expected readiness;
 - 元数据冲突；
 - 未修改的字段；
 - 批准和验证路径。
@@ -239,7 +239,7 @@ next_action: report | import-proposal | acquire-file | human-review
 3. 除非单独批准，否则请在批处理之外保留合并、覆盖、删除和重新链接。
 4. 如果使用了 workflow，则验证 workflow 选项和 provider profile。
 
-执行：
+Execution:
 
 1. 提交或申请批准的批次一次。
 2. 保留操作/workflowhandles。

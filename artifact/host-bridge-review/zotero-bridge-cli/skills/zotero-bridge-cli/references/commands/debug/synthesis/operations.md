@@ -2,30 +2,30 @@
 
 List debug-only Synthesis explicit operations
 
-## 用法
+## Usage
 
 ```console
 zotero-bridge debug synthesis operations [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--input <JSON_OR_FILE>]
 ```
 
-全局选项可位于叶命令之前或之后。 使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
+The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
 
-## 全局参数
+## Global parameters
 
-| Token | Id | 类型 | 必填 | 条件必填 | 值 / 数量 | 可重复 | 环境变量 | 冲突 | 说明 |
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge service endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports. |
 | --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | Opaque idempotency id for a state-changing Zotero request |
 | --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Path to a Zotero Bridge connection-profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions. |
 | --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | Print the versioned raw JSON Schemas and governed examples for one canonical leaf command. Schema mode is offline and does not load a profile, read Zotero Bridge configuration, or connect to Zotero. |
 
-## 本地选项与位置参数
+## Local options and positionals
 
-| Token | Id | 类型 | 必填 | 条件必填 | 值 / 数量 | 可重复 | 环境变量 | 冲突 | 说明 |
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | --input | input | option | no | — | JSON_OR_FILE | no | — | — | Debug capability input as inline JSON, a file path, @file, or '-' for stdin |
 
-## 调用 schema
+## Invocation schema
 
 ```json
 {
@@ -41,11 +41,11 @@ zotero-bridge debug synthesis operations [--endpoint <ENDPOINT>] [--operation-id
 }
 ```
 
-## 结构化输入 schema
+## Structured input schemas
 
 ### `--input` (input)
 
-必填： `false`.
+Required: `false`.
 
 ```json
 {
@@ -55,7 +55,7 @@ zotero-bridge debug synthesis operations [--endpoint <ENDPOINT>] [--operation-id
 }
 ```
 
-## 组合 payload schema
+## Composed payload schema
 
 ```json
 {
@@ -65,13 +65,13 @@ zotero-bridge debug synthesis operations [--endpoint <ENDPOINT>] [--operation-id
 }
 ```
 
-## Payload 组合
+## Payload composition
 
-这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
 
 `composition`: `null`.
 
-## 结果 schema
+## Result schema
 
 ```json
 {
@@ -108,7 +108,7 @@ zotero-bridge debug synthesis operations [--endpoint <ENDPOINT>] [--operation-id
 }
 ```
 
-## 示例
+## Examples
 
 ### input: shape-only
 
@@ -118,13 +118,13 @@ zotero-bridge debug synthesis operations [--endpoint <ENDPOINT>] [--operation-id
 zotero-bridge debug synthesis operations --input '{}'
 ```
 
-前置条件：
+Prerequisites:
 
-- 执行前，请将示例标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
+- Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution.
 
-## 完整命令 descriptor
+## Complete command descriptor
 
-这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
+This closed descriptor is the machine-readable command contract returned by `surface describe`; it is included here so the card remains independently auditable without loading another command reference.
 
 ```json
 {
@@ -289,29 +289,29 @@ zotero-bridge debug synthesis operations --input '{}'
 }
 ```
 
-## 参数失败与恢复合同
+## Parameter failure and recovery contract
 
-参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
 
-- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
-- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
-- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
-- `command_input` 表示结构化输入违反 schema。检查有界的 `violations`，然后对这个准确的叶命令运行 `--schema`，修正已声明的字段或类型；不得自行发明别名。
-- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
-- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
-- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
-## 操作合同
+## Operational contract
 
 - 规范 argv 路径： `debug` `synthesis` `operations`.
 - 输出边界： `limit`；受管详情： {"defaultLimit":25,"maxLimit":100,"section":"data.rows","strategy":"limit","truncatedField":"data.truncated"}.
-- 分页： `none`.
+- Pagination: `none`.
 - 类别： `debug`；危险等级： `none`.
 - 结构化 binding 模式： `passthrough`.
 - intent 可见性： `hidden`.
 - 操作别名： `debug synthesis operations`, `debug`, `synthesis`, `operations`, `input`, `JSON_OR_FILE`.
 
-### 效果
+### Effects
 
 ```json
 [
@@ -333,14 +333,14 @@ zotero-bridge debug synthesis operations --input '{}'
 }
 ```
 
-### Handle 转换
+### Handle transitions
 
 ```json
 [
 ]
 ```
 
-### 恢复
+### Recovery
 
 ```json
 [

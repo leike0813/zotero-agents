@@ -109,7 +109,7 @@ dispatcher.
 | `diagnostic` | 2 | `diagnostic.get_status`, `synthesis.operation.get` |
 | `insights` | 1 | `insights.get_attention_queue` |
 | `items` | 1 | `items.export_research_bundle` |
-| `library` | 12 | `library.export_annotations`, `library.get_item_attachments`, `library.get_item_detail`, `library.get_item_notes`, `library.get_note_detail`, `library.get_note_payload`, `library.list_annotations`, `library.list_items`, `library.list_note_payloads`, `library.readiness_audit`, `library.search_items`, `library.sync_snapshot` |
+| `library` | 13 | `library.export_annotations`, `library.get_item_attachments`, `library.get_item_detail`, `library.get_item_notes`, `library.get_note_detail`, `library.get_note_payload`, `library.list_annotations`, `library.list_items`, `library.list_note_payloads`, `library.list_saved_searches`, `library.readiness_audit`, `library.search_items`, `library.sync_snapshot` |
 | `library_index` | 1 | `library_index.get` |
 | `mutation` | 3 | `mutation.execute`, `mutation.preview`, `workflow_products.remove` |
 | `paper_artifacts` | 4 | `paper_artifacts.export_filtered`, `paper_artifacts.get_manifest`, `paper_artifacts.read`, `paper_artifacts.resolve_topic_digest` |

@@ -62,12 +62,14 @@ function copyTree(
 ) {
   for (const file of listFiles(root, source)) {
     const local = relative(source, file).replace(/\\/g, "/");
-    if (filter(local)) result.set(join(target, local), read(root, file));
+    if (filter(local))
+      result.set(join(target, local).replace(/\\/g, "/"), read(root, file));
   }
 }
 
 function merge(target: ContentMap, source: ContentMap, prefix = "") {
-  for (const [path, content] of source) target.set(join(prefix, path), content);
+  for (const [path, content] of source)
+    target.set(join(prefix, path).replace(/\\/g, "/"), content);
 }
 
 function sha256(content: string) {
@@ -1224,7 +1226,7 @@ function applyContent(args: {
   }
   if (args.prune) {
     for (const existing of listFiles(args.outputRoot, args.targetRoot)) {
-      const local = relative(args.targetRoot, existing);
+      const local = relative(args.targetRoot, existing).replace(/\\/g, "/");
       if (args.content.has(local)) continue;
       changes.push(existing);
       if (!args.check) rmSync(join(args.outputRoot, existing));

@@ -187,7 +187,7 @@ limitation: unavailable pages, stale status, mixed source levels, or unresolved 
 - 询问如果全文覆盖会严重改变答案，元数据/摘要搜索是否足够。
 - 声明使用的同义词和过滤器。
 
-执行：
+Execution:
 
 1. 解决实时库范围。
 2. 运行狭义语义搜索。
@@ -245,7 +245,7 @@ limitation: unavailable pages, stale status, mixed source levels, or unresolved 
 - 所选附件和父项目必须均保持可识别。
 - 该任务是只读的。
 
-执行：
+Execution:
 
 1. 解析选定的附件。
 2. 检查附件元数据并确认可读媒体类型。

@@ -98,9 +98,42 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "additionalProperties": true,
-  "type": "object",
-  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "enum": [
+        "html",
+        "text"
+      ],
+      "type": "string"
+    },
+    "id": {
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "key": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "libraryId": {
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "maxChars": {
+      "maximum": 16000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "offset": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "type": "object"
 }
 ```
 
@@ -540,9 +573,42 @@ This closed descriptor is the machine-readable command contract returned by `sur
   },
   "pagination": "cursor",
   "payloadSchema": {
-    "additionalProperties": true,
-    "type": "object",
-    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+    "additionalProperties": false,
+    "properties": {
+      "format": {
+        "enum": [
+          "html",
+          "text"
+        ],
+        "type": "string"
+      },
+      "id": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "key": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "libraryId": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "maxChars": {
+        "maximum": 16000,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "offset": {
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "type": "object"
   },
   "recovery": [
     {

@@ -9,7 +9,10 @@ import {
   WORKFLOW_HOST_API_MANIFEST,
   WORKFLOW_HOST_API_VERSION,
 } from "../../../src/workflows/workflowHostContract";
-import { requireHostApi } from "../../../workflows_builtin/literature-workbench-package/lib/runtime.mjs";
+import {
+  readHostPages,
+  requireHostApi,
+} from "../../../workflows_builtin/literature-workbench-package/lib/runtime.mjs";
 import {
   createWorkflowAddonOwner,
   createWorkflowEnvironmentOwner,
@@ -20,6 +23,7 @@ import {
   installRuntimeBridgeOverrideForTests,
   resetRuntimeBridgeOverrideForTests,
 } from "../../../src/utils/runtimeBridge";
+import { detectRuntimePlatform } from "../../../src/platform/runtimePlatform";
 
 const V12_CALLABLE_PATHS = [
   "addon.getConfig",
@@ -34,6 +38,7 @@ const V12_CALLABLE_PATHS = [
   "library.traverseItems",
   "library.withItemSnapshot",
   "library.listCollections",
+  "library.listSavedSearches",
   "library.getItemDetail",
   "library.getItemNotes",
   "library.getNoteDetail",
@@ -137,7 +142,7 @@ describe("Workflow Host contract governance", function () {
       21,
     );
     const callablePaths = collectCallablePaths(WORKFLOW_HOST_API_MANIFEST);
-    assert.lengthOf(callablePaths, 87);
+    assert.lengthOf(callablePaths, 88);
     assert.sameMembers(callablePaths, V12_CALLABLE_PATHS);
   });
 
@@ -262,6 +267,74 @@ describe("Workflow Host contract governance", function () {
         );
       }
     }
+  });
+
+  it("follows empty nonterminal source pages until completion", async function () {
+    const calls: Array<{ limit: number; cursor?: string }> = [];
+    const notes = await readHostPages({
+      operation: "workflow note read",
+      readPage: async (request: { limit: number; cursor?: string }) => {
+        calls.push(request);
+        if (!request.cursor) {
+          return {
+            notes: [],
+            limit: request.limit,
+            nextCursor: "opaque-next",
+            hasMore: true,
+            returned: 0,
+            total: 1,
+          };
+        }
+        return {
+          notes: [{ ref: { libraryId: 1, key: "NOTE0001" } }],
+          limit: request.limit,
+          nextCursor: null,
+          hasMore: false,
+          returned: 1,
+          total: 1,
+        };
+      },
+      getItems: (page: {
+        notes: Array<{ ref: { libraryId: number; key: string } }>;
+      }) => page.notes,
+    });
+
+    assert.deepEqual(calls, [
+      { limit: 100 },
+      { limit: 100, cursor: "opaque-next" },
+    ]);
+    assert.deepEqual(notes, [{ ref: { libraryId: 1, key: "NOTE0001" } }]);
+  });
+
+  it("does not fabricate a complete result after a later page fails", async function () {
+    let calls = 0;
+    let failure: unknown;
+    try {
+      await readHostPages({
+        operation: "workflow attachment read",
+        readPage: async (request: { limit: number; cursor?: string }) => {
+          calls += 1;
+          if (!request.cursor) {
+            return {
+              attachments: [{ ref: { libraryId: 1, key: "ATT0001" } }],
+              limit: request.limit,
+              nextCursor: "opaque-next",
+              hasMore: true,
+              returned: 1,
+              total: 2,
+            };
+          }
+          throw new Error("source page failed");
+        },
+        getItems: (page: { attachments: unknown[] }) => page.attachments,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.strictEqual(calls, 2);
+    assert.instanceOf(failure, Error);
+    assert.strictEqual((failure as Error).message, "source page failed");
   });
 
   it("keeps explicit versions in current contract documents aligned", async function () {
@@ -587,17 +660,24 @@ describe("Workflow Host contract governance", function () {
         locale: "zh-CN",
       });
 
-      installRuntimeBridgeOverrideForTests({
-        zotero: {
-          ...Zotero,
-          version: "9.1.0",
-          isMac: true,
-          locale: "en-gb",
-        } as typeof Zotero,
-      });
+      const secondZotero = {
+        ...Zotero,
+        version: "9.1.0",
+        isWin: false,
+        isMac: true,
+        locale: "en-gb",
+      } as typeof Zotero;
+      installRuntimeBridgeOverrideForTests({ zotero: secondZotero });
+      const expectedSecondPlatform = secondZotero.isWin
+        ? detectRuntimePlatform("win32")
+        : secondZotero.isMac
+          ? detectRuntimePlatform("darwin")
+          : secondZotero.isLinux
+            ? detectRuntimePlatform("linux")
+            : detectRuntimePlatform("unknown");
       assert.deepEqual(environment.getInfo(), {
         zoteroVersion: "9.1.0",
-        platform: "darwin",
+        platform: expectedSecondPlatform,
         locale: "en-GB",
       });
       assert.deepEqual(Object.keys(environment.getInfo()).sort(), [

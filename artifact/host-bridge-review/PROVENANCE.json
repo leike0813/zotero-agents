@@ -1,7 +1,7 @@
 {
   "schema": "host-bridge.review-mirror.v2",
-  "generatedAt": "2026-08-30T17:22:29.030Z",
-  "sourceCommit": "dbd9f8a49e5aa135776ac576784cbff009dd8986",
+  "generatedAt": "2026-09-05T15:11:51.557Z",
+  "sourceCommit": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
   "surfaceDefinitions": {
     "path": "host-bridge/surfaces.json",
     "schema": "host-bridge.surface-definitions.v1",
@@ -21,7 +21,7 @@
     "payloadDigest": "sha256:8c6de08010d459a0e87e74f22e242479404f2725c999f89497b8e2042640f49c",
     "sourceCommit": "a0fe8e324834e2fcfd1b513552f9013e9be4b491"
   },
-  "fileCount": 151,
+  "fileCount": 152,
   "surfaces": [
     {
       "id": "zotero-bridge-cli",
@@ -35,9 +35,9 @@
         "zotero-bridge-cli"
       ],
       "inheritedSkills": [],
-      "ownedFileCount": 132,
+      "ownedFileCount": 133,
       "inheritedFileCount": 0,
-      "effectiveFileCount": 132
+      "effectiveFileCount": 133
     },
     {
       "id": "zotero-library-agent",
@@ -60,8 +60,8 @@
         "zotero-bridge-cli"
       ],
       "ownedFileCount": 13,
-      "inheritedFileCount": 132,
-      "effectiveFileCount": 145
+      "inheritedFileCount": 133,
+      "effectiveFileCount": 146
     },
     {
       "id": "zotero-librarian",
@@ -86,8 +86,8 @@
         "zotero-library-curation"
       ],
       "ownedFileCount": 6,
-      "inheritedFileCount": 145,
-      "effectiveFileCount": 151
+      "inheritedFileCount": 146,
+      "effectiveFileCount": 152
     }
   ],
   "files": [
@@ -97,10 +97,10 @@
       "relativePath": "references/command-catalog.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/command-catalog.md",
-      "sourceSha256": "ab9f246facba94b38e80876523bd7c4519ee74caa54e0fbc89d854d3b9f957dc",
-      "protectedStructureSha256": "0e957399eb8c49bd8662cac2c25f62e8af29e4ead10074b462a347dfd1907521",
-      "translatedSha256": "3761d916cf1a3b89e9af79de994e8df3eb1f7a7abe79a301f68c4e7a9b9adfff",
-      "translatedStructureSha256": "0e957399eb8c49bd8662cac2c25f62e8af29e4ead10074b462a347dfd1907521"
+      "sourceSha256": "459be7e246c40b4143eca48eaed61060e75242b435a7ad3b4474eca0bf833764",
+      "protectedStructureSha256": "c27ca3a5491cc04fc07916c5d23baa5f5861a552845739ff6f7efa8c7e5e1d03",
+      "translatedSha256": "e12c3c8727e7c18730a1adacd36440732bcd4c13fcc1e9def1cfe5df07a3010d",
+      "translatedStructureSha256": "c27ca3a5491cc04fc07916c5d23baa5f5861a552845739ff6f7efa8c7e5e1d03"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -110,7 +110,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/backend/list.md",
       "sourceSha256": "a9493f3c7c98e83121a77bd96b2faa782c2d9509f3ccf22933966e5db08c1c24",
       "protectedStructureSha256": "12eb7438621537d632de1bcd034e0b6c0d48ed72fee69c8781750970f02bd31d",
-      "translatedSha256": "237e72737b02157ce4aca9350d2ba6d46e9a4693fef3362c0a53a126479d61f1",
+      "translatedSha256": "489058343233129101fbe7c0d508cff5338243ce930697c9cff79e1beb351c57",
       "translatedStructureSha256": "12eb7438621537d632de1bcd034e0b6c0d48ed72fee69c8781750970f02bd31d"
     },
     {
@@ -121,7 +121,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/backend/status.md",
       "sourceSha256": "fff56f1bd1fca340f4920ad7d21fa57a4570058eed9e625f70abec38cc338481",
       "protectedStructureSha256": "bd47026b897963b55ef568813de1524a1515ba00256a2a1784cb529c33f71f99",
-      "translatedSha256": "ed7ce7998ef893b8eee34ad790e39e7545773ca2dac24e6238f2c2d434348c0d",
+      "translatedSha256": "742e72cdb93d7a111f3e5e9c03d280031c84d6ab976d1b9eff9bd7ac8ce53135",
       "translatedStructureSha256": "bd47026b897963b55ef568813de1524a1515ba00256a2a1784cb529c33f71f99"
     },
     {
@@ -132,7 +132,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/manifest.md",
       "sourceSha256": "6f57f1a95ffee9679af7a22345c2b5e66f08b6d2c65e18392aeaf28fb95a63a4",
       "protectedStructureSha256": "b6041089ce0411af3bd5cb3e21b836c4c1e3f8ee020ff93aea7852e9bdd9320a",
-      "translatedSha256": "ec87e5543321c5fa7f6583cf09844cea336fa993423fa01337ccfc20497abcc3",
+      "translatedSha256": "a7ed9a4bdf78ff506912111de5658569396c45118f4ddc3440df3b3a4c2c3e3a",
       "translatedStructureSha256": "b6041089ce0411af3bd5cb3e21b836c4c1e3f8ee020ff93aea7852e9bdd9320a"
     },
     {
@@ -143,7 +143,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/profile/diagnose.md",
       "sourceSha256": "f9fec3e28e60b80bdf1a729306530d9bb1e39c135c92c4ef1871c2063bc9925d",
       "protectedStructureSha256": "f1e35f83de76c286b3ba9c3b4832bd25a7a869141b0750e3b5c3c151f11b30bb",
-      "translatedSha256": "967c98b637a40bddf5eef5cbafdfd5a063c501ca7c2295688c2ff9406da6b631",
+      "translatedSha256": "e3119704c544840fac4e5b5cdfcf9f87bf2ecd9dc4c1110fe95b01a3a86f617f",
       "translatedStructureSha256": "f1e35f83de76c286b3ba9c3b4832bd25a7a869141b0750e3b5c3c151f11b30bb"
     },
     {
@@ -154,7 +154,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/profile/inspect.md",
       "sourceSha256": "fb500d02c8f834f3c438bac0bdeecc8a0f95ef58f77ad84458d6ea6be26bd66a",
       "protectedStructureSha256": "64200a8448aed22a6268a007c388bbd6ab92f8b01455e08af94d863e1808882a",
-      "translatedSha256": "e364cb6debe1ed807d35ce7f55913ee0c322917331e8166d0bb5a9c3a18b1a9d",
+      "translatedSha256": "edc486fd01a022689f3c6dad38214e764ab78e4b13db5e1c507549642bc612ee",
       "translatedStructureSha256": "64200a8448aed22a6268a007c388bbd6ab92f8b01455e08af94d863e1808882a"
     },
     {
@@ -165,7 +165,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/status.md",
       "sourceSha256": "8366cb034b1899d23eefd37e7a3e2df3148bec357e1034fef7304dae7a785a86",
       "protectedStructureSha256": "71e0d7ab7d9c9ec64f7ff23a74d1cf3fc85da74a1fb95d7cb5416c58010e95b0",
-      "translatedSha256": "9e24b98b1705be78a769f9235185027863c81a1fb8f6b9e7fc1c4dd11239361b",
+      "translatedSha256": "c1509a05a7438d04682450a88512a23f4f714422eb8cc821a09d9f4615586e7d",
       "translatedStructureSha256": "71e0d7ab7d9c9ec64f7ff23a74d1cf3fc85da74a1fb95d7cb5416c58010e95b0"
     },
     {
@@ -176,7 +176,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/call/index.md",
       "sourceSha256": "e2b501646a6aff3334cc9102a5de64272db11e776efb33c5f2cad09d285e261e",
       "protectedStructureSha256": "91db4e3d720dd9dfbd034e297742dde6b217c60aaf54d855b0333b8be8bdb33b",
-      "translatedSha256": "7b77580035d3dd7958c2d036fea2a0f580d3fd7565bfc72949e68f0af0379279",
+      "translatedSha256": "679ad3f68f830478abc23ce6ae34efca7e283f733cd10896e83af8490208bd63",
       "translatedStructureSha256": "91db4e3d720dd9dfbd034e297742dde6b217c60aaf54d855b0333b8be8bdb33b"
     },
     {
@@ -187,7 +187,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/collection/open.md",
       "sourceSha256": "0728d9363ce6b987fb5f58b0269e7459392c042a811da4d3fd187da0433298ff",
       "protectedStructureSha256": "270a46c3813537a8a22185cef3c711b36cbf0383a81f99e418050cbba32e18b7",
-      "translatedSha256": "8f430af1d67cc6a412965beb5445efcd3da464938ea9e3b5b75ce2c572affc3e",
+      "translatedSha256": "b2737d82ff0bb9cc723522c12fbb9a8cfa5f6a58f679febc54262bdfe91ab188",
       "translatedStructureSha256": "270a46c3813537a8a22185cef3c711b36cbf0383a81f99e418050cbba32e18b7"
     },
     {
@@ -198,7 +198,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/current.md",
       "sourceSha256": "d9261db6eb9981e0141aa17423bfdc2f467cd8ec54b42c044bbbebad5f88a381",
       "protectedStructureSha256": "7351a289fbaa8a2176dd9c717c01603b7c7b02226939dd9e2a48d62ab53271af",
-      "translatedSha256": "3ef5dc8ca59db8dad27432c91b7d283bd52e15202408f9cf3bebd86e10cadf10",
+      "translatedSha256": "0d2487c3c7ec3b9e465464438d0b2280e088429bd18f0ad6c2d3e56a77bf5aec",
       "translatedStructureSha256": "7351a289fbaa8a2176dd9c717c01603b7c7b02226939dd9e2a48d62ab53271af"
     },
     {
@@ -209,7 +209,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/item/open.md",
       "sourceSha256": "9d9be3d3e8e663e0aa51c9ba4a37a03d7b018f56ac2e7ad4871d64994fcbb772",
       "protectedStructureSha256": "d8bc6508fc0b361e9fca483bfe115ae24b7c3aaccc91d1ee44ae5922b9378d6e",
-      "translatedSha256": "5ac1bdb027778eb5dcbc1cc1a3747941afafc0ec07adbfba9ef751d5b7147303",
+      "translatedSha256": "4b41655bd058f49e321f8102e631b631d360dc71074738f0328ce888d47835ba",
       "translatedStructureSha256": "d8bc6508fc0b361e9fca483bfe115ae24b7c3aaccc91d1ee44ae5922b9378d6e"
     },
     {
@@ -220,7 +220,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/note/open.md",
       "sourceSha256": "37d3c1abbca6067623a2af1b45ddcfcc86590f5dfaec94db1451595714342c02",
       "protectedStructureSha256": "6450c9b72f052d729c8bdb69a43d5abfc062281eab7126aa094ddf0ee9258b1b",
-      "translatedSha256": "6c1fd407878561a5809ec8e7f43a4ae1304eeb795fe0e68796792ba9d7da076b",
+      "translatedSha256": "b6575506c913c19b07398a7cbf4682b2cb2dcccd2efd97cbb6bbffcd896a075b",
       "translatedStructureSha256": "6450c9b72f052d729c8bdb69a43d5abfc062281eab7126aa094ddf0ee9258b1b"
     },
     {
@@ -231,7 +231,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/selection/get.md",
       "sourceSha256": "ef926fb4a6045deca949d9969c269c44990b8350c688061164cb6a56501450af",
       "protectedStructureSha256": "c18e0e9e2c4869e24165b4e408ad6368e32de432091468d22ba9efde5ec98c6c",
-      "translatedSha256": "6fd89687212aa5e47436daa24caa49d029e4b02a824d1334b6ecb66305e7dbd8",
+      "translatedSha256": "305133cec31c443acb9bd109dd49f0accbbc3fc6bc64bbbcc4018b7fe48a7403",
       "translatedStructureSha256": "c18e0e9e2c4869e24165b4e408ad6368e32de432091468d22ba9efde5ec98c6c"
     },
     {
@@ -242,7 +242,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/selection/open.md",
       "sourceSha256": "74eb7183a3f38e7761fae750159d70dec7c02d001a405a37d0eddc443e539f15",
       "protectedStructureSha256": "d24c5559b36a2a97c13026ee261fa688a5be526bc82260e34cce1089bdd660c4",
-      "translatedSha256": "d96733552edf5d76010b37b82daff3568f88ab026161b7b600e518b83b7c5001",
+      "translatedSha256": "fd719277011e677af7dfdb7b6e5c2e4ec3395ab1712bccfff974cb8ec4f02011",
       "translatedStructureSha256": "d24c5559b36a2a97c13026ee261fa688a5be526bc82260e34cce1089bdd660c4"
     },
     {
@@ -253,7 +253,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md",
       "sourceSha256": "2e659996d8b8ebd4be3a3ce42b7c9cebdc20900ee58936b49d386e62be4bffd6",
       "protectedStructureSha256": "afbfe6164cd4a2e8f9439aecaa5f66ba5dc0ee418c2657a04d2a5f0046ce628a",
-      "translatedSha256": "cae0cb0387f3cee41989b88235bf29af421e3186acfcc85260d11f6b68c0156f",
+      "translatedSha256": "1c7eb2296998e88478a763b91a7d15d59f261b6010c517031ba6461805692dfe",
       "translatedStructureSha256": "afbfe6164cd4a2e8f9439aecaa5f66ba5dc0ee418c2657a04d2a5f0046ce628a"
     },
     {
@@ -264,7 +264,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/persistence.md",
       "sourceSha256": "b6285ca05c3821f9d1a304bdb6ae0f870f3f1e223199e65675b571581d4d72b1",
       "protectedStructureSha256": "f9c899b594f2565d67c4b7ea6dff5c201b46cc4990bc38e6804fbd414387b693",
-      "translatedSha256": "27bf1969902ddcb52cb3598395bfc8da1386060159ba837b5897314cd8232083",
+      "translatedSha256": "8aa72383e4ee6da327192a9d03c93ec026a0d1751b17deda960145b048582848",
       "translatedStructureSha256": "f9c899b594f2565d67c4b7ea6dff5c201b46cc4990bc38e6804fbd414387b693"
     },
     {
@@ -275,7 +275,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/status.md",
       "sourceSha256": "7c862ef124dc1bd5e24e76009a336f8b4617116804f1ae44a12a89c22481729d",
       "protectedStructureSha256": "d160dc65d5d4b727c02d6109de0398df75d6a87cbd84201d43e193b5766ee583",
-      "translatedSha256": "a3fc87956ef94590e8cbe238d017ffcace255d3ee3aaf18ac554b141db461f4b",
+      "translatedSha256": "6db60f11f6ec1ff8b92b16a4477261b3f09ea198e5969d5e83faffe7997eef7f",
       "translatedStructureSha256": "d160dc65d5d4b727c02d6109de0398df75d6a87cbd84201d43e193b5766ee583"
     },
     {
@@ -286,7 +286,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/cache.md",
       "sourceSha256": "4c8416ca1443526b70c35f261c15745d481eca786701aaeef9eb7f97a14d613b",
       "protectedStructureSha256": "722e9a699a49c1cd045e888590bbde33f044aa8993ad1794fae2391df526530d",
-      "translatedSha256": "a5181622454a58270b7e27121ab6c6c20cc27fc8565484af6ceffbb7ce3929b3",
+      "translatedSha256": "33b062e7a394ea27bea32c0a7980bee175c3e29f8ebb244aae9cb6f764089ab3",
       "translatedStructureSha256": "722e9a699a49c1cd045e888590bbde33f044aa8993ad1794fae2391df526530d"
     },
     {
@@ -297,7 +297,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/clean-install-reset.md",
       "sourceSha256": "7909d9d9ba4acd6abd27b6a2b5004bedff887eed32177ce3688ec6de5e5ecc89",
       "protectedStructureSha256": "3651cc86374fb9785e3285b1c174a9c726bf9e1ee499a3a975258f21a0a96d7e",
-      "translatedSha256": "5ff518e65f51a5d2d964020b3ab7ed3a33aafc9e88b3ca58592f8398fd0189f1",
+      "translatedSha256": "22c50351c2b4251c2586bd5c271c4859cbd4bf4afd4dae789b2e8dfd4d3d7fd9",
       "translatedStructureSha256": "3651cc86374fb9785e3285b1c174a9c726bf9e1ee499a3a975258f21a0a96d7e"
     },
     {
@@ -308,7 +308,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/diff.md",
       "sourceSha256": "ea47ce9e39be3edae5d47a5995247dad91a58f15f5c74bdf404f0ba1ef542aec",
       "protectedStructureSha256": "2223229cfab090ce580289cb79a69bb12a968ec7d1f0cc6d4f825eae00e1dc7c",
-      "translatedSha256": "6a989e98c5470451ddaacb3e49900ecbc0f4ecfe832e2334e9b444f581b703ca",
+      "translatedSha256": "521cdce4b06c5d0f400498e8c17c50d8dc6e26aac5dc2b874e0170b9826d2db7",
       "translatedStructureSha256": "2223229cfab090ce580289cb79a69bb12a968ec7d1f0cc6d4f825eae00e1dc7c"
     },
     {
@@ -319,7 +319,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-paper.md",
       "sourceSha256": "e8cf3e8b5f1156fc9f4b41ac49eb9235685e9f4c76bfd2d9e221430fadc039a9",
       "protectedStructureSha256": "e782590d46a8d92b509078e5f64f07e598955f6aaa340792f3dcfd69346318d2",
-      "translatedSha256": "33d57eae6fa785189310e75c304c4fa984d39d195dcfe8aef04af0d9dd485bea",
+      "translatedSha256": "32521b190d4ef88084642a37363157370fea40ed81a9cc14858ac2e8754b6695",
       "translatedStructureSha256": "e782590d46a8d92b509078e5f64f07e598955f6aaa340792f3dcfd69346318d2"
     },
     {
@@ -330,7 +330,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-topic.md",
       "sourceSha256": "2e8d5a17a717cde203686c0a99e9463aa8e6ad21365b7205061e0a176bab82e1",
       "protectedStructureSha256": "0e885e321df9f5624ae42d7eba8ed39f6f7055244e133a788175f9e878a30d21",
-      "translatedSha256": "12e91345045bdda16a392cceede1a4443ad7727c0b86f1285f8987559b041550",
+      "translatedSha256": "99fc30ea15b24eed11bbcaf6a1e8086ddfb7092f24e904b8f1d56809ada36e1d",
       "translatedStructureSha256": "0e885e321df9f5624ae42d7eba8ed39f6f7055244e133a788175f9e878a30d21"
     },
     {
@@ -341,7 +341,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/operations.md",
       "sourceSha256": "2a8d64cdcc3ad99f1b8ba747b10c03d38b2585dea54770aa975957c677c994b8",
       "protectedStructureSha256": "f2c73a5095c37fbd864bb72315cfc40ff838310f9c66779e6e0557884451fd18",
-      "translatedSha256": "64a4071cff978641f1ec863daf844be3876a357295ef635ccea801b5a5fa3f5e",
+      "translatedSha256": "38243da32a8f974199a6a8b576dbb6fb94132498906f3bf06465eda293b16883",
       "translatedStructureSha256": "f2c73a5095c37fbd864bb72315cfc40ff838310f9c66779e6e0557884451fd18"
     },
     {
@@ -352,7 +352,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/profiler.md",
       "sourceSha256": "9e2ff09357023b7ef841d116187432c1da92b8bca2afea577971ae692bb696da",
       "protectedStructureSha256": "28c8c3c5c709ca70f8870b42df65f494dceac203e5cedb798734963381abe080",
-      "translatedSha256": "103b20f75c517c0bf9963e7a741a4854e55f3e085f41e0c053fdf466d84b9eda",
+      "translatedSha256": "859a772cabcc46950ca029ba2139ef58da5052ccf8d461ddcceb500098439815",
       "translatedStructureSha256": "28c8c3c5c709ca70f8870b42df65f494dceac203e5cedb798734963381abe080"
     },
     {
@@ -363,7 +363,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/snapshot.md",
       "sourceSha256": "7fe80e766c1d1faaddb5cd85e0fdff2cf3516b6522aeff51e59aa220f620814b",
       "protectedStructureSha256": "127f655abf7ef351b3a3ccd9f0185b52d1da1f46713efe8918c8725bf533b334",
-      "translatedSha256": "7f895ec1dfeb6f864e7c33fd0f120a827eaf42ac39ab4e64ec0e9ec9c2de651a",
+      "translatedSha256": "025fe363675491bde619fe1249c2b75885c14110875afad1c17ba3afb562ac1c",
       "translatedStructureSha256": "127f655abf7ef351b3a3ccd9f0185b52d1da1f46713efe8918c8725bf533b334"
     },
     {
@@ -374,7 +374,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/tasks.md",
       "sourceSha256": "c06c7d9263b584ec12498c956c13d7c1d1e8efcd46ed12dc42b0bbcee85dabfa",
       "protectedStructureSha256": "7e4b9266630ff017900cba356d9c02a24e44babb0957a94e45f59f8c134d8e9e",
-      "translatedSha256": "38749fc5ebe9a2353e41fbfb17bf381cb4708b3ac64d50c870234619b7cfcc9e",
+      "translatedSha256": "f9b9e6beb553affd44a6db8cea16648c5561397f7ae9235d2e40553265b47286",
       "translatedStructureSha256": "7e4b9266630ff017900cba356d9c02a24e44babb0957a94e45f59f8c134d8e9e"
     },
     {
@@ -385,7 +385,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/file/download.md",
       "sourceSha256": "f5f6e94c748ee0f0987f1247bee54c74a31152b1dbc3429cbb14fa2ba107cacb",
       "protectedStructureSha256": "7e3b2d0ac9e0ed5a341aa1da4987d7925c09287c44f5ed6ecbd7656f4463d5ae",
-      "translatedSha256": "44d9c3c4990e420a0569671d0bab132bf641657dfa41d0687878ac9312b01037",
+      "translatedSha256": "f4ba5f3aa5d8505555952ee6edb836179f469d9314c577339b1d36fbdc46b824",
       "translatedStructureSha256": "7e3b2d0ac9e0ed5a341aa1da4987d7925c09287c44f5ed6ecbd7656f4463d5ae"
     },
     {
@@ -396,7 +396,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/file/upload.md",
       "sourceSha256": "c0d6ccbb49caf6a931f6238d41474469c2eab721b59188739df97dea89328187",
       "protectedStructureSha256": "8bf7f4c3382d79f91cee55209b3f18db17b12a93fef53b2966bddc4632bc3017",
-      "translatedSha256": "251d021cadd28f8482badcb70b249f62cb5755b8117d92b21c5ed64bc4ba8842",
+      "translatedSha256": "d3b5c756ce7ffecf9e5c0a8e8e33244510367fce69505aacf19bd4205864d013",
       "translatedStructureSha256": "8bf7f4c3382d79f91cee55209b3f18db17b12a93fef53b2966bddc4632bc3017"
     },
     {
@@ -407,7 +407,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/annotation/export.md",
       "sourceSha256": "1fef56429f5d4764bee6f31ba94f98fd08ad377b59ce534d01498f58a3465429",
       "protectedStructureSha256": "9ea33825d041c19a5fc36c66d05aa3da7d207ae0830dd72c4b4ca6302149b9e0",
-      "translatedSha256": "ff88c7998b4557357c9940764348180195023729d4c9c94da8ad1f9cc1f9eb22",
+      "translatedSha256": "1231f2691f61d35f55c63b51437db503520be269d0999ea3accc55fc3f3e5b4f",
       "translatedStructureSha256": "9ea33825d041c19a5fc36c66d05aa3da7d207ae0830dd72c4b4ca6302149b9e0"
     },
     {
@@ -416,10 +416,10 @@
       "relativePath": "references/commands/library/annotation/list.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/annotation/list.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/annotation/list.md",
-      "sourceSha256": "b9b68d3bc2363eb54d0520277aa5d2640427f4ddf47821331ca23917f7a987fc",
-      "protectedStructureSha256": "4d4c956a1b2bf6f98c627a082f5597909282d429ba1fb89443622a551fe3c476",
-      "translatedSha256": "9e1924d12b1ba727a06df688b3e65c10d25a8bd1cc1e12d70eda3b5c872b2cca",
-      "translatedStructureSha256": "4d4c956a1b2bf6f98c627a082f5597909282d429ba1fb89443622a551fe3c476"
+      "sourceSha256": "43ae5c1b3d39d03c2d54a2fc52a3ad2b818e650ba5cc8a0f91f0304740c00d21",
+      "protectedStructureSha256": "eb82e16603d1f2ea362fe9c9bf92a25501fc93b34be8bb760b72953ddf5d8208",
+      "translatedSha256": "9817fb144f0b0b59e05f5d0b72f3658521c8b3910333e9aad5df5c1820b1f00c",
+      "translatedStructureSha256": "eb82e16603d1f2ea362fe9c9bf92a25501fc93b34be8bb760b72953ddf5d8208"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -427,10 +427,10 @@
       "relativePath": "references/commands/library/item/attachments.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/item/attachments.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/attachments.md",
-      "sourceSha256": "917950c22de86cf11b87ae8b267cb6af17e2f302388070a6498e004643dad3e8",
-      "protectedStructureSha256": "2f087ab908f8474a0d783b3c0d7c40253747abc9cd06048460ae1822d7a91f23",
-      "translatedSha256": "7934ab9446edcbafeda043be16e34c2a48460563cebb382cbf168026a649d6a4",
-      "translatedStructureSha256": "2f087ab908f8474a0d783b3c0d7c40253747abc9cd06048460ae1822d7a91f23"
+      "sourceSha256": "c32cdb6dcf98a54a9bed81bc0f3c24334ecd0861c050f144d0189988297f0076",
+      "protectedStructureSha256": "c0eb7f214100831b15401ca67696d68dd319f74f8c3e02e04e3aad481e72c562",
+      "translatedSha256": "d89ed3332d10e199144643d954bf56eb0accd7c879a77e7dddfe85182b0cc836",
+      "translatedStructureSha256": "c0eb7f214100831b15401ca67696d68dd319f74f8c3e02e04e3aad481e72c562"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -440,7 +440,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/get.md",
       "sourceSha256": "c522ff8ad1665ac3c8be420f4c8e5ddd22963d72397133620a8eb4c514bff5ad",
       "protectedStructureSha256": "6dcb31d3a0c413eec7cc655a63ffde011a8cd4fe1ddd6b70fc33e47345f4a511",
-      "translatedSha256": "085ecbf3b46309a64b7fbac998a73cf078c5b2bf744d9c52765ea50be036076a",
+      "translatedSha256": "8916939c167777cf58423895023ec3ae8aa2dd4102d5b41c7880fbc402f51c11",
       "translatedStructureSha256": "6dcb31d3a0c413eec7cc655a63ffde011a8cd4fe1ddd6b70fc33e47345f4a511"
     },
     {
@@ -449,10 +449,10 @@
       "relativePath": "references/commands/library/item/notes.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/item/notes.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/notes.md",
-      "sourceSha256": "0fc9ddcf61c4e65ba9bb701a8561458b568e116f95d6adf0319eb003be95fe2f",
-      "protectedStructureSha256": "d4e8766c59fb82e0b632612ed75862afbf77216de04db0602a48e9b637492f8b",
-      "translatedSha256": "6e41d7119800256afe08abd06971a02721798592f079e8fbcf5f5a664800abe3",
-      "translatedStructureSha256": "d4e8766c59fb82e0b632612ed75862afbf77216de04db0602a48e9b637492f8b"
+      "sourceSha256": "93b355262fc6ab171708dc9fcb2066b4877e549a294a9c19c910773f51ba1798",
+      "protectedStructureSha256": "23c4a8cbbc0f2649a4ac2dee8449916973580e9d9f8ce3074684a544ad09db16",
+      "translatedSha256": "99d67b05529b5c6efca7e1087a32b55362d52919fa5bcb167428c07f2987a4e9",
+      "translatedStructureSha256": "23c4a8cbbc0f2649a4ac2dee8449916973580e9d9f8ce3074684a544ad09db16"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -462,7 +462,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/search.md",
       "sourceSha256": "5673fb5d82bc10eac1e93e8fc65caa50782ceb0b3d79d2be1a1c5bdbb9ab587e",
       "protectedStructureSha256": "1b8082e78269c058da386687ea6b4ba7a1263d435b00ceb3047edfa84074f3ee",
-      "translatedSha256": "c3c54733bd81019ad03e3f71292b5ee550c6ab503859d79431b009569f8bf3b9",
+      "translatedSha256": "d21f0030b2a042bae9f54701c9537c94ceacd357262f36370a81a81f16222756",
       "translatedStructureSha256": "1b8082e78269c058da386687ea6b4ba7a1263d435b00ceb3047edfa84074f3ee"
     },
     {
@@ -473,7 +473,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/items/export-research-bundle.md",
       "sourceSha256": "684c1684339df9145c01e10d0343d3735a2cc5db6c3e150e7266dc2145999da5",
       "protectedStructureSha256": "9163ee49c6530b9925e1b338c5f902ea4c46643b0f7e6d207395ef83ecaeb133",
-      "translatedSha256": "e6e5102ebe7566530d4696fa296c23ff54a58bf08c78558770bcf6e548bcea6b",
+      "translatedSha256": "e60f08b3b2164fca411a9460ad5353e4fdfdbdde05f4461cac38bb63b9578ba8",
       "translatedStructureSha256": "9163ee49c6530b9925e1b338c5f902ea4c46643b0f7e6d207395ef83ecaeb133"
     },
     {
@@ -484,7 +484,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/items/list.md",
       "sourceSha256": "67797b20665fba4e15d115d18d820257c830a594ec4c38182358ae25f728e43b",
       "protectedStructureSha256": "abc126efb2414920abb9345916b9bfd6b899ceddab82b983f35f309967aa85d5",
-      "translatedSha256": "4ff0776d3bf26262e6d4289139efabb475f494b359de144121f77cc874187998",
+      "translatedSha256": "1d4b4ea5249d7921ed56c42ea955164e4e0deff19848067975ea54795fa4edf3",
       "translatedStructureSha256": "abc126efb2414920abb9345916b9bfd6b899ceddab82b983f35f309967aa85d5"
     },
     {
@@ -493,10 +493,10 @@
       "relativePath": "references/commands/library/note/get.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/note/get.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/get.md",
-      "sourceSha256": "4d836aca6a07be25f25cc2551c648184928d6b6aad0f7c26fa93bfe954bce74c",
-      "protectedStructureSha256": "95bf5f25280afb4d4e0b9720124d1f0428027867c4ab8c0ecfb11428ab11c3b3",
-      "translatedSha256": "acdae6cb4dc4464ed854e88df8876acde62a39ae2f1497578729870db8875fc8",
-      "translatedStructureSha256": "95bf5f25280afb4d4e0b9720124d1f0428027867c4ab8c0ecfb11428ab11c3b3"
+      "sourceSha256": "69c7dbf21a434c9f4f08f35d4aeeaad2e766785cf215f642614805c9b22819c4",
+      "protectedStructureSha256": "e21fd98cfa9c6994d8633943fdcc2811882b5f253460dbd3c447969e121f81ff",
+      "translatedSha256": "e665ead27c902b056dd695818f7bc113403812df89d49a3be78f09ce5b0180b4",
+      "translatedStructureSha256": "e21fd98cfa9c6994d8633943fdcc2811882b5f253460dbd3c447969e121f81ff"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -504,10 +504,10 @@
       "relativePath": "references/commands/library/note/payload.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/note/payload.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/payload.md",
-      "sourceSha256": "6484fd7142c9207eb4250e274587352217c010f01d996a083fc0c902e6151566",
-      "protectedStructureSha256": "e9400603dd04a634e359fdc75935f57f54ffbda0fe4590835263d74954488d8e",
-      "translatedSha256": "33135bd92bd99000ec90c7276fe35089d1f68038487697d132bd1e2f51487b15",
-      "translatedStructureSha256": "e9400603dd04a634e359fdc75935f57f54ffbda0fe4590835263d74954488d8e"
+      "sourceSha256": "8235e271e14ae20561d6c89f4433d666a09c77feee8536021a559c7b7bf9aee2",
+      "protectedStructureSha256": "9484f10dae26c4357f57cf5d300d88664f5c591f97fabbc868821f0a2829b603",
+      "translatedSha256": "f491afb1bae1d1d5b2dd1374ad6c8c20252e49644bacebc725de16ebadc09613",
+      "translatedStructureSha256": "9484f10dae26c4357f57cf5d300d88664f5c591f97fabbc868821f0a2829b603"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -515,10 +515,10 @@
       "relativePath": "references/commands/library/note/payloads.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/note/payloads.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/payloads.md",
-      "sourceSha256": "618e4f2c7f1e16b6e427a0e393350ba1ed22331083c33310a951c73637d4efc0",
-      "protectedStructureSha256": "fc07fb3bcce796ca5eb1d31b9e1448fe24b430c41bae22fd4fc94decaee9d908",
-      "translatedSha256": "52524bf9649e7e4e0fffee77b7feb83d6836fa5c5831ea6b2f445fd9a8351e1f",
-      "translatedStructureSha256": "fc07fb3bcce796ca5eb1d31b9e1448fe24b430c41bae22fd4fc94decaee9d908"
+      "sourceSha256": "f8385ef853bb11de6bbd2e40eb2f4c4572aa7b617b8887a5a86567f1a856a5a3",
+      "protectedStructureSha256": "09f1369aceef0befe5ebe5aecf3e14e3e14a8b67f435d15e3e196576e63b5546",
+      "translatedSha256": "8ba2967283f507b242c3985e511ad4688233521b92982eee19f159d95f8aebd0",
+      "translatedStructureSha256": "09f1369aceef0befe5ebe5aecf3e14e3e14a8b67f435d15e3e196576e63b5546"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -528,7 +528,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/audit.md",
       "sourceSha256": "a1b78459339694b95f6041d6419613bcd1bc3f86b52074a058fab541199159dc",
       "protectedStructureSha256": "08113d475d6ffd6eafe85f4f4cc119216fa854af6bb0b26ed68b5afe83db3c48",
-      "translatedSha256": "1522a7173ff24540832325acc9fcd62c28f693e2db4c207b57f146051bcb5a87",
+      "translatedSha256": "6e081c817de536d61e1694121e25940f3406843d76bd17f5753619dbe8bae407",
       "translatedStructureSha256": "08113d475d6ffd6eafe85f4f4cc119216fa854af6bb0b26ed68b5afe83db3c48"
     },
     {
@@ -539,7 +539,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-analysis.md",
       "sourceSha256": "fdaa119edbe9b5227f22d5d07acb306f1d393033590b7a76d87386fd4d8c2e0c",
       "protectedStructureSha256": "019907a0f4a1d1e27a7096df33705f459060bca6d72d9ef9d5f7ae5b06718a70",
-      "translatedSha256": "eb2795d4d16d9ba98478a10214a3da6d9309bf8a6450e522603efa6f17b919c9",
+      "translatedSha256": "6e13bdc779e1e148115c7bbf48f63b228417da90336c98a0e95cc35eacbb855a",
       "translatedStructureSha256": "019907a0f4a1d1e27a7096df33705f459060bca6d72d9ef9d5f7ae5b06718a70"
     },
     {
@@ -550,7 +550,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-markdown.md",
       "sourceSha256": "39d89e8a7c9b5462cfc47d354b7df6befea5a6e240ce86ed2dc7120dde3f5e85",
       "protectedStructureSha256": "f963684eebc608f63abd036971f7e4821da789b9e57a43f3257005410b6350ac",
-      "translatedSha256": "a51decb56d10da4b327db8392afc6a631f6fe8a8a2f4b44fbf74e78f9638daae",
+      "translatedSha256": "88fc96c7246e4fca5c42ad426db4212278bce09822dbfcbb64d4443055949086",
       "translatedStructureSha256": "f963684eebc608f63abd036971f7e4821da789b9e57a43f3257005410b6350ac"
     },
     {
@@ -561,8 +561,19 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-pdf.md",
       "sourceSha256": "03eb089a49fd43d73083d0dadd47ba3284f938d9694dec918a64b3913059c428",
       "protectedStructureSha256": "be3da4072a32c9f9ca0ade5d0dfe29f195551bbcb4a629e24696aa8698a15e16",
-      "translatedSha256": "e702f9e30ad1ad741845d82f9c09857485bef29298c941921ecce6e5d0dfd9c7",
+      "translatedSha256": "8b588c38d88bf05274587470b1edca4713ec9f1e9b31215889311940dc3de74a",
       "translatedStructureSha256": "be3da4072a32c9f9ca0ade5d0dfe29f195551bbcb4a629e24696aa8698a15e16"
+    },
+    {
+      "ownerSurfaceId": "zotero-bridge-cli",
+      "skillId": "zotero-bridge-cli",
+      "relativePath": "references/commands/library/saved-searches/list.md",
+      "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/saved-searches/list.md",
+      "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/saved-searches/list.md",
+      "sourceSha256": "8695a0d4ac1884df38d279fb17a48033f7a70d053af78989d0e01cb31912d520",
+      "protectedStructureSha256": "fd0a06a69f8ee4fae70bfbb598cde9f4ccfb1fe9a829dc899728a171e8506d11",
+      "translatedSha256": "2289383147d3e87add0cb02ffdd3c155df8847913f932413d3137e3623093a4a",
+      "translatedStructureSha256": "fd0a06a69f8ee4fae70bfbb598cde9f4ccfb1fe9a829dc899728a171e8506d11"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -570,10 +581,10 @@
       "relativePath": "references/commands/library/snapshot.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/library/snapshot.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/snapshot.md",
-      "sourceSha256": "0c756c7c3c205f6e0e8423c13516975ed2f7a2cebfa471327416c5b3eddefc9b",
-      "protectedStructureSha256": "54fad2aa7fc08086f06095fcb0a47fe7cf220872df5fecbc7fddbe10f5e14d69",
-      "translatedSha256": "0e94c7ed16a5f4ccd4c421b837596e642f2048a5eae7139276f71aed67032a5c",
-      "translatedStructureSha256": "54fad2aa7fc08086f06095fcb0a47fe7cf220872df5fecbc7fddbe10f5e14d69"
+      "sourceSha256": "a24d87f5503d3879237956348313d65b8a0ec25704713b3e7e8a610752dd88c8",
+      "protectedStructureSha256": "4ef1a12fc380ca9f3c0256ad98d121f5b3ca18554bb36e53a74f8fe84df79c5b",
+      "translatedSha256": "aa2866ac110ea913223c0bdc0033c5ab3b640725fd628a1af09a5adc5912dd16",
+      "translatedStructureSha256": "4ef1a12fc380ca9f3c0256ad98d121f5b3ca18554bb36e53a74f8fe84df79c5b"
     },
     {
       "ownerSurfaceId": "zotero-bridge-cli",
@@ -583,7 +594,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/apply.md",
       "sourceSha256": "0de990ff5c40ca134c7b33f6b1d22d0e6e26341d8c3ba8591f60c321c195e7a2",
       "protectedStructureSha256": "767dd0dbf61dd2ff5f0a8769e01f129c3c556579c40fe3b5be286a0a3567da3b",
-      "translatedSha256": "b9a4655cc703ca64dbddcf6fd2feee763de1bbffb545da1adabb52ec3435ad1e",
+      "translatedSha256": "2ba4d144ae43c6b54272d71a2a04d74dcd4da7165566c5107706b9c5d1ed4537",
       "translatedStructureSha256": "767dd0dbf61dd2ff5f0a8769e01f129c3c556579c40fe3b5be286a0a3567da3b"
     },
     {
@@ -594,7 +605,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/add-items.md",
       "sourceSha256": "8dd979bfc8f8680d24bbc555132275f1187b41b8c45f3938338c01c34989e779",
       "protectedStructureSha256": "879a50a9d7338b5e324a4d32582f9cc53fbcf3b38a2a1171056499d57fbded73",
-      "translatedSha256": "9805aa5e5f167a5c3b8177d31ff2f4ffa9e36a34ed2e9efebed340ea1858c3f2",
+      "translatedSha256": "876b50775b6677475ea14c51ce3067fe9fa7c7dc5a371d0d84c0f39be4b292b0",
       "translatedStructureSha256": "879a50a9d7338b5e324a4d32582f9cc53fbcf3b38a2a1171056499d57fbded73"
     },
     {
@@ -605,7 +616,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/create.md",
       "sourceSha256": "371e441839b0865a780271f5845dfadf006e24b22362eb31c86dc376ed9223e5",
       "protectedStructureSha256": "2a28adf9ac7c58777235c372d2f73c820d48acebf352d661e4aae28e4a1216cf",
-      "translatedSha256": "a84036593f58f30ccbe626cce576bd4b5a7e35bf37df963f03d10071726b51cb",
+      "translatedSha256": "033742e83a87965c8c92c39b133b5b4de56b68e26b56d03f286e8e3c66c328d2",
       "translatedStructureSha256": "2a28adf9ac7c58777235c372d2f73c820d48acebf352d661e4aae28e4a1216cf"
     },
     {
@@ -616,7 +627,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/remove-items.md",
       "sourceSha256": "78aef764ca76b961cadeb1e42a68674a7f11ab2d4fc3932568f1b60c1f3e43c1",
       "protectedStructureSha256": "7f9235eeb47365d18dbc84ba6ba880392cb8c4e059ccc8c5edd27d9e406c6a65",
-      "translatedSha256": "7a1a50ca52b1b0d4db62cb397324998f39a5520fa59a7f151865d0bfcf6f8884",
+      "translatedSha256": "c7f8901d0fa5af28c7dddc2cb96c2ff39634a5bf22ae032890afe225b0700b21",
       "translatedStructureSha256": "7f9235eeb47365d18dbc84ba6ba880392cb8c4e059ccc8c5edd27d9e406c6a65"
     },
     {
@@ -627,7 +638,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/item/attach-file.md",
       "sourceSha256": "524132315b7bb959cbff8031f53a769e00c219ad3c4711cbd197aeac1bde41a0",
       "protectedStructureSha256": "117e25a1c0cfbb251dfba6407c10bee841102c2e5f904db099571549e3e12a2d",
-      "translatedSha256": "aa1eb23f76507c296d39da50a35a03ecc586803a532fc9b9d3b4836bc0bc7565",
+      "translatedSha256": "3cd18f09ec1c49d2a66baebc55cc352093c42e75cce46a0af87b97e29b77fde8",
       "translatedStructureSha256": "117e25a1c0cfbb251dfba6407c10bee841102c2e5f904db099571549e3e12a2d"
     },
     {
@@ -638,7 +649,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/item/update.md",
       "sourceSha256": "0d4ff1139dfb9c7fdd3275f17ece31cb527106007905f0e86b4b07ce819465b4",
       "protectedStructureSha256": "d8f53caa61bc888bd8f843ef92da2ff2c6302378a1f4c0ecc3dc63698f4acb82",
-      "translatedSha256": "ea3ded5c3c258a22d55ef32d9bdd27ad526eee5d2d240a7a8e091f127dd1cfe5",
+      "translatedSha256": "48bac3534b06b55a7baaad886b2dc3b60fde6e4c4a4bfffda50f4c41990fcbd4",
       "translatedStructureSha256": "d8f53caa61bc888bd8f843ef92da2ff2c6302378a1f4c0ecc3dc63698f4acb82"
     },
     {
@@ -649,7 +660,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/literature-ingest.md",
       "sourceSha256": "397480c033e5264e8609940c02b6590d8d6d053b5ba6fa7132e4b3840cdadb7a",
       "protectedStructureSha256": "4ab09cf71e03f0b762b4fae162d0d52cf23fb56fd1fccfc50fa952363222c68c",
-      "translatedSha256": "135d61b7cd0ead179f85c8b15a0116eab28131ecc92a7047efa4ac5cfe688528",
+      "translatedSha256": "8f90b0633d64f4674694731c6384a86e637235cfcf558e5f31497ddb9667523b",
       "translatedStructureSha256": "4ab09cf71e03f0b762b4fae162d0d52cf23fb56fd1fccfc50fa952363222c68c"
     },
     {
@@ -660,7 +671,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/create.md",
       "sourceSha256": "1bae8d537b48c256ffb387b0f3b3ebd84795080f1c0a71377145714f6b080aa5",
       "protectedStructureSha256": "79c83b6c5416e8762a80ce79e92d57a1e5181337c4389881bb3ba0760f2e7023",
-      "translatedSha256": "6e3bb1bd5d1384b814e200fd8be397f3a224ed2185f3c6bf177101cf22361046",
+      "translatedSha256": "bbf592a2ec3d724083bb4bb3aecaa449b5e7f37428782f5f17c1c85b28ac61ac",
       "translatedStructureSha256": "79c83b6c5416e8762a80ce79e92d57a1e5181337c4389881bb3ba0760f2e7023"
     },
     {
@@ -671,7 +682,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/update.md",
       "sourceSha256": "185465d505beddec39c21d7f575d84ad404ffbe0741c7e1c8cdf629f33b98789",
       "protectedStructureSha256": "a6596672a4eb90d6ae538137b7ff3192ee2140d8c65ba1b21c0f694cc107306c",
-      "translatedSha256": "9e4ff261620a1c54a5720730bf81236921666ed66ab614d1f41f02f103700556",
+      "translatedSha256": "671cd0282b3e1eb4f06d8457b9044276a39c0de39476c8fc5397d616e61286ab",
       "translatedStructureSha256": "a6596672a4eb90d6ae538137b7ff3192ee2140d8c65ba1b21c0f694cc107306c"
     },
     {
@@ -682,7 +693,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/upsert-payload.md",
       "sourceSha256": "8a952f6355e53b30f26e27663fcd83709df0ff5d0f2b303db0a328f4f09bacdb",
       "protectedStructureSha256": "db3e8003ad0f0c948836f5152bc96836656ed40d5da82916dd4e7f003f5c20d6",
-      "translatedSha256": "5476396ce0e3197ed52d267cc89bb9da54c0371725953235b1225e94428ba600",
+      "translatedSha256": "015e21b1ed667d9ea6d1697d868d986e9a759c75a6c2d10980e337df70d96039",
       "translatedStructureSha256": "db3e8003ad0f0c948836f5152bc96836656ed40d5da82916dd4e7f003f5c20d6"
     },
     {
@@ -693,7 +704,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/preview.md",
       "sourceSha256": "17371cd86c130cce44d07cfb0880d699920e1ed6a9cb50cc0350d2edeca9990d",
       "protectedStructureSha256": "6ef7dc51d254bee5e880bdc2c1d963fb84856cdd0b47161fb4a21d5e4795f627",
-      "translatedSha256": "5588c15274484405241c7f56bd4cb49f992474765a14f4dee806a2ee4b1da05f",
+      "translatedSha256": "3c52db5af5df809f04c6656d7fbab3a8f4b40edf5a4f1dad80224002472659bb",
       "translatedStructureSha256": "6ef7dc51d254bee5e880bdc2c1d963fb84856cdd0b47161fb4a21d5e4795f627"
     },
     {
@@ -704,7 +715,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/tag/add.md",
       "sourceSha256": "177dbe1b6f4e6e29f6235db980839bebe403e8d186e7ee166074eef1da5b4252",
       "protectedStructureSha256": "1a48486bceb76d67de74f26210cfa6a249923e31bb95b8720396c9919a1c58e1",
-      "translatedSha256": "ff39475aa6ee5e9e1cb4ec4e9664533f56e102e84d524c80884869fbeed99aac",
+      "translatedSha256": "daa804f27125f51893a471e2a19b4f9a805bc3bbe1f387737f6223b235bc39e0",
       "translatedStructureSha256": "1a48486bceb76d67de74f26210cfa6a249923e31bb95b8720396c9919a1c58e1"
     },
     {
@@ -715,7 +726,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/tag/remove.md",
       "sourceSha256": "c35dbac9d092a287bdfb16368bb8675d2cce76dc27991f1dc3302c53f86799bc",
       "protectedStructureSha256": "54964e87ee0b47935d8165c67d3555ce037eea200d99008ac94d7305f3d90cd7",
-      "translatedSha256": "4a32cd44ca99390109c6cc411437d131385616230ca821c79fb0ae81219c2a53",
+      "translatedSha256": "1be0e779240964b8aeb7750abf53045b1a54ecf333c0059b414bdfaff44765fe",
       "translatedStructureSha256": "54964e87ee0b47935d8165c67d3555ce037eea200d99008ac94d7305f3d90cd7"
     },
     {
@@ -726,7 +737,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/operation/index.md",
       "sourceSha256": "ac425087e8ea20a4c9dc15a36458111f37a3173e0c64866bd2e7c0b2b304fe4f",
       "protectedStructureSha256": "45ccb8510de6dce6d061f25519bfe3257db4875750837bea688f70dd8df7b4d0",
-      "translatedSha256": "f50bf808029afd71397a3e9546b01b37388bd348ca9bde5f48da321d63af0501",
+      "translatedSha256": "c0e9bb719aaa32dbb49afc3b137057ddfe125acae6f4cef0ba5426e2b640bce6",
       "translatedStructureSha256": "45ccb8510de6dce6d061f25519bfe3257db4875750837bea688f70dd8df7b4d0"
     },
     {
@@ -737,7 +748,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/download.md",
       "sourceSha256": "3e74c07cd54970b01bc3df8559fbad89b286bfce956a8270129c390a3240f24f",
       "protectedStructureSha256": "5d9afffbd641baff6ccdec43eed1ccc440efd9bc077c202e1b6d179a9e92371b",
-      "translatedSha256": "24b8839cebca7533c741e8b827cb177f09bae62be55a9d19370caec7c044ae90",
+      "translatedSha256": "a9b3eed1ea39d9bec02746bdddae623ff78c055cbd4fdc10cb09c2c0873b3579",
       "translatedStructureSha256": "5d9afffbd641baff6ccdec43eed1ccc440efd9bc077c202e1b6d179a9e92371b"
     },
     {
@@ -748,7 +759,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/get.md",
       "sourceSha256": "b9e602172d9f5d98aa0ad0e438e7bc7bddfbf809181dc759675467ecdee2ba96",
       "protectedStructureSha256": "3d3c2705f3b8ce564ec5bc9aa97078be068eafadb3fcaf133078ed8d7024d5e1",
-      "translatedSha256": "465f18963f1ac389d7651c8b2d80da19a5638a5ba8d43be12dc1d5fc5e4f15d3",
+      "translatedSha256": "0cb8a38c5e144a7f16197ecc8380707413e4fad7cda294ea96208791a7982c35",
       "translatedStructureSha256": "3d3c2705f3b8ce564ec5bc9aa97078be068eafadb3fcaf133078ed8d7024d5e1"
     },
     {
@@ -759,7 +770,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/list.md",
       "sourceSha256": "3922873641727eb86dfa38c899414b2b50271e8426da081a3344a8984f0e36b8",
       "protectedStructureSha256": "5b2bb817bdf45da79f4b78444b4842a4dedb8d2234ad45f94a20f081833675b0",
-      "translatedSha256": "fa754c8619702976f0a896781dde25458541637337def9fcc0ee4db7059a2045",
+      "translatedSha256": "929464d52cbfcee2f968e192fb893a6a61c2ec4b4d589bdf03e2d7635c2bd074",
       "translatedStructureSha256": "5b2bb817bdf45da79f4b78444b4842a4dedb8d2234ad45f94a20f081833675b0"
     },
     {
@@ -770,7 +781,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/remove.md",
       "sourceSha256": "8786deb663eb513f7b0530bcafa30ce4d2ddcd1870ffff58db587cad5a0698c7",
       "protectedStructureSha256": "935e9feb1c198a2b0f238f42a45e4124a8a09eb327488f4cb5320202e4f92cc0",
-      "translatedSha256": "c389f135f58346f36c869f298acb1c2ea7128f3fb661336acd1a4c95b666bfd8",
+      "translatedSha256": "2b6fdc6241dc96f5b3db246128e269d694d3b98a22d9f839c7730895ed88b93c",
       "translatedStructureSha256": "935e9feb1c198a2b0f238f42a45e4124a8a09eb327488f4cb5320202e4f92cc0"
     },
     {
@@ -781,7 +792,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/active.md",
       "sourceSha256": "365d79967373c7f281c9ba3e53bcb57a7509b943c2057d96cfc0830f72033b7b",
       "protectedStructureSha256": "7407d077846d47676541f17cc5fba14ca37ec63abaef57ff7f3d8683ffadcaba",
-      "translatedSha256": "288429599898d75c9afb97ef6daf3dbc5e6704a01953f6429836d9317590265e",
+      "translatedSha256": "3725dc9b63495f09c4f2def29c4363606c580e893eb7d11d58d38c913ed28661",
       "translatedStructureSha256": "7407d077846d47676541f17cc5fba14ca37ec63abaef57ff7f3d8683ffadcaba"
     },
     {
@@ -792,7 +803,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/cancel.md",
       "sourceSha256": "dc6a413196447d5a73bf378f60a86ae3a7c43fef4c472dde4460e2e7b18aa15a",
       "protectedStructureSha256": "49604c2cda0f5117d2d30b8752713e453cb14e6fdf4d2bda0b13f68be7f109fa",
-      "translatedSha256": "995ed3c180e63d8b0788af7b0a1125e0e5cb9b55f4a51828162a2c236d7d75ac",
+      "translatedSha256": "8b5b45e173866e8538b8de1e0d3907e17011c397fba43ec7dc22b81f12956a6b",
       "translatedStructureSha256": "49604c2cda0f5117d2d30b8752713e453cb14e6fdf4d2bda0b13f68be7f109fa"
     },
     {
@@ -803,7 +814,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/get.md",
       "sourceSha256": "6a09a87487f5907ae7b38905e50af0d70a1669578690621f754041de90960896",
       "protectedStructureSha256": "689bdcd8e8d4bb5846a6f7ee614dd3d46843a0fc06b1c58f062639e28a0602dc",
-      "translatedSha256": "85b4c82c2026a817d56eabf59c45a79cdf3bef88e832113e09302ea7149304a2",
+      "translatedSha256": "a8b34ec035b16d5e15d94f3f21385eab5ef307630f7a46a373e92178bc65dd0a",
       "translatedStructureSha256": "689bdcd8e8d4bb5846a6f7ee614dd3d46843a0fc06b1c58f062639e28a0602dc"
     },
     {
@@ -814,7 +825,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/list.md",
       "sourceSha256": "b79308b1ec9290bce318fe3d7c837873e4eef2acdc8d641b2cd1b3ff034f1803",
       "protectedStructureSha256": "3e307a846ec9cbaf88859ec94e9f092c091c260bbbbfc80fda6fb3b12f43b566",
-      "translatedSha256": "b00a9920d32c6d52c51dcc17c84376f4ae545baddf511ae159b8ee698f03ae64",
+      "translatedSha256": "149c70bbeb196e34b9274333d4492ca225aff93778bef599d47704a98a67b1d1",
       "translatedStructureSha256": "3e307a846ec9cbaf88859ec94e9f092c091c260bbbbfc80fda6fb3b12f43b566"
     },
     {
@@ -825,7 +836,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/ack.md",
       "sourceSha256": "e640f2834358f0c62e00d9018efe0d9bfb1eaf96817f13ec8b77a82ae91cb201",
       "protectedStructureSha256": "ec87887d8934a5625a2da80b8431494d3ac26038681008c3e2492fd956859dab",
-      "translatedSha256": "b4426dc3f3a31cee44ac73f00d1ad9ee58641fe0b3422ad041f6c684095b3295",
+      "translatedSha256": "711125c3ba546173fefcc8d8d6067f5938d966e8d29b03a06eb3fe14a2582fb0",
       "translatedStructureSha256": "ec87887d8934a5625a2da80b8431494d3ac26038681008c3e2492fd956859dab"
     },
     {
@@ -836,7 +847,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/list.md",
       "sourceSha256": "d1c7f2998008b93146c8aeda9b7281927ff08ede4040a45d7f7424fc6bf37086",
       "protectedStructureSha256": "e89a877537e713dbfff50e1fb951242af8448803bf852a6c828d2c59823aba2f",
-      "translatedSha256": "240f13491181ef1250497bf55937892dfa883b7f2e18c93f1b9b810ca56bf6de",
+      "translatedSha256": "244d556aaff6e59e385dd39eddce771990609d60feab8230edae1b9a955d1bbf",
       "translatedStructureSha256": "e89a877537e713dbfff50e1fb951242af8448803bf852a6c828d2c59823aba2f"
     },
     {
@@ -847,7 +858,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/wait.md",
       "sourceSha256": "f318686cd14889e4c3004395ddf09ebc9ad734e219b877eefaff4f2288fd2619",
       "protectedStructureSha256": "6aded88dce94a9cefbf085f67cc9d454787d080874ecf0f98629b987de85719c",
-      "translatedSha256": "87bc59b7d191b663c217b78caf8975dc727e4a6280409ba5eb82c8c29466b64e",
+      "translatedSha256": "fb8da3723204019ec2cf54f168adfb550a7cefb2e4f716c62945b1e4a2c479db",
       "translatedStructureSha256": "6aded88dce94a9cefbf085f67cc9d454787d080874ecf0f98629b987de85719c"
     },
     {
@@ -858,7 +869,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/permission/get.md",
       "sourceSha256": "181b3083421656cd335fda45678261b9d925d8a810aaef2b6befdfa45fbb2256",
       "protectedStructureSha256": "13ac47d33c4af264d00b5a39a4ba283ccb28c224936396174cc945cb4610daac",
-      "translatedSha256": "252a53cc4af14046a9385c4044cf8996e1faf15f3713f7511f78e047cbf8978b",
+      "translatedSha256": "25027eecc4ae7692bae5a362b287b494701e5e5082c6f6aa3569f3b0eee87b94",
       "translatedStructureSha256": "13ac47d33c4af264d00b5a39a4ba283ccb28c224936396174cc945cb4610daac"
     },
     {
@@ -869,7 +880,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/permission/pending.md",
       "sourceSha256": "6e7ecb7675544bbad1ada3faa69b90c19526528c421918d1f47d4d61ba46d7f4",
       "protectedStructureSha256": "034dc3e113dfabeef3546b4a146b9b76acfa63cd61158f98c154d9a1b27d1f75",
-      "translatedSha256": "e87e43ff26d22fc3eefcf8f0aba2d8e00223aa192eb49cfacd8290195ecf7ef4",
+      "translatedSha256": "4544b32bc7047eafa277793a5392c8e6eefd00b6165b40184eab84484d4562e2",
       "translatedStructureSha256": "034dc3e113dfabeef3546b4a146b9b76acfa63cd61158f98c154d9a1b27d1f75"
     },
     {
@@ -880,7 +891,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/recent.md",
       "sourceSha256": "74e1571cae9aad34b377d8dd7beeb86463cfb0c464b6d063db98213aa542b316",
       "protectedStructureSha256": "cbc728f93e98b42c5befb0466c02567b3de4ba8c9fbf53d0c800731cde24f6d5",
-      "translatedSha256": "2a5ab64c350898e1733261a5c245b6fd2eabd6680134b966bce9bb6a43679eb4",
+      "translatedSha256": "d9c595271fd124a63b75e24a3fa8aadc600f7068ef3cbc522252bee1c1e313b3",
       "translatedStructureSha256": "cbc728f93e98b42c5befb0466c02567b3de4ba8c9fbf53d0c800731cde24f6d5"
     },
     {
@@ -891,7 +902,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/connect.md",
       "sourceSha256": "60e908640019ed286deb00ddf1f9e9b2a8f43da57200f40ecb53229e062c592e",
       "protectedStructureSha256": "a586e2fa4666e1a93b972962ab635a7bc72c0498bfe1086d8ec6e70a0f81a983",
-      "translatedSha256": "139728de95a734a00f2b2bff59f9de1718892b9afcfa42a00aacb9d5507a4462",
+      "translatedSha256": "2043054251257d67b01eff8a6f3fe9c51f4ebd6767457f051973e488ee020116",
       "translatedStructureSha256": "a586e2fa4666e1a93b972962ab635a7bc72c0498bfe1086d8ec6e70a0f81a983"
     },
     {
@@ -902,7 +913,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/events.md",
       "sourceSha256": "0c123b3f3982c310d6625b49f0a6a1ff178c4644eae56d57bf5c7ef861332ca6",
       "protectedStructureSha256": "25260b3a9257a0a4aa175358324e05e94fa79600bbe8851668cec82e4da02694",
-      "translatedSha256": "d9b660356dd862950fa76028bde7e34b7d37c35ef0a19cb2a6876cd8b8f5c9d8",
+      "translatedSha256": "b0ab5a684cca81fe1411ff3f2f7c8faedb211a2a2e6d2733b1f8c90169591c0c",
       "translatedStructureSha256": "25260b3a9257a0a4aa175358324e05e94fa79600bbe8851668cec82e4da02694"
     },
     {
@@ -913,7 +924,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/get.md",
       "sourceSha256": "76938660b67ec7a4f399bb6333771237e86746a47ef92b647558de802b199976",
       "protectedStructureSha256": "e11421d5b4fe66bf83c34f1b55b7a88787addd4a801f53629cb494628002afdf",
-      "translatedSha256": "27000ab73168e070008fea0c2ecc7ec5db1866983f78e4290e6bd450ff187907",
+      "translatedSha256": "6a56fd21fc7e581a554cbb07ace0705320d9877eda7aa9f6dd0566c05932f109",
       "translatedStructureSha256": "e11421d5b4fe66bf83c34f1b55b7a88787addd4a801f53629cb494628002afdf"
     },
     {
@@ -924,7 +935,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/recent.md",
       "sourceSha256": "67150e3f274d265664546bc50aa2a649cc4e16c5c27b8d741de7b49a8b18f7ef",
       "protectedStructureSha256": "c874578899a7b76af4d23bc388d95028d432966aca587d8a9de474bab701c177",
-      "translatedSha256": "1c17a9d3cd970ff957237bf560a0001a908d48ece4f58886d244ea53e4d17ea7",
+      "translatedSha256": "5574b3cf2e3a11d52708cc5d8ac5ebb0cb3a6591e3089f81dd8cbafa12ba370e",
       "translatedStructureSha256": "c874578899a7b76af4d23bc388d95028d432966aca587d8a9de474bab701c177"
     },
     {
@@ -935,7 +946,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/reply.md",
       "sourceSha256": "7c8a010174f8f9be7526ed3f5bc6ad2d9a3e6b3ec9e9aef4bc5f71c88bd09dfa",
       "protectedStructureSha256": "a4b045e9a80653356dd9a27daf37a759bdde81eeb7e0497d63e262c47febab97",
-      "translatedSha256": "244bef1f8239c83bc3091b64f35f0e07d55441e9625535f2bad385ea9048cf15",
+      "translatedSha256": "fedc4ec6326e6243e2e25ca9b56ad8d846312e4a114343f90c877d27f4a1fb08",
       "translatedStructureSha256": "a4b045e9a80653356dd9a27daf37a759bdde81eeb7e0497d63e262c47febab97"
     },
     {
@@ -946,7 +957,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/workflow/recent.md",
       "sourceSha256": "7f07d1d3b40d6efe09f7b638181958b96c3d46039a6daf978dd4261a2bf0a4ae",
       "protectedStructureSha256": "10372c243574ebb363b123b7da195342832ab83b3b66cf426e1fa3ef3bc5384c",
-      "translatedSha256": "90a31bfb63bb2dab932c0b582ca8ca6b33eeb8423236341d3de0f6c89782efa2",
+      "translatedSha256": "0b79c7b3b30374f1a72d540a166d5f2a9735198ce97f0a3aa8939f001e561e6f",
       "translatedStructureSha256": "10372c243574ebb363b123b7da195342832ab83b3b66cf426e1fa3ef3bc5384c"
     },
     {
@@ -957,7 +968,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/describe.md",
       "sourceSha256": "c8f8db3cacc1ca9c8e824b7a03f5576b67c6c4c1028861a08d7bd62cd7889295",
       "protectedStructureSha256": "f38857376c886ff0802c6eae44160400e042d505d4b2844cd206dc9811b65e23",
-      "translatedSha256": "1ca65a03912df25663aa7d533cc01bd2bcbf33485ff9050e642a3fe523d597fa",
+      "translatedSha256": "fb433059240d091b66d6e829fbe1ebfefdca87bdec15330f1bb1e33cc12a7015",
       "translatedStructureSha256": "f38857376c886ff0802c6eae44160400e042d505d4b2844cd206dc9811b65e23"
     },
     {
@@ -968,7 +979,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/identity.md",
       "sourceSha256": "3efc425d47487f7c9f5c6e1d89b6851746ebe4ce9949552a25fbaa67d2df38d7",
       "protectedStructureSha256": "852e40f4820144e8a959a7ad6529c864c7e762c77a23949511655ebee49db999",
-      "translatedSha256": "6ab736259eb7f08bbc87ca3f71ab2f3a486b4964e920614c47bfc159672caea0",
+      "translatedSha256": "8460daffaded0bcf6835a05abe791df52e238f6aa0ecee5294bd2bab3a0677e5",
       "translatedStructureSha256": "852e40f4820144e8a959a7ad6529c864c7e762c77a23949511655ebee49db999"
     },
     {
@@ -979,7 +990,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/search.md",
       "sourceSha256": "c01135da1cf469a9e0edfcef38b2a0f83d930c5943123d498c810b4bd8bc4bc8",
       "protectedStructureSha256": "7492a5de8b321580445c4183680d35e8c6ba6c6ae79901332fa7e81d578e0b01",
-      "translatedSha256": "8419913a6bf76b6aa587efc9771e8cc5beb07111085f0c18610189b3f574fd26",
+      "translatedSha256": "ba27776241130b12dd36671f492b5df07d3aabc4967f54b5c3c15e881d82c1ba",
       "translatedStructureSha256": "7492a5de8b321580445c4183680d35e8c6ba6c6ae79901332fa7e81d578e0b01"
     },
     {
@@ -990,7 +1001,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/export-filtered.md",
       "sourceSha256": "0ab9f5c0e728fde50a9444b421c55adfcde0f3cb103d3f5817e777e7068ad84f",
       "protectedStructureSha256": "36f63e42ddec5784ffb8f68c9f1f7e9dcd8f0ada8c74b75e3564ad0c0345780f",
-      "translatedSha256": "778122d21791dae046e84dca1fed12afd51d857dca6536554d52b4b5a5b5fb51",
+      "translatedSha256": "d3f64847ac95361e4311dd59dc282c8da49050aed70a14f1c60bae364ff8e88c",
       "translatedStructureSha256": "36f63e42ddec5784ffb8f68c9f1f7e9dcd8f0ada8c74b75e3564ad0c0345780f"
     },
     {
@@ -1001,7 +1012,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/manifest.md",
       "sourceSha256": "6257b210416c161235aa4db163ed08c484de4f2f13079d3336e32aeadaddba95",
       "protectedStructureSha256": "a73c08a0e60bec55ce0aa43c43c901979c17769c84261b1a6ba81a774800a6d5",
-      "translatedSha256": "dd2a24a375fed30240cbf3ead53903015fe45b2629f83569f81072919b6e5193",
+      "translatedSha256": "eabe740b0f1249eff1d7070810fdb27ea31aaa027daa0e2a4ad26afbf392395b",
       "translatedStructureSha256": "a73c08a0e60bec55ce0aa43c43c901979c17769c84261b1a6ba81a774800a6d5"
     },
     {
@@ -1012,7 +1023,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/read.md",
       "sourceSha256": "6b8a71c81c8bc7f8915ffe8a2db7859c12a81617cf0e164ac1ce32816499fde5",
       "protectedStructureSha256": "07fabad6f58c033a6887d088265409e0e827d5925ffd6a31ffeb612850060024",
-      "translatedSha256": "1628d4a976beb4473b9e9fa4d1db6a3953e0323903e66e0636664a43fb9765ed",
+      "translatedSha256": "3cf6286eef7efd194a7e51096b5d266c8623f041783441e833e089af1e6e3741",
       "translatedStructureSha256": "07fabad6f58c033a6887d088265409e0e827d5925ffd6a31ffeb612850060024"
     },
     {
@@ -1023,7 +1034,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/resolve-topic-digest.md",
       "sourceSha256": "17462b49213bf212c5dd780727123a35f5543cd1b983c0d0fb092ee6f372b1b6",
       "protectedStructureSha256": "fa1c58d0837d8b191fa9e1f5ce65eeb66b856a891d52299816e2e2e48b300f69",
-      "translatedSha256": "c69f56fedaf0a5e0074c9e3a8b7861295653b8a9b7e6313b63ea49d2598cf936",
+      "translatedSha256": "8faceb8cf9300de7958dad433d44e498f093211d3b64335ad745bc0ad88f72b5",
       "translatedStructureSha256": "fa1c58d0837d8b191fa9e1f5ce65eeb66b856a891d52299816e2e2e48b300f69"
     },
     {
@@ -1034,7 +1045,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/invalidate.md",
       "sourceSha256": "60aa76e32f96d51dc02aa95dc0722db3ca7a1842f288595fdf7e767d0000a4b4",
       "protectedStructureSha256": "42462bb80cc513f645d9fe0118a0307b4b1482279029c9ba01381f4f5da50f01",
-      "translatedSha256": "9706cfbf25def8db1ae679422f44517f4e180739ee62a2cd6fa2542090e1db49",
+      "translatedSha256": "b2bead048529592930d417ac00c61f615e7bb2b39b221b13c729abf0fd4a82c2",
       "translatedStructureSha256": "42462bb80cc513f645d9fe0118a0307b4b1482279029c9ba01381f4f5da50f01"
     },
     {
@@ -1045,7 +1056,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md",
       "sourceSha256": "29058c71bd2b1c31650487c4f2ba84c337c020590985d009c35be7cb847d28b2",
       "protectedStructureSha256": "3f37fced05c18d4de517d09702b4b3725847d02b48d48989f57b9273a5163290",
-      "translatedSha256": "7452e18bd7c75c7f3204d3b5ea0deeeaeb70913fd31b8572832933f9aac8f831",
+      "translatedSha256": "fee76e71872c4dfe898f9e14372ab6d413039dea2b19bf5869d0ebe73facd2ee",
       "translatedStructureSha256": "3f37fced05c18d4de517d09702b4b3725847d02b48d48989f57b9273a5163290"
     },
     {
@@ -1056,7 +1067,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md",
       "sourceSha256": "28a262c376910c9ec2cddf2793496e38ef4313264e7a3220e31bab9b49c6a08c",
       "protectedStructureSha256": "4012b9880389808e3a9e2ad2547705684bf1959ca3b29656adfdf4d56b692596",
-      "translatedSha256": "d075f32f522afe1d9d1e5e51406df61433cd73788a1f9fb9efe7765cc2b3c35e",
+      "translatedSha256": "06495381cae3e893a1d2828ea16e7ec24322d364008d01ab0ea2b22e0c8a3d77",
       "translatedStructureSha256": "4012b9880389808e3a9e2ad2547705684bf1959ca3b29656adfdf4d56b692596"
     },
     {
@@ -1067,7 +1078,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md",
       "sourceSha256": "dcb399792301ecc3e1c00d47b7649ae53d2ce6ef02631b30e012f01e1abf74e8",
       "protectedStructureSha256": "4e24a8609ec015b1e96a3d243229136094a81e421ca8b82f67a46f449df84802",
-      "translatedSha256": "a5d74d1d88c4b56bbaa3e00084ef3396f733030d5085a87c15b689637e1c8d96",
+      "translatedSha256": "0814ce76406b7581526ecf1f80e224db58913b876901bfc10e8189764aa3e975",
       "translatedStructureSha256": "4e24a8609ec015b1e96a3d243229136094a81e421ca8b82f67a46f449df84802"
     },
     {
@@ -1078,7 +1089,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md",
       "sourceSha256": "06f28665a524fed63830c6bb584e8fe7aedbaa7cf41a6319bf77816545e12ece",
       "protectedStructureSha256": "41abdd545070a2d4b4633937ce31d2033a1aa0d118a163b62d86cc7b0da0e6ac",
-      "translatedSha256": "5f798c483cf62f0e0b00ab30d6744d83cf13cdbbd1d8e9e7ace7c3f04fcd8f33",
+      "translatedSha256": "e3ade84be11d2ef187550c8a224604a905bdadcd07b5b33d408456b558491e07",
       "translatedStructureSha256": "41abdd545070a2d4b4633937ce31d2033a1aa0d118a163b62d86cc7b0da0e6ac"
     },
     {
@@ -1089,7 +1100,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md",
       "sourceSha256": "c33388e4b8960b286ad688a8378fbc4008723c6ec3fc5f197ebd6b6657573b09",
       "protectedStructureSha256": "df192b8766a28d13c5af3cbdfedcbed05f0f75b9f9d9214c4df8e0078c92433b",
-      "translatedSha256": "9dfad75a01ca7dd25e202a86fe5a78cc35e57b79e05d78d66f9e506ef29759d5",
+      "translatedSha256": "511f689273fdc3f6d5df53b08f2099e60e07474861b15d399618bd86d39e22e9",
       "translatedStructureSha256": "df192b8766a28d13c5af3cbdfedcbed05f0f75b9f9d9214c4df8e0078c92433b"
     },
     {
@@ -1100,7 +1111,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md",
       "sourceSha256": "627bce35c365c19feccda4ab1313545cc53b9e6c7659e3fd62f4d448d51fd451",
       "protectedStructureSha256": "aef193207ff08bba54867ad1c8088a3144d4cc341dec1df6d011d3b7f4dcfcfb",
-      "translatedSha256": "de64aa083368323e1d6ce1f590af5b69299751339fa39b307b175a5bf867fb08",
+      "translatedSha256": "86b7f0608b12acd562b0c77f83bbcd6d5440ac3220363cb4cd90c4a6a697b0c5",
       "translatedStructureSha256": "aef193207ff08bba54867ad1c8088a3144d4cc341dec1df6d011d3b7f4dcfcfb"
     },
     {
@@ -1111,7 +1122,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/overview.md",
       "sourceSha256": "e7146078bc3ff67435a48842f6a12452f529058e21efd84200b6dcd66d64eb4b",
       "protectedStructureSha256": "1aa3a067519006775e68ac993458385d060a0517b2f5687bb924a77e2fcd424b",
-      "translatedSha256": "aaf6f4ccba041b66f13b639b117371c621be749fd561b68c6f603277a94a09ef",
+      "translatedSha256": "fc0135721613303d5e7f0dea6968c5ce4b50823c0303a68e1ee3bac138c1afcd",
       "translatedStructureSha256": "1aa3a067519006775e68ac993458385d060a0517b2f5687bb924a77e2fcd424b"
     },
     {
@@ -1122,7 +1133,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md",
       "sourceSha256": "872c0a97ea835a512577edd04f5d217f1fb4eea3c453c9a7ad6c4409ab0f2a96",
       "protectedStructureSha256": "88895510fd035c9c7dcdff2102fccd2fb3f5c6bcc70a3341ee0a5e5fc4b71060",
-      "translatedSha256": "434d52929820586449bb55ef43e9c922e451ccd03ee2f10c2bcefeb08daab932",
+      "translatedSha256": "985a2d769ac76766863c7cdba4dde105e31d9ebc3c7ce6d5b7af536e1ec2d764",
       "translatedStructureSha256": "88895510fd035c9c7dcdff2102fccd2fb3f5c6bcc70a3341ee0a5e5fc4b71060"
     },
     {
@@ -1133,7 +1144,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-external-references.md",
       "sourceSha256": "6e2ee9c68fb3203791c9cf6449e66fad14afeee9fe354d0d70a700981eadc5d3",
       "protectedStructureSha256": "53f36b95d83b0b8e637fc9d5d993fd82d8e4ffa6ea4d65eab84c58ceb5c72720",
-      "translatedSha256": "a0545d9dbb927620f4fbe7b58055f04417db6bbe1064b08db5956c69c2535169",
+      "translatedSha256": "078f7696a31f7a33be1fc47e5c36fe0361c771971d40eb0534b1e3b782f1f61c",
       "translatedStructureSha256": "53f36b95d83b0b8e637fc9d5d993fd82d8e4ffa6ea4d65eab84c58ceb5c72720"
     },
     {
@@ -1144,7 +1155,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-library-papers.md",
       "sourceSha256": "95e3e0fede5d615fd65585f01084e7a098879ec82b3e6bc0a7905ac49bdb3d09",
       "protectedStructureSha256": "45ddd35c97abb39b9bdb08f8f38084f2af37e77fb40e2a6a1696cf588236fe6b",
-      "translatedSha256": "42da0f22d22b4ce535179ca288228700e263e5226163519213555090aeb3e07f",
+      "translatedSha256": "4f57642438833dc45f553b29c3921f2503a6a00c5b78d03507907865ea1e3784",
       "translatedStructureSha256": "45ddd35c97abb39b9bdb08f8f38084f2af37e77fb40e2a6a1696cf588236fe6b"
     },
     {
@@ -1155,7 +1166,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/refresh-metrics.md",
       "sourceSha256": "da94f6a28d412c2ae4f5a861398d0116029ecd9455827e0f8d522824c8a7a206",
       "protectedStructureSha256": "9b5ad6fc9fa5d44f906a802620b25ac10d6d6dfbe381c915ca9db2faf8ac37fb",
-      "translatedSha256": "0f52cb1e5f7ad385cf86dfc4dd37a3d625c6d1e0b378ba6580611998c4ecebd7",
+      "translatedSha256": "ea325bd9973169b6b33fa4fb226567f0be07dab0c16acbd019def54ab6461c07",
       "translatedStructureSha256": "9b5ad6fc9fa5d44f906a802620b25ac10d6d6dfbe381c915ca9db2faf8ac37fb"
     },
     {
@@ -1166,7 +1177,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/update.md",
       "sourceSha256": "c287239fec36779557f76222ce435780fc884bafb0a6c334b2d98ef0cd085ed4",
       "protectedStructureSha256": "987d5c8f33a68d9d5adba8ae7cae047512e91c31d8aa92706e5064aa1a0a6abd",
-      "translatedSha256": "c36f336bb3351bdf5eff16ec4b68776140afde0e6b9cb2962387017c036a77e0",
+      "translatedSha256": "64e7032c1fce7915f15094b51845de3ae08f20b36141cf0cce34711dd04a5715",
       "translatedStructureSha256": "987d5c8f33a68d9d5adba8ae7cae047512e91c31d8aa92706e5064aa1a0a6abd"
     },
     {
@@ -1177,7 +1188,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/library/get.md",
       "sourceSha256": "3a6e82bb6699f275c993c4db913b09f9c3bd141f33e20886b0f3b5a002ef3917",
       "protectedStructureSha256": "526ff96ae47400766c22999ff7bcf1518c28081e21e9fc09130653af8252a943",
-      "translatedSha256": "1bd1842742313244445f50eff1b12e16fb891c156150dfb924f1b647432a177e",
+      "translatedSha256": "4eca852315bc9507b92ede6134963c8c316393c1da6dc9ccaf3769c98929568a",
       "translatedStructureSha256": "526ff96ae47400766c22999ff7bcf1518c28081e21e9fc09130653af8252a943"
     },
     {
@@ -1188,7 +1199,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/reference/get.md",
       "sourceSha256": "1a2b9d81efff6f366efa5c8254ffcd06bbfc249bb4d7a2e3efd2892fd3402e19",
       "protectedStructureSha256": "d1acec7e911aaf4288431958aa22ee9feeccc8d207c292d8fca62e69ecd6fe15",
-      "translatedSha256": "e4ee6916a05df6f17774506b4859000f727bee5417c5d67af0500ed9d0a12f12",
+      "translatedSha256": "c476cc70829e1bde449de567e8ab09c9fd63cd6d7ad5cb0898d75c754431c962",
       "translatedStructureSha256": "d1acec7e911aaf4288431958aa22ee9feeccc8d207c292d8fca62e69ecd6fe15"
     },
     {
@@ -1199,7 +1210,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/status.md",
       "sourceSha256": "519679007941d0452e007326fface167b9ff5339c8dcc2627aff34f076791b8b",
       "protectedStructureSha256": "4a89662f83135de82e83f29932f5d12b4e090a2d48ad9fa05acba9d5b0ce2e84",
-      "translatedSha256": "ab9574d6007de9d2334c765da292e25790555cf4ec674a8d2d17d36437ea86d6",
+      "translatedSha256": "a94c58defbb9225cc620b2b165e53e7e34dcbf98183585f2ad73797f84285f73",
       "translatedStructureSha256": "4a89662f83135de82e83f29932f5d12b4e090a2d48ad9fa05acba9d5b0ce2e84"
     },
     {
@@ -1210,7 +1221,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/insight/attention-queue.md",
       "sourceSha256": "703b9774af8770ac8774a0334fd67ad594d288c6369660f56cacd37cf92b9d01",
       "protectedStructureSha256": "8861a8dcf320dc08add667b0c3f1e57940126489595a3cf1ca83f7156199d8ee",
-      "translatedSha256": "1b75009d5c093109a9d0daadd3b505921521d062ff25d1208ec01fa34fb675ff",
+      "translatedSha256": "1e96fe8f0349d4dac08810886dc702bfc45a293fa3540fd528ad02a86996d150",
       "translatedStructureSha256": "8861a8dcf320dc08add667b0c3f1e57940126489595a3cf1ca83f7156199d8ee"
     },
     {
@@ -1221,7 +1232,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/resolver/resolve.md",
       "sourceSha256": "e56bfcb47e249d4a3888ab2b774492d1a442af98811e86dcc630e5496533f7b9",
       "protectedStructureSha256": "7f22e00a4e1d37335a290eea1a64943bc5f3a67b14d20e15c3ed14b752ac8ca6",
-      "translatedSha256": "e08ce22976e9f81233449757ebf5bc1d35a702c89806412a4bb73e0f28358f3c",
+      "translatedSha256": "c6c5d90c3f62370efaf566b38e07ff57d29ed51b2a9fd443062e47363d8f8a77",
       "translatedStructureSha256": "7f22e00a4e1d37335a290eea1a64943bc5f3a67b14d20e15c3ed14b752ac8ca6"
     },
     {
@@ -1232,7 +1243,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/schema/get.md",
       "sourceSha256": "0b6b5bed2af12a857754af57ba16310314e13d47438983c1292af3b64b4de7c9",
       "protectedStructureSha256": "2ef0402b567930a2ff33e9599a21c9d2f738dc71f73d8de8a07d6962db35b9c7",
-      "translatedSha256": "13627a04da09feb5a053e8452eaaada52735df74e7ccd7af32f0051801316af2",
+      "translatedSha256": "4f7e3c2ebfe9d7cf5d34683978f1235236659045c848d743d74a43cd979e255e",
       "translatedStructureSha256": "2ef0402b567930a2ff33e9599a21c9d2f738dc71f73d8de8a07d6962db35b9c7"
     },
     {
@@ -1243,7 +1254,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md",
       "sourceSha256": "00e8c1e1a5f15aeb157f40bce9bc48fc6f8a30b3b5c452f7377c81a26362912d",
       "protectedStructureSha256": "f5a78ced66fd03aefcc44c36f55004e5ce49143772942ba78754f054c8ed9fc4",
-      "translatedSha256": "2ccfe7eb46edebdce6f3cf710c40cf4ce7e1bc8526c17d59e1861c15d3d9a3f9",
+      "translatedSha256": "79c377d63517ff08b836b25a0eec73b9624a487616eb83c9af2c0c6cf2f800ba",
       "translatedStructureSha256": "f5a78ced66fd03aefcc44c36f55004e5ce49143772942ba78754f054c8ed9fc4"
     },
     {
@@ -1254,7 +1265,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md",
       "sourceSha256": "8fe2aa3c43b29d0db2e8d8c11a4666a97471d7d4caaaae650fc6fe6b99830756",
       "protectedStructureSha256": "9fb1ed025873186404c57f6d1d132246affd5f243dd8e3b2890bc20c3c19805d",
-      "translatedSha256": "2bf8252d19d09f69f7b9f9ec6506b2bb024e3caecdff156d0926a6ea8da103e3",
+      "translatedSha256": "c68b05a14f3591392f635f4b79c1d06bf3dc2b091d452235835cb63de7ceda45",
       "translatedStructureSha256": "9fb1ed025873186404c57f6d1d132246affd5f243dd8e3b2890bc20c3c19805d"
     },
     {
@@ -1265,7 +1276,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
       "sourceSha256": "0458c70a7cfe04c5fa30f7dc34fbcf0507da7302d53645061a339376fc93c1a9",
       "protectedStructureSha256": "0c06321179553835d6a910c7ba7c6cb21eb2853fb6be3645d22a8f424ed78968",
-      "translatedSha256": "563cfa484018bd31478430079f5ef356d4930ee08b1befd00c68bd4f82ce13b8",
+      "translatedSha256": "f1fa053d21f71adc492ef2962309e3962272ef82a61535cf7cdc046dc38accbb",
       "translatedStructureSha256": "0c06321179553835d6a910c7ba7c6cb21eb2853fb6be3645d22a8f424ed78968"
     },
     {
@@ -1276,7 +1287,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md",
       "sourceSha256": "529f9b10c769b153dca8e6e3ff96e75bd23b408a33b9f34a3fca6576b9ffc806",
       "protectedStructureSha256": "2c14c5479f12c2413895aea075199b32d8dd78c13475500330ce4850eae652d5",
-      "translatedSha256": "4271975ac81f9c62a55fee67369d890c2758a2cfaf7474d93d01de369c3fad83",
+      "translatedSha256": "959c12776ecc977fe09695f3ec1da683f6dd75c1b206ea0a468690c55d062986",
       "translatedStructureSha256": "2c14c5479f12c2413895aea075199b32d8dd78c13475500330ce4850eae652d5"
     },
     {
@@ -1287,7 +1298,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md",
       "sourceSha256": "46f401f8b69af5355c0829f2806892d67f5deb18bc4b8ae68d692eee0143981d",
       "protectedStructureSha256": "6cf994fb3aebbbcf2b782870b775d29b5a70ccd03d795b5a8e6e79abc3a2da6d",
-      "translatedSha256": "e58fb9e5a3ff7fe921d0f47ed5c4a60fb2e1ca6589d30f9aa8962a9b7ddc353f",
+      "translatedSha256": "72b1dd2003c595386d6b305673da93befb8a7c035ad4fcfb7e034b607075e593",
       "translatedStructureSha256": "6cf994fb3aebbbcf2b782870b775d29b5a70ccd03d795b5a8e6e79abc3a2da6d"
     },
     {
@@ -1298,7 +1309,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md",
       "sourceSha256": "5e676ee0c511a5ef60a4b0d1bcd1f3ae81c18a0e41a290b6a98c48f6297fb558",
       "protectedStructureSha256": "91e2c5cf6b8a464a005defc82827927580f6800c87df59545086627a9e07edff",
-      "translatedSha256": "57bb79dfcd5ef3c2e721fd51a35bf2e80053759a882741b9d3daec024b485d88",
+      "translatedSha256": "2b8ebcbbb5e2519a134754382f87fc060ea0807d8f1c812a37cf5d15187ef03f",
       "translatedStructureSha256": "91e2c5cf6b8a464a005defc82827927580f6800c87df59545086627a9e07edff"
     },
     {
@@ -1309,7 +1320,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md",
       "sourceSha256": "38f303562b923e0ae09d54509c4947c5025ab42ef57ff17f225fe1737e34f87a",
       "protectedStructureSha256": "f1ed10d3dbf58325a402d26cd92d69a6a8d43496204cdbf5d3abfe5fc832f48a",
-      "translatedSha256": "b73e6d83181dd7d8c0dabfc832719ca72a380a442aa78b46f378188cd41f7a06",
+      "translatedSha256": "c5067348cb5725d64cb69578c98aca627491836b21f4f47f0294fdaceee519ea",
       "translatedStructureSha256": "f1ed10d3dbf58325a402d26cd92d69a6a8d43496204cdbf5d3abfe5fc832f48a"
     },
     {
@@ -1320,7 +1331,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-abandon.md",
       "sourceSha256": "aa134558aad18694991172d612a301c243b2e5e91f278a7297cac6aba3206949",
       "protectedStructureSha256": "fb6335b3f191a6ec6bffbe4b0f94832fa21ee4c55a27598e6d829db9d3c0bf26",
-      "translatedSha256": "5fdcc86d328d70c35d8b27e80b7ab04d1c9777ddc48e81b700a40fd3c0fa414d",
+      "translatedSha256": "3756214cb2a920513a33da7ddceba0d5ed602b2f9ae2d501fb9d335f9d9a273a",
       "translatedStructureSha256": "fb6335b3f191a6ec6bffbe4b0f94832fa21ee4c55a27598e6d829db9d3c0bf26"
     },
     {
@@ -1331,7 +1342,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-apply-status.md",
       "sourceSha256": "1c08667763a79efbf7922b341eb50b8db5f024ed51edfbde499f4d0829c7a663",
       "protectedStructureSha256": "f369776847fdc09e4e444279944209f263e2984422f3347372b66b5c852814cd",
-      "translatedSha256": "4effe7b4dc05267702b6b697a6afb34403db83a44e20feba8ba054d1f287190a",
+      "translatedSha256": "a9a8080bd457f262771d47839a9e5a1a939c3655f685e79d19216dfb73faf1fd",
       "translatedStructureSha256": "f369776847fdc09e4e444279944209f263e2984422f3347372b66b5c852814cd"
     },
     {
@@ -1342,7 +1353,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-apply.md",
       "sourceSha256": "7e7beab170dde29644af6fe88e649341f009d845da0bd20653345161087ab3fb",
       "protectedStructureSha256": "71662eefbd1520e4b1f070f347da62dc169c79a7170138fafd62b45af4282fd4",
-      "translatedSha256": "adbfa88e1a7ffe8a146182506106eb5772460a130399c9a6dd97b3dfe481a9f4",
+      "translatedSha256": "e8d77d8a44035c47dcfe873281834bf385f086152f04dea31b6d1a8fd291b785",
       "translatedStructureSha256": "71662eefbd1520e4b1f070f347da62dc169c79a7170138fafd62b45af4282fd4"
     },
     {
@@ -1353,7 +1364,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-bundle/inspect.md",
       "sourceSha256": "2de0d4baeeba6262476b9f56890cef1bea54c98a7089de53df6c870d33c3ef9e",
       "protectedStructureSha256": "93928dcba31cf097765a4b335ba4d6b5ecf884c9f362a82f66ca4cd956bcb00d",
-      "translatedSha256": "b62ee8111dd4d3e0a26ce4e48102ae743812addab4ee2105b8e83de83387a511",
+      "translatedSha256": "3ada0a307cbfa32b3e80b7a53bf6d5915dd95163670e8672346c9d26732232b2",
       "translatedStructureSha256": "93928dcba31cf097765a4b335ba4d6b5ecf884c9f362a82f66ca4cd956bcb00d"
     },
     {
@@ -1364,7 +1375,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-renew.md",
       "sourceSha256": "7e3b402e6a8415f8ebc7d63753033423d3054d1ac43886900c5a05968fe96274",
       "protectedStructureSha256": "ad7ee52cc615971037f3e6ca1bb0e5d225869751ea11ed13a7f1741d761ea6a0",
-      "translatedSha256": "bf7b33aff6048839448a002999fcd6a393e0990bbd5f8926d3960f5bc53608cd",
+      "translatedSha256": "cbcfc3d5992220aa33d8b8492652347ee0b9af8954d2d301d2f4e286441eb3b8",
       "translatedStructureSha256": "ad7ee52cc615971037f3e6ca1bb0e5d225869751ea11ed13a7f1741d761ea6a0"
     },
     {
@@ -1375,7 +1386,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-result/validate.md",
       "sourceSha256": "09ef9476b6771f74d8de81212c211e63d5cb822bca964ae668bbc20db98c8a5d",
       "protectedStructureSha256": "5df5e7deafc1de7b17025a5259cb33d65f81e2b71c00183ddb93bfbffc370fd1",
-      "translatedSha256": "cbad102d986954e190c2e749a8f0dc04e22710d8dda387c1465811e42108a3ef",
+      "translatedSha256": "a02dc0972889f0c1c8b2a7751a0a2df18971e43a16a83b85e49f280bc01e1bf8",
       "translatedStructureSha256": "5df5e7deafc1de7b17025a5259cb33d65f81e2b71c00183ddb93bfbffc370fd1"
     },
     {
@@ -1386,7 +1397,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-run.md",
       "sourceSha256": "7c0f54383af219a2e90a81f9807dba97edffc0992609e0791a248dc4b5c035be",
       "protectedStructureSha256": "f80193f7e4eef59bbe720139158472e2d8f0890dd6d25cf979d3ea68910e30ab",
-      "translatedSha256": "e2de7201596634956344ff0b29833c8c2833d0f5920a381b953f1edc46251abb",
+      "translatedSha256": "51625b1be0d36159a1e62f0be57be537ab57a489faad69674eda8255ad90f7dc",
       "translatedStructureSha256": "f80193f7e4eef59bbe720139158472e2d8f0890dd6d25cf979d3ea68910e30ab"
     },
     {
@@ -1397,7 +1408,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/defaults.md",
       "sourceSha256": "59de22a27070810d5d2de3fb6eb076bac37728b03f10fc0e865d15a699e5109f",
       "protectedStructureSha256": "d686edaa254de4ce3687f1e07cbd34e12f14a678c377cd64842379064ef90d06",
-      "translatedSha256": "59de22a27070810d5d2de3fb6eb076bac37728b03f10fc0e865d15a699e5109f",
+      "translatedSha256": "b51275e9ccca7ccb9186782ff0a4a746b098c5f819561c1f38985f6148821a9e",
       "translatedStructureSha256": "d686edaa254de4ce3687f1e07cbd34e12f14a678c377cd64842379064ef90d06"
     },
     {
@@ -1408,7 +1419,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/describe.md",
       "sourceSha256": "ba95040c500d263bc12eb5fb1c2592d79c43fd99a35abc3f7df23572bc78a9e2",
       "protectedStructureSha256": "2be84c230615055c879d5cc1ab14fe45cf186965eeef2b945fadfd2f4886860b",
-      "translatedSha256": "35c0cf7a83a70b7c2b41ec9455e2db229588e32ad722c2326f2de123510e7d33",
+      "translatedSha256": "26fb912962e066357b3a65964a1154615a084071e7e2c5006c89168803fb1da4",
       "translatedStructureSha256": "2be84c230615055c879d5cc1ab14fe45cf186965eeef2b945fadfd2f4886860b"
     },
     {
@@ -1419,7 +1430,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/list.md",
       "sourceSha256": "67abba46ca2e61b3318785a1610c3509d4cd700b85b267ca539493e6690b2193",
       "protectedStructureSha256": "e6740711c47c641e76ce81d00477bb86786e8cb02258e76c2677f66b44cf6e46",
-      "translatedSha256": "e38a7a3e98d543f0d618862cbea6be02b5df164f7514421d69e85337175bea82",
+      "translatedSha256": "a6758b175c4522ead54b42ad4aa21ee748f86918a568ea235824ba70d5147b04",
       "translatedStructureSha256": "e6740711c47c641e76ce81d00477bb86786e8cb02258e76c2677f66b44cf6e46"
     },
     {
@@ -1430,7 +1441,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/describe.md",
       "sourceSha256": "9b8f711f20bf6c59444bddd1108ecd95e7df151e64162987b60a22431581b9cb",
       "protectedStructureSha256": "22bacd4cd7d0f5f34ed9ac7c2ad354e99b59a9dd6a5503fbb658fb5a5c2ae3dd",
-      "translatedSha256": "5ed0028d28fd8d146c241aa0b3c6ff1fa4939a8297d8e07083c21743619d4b60",
+      "translatedSha256": "dc27b6d6c6c820c88c3e778b84651cc1132c20dc8e4215f4f4030cf2a0edab90",
       "translatedStructureSha256": "22bacd4cd7d0f5f34ed9ac7c2ad354e99b59a9dd6a5503fbb658fb5a5c2ae3dd"
     },
     {
@@ -1441,7 +1452,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/list.md",
       "sourceSha256": "d1c9140cc23cab9178b787437acdf1385a6b2a6532367e8509f3b27b55ebdbf1",
       "protectedStructureSha256": "396360a3634dcc084a2e1bb2e66a75d9c42a13974f04469d5ed30e00ce6b75a3",
-      "translatedSha256": "53c61a0e14105d7081d835c9b02323fec57e1b34f5712c89ae1d6fde3d20f580",
+      "translatedSha256": "eca41892a3d87a33300428cb0b98dae004001880f2704b3a6b822313a41057a4",
       "translatedStructureSha256": "396360a3634dcc084a2e1bb2e66a75d9c42a13974f04469d5ed30e00ce6b75a3"
     },
     {
@@ -1452,7 +1463,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/refresh.md",
       "sourceSha256": "3dbccf39f627f092a408150928b645085d473910cf919daec8da0e50cd2ba4c6",
       "protectedStructureSha256": "b2913698afb44178033631bc0a490d61e767593329f824802f62dd4207bb85f0",
-      "translatedSha256": "3dbccf39f627f092a408150928b645085d473910cf919daec8da0e50cd2ba4c6",
+      "translatedSha256": "d93e706bb20921cebd8fefef4ca7582bb2752dca1d7a08d3bfb5270ba8866535",
       "translatedStructureSha256": "b2913698afb44178033631bc0a490d61e767593329f824802f62dd4207bb85f0"
     },
     {
@@ -1474,7 +1485,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/queue/cancel.md",
       "sourceSha256": "a7bc7d084d6167b8a4f0bfe273d6f106660219ca95664ff14dd983d573f421e6",
       "protectedStructureSha256": "5fa701fc1f863085c319c9d5904fffc455abed3393edc9e424157e90f9e2a177",
-      "translatedSha256": "3a1afc7eb5ec26af298cb46a2d391a7e72633f668d49dde818757b0c507b7a90",
+      "translatedSha256": "987b070252d8bffa1dd665e9a4dba075b8cddfcda4cbc40c315784e8a95b9210",
       "translatedStructureSha256": "5fa701fc1f863085c319c9d5904fffc455abed3393edc9e424157e90f9e2a177"
     },
     {
@@ -1485,7 +1496,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/queue/list.md",
       "sourceSha256": "050c1e009f81df95758a5f626a4b2e7487fb37bf8d07c7a9bd1d8ad841e0c93b",
       "protectedStructureSha256": "1c0ea083809aa162353caa2b720bcf4d50cb5af1d38dd1941d40988d7f07e56d",
-      "translatedSha256": "3b2788475e1d3e7e529f15f17b80ccf26c5f003a025284a74db120fae7e40c2c",
+      "translatedSha256": "c1a4e18b44b597189f66a0225b5304229d3c131e47ed7ee059ae17f8c1aea3f8",
       "translatedStructureSha256": "1c0ea083809aa162353caa2b720bcf4d50cb5af1d38dd1941d40988d7f07e56d"
     },
     {
@@ -1496,7 +1507,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/requirements.md",
       "sourceSha256": "34809470c07ac4e0130b32d61896d4ce59edf5eb5d297c226d8acf2f1fc16b5e",
       "protectedStructureSha256": "7238d9a29381ab4cee9e51271adc5aac853964349b030cfbf32ac32307e234a2",
-      "translatedSha256": "a2e1d826d56c429e3b7dc9cacef7c2f3d5d707835b0347ee06c8fd5cfa1f9cb5",
+      "translatedSha256": "72a519829b5a86285b15253a9d3e8dceca7e9d8fd5ed23c102cb9ba3a6241a57",
       "translatedStructureSha256": "7238d9a29381ab4cee9e51271adc5aac853964349b030cfbf32ac32307e234a2"
     },
     {
@@ -1507,7 +1518,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/submission/get.md",
       "sourceSha256": "f41ee247708bfa6283e04b8c6da6350fba75299e43a4e6e58df0ac55e9933550",
       "protectedStructureSha256": "e5e67658a3a96c71a05e17b751bbac241f8149be3a4fbb7d1c23b4cff1e3a84d",
-      "translatedSha256": "86cf3ea1c2501481390b2b16a1feb3c05f518e4d990216f66e063c942655d0b2",
+      "translatedSha256": "d932be862400dfcdddd71c50047c9d9f563a7dd72afaf250051772fd401c8fdc",
       "translatedStructureSha256": "e5e67658a3a96c71a05e17b751bbac241f8149be3a4fbb7d1c23b4cff1e3a84d"
     },
     {
@@ -1538,10 +1549,10 @@
       "relativePath": "SKILL.md",
       "artifactPath": "zotero-bridge-cli/skills/zotero-bridge-cli/SKILL.md",
       "sourcePath": "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
-      "sourceSha256": "5a15f01d2bae4f02f1799eafdbd3fc1f6d5908f96c8af849e2c0e3dbc640288d",
-      "protectedStructureSha256": "5722aa269a3cecb8c5f68335e14a44f057c552214b5630101684d133856cdaf1",
-      "translatedSha256": "447555a87834d7c4369276ab184760e585861ec1428b2d9ff11cec134e578a4e",
-      "translatedStructureSha256": "5722aa269a3cecb8c5f68335e14a44f057c552214b5630101684d133856cdaf1"
+      "sourceSha256": "da11d52b92fc314c99fb606625f5250e342294cb98306fe7c5b67f558753a359",
+      "protectedStructureSha256": "b19f2534a2e4665668d0397b62692694bb802168ba215dc045801969a10c0e03",
+      "translatedSha256": "748badd17ef39c9213a424b2c7f4dbc6391feaf1e33b41aa0fffd796dee641af",
+      "translatedStructureSha256": "b19f2534a2e4665668d0397b62692694bb802168ba215dc045801969a10c0e03"
     },
     {
       "ownerSurfaceId": "zotero-librarian",
@@ -1573,7 +1584,7 @@
       "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/resident-operations.md",
       "sourceSha256": "eaf03e65a851bc6dea1105829eb237af3f7dffc4c829230795407847fe2a7a2c",
       "protectedStructureSha256": "ef45a077a02284b802886855bb8b375b8b63ec6c6c8e8426d9627fd1d2d69340",
-      "translatedSha256": "c74a326d543f711dda6d2364c9c26388045e3d0421f612a33031e9e49d92bde6",
+      "translatedSha256": "ae53887f965e117f262fd2faea2880c609233c8f98a1bf6094c44b47b1eb3ea0",
       "translatedStructureSha256": "ef45a077a02284b802886855bb8b375b8b63ec6c6c8e8426d9627fd1d2d69340"
     },
     {
@@ -1584,7 +1595,7 @@
       "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/state-and-recovery.md",
       "sourceSha256": "b910fda4e656474a4616731863f632d4deb78510efd28ec05bdfec6fb8cb744a",
       "protectedStructureSha256": "171c727508f1171ed014e9c2e7d622b99d3bf9f9a71cb3d862ca3ce5e7f9a07f",
-      "translatedSha256": "fd26e6b564ebd7c83362e480f69a9f76a5c1198f83ad1ca28571546ce962a487",
+      "translatedSha256": "eabbe56f61cf648423536bd3263830c071113f4b32743dfc655e1773985f0698",
       "translatedStructureSha256": "171c727508f1171ed014e9c2e7d622b99d3bf9f9a71cb3d862ca3ce5e7f9a07f"
     },
     {
@@ -1628,7 +1639,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
       "sourceSha256": "44377d2c4d1bb089e2efd1b68f78646694a4da222dbf804700c4571b26afec4c",
       "protectedStructureSha256": "18a6be9d64456365ccd0fdc2af54ebc094e96c5e31f0095ee87ef4c2c24bbda3",
-      "translatedSha256": "47254bf94dd575d09f9080af48850dddf238fb7586705944a6164bb18ce1c2a1",
+      "translatedSha256": "d2d19757f8a002f6a21d38845ee39963140b32e40a244d5b3bf6e3424f811442",
       "translatedStructureSha256": "18a6be9d64456365ccd0fdc2af54ebc094e96c5e31f0095ee87ef4c2c24bbda3"
     },
     {
@@ -1650,7 +1661,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-library-curation/references/playbook.md",
       "sourceSha256": "186c066d7017b4bc8778d6b9452160727df5015a099f445dae5417b667221945",
       "protectedStructureSha256": "23bf23cf875dc0911bfd3dbf138357ea0ffaa3508c5483226fa64c1527566f86",
-      "translatedSha256": "c21847590754b59fc2b3abb9fb83b26fc14d2bf8390acda0e0e2b489ec531550",
+      "translatedSha256": "955cf2088d186f0b9d3c45a964d9aeeebfd18c999fb2680aa94fe7d53bb21bd5",
       "translatedStructureSha256": "23bf23cf875dc0911bfd3dbf138357ea0ffaa3508c5483226fa64c1527566f86"
     },
     {
@@ -1661,7 +1672,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-library-curation/SKILL.md",
       "sourceSha256": "e54748641cd2880f2b13108599f3e8b9a54e544cf791d8d6c3b31c7899780daf",
       "protectedStructureSha256": "5a07a1c64cdc7693483129dcd4ade654cd43cbeed20e87e8e8710a79e90709b3",
-      "translatedSha256": "59c8d4adb1e911855bfb5936ae4d12130d73a515238de8a8acdec581348d4263",
+      "translatedSha256": "0c69aaa31cb5b8b67521d30fc20710eaeb336d47e5309633003590715c265260",
       "translatedStructureSha256": "5a07a1c64cdc7693483129dcd4ade654cd43cbeed20e87e8e8710a79e90709b3"
     },
     {
@@ -1672,7 +1683,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-library-query/references/playbook.md",
       "sourceSha256": "eb576561e13c00fe9ee811fe0f9e7ab55cc742d250730acba44b0aeae1a569dd",
       "protectedStructureSha256": "4d4964addd82b2b9a39c8459f2dd48fd553fe27b720dac5bcf974c133784fad2",
-      "translatedSha256": "3731acec391b2356c94d9e25e14b8af98722b7300887abeb25ae03ec64c4d2ea",
+      "translatedSha256": "bf9d15cad936de0c5da14fdc9e1e5ba173c9ebf5b780c734e66bd77dc36e6844",
       "translatedStructureSha256": "4d4964addd82b2b9a39c8459f2dd48fd553fe27b720dac5bcf974c133784fad2"
     },
     {
@@ -1694,7 +1705,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-literature-acquisition/references/playbook.md",
       "sourceSha256": "7b8c59538af30f7fbf8a64a5d12e89b16732f76326ffe27c5436a6139267c4f9",
       "protectedStructureSha256": "1ba17b2a3b6b2e45d6348fb3ba9d75fc0da82123da23b45cc9f5c0272f071264",
-      "translatedSha256": "d99f60e4969eb2a8eb50c3ff3c8b7e4fb35bb818d0571b9e2516c2a2f268853b",
+      "translatedSha256": "310f298924cb86cac51ee54e953b99411bf65a6de953d707ef159b33cdb88c06",
       "translatedStructureSha256": "1ba17b2a3b6b2e45d6348fb3ba9d75fc0da82123da23b45cc9f5c0272f071264"
     },
     {
@@ -1705,7 +1716,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-literature-acquisition/SKILL.md",
       "sourceSha256": "a581467ea0e71f2d40ee3c4cdb6998d376dcc35fdd61a593a0afbccde820bd1b",
       "protectedStructureSha256": "ccd0817fa6504e887394f4f17948d863a23d365be49417a0996e78f91851b2fb",
-      "translatedSha256": "71e037a2ffe3e39e8eff4023095c4905937a32b4e58fc94157fcfb3b317ee927",
+      "translatedSha256": "2fa8fbfa5888032b53302219debec97da7198f75ccd175c5ee5e7ed5ee0054d4",
       "translatedStructureSha256": "ccd0817fa6504e887394f4f17948d863a23d365be49417a0996e78f91851b2fb"
     },
     {
@@ -1716,7 +1727,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-literature-analysis/references/playbook.md",
       "sourceSha256": "29386d4cf6532f3c1c2f1cca8ec924ed4091cc76f43467c01a2eefa9b90cbf0d",
       "protectedStructureSha256": "f02e79c37a2bc6a12c722934a32393e808f1a0286c1981e00490b283fd8d8dbc",
-      "translatedSha256": "0d630eab22aa0c78b56c10094aa87313d615f9b3860095b0be6c183041c07f5d",
+      "translatedSha256": "99bc192f86f6ab120130f1e9bdfa6f412d736355c89e25ec532ad9607a451221",
       "translatedStructureSha256": "f02e79c37a2bc6a12c722934a32393e808f1a0286c1981e00490b283fd8d8dbc"
     },
     {
@@ -1738,7 +1749,7 @@
       "sourcePath": "addon/content/host-bridge-skills/zotero-research-synthesis/references/playbook.md",
       "sourceSha256": "a47400537e481a45617f2c8a9eb83c6bb53251f89382caff5cdf06b090aeebfa",
       "protectedStructureSha256": "0a50d1c0fcbf779321ac3c7b54c2cce9795b5374561616e4732e2a096b70d13d",
-      "translatedSha256": "b7b419e99cb8dbab96247efb7b6d53d5aaac857d696bae0f2d0221e595d10cc7",
+      "translatedSha256": "ff1bbc3b6451c6bc4ec75a994603e5f5c667d894b2baee89efff378d6ef6de2b",
       "translatedStructureSha256": "0a50d1c0fcbf779321ac3c7b54c2cce9795b5374561616e4732e2a096b70d13d"
     },
     {

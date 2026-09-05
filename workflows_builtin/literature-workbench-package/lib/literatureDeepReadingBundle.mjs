@@ -1,7 +1,7 @@
 import { parsePayloadBlock, parseWorkbenchNoteKind } from "./noteCodecs.mjs";
 import { resolveWorkbenchEmbeddedPayloadBlock } from "./embeddedPayloadAttachments.mjs";
 import { getBaseName, joinPath, sanitizeFileNameSegment } from "./path.mjs";
-import { portableItemRef } from "./runtime.mjs";
+import { portableItemRef, readHostPages } from "./runtime.mjs";
 
 function asUint8Array(value) {
   if (value instanceof Uint8Array) return value;
@@ -594,7 +594,11 @@ async function collectSidecarArtifacts({
   };
   const host = runtime.hostApi;
   const parentRef = portableItemRef(parentItem);
-  const notes = await host.library.getItemNotes(parentRef);
+  const notes = await readHostPages({
+    readPage: (page) => host.library.getItemNotes(parentRef, page),
+    getItems: (page) => page.notes,
+    operation: "deep-reading note read",
+  });
   const paperRef = normalizePaperRef(parentItem);
 
   if (

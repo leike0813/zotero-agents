@@ -658,27 +658,35 @@ describe("export research bundle workflow", function () {
             },
           },
           library: {
-            async getItemAttachments(ref: any) {
-              if (ref.key === "BBBB2222") {
-                return [
-                  {
-                    key: "PDF",
-                    filename: "second.pdf",
-                    contentType: "application/pdf",
-                    path: pdfPath,
-                  },
-                ];
-              }
-              return ref.key === "AAAA1111"
-                ? [
-                    {
-                      key: "MD",
-                      filename: "paper.md",
-                      contentType: "text/markdown",
-                      path: markdownPath,
-                    },
-                  ]
-                : [];
+            async getItemAttachments(ref: any, page: { limit?: number } = {}) {
+              const attachments =
+                ref.key === "BBBB2222"
+                  ? [
+                      {
+                        key: "PDF",
+                        filename: "second.pdf",
+                        contentType: "application/pdf",
+                        path: pdfPath,
+                      },
+                    ]
+                  : ref.key === "AAAA1111"
+                    ? [
+                        {
+                          key: "MD",
+                          filename: "paper.md",
+                          contentType: "text/markdown",
+                          path: markdownPath,
+                        },
+                      ]
+                    : [];
+              return {
+                attachments,
+                limit: page.limit || 25,
+                nextCursor: null,
+                hasMore: false,
+                returned: attachments.length,
+                total: attachments.length,
+              };
             },
           },
           file: {
@@ -772,7 +780,7 @@ describe("export research bundle workflow", function () {
       );
       assert.deepInclude(result.manifest.warnings, {
         code: "markdown_image_missing",
-        path: path.join(root, "missing.png"),
+        path: path.join(root, "missing.png").replaceAll("\\", "/"),
         reason: "probe_failed",
         paper_ref: "1:AAAA1111",
       });
@@ -1041,7 +1049,19 @@ describe("export research bundle workflow", function () {
             fallbackUsed: false,
             attempts: [],
           })),
-          library: { getItemAttachments: async () => [] },
+          library: {
+            getItemAttachments: async (
+              _ref: unknown,
+              page: { limit?: number } = {},
+            ) => ({
+              attachments: [],
+              limit: page.limit || 25,
+              nextCursor: null,
+              hasMore: false,
+              returned: 0,
+              total: 0,
+            }),
+          },
           file: {
             exists: async () => false,
             readText: async () => "",

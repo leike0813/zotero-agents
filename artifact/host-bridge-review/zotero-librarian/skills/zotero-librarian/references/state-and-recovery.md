@@ -20,7 +20,6 @@ active connection profile 由 service `--profile`、`ZOTERO_BRIDGE_PROFILE` 或�
 
 `--db` 只能指定当前 root 内的诊断 database。profile/path/root/connection 错误和 `workspace_path_outside_profile` 会在创建 database 前停止 pass，且不回退到共享目录。该路由不改变 `state.v4` schema，也不改变要求 live Zotero facts、current approval、native queue ownership 和 durable receipt 的规则。
 
-
 ## 新鲜度与原子更新
 
 每项缓存结论都附带相关刷新或更新时间。缓存用于发现与变化检测；对外可见的当前事实，以及所有可能导致写入或交互的决策，都使用实时读取。
@@ -76,7 +75,7 @@ profile 初始化期间运行 `scripts/install_zotero_bridge_cli.py`。它安装
 
 ### `library_index_generations`
 
-存储：
+商店：
 
 - generation 与 Host snapshot identity；
 - 已解析 library identity；

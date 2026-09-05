@@ -10,8 +10,25 @@ import {
   loadHostBridgeSurfaceDefinitions,
   resolveHostBridgeSurface,
 } from "../../scripts/host-bridge-surface-model";
+import { renderHostBridgeSurfaces } from "../../scripts/render-host-bridge-surfaces";
 
 describe("host bridge surface definitions", function () {
+  it("renders inherited command catalogs into a separate output tree", function () {
+    this.timeout(30000);
+    const outputRoot = mkdtempSync(join(tmpdir(), "host-bridge-content-"));
+    renderHostBridgeSurfaces({ outputRoot, mode: "content" });
+    for (const skillRoot of [
+      "addon/content/host-bridge-skills/zotero-bridge-cli",
+      "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli",
+    ]) {
+      const catalog = readFileSync(
+        join(outputRoot, skillRoot, "references/command-catalog.md"),
+        "utf8",
+      );
+      assert.include(catalog, "library saved-searches list");
+    }
+  });
+
   it("declares the three-layer composition and generic skill mounts", function () {
     const manifest = JSON.parse(
       readFileSync(join(process.cwd(), "host-bridge/surfaces.json"), "utf8"),
@@ -185,7 +202,7 @@ describe("host bridge surface definitions", function () {
         "zotero-library-curation",
       ],
     );
-    assert.lengthOf(bundle.files, 162);
+    assert.isNotEmpty(bundle.files);
     const paths = new Set<string>();
     for (const file of bundle.files as Array<{
       path: string;

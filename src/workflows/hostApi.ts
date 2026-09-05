@@ -137,18 +137,62 @@ export function createWorkflowHostApi(
       openSelection: liveReads.navigation.openSelection,
     },
     library: {
-      listItems: liveReads.library.listItems,
-      traverseItems: liveReads.library.traverseItems,
+      listItems: (input, control) =>
+        liveReads.library.listItems(input, withDefaultControl(control)),
+      traverseItems: (input, control, onBatch) =>
+        liveReads.library.traverseItems(
+          input,
+          withDefaultControl(control) || {},
+          onBatch,
+        ),
       withItemSnapshot: createWorkflowLibraryItemSnapshotApi(broker),
-      listCollections: liveReads.library.listCollections,
-      getItemDetail: liveReads.library.getItemDetail,
-      getItemNotes: liveReads.library.getItemNotes,
-      getNoteDetail: liveReads.library.getNoteDetail,
-      listNotePayloads: liveReads.library.listNotePayloads,
-      getNotePayload: liveReads.library.getNotePayload,
-      getItemAttachments: liveReads.library.getItemAttachments,
-      listAnnotations: liveReads.library.listAnnotations,
-      exportPortableItems: liveReads.library.exportPortableItems,
+      listCollections: (input, control) =>
+        liveReads.library.listCollections(input, withDefaultControl(control)),
+      listSavedSearches: (input, control) =>
+        liveReads.library.listSavedSearches(input, withDefaultControl(control)),
+      getItemDetail: (ref, control) =>
+        liveReads.library.getItemDetail(ref, withDefaultControl(control)),
+      getItemNotes: (ref, page, control) =>
+        liveReads.library.getItemNotes(
+          ref,
+          page,
+          withDefaultControl(control),
+        ),
+      getNoteDetail: (ref, options, control) =>
+        liveReads.library.getNoteDetail(
+          ref,
+          options,
+          withDefaultControl(control),
+        ),
+      listNotePayloads: (ref, page, control) =>
+        liveReads.library.listNotePayloads(
+          ref,
+          page,
+          withDefaultControl(control),
+        ),
+      getNotePayload: (ref, options, control) =>
+        liveReads.library.getNotePayload(
+          ref,
+          options,
+          withDefaultControl(control),
+        ),
+      getItemAttachments: (ref, page, control) =>
+        liveReads.library.getItemAttachments(
+          ref,
+          page,
+          withDefaultControl(control),
+        ),
+      listAnnotations: (ref, page, control) =>
+        liveReads.library.listAnnotations(
+          ref,
+          page,
+          withDefaultControl(control),
+        ),
+      exportPortableItems: (refs, control) =>
+        liveReads.library.exportPortableItems(
+          refs,
+          withDefaultControl(control),
+        ),
     },
     metadata: {
       translateIdentifier: async (input, control) => {

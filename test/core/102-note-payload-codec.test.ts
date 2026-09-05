@@ -3,12 +3,16 @@ import {
   buildMarkdownBackedNoteContent,
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
+  decodeBase64Utf8,
   getNotePayloadDetail,
   listNotePayloadBlocks,
+  NOTE_HTML_SOURCE_MAX_BYTES,
+  NOTE_PAYLOAD_MAX_BYTES,
   parseEmbeddedNotePayloadBlock,
   renderPayloadBlock,
   WORKBENCH_EMBEDDED_PAYLOAD_CHUNK,
   WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
+  ZoteroNotePayloadResourceLimitError,
 } from "../../src/modules/notePayloadCodec";
 
 function encodeBase64Utf8(value: string) {
@@ -211,5 +215,19 @@ describe("Zotero note payload codec", function () {
     assert.equal(block?.payloadStorageVersion, 2);
     assert.equal(block?.attachmentKey, "BROKEN");
     assert.isArray(block?.errors);
+  });
+
+  it("rejects oversized HTML and encoded or decoded payload values before projection", function () {
+    assert.throws(
+      () =>
+        listNotePayloadBlocks(
+          `<div>${"x".repeat(NOTE_HTML_SOURCE_MAX_BYTES + 1)}</div>`,
+        ),
+      ZoteroNotePayloadResourceLimitError,
+    );
+    assert.throws(
+      () => decodeBase64Utf8("A".repeat(NOTE_PAYLOAD_MAX_BYTES + 4)),
+      ZoteroNotePayloadResourceLimitError,
+    );
   });
 });

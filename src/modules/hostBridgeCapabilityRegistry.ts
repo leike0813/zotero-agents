@@ -1,4 +1,10 @@
 import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
+import type {
+  AttachmentDetailDto,
+  LibraryListItemsRequestDto,
+  LibraryPageRequestDto,
+  WorkflowCallControl,
+} from "../workflows/types";
 import {
   registerHostBridgeFileHandle,
   registerHostBridgeFileHandlesInOrder,
@@ -16,6 +22,7 @@ import {
   writeRuntimeBytes,
 } from "./runtimePersistence";
 import { joinPath } from "../utils/path";
+import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
 import { createStoreZipBytes } from "./zipStore";
 import {
   chunkHostBridgeText,
@@ -43,15 +50,8 @@ import type {
 } from "./hostBridgeProtocol";
 import {
   resolveZoteroHostCapabilityBroker,
-  getLegacyZoteroItemAttachments,
-  getLegacyZoteroItemDetail,
-  getLegacyZoteroItemNotes,
-  getLegacyZoteroNoteDetail,
-  getLegacyZoteroNotePayload,
   getLegacyZoteroCurrentView,
   getLegacyZoteroSelectedItems,
-  listLegacyZoteroLibraryItems,
-  listLegacyZoteroNotePayloads,
   ZoteroHostCapabilityError,
   type ZoteroHostCapabilityBroker,
   type ZoteroHostCollectionRefInput,
@@ -59,8 +59,6 @@ import {
   type ZoteroHostLibraryListArgs,
   type ZoteroHostLibrarySyncSnapshotRequest,
   type ZoteroHostMutationRequest,
-  type ZoteroHostNoteDetailArgs,
-  type ZoteroHostNotePayloadDetailArgs,
   type ZoteroHostAttachmentDto,
 } from "./zoteroHostCapabilityBroker";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
@@ -91,10 +89,10 @@ import {
   validateHostBridgeCapabilityOutput,
   type HostBridgeContractViolation,
 } from "./hostBridgeCapabilityContract";
-
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
+  control?: WorkflowCallControl;
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
   resolveDirectResearchBundleApplication?: () =>
@@ -440,8 +438,16 @@ function libraryListArgsFromInput(input: unknown): ZoteroHostLibraryListArgs {
   return args;
 }
 
+type BridgeAttachmentProjectionInput = Pick<
+  ZoteroHostAttachmentDto,
+  "key" | "libraryId" | "title" | "contentType" | "path" | "filename"
+> & {
+  errors?: ZoteroHostAttachmentDto["errors"];
+  parent?: Pick<NonNullable<ZoteroHostAttachmentDto["parent"]>, "key">;
+};
+
 function toBridgeAttachmentDescriptor(
-  attachment: ZoteroHostAttachmentDto,
+  attachment: BridgeAttachmentProjectionInput,
   file?: HostBridgeFileDescriptor,
 ) {
   const path = String(attachment.path || "").trim();
@@ -474,46 +480,42 @@ function toBridgeAttachmentDescriptor(
 }
 
 function resolveCapabilityBroker(context: HostBridgeCapabilityContext) {
-  return (
-    context.resolveZoteroHostCapabilityBroker?.() ||
-    resolveZoteroHostCapabilityBroker()
-  );
+  const broker = context.resolveZoteroHostCapabilityBroker
+    ? context.resolveZoteroHostCapabilityBroker()
+    : resolveZoteroHostCapabilityBroker();
+  if (!broker) {
+    throw new ZoteroHostCapabilityError("unavailable", "Broker unavailable", {
+      reason: "capability",
+    });
+  }
+  return broker;
 }
 
-type LegacyHostBridgeReadProjection = {
+type LegacyHostBridgeContextProjection = {
   context: {
     getCurrentView: typeof getLegacyZoteroCurrentView;
     getSelectedItems: typeof getLegacyZoteroSelectedItems;
   };
-  library: {
-    listItems: typeof listLegacyZoteroLibraryItems;
-    getItemDetail: typeof getLegacyZoteroItemDetail;
-    getItemNotes: typeof getLegacyZoteroItemNotes;
-    getNoteDetail: typeof getLegacyZoteroNoteDetail;
-    listNotePayloads: typeof listLegacyZoteroNotePayloads;
-    getNotePayload: typeof getLegacyZoteroNotePayload;
-    getItemAttachments: typeof getLegacyZoteroItemAttachments;
-  };
 };
 
-function injectedLegacyReadProjection(
+function injectedLegacyContextProjection(
   context: HostBridgeCapabilityContext,
-): LegacyHostBridgeReadProjection | null {
+): LegacyHostBridgeContextProjection | null {
   return context.resolveZoteroHostCapabilityBroker
-    ? (context.resolveZoteroHostCapabilityBroker() as unknown as LegacyHostBridgeReadProjection)
+    ? (context.resolveZoteroHostCapabilityBroker() as unknown as LegacyHostBridgeContextProjection)
     : null;
 }
 
 function bridgeCurrentView(context: HostBridgeCapabilityContext) {
   return (
-    injectedLegacyReadProjection(context)?.context.getCurrentView() ||
+    injectedLegacyContextProjection(context)?.context.getCurrentView() ||
     getLegacyZoteroCurrentView()
   );
 }
 
 function bridgeSelectedItems(context: HostBridgeCapabilityContext) {
   return (
-    injectedLegacyReadProjection(context)?.context.getSelectedItems() ||
+    injectedLegacyContextProjection(context)?.context.getSelectedItems() ||
     getLegacyZoteroSelectedItems()
   );
 }
@@ -522,14 +524,58 @@ function bridgeLibraryItems(
   context: HostBridgeCapabilityContext,
   args: ZoteroHostLibraryListArgs,
 ) {
-  return (
-    injectedLegacyReadProjection(context)?.library.listItems(args) ||
-    listLegacyZoteroLibraryItems(args)
-  );
+  const input: LibraryListItemsRequestDto = {
+    ...readPageRequest(args),
+    ...(args.libraryId === undefined
+      ? {}
+      : { libraryId: Number(args.libraryId) }),
+    ...(args.tag === undefined ? {} : { tag: args.tag }),
+    ...(args.itemType === undefined ? {} : { itemType: args.itemType }),
+    ...(args.query === undefined ? {} : { query: args.query }),
+  };
+  if (args.collection !== undefined) {
+    input.collectionRef = normalizeHostBridgeCollectionRef(args.collection);
+  } else if (
+    args.collectionKey !== undefined ||
+    args.collectionId !== undefined
+  ) {
+    input.collectionRef = normalizeHostBridgeCollectionRef({
+      key: args.collectionKey,
+      id: args.collectionId,
+      libraryId: args.collectionLibraryId ?? args.libraryId,
+    });
+  }
+  return resolveCapabilityBroker(context)
+    .library.listItems(input, context.control)
+    .catch((error) => {
+      throw mapBrokerLibraryCursorError(error);
+    });
+}
+
+function mapBrokerLibraryCursorError(error: unknown): Error {
+  if (
+    error instanceof ZoteroHostCapabilityError &&
+    error.code === "invalid_request" &&
+    (error.details as { field?: unknown }).field === "cursor"
+  ) {
+    const reason = (error.details as { reason?: unknown }).reason;
+    throw new ZoteroLibraryCursorError(error.message, {
+      reason: typeof reason === "string" ? reason : "invalid_value",
+    });
+  }
+  throw error;
+}
+
+function readPageRequest(input: unknown): LibraryPageRequestDto {
+  const object = asObject(input);
+  return {
+    ...(object.limit === undefined ? {} : { limit: Number(object.limit) }),
+    ...(object.cursor === undefined ? {} : { cursor: String(object.cursor) }),
+  };
 }
 
 async function toBridgeAttachmentDescriptors(
-  attachments: ZoteroHostAttachmentDto[],
+  attachments: BridgeAttachmentProjectionInput[],
   capability: "library.get_item_attachments" | "mutation.execute",
 ) {
   const registerable = attachments.filter(
@@ -565,13 +611,47 @@ async function toBridgeAttachmentDescriptorsWithContext(
   context: HostBridgeCapabilityContext,
 ) {
   const ref = itemRefFromInput(input);
-  const attachments = await (injectedLegacyReadProjection(
+  const page = await resolveCapabilityBroker(
     context,
-  )?.library.getItemAttachments(ref) || getLegacyZoteroItemAttachments(ref));
-  return toBridgeAttachmentDescriptors(
-    attachments,
+  ).library.getItemAttachments(ref, readPageRequest(input), context.control);
+  return {
+    ...page,
+    attachments: await toBridgeCanonicalAttachmentDescriptors(page.attachments),
+  };
+}
+
+async function toBridgeCanonicalAttachmentDescriptors(
+  attachments: AttachmentDetailDto[],
+) {
+  const projected = await toBridgeAttachmentDescriptors(
+    attachments.map((attachment) => ({
+      key: attachment.ref.key,
+      libraryId: attachment.ref.libraryId,
+      title: attachment.title,
+      ...(attachment.parentRef
+        ? { parent: { key: attachment.parentRef.key } }
+        : {}),
+      filename: attachment.filename || "",
+      contentType: attachment.contentType || "",
+      path: attachment.file.state === "available" ? attachment.file.path : "",
+    })),
     "library.get_item_attachments",
   );
+  return attachments.map((attachment, index) => {
+    const { file, ...metadata } = attachment;
+    return {
+      ...metadata,
+      file:
+        file.state === "available"
+          ? {
+              state: file.state,
+              sizeBytes: file.sizeBytes,
+              modifiedAt: file.modifiedAt,
+            }
+          : file,
+      access: projected[index].access,
+    };
+  });
 }
 
 async function executeMutationWithBridgeProjection(
@@ -1769,27 +1849,49 @@ async function resolveDirectResearchBundleApplication(
       async resolveItems(selectors) {
         const papers = [];
         for (const selector of selectors) {
-          const detail = await getLegacyZoteroItemDetail(
+          const detail = await broker.library.getItemDetail(
             normalizeHostBridgeItemRef(selector),
+            context.control,
           );
-          if (!detail) continue;
-          const attachments = await getLegacyZoteroItemAttachments({
-            key: detail.key,
-            libraryId: detail.libraryId,
-          });
+          if (detail.kind !== "regular") {
+            throw new ZoteroHostCapabilityError(
+              "invalid_ref",
+              "Expected a regular item",
+              {
+                kind: "item",
+                reason: "wrong_kind",
+              },
+            );
+          }
+          const item = detail.item;
+          const attachments: AttachmentDetailDto[] = [];
+          let cursor: string | undefined;
+          do {
+            const page = await broker.library.getItemAttachments(
+              item.ref,
+              { limit: 100, ...(cursor ? { cursor } : {}) },
+              context.control,
+            );
+            attachments.push(...page.attachments);
+            cursor = page.hasMore ? (page.nextCursor ?? undefined) : undefined;
+          } while (cursor);
           papers.push({
-            paperRef: `${detail.libraryId}:${detail.key}`,
-            libraryId: detail.libraryId,
-            itemKey: detail.key,
-            title: detail.title,
-            metadata: detail,
-            attachments: attachments
-              .filter((attachment) => String(attachment.path || "").trim())
-              .map((attachment) => ({
-                path: attachment.path,
-                filename: attachment.filename,
-                contentType: attachment.contentType,
-              })),
+            paperRef: `${item.ref.libraryId}:${item.ref.key}`,
+            libraryId: item.ref.libraryId,
+            itemKey: item.ref.key,
+            title: item.title,
+            metadata: item,
+            attachments: attachments.flatMap((attachment) =>
+              attachment.file.state === "available"
+                ? [
+                    {
+                      path: attachment.file.path,
+                      filename: attachment.filename || "",
+                      contentType: attachment.contentType || "",
+                    },
+                  ]
+                : [],
+            ),
           });
         }
         return papers;
@@ -1945,99 +2047,81 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     resolveCapabilityBroker(context).library.syncSnapshot(
       librarySnapshotArgsFromInput(input),
       { ownerId: `host-bridge:${context.connectionMode}` },
+      context.control,
     ),
   ),
   capability("library.readiness_audit", (input, context) =>
     resolveCapabilityBroker(context).library.readinessAudit(
       libraryListArgsFromInput(input),
+      context.control,
     ),
   ),
-  capability(
-    "library.get_item_detail",
-    (input, context) =>
-      injectedLegacyReadProjection(context)?.library.getItemDetail(
-        itemRefFromInput(input),
-      ) || getLegacyZoteroItemDetail(itemRefFromInput(input)),
-  ),
-  capability("library.get_item_notes", async (input, context) => {
+  capability("library.list_saved_searches", (input, context) => {
     const object = asObject(input);
-    const notes = [];
-    const sourceLimit = 100;
-    for (let cursor = 0; ; cursor += sourceLimit) {
-      const batch = await (injectedLegacyReadProjection(
-        context,
-      )?.library.getItemNotes(itemRefFromInput(input), {
-        ...object,
-        cursor,
-        limit: sourceLimit,
-      }) ||
-        getLegacyZoteroItemNotes(itemRefFromInput(input), {
-          ...object,
-          cursor,
-          limit: sourceLimit,
-        }));
-      notes.push(...batch);
-      if (batch.length < sourceLimit) break;
-    }
-    return paginateCapabilityRows({
-      scope: "library item notes",
-      section: "items",
-      input: object,
-      rows: notes,
-    });
+    return resolveCapabilityBroker(context).library.listSavedSearches(
+      {
+        ...readPageRequest(input),
+        ...(object.libraryId === undefined
+          ? {}
+          : { libraryId: Number(object.libraryId) }),
+      },
+      context.control,
+    );
   }),
-  capability(
-    "library.get_note_detail",
-    (input, context) =>
-      injectedLegacyReadProjection(context)?.library.getNoteDetail(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNoteDetailArgs,
-      ) ||
-      getLegacyZoteroNoteDetail(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNoteDetailArgs,
-      ),
+  capability("library.get_item_detail", async (input, context) => {
+    const detail = await resolveCapabilityBroker(context).library.getItemDetail(
+      itemRefFromInput(input),
+      context.control,
+    );
+    return detail.kind === "attachment"
+      ? {
+          kind: detail.kind,
+          item: (
+            await toBridgeCanonicalAttachmentDescriptors([detail.item])
+          )[0],
+        }
+      : detail;
+  }),
+  capability("library.get_item_notes", (input, context) =>
+    resolveCapabilityBroker(context).library.getItemNotes(
+      itemRefFromInput(input),
+      readPageRequest(input),
+      context.control,
+    ),
   ),
-  capability("library.list_note_payloads", async (input, context) =>
-    paginateCapabilityRows({
-      scope: "library note payloads",
-      section: "payloads",
-      input: asObject(input),
-      rows: await (injectedLegacyReadProjection(
-        context,
-      )?.library.listNotePayloads(itemRefFromInput(input)) ||
-        listLegacyZoteroNotePayloads(itemRefFromInput(input))),
-    }),
+  capability("library.get_note_detail", async (input, context) => {
+    const object = asObject(input);
+    const detail = await resolveCapabilityBroker(context).library.getNoteDetail(
+      itemRefFromInput(input),
+      { format: object.format === "html" ? "html" : "text" },
+      context.control,
+    );
+    const { text, ...window } = chunkHostBridgeText(detail.content, object);
+    return { ...detail, content: text, ...window };
+  }),
+  capability("library.list_note_payloads", (input, context) =>
+    resolveCapabilityBroker(context).library.listNotePayloads(
+      itemRefFromInput(input),
+      readPageRequest(input),
+      context.control,
+    ),
   ),
-  capability(
-    "library.get_note_payload",
-    (input, context) =>
-      injectedLegacyReadProjection(context)?.library.getNotePayload(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNotePayloadDetailArgs,
-      ) ||
-      getLegacyZoteroNotePayload(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNotePayloadDetailArgs,
-      ),
+  capability("library.get_note_payload", (input, context) =>
+    resolveCapabilityBroker(context).library.getNotePayload(
+      itemRefFromInput(input),
+      { payloadType: String(asObject(input).payloadType || "") },
+      context.control,
+    ),
   ),
-  capability("library.get_item_attachments", async (input, context) =>
-    paginateCapabilityRows({
-      scope: "library item attachments",
-      section: "attachments",
-      input: asObject(input),
-      rows: await toBridgeAttachmentDescriptorsWithContext(input, context),
-    }),
+  capability("library.get_item_attachments", (input, context) =>
+    toBridgeAttachmentDescriptorsWithContext(input, context),
   ),
-  capability("library.list_annotations", async (input, context) =>
-    paginateCapabilityRows({
-      scope: "library annotation list",
-      section: "annotations",
-      input: asObject(input),
-      rows: await resolveCapabilityBroker(context).library.listAnnotations(
-        itemRefFromInput(input),
-      ),
-    }),
+  capability("library.list_annotations", (input, context) =>
+    resolveCapabilityBroker(context).library.listAnnotations(
+      itemRefFromInput(input),
+      readPageRequest(input),
+      context.control,
+    ),
   ),
   capability("library.export_annotations", async (input, context) => {
     const object = asObject(input);
@@ -2046,6 +2130,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     ).library.exportAnnotations(
       itemRefFromInput(input),
       object as { format?: string },
+      context.control,
     );
     const format = String(exported.format || "markdown");
     const content =

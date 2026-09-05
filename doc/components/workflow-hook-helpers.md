@@ -40,7 +40,7 @@ Hook receives `runtime` with these fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `hostApi` | `WorkflowHostApiV12` | Exact 23-top-level/21-module/87-callable host projection |
+| `hostApi` | `WorkflowHostApiV12` | Exact 23-top-level/21-module/88-callable host projection |
 | `hostApiVersion` | `12` | Exact API version |
 | `invocationMode` | `"interactive" \| "non-interactive"` | Current invocation mode |
 | `debugMode` | `boolean \| undefined` | Debug mode flag |
@@ -72,5 +72,5 @@ where an upstream or `WorkflowCallControl` signal is accepted.
 
 - If `WorkflowRuntimeContext` or `WorkflowHostApiV12` changes in
   `src/workflows/types.ts`, update this document in the same change.
-- If the code-native manifest changes, keep the 23/21/87 metrics and group list
+- If the code-native manifest changes, keep the 23/21/88 metrics and group list
   synchronized here and in `doc/components/workflows.md`.

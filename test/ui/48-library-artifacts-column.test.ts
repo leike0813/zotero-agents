@@ -22,12 +22,57 @@ import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
 } from "../../src/modules/notePayloadCodec";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+  type ZoteroLibrarySourcePageQueryAdapter,
+} from "../../src/modules/zoteroLibraryPageQuery";
 import { probeMozillaRuntimeModules } from "../../src/utils/runtimeCompatibility";
 
 const basePngBytes = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
 );
+
+function createMockZoteroSourcePageQueryAdapter(): ZoteroLibrarySourcePageQueryAdapter {
+  return {
+    async queryAsync(_sql, _params, context) {
+      const items = (await (Zotero.Items as any).getAll(
+        context.criteria.libraryId,
+      )) as Zotero.Item[];
+      const parentItemId = Number(context.criteria.parentItemId);
+      const matching = items
+        .filter((item) => {
+          const itemParentId = Number(
+            (item as any).parentItemID || (item as any).parentID || 0,
+          );
+          const matchesDomain =
+            context.domain === "notes"
+              ? item.isNote?.()
+              : item.isAttachment?.();
+          return (
+            Number((item as any).libraryID) === context.criteria.libraryId &&
+            itemParentId === parentItemId &&
+            Boolean(matchesDomain)
+          );
+        })
+        .sort(
+          (left, right) => Number((left as any).id) - Number((right as any).id),
+        );
+      if (context.kind === "count") {
+        return [{ total: matching.length }];
+      }
+      const afterId = Number((context.position as any).id || 0);
+      return matching
+        .filter((item) => Number((item as any).id) > afterId)
+        .slice(0, context.limitPlusOne)
+        .map((item) => ({ itemID: (item as any).id }));
+    },
+    async hydrateItems(ids) {
+      return (await (Zotero.Items as any).getAsync(ids)) as Zotero.Item[];
+    },
+  };
+}
 
 describe("library artifacts column", function () {
   let previousAddon: unknown;
@@ -37,12 +82,16 @@ describe("library artifacts column", function () {
     await unregisterLibraryArtifactsColumn();
     await unregisterLibraryRatingColumn();
     resetLibraryArtifactsColumnForTests();
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroSourcePageQueryAdapter(),
+    );
   });
 
   afterEach(async function () {
     await unregisterLibraryArtifactsColumn();
     await unregisterLibraryRatingColumn();
     resetLibraryArtifactsColumnForTests();
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
     (globalThis as { addon?: unknown }).addon = previousAddon;
   });
 

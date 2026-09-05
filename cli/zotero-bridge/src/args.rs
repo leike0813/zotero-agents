@@ -482,9 +482,6 @@ pub struct ItemNotesArgs {
 
     #[arg(long, help = "Pagination cursor")]
     pub cursor: Option<String>,
-
-    #[arg(long, help = "Maximum excerpt characters per note")]
-    pub max_excerpt_chars: Option<u32>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -518,7 +515,7 @@ pub enum NoteCommand {
 
     #[command(
         about = "Read one embedded workflow payload from a Zotero note",
-        long_about = "Call Zotero capability library.get_note_payload. Provide --key or --id and optional --payload-type, --offset, and --max-chars."
+        long_about = "Call Zotero capability library.get_note_payload. Provide --key or --id and --payload-type. Returns one complete bounded payload after checking all candidates for ambiguity."
     )]
     Payload(NotePayloadArgs),
 }
@@ -545,12 +542,6 @@ pub struct NotePayloadArgs {
 
     #[arg(long, help = "Payload type to decode")]
     pub payload_type: Option<String>,
-
-    #[arg(long, help = "Start offset")]
-    pub offset: Option<u32>,
-
-    #[arg(long, help = "Maximum characters")]
-    pub max_chars: Option<u32>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -561,6 +552,9 @@ pub struct LibraryArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum LibraryCommand {
+    #[command(about = "Discover Saved Searches by portable identity")]
+    SavedSearches(LibrarySavedSearchesArgs),
+
     #[command(about = "Read compact Zotero library item summaries")]
     Items(LibraryItemsArgs),
 
@@ -587,6 +581,27 @@ pub enum LibraryCommand {
 pub struct LibraryItemsArgs {
     #[command(subcommand)]
     pub command: LibraryItemsCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct LibrarySavedSearchesArgs {
+    #[command(subcommand)]
+    pub command: LibrarySavedSearchesCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum LibrarySavedSearchesCommand {
+    #[command(about = "List a source-bounded Saved Search page")]
+    List(SavedSearchPageArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SavedSearchPageArgs {
+    #[arg(long, help = "Library identity; defaults to the user library")]
+    pub library_id: Option<u64>,
+
+    #[command(flatten)]
+    pub page: PageArgs,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -1590,7 +1605,10 @@ pub struct WorkflowProfileRefreshArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct WorkflowDefaultsArgs {
-    #[arg(long, help = "Workflow id whose saved provider profile candidate is disclosed")]
+    #[arg(
+        long,
+        help = "Workflow id whose saved provider profile candidate is disclosed"
+    )]
     pub workflow: String,
 }
 
@@ -3290,13 +3308,17 @@ mod tests {
                         Some("[{\"key\":\"ABC\",\"libraryId\":1}]")
                     );
                     assert!(!input.none);
-                    assert_eq!(input.input_resource, vec![
-                        "source=file-upload-1".to_string(),
-                        "source=file-upload-2".to_string(),
-                    ]);
-                    assert_eq!(input.output_resource, vec![
-                        "result=bridge-download".to_string(),
-                    ]);
+                    assert_eq!(
+                        input.input_resource,
+                        vec![
+                            "source=file-upload-1".to_string(),
+                            "source=file-upload-2".to_string(),
+                        ]
+                    );
+                    assert_eq!(
+                        input.output_resource,
+                        vec!["result=bridge-download".to_string(),]
+                    );
                     assert_eq!(input.max_concurrency, Some(2));
                 }
                 _ => panic!("expected workflow submit"),

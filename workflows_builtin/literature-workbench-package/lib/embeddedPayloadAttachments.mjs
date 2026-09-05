@@ -1,4 +1,4 @@
-import { requireHostApi } from "./runtime.mjs";
+import { readHostPages, requireHostApi } from "./runtime.mjs";
 
 export const WORKBENCH_EMBEDDED_PAYLOAD_MARKER =
   "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
@@ -568,7 +568,11 @@ export async function listWorkbenchEmbeddedPayloadBlocksForNote(args) {
   const note = args?.noteItem || args?.note;
   const host = requireHostApi(runtime);
   const noteRef = portableNoteRef(note);
-  const summaries = await host.library.listNotePayloads(noteRef);
+  const summaries = await readHostPages({
+    readPage: (page) => host.library.listNotePayloads(noteRef, page),
+    getItems: (page) => page.payloads,
+    operation: "embedded payload read",
+  });
   const available = summaries.filter((summary) => summary.state === "available");
   return Promise.all(available.map(async (summary) => {
     const payload = await host.library.getNotePayload(noteRef, {

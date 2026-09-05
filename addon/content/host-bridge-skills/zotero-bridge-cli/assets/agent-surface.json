@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "876e21a63483d3f9e9d013505c399705894bf5f4099cf83b49b9b50a795aa7ab",
+  "commandCatalogChecksum": "c090483961bdade316a636e965bcd0d24c501372c2f1cfdfdc46e99761455722",
   "commands": [
     {
       "approvalContract": {
@@ -4867,6 +4867,7 @@
             ]
           },
           "key": {
+            "minLength": 1,
             "type": "string"
           },
           "libraryId": {
@@ -4876,10 +4877,18 @@
             ]
           },
           "limit": {
+            "maximum": 100,
             "minimum": 1,
             "type": [
               "number",
               "string"
+            ]
+          },
+          "ref": {
+            "type": [
+              "object",
+              "string",
+              "number"
             ]
           }
         },
@@ -4906,7 +4915,7 @@
           },
           "data": {
             "additionalProperties": true,
-            "description": "Result data owned by library.list_annotations.",
+            "description": "Canonical source page of annotations.",
             "properties": {
               "annotations": {
                 "type": "array"
@@ -4915,7 +4924,8 @@
                 "type": "boolean"
               },
               "limit": {
-                "minimum": 0,
+                "maximum": 100,
+                "minimum": 1,
                 "type": "integer"
               },
               "nextCursor": {
@@ -4933,8 +4943,16 @@
                 "type": "integer"
               }
             },
+            "required": [
+              "annotations",
+              "nextCursor",
+              "hasMore",
+              "returned",
+              "total",
+              "limit"
+            ],
             "type": "object",
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
           }
         },
         "required": [
@@ -5251,6 +5269,7 @@
             ]
           },
           "key": {
+            "minLength": 1,
             "type": "string"
           },
           "libraryId": {
@@ -5260,6 +5279,7 @@
             ]
           },
           "limit": {
+            "maximum": 100,
             "minimum": 1,
             "type": [
               "number",
@@ -5290,7 +5310,7 @@
           },
           "data": {
             "additionalProperties": true,
-            "description": "Result data owned by library.get_item_attachments.",
+            "description": "Canonical source page of attachments.",
             "properties": {
               "attachments": {
                 "items": {
@@ -5300,8 +5320,20 @@
                       "path"
                     ]
                   },
+                  "properties": {
+                    "file": {
+                      "additionalProperties": true,
+                      "not": {
+                        "required": [
+                          "path"
+                        ]
+                      },
+                      "type": "object",
+                      "x-openPropertiesReason": "File state and bounded metadata are Broker-owned; local paths are forbidden."
+                    }
+                  },
                   "type": "object",
-                  "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+                  "x-openPropertiesReason": "Canonical attachment metadata and remote access descriptors."
                 },
                 "type": "array"
               },
@@ -5309,7 +5341,8 @@
                 "type": "boolean"
               },
               "limit": {
-                "minimum": 0,
+                "maximum": 100,
+                "minimum": 1,
                 "type": "integer"
               },
               "nextCursor": {
@@ -5327,8 +5360,16 @@
                 "type": "integer"
               }
             },
+            "required": [
+              "attachments",
+              "nextCursor",
+              "hasMore",
+              "returned",
+              "total",
+              "limit"
+            ],
             "type": "object",
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
           }
         },
         "required": [
@@ -5730,23 +5771,6 @@
           "valueNames": [
             "CURSOR"
           ]
-        },
-        {
-          "aliases": [],
-          "conflictsWith": [],
-          "defaultValues": [],
-          "global": false,
-          "help": "Maximum excerpt characters per note",
-          "id": "max_excerpt_chars",
-          "kind": "option",
-          "possibleValues": [],
-          "repeatable": false,
-          "required": false,
-          "takesValue": true,
-          "token": "--max-excerpt-chars",
-          "valueNames": [
-            "MAX_EXCERPT_CHARS"
-          ]
         }
       ],
       "argv": [
@@ -5804,16 +5828,6 @@
           "valueNames": [
             "CURSOR"
           ]
-        },
-        {
-          "kind": "option",
-          "property": "max-excerpt-chars",
-          "required": false,
-          "takesValue": true,
-          "token": "--max-excerpt-chars",
-          "valueNames": [
-            "MAX_EXCERPT_CHARS"
-          ]
         }
       ],
       "binding": "object",
@@ -5849,12 +5863,6 @@
           {
             "argument": "cursor",
             "field": "cursor",
-            "required": false,
-            "transform": "identity"
-          },
-          {
-            "argument": "max_excerpt_chars",
-            "field": "maxExcerptChars",
             "required": false,
             "transform": "identity"
           }
@@ -5917,10 +5925,6 @@
           "limit": {
             "description": "Maximum note summary count",
             "type": "string"
-          },
-          "max-excerpt-chars": {
-            "description": "Maximum excerpt characters per note",
-            "type": "string"
           }
         },
         "required": [],
@@ -5941,10 +5945,7 @@
         "limit",
         "LIMIT",
         "cursor",
-        "CURSOR",
-        "max_excerpt_chars",
-        "max-excerpt-chars",
-        "MAX_EXCERPT_CHARS"
+        "CURSOR"
       ],
       "outputBoundary": {
         "continuation": [
@@ -5957,14 +5958,42 @@
         "cursorInput": "cursor",
         "defaultLimit": 25,
         "maxLimit": 100,
-        "section": "data.items",
+        "section": "data.notes",
         "strategy": "cursor"
       },
       "pagination": "cursor",
       "payloadSchema": {
-        "additionalProperties": true,
-        "type": "object",
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "id": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": [
+              "number",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
       },
       "recovery": [
         {
@@ -5987,16 +6016,14 @@
           },
           "data": {
             "additionalProperties": true,
-            "description": "Result data owned by library.get_item_notes.",
+            "description": "Canonical source page of notes.",
             "properties": {
               "hasMore": {
                 "type": "boolean"
               },
-              "items": {
-                "type": "array"
-              },
               "limit": {
-                "minimum": 0,
+                "maximum": 100,
+                "minimum": 1,
                 "type": "integer"
               },
               "nextCursor": {
@@ -6004,6 +6031,9 @@
                   "string",
                   "null"
                 ]
+              },
+              "notes": {
+                "type": "array"
               },
               "returned": {
                 "minimum": 0,
@@ -6014,8 +6044,16 @@
                 "type": "integer"
               }
             },
+            "required": [
+              "notes",
+              "nextCursor",
+              "hasMore",
+              "returned",
+              "total",
+              "limit"
+            ],
             "type": "object",
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
           }
         },
         "required": [
@@ -7255,9 +7293,42 @@
       },
       "pagination": "cursor",
       "payloadSchema": {
-        "additionalProperties": true,
-        "type": "object",
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "enum": [
+              "html",
+              "text"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "maxChars": {
+            "maximum": 16000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
       },
       "recovery": [
         {
@@ -7398,40 +7469,6 @@
           "valueNames": [
             "PAYLOAD_TYPE"
           ]
-        },
-        {
-          "aliases": [],
-          "conflictsWith": [],
-          "defaultValues": [],
-          "global": false,
-          "help": "Start offset",
-          "id": "offset",
-          "kind": "option",
-          "possibleValues": [],
-          "repeatable": false,
-          "required": false,
-          "takesValue": true,
-          "token": "--offset",
-          "valueNames": [
-            "OFFSET"
-          ]
-        },
-        {
-          "aliases": [],
-          "conflictsWith": [],
-          "defaultValues": [],
-          "global": false,
-          "help": "Maximum characters",
-          "id": "max_chars",
-          "kind": "option",
-          "possibleValues": [],
-          "repeatable": false,
-          "required": false,
-          "takesValue": true,
-          "token": "--max-chars",
-          "valueNames": [
-            "MAX_CHARS"
-          ]
         }
       ],
       "argv": [
@@ -7479,26 +7516,6 @@
           "valueNames": [
             "PAYLOAD_TYPE"
           ]
-        },
-        {
-          "kind": "option",
-          "property": "offset",
-          "required": false,
-          "takesValue": true,
-          "token": "--offset",
-          "valueNames": [
-            "OFFSET"
-          ]
-        },
-        {
-          "kind": "option",
-          "property": "max-chars",
-          "required": false,
-          "takesValue": true,
-          "token": "--max-chars",
-          "valueNames": [
-            "MAX_CHARS"
-          ]
         }
       ],
       "binding": "object",
@@ -7528,18 +7545,6 @@
           {
             "argument": "payload_type",
             "field": "payloadType",
-            "required": false,
-            "transform": "identity"
-          },
-          {
-            "argument": "offset",
-            "field": "offset",
-            "required": false,
-            "transform": "identity"
-          },
-          {
-            "argument": "max_chars",
-            "field": "maxChars",
             "required": false,
             "transform": "identity"
           }
@@ -7595,14 +7600,6 @@
             "description": "Zotero library id for key lookup",
             "type": "string"
           },
-          "max-chars": {
-            "description": "Maximum characters",
-            "type": "string"
-          },
-          "offset": {
-            "description": "Start offset",
-            "type": "string"
-          },
           "payload-type": {
             "description": "Payload type to decode",
             "type": "string"
@@ -7625,32 +7622,40 @@
         "LIBRARY_ID",
         "payload_type",
         "payload-type",
-        "PAYLOAD_TYPE",
-        "offset",
-        "OFFSET",
-        "max_chars",
-        "max-chars",
-        "MAX_CHARS"
+        "PAYLOAD_TYPE"
       ],
       "outputBoundary": {
-        "continuation": [
-          "data.nextOffset",
-          "data.hasMore",
-          "data.totalChars",
-          "data.truncated",
-          "data.maxChars"
-        ],
-        "cursorInput": "offset",
-        "defaultLimit": 8000,
-        "maxLimit": 16000,
-        "section": "data.content",
-        "strategy": "offset"
+        "strategy": "fixed"
       },
-      "pagination": "cursor",
+      "pagination": "none",
       "payloadSchema": {
-        "additionalProperties": true,
-        "type": "object",
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "payloadType": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "payloadType"
+        ],
+        "type": "object"
       },
       "recovery": [
         {
@@ -7672,30 +7677,20 @@
             "const": "library.get_note_payload"
           },
           "data": {
-            "additionalProperties": true,
-            "description": "Result data owned by library.get_note_payload.",
+            "additionalProperties": false,
             "properties": {
-              "hasMore": {
-                "type": "boolean"
+              "summary": {
+                "additionalProperties": true,
+                "type": "object",
+                "x-openPropertiesReason": "Broker-owned payload summary."
               },
-              "maxChars": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "nextOffset": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "totalChars": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "truncated": {
-                "type": "boolean"
-              }
+              "value": {}
             },
-            "type": "object",
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "required": [
+              "summary",
+              "value"
+            ],
+            "type": "object"
           }
         },
         "required": [
@@ -7990,7 +7985,8 @@
           "data.hasMore",
           "data.returned",
           "data.total",
-          "data.limit"
+          "data.limit",
+          "data.scanned"
         ],
         "cursorInput": "cursor",
         "defaultLimit": 25,
@@ -8012,6 +8008,7 @@
             ]
           },
           "key": {
+            "minLength": 1,
             "type": "string"
           },
           "libraryId": {
@@ -8021,6 +8018,7 @@
             ]
           },
           "limit": {
+            "maximum": 100,
             "minimum": 1,
             "type": [
               "number",
@@ -8051,13 +8049,14 @@
           },
           "data": {
             "additionalProperties": true,
-            "description": "Result data owned by library.list_note_payloads.",
+            "description": "Canonical source page of payloads.",
             "properties": {
               "hasMore": {
                 "type": "boolean"
               },
               "limit": {
-                "minimum": 0,
+                "maximum": 100,
+                "minimum": 1,
                 "type": "integer"
               },
               "nextCursor": {
@@ -8073,13 +8072,25 @@
                 "minimum": 0,
                 "type": "integer"
               },
-              "total": {
+              "scanned": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "total": {
+                "type": "null"
               }
             },
+            "required": [
+              "payloads",
+              "nextCursor",
+              "hasMore",
+              "returned",
+              "total",
+              "limit",
+              "scanned"
+            ],
             "type": "object",
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
           }
         },
         "required": [
@@ -9311,6 +9322,307 @@
         {
           "kind": "capability",
           "target": "library.readiness_audit"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Library identity; defaults to the user library",
+          "id": "library_id",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--library-id",
+          "valueNames": [
+            "LIBRARY_ID"
+          ]
+        },
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "id": "cursor",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--cursor",
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "id": "limit",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--limit",
+          "valueNames": [
+            "LIMIT"
+          ]
+        }
+      ],
+      "argv": [
+        "library",
+        "saved-searches",
+        "list"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "library-id",
+          "required": false,
+          "takesValue": true,
+          "token": "--library-id",
+          "valueNames": [
+            "LIBRARY_ID"
+          ]
+        },
+        {
+          "kind": "option",
+          "property": "cursor",
+          "required": false,
+          "takesValue": true,
+          "token": "--cursor",
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "kind": "option",
+          "property": "limit",
+          "required": false,
+          "takesValue": true,
+          "token": "--limit",
+          "valueNames": [
+            "LIMIT"
+          ]
+        }
+      ],
+      "binding": "object",
+      "category": "read",
+      "command": "library saved-searches list",
+      "composition": {
+        "constants": {},
+        "mappings": [
+          {
+            "argument": "library_id",
+            "field": "libraryId",
+            "required": false,
+            "transform": "identity"
+          },
+          {
+            "argument": "cursor",
+            "field": "cursor",
+            "required": false,
+            "transform": "identity"
+          },
+          {
+            "argument": "limit",
+            "field": "limit",
+            "required": false,
+            "transform": "identity"
+          }
+        ]
+      },
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Reads state without changing Zotero-managed data.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {},
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "description": "Opaque continuation cursor",
+            "type": "string"
+          },
+          "library-id": {
+            "description": "Library identity; defaults to the user library",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum number of entries (1-100)",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "library saved-searches list",
+        "library",
+        "saved-searches",
+        "list",
+        "library-id",
+        "cursor",
+        "limit"
+      ],
+      "outputBoundary": {
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ],
+        "cursorInput": "cursor",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "section": "data.savedSearches",
+        "strategy": "cursor"
+      },
+      "pagination": "cursor",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Inspect the error and retry only when retryable is true.",
+          "nextCommand": "surface describe",
+          "requiresHandles": [],
+          "stateCheck": "none",
+          "when": "The read fails or returns incomplete evidence."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "library.list_saved_searches"
+          },
+          "data": {
+            "additionalProperties": true,
+            "description": "Canonical source page of savedSearches.",
+            "properties": {
+              "hasMore": {
+                "type": "boolean"
+              },
+              "limit": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "savedSearches": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "ref": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "key": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "libraryId": {
+                          "minimum": 1,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "libraryId",
+                        "key"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "ref",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "total": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "savedSearches",
+              "nextCursor",
+              "hasMore",
+              "returned",
+              "total",
+              "limit"
+            ],
+            "type": "object",
+            "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "List a source-bounded Saved Search page",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.list_saved_searches"
         }
       ]
     },

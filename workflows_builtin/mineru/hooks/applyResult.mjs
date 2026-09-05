@@ -1,3 +1,5 @@
+import { readHostPages } from "../../literature-workbench-package/lib/runtime.mjs";
+
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -81,7 +83,12 @@ async function hasLinkedAttachmentForPath(host, parentRef, targetPath) {
   if (!normalizedTargetPath) {
     return false;
   }
-  for (const attachment of await host.library.getItemAttachments(parentRef)) {
+  const attachments = await readHostPages({
+    readPage: (page) => host.library.getItemAttachments(parentRef, page),
+    getItems: (page) => page.attachments,
+    operation: "MinerU attachment read",
+  });
+  for (const attachment of attachments) {
     const attachmentPath = attachment.file?.state === "available"
       ? attachment.file.path
       : "";

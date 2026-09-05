@@ -99,16 +99,21 @@ export async function resolveWorkflowParameterOptionsSource(
     const library = deps?.library || createZoteroHostCapabilityBroker().library;
     const collections = [];
     let cursor: string | undefined;
-    do {
-      const page = await library.listCollections({
+    while (true) {
+      const request = {
         libraryId: requestedLibrary || undefined,
-        limit: 500,
-        cursor,
-      });
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      };
+      const page = await library.listCollections(request);
       collections.push(...page.collections);
-      cursor = page.nextCursor || undefined;
       if (!page.hasMore) break;
-    } while (cursor);
+      const nextCursor = page.nextCursor?.trim();
+      if (!nextCursor || nextCursor === cursor) {
+        throw new Error("Workflow collection options pagination is invalid");
+      }
+      cursor = nextCursor;
+    }
     const options: WorkflowParameterOption[] = [];
     if (source.includeEmpty === true) {
       options.push({

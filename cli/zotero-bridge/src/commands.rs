@@ -23,26 +23,27 @@ use crate::{
         DebugSynthesisCommand, DirectPaperResearchBundleArgs, DirectTopicResearchBundleArgs,
         FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
         ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs, LibraryArgs,
-        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, MutationArgs,
-        MutationCollectionArgs, MutationCollectionCommand, MutationCommand, MutationItemArgs,
-        MutationItemCommand, MutationNoteArgs, MutationNoteCommand, MutationTagArgs,
-        MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
-        NotificationAckArgs, NotificationCommand, NotificationListArgs, NotificationWaitArgs,
-        OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs, PaperArtifactsCommand,
-        PermissionRequestIdArgs, ProductArgs, ProductCommand, ProductDownloadArgs, ProductGetArgs,
-        ProductIdArgs, ProductListArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand,
-        RunPermissionArgs, RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand,
-        RunWorkflowRecentArgs, SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs,
-        SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
-        SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
-        SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
-        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs,
-        WorkflowAgentBundleArgs, WorkflowAgentBundleCommand, WorkflowAgentBundleInspectArgs,
-        WorkflowAgentResultArgs, WorkflowAgentResultCommand, WorkflowAgentResultValidateArgs,
-        WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs, WorkflowArgs, WorkflowCancelArgs,
-        WorkflowCommand, WorkflowDefaultsArgs, WorkflowDescribeArgs, WorkflowProfileArgs,
-        WorkflowProfileCommand, WorkflowProfileDescribeArgs, WorkflowProfileValidateArgs,
-        WorkflowQueueArgs, WorkflowQueueCancelArgs, WorkflowQueueCommand, WorkflowQueueListArgs,
+        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, LibrarySavedSearchesCommand,
+        MutationArgs, MutationCollectionArgs, MutationCollectionCommand, MutationCommand,
+        MutationItemArgs, MutationItemCommand, MutationNoteArgs, MutationNoteCommand,
+        MutationTagArgs, MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs,
+        NotePayloadArgs, NotificationAckArgs, NotificationCommand, NotificationListArgs,
+        NotificationWaitArgs, OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs,
+        PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs, ProductCommand,
+        ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
+        ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
+        RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
+        SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
+        SynthesisArgs, SynthesisCacheArgs, SynthesisCacheCommand, SynthesisCacheInvalidateArgs,
+        SynthesisCommand, SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs,
+        TaskRecentArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
+        WorkflowAgentApplyStatusArgs, WorkflowAgentBundleArgs, WorkflowAgentBundleCommand,
+        WorkflowAgentBundleInspectArgs, WorkflowAgentResultArgs, WorkflowAgentResultCommand,
+        WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
+        WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDefaultsArgs,
+        WorkflowDescribeArgs, WorkflowProfileArgs, WorkflowProfileCommand,
+        WorkflowProfileDescribeArgs, WorkflowProfileValidateArgs, WorkflowQueueArgs,
+        WorkflowQueueCancelArgs, WorkflowQueueCommand, WorkflowQueueListArgs,
         WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmissionArgs,
         WorkflowSubmissionCommand, WorkflowSubmissionGetArgs, WorkflowSubmitArgs,
         WorkflowValidateArgs,
@@ -150,6 +151,23 @@ pub fn note(config: &BridgeConfig, args: NoteArgs) -> Result<Value, CliError> {
 
 pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliError> {
     match args.command {
+        LibraryCommand::SavedSearches(args) => match args.command {
+            LibrarySavedSearchesCommand::List(input) => {
+                let mut arguments = Map::new();
+                insert_argument(
+                    &mut arguments,
+                    "library_id",
+                    input.library_id.map(Value::from),
+                );
+                insert_argument(
+                    &mut arguments,
+                    "cursor",
+                    input.page.cursor.map(Value::String),
+                );
+                insert_argument(&mut arguments, "limit", input.page.limit.map(Value::from));
+                client::call_current(config, arguments)
+            }
+        },
         LibraryCommand::Items(args) => match args.command {
             LibraryItemsCommand::List(input) => {
                 call_structured(config, "query", bridge_query(input)?)
@@ -1187,7 +1205,11 @@ fn workflow_profile(config: &BridgeConfig, args: WorkflowProfileArgs) -> Result<
 
 fn workflow_defaults(config: &BridgeConfig, args: WorkflowDefaultsArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "defaults")?;
-    client::post(config, "/workflows/defaults", json!({ "workflowId": workflow }))
+    client::post(
+        config,
+        "/workflows/defaults",
+        json!({ "workflowId": workflow }),
+    )
 }
 
 pub fn run(config: &BridgeConfig, args: RunArgs) -> Result<Value, CliError> {
@@ -1663,14 +1685,12 @@ fn workflow_resource_binding(raw: &str) -> Result<(&str, &str), CliError> {
 }
 
 fn is_opaque_file_id(value: &str) -> bool {
-    value
-        .strip_prefix("file-")
-        .is_some_and(|suffix| {
-            !suffix.is_empty()
-                && suffix
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
-        })
+    value.strip_prefix("file-").is_some_and(|suffix| {
+        !suffix.is_empty()
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    })
 }
 
 fn workflow_resource_bindings(
@@ -1726,10 +1746,9 @@ fn workflow_validate_input(args: WorkflowValidateArgs) -> Result<Value, CliError
         )?,
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?
     });
-    if let Some(resource_bindings) = workflow_resource_bindings(
-        &args.input_resource,
-        &args.output_resource,
-    )? {
+    if let Some(resource_bindings) =
+        workflow_resource_bindings(&args.input_resource, &args.output_resource)?
+    {
         input["resourceBindings"] = resource_bindings;
     }
     Ok(input)
@@ -1756,10 +1775,9 @@ fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
             }
         });
     }
-    if let Some(resource_bindings) = workflow_resource_bindings(
-        &args.input_resource,
-        &args.output_resource,
-    )? {
+    if let Some(resource_bindings) =
+        workflow_resource_bindings(&args.input_resource, &args.output_resource)?
+    {
         input["resourceBindings"] = resource_bindings;
     }
     Ok(input)
@@ -2540,11 +2558,6 @@ fn item_notes_arguments(args: ItemNotesArgs) -> Result<Map<String, Value>, CliEr
     let mut arguments = item_ref_arguments(args.item)?;
     insert_argument(&mut arguments, "limit", args.limit.map(Value::from));
     insert_argument(&mut arguments, "cursor", args.cursor.map(Value::String));
-    insert_argument(
-        &mut arguments,
-        "max_excerpt_chars",
-        args.max_excerpt_chars.map(Value::from),
-    );
     Ok(arguments)
 }
 
@@ -2574,8 +2587,6 @@ fn note_payload_arguments(args: NotePayloadArgs) -> Result<Map<String, Value>, C
         "payload_type",
         args.payload_type.map(Value::String),
     );
-    insert_argument(&mut arguments, "offset", args.offset.map(Value::from));
-    insert_argument(&mut arguments, "max_chars", args.max_chars.map(Value::from));
     Ok(arguments)
 }
 

@@ -91,13 +91,13 @@ async function listCurrentCollectionMembers(host, args) {
     const input = {
       libraryId: args.libraryId,
       collectionKey: args.collectionKey,
-      limit: 200,
+      limit: 100,
     };
     if (cursor !== undefined) {
       input.cursor = cursor;
     }
     const page = await host.library.listItems(input);
-    for (const item of Array.isArray(page?.items) ? page.items : []) {
+    for (const item of page.items) {
       const paperRef = paperRefFromItem(item, args.libraryId);
       if (paperRef) {
         refs.add(paperRef);
@@ -107,7 +107,7 @@ async function listCurrentCollectionMembers(host, args) {
       return refs;
     }
     const nextCursor = normalizeString(page?.nextCursor);
-    if (!nextCursor) {
+    if (!nextCursor || nextCursor === cursor) {
       throw new Error("collection-collector apply received hasMore without nextCursor");
     }
     cursor = nextCursor;

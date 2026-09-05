@@ -121,7 +121,7 @@ Write preparation:
 - Workflow options and provider profile are validated separately.
 - The batch is small enough to inspect and recover.
 
-Verification:
+验证：
 
 - Each approved item is re-read after the operation.
 - Collection membership is confirmed live.

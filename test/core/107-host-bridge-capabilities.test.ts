@@ -25,7 +25,12 @@ import {
   setDebugModeOverrideForTests,
   setSkillRunnerConnectionAuditSourceOverrideForTests,
 } from "../../src/modules/debugMode";
-import { listHostBridgeCapabilities } from "../../src/modules/hostBridgeCapabilityRegistry";
+import {
+  executeHostBridgeCapability,
+  listHostBridgeCapabilities,
+} from "../../src/modules/hostBridgeCapabilityRegistry";
+import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import type { HostBridgeStatusSnapshot } from "../../src/modules/hostBridgeProtocol";
 import {
   resetAcpSkillRunsForTests,
   upsertAcpSkillRun,
@@ -39,8 +44,11 @@ import {
 import { setPref } from "../../src/utils/prefs";
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
   resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
   setZoteroLibraryPageQueryAdapterForTests,
+  type ZoteroLibrarySourcePageQueryAdapter,
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 import { runtimeHttpResponseInternalsForTests } from "../../src/modules/runtimeHttpResponse";
@@ -48,6 +56,140 @@ import { createProductStorageApi } from "../../src/modules/workflowProductStore"
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 
 const CONTRACT_HASH = `sha256:${"a".repeat(64)}`;
+
+function createMockZoteroSourcePageQueryAdapter(): ZoteroLibrarySourcePageQueryAdapter {
+  return {
+    async queryAsync(_sql, _params, context) {
+      const items = (await (Zotero.Items as any).getAll(
+        context.criteria.libraryId,
+      )) as Zotero.Item[];
+      const parentItemId = Number(context.criteria.parentItemId);
+      const matching = items
+        .filter((item) => {
+          const itemParentId = Number(
+            (item as any).parentItemID || (item as any).parentID || 0,
+          );
+          const matchesDomain =
+            context.domain === "notes"
+              ? item.isNote?.()
+              : context.domain === "attachments"
+                ? item.isAttachment?.()
+                : false;
+          return (
+            Number((item as any).libraryID) === context.criteria.libraryId &&
+            itemParentId === parentItemId &&
+            Boolean(matchesDomain)
+          );
+        })
+        .sort(
+          (left, right) => Number((left as any).id) - Number((right as any).id),
+        );
+      if (context.kind === "count") {
+        return [{ total: matching.length }];
+      }
+      const afterId = Number((context.position as any).id || 0);
+      return matching
+        .filter((item) => Number((item as any).id) > afterId)
+        .slice(0, context.limitPlusOne)
+        .map((item) => ({ itemID: (item as any).id }));
+    },
+    async hydrateItems(ids) {
+      return (await (Zotero.Items as any).getAsync(ids)) as Zotero.Item[];
+    },
+  };
+}
+
+describe("canonical Host read projection", function () {
+  it("passes the request control into library snapshot reads", async function () {
+    const control = {};
+    const snapshot = {
+      schema: "zotero-agents.library-full-index.v1",
+      snapshotId: "snapshot-test",
+      libraryId: 1,
+      scope: "top-level-regular",
+      order: "stable_identity",
+      batchSize: 1,
+      batchIndex: 0,
+      items: [],
+      nextCursor: "cursor-test",
+      hasMore: true,
+      returned: 0,
+      deliveredItems: 0,
+      deliveredBatches: 0,
+      outcome: "active",
+    };
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        async syncSnapshot(args, scope, receivedControl) {
+          assert.deepEqual(args, { libraryId: 1, batchSize: 1 });
+          assert.deepEqual(scope, { ownerId: "host-bridge:remote" });
+          assert.strictEqual(receivedControl, control);
+          return snapshot;
+        },
+      },
+    });
+    const result = await executeHostBridgeCapability(
+      "library.sync_snapshot",
+      { libraryId: 1, batchSize: 1 },
+      {
+        getStatus: (): HostBridgeStatusSnapshot => {
+          throw new Error("status is not part of a snapshot read");
+        },
+        connectionMode: "remote",
+        control,
+        resolveZoteroHostCapabilityBroker: () => broker,
+      },
+    );
+    assert.deepEqual(result, snapshot);
+  });
+
+  it("preserves an empty payload scan continuation and trusted control", async function () {
+    const control = {};
+    const page = {
+      payloads: [],
+      returned: 0,
+      scanned: 2,
+      total: null,
+      limit: 2,
+      hasMore: true,
+      nextCursor: "opaque-payload-continuation",
+    };
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        async listNotePayloads(ref, request, receivedControl) {
+          assert.deepEqual(ref, { libraryId: 1, key: "NOTE0001" });
+          assert.deepEqual(request, { limit: 2 });
+          assert.strictEqual(receivedControl, control);
+          return page;
+        },
+      },
+    });
+    const result = await executeHostBridgeCapability(
+      "library.list_note_payloads",
+      { libraryId: 1, key: "NOTE0001", limit: 2 },
+      {
+        getStatus: (): HostBridgeStatusSnapshot => {
+          throw new Error("status is not part of a payload read");
+        },
+        connectionMode: "remote",
+        control,
+        resolveZoteroHostCapabilityBroker: () => broker,
+      },
+    );
+    assert.deepEqual(result, page);
+  });
+
+  it("advertises Saved Search discovery with a closed bounded request", function () {
+    const capability = listHostBridgeCapabilities().find(
+      (entry) => entry.name === "library.list_saved_searches",
+    );
+    assert.isDefined(capability);
+    assert.strictEqual(capability?.inputSchema.additionalProperties, false);
+    assert.deepInclude(capability?.inputSchema.properties?.limit, {
+      maximum: 100,
+    });
+  });
+});
 
 function maintenanceOperation(operationId: string, status = "pending") {
   return {
@@ -296,10 +438,14 @@ describe("host bridge capability calls", function () {
     setZoteroLibraryPageQueryAdapterForTests(
       createMockZoteroLibraryPageQueryAdapter(),
     );
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroSourcePageQueryAdapter(),
+    );
   });
 
   afterEach(function () {
     resetZoteroLibraryPageQueryAdapterForTests();
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
     resetHostBridgeServerForTests();
     resetHostBridgePermissionManagerForTests();
     resetZoteroMcpServerForTests();
@@ -394,12 +540,13 @@ describe("host bridge capability calls", function () {
       "library.get_item_detail",
     );
     assert.strictEqual(parsed.json.result.approval, "none");
+    assert.strictEqual(parsed.json.result.data.kind, "regular");
     assert.strictEqual(
-      parsed.json.result.data.fields.title,
+      parsed.json.result.data.item.fields.title,
       "Bridge Broker DTO Paper",
     );
-    assert.notProperty(parsed.json.result.data, "saveTx");
-    assert.notProperty(parsed.json.result.data, "getField");
+    assert.notProperty(parsed.json.result.data.item, "saveTx");
+    assert.notProperty(parsed.json.result.data.item, "getField");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
   });
 
@@ -1895,47 +2042,82 @@ describe("host bridge capability calls", function () {
       "updated",
     );
 
-    (item as any).getAnnotations = () => [
-      {
-        id: 77,
-        key: "ANNOKEY",
-        libraryID: item.libraryID,
-        annotationText: "quoted text",
-        annotationComment: "agent note",
-        annotationColor: "#ffd400",
-        annotationPageLabel: "3",
+    const attachment = new Zotero.Item("attachment");
+    (attachment as any).parentItemID = item.id;
+    (attachment as any).version = 3;
+    (attachment as any).attachmentLinkMode = 0;
+    attachment.setField("title", "Bridge Annotation Attachment");
+    attachment.setField("contentType", "application/pdf");
+    await attachment.saveTx();
+
+    const annotation = new Zotero.Item("annotation");
+    (annotation as any).parentItemID = attachment.id;
+    (annotation as any).version = 4;
+    (annotation as any).dateAdded = "2026-05-20T01:00:00.000Z";
+    (annotation as any).dateModified = "2026-05-20T02:00:00.000Z";
+    (annotation as any).annotationType = "highlight";
+    (annotation as any).annotationText = "quoted text";
+    (annotation as any).annotationComment = "agent note";
+    (annotation as any).annotationColor = "#ffd400";
+    (annotation as any).annotationPageLabel = "3";
+    (annotation as any).annotationSortIndex = "00001";
+    (annotation as any).annotationPosition = JSON.stringify({ pageIndex: 0 });
+    await annotation.saveTx();
+    (attachment as any).getAnnotations = () => [annotation.id];
+    (item as any).getAttachments = () => [attachment.id];
+
+    setZoteroLibrarySourcePageQueryAdapterForTests({
+      async queryAsync(_sql, _params, context) {
+        if (context.domain !== "annotations") {
+          return context.kind === "count" ? [{ total: 0 }] : [];
+        }
+        if (context.kind === "count") return [{ total: 1 }];
+        return [{ itemID: annotation.id, sortIndex: "00001" }];
       },
-    ];
-    const annotations = await callBridgeCapability({
-      token,
-      capability: "library.export_annotations",
-      input: { ref: item.id, format: "markdown" },
+      async hydrateItems(ids) {
+        return (await (Zotero.Items as any).getAsync(ids)) as Zotero.Item[];
+      },
     });
-    assert.strictEqual(annotations.status, 200);
-    assert.strictEqual(
-      annotations.json.result.data.delivery.mode,
-      "bridge-download",
-    );
-    assert.match(annotations.json.result.data.delivery.file.fileId, /^file-/);
-    assert.strictEqual(annotations.json.result.data.count, 1);
-    assert.notProperty(annotations.json.result.data, "markdown");
-    assert.notProperty(annotations.json.result.data, "annotations");
-    assert.notProperty(annotations.json.result.data.delivery.file, "localPath");
-    const file = annotations.json.result.data.delivery.file;
-    const downloaded = await handleHostBridgeHttpRequestForTests({
-      method: "GET",
-      path: `/bridge/v2/files/${file.fileId}`,
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const separator = downloaded.indexOf("\r\n\r\n");
-    const body = downloaded.slice(separator + 4);
-    const bytes = Buffer.from(body, "utf8");
-    assert.include(body, "quoted text");
-    assert.strictEqual(bytes.byteLength, file.size);
-    assert.strictEqual(
-      `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
-      file.sha256,
-    );
+
+    try {
+      const annotations = await callBridgeCapability({
+        token,
+        capability: "library.export_annotations",
+        input: { ref: item.id, format: "markdown" },
+      });
+      assert.strictEqual(annotations.status, 200);
+      assert.strictEqual(
+        annotations.json.result.data.delivery.mode,
+        "bridge-download",
+      );
+      assert.match(annotations.json.result.data.delivery.file.fileId, /^file-/);
+      assert.strictEqual(annotations.json.result.data.count, 1);
+      assert.notProperty(annotations.json.result.data, "markdown");
+      assert.notProperty(annotations.json.result.data, "annotations");
+      assert.notProperty(
+        annotations.json.result.data.delivery.file,
+        "localPath",
+      );
+      const file = annotations.json.result.data.delivery.file;
+      const downloaded = await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: `/bridge/v2/files/${file.fileId}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const separator = downloaded.indexOf("\r\n\r\n");
+      const body = downloaded.slice(separator + 4);
+      const bytes = Buffer.from(body, "utf8");
+      assert.include(body, "quoted text");
+      assert.strictEqual(bytes.byteLength, file.size);
+      assert.strictEqual(
+        `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+        file.sha256,
+      );
+    } finally {
+      resetZoteroLibrarySourcePageQueryAdapterForTests();
+      await annotation.eraseTx();
+      await attachment.eraseTx();
+    }
   });
 
   it("attaches uploaded Host Bridge files by opaque handle only once", async function () {

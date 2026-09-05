@@ -11,6 +11,7 @@ import {
 import {
   measureWorkflowTestSpan,
   portableItemRef,
+  readHostPages,
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
@@ -394,9 +395,13 @@ async function resolveSourceAttachmentItemKey({
 
   const basenameMatchKeys = new Set();
   const host = requireHostApi(runtime);
-  for (const attachment of await host.library.getItemAttachments(
-    portableItemRef(parentItem),
-  )) {
+  const attachments = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemAttachments(portableItemRef(parentItem), page),
+    getItems: (page) => page.attachments,
+    operation: "literature-analysis attachment read",
+  });
+  for (const attachment of attachments) {
     const attachmentKey = String(attachment.ref.key || "").trim();
     if (!attachmentKey) {
       continue;

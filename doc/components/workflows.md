@@ -655,7 +655,7 @@ Hook 接收的 `runtime` 对象包含：
 
 `runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
 `src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：23 个顶层
-key、21 个模块、87 个 callable。Hook 只通过以下命名模块访问宿主能力：
+key、21 个模块、88 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
 - `addon`、`environment`、`context`、`navigation`
 - `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
@@ -669,6 +669,12 @@ key、21 个模块、87 个 callable。Hook 只通过以下命名模块访问宿
 `runtime.handlers`、`runtime.helpers`、`IOUtils`、`Components` 或 addon 对象。
 文件系统 adapter 由 `src/modules/runtimePersistence.ts` 在每次调用时晚绑定；
 包内纯逻辑应放在 package-local module 中并通过相对路径导入。
+
+`library.listSavedSearches` 返回 portable ref 和显示名称。集合、笔记、附件、
+批注和 payload 使用 Broker 源头分页，默认 25、最大 100；完整任务必须沿
+`hasMore` / `nextCursor` 消费所有页。payload 页的 `total` 为 `null`，空页仍可能
+有后续候选，不得按数组长度停止。单页目标读取失败使整页失败。Hook 的运行级
+取消信号由 Host projection 传入 Broker，并在后续页进入 Host 前检查。
 
 ## Workflow Package Schema
 

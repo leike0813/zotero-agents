@@ -393,7 +393,7 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
   - `language`: `{"type":"string","title":"Language","description":"Language for Planned Topic titles, definitions, and planning explanations.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
 - Invocation inputs: 使用 workflow id `topic-planner`、声明的无选择项形式、声明的 workflow 选项，以及 provider 要求时另行验证过的兼容 provider profile。
-- External invocation inputs: 声明了资源要求时，按照实时 slot 合同使用已上传的不透明输入 handle 和 bridge-download 输出交付；绝不传递 client 或 Host 路径。
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `create-topic-synthesis`
 

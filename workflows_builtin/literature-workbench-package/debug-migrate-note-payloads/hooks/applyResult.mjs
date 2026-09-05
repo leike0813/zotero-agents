@@ -29,6 +29,7 @@ import {
 } from "../../lib/referencesNote.mjs";
 import {
   portableItemRef,
+  readHostPages,
   requireCommittedMutation,
   requireHostApi,
   withPackageRuntimeScope,
@@ -108,10 +109,13 @@ async function collectNotesFromItem(host, detail) {
     ? detail.item.ref
     : detail.item.parentRef;
   if (!parentRef) return [];
+  const notes = await readHostPages({
+    readPage: (page) => host.library.getItemNotes(parentRef, page),
+    getItems: (page) => page.notes,
+    operation: "debug note migration read",
+  });
   return Promise.all(
-    (await host.library.getItemNotes(parentRef)).map((note) =>
-      host.library.getNoteDetail(note.ref, { format: "html" }),
-    ),
+    notes.map((note) => host.library.getNoteDetail(note.ref, { format: "html" })),
   );
 }
 

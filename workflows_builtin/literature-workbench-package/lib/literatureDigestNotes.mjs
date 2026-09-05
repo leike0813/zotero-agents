@@ -11,6 +11,7 @@ import { escapeAttribute } from "./htmlCodec.mjs";
 import {
   measureWorkflowTestSpan,
   portableItemRef,
+  readHostPages,
   requireCommittedMutation,
   requireHostApi,
 } from "./runtime.mjs";
@@ -178,7 +179,12 @@ export async function collectGeneratedNotesByKind(parentItem, runtime) {
     ["literature-score", []],
   ]);
   const host = requireHostApi(runtime);
-  const summaries = await host.library.getItemNotes(portableItemRef(parentItem));
+  const summaries = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemNotes(portableItemRef(parentItem), page),
+    getItems: (page) => page.notes,
+    operation: "literature digest note read",
+  });
   for (const summary of summaries) {
     const detail = await host.library.getNoteDetail(summary.ref, { format: "html" });
     const noteItem = { ...summary, content: detail.content };
@@ -922,9 +928,15 @@ async function resolveRepresentativeImageExportFile(args) {
   }
   try {
     const hostApi = requireHostApi(args.runtime);
-    const attachment = (await hostApi.library.getItemAttachments(
-      portableItemRef(args.noteItem),
-    )).find((entry) => entry.ref.key === descriptor.attachmentKey);
+    const attachments = await readHostPages({
+      readPage: (page) =>
+        hostApi.library.getItemAttachments(portableItemRef(args.noteItem), page),
+      getItems: (page) => page.attachments,
+      operation: "literature digest attachment read",
+    });
+    const attachment = attachments.find(
+      (entry) => entry.ref.key === descriptor.attachmentKey,
+    );
     if (!attachment || attachment.file.state !== "available") {
       return null;
     }

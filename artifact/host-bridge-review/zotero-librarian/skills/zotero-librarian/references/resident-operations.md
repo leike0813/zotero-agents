@@ -12,7 +12,6 @@ service 在有边界 pass 开始前解析一个 profile workspace。Agent 和 cr
 
 `--db` 只有在路径位于当前 workspace 内时才允许。profile 查找、路径规范化、workspace 根、连接或 containment 失败时必须 fail closed，返回 failed receipt；不得回退到其他 profile 的 database。profile identity 不读取 profile JSON 或 credentials。切换 profile 会整体切换 catalog、index、watched-run、notification 和本地 CLI 状态。
 
-
 ## 操作契约矩阵
 
 | 命令 | 读取 | 本地 effect | Receipt 数据及含义 |
@@ -237,7 +236,7 @@ zotero-bridge workflow validate \
 - 实时描述要求时，独立校验 provider profile。
 - 在考虑 provider limits、cost、unit independence、interaction 与 apply-back duration 后选择有限 concurrency bound。
 
-证据：
+Evidence:
 
 - 实时 workflow identity 与 execution mode。
 - 精确 selection refs，以及彼此分离的 `inputs` 与 `validateSelection` contracts。
@@ -245,7 +244,7 @@ zotero-bridge workflow validate \
 - Host candidate-production 与不可变 grouping 行为。
 - 预期 unit count 或 shape、result identities 与所选 native admission bound。
 
-下一步：
+下一篇：
 
 - 呈现完整当前 scope，且不持久化 approval flag。
 - 为该精确 workflow、selection、options、provider 与 concurrency 请求当前授权。
@@ -279,7 +278,7 @@ Admission 结果：
 - queued response 有意不为 pending units 提供虚构 run handles。
 - 结构化失败保留 state-change 与 safe-next-action facts。
 
-下一步：
+下一篇：
 
 - 使用 `workflow submission get <submissionId>` 检查 aggregate 与 per-unit state。
 - 使用 `workflow queue list` 观察 active queue。

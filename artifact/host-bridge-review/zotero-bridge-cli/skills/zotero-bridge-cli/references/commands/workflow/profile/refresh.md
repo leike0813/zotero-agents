@@ -8,7 +8,7 @@ Refresh an ACP backend provider catalog
 zotero-bridge workflow profile refresh [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --backend <BACKEND>
 ```
 
-The global options may appear before or after the leaf command. This leaf has no structured JSON input. `--schema` returns `command_input_schema_unavailable`; use command help or `surface describe` to inspect the invocation contract.
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## Global parameters
 
@@ -45,7 +45,7 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ## Structured input schemas
 
-This command has no structured JSON input parameter.
+此命令没有结构化 JSON 输入参数。
 
 ## Composed payload schema
 
@@ -89,7 +89,7 @@ This command has no separate field-mapping program. Its binding mode is executab
 
 ## Examples
 
-No structured-input example applies. Build argv from the parameter tables and confirm the command with `surface describe` before execution.
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## Complete command descriptor
 
@@ -228,7 +228,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
 - `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
 - `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
-- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
 - `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
 - `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
 - Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
@@ -239,7 +239,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
-- Structured binding mode: `object`.
+- 结构化 binding 模式： `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow profile refresh`, `workflow`, `profile`, `refresh`, `backend`, `BACKEND`.
 

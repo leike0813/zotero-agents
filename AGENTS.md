@@ -221,6 +221,8 @@
 - Host Bridge 是 attachment remote locality 的唯一 adapter。`library.get_item_attachments` 与 `mutation.execute` 的 attachment 输出必须共用同一投影，删除本地 `path`，只返回 opaque file handle 或 unavailable；MCP 必须复用 Host Bridge handler，不得另建路径策略。
 - broker 失败统一使用 `ZoteroHostCapabilityError` 的稳定 `code`、`retryable` 和 strict-JSON `details`；不得把 raw ref、native cause 或宿主对象放入错误详情。
 - broker 测试替身必须完整且 fail-closed；不得用 partial object、`as any` 或默认真实 Zotero runtime 掩盖未配置能力。
+- Broker 普通列表读取必须从源头分页，默认 25、最大 100，仅物化当前页；单个目标读取失败必须使整页失败。payload 扫描保留全部候选，`total: null` 和空非末页不能作为完成依据。
+- 所有 Broker 实例共享进程级 FIFO Host 短片段 admission；native 循环至多 100 items 或 50 ms 后释放，取消或超时不能在底层 Host 工作 settle 前释放槽。网络、文件、callback 与 detached DTO 运算在槽外；MCP 只持有九个并发请求的 admission。
 
 # 发布流程硬约束
 

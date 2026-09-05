@@ -68,14 +68,13 @@ export type AcpMcpServerSnapshot = {
   lastError: string;
   requestCount: number;
   toolCallCount: number;
-  queuePolicy: {
-    runningLimit: number;
-    pendingLimit: number;
-    queueTimeoutMs: number;
+  admissionPolicy: {
+    inflightLimit: number;
+    runningTimeoutMs: number;
   };
-  queueState: {
-    running: number;
-    pending: number;
+  admissionState: {
+    inflight: number;
+    limit: number;
   };
   recentRuntimeLogs: AcpMcpRuntimeLogSummary[];
   recentRequests: Array<{
@@ -98,14 +97,11 @@ export type AcpMcpServerSnapshot = {
     responseProtocolVersion: string;
     responseToolCount: number;
     responseError: string;
-    queuePolicy: {
-      runningLimit: number;
-      pendingLimit: number;
-      queueTimeoutMs: number;
+    admissionPolicy: {
+      inflightLimit: number;
+      runningTimeoutMs: number;
     };
-    queueDepthAtAccept: number;
-    queuePosition: number;
-    queueWaitMs: number;
+    inflightAtAccept: number;
     durationMs: number;
     limitReason: string;
     toolOutcome: "" | "success" | "error" | "notification";
@@ -143,8 +139,9 @@ export type AcpMcpHealthSnapshot = {
   clientHandshakeSeen: boolean;
   toolsListSeen: boolean;
   toolCallSeen: boolean;
-  queueDepth: number;
-  activeTool: string;
+  inflightCount: number;
+  inflightLimit: number;
+  activeTools: string[];
   openCircuitCount: number;
   lastError: string;
   lastLogStage?: string;

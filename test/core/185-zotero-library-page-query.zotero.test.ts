@@ -1,6 +1,11 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { queryZoteroLibraryPage } from "../../src/modules/zoteroLibraryPageQuery";
+import {
+  queryZoteroLibraryPage,
+  queryZoteroChildItemPage,
+  queryZoteroCollectionPage,
+  queryZoteroSavedSearchPage,
+} from "../../src/modules/zoteroLibraryPageQuery";
 import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
   SYNTHESIS_REVERSE_HOST_CAPABILITIES,
@@ -51,6 +56,71 @@ const reverseHostRequestHeaders = {
 };
 
 describeZotero("zotero library page query in Zotero runtime", function () {
+  it("pages native child, collection and Saved Search identities", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Canonical source pages");
+    await parent.saveTx();
+    const collection = new Zotero.Collection();
+    collection.name = "Canonical source collection";
+    await collection.saveTx();
+    const searches: Zotero.Search[] = [];
+    const children: Zotero.Item[] = [];
+    try {
+      for (let index = 0; index < 2; index += 1) {
+        const note = new Zotero.Item("note");
+        note.parentID = parent.id;
+        note.setNote(`<p>Page ${index}</p>`);
+        await note.saveTx();
+        children.push(note);
+        const search = new Zotero.Search();
+        search.name = "Same display name";
+        search.libraryID = libraryId;
+        search.addCondition("title", "contains", "Canonical");
+        await search.saveTx();
+        searches.push(search);
+      }
+      const request = {
+        domain: "notes" as const,
+        libraryId,
+        parentItemId: parent.id,
+        limit: 1,
+      };
+      const first = await queryZoteroChildItemPage(request);
+      const second = await queryZoteroChildItemPage({
+        ...request,
+        cursor: first.nextCursor,
+      });
+      assert.deepEqual(first.itemIds, [children[0].id]);
+      assert.deepEqual(second.itemIds, [children[1].id]);
+      assert.isFalse(second.hasMore);
+      for (const [query, identity, expected] of [
+        [queryZoteroCollectionPage, "key", [collection.key]],
+        [
+          queryZoteroSavedSearchPage,
+          "key",
+          searches.map((search) => search.key),
+        ],
+      ] as const) {
+        const keys: unknown[] = [];
+        let cursor: string | null = null;
+        do {
+          const page = await query({ libraryId, limit: 1, cursor });
+          keys.push(...page.rows.map((row) => row[identity]));
+          cursor = page.nextCursor;
+        } while (cursor);
+        assert.includeMembers(keys, [...expected]);
+      }
+    } finally {
+      for (const search of searches) await search.eraseTx();
+      await Zotero.Items.trashTx([
+        parent.id,
+        ...children.map((item) => item.id),
+      ]);
+      await collection.eraseTx();
+    }
+  });
+
   it("transfers one large Unicode reverse Host response with exact framing", async function () {
     setDebugModeOverrideForTests(true);
     const authorizationToken = "a".repeat(64);
@@ -506,7 +576,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         );
         assert.strictEqual(page.returned, testCase.expectedIds.length);
         assert.isFalse(page.hasMore);
-        assert.strictEqual(page.nextCursor, "");
+        assert.isNull(page.nextCursor);
       }
 
       const first = await queryZoteroLibraryPage({ ...baseInput, limit: 1 });
@@ -529,7 +599,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       );
       assert.strictEqual(second.returned, 2);
       assert.isFalse(second.hasMore);
-      assert.strictEqual(second.nextCursor, "");
+      assert.isNull(second.nextCursor);
 
       const invalidCursorCases = [
         {
@@ -562,7 +632,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       assert.strictEqual(empty.returned, 0);
       assert.strictEqual(empty.totalScanned, 0);
       assert.isFalse(empty.hasMore);
-      assert.strictEqual(empty.nextCursor, "");
+      assert.isNull(empty.nextCursor);
 
       await expectPageErrorCode(
         () => queryZoteroLibraryPage({ ...baseInput, limit: 101 }),

@@ -3,6 +3,7 @@
 ## Purpose
 TBD - created by archiving change harden-host-bridge-cli-output-boundaries. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Host Bridge workflow outputs redact host-local paths
 The system SHALL sanitize workflow submit, workflow run, and task listing
 responses before returning them through Host Bridge endpoints.
@@ -69,7 +70,7 @@ The command-contract registry SHALL classify every canonical leaf command as `fi
 source consumed by Agent Surface generation and command-card rendering.
 
 #### Scenario: Full command inventory is audited
-- **WHEN** the 125-command inventory and command-contract registry are validated
+- **WHEN** the canonical command inventory and command-contract registry are validated
 - **THEN** every command has exactly one valid output boundary
 - **AND** no high-cardinality read remains fixed or unclassified
 - **AND** no cursor command lacks a cursor input or continuation output.
@@ -80,14 +81,14 @@ command scope, normalized filters, stable ordering, and last returned row key.
 
 #### Scenario: Caller continues with matching criteria
 - **WHEN** a caller supplies `nextCursor` with the same command and filters
-- **THEN** the next page contains no repeated or skipped row from the stable snapshot
+- **THEN** the next page contains no repeated or skipped row from an unchanged source
 - **AND** the response reports the domain array, `nextCursor`, `hasMore`, `returned`,
-  `total`, and the effective `limit`.
+  `total`, and the effective `limit`; payload scans SHALL use total:null and a scanned count when an exact total would require reading all source files.
 
 #### Scenario: Caller changes criteria or supplies an invalid cursor
-- **WHEN** a cursor is malformed, expired, scoped to another command, or paired with
+- **WHEN** a cursor is malformed, expired when its domain has a lifecycle, scoped to another command, or paired with
   different filters
-- **THEN** the command returns structured `invalid_host_bridge_cursor`
+- **THEN** the command preserves its structured domain cursor failure
 - **AND** it does not silently restart at page one.
 
 ### Requirement: Ordinary rich-object pages SHALL use bounded defaults
@@ -100,12 +101,15 @@ SHALL default to at most 25 entries and accept at most 100 entries.
 - **AND** the caller can traverse the remaining library through opaque cursors.
 
 ### Requirement: Long text and complete artifacts SHALL have bounded delivery
-Readable long text SHALL use `offset` and `maxChars` with continuation metadata.
-Complete exports and heavy diagnostic/artifact payloads SHALL use Host Bridge file
-descriptors without local paths.
+Readable long text SHALL use its declared domain boundary. Canonical note detail
+and note payload reads SHALL return the complete value within their hard content
+bounds, failing rather than truncating an oversized value. Other text-window
+commands SHALL preserve `offset` and `maxChars` continuation. Complete exports and
+heavy diagnostic/artifact payloads SHALL use Host Bridge file descriptors without
+local paths.
 
 #### Scenario: Caller reconstructs text
-- **WHEN** a caller follows `nextOffset` until `hasMore` is false
+- **WHEN** a caller follows `nextOffset` from a text-window command until `hasMore` is false
 - **THEN** concatenating the chunks reproduces the original text exactly
 - **AND** an offset beyond the end returns a stable empty terminal chunk.
 
@@ -197,3 +201,10 @@ Any governed agent-facing guidance changed for snapshot behavior SHALL preserve 
 #### Scenario: Semantic review completes
 - **WHEN** the snapshot source guidance and materialized packages are reviewed against baseline `4dbddc24e884921262c559428bf851db5eadf2d7`
 - **THEN** unmapped, downgraded, unauthorized-dropped, and intra-package-duplicate counts are all zero and every instruction-depth warning has an explicit disposition
+
+### Requirement: Payload scan continuation SHALL not depend on nonempty output
+A payload page SHALL distinguish source scan progress from returned matches. Empty output with hasMore:true SHALL include a progressing nextCursor. Consumers SHALL use continuation, not array length or an unavailable total, to determine completion.
+
+#### Scenario: Empty candidate page is followed by a matching page
+- **WHEN** the first bounded candidate page has no payload and a later page has one
+- **THEN** the consumer continues and includes the later payload without claiming premature absence.

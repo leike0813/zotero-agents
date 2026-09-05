@@ -30,6 +30,7 @@ import type {
   ZoteroHostNotePayloadDetailDto,
   ZoteroHostNotePayloadSummaryDto,
 } from "./zoteroHostCapabilityBroker";
+import type { WorkflowCallControl } from "../workflows/types";
 
 export const ZOTERO_MCP_PROTOCOL_VERSION = "2025-06-18";
 export const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "get_current_view";
@@ -152,6 +153,7 @@ export type ZoteroMcpToolPermissionRequest = {
 };
 
 export type ZoteroMcpHandlerOptions = {
+  control?: WorkflowCallControl;
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
   resolveDirectResearchBundleApplication?: () =>
@@ -773,7 +775,14 @@ function buildNotePayloadDetailSummary(
 
 function buildMcpStatusSummary(status: Record<string, unknown>) {
   const safeStatus = status || {};
-  const queue = isPlainObject(safeStatus.queue) ? safeStatus.queue : {};
+  const admission = isPlainObject(safeStatus.admissionState)
+    ? safeStatus.admissionState
+    : isPlainObject(safeStatus.admission)
+      ? safeStatus.admission
+      : {};
+  const admissionPolicy = isPlainObject(safeStatus.admissionPolicy)
+    ? safeStatus.admissionPolicy
+    : {};
   const guard = isPlainObject(safeStatus.guard) ? safeStatus.guard : {};
   const recent = Array.isArray(safeStatus.recentRequests)
     ? safeStatus.recentRequests.length
@@ -785,8 +794,11 @@ function buildMcpStatusSummary(status: Record<string, unknown>) {
       safeStatus.transport
         ? `- transport=${compactText(safeStatus.transport)}`
         : "",
-      Object.keys(queue).length
-        ? `- queue=${compactText(JSON.stringify(queue), 240)}`
+      Object.keys(admissionPolicy).length
+        ? `- admissionPolicy=${compactText(JSON.stringify(admissionPolicy), 240)}`
+        : "",
+      Object.keys(admission).length
+        ? `- admission=${compactText(JSON.stringify(admission), 240)}`
         : "",
       Object.keys(guard).length
         ? `- guard=${compactText(JSON.stringify(guard), 240)}`
@@ -876,8 +888,8 @@ function normalizePermissionDecision(
   };
 }
 
-const ZOTERO_MCP_QUEUE_NOTICE =
-  " Zotero host calls are serialized by the embedded server; do not call Zotero MCP tools concurrently. MCP tools mirror Host Bridge capability names and return { capability, approval, data }. For library scans use library.list_items, and for large notes use library.get_note_detail chunks. After write tools, verify state before retrying. If you receive zotero_mcp_queue_full, zotero_mcp_queue_timeout, zotero_mcp_tool_timeout, or zotero_mcp_tool_circuit_open, wait and retry later or call diagnostic.get_status.";
+const ZOTERO_MCP_ADMISSION_NOTICE =
+  " MCP tools mirror Host Bridge capability names and return { capability, approval, data }. Up to nine ordinary tool requests may be in flight; initialize, tools/list, notifications, and diagnostic.get_status bypass this admission. An additional ordinary request receives zotero_mcp_inflight_limit. Host-native critical sections remain serialized by the Host capability broker. For library scans use library.list_items, and for large notes use library.get_note_detail chunks. After write tools, verify state before retrying. If you receive zotero_mcp_inflight_limit, zotero_mcp_tool_timeout, or zotero_mcp_tool_circuit_open, wait and retry later or call diagnostic.get_status.";
 
 function mcpInputSchemaForCapability(
   inputSchema: Record<string, unknown>,
@@ -1127,6 +1139,7 @@ async function requestCapabilityApprovalForMcp(args: {
           previewCapability.name,
           args.input,
           {
+            control: args.context.options.control,
             getStatus:
               args.context.options.resolveHostBridgeStatus ||
               (() =>
@@ -1230,6 +1243,7 @@ async function callHostBridgeCapabilityAsMcpTool(
   let data: unknown;
   try {
     data = await executeHostBridgeCapability(capability.name, normalizedInput, {
+      control: context.options.control,
       getStatus:
         context.options.resolveHostBridgeStatus ||
         (() =>
@@ -1268,7 +1282,7 @@ export function listZoteroMcpTools() {
   return listHostBridgeMcpToolDefinitions().map((tool) => ({
     name: tool.name,
     title: tool.title,
-    description: `${tool.description}${ZOTERO_MCP_QUEUE_NOTICE}`,
+    description: `${tool.description}${ZOTERO_MCP_ADMISSION_NOTICE}`,
     inputSchema: tool.inputSchema,
   }));
 }

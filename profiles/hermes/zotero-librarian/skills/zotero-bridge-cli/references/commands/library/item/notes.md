@@ -5,7 +5,7 @@ List child notes for one Zotero item
 ## Usage
 
 ```console
-zotero-bridge library item notes [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--key <KEY>] [--id <ID>] [--library-id <LIBRARY_ID>] [--limit <LIMIT>] [--cursor <CURSOR>] [--max-excerpt-chars <MAX_EXCERPT_CHARS>]
+zotero-bridge library item notes [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--key <KEY>] [--id <ID>] [--library-id <LIBRARY_ID>] [--limit <LIMIT>] [--cursor <CURSOR>]
 ```
 
 The global options may appear before or after the leaf command. This leaf has no structured JSON input. `--schema` returns `command_input_schema_unavailable`; use command help or `surface describe` to inspect the invocation contract.
@@ -28,7 +28,6 @@ The global options may appear before or after the leaf command. This leaf has no
 | --library-id | library_id | option | no | — | LIBRARY_ID | no | — | — | Zotero library id for key lookup |
 | --limit | limit | option | no | — | LIMIT | no | — | — | Maximum note summary count |
 | --cursor | cursor | option | no | — | CURSOR | no | — | — | Pagination cursor |
-| --max-excerpt-chars | max_excerpt_chars | option | no | — | MAX_EXCERPT_CHARS | no | — | — | Maximum excerpt characters per note |
 
 ## Invocation schema
 
@@ -79,10 +78,6 @@ The global options may appear before or after the leaf command. This leaf has no
     "limit": {
       "description": "Maximum note summary count",
       "type": "string"
-    },
-    "max-excerpt-chars": {
-      "description": "Maximum excerpt characters per note",
-      "type": "string"
     }
   },
   "required": [],
@@ -98,9 +93,37 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "additionalProperties": true,
-  "type": "object",
-  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "type": "string"
+    },
+    "id": {
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "key": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "libraryId": {
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "limit": {
+      "maximum": 100,
+      "minimum": 1,
+      "type": [
+        "number",
+        "string"
+      ]
+    }
+  },
+  "type": "object"
 }
 ```
 
@@ -141,12 +164,6 @@ The executable command contract owns the base source, fixed values, field mappin
       "field": "cursor",
       "required": false,
       "transform": "identity"
-    },
-    {
-      "argument": "max_excerpt_chars",
-      "field": "maxExcerptChars",
-      "required": false,
-      "transform": "identity"
     }
   ]
 }
@@ -167,16 +184,14 @@ The executable command contract owns the base source, fixed values, field mappin
     },
     "data": {
       "additionalProperties": true,
-      "description": "Result data owned by library.get_item_notes.",
+      "description": "Canonical source page of notes.",
       "properties": {
         "hasMore": {
           "type": "boolean"
         },
-        "items": {
-          "type": "array"
-        },
         "limit": {
-          "minimum": 0,
+          "maximum": 100,
+          "minimum": 1,
           "type": "integer"
         },
         "nextCursor": {
@@ -184,6 +199,9 @@ The executable command contract owns the base source, fixed values, field mappin
             "string",
             "null"
           ]
+        },
+        "notes": {
+          "type": "array"
         },
         "returned": {
           "minimum": 0,
@@ -194,8 +212,16 @@ The executable command contract owns the base source, fixed values, field mappin
           "type": "integer"
         }
       },
+      "required": [
+        "notes",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "total",
+        "limit"
+      ],
       "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
     }
   },
   "required": [
@@ -311,23 +337,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "valueNames": [
         "CURSOR"
       ]
-    },
-    {
-      "aliases": [],
-      "conflictsWith": [],
-      "defaultValues": [],
-      "global": false,
-      "help": "Maximum excerpt characters per note",
-      "id": "max_excerpt_chars",
-      "kind": "option",
-      "possibleValues": [],
-      "repeatable": false,
-      "required": false,
-      "takesValue": true,
-      "token": "--max-excerpt-chars",
-      "valueNames": [
-        "MAX_EXCERPT_CHARS"
-      ]
     }
   ],
   "argv": [
@@ -385,16 +394,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "valueNames": [
         "CURSOR"
       ]
-    },
-    {
-      "kind": "option",
-      "property": "max-excerpt-chars",
-      "required": false,
-      "takesValue": true,
-      "token": "--max-excerpt-chars",
-      "valueNames": [
-        "MAX_EXCERPT_CHARS"
-      ]
     }
   ],
   "binding": "object",
@@ -430,12 +429,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
       {
         "argument": "cursor",
         "field": "cursor",
-        "required": false,
-        "transform": "identity"
-      },
-      {
-        "argument": "max_excerpt_chars",
-        "field": "maxExcerptChars",
         "required": false,
         "transform": "identity"
       }
@@ -498,10 +491,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "limit": {
         "description": "Maximum note summary count",
         "type": "string"
-      },
-      "max-excerpt-chars": {
-        "description": "Maximum excerpt characters per note",
-        "type": "string"
       }
     },
     "required": [],
@@ -522,10 +511,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "limit",
     "LIMIT",
     "cursor",
-    "CURSOR",
-    "max_excerpt_chars",
-    "max-excerpt-chars",
-    "MAX_EXCERPT_CHARS"
+    "CURSOR"
   ],
   "outputBoundary": {
     "continuation": [
@@ -538,14 +524,42 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "cursorInput": "cursor",
     "defaultLimit": 25,
     "maxLimit": 100,
-    "section": "data.items",
+    "section": "data.notes",
     "strategy": "cursor"
   },
   "pagination": "cursor",
   "payloadSchema": {
-    "additionalProperties": true,
-    "type": "object",
-    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {
+        "type": "string"
+      },
+      "id": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "key": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "libraryId": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "limit": {
+        "maximum": 100,
+        "minimum": 1,
+        "type": [
+          "number",
+          "string"
+        ]
+      }
+    },
+    "type": "object"
   },
   "recovery": [
     {
@@ -568,16 +582,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "data": {
         "additionalProperties": true,
-        "description": "Result data owned by library.get_item_notes.",
+        "description": "Canonical source page of notes.",
         "properties": {
           "hasMore": {
             "type": "boolean"
           },
-          "items": {
-            "type": "array"
-          },
           "limit": {
-            "minimum": 0,
+            "maximum": 100,
+            "minimum": 1,
             "type": "integer"
           },
           "nextCursor": {
@@ -585,6 +597,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
               "string",
               "null"
             ]
+          },
+          "notes": {
+            "type": "array"
           },
           "returned": {
             "minimum": 0,
@@ -595,8 +610,16 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "integer"
           }
         },
+        "required": [
+          "notes",
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ],
         "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
       }
     },
     "required": [
@@ -631,12 +654,12 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ## Operational contract
 
 - Canonical argv path: `library` `item` `notes`.
-- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"cursor"}.
+- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.notes","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Structured binding mode: `object`.
 - Intent visibility: `visible`.
-- Operational aliases: `library item notes`, `library`, `item`, `notes`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `limit`, `LIMIT`, `cursor`, `CURSOR`, `max_excerpt_chars`, `max-excerpt-chars`, `MAX_EXCERPT_CHARS`.
+- Operational aliases: `library item notes`, `library`, `item`, `notes`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `limit`, `LIMIT`, `cursor`, `CURSOR`.
 
 ### Effects
 

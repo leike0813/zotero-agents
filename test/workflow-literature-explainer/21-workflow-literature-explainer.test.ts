@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
-import { listNotePayloadBlocksForItem } from "../../src/modules/zoteroNotePayloadResolver";
+import { createZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   executeApplyResult,
@@ -21,6 +25,7 @@ import { isFullTestMode } from "../zotero/testMode";
 import { applyResult as applyLiteratureExplainerResult } from "../../workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs";
 import { createUnavailableBundleReader } from "../../src/modules/workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 const itZoteroFullOrNode =
@@ -40,18 +45,43 @@ async function writeZoteroDebugSnapshot(name: string, payload: unknown) {
 }
 
 async function readConversationPayload(note: Zotero.Item) {
-  const block = (await listNotePayloadBlocksForItem(note)).find(
-    (entry) => entry.payloadType === "conversation-note-markdown",
-  );
-  return block?.payload as
-    | {
+  const ref = {
+    libraryId: Number(note.libraryID),
+    key: String(note.key || ""),
+  };
+  const broker = createZoteroHostCapabilityBroker();
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await broker.library.listNotePayloads(ref, {
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    });
+    const summary = page.payloads.find(
+      (entry) => entry.payloadType === "conversation-note-markdown",
+    );
+    if (summary) {
+      if (summary.state !== "available") {
+        return undefined;
+      }
+      const value = await broker.library.getNotePayload(ref, {
+        payloadType: summary.payloadType,
+      });
+      return value.value as {
         path?: string;
         format?: string;
         content?: string;
         version?: number;
-      }
-    | null
-    | undefined;
+      };
+    }
+    if (!page.hasMore) {
+      return undefined;
+    }
+    const nextCursor = String(page.nextCursor || "").trim();
+    if (!nextCursor || nextCursor === cursor) {
+      throw new Error("note payload page cursor did not advance");
+    }
+    cursor = nextCursor;
+  }
 }
 
 async function getWorkflow() {
@@ -68,6 +98,16 @@ async function mkNodeTempRoot() {
 }
 
 describe("workflow: literature-explainer", function () {
+  beforeEach(function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+  });
+
+  afterEach(function () {
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
+  });
+
   itNodeOnly("loads literature-explainer workflow manifest", async function () {
     const workflow = await getWorkflow();
     assert.equal(workflow.manifest.provider, "skillrunner");

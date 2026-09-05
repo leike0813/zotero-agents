@@ -1,5 +1,4 @@
-import { listNotePayloadBlocksForItem } from "../zoteroNotePayloadResolver";
-import { resolveLibraryArtifactReadiness } from "../libraryArtifactReadiness";
+import { summarizeLibraryGeneratedArtifacts } from "../libraryArtifactReadiness";
 import {
   listNotePayloadBlocks,
   type ZoteroNotePayloadBlock,
@@ -19,7 +18,14 @@ import {
   type SynthesisHostLibraryItemSummary,
   type SynthesisHostReadPort,
 } from "../../../packages/synthesis-contracts/src/index";
-import { createZoteroHostCapabilityBroker } from "../zoteroHostCapabilityBroker";
+import {
+  createZoteroHostCapabilityBroker,
+  type ZoteroHostCapabilityBroker,
+} from "../zoteroHostCapabilityBroker";
+import type {
+  NotePayloadSummaryDto,
+  PortableItemRef,
+} from "../../workflows/types";
 import type {
   CitationGraphPaperInput,
   CitationGraphReferenceInput,
@@ -39,6 +45,7 @@ import {
   buildLiteratureQualitySnapshot,
   parseLiteratureScore,
 } from "../../shared/literatureScore";
+import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
 
 export type SynthesisLibraryIndexPaper = {
   paper_ref: string;
@@ -242,10 +249,6 @@ function collectionRefs(item: any) {
   }
 }
 
-function noteTitle(note: any) {
-  return readField(note, "title") || cleanString(note?.getDisplayTitle?.());
-}
-
 function zoteroRuntime() {
   const zotero = (globalThis as { Zotero?: any }).Zotero;
   if (!zotero) {
@@ -256,25 +259,178 @@ function zoteroRuntime() {
   return zotero;
 }
 
-async function childNotes(item: any): Promise<ReferenceSidecarInputNote[]> {
-  const zotero = zoteroRuntime();
-  let ids: unknown[] = [];
-  try {
-    ids = item?.getNotes?.() || [];
-  } catch {
-    ids = [];
+const SYNTHESIS_CANONICAL_PAGE_LIMIT = 100;
+
+type CanonicalPageContinuation = {
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+async function readCanonicalPages<
+  TPage extends CanonicalPageContinuation,
+  TRow,
+>(
+  readPage: (request: { limit: number; cursor?: string }) => Promise<TPage>,
+  rowsFromPage: (page: TPage) => readonly TRow[],
+  resource: string,
+) {
+  const rows: TRow[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await readPage({
+      limit: SYNTHESIS_CANONICAL_PAGE_LIMIT,
+      ...(cursor ? { cursor } : {}),
+    });
+    rows.push(...rowsFromPage(page));
+    if (!page.hasMore) {
+      return rows;
+    }
+    const nextCursor = cleanString(page.nextCursor);
+    if (!nextCursor || nextCursor === cursor) {
+      throw new Error(`${resource} page cursor did not advance`);
+    }
+    cursor = nextCursor;
+    await yieldToEventLoop();
   }
-  const notes = ids
-    .map((id) => zotero.Items?.get?.(Number(id)))
-    .filter(Boolean);
-  const rows = [];
+}
+
+type CanonicalPayloadBlockBase = Omit<
+  ZoteroNotePayloadBlock,
+  "payload" | "markdown" | "decodedText" | "errors"
+>;
+
+function canonicalPayloadBlockBase(
+  summary: NotePayloadSummaryDto,
+): CanonicalPayloadBlockBase {
+  return {
+    source:
+      summary.source.kind === "embedded_attachment"
+        ? "embedded-image-attachment"
+        : "html-payload-block",
+    anchorStatus:
+      summary.source.kind === "embedded_attachment"
+        ? summary.state === "stale"
+          ? "stale"
+          : summary.state === "missing"
+            ? "missing"
+            : "present"
+        : "not_applicable",
+    payloadType: summary.payloadType,
+    noteKind: summary.noteKind,
+    version: summary.version,
+    encoding: summary.encoding,
+    // The canonical DTO intentionally omits the source encoded value. Keep
+    // that omission instead of re-encoding a value with different provenance.
+    encodedValue: "",
+    estimatedSize: summary.estimatedBytes,
+    format: summary.format,
+    ...(summary.source.kind === "embedded_attachment"
+      ? { attachmentKey: summary.source.attachmentRef.key }
+      : {}),
+  };
+}
+
+function canonicalPayloadBlock(
+  summary: NotePayloadSummaryDto,
+  value: unknown,
+): ZoteroNotePayloadBlock {
+  const block: ZoteroNotePayloadBlock = {
+    ...canonicalPayloadBlockBase(summary),
+    payload: value,
+    ...(summary.format === "markdown"
+      ? { markdown: String(value ?? ""), decodedText: String(value ?? "") }
+      : summary.format === "text"
+        ? { decodedText: String(value ?? "") }
+        : {}),
+  };
+  return block;
+}
+
+function canonicalUnavailablePayloadBlock(
+  summary: NotePayloadSummaryDto,
+): ZoteroNotePayloadBlock {
+  return {
+    ...canonicalPayloadBlockBase(summary),
+    errors: summary.issues.map((issue) => issue.code),
+  };
+}
+
+async function canonicalNotePayloadBlocks(
+  broker: ZoteroHostCapabilityBroker,
+  noteRef: PortableItemRef,
+  html: string,
+) {
+  const inlineBlocks = listNotePayloadBlocks(html);
+  const inlineByType = new Map<string, ZoteroNotePayloadBlock[]>();
+  for (const block of inlineBlocks) {
+    const blocks = inlineByType.get(block.payloadType) || [];
+    blocks.push(block);
+    inlineByType.set(block.payloadType, blocks);
+  }
+  const inlineOffsets = new Map<string, number>();
+  const payloads = await readCanonicalPages(
+    (page) => broker.library.listNotePayloads(noteRef, page),
+    (page) => page.payloads,
+    "note payloads",
+  );
+  const blocks: ZoteroNotePayloadBlock[] = [];
+  for (const summary of payloads) {
+    if (summary.source.kind === "inline") {
+      const candidates = inlineByType.get(summary.payloadType) || [];
+      const offset = inlineOffsets.get(summary.payloadType) || 0;
+      const block = candidates[offset];
+      if (!block) {
+        throw new Error(
+          `note payload page returned an unprojectable inline payload: ${summary.payloadType}`,
+        );
+      }
+      inlineOffsets.set(summary.payloadType, offset + 1);
+      blocks.push(block);
+      continue;
+    }
+    if (summary.state !== "available") {
+      blocks.push(canonicalUnavailablePayloadBlock(summary));
+      continue;
+    }
+    const value = await broker.library.getNotePayload(noteRef, {
+      payloadType: summary.payloadType,
+    });
+    blocks.push(canonicalPayloadBlock(value.summary, value.value));
+  }
+  return blocks;
+}
+
+async function childNotes(
+  item: any,
+  broker: ZoteroHostCapabilityBroker,
+): Promise<ReferenceSidecarInputNote[]> {
+  const parentRef: PortableItemRef = {
+    libraryId: normalizeLibraryId(item?.libraryID),
+    key: cleanString(item?.key),
+  };
+  if (!parentRef.key) {
+    return [];
+  }
+  const notes = await readCanonicalPages(
+    (page) => broker.library.getItemNotes(parentRef, page),
+    (page) => page.notes,
+    "item notes",
+  );
+  const rows: ReferenceSidecarInputNote[] = [];
   for (const note of notes) {
+    const detail = await broker.library.getNoteDetail(note.ref, {
+      format: "html",
+    });
     rows.push({
-      key: cleanString(note.key),
-      title: noteTitle(note),
-      html: cleanString(note.getNote?.()),
-      updatedAt: cleanString(note.dateModified || note.dateAdded),
-      payloadBlocks: await listNotePayloadBlocksForItem(note),
+      key: cleanString(note.ref.key),
+      title: cleanString(note.title || detail.title),
+      html: detail.content,
+      updatedAt: cleanString(note.revision),
+      payloadBlocks: await canonicalNotePayloadBlocks(
+        broker,
+        note.ref,
+        detail.content,
+      ),
     });
   }
   return rows.filter((note) => note.key);
@@ -283,8 +439,10 @@ async function childNotes(item: any): Promise<ReferenceSidecarInputNote[]> {
 async function paperInputFromItem(
   item: any,
   fallbackLibraryId: number,
+  broker: ZoteroHostCapabilityBroker,
 ): Promise<ReferenceSidecarInput> {
   const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
+  const notes = await childNotes(item, broker);
   return {
     libraryId,
     itemKey: cleanString(item?.key),
@@ -293,7 +451,7 @@ async function paperInputFromItem(
     itemType: cleanString(item?.itemType),
     tags: getTags(item),
     collections: collectionRefs(item),
-    notes: await childNotes(item),
+    notes,
     creators: getCreators(item),
     doi: readField(item, "DOI"),
     arxiv: readField(item, "arXiv"),
@@ -301,7 +459,7 @@ async function paperInputFromItem(
     url: readField(item, "url"),
     citekey: getCitekey(item),
     dateAdded: cleanString(item?.dateAdded),
-    ...(await literatureAnalysisSummaryFromItem(item)),
+    ...(await literatureAnalysisSummaryFromNotes(notes)),
   };
 }
 
@@ -322,19 +480,28 @@ async function paperInputSummaryFromItem(item: any, fallbackLibraryId: number) {
     url: readField(item, "url"),
     citekey: getCitekey(item),
     dateAdded: cleanString(item?.dateAdded),
-    ...(await literatureAnalysisSummaryFromItem(item)),
   };
 }
 
-async function literatureAnalysisSummaryFromItem(item: any) {
-  const readiness = await resolveLibraryArtifactReadiness(item);
-  const score = readiness.literatureScore.summary;
+async function literatureAnalysisSummaryFromNotes(
+  notes: ReferenceSidecarInputNote[],
+) {
+  const readiness = await summarizeLibraryGeneratedArtifacts(
+    notes.map((note) => ({
+      key: note.key,
+      title: note.title || "",
+      html: note.html,
+      updatedAt: note.updatedAt || "",
+      payloadBlocks: note.payloadBlocks || [],
+    })),
+  );
+  const score = readiness.score;
   return {
     literatureAnalysisArtifacts: {
-      digest: readiness.generated.digest,
-      references: readiness.generated.references,
-      citationAnalysis: readiness.generated.citationAnalysis,
-      literatureScore: readiness.literatureScore.status,
+      digest: readiness.artifacts.has("digest"),
+      references: readiness.artifacts.has("references"),
+      citationAnalysis: readiness.artifacts.has("citation-analysis"),
+      literatureScore: readiness.scoreStatus,
     },
     literatureScore: score || undefined,
   };
@@ -1216,7 +1383,9 @@ export function createZoteroSynthesisHostReadPort(
               summary.libraryId,
               summary.itemKey,
             );
-            return item ? paperInputFromItem(item, summary.libraryId) : null;
+            return item
+              ? paperInputFromItem(item, summary.libraryId, snapshotBroker)
+              : null;
           }),
         );
         const scan = readArtifactsFromRegistryInputs(
@@ -1248,7 +1417,7 @@ export function createZoteroSynthesisHostReadPort(
           };
         }
         const result = readArtifactsFromRegistryInputs(
-          [await paperInputFromItem(item, locator.libraryId)],
+          [await paperInputFromItem(item, locator.libraryId, snapshotBroker)],
           {
             paper_refs: [hostPaperRef(locator.libraryId, locator.itemKey)],
             artifact_types: [locator.artifactType],

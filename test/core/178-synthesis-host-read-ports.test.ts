@@ -9,9 +9,55 @@ import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/l
 import { resetZoteroHostSnapshotRuntimeForTests } from "../../src/modules/zoteroHostCapabilityBroker";
 import {
   resetZoteroLibraryPageQueryAdapterForTests,
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
   setZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+  type ZoteroLibrarySourcePageQueryAdapter,
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+
+function createMockZoteroSourcePageQueryAdapter(
+  calls: Array<{ domain: string; kind: string }> = [],
+): ZoteroLibrarySourcePageQueryAdapter {
+  return {
+    async queryAsync(_sql, _params, context) {
+      calls.push({ domain: context.domain, kind: context.kind });
+      const items = (await (Zotero.Items as any).getAll(
+        context.criteria.libraryId,
+      )) as Zotero.Item[];
+      const parentItemId = Number(context.criteria.parentItemId);
+      const matching = items
+        .filter((item) => {
+          const itemParentId = Number(
+            (item as any).parentItemID || (item as any).parentID || 0,
+          );
+          const matchesDomain =
+            context.domain === "notes"
+              ? item.isNote?.()
+              : item.isAttachment?.();
+          return (
+            Number((item as any).libraryID) === context.criteria.libraryId &&
+            itemParentId === parentItemId &&
+            Boolean(matchesDomain)
+          );
+        })
+        .sort(
+          (left, right) => Number((left as any).id) - Number((right as any).id),
+        );
+      if (context.kind === "count") {
+        return [{ total: matching.length }];
+      }
+      const afterId = Number((context.position as any).id || 0);
+      return matching
+        .filter((item) => Number((item as any).id) > afterId)
+        .slice(0, context.limitPlusOne)
+        .map((item) => ({ itemID: (item as any).id }));
+    },
+    async hydrateItems(ids) {
+      return (await (Zotero.Items as any).getAsync(ids)) as Zotero.Item[];
+    },
+  };
+}
 
 async function createPaper(key: string, title: string) {
   const item = new Zotero.Item("journalArticle");
@@ -49,10 +95,14 @@ describe("Synthesis Host read capability ports", function () {
     setZoteroLibraryPageQueryAdapterForTests(
       createMockZoteroLibraryPageQueryAdapter(),
     );
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroSourcePageQueryAdapter(),
+    );
   });
 
   afterEach(function () {
     resetZoteroLibraryPageQueryAdapterForTests();
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
     resetZoteroHostSnapshotRuntimeForTests();
   });
 
@@ -185,6 +235,72 @@ describe("Synthesis Host read capability ports", function () {
     assert.equal(stale.status, "stale");
     assert.notEqual(stale.currentHash, descriptor!.payloadHash);
     assert.isUndefined(stale.content);
+  });
+
+  it("follows canonical note and payload pages before selecting an artifact", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTPAGE", "Host Page Reads");
+    const sourceCalls: Array<{ domain: string; kind: string }> = [];
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroSourcePageQueryAdapter(sourceCalls),
+    );
+    for (let index = 0; index < 101; index += 1) {
+      const note = new Zotero.Item("note");
+      note.libraryID = libraryId;
+      note.parentItemID = paper.id;
+      note.setField("title", `Host page note ${index}`);
+      if (index === 100) {
+        note.setNote(
+          Array.from({ length: 101 }, (_unused, payloadIndex) =>
+            renderPayloadBlock({
+              payloadType:
+                payloadIndex === 100
+                  ? "references-json"
+                  : `host-page-${payloadIndex}-json`,
+              payload:
+                payloadIndex === 100
+                  ? { references: [{ title: "Later page reference" }] }
+                  : { index: payloadIndex },
+              payloadFormat: "json",
+            }),
+          ).join("\n"),
+        );
+      } else {
+        note.setNote(`<p>Host page note ${index}</p>`);
+      }
+      await note.saveTx();
+    }
+
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const scan = await port.artifacts.scanPage({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["references"],
+      limit: 1,
+    });
+    const descriptor = scan.artifacts[0];
+
+    assert.equal(descriptor?.status, "available");
+    assert.isString(descriptor?.locator);
+    assert.isString(descriptor?.payloadHash);
+    const read = await port.artifacts.read({
+      locator: descriptor!.locator!,
+      expectedHash: descriptor!.payloadHash!,
+    });
+    assert.equal(read.status, "available");
+    if (read.status === "available" && read.content?.kind === "json") {
+      assert.deepEqual(read.content.value, {
+        references: [{ title: "Later page reference" }],
+      });
+    } else {
+      assert.fail("the later payload page was not readable");
+    }
+    assert.isAtLeast(
+      sourceCalls.filter(
+        (entry) => entry.domain === "notes" && entry.kind === "page",
+      ).length,
+      2,
+    );
   });
 
   it("rejects invalid bounds before touching the Host", async function () {

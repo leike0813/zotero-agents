@@ -32,6 +32,11 @@ import {
   type ZoteroMcpToolPermissionDecision,
   type ZoteroMcpToolPermissionRequest,
 } from "./zoteroMcpProtocol";
+import {
+  createCancellationController,
+  type CancellationSignal,
+} from "../utils/wait";
+import type { WorkflowCallControl } from "../workflows/types";
 
 const ZOTERO_MCP_STATUS_TOOL_NAME = "diagnostic.get_status";
 
@@ -53,24 +58,22 @@ export type ZoteroMcpServerStatusSnapshot = {
   lastError: string;
   requestCount: number;
   toolCallCount: number;
-  queuePolicy: ZoteroMcpQueuePolicy;
-  queueState: ZoteroMcpQueueState;
+  admissionPolicy: ZoteroMcpAdmissionPolicy;
+  admissionState: ZoteroMcpAdmissionState;
   guardState: ZoteroMcpGuardState;
   recentRuntimeLogs: ZoteroMcpRuntimeLogSummary[];
   recentRequests: ZoteroMcpRequestLogEntry[];
   updatedAt: string;
 };
 
-export type ZoteroMcpQueuePolicy = {
-  runningLimit: 1;
-  pendingLimit: number;
-  queueTimeoutMs: number;
+export type ZoteroMcpAdmissionPolicy = {
+  inflightLimit: 9;
   runningTimeoutMs: number;
 };
 
-export type ZoteroMcpQueueState = {
-  running: number;
-  pending: number;
+export type ZoteroMcpAdmissionState = {
+  inflight: number;
+  limit: number;
 };
 
 export type ZoteroMcpCircuitBreakerSnapshot = {
@@ -88,7 +91,8 @@ export type ZoteroMcpGuardState = {
   lastRestartAt: string;
   lastFatalError: string;
   descriptorStale: boolean;
-  activeTool: string;
+  activeTools: string[];
+  runningCount: number;
   runningStartedAt: string;
   runningTimeoutMs: number;
   timedOutButStillRunning: boolean;
@@ -117,10 +121,8 @@ export type ZoteroMcpRequestLogEntry = {
   responseProtocolVersion: string;
   responseToolCount: number;
   responseError: string;
-  queuePolicy: ZoteroMcpQueuePolicy;
-  queueDepthAtAccept: number;
-  queuePosition: number;
-  queueWaitMs: number;
+  admissionPolicy: ZoteroMcpAdmissionPolicy;
+  inflightAtAccept: number;
   durationMs: number;
   limitReason: string;
   toolOutcome: "" | "success" | "error" | "notification";
@@ -205,13 +207,13 @@ type HttpRequest = {
   headers: Record<string, string>;
   body: string;
   bodyByteLength: number;
+  signal?: CancellationSignal;
   parseError?: string;
 };
 
 const HOST = "127.0.0.1";
 const MAX_RECENT_REQUESTS = 16;
-const DEFAULT_TOOL_QUEUE_PENDING_LIMIT = 8;
-const DEFAULT_TOOL_QUEUE_TIMEOUT_MS = 30000;
+const DEFAULT_TOOL_INFLIGHT_LIMIT = 9;
 const DEFAULT_TOOL_RUNNING_TIMEOUT_MS = 45000;
 const MAX_MCP_REQUEST_BODY_BYTES = 1024 * 1024;
 const CIRCUIT_FAILURE_THRESHOLD = 3;
@@ -220,49 +222,38 @@ const CIRCUIT_OPEN_MS = 60 * 1000;
 const MCP_RUNTIME_LOG_COMPONENT = "zotero-mcp";
 const MAX_RECENT_RUNTIME_LOGS = 12;
 
-type ZoteroMcpQueueAcceptedResult<T> = {
+type ZoteroMcpAdmissionAcceptedResult<T> = {
   kind: "ok";
   value: T;
-  queueDepthAtAccept: number;
-  queuePosition: number;
-  queueWaitMs: number;
+  inflightAtAccept: number;
   limitReason: "";
 };
 
-type ZoteroMcpQueueRejectedResult = {
-  kind: "queue_full" | "queue_timeout" | "tool_timeout";
-  queueDepthAtAccept: number;
-  queuePosition: number;
-  queueWaitMs: number;
-  limitReason: "queue_full" | "queue_timeout" | "tool_timeout";
+type ZoteroMcpAdmissionRejectedResult = {
+  kind: "inflight_limit" | "tool_timeout";
+  inflightAtAccept: number;
+  limitReason: "inflight_limit" | "tool_timeout";
 };
 
-type ZoteroMcpQueueResult<T> =
-  | ZoteroMcpQueueAcceptedResult<T>
-  | ZoteroMcpQueueRejectedResult;
+type ZoteroMcpAdmissionResult<T> =
+  | ZoteroMcpAdmissionAcceptedResult<T>
+  | ZoteroMcpAdmissionRejectedResult;
 
-type ZoteroMcpQueueItem<T> = {
+type ZoteroMcpActiveTool = {
+  toolName: string;
+  startedAt: string;
+  timedOut: boolean;
+  timedOutAt: string;
+};
+
+type ZoteroMcpAdmissionCallbacks = {
+  onTimeout?: () => void;
+};
+
+type ZoteroMcpAdmissionItem<T> = {
   toolName: string;
   run: () => Promise<T>;
-  queuedAt: number;
-  queueDepthAtAccept: number;
-  queuePosition: number;
-  timeout?: ReturnType<typeof setTimeout>;
-  resolve: (result: ZoteroMcpQueueResult<T>) => void;
-  reject: (error: unknown) => void;
 };
-
-class ZoteroMcpToolTimeoutError extends Error {
-  constructor(
-    readonly toolName: string,
-    readonly timeoutMs: number,
-  ) {
-    super(
-      `Zotero MCP tool "${toolName || "unknown"}" timed out after ${timeoutMs}ms`,
-    );
-    this.name = "ZoteroMcpToolTimeoutError";
-  }
-}
 
 type CircuitBreakerRecord = {
   toolName: string;
@@ -282,36 +273,24 @@ let lastFatalError = "";
 let descriptorStale = false;
 let descriptorInjected = false;
 let descriptorInjectedAt = "";
-let activeTool = "";
-let runningStartedAt = "";
-let activeToolTimedOut = false;
-let runningTimedOutAt = "";
+const activeToolRuns = new Map<number, ZoteroMcpActiveTool>();
+let nextActiveToolId = 0;
 let mcpRequestSequence = 0;
 
-class ZoteroMcpToolCallQueue {
-  private policy: ZoteroMcpQueuePolicy = {
-    runningLimit: 1,
-    pendingLimit: DEFAULT_TOOL_QUEUE_PENDING_LIMIT,
-    queueTimeoutMs: DEFAULT_TOOL_QUEUE_TIMEOUT_MS,
+class ZoteroMcpToolAdmission {
+  private policy: ZoteroMcpAdmissionPolicy = {
+    inflightLimit: DEFAULT_TOOL_INFLIGHT_LIMIT,
     runningTimeoutMs: DEFAULT_TOOL_RUNNING_TIMEOUT_MS,
   };
 
-  private running = 0;
-  private pending: ZoteroMcpQueueItem<unknown>[] = [];
+  private inflight = 0;
+  private generation = 0;
 
-  configure(policy: Partial<Omit<ZoteroMcpQueuePolicy, "runningLimit">> = {}) {
+  configure(
+    policy: Partial<Pick<ZoteroMcpAdmissionPolicy, "runningTimeoutMs">> = {},
+  ) {
     this.policy = {
-      runningLimit: 1,
-      pendingLimit:
-        Number.isFinite(Number(policy.pendingLimit)) &&
-        Number(policy.pendingLimit) >= 0
-          ? Math.floor(Number(policy.pendingLimit))
-          : DEFAULT_TOOL_QUEUE_PENDING_LIMIT,
-      queueTimeoutMs:
-        Number.isFinite(Number(policy.queueTimeoutMs)) &&
-        Number(policy.queueTimeoutMs) >= 0
-          ? Math.floor(Number(policy.queueTimeoutMs))
-          : DEFAULT_TOOL_QUEUE_TIMEOUT_MS,
+      inflightLimit: DEFAULT_TOOL_INFLIGHT_LIMIT,
       runningTimeoutMs:
         Number.isFinite(Number(policy.runningTimeoutMs)) &&
         Number(policy.runningTimeoutMs) >= 0
@@ -320,164 +299,117 @@ class ZoteroMcpToolCallQueue {
     };
   }
 
-  snapshot(): ZoteroMcpQueueState {
+  snapshot(): ZoteroMcpAdmissionState {
     return {
-      running: this.running,
-      pending: this.pending.length,
+      inflight: this.inflight,
+      limit: this.policy.inflightLimit,
     };
   }
 
-  getPolicy(): ZoteroMcpQueuePolicy {
+  getPolicy(): ZoteroMcpAdmissionPolicy {
     return { ...this.policy };
   }
 
   reset() {
-    for (const item of this.pending) {
-      if (item.timeout) {
-        clearTimeout(item.timeout);
-      }
-      item.resolve({
-        kind: "queue_timeout",
-        queueDepthAtAccept: item.queueDepthAtAccept,
-        queuePosition: item.queuePosition,
-        queueWaitMs: Date.now() - item.queuedAt,
-        limitReason: "queue_timeout",
-      });
-    }
-    this.pending = [];
-    this.running = 0;
+    this.generation += 1;
+    this.inflight = 0;
+    activeToolRuns.clear();
     this.configure();
   }
 
-  enqueue<T>(
-    toolName: string,
-    run: () => Promise<T>,
-  ): Promise<ZoteroMcpQueueResult<T>> {
-    const queueDepthAtAccept = this.running + this.pending.length;
-    if (
-      queueDepthAtAccept >=
-      this.policy.runningLimit + this.policy.pendingLimit
-    ) {
+  admit<T>(
+    item: ZoteroMcpAdmissionItem<T>,
+    callbacks: ZoteroMcpAdmissionCallbacks = {},
+  ): Promise<ZoteroMcpAdmissionResult<T>> {
+    const inflightAtAccept = this.inflight;
+    if (inflightAtAccept >= this.policy.inflightLimit) {
       return Promise.resolve({
-        kind: "queue_full",
-        queueDepthAtAccept,
-        queuePosition: 0,
-        queueWaitMs: 0,
-        limitReason: "queue_full",
+        kind: "inflight_limit",
+        inflightAtAccept,
+        limitReason: "inflight_limit",
       });
     }
 
-    return new Promise<ZoteroMcpQueueResult<T>>((resolve, reject) => {
-      const item: ZoteroMcpQueueItem<T> = {
-        toolName,
-        run,
-        queuedAt: Date.now(),
-        queueDepthAtAccept,
-        queuePosition: this.pending.length + (this.running > 0 ? 1 : 0) + 1,
-        resolve,
-        reject,
-      };
-      if (this.running === 0 && this.pending.length === 0) {
-        this.startItem(item);
-        return;
-      }
-      if (this.policy.queueTimeoutMs >= 0) {
-        item.timeout = setTimeout(() => {
-          const index = this.pending.indexOf(
-            item as ZoteroMcpQueueItem<unknown>,
-          );
-          if (index < 0) {
-            return;
-          }
-          this.pending.splice(index, 1);
-          resolve({
-            kind: "queue_timeout",
-            queueDepthAtAccept,
-            queuePosition: item.queuePosition,
-            queueWaitMs: Date.now() - item.queuedAt,
-            limitReason: "queue_timeout",
-          });
-        }, this.policy.queueTimeoutMs);
-      }
-      this.pending.push(item as ZoteroMcpQueueItem<unknown>);
-    });
-  }
-
-  private startItem<T>(item: ZoteroMcpQueueItem<T>) {
-    if (item.timeout) {
-      clearTimeout(item.timeout);
-    }
-    this.running = 1;
-    const queueWaitMs = Date.now() - item.queuedAt;
-    activeTool = item.toolName;
-    runningStartedAt = nowIso();
-    activeToolTimedOut = false;
-    runningTimedOutAt = "";
+    this.inflight += 1;
+    const admissionGeneration = this.generation;
+    const activeToolId = ++nextActiveToolId;
+    const activeTool: ZoteroMcpActiveTool = {
+      toolName: item.toolName,
+      startedAt: nowIso(),
+      timedOut: false,
+      timedOutAt: "",
+    };
+    activeToolRuns.set(activeToolId, activeTool);
     const timeoutMs = this.policy.runningTimeoutMs;
     let runningTimeout: ReturnType<typeof setTimeout> | undefined;
-    let returnedTimeout = false;
+    let settled = false;
     const runPromise = Promise.resolve().then(() => item.run());
     runPromise.catch(() => {
-      // The queue may already have returned a timeout; suppress late rejections.
+      // Suppress late rejections after a watchdog response has been returned.
     });
-    if (timeoutMs >= 0) {
-      runningTimeout = setTimeout(() => {
-        returnedTimeout = true;
-        activeToolTimedOut = true;
-        runningTimedOutAt = nowIso();
-        item.resolve({
-          kind: "tool_timeout",
-          queueDepthAtAccept: item.queueDepthAtAccept,
-          queuePosition: item.queuePosition,
-          queueWaitMs,
-          limitReason: "tool_timeout",
-        });
-      }, timeoutMs);
-    }
-    void runPromise
-      .then((value) => {
-        if (returnedTimeout) {
-          return;
-        }
-        item.resolve({
-          kind: "ok",
-          value,
-          queueDepthAtAccept: item.queueDepthAtAccept,
-          queuePosition: item.queuePosition,
-          queueWaitMs,
-          limitReason: "",
-        });
-      })
-      .catch((error) => {
-        if (returnedTimeout) {
-          return;
-        }
-        item.reject(error);
-      })
-      .finally(() => {
-        if (runningTimeout) {
-          clearTimeout(runningTimeout);
-        }
-        this.running = 0;
-        activeTool = "";
-        runningStartedAt = "";
-        activeToolTimedOut = false;
-        runningTimedOutAt = "";
-        this.startNext();
-      });
-  }
 
-  private startNext() {
-    const next = this.pending.shift();
-    if (next) {
-      this.startItem(next);
-    }
+    const result = new Promise<ZoteroMcpAdmissionResult<T>>(
+      (resolve, reject) => {
+        if (timeoutMs >= 0) {
+          runningTimeout = setTimeout(() => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            activeTool.timedOut = true;
+            activeTool.timedOutAt = nowIso();
+            try {
+              callbacks.onTimeout?.();
+            } catch {
+              // A watchdog must still resolve its transport response if a
+              // cancellation listener throws while receiving the signal.
+            }
+            resolve({
+              kind: "tool_timeout",
+              inflightAtAccept,
+              limitReason: "tool_timeout",
+            });
+          }, timeoutMs);
+        }
+        void runPromise
+          .then((value) => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            resolve({
+              kind: "ok",
+              value,
+              inflightAtAccept,
+              limitReason: "",
+            });
+          })
+          .catch((error) => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            reject(error);
+          })
+          .finally(() => {
+            if (runningTimeout) {
+              clearTimeout(runningTimeout);
+            }
+            if (this.generation !== admissionGeneration) {
+              return;
+            }
+            this.inflight = Math.max(0, this.inflight - 1);
+            activeToolRuns.delete(activeToolId);
+          });
+      },
+    );
+    return result;
   }
 }
 
 let state: ServerState = createEmptyState("idle");
 let startingPromise: Promise<ZoteroMcpServerDescriptor> | null = null;
-const toolCallQueue = new ZoteroMcpToolCallQueue();
+const toolCallAdmission = new ZoteroMcpToolAdmission();
 
 function nowIso() {
   return new Date().toISOString();
@@ -511,18 +443,21 @@ function snapshotCircuitBreakers(): ZoteroMcpCircuitBreakerSnapshot[] {
 }
 
 function getGuardStateSnapshot(): ZoteroMcpGuardState {
+  const activeRuns = [...activeToolRuns.values()];
+  const timedOutRun = activeRuns.find((entry) => entry.timedOut);
   return {
     restartCount,
     lastRestartAt,
     lastFatalError,
     descriptorStale,
-    activeTool,
-    runningStartedAt,
-    runningTimeoutMs: toolCallQueue.getPolicy().runningTimeoutMs,
-    timedOutButStillRunning: activeToolTimedOut,
-    runningTimedOutAt,
-    retryGuidance: activeToolTimedOut
-      ? "The timed-out Zotero MCP tool may still be running. Please wait before retrying or call get_mcp_status again."
+    activeTools: activeRuns.map((entry) => entry.toolName),
+    runningCount: activeRuns.length,
+    runningStartedAt: activeRuns[0]?.startedAt || "",
+    runningTimeoutMs: toolCallAdmission.getPolicy().runningTimeoutMs,
+    timedOutButStillRunning: Boolean(timedOutRun),
+    runningTimedOutAt: timedOutRun?.timedOutAt || "",
+    retryGuidance: timedOutRun
+      ? "The timed-out Zotero MCP tool may still be running. Please wait before retrying or call diagnostic.get_status again."
       : "",
     circuitBreakers: snapshotCircuitBreakers(),
   };
@@ -638,7 +573,7 @@ export function markZoteroMcpServerDescriptorInjected() {
 }
 
 export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
-  const queueState = toolCallQueue.snapshot();
+  const admissionState = toolCallAdmission.snapshot();
   const guardState = getGuardStateSnapshot();
   const initializeRequest = findLatestMcpRequest(
     (entry) => entry.jsonrpcMethod === "initialize",
@@ -653,8 +588,6 @@ export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
   const openCircuitCount = guardState.circuitBreakers.filter(
     (entry) => entry.state === "open",
   ).length;
-  const queueDepth =
-    Number(queueState.running || 0) + Number(queueState.pending || 0);
   const clientHandshakeSeen = !!initializeRequest;
   const toolsListSeen = !!toolsListRequest;
   const toolCallSeen = !!toolCallRequest;
@@ -706,8 +639,10 @@ export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
     guardState.descriptorStale ? "descriptorStale=true" : "",
     `requests=${state.requestCount}`,
     `toolCalls=${state.toolCallCount}`,
-    `queue=${queueState.running} running/${queueState.pending} pending`,
-    guardState.activeTool ? `activeTool=${guardState.activeTool}` : "",
+    `inflight=${admissionState.inflight}/${admissionState.limit}`,
+    guardState.activeTools.length
+      ? `activeTools=${guardState.activeTools.join(",")}`
+      : "",
     openCircuitCount > 0 ? `openCircuits=${openCircuitCount}` : "",
     latestRuntimeLog ? `lastLog=${latestRuntimeLog.stage}` : "",
     latestFailure
@@ -731,8 +666,9 @@ export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
     clientHandshakeSeen,
     toolsListSeen,
     toolCallSeen,
-    queueDepth,
-    activeTool: guardState.activeTool,
+    inflightCount: admissionState.inflight,
+    inflightLimit: admissionState.limit,
+    activeTools: guardState.activeTools,
     openCircuitCount,
     lastError: lastError || latestRuntimeFailure?.errorMessage || "",
     lastLogStage: latestRuntimeLog?.stage || "",
@@ -757,8 +693,8 @@ export function getZoteroMcpServerStatus(): ZoteroMcpServerStatusSnapshot {
     lastError: state.lastError,
     requestCount: state.requestCount,
     toolCallCount: state.toolCallCount,
-    queuePolicy: toolCallQueue.getPolicy(),
-    queueState: toolCallQueue.snapshot(),
+    admissionPolicy: toolCallAdmission.getPolicy(),
+    admissionState: toolCallAdmission.snapshot(),
     guardState: getGuardStateSnapshot(),
     recentRuntimeLogs: getRecentMcpRuntimeLogs(),
     recentRequests: state.recentRequests,
@@ -1209,7 +1145,7 @@ function toolsListFacts(response: unknown) {
 function appendMcpRuntimeLog(args: {
   requestId: string;
   stage: string;
-  phase: "request" | "tool" | "queue" | "response" | "socket";
+  phase: "request" | "tool" | "admission" | "response" | "socket";
   level?: RuntimeLogLevel;
   request?: HttpRequest;
   payload?: unknown;
@@ -1319,9 +1255,7 @@ function recordMcpRequest(args: {
   responseBody?: unknown;
   responseBodyLength?: number;
   responseContentType?: string;
-  queueDepthAtAccept?: number;
-  queuePosition?: number;
-  queueWaitMs?: number;
+  inflightAtAccept?: number;
   durationMs?: number;
   limitReason?: string;
   toolOutcome?: "" | "success" | "error" | "notification";
@@ -1354,10 +1288,8 @@ function recordMcpRequest(args: {
     responseProtocolVersion: responseSummary.protocolVersion,
     responseToolCount: responseSummary.toolCount,
     responseError: responseSummary.error,
-    queuePolicy: toolCallQueue.getPolicy(),
-    queueDepthAtAccept: args.queueDepthAtAccept || 0,
-    queuePosition: args.queuePosition || 0,
-    queueWaitMs: args.queueWaitMs || 0,
+    admissionPolicy: toolCallAdmission.getPolicy(),
+    inflightAtAccept: args.inflightAtAccept || 0,
     durationMs: args.durationMs || 0,
     limitReason: args.limitReason || "",
     toolOutcome: args.toolOutcome || "",
@@ -1426,7 +1358,7 @@ function firstToolName(payload: unknown): string {
   );
 }
 
-function payloadContainsQueuedToolCall(payload: unknown): boolean {
+function payloadContainsAdmittedToolCall(payload: unknown): boolean {
   const entries = Array.isArray(payload) ? payload : [payload];
   return entries.some((entry) => {
     if (
@@ -1478,8 +1410,7 @@ function isCircuitCountingErrorName(errorName: string) {
   }
   return ![
     "ZoteroMcpToolInputError",
-    "ZoteroMcpQueueFullError",
-    "ZoteroMcpQueueTimeoutError",
+    "ZoteroMcpInflightLimitError",
     "ZoteroMcpToolCircuitOpenError",
     "ZoteroItemNotFoundError",
     "ZoteroMcpPermissionDeniedError",
@@ -1585,7 +1516,7 @@ function jsonRpcToolTimeoutError(id: ZoteroMcpJsonRpcId, toolName: string) {
         code: "zotero_mcp_tool_timeout",
         errorName: "ZoteroMcpToolTimeoutError",
         toolName,
-        runningTimeoutMs: toolCallQueue.getPolicy().runningTimeoutMs,
+        runningTimeoutMs: toolCallAdmission.getPolicy().runningTimeoutMs,
       },
     },
   };
@@ -1618,24 +1549,23 @@ function jsonRpcCircuitOpenError(
   };
 }
 
-function jsonRpcQueueError(
+function jsonRpcInflightLimitError(
   id: ZoteroMcpJsonRpcId,
-  kind: "queue_full" | "queue_timeout",
+  toolName: string,
+  inflightAtAccept: number,
 ) {
-  const full = kind === "queue_full";
   return {
     jsonrpc: "2.0" as const,
     id,
     error: {
-      code: full ? -32001 : -32002,
-      message: full
-        ? "Zotero MCP tool queue is full"
-        : "Zotero MCP tool queue wait timed out",
+      code: -32001,
+      message: "Zotero MCP tool inflight admission limit reached",
       data: {
-        code: full ? "zotero_mcp_queue_full" : "zotero_mcp_queue_timeout",
-        errorName: full
-          ? "ZoteroMcpQueueFullError"
-          : "ZoteroMcpQueueTimeoutError",
+        code: "zotero_mcp_inflight_limit",
+        errorName: "ZoteroMcpInflightLimitError",
+        toolName,
+        inflightAtAccept,
+        inflightLimit: toolCallAdmission.getPolicy().inflightLimit,
       },
     },
   };
@@ -1662,20 +1592,39 @@ function firstJsonRpcIdFromRaw(rawRequest: string): ZoteroMcpJsonRpcId {
   }
 }
 
+function createMcpRequestControl(externalSignal?: CancellationSignal) {
+  const controller = createCancellationController();
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    if (externalSignal.aborted) {
+      controller.abort();
+    }
+  }
+  return {
+    control: {
+      signal: controller.signal,
+    } satisfies WorkflowCallControl,
+    abort: controller.abort,
+    cleanup() {
+      externalSignal?.removeEventListener("abort", onExternalAbort);
+    },
+  };
+}
+
 async function runMcpJsonRpcWithMetrics(
   payload: unknown,
   requestId = "",
+  externalSignal?: CancellationSignal,
 ): Promise<{
   response: unknown;
-  queueDepthAtAccept: number;
-  queuePosition: number;
-  queueWaitMs: number;
+  inflightAtAccept: number;
   durationMs: number;
   limitReason: string;
   toolOutcome: "" | "success" | "error" | "notification";
   toolErrorName: string;
 }> {
-  const shouldQueue = payloadContainsQueuedToolCall(payload);
+  const shouldAdmit = payloadContainsAdmittedToolCall(payload);
   const toolName = firstToolName(payload);
   if (payloadContainsToolCall(payload)) {
     appendMcpRuntimeLog({
@@ -1684,11 +1633,11 @@ async function runMcpJsonRpcWithMetrics(
       phase: "tool",
       payload,
       details: {
-        queued: shouldQueue,
+        admitted: shouldAdmit,
       },
     });
   }
-  if (shouldQueue) {
+  if (shouldAdmit) {
     const circuit = resolveCircuitState(toolName);
     if (circuit?.open) {
       return {
@@ -1697,9 +1646,7 @@ async function runMcpJsonRpcWithMetrics(
           toolName,
           circuit,
         ),
-        queueDepthAtAccept: 0,
-        queuePosition: 0,
-        queueWaitMs: 0,
+        inflightAtAccept: 0,
         durationMs: 0,
         limitReason: "tool_circuit_open",
         toolOutcome: "error",
@@ -1707,10 +1654,13 @@ async function runMcpJsonRpcWithMetrics(
       };
     }
   }
+
+  const requestControl = createMcpRequestControl(externalSignal);
+  let watchdogTimedOut = false;
   const run = async () => {
     const startedAt = Date.now();
     try {
-      if (shouldQueue) {
+      if (shouldAdmit) {
         await state.beforeToolCallForTests?.();
       }
       if (payloadContainsToolCall(payload)) {
@@ -1725,6 +1675,7 @@ async function runMcpJsonRpcWithMetrics(
         });
       }
       const response = await handleZoteroMcpJsonRpc(payload, {
+        control: requestControl.control,
         resolveZoteroHostCapabilityBroker:
           state.resolveZoteroHostCapabilityBroker,
         resolveMcpStatus: () =>
@@ -1748,7 +1699,7 @@ async function runMcpJsonRpcWithMetrics(
           });
         },
       } satisfies ZoteroMcpHandlerOptions);
-      const toolOutcome = shouldQueue
+      const toolOutcome = shouldAdmit
         ? responseContainsError(response)
           ? "error"
           : "success"
@@ -1756,9 +1707,13 @@ async function runMcpJsonRpcWithMetrics(
           ? ""
           : "notification";
       const toolErrorName = responseToolErrorName(response);
-      if (shouldQueue && toolOutcome === "success") {
+      const canRecordCircuit =
+        shouldAdmit &&
+        !watchdogTimedOut &&
+        !requestControl.control.signal?.aborted;
+      if (canRecordCircuit && toolOutcome === "success") {
         recordCircuitSuccess(toolName);
-      } else if (shouldQueue && toolOutcome === "error") {
+      } else if (canRecordCircuit && toolOutcome === "error") {
         recordCircuitFailure(
           toolName,
           toolErrorName,
@@ -1787,7 +1742,11 @@ async function runMcpJsonRpcWithMetrics(
       };
     } catch (error) {
       const response = jsonRpcInternalError(firstJsonRpcId(payload), error);
-      if (shouldQueue) {
+      if (
+        shouldAdmit &&
+        !watchdogTimedOut &&
+        !requestControl.control.signal?.aborted
+      ) {
         recordCircuitFailure(
           toolName,
           error instanceof Error ? error.name : "Error",
@@ -1813,19 +1772,19 @@ async function runMcpJsonRpcWithMetrics(
       return {
         response,
         durationMs: Date.now() - startedAt,
-        toolOutcome: shouldQueue ? ("error" as const) : ("" as const),
+        toolOutcome: shouldAdmit ? ("error" as const) : ("" as const),
         toolErrorName: error instanceof Error ? error.name : "Error",
       };
+    } finally {
+      requestControl.cleanup();
     }
   };
 
-  if (!shouldQueue) {
+  if (!shouldAdmit) {
     const result = await run();
     return {
       ...result,
-      queueDepthAtAccept: 0,
-      queuePosition: 0,
-      queueWaitMs: 0,
+      inflightAtAccept: 0,
       limitReason: "",
     };
   }
@@ -1833,56 +1792,66 @@ async function runMcpJsonRpcWithMetrics(
   try {
     appendMcpRuntimeLog({
       requestId,
-      stage: "queue.accepted",
-      phase: "queue",
+      stage: "admission.accepted",
+      phase: "admission",
       payload,
       details: {
         toolName,
       },
     });
-    const queueResult = await toolCallQueue.enqueue(toolName, run);
-    if (queueResult.kind !== "ok") {
-      const response =
-        queueResult.kind === "tool_timeout"
-          ? jsonRpcToolTimeoutError(firstJsonRpcId(payload), toolName)
-          : jsonRpcQueueError(firstJsonRpcId(payload), queueResult.kind);
-      if (queueResult.kind === "tool_timeout") {
-        recordCircuitFailure(
-          toolName,
-          "ZoteroMcpToolTimeoutError",
-          `Timed out after ${toolCallQueue.getPolicy().runningTimeoutMs}ms`,
-        );
+    const admissionResult = await toolCallAdmission.admit(
+      {
+        toolName,
+        run,
+      },
+      {
+        onTimeout: () => {
+          watchdogTimedOut = true;
+          requestControl.abort();
+        },
+      },
+    );
+    if (admissionResult.kind !== "ok") {
+      if (admissionResult.kind === "inflight_limit") {
+        requestControl.cleanup();
+        return {
+          response: jsonRpcInflightLimitError(
+            firstJsonRpcId(payload),
+            toolName,
+            admissionResult.inflightAtAccept,
+          ),
+          inflightAtAccept: admissionResult.inflightAtAccept,
+          durationMs: 0,
+          limitReason: admissionResult.limitReason,
+          toolOutcome: "error",
+          toolErrorName: "ZoteroMcpInflightLimitError",
+        };
       }
+      recordCircuitFailure(
+        toolName,
+        "ZoteroMcpToolTimeoutError",
+        `Timed out after ${toolCallAdmission.getPolicy().runningTimeoutMs}ms`,
+      );
       return {
-        response,
-        queueDepthAtAccept: queueResult.queueDepthAtAccept,
-        queuePosition: queueResult.queuePosition,
-        queueWaitMs: queueResult.queueWaitMs,
+        response: jsonRpcToolTimeoutError(firstJsonRpcId(payload), toolName),
+        inflightAtAccept: admissionResult.inflightAtAccept,
         durationMs: 0,
-        limitReason: queueResult.limitReason,
+        limitReason: admissionResult.limitReason,
         toolOutcome: "error",
-        toolErrorName:
-          queueResult.kind === "tool_timeout"
-            ? "ZoteroMcpToolTimeoutError"
-            : queueResult.kind === "queue_full"
-              ? "ZoteroMcpQueueFullError"
-              : "ZoteroMcpQueueTimeoutError",
+        toolErrorName: "ZoteroMcpToolTimeoutError",
       };
     }
     return {
-      ...queueResult.value,
-      queueDepthAtAccept: queueResult.queueDepthAtAccept,
-      queuePosition: queueResult.queuePosition,
-      queueWaitMs: queueResult.queueWaitMs,
+      ...admissionResult.value,
+      inflightAtAccept: admissionResult.inflightAtAccept,
       limitReason: "",
     };
   } catch (error) {
+    requestControl.cleanup();
     const response = jsonRpcInternalError(firstJsonRpcId(payload), error);
     return {
       response,
-      queueDepthAtAccept: 0,
-      queuePosition: 0,
-      queueWaitMs: 0,
+      inflightAtAccept: 0,
       durationMs: 0,
       limitReason: "",
       toolOutcome: "error",
@@ -2071,7 +2040,11 @@ async function handleHttpRequest(
       error: "parse_error",
     });
   }
-  const result = await runMcpJsonRpcWithMetrics(payload, requestId);
+  const result = await runMcpJsonRpcWithMetrics(
+    payload,
+    requestId,
+    request.signal,
+  );
   const response = result.response;
   if (!response) {
     recordMcpRequest({
@@ -2080,9 +2053,7 @@ async function handleHttpRequest(
       authorized,
       responseBody: "",
       responseContentType: "",
-      queueDepthAtAccept: result.queueDepthAtAccept,
-      queuePosition: result.queuePosition,
-      queueWaitMs: result.queueWaitMs,
+      inflightAtAccept: result.inflightAtAccept,
       durationMs: result.durationMs,
       limitReason: result.limitReason,
       toolOutcome: result.toolOutcome,
@@ -2132,9 +2103,7 @@ async function handleHttpRequest(
       authorized,
       responseBody: response,
       responseBodyLength: rawResponse.bodyByteLength,
-      queueDepthAtAccept: result.queueDepthAtAccept,
-      queuePosition: result.queuePosition,
-      queueWaitMs: result.queueWaitMs,
+      inflightAtAccept: result.inflightAtAccept,
       durationMs: result.durationMs,
       limitReason: result.limitReason,
       toolOutcome: result.toolOutcome,
@@ -2370,11 +2339,7 @@ export async function shutdownZoteroMcpServer() {
   const listeners = state.listeners;
   state = createEmptyState("stopped");
   state.listeners = listeners;
-  toolCallQueue.reset();
-  activeTool = "";
-  runningStartedAt = "";
-  activeToolTimedOut = false;
-  runningTimedOutAt = "";
+  toolCallAdmission.reset();
   descriptorInjected = false;
   descriptorInjectedAt = "";
 }
@@ -2397,10 +2362,7 @@ export function resetZoteroMcpServerForTests() {
   descriptorStale = false;
   descriptorInjected = false;
   descriptorInjectedAt = "";
-  activeTool = "";
-  runningStartedAt = "";
-  activeToolTimedOut = false;
-  runningTimedOutAt = "";
+  toolCallAdmission.reset();
 }
 
 export async function handleZoteroMcpRequestForTests(
@@ -2493,16 +2455,12 @@ export function configureZoteroMcpServerForTests(
     ) =>
       | Promise<ZoteroMcpToolPermissionDecision>
       | ZoteroMcpToolPermissionDecision;
-    pendingLimit?: number;
-    queueTimeoutMs?: number;
     runningTimeoutMs?: number;
     beforeToolCallForTests?: () => Promise<void> | void;
   } = {},
 ) {
-  toolCallQueue.reset();
-  toolCallQueue.configure({
-    pendingLimit: args.pendingLimit,
-    queueTimeoutMs: args.queueTimeoutMs,
+  toolCallAdmission.reset();
+  toolCallAdmission.configure({
     runningTimeoutMs: args.runningTimeoutMs,
   });
   const token = args.token || "test-token";
@@ -2567,11 +2525,12 @@ export async function handleZoteroMcpHttpRequestForTests(args: {
   headers?: Record<string, unknown>;
   body?: string;
   rawRequestBytes?: Uint8Array;
+  signal?: CancellationSignal;
 }) {
   const requestId = createMcpRequestId();
   const parsedPath = parseTestPath(args.path || "/");
   const body = args.body || "";
-  const request = args.rawRequestBytes
+  const request: HttpRequest = args.rawRequestBytes
     ? parseHttpRequestBytes(args.rawRequestBytes)
     : {
         method: String(args.method || "GET").toUpperCase(),
@@ -2582,6 +2541,9 @@ export async function handleZoteroMcpHttpRequestForTests(args: {
         bodyByteLength: utf8ByteLength(body),
         parseError: parsedPath.parseError,
       };
+  if (args.signal) {
+    request.signal = args.signal;
+  }
   const response = await handleHttpRequest(request, requestId);
   appendMcpRuntimeLog({
     requestId,

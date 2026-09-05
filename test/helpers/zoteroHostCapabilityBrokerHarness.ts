@@ -39,6 +39,7 @@ export function createFailClosedZoteroHostCapabilityBroker(
       listItems: unexpected("library.listItems"),
       traverseItems: unexpected("library.traverseItems"),
       listCollections: unexpected("library.listCollections"),
+      listSavedSearches: unexpected("library.listSavedSearches"),
       syncSnapshot: unexpected("library.syncSnapshot"),
       cancelSnapshot: unexpected("library.cancelSnapshot"),
       readinessAudit: unexpected("library.readinessAudit"),

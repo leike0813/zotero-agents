@@ -48,17 +48,17 @@ Stability rules:
 - Secure random token generation is required; the server fails closed if it
   cannot create a bearer token safely.
 
-## Queue And Timeout Semantics
+## Admission And Timeout Semantics
 
-All Zotero host API `tools/call` work, except `get_mcp_status`, enters a single
-FIFO worker. A running timeout returns a structured JSON-RPC timeout to the
-caller, but the worker slot remains occupied until the underlying handler
-settles. This prevents a timed-out Zotero call from overlapping with the next
-host call.
+MCP admits nine concurrent tool handlers; the tenth fails with JSON-RPC `-32001`
+and `zotero_mcp_inflight_limit`. The Broker owns process-wide FIFO admission for
+bounded native slices. Network/file waits and callbacks run outside those slices.
+The 45-second watchdog returns `-32003` / `zotero_mcp_tool_timeout`, signals trusted
+cancellation, and retains the inflight admission until the handler settles.
+Cancellation never releases unsettled native Host work.
 
-`get_mcp_status` exposes `timedOutButStillRunning`, active tool, start time,
-timeout threshold, queue state, and retry guidance without exposing bearer
-tokens.
+`zotero.get_mcp_status` bypasses admission and exposes inflight counts, active
+tools, timeout state, execution duration, and retry guidance without bearer tokens.
 
 ## Agent Context Disclosure Contract
 
@@ -122,29 +122,13 @@ or `collectionId`, `collectionKey`, and optional `collectionLibraryId`.
 ```json
 {
   "access": {
-    "mode": "local-path",
-    "path": "D:/path/to/paper.pdf",
-    "url": null,
-    "filename": "paper.pdf",
-    "contentType": "application/pdf",
-    "size": null,
-    "sha256": null,
-    "locality": "same-host"
+    "mode": "unavailable",
+    "file": null
   }
 }
 ```
 
-If an ACP agent cannot read `access.path`, v1 MCP has no formal attachment-text tool. In that case the agent must report the limitation instead of pretending it has inspected the PDF. A future change may add bounded attachment text extraction, but v1 does not define `get_item_context` or `get_attachment_text_chunk`.
-
-Attachment manifests also include reading-oriented metadata:
-
-- `contentRole`: `markdown-fulltext`, `text-fulltext`, `pdf`, `web-link`, `supplementary`, or `unknown`
-- `readability`: `direct-text`, `local-pdf`, `web-link`, `local-file`, `unavailable`, or `unknown`
-- `rank`: deterministic recommendation score
-- `recommendedForReading`: true only for the best available attachment
-- `recommendationReason`: short explanation for the score
-
-Recommendation priority is Markdown full text, then TXT full text, then PDF, then web/link, then unknown. Filename signals such as `full`, `paper`, `main`, `article`, and `manuscript` increase priority; `supplement`, `appendix`, `dataset`, `figure`, `image`, and `table` decrease priority.
+Readable attachments use `access.mode: "bridge-download"` with the existing opaque file descriptor. Host Bridge registers only current-page files outside native admission and removes local paths. MCP reuses that same handler even over loopback. An unavailable descriptor is no evidence that attachment bytes were read. Canonical metadata includes portable `ref`, `parentRef`, revision, filename, content type, link mode, role, and bounded file state.
 
 ### Note Payload Codec
 
@@ -336,7 +320,7 @@ Text disclosure requirements:
 
 ### `get_item_notes`
 
-Purpose: return bounded child note summaries/excerpts for one Zotero item. It does not return full note HTML.
+Purpose: return a source-bounded child note page for one Zotero item, with portable refs and bounded excerpts. It does not return full note HTML.
 
 Input:
 
@@ -344,9 +328,7 @@ Input:
 {
   "key": "KSM65VAD",
   "libraryId": 1,
-  "limit": 20,
-  "cursor": 0,
-  "maxExcerptChars": 800
+  "limit": 25
 }
 ```
 
@@ -354,10 +336,12 @@ Structured content:
 
 ```json
 {
-  "tool": "get_item_notes",
-  "summary": "...",
-  "ref": {},
-  "notes": []
+  "notes": [],
+  "returned": 0,
+  "total": 0,
+  "limit": 25,
+  "hasMore": false,
+  "nextCursor": null
 }
 ```
 
@@ -412,7 +396,7 @@ Text disclosure requirements:
 
 ### `list_note_payloads`
 
-Purpose: list workflow note payloads from current embedded attachments and legacy payload blocks without returning full payload content.
+Purpose: scan bounded workflow payload candidates from note HTML and embedded attachments without returning full payload values. Every candidate is retained; an empty match page can have continuation.
 
 Input:
 
@@ -427,19 +411,13 @@ Structured content:
 
 ```json
 {
-  "tool": "list_note_payloads",
-  "summary": "...",
-  "ref": {},
-  "payloads": [
-    {
-      "payloadType": "custom-markdown",
-      "noteKind": "custom",
-      "version": "1",
-      "encoding": "base64",
-      "estimatedSize": 1200,
-      "format": "markdown"
-    }
-  ]
+  "payloads": [],
+  "returned": 0,
+  "scanned": 25,
+  "total": null,
+  "limit": 25,
+  "hasMore": true,
+  "nextCursor": "opaque-source-continuation"
 }
 ```
 
@@ -447,7 +425,8 @@ Text disclosure requirements:
 
 - note ref
 - per payload: `payloadType`, `noteKind`, encoding, version, storage source/version, anchor status, estimated decoded size, format
-- decoding errors when present
+- source scan progress and continuation, including empty nonterminal pages
+- any unreadable target fails the entire page with a structured error
 - next call: `get_note_payload` with the note ref and payload type
 
 ### `get_note_payload`
@@ -460,41 +439,37 @@ Input:
 {
   "key": "NOTEKEY",
   "libraryId": 1,
-  "payloadType": "custom-markdown",
-  "offset": 0,
-  "maxChars": 8000
+  "payloadType": "custom-markdown"
 }
 ```
 
-`payloadType` is optional only when the note has a single payload. Agents should pass it explicitly when `list_note_payloads` returned more than one payload.
+`payloadType` is required. The Broker checks all bounded candidates for ambiguity before returning one complete value. Note HTML, encoded inputs, and decoded payloads each have a 1 MiB bound; oversized sources fail as `resource_limited`.
 
 Structured content:
 
 ```json
 {
-  "tool": "get_note_payload",
-  "summary": "...",
-  "ref": {},
-  "payload": {
+  "summary": {
     "payloadType": "custom-markdown",
     "noteKind": "custom",
     "format": "markdown",
-    "markdown": "# Original Markdown",
-    "content": "# Original Markdown",
-    "offset": 0,
-    "nextOffset": 8000,
-    "totalChars": 12000,
-    "hasMore": true
-  }
+    "version": "1",
+    "encoding": "base64",
+    "estimatedBytes": 19,
+    "source": { "kind": "inline" },
+    "state": "available",
+    "issues": []
+  },
+  "value": "# Original Markdown"
 }
 ```
 
 Text disclosure requirements:
 
 - note ref and payload type
-- format, note kind, offset, nextOffset, totalChars, hasMore
+- format, note kind, source identity, state, and byte estimate
 - bounded content excerpt
-- continuation hint when `hasMore=true`
+- complete typed value or structured failure; no text-window continuation
 
 ### `get_item_attachments`
 
@@ -510,27 +485,12 @@ Structured content:
 
 ```json
 {
-  "tool": "get_item_attachments",
-  "summary": "...",
-  "ref": {},
-  "attachments": [
-    {
-      "key": "ATTACH1",
-      "libraryId": 1,
-      "filename": "paper.pdf",
-      "contentType": "application/pdf",
-      "contentRole": "pdf",
-      "readability": "local-pdf",
-      "rank": 335,
-      "recommendedForReading": true,
-      "recommendationReason": "Best available reading attachment: pdf; local-pdf; main-document filename signal; local path available",
-      "access": {
-        "mode": "local-path",
-        "path": "D:/...",
-        "locality": "same-host"
-      }
-    }
-  ]
+  "attachments": [],
+  "returned": 0,
+  "total": 0,
+  "limit": 25,
+  "hasMore": false,
+  "nextCursor": null
 }
 ```
 
@@ -538,8 +498,8 @@ Text disclosure requirements:
 
 - parent item ref
 - attachment count
-- recommended reading attachment when available
-- per attachment: ref, title/filename, content type, `contentRole`, `readability`, `rank`, recommendation flag/reason, link mode when available, `access.mode`, `access.locality`, path or unavailable reason
+- page continuation and effective limit
+- per attachment: portable ref, title/filename, content type, link mode, role, file state, and opaque access descriptor or unavailable state
 - explicit limitation: file content is not returned by this tool
 
 ### `prepare_paper_reading_context`
@@ -624,10 +584,10 @@ Text disclosure requirements:
 
 - server state
 - endpoint/transport type without bearer token
-- queue state and limits
-- whether a timed-out tool is still occupying the single host-call slot
+- inflight count and limit
+- whether a timed-out handler remains inflight until settle
 - recent failure or circuit-breaker summary when present
-- retry guidance for queue/timeout/circuit errors
+- retry guidance for admission/timeout/circuit errors
 
 ## Synthesis Tools
 
@@ -1803,7 +1763,7 @@ Text disclosure requirements: item refs, collection ref, permission/execution ou
 - Unknown tools return JSON-RPC invalid params and do not execute broker calls.
 - Invalid refs return a structured parameter error with the attempted ref.
 - Item, note, or collection not found errors include a structured code and recovery guidance.
-- Queue full, queue timeout, tool timeout, and circuit open errors are capacity/reliability failures; agents should call `get_mcp_status` or retry later rather than changing Zotero refs.
+- Inflight limit, tool timeout, and circuit open errors are capacity/reliability failures; agents should call `zotero.get_mcp_status` or retry later rather than changing Zotero refs.
 - After any write reports success, agents should verify state with `get_item_detail` or `list_library_items`.
 - If a write response is lost after server-side execution, agents must verify before retrying to avoid duplicate writes.
 

@@ -34,6 +34,7 @@ import {
   snapshotAcpRuntimeProfiles,
   startAcpRuntimeProfile,
 } from "../../src/modules/acpRuntimePerformanceProfiler";
+import { createCancellationController } from "../../src/utils/wait";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -153,6 +154,36 @@ describe("host bridge server phase 1", function () {
     assert.deepEqual(
       metrics?.find((entry) => entry.name === "host_request_inflight")?.gauge,
       { current: 0, max: 1 },
+    );
+  });
+
+  it("passes REST request cancellation into canonical capability reads", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "canceled-read-token",
+    });
+    const controller = createCancellationController();
+    controller.abort();
+
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v2/call",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          capability: "library.list_items",
+          input: { limit: 1 },
+        }),
+        signal: controller.signal,
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 500);
+    assert.strictEqual(parsed.json.error.code, "capability_failed");
+    assert.strictEqual(
+      parsed.json.error.details.capability,
+      "library.list_items",
     );
   });
 

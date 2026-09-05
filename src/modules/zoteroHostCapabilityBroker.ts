@@ -15,28 +15,34 @@ import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
   canonicalLogicalNotePayloadHash,
-  decodeBase64Utf8,
-  encodeBase64Utf8,
-  getNotePayloadDetail,
+  ZoteroNotePayloadResourceLimitError,
   type ZoteroNotePayloadBlock,
   type ZoteroNotePayloadDetail,
 } from "./notePayloadCodec";
 import {
-  listNotePayloadBlocksForItem,
-  selectPreferredNotePayloadBlock,
+  listNotePayloadBlocksForItemPage,
+  ZoteroNotePayloadCursorError,
+  ZoteroNotePayloadPageLimitError,
 } from "./zoteroNotePayloadResolver";
 import {
   resolveLibraryArtifactReadiness,
   type LibraryArtifactItem,
+  type LibraryArtifactReadOptions,
 } from "./libraryArtifactReadiness";
 import type { AcpHostContext } from "./acpTypes";
 import {
   queryZoteroLibraryPage,
+  queryZoteroAnnotationPage,
+  queryZoteroChildItemPage,
+  queryZoteroCollectionPage,
+  queryZoteroSavedSearchPage,
   ZoteroLibraryCriteriaError,
   ZoteroLibraryCursorError,
   ZoteroLibraryPageLimitError,
+  ZoteroLibrarySourceQueryError,
 } from "./zoteroLibraryPageQuery";
 import { createSha256Accumulator, sha256Hex } from "../utils/sha256";
+import { yieldToEventLoop } from "../utils/runtimeCompatibility";
 import type {
   AnnotationDetailDto,
   AnnotationItemSummaryDto,
@@ -51,6 +57,13 @@ import type {
   JsonValue,
   LibraryListCollectionsPageDto,
   LibraryListCollectionsRequestDto,
+  LibraryListItemAttachmentsPageDto,
+  LibraryListItemNotesPageDto,
+  LibraryListAnnotationsPageDto,
+  LibraryListNotePayloadsPageDto,
+  LibraryListSavedSearchesPageDto,
+  LibraryListSavedSearchesRequestDto,
+  LibraryPageRequestDto,
   LibraryListItemsPageDto,
   LibraryListItemsRequestDto,
   LibraryTraversalBatchDto,
@@ -72,6 +85,7 @@ import type {
   NoteSummaryDto,
   PortableCollectionRef as ZoteroHostCollectionRefInput,
   PortableItemRef as ZoteroHostItemRefInput,
+  PortableSavedSearchRef,
   RegularItemDetailDto,
   RegularItemSummaryDto,
   SelectedItemsSnapshotDto,
@@ -383,33 +397,6 @@ export type ZoteroHostLibraryReadinessAuditResponse = {
   filters: ZoteroHostLibraryListResponse["filters"];
 };
 
-export type ZoteroHostNoteDetailArgs = {
-  format?: "text" | "html" | string;
-  offset?: number | string;
-  maxChars?: number | string;
-};
-
-export type ZoteroHostNoteDetailChunkDto = {
-  id: number;
-  key: string;
-  libraryId: number;
-  title: string;
-  format: "text" | "html";
-  content: string;
-  offset: number;
-  nextOffset: number;
-  hasMore: boolean;
-  totalChars: number;
-  truncated: boolean;
-  maxChars: number;
-  parent?: {
-    id: number;
-    key: string;
-    title: string;
-  };
-  warnings?: string[];
-};
-
 export type ZoteroHostNotePayloadSummaryDto = Omit<
   ZoteroNotePayloadBlock,
   "encodedValue" | "decodedText" | "payload" | "markdown"
@@ -421,12 +408,6 @@ export type ZoteroHostNotePayloadDetailDto = Omit<
 > & {
   payload: JsonValue | null;
   maxChars: number;
-};
-
-export type ZoteroHostNotePayloadDetailArgs = {
-  payloadType?: string;
-  offset?: number | string;
-  maxChars?: number | string;
 };
 
 export type ZoteroHostMutationOperation =
@@ -645,9 +626,14 @@ export interface ZoteroHostCapabilityBroker {
       input: LibraryListCollectionsRequestDto,
       control?: WorkflowCallControl,
     ): Promise<LibraryListCollectionsPageDto>;
+    listSavedSearches(
+      input: LibraryListSavedSearchesRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListSavedSearchesPageDto>;
     syncSnapshot(
       args: ZoteroHostLibrarySyncSnapshotRequest,
       scope?: ZoteroHostLibrarySnapshotCallerScope,
+      control?: WorkflowCallControl,
     ): Promise<ZoteroHostLibrarySyncSnapshotResponse>;
     cancelSnapshot(
       snapshotId: string,
@@ -655,6 +641,7 @@ export interface ZoteroHostCapabilityBroker {
     ): ZoteroLibrarySnapshotIncompleteResultDto;
     readinessAudit(
       args: ZoteroHostLibraryReadinessAuditArgs,
+      control?: WorkflowCallControl,
     ): Promise<ZoteroHostLibraryReadinessAuditResponse>;
     getItemDetail(
       ref: ZoteroHostItemRefInput,
@@ -666,8 +653,9 @@ export interface ZoteroHostCapabilityBroker {
     ): Promise<ZoteroHostItemAuditStateDto>;
     getItemNotes(
       ref: ZoteroHostItemRefInput,
+      page?: LibraryPageRequestDto,
       control?: WorkflowCallControl,
-    ): Promise<NoteSummaryDto[]>;
+    ): Promise<LibraryListItemNotesPageDto>;
     getNoteDetail(
       ref: ZoteroHostItemRefInput,
       options: NoteDetailOptionsDto,
@@ -675,8 +663,9 @@ export interface ZoteroHostCapabilityBroker {
     ): Promise<NoteDetailDto>;
     listNotePayloads(
       ref: ZoteroHostItemRefInput,
+      page?: LibraryPageRequestDto,
       control?: WorkflowCallControl,
-    ): Promise<NotePayloadSummaryDto[]>;
+    ): Promise<LibraryListNotePayloadsPageDto>;
     getNotePayload(
       ref: ZoteroHostItemRefInput,
       options: NotePayloadOptionsDto,
@@ -684,8 +673,9 @@ export interface ZoteroHostCapabilityBroker {
     ): Promise<NotePayloadValueDto>;
     listAnnotations(
       ref: ZoteroHostItemRefInput,
+      page?: LibraryPageRequestDto,
       control?: WorkflowCallControl,
-    ): Promise<AnnotationDetailDto[]>;
+    ): Promise<LibraryListAnnotationsPageDto>;
     exportPortableItems(
       refs: ZoteroHostItemRefInput[],
       control?: WorkflowCallControl,
@@ -693,15 +683,18 @@ export interface ZoteroHostCapabilityBroker {
     exportAnnotations(
       ref: ZoteroHostItemRefInput,
       args?: { format?: string },
+      control?: WorkflowCallControl,
     ): Promise<ZoteroHostAnnotationExportDto>;
     getItemAttachments(
       ref: ZoteroHostItemRefInput,
+      page?: LibraryPageRequestDto,
       control?: WorkflowCallControl,
-    ): Promise<AttachmentDetailDto[]>;
+    ): Promise<LibraryListItemAttachmentsPageDto>;
   };
   readonly metadata: {
     translateIdentifier(
       args: MetadataLookupRequestDto,
+      control?: WorkflowCallControl,
     ): Promise<MetadataLookupResultDto>;
   };
   readonly bibliography: WorkflowBibliographyOwner;
@@ -828,8 +821,6 @@ function legacyMutationOperationId(operation: string) {
 const INGEST_FIELD_LIMIT = 2000;
 const NOTE_EXCERPT_DEFAULT = 800;
 const NOTE_EXCERPT_MAX = 2000;
-const NOTE_DETAIL_CHUNK_DEFAULT = 8000;
-const NOTE_DETAIL_CHUNK_MAX = 16000;
 const LITERATURE_INGEST_OPERATION = "literature.ingest";
 const SNAPSHOT_CAPTURE_PAGE_SIZE = 100;
 const SNAPSHOT_ACTIVE_SESSION_LIMIT = 16;
@@ -854,6 +845,7 @@ type ZoteroHostSnapshotSession = {
   createdAt: number;
   expiresAt: number;
   items: ZoteroHostSnapshotCapturedItem[];
+  basisDigest: string;
   deliveredItems: number;
   deliveredBatches: number;
   expectedCursor: string | null;
@@ -1013,11 +1005,6 @@ function parseBooleanInput(value: unknown) {
     return false;
   }
   return false;
-}
-
-function parseNonNegativeInteger(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
 }
 
 function normalizeLibraryId(value: unknown) {
@@ -1643,11 +1630,16 @@ function canonicalAttachmentLinkMode(
 
 async function canonicalAttachmentSummary(
   item: Zotero.Item,
+  pathOverride?: string,
 ): Promise<AttachmentItemSummaryDto> {
   const base = canonicalBase(item);
   const linkMode = canonicalAttachmentLinkMode(item);
-  let path = "";
-  if (linkMode !== "linked_url" && linkMode !== "stored_url") {
+  let path = pathOverride || "";
+  if (
+    pathOverride === undefined &&
+    linkMode !== "linked_url" &&
+    linkMode !== "stored_url"
+  ) {
     try {
       path = String((await (item as any).getFilePathAsync?.()) || "").trim();
     } catch {
@@ -1754,24 +1746,18 @@ function canonicalRegularFields(item: Zotero.Item) {
   return fields;
 }
 
-function canonicalRegularDetail(item: Zotero.Item): RegularItemDetailDto {
+async function canonicalRegularDetail(
+  item: Zotero.Item,
+): Promise<RegularItemDetailDto> {
   const summary = canonicalRegularSummary(item);
   const fields = canonicalRegularFields(item);
   let related: unknown;
-  let noteIds: unknown;
-  let attachmentIds: unknown;
   try {
     related = (item as any).relatedItems || [];
-    noteIds = item.getNotes?.();
-    attachmentIds = item.getAttachments?.();
   } catch {
     throw canonicalReadFailure("item");
   }
-  if (
-    !Array.isArray(related) ||
-    !Array.isArray(noteIds) ||
-    !Array.isArray(attachmentIds)
-  ) {
+  if (!Array.isArray(related)) {
     throw canonicalReadFailure("item");
   }
   const relatedRefs = related.map((key) => {
@@ -1782,31 +1768,42 @@ function canonicalRegularDetail(item: Zotero.Item): RegularItemDetailDto {
     if (!target) throw canonicalReadFailure("item");
     return canonicalItemRef(target);
   });
-  let annotations = 0;
-  for (const id of attachmentIds) {
-    const attachment = resolveZotero().Items.get(id as number);
-    if (!attachment) throw canonicalReadFailure("attachment");
-    let values: unknown;
-    try {
-      if (typeof (attachment as any).getAnnotations !== "function") {
-        throw new Error("missing getAnnotations");
-      }
-      values = (attachment as any).getAnnotations();
-    } catch {
-      throw canonicalReadFailure("annotation");
-    }
-    if (!Array.isArray(values)) throw canonicalReadFailure("annotation");
-    annotations += values.length;
+  let childCounts: RegularItemDetailDto["childCounts"];
+  try {
+    const libraryId = summary.ref.libraryId;
+    const parentItemId = parsePositiveInteger((item as any).id);
+    const notes = await queryZoteroChildItemPage({
+      domain: "notes",
+      libraryId,
+      parentItemId,
+      limit: 1,
+    });
+    const attachments = await queryZoteroChildItemPage({
+      domain: "attachments",
+      libraryId,
+      parentItemId,
+      limit: 1,
+    });
+    const annotations = await queryZoteroAnnotationPage({
+      libraryId,
+      parentItemId,
+      parentKind: "regular",
+      limit: 1,
+    });
+    childCounts = {
+      notes: notes.total,
+      attachments: attachments.total,
+      annotations: annotations.total,
+    };
+  } catch (error) {
+    if (error instanceof ZoteroHostCapabilityError) throw error;
+    throw canonicalReadFailure("item");
   }
   return {
     ...summary,
     fields,
     relatedRefs,
-    childCounts: {
-      notes: noteIds.length,
-      attachments: attachmentIds.length,
-      annotations,
-    },
+    childCounts,
     createdAt: canonicalTimestamp(item, "dateAdded"),
     modifiedAt: canonicalTimestamp(item, "dateModified"),
   };
@@ -1834,10 +1831,26 @@ async function canonicalAttachmentRole(
       : "ordinary";
   const parentRef = canonicalParentRef(item);
   if (parentRef) {
-    const parent = requireItem(parentRef);
-    if (parent.isNote?.()) {
-      const blocks = await listNotePayloadBlocksForItem(parent);
-      if (blocks.some((block) => block.attachmentKey === trimText(item.key))) {
+    const parent = resolveItem(parentRef);
+    if (parent?.isNote?.()) {
+      let html = "";
+      try {
+        html = String((parent as any).getNote?.() || "");
+      } catch {
+        throw canonicalReadFailure("note");
+      }
+      const attachmentKey = trimText(item.key);
+      const hasPayloadAnchor = Array.from(
+        html.matchAll(/<img\b[^>]*>/giu),
+      ).some((match) => {
+        const tag = match[0];
+        if (!/\bdata-zs-payload-anchor\s*=/iu.test(tag)) return false;
+        const key = tag.match(
+          /\bdata-attachment-key\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/iu,
+        );
+        return trimText(key?.[1] || key?.[2] || key?.[3]) === attachmentKey;
+      });
+      if (hasPayloadAnchor) {
         role = "note_payload";
       }
     }
@@ -1847,10 +1860,11 @@ async function canonicalAttachmentRole(
 
 async function canonicalAttachmentDetail(
   item: Zotero.Item,
+  pathOverride?: string,
 ): Promise<AttachmentDetailDto> {
-  const summary = await canonicalAttachmentSummary(item);
-  let path = "";
-  if (summary.fileState !== "not_applicable") {
+  const summary = await canonicalAttachmentSummary(item, pathOverride);
+  let path = pathOverride || "";
+  if (pathOverride === undefined && summary.fileState !== "not_applicable") {
     try {
       path = String((await (item as any).getFilePathAsync?.()) || "").trim();
     } catch {
@@ -1881,6 +1895,18 @@ async function canonicalAttachmentDetail(
           ? { state: "missing" }
           : { state: "not_applicable" },
   };
+}
+
+async function readAttachmentPathOutsideHostSlice(
+  item: Zotero.Item,
+  linkMode: AttachmentItemSummaryDto["linkMode"],
+) {
+  if (linkMode === "linked_url" || linkMode === "stored_url") return "";
+  try {
+    return String((await (item as any).getFilePathAsync?.()) || "").trim();
+  } catch {
+    throw canonicalReadFailure("attachment");
+  }
 }
 
 function annotationField(item: Zotero.Item, name: string) {
@@ -2004,16 +2030,20 @@ function canonicalAnnotationDetail(item: Zotero.Item): AnnotationDetailDto {
 
 async function serializeCanonicalItemDetail(
   item: Zotero.Item,
+  attachmentPath?: string,
 ): Promise<ItemDetailDto> {
   switch (canonicalItemKind(item)) {
     case "regular":
-      return { kind: "regular", item: canonicalRegularDetail(item) };
+      return {
+        kind: "regular",
+        item: await canonicalRegularDetail(item),
+      };
     case "note":
       return { kind: "note", item: canonicalNoteSummaryDto(item) };
     case "attachment":
       return {
         kind: "attachment",
-        item: await canonicalAttachmentDetail(item),
+        item: await canonicalAttachmentDetail(item, attachmentPath),
       };
     case "annotation":
       return { kind: "annotation", item: canonicalAnnotationDetail(item) };
@@ -2031,8 +2061,7 @@ const METADATA_RESPONSE_BYTE_LIMIT = 4 * 1024 * 1024;
 
 function isbn13CheckDigit(value: string) {
   const sum = [...value].reduce(
-    (total, digit, index) =>
-      total + Number(digit) * (index % 2 === 0 ? 1 : 3),
+    (total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 1 : 3),
     0,
   );
   return String((10 - (sum % 10)) % 10);
@@ -2053,10 +2082,7 @@ const METADATA_IDENTIFIER_NORMALIZERS: Record<
   ISBN(value) {
     const normalized = value
       .trim()
-      .replace(
-        /^https?:\/\/(?:openlibrary\.org|isbnsearch\.org)\/isbn\//iu,
-        "",
-      )
+      .replace(/^https?:\/\/(?:openlibrary\.org|isbnsearch\.org)\/isbn\//iu, "")
       .replace(/^isbn(?:-1[03])?:\s*/iu, "")
       .replace(/[\s-]/gu, "")
       .toUpperCase();
@@ -2094,10 +2120,7 @@ const METADATA_IDENTIFIER_NORMALIZERS: Record<
     const normalized = value
       .trim()
       .replace(/^pmid:\s*/iu, "")
-      .replace(
-        /^https?:\/\/(?:www\.)?pubmed\.ncbi\.nlm\.nih\.gov\//iu,
-        "",
-      )
+      .replace(/^https?:\/\/(?:www\.)?pubmed\.ncbi\.nlm\.nih\.gov\//iu, "")
       .replace(/[/?#].*$/u, "");
     return /^\d{1,12}$/u.test(normalized) ? normalized : "";
   },
@@ -2134,7 +2157,8 @@ function normalizeMetadataRequest(value: unknown): {
   }
   if (typeof input.value !== "string" || !input.value.trim()) {
     throw capabilityError("invalid_request", "metadata value is invalid", {
-      reason: typeof input.value === "string" ? "invalid_value" : "invalid_type",
+      reason:
+        typeof input.value === "string" ? "invalid_value" : "invalid_type",
       field: "value",
     });
   }
@@ -2144,8 +2168,9 @@ function normalizeMetadataRequest(value: unknown): {
       field: "value",
     });
   }
-  const normalizedIdentifier =
-    METADATA_IDENTIFIER_NORMALIZERS[input.type](input.value);
+  const normalizedIdentifier = METADATA_IDENTIFIER_NORMALIZERS[input.type](
+    input.value,
+  );
   if (!normalizedIdentifier) {
     throw capabilityError("invalid_request", "metadata value is invalid", {
       reason: input.type === "ISBN" ? "checksum_failed" : "invalid_format",
@@ -2180,11 +2205,15 @@ function serializeMetadataTranslators(
       [label, METADATA_TRANSLATOR_LABEL_LIMIT],
     ] as const) {
       if (text.length > limit) {
-        throw capabilityError("resource_limited", "translator text exceeds the limit", {
-          resource: "characters",
-          limit,
-          observed: text.length,
-        });
+        throw capabilityError(
+          "resource_limited",
+          "translator text exceeds the limit",
+          {
+            resource: "characters",
+            limit,
+            observed: text.length,
+          },
+        );
       }
     }
     return { id, label };
@@ -2202,7 +2231,7 @@ function readMetadataCandidateField(
     raw =
       typeof (source as { getField?: unknown }).getField === "function"
         ? (source as { getField: (name: string) => unknown }).getField(field)
-        : fields?.[field] ?? data?.[field] ?? source[field];
+        : (fields?.[field] ?? data?.[field] ?? source[field]);
   } catch {
     throw canonicalReadFailure("item");
   }
@@ -2229,7 +2258,9 @@ function serializeMetadataItem(item: unknown): PortableRegularItemDto {
   }
   let rawCreators: unknown = source.creators;
   try {
-    if (typeof (source as { getCreators?: unknown }).getCreators === "function") {
+    if (
+      typeof (source as { getCreators?: unknown }).getCreators === "function"
+    ) {
       rawCreators = (source as { getCreators: () => unknown }).getCreators();
     }
   } catch {
@@ -2264,49 +2295,69 @@ function metadataCandidateMatches(
 function boundedMetadataResult(result: MetadataLookupResultDto) {
   const bytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
   if (bytes > METADATA_RESPONSE_BYTE_LIMIT) {
-    throw capabilityError("resource_limited", "metadata result exceeds the limit", {
-      resource: "response_bytes",
-      limit: METADATA_RESPONSE_BYTE_LIMIT,
-      observed: bytes,
-    });
+    throw capabilityError(
+      "resource_limited",
+      "metadata result exceeds the limit",
+      {
+        resource: "response_bytes",
+        limit: METADATA_RESPONSE_BYTE_LIMIT,
+        observed: bytes,
+      },
+    );
   }
   return result;
 }
 
 async function translateMetadataIdentifier(
   args: MetadataLookupRequestDto,
+  control: WorkflowCallControl = {},
 ): Promise<MetadataLookupResultDto> {
+  throwIfWorkflowCallCanceled(control);
   const { type, normalizedIdentifier } = normalizeMetadataRequest(args);
   const Translate = (resolveZotero() as any).Translate;
   if (!Translate?.Search) {
-    throw capabilityError("unavailable", "metadata translation is unavailable", {
-      reason: "capability",
-    });
+    throw capabilityError(
+      "unavailable",
+      "metadata translation is unavailable",
+      {
+        reason: "capability",
+      },
+    );
   }
 
   try {
-    const translate = new Translate.Search();
-    if (type === "ISBN") {
-      if (typeof translate.setSearch !== "function") {
-        throw capabilityError("unavailable", "metadata translation is unavailable", {
-          reason: "capability",
-        });
+    const translate = await withZoteroHostSlice(control, () => {
+      const instance = new Translate.Search();
+      if (type === "ISBN") {
+        if (typeof instance.setSearch !== "function") {
+          throw capabilityError(
+            "unavailable",
+            "metadata translation is unavailable",
+            { reason: "capability" },
+          );
+        }
+        instance.setSearch({ itemType: "book", ISBN: normalizedIdentifier });
+      } else {
+        if (typeof instance.setIdentifier !== "function") {
+          throw capabilityError(
+            "unavailable",
+            "metadata translation is unavailable",
+            { reason: "capability" },
+          );
+        }
+        instance.setIdentifier({ [type]: normalizedIdentifier });
       }
-      translate.setSearch({ itemType: "book", ISBN: normalizedIdentifier });
-    } else {
-      if (typeof translate.setIdentifier !== "function") {
-        throw capabilityError("unavailable", "metadata translation is unavailable", {
-          reason: "capability",
-        });
+      if (typeof instance.getTranslators !== "function") {
+        throw capabilityError(
+          "unavailable",
+          "metadata translation is unavailable",
+          { reason: "capability" },
+        );
       }
-      translate.setIdentifier({ [type]: normalizedIdentifier });
-    }
-    if (typeof translate.getTranslators !== "function") {
-      throw capabilityError("unavailable", "metadata translation is unavailable", {
-        reason: "capability",
-      });
-    }
+      return instance;
+    });
     const rawTranslators = await translate.getTranslators();
+    throwIfWorkflowCallCanceled(control);
     const translators = serializeMetadataTranslators(rawTranslators);
     const emptyEvidence: MetadataTranslationEvidenceDto = {
       normalizedIdentifier,
@@ -2325,20 +2376,31 @@ async function translateMetadataIdentifier(
       typeof translate.setTranslator !== "function" ||
       typeof translate.translate !== "function"
     ) {
-      throw capabilityError("unavailable", "metadata translation is unavailable", {
-        reason: "capability",
-      });
+      throw capabilityError(
+        "unavailable",
+        "metadata translation is unavailable",
+        {
+          reason: "capability",
+        },
+      );
     }
-    translate.setTranslator(rawTranslators);
+    await withZoteroHostSlice(control, () =>
+      translate.setTranslator(rawTranslators),
+    );
     const rawItems = await translate.translate({
       libraryID: false,
       saveAttachments: false,
     });
+    throwIfWorkflowCallCanceled(control);
     if (!Array.isArray(rawItems)) {
-      throw capabilityError("execution_failed", "translator result is invalid", {
-        phase: "adapter",
-        recovery: "retry_same_operation",
-      });
+      throw capabilityError(
+        "execution_failed",
+        "translator result is invalid",
+        {
+          phase: "adapter",
+          recovery: "retry_same_operation",
+        },
+      );
     }
     if (rawItems.length > METADATA_CANDIDATE_LIMIT) {
       throw capabilityError("resource_limited", "candidate limit exceeded", {
@@ -2347,7 +2409,10 @@ async function translateMetadataIdentifier(
         observed: rawItems.length,
       });
     }
-    const candidates = rawItems.map(serializeMetadataItem);
+    const candidates = await withZoteroHostSlice(control, () =>
+      rawItems.map(serializeMetadataItem),
+    );
+    throwIfWorkflowCallCanceled(control);
     const matches = candidates.filter((item) =>
       metadataCandidateMatches(type, normalizedIdentifier, item),
     );
@@ -2378,10 +2443,15 @@ async function translateMetadataIdentifier(
     });
   } catch (error) {
     if (error instanceof ZoteroHostCapabilityError) throw error;
-    throw capabilityError("execution_failed", "metadata translation failed", {
-      phase: "adapter",
-      recovery: "retry_same_operation",
-    }, true);
+    throw capabilityError(
+      "execution_failed",
+      "metadata translation failed",
+      {
+        phase: "adapter",
+        recovery: "retry_same_operation",
+      },
+      true,
+    );
   }
 }
 
@@ -2527,33 +2597,6 @@ function noteParentWithWarnings(item: Zotero.Item, warnings: string[]) {
   }
 }
 
-function serializeNoteSummary(
-  item: Zotero.Item,
-  maxExcerptChars = NOTE_EXCERPT_DEFAULT,
-): ZoteroHostNoteDto {
-  const warnings: string[] = [];
-  const html = extractNoteHtml(item, warnings);
-  const text = htmlToText(html);
-  const parent = noteParentWithWarnings(item, warnings);
-  const excerptLimit = Math.min(
-    NOTE_EXCERPT_MAX,
-    Math.max(1, parsePositiveInteger(maxExcerptChars) || NOTE_EXCERPT_DEFAULT),
-  );
-  return {
-    id: parsePositiveInteger(item.id),
-    key: trimText(item.key),
-    libraryId: normalizeLibraryId(
-      (item as unknown as { libraryID?: unknown }).libraryID,
-    ),
-    title: getItemTitle(item) || text.slice(0, 80),
-    textExcerpt: trimText(text, excerptLimit),
-    textLength: text.length,
-    htmlLength: html.length,
-    ...(parent ? { parent } : {}),
-    ...(warnings.length ? { warnings } : {}),
-  };
-}
-
 function serializeNote(item: Zotero.Item): ZoteroHostNoteDto {
   const warnings: string[] = [];
   const html = extractNoteHtml(item, warnings);
@@ -2576,48 +2619,6 @@ function serializeNote(item: Zotero.Item): ZoteroHostNoteDto {
   };
 }
 
-function serializeNoteDetailChunk(
-  item: Zotero.Item,
-  args: ZoteroHostNoteDetailArgs = {},
-): ZoteroHostNoteDetailChunkDto {
-  const warnings: string[] = [];
-  const format = args.format === "html" ? "html" : "text";
-  const html = extractNoteHtml(item, warnings);
-  const fullContent = format === "html" ? html : htmlToText(html);
-  const maxChars = Math.min(
-    NOTE_DETAIL_CHUNK_MAX,
-    Math.max(
-      1,
-      parsePositiveInteger(args.maxChars) || NOTE_DETAIL_CHUNK_DEFAULT,
-    ),
-  );
-  const offset = Math.min(
-    fullContent.length,
-    Math.max(0, parseNonNegativeInteger(args.offset)),
-  );
-  const content = fullContent.slice(offset, offset + maxChars);
-  const nextOffset = Math.min(fullContent.length, offset + content.length);
-  const parent = noteParentWithWarnings(item, warnings);
-  return {
-    id: parsePositiveInteger(item.id),
-    key: trimText(item.key),
-    libraryId: normalizeLibraryId(
-      (item as unknown as { libraryID?: unknown }).libraryID,
-    ),
-    title: getItemTitle(item) || htmlToText(html).slice(0, 80),
-    format,
-    content,
-    offset,
-    nextOffset,
-    hasMore: nextOffset < fullContent.length,
-    totalChars: fullContent.length,
-    truncated: nextOffset < fullContent.length,
-    maxChars,
-    ...(parent ? { parent } : {}),
-    ...(warnings.length ? { warnings } : {}),
-  };
-}
-
 function getPayloadContent(block: ZoteroNotePayloadBlock) {
   if (block.errors?.length) {
     throw new Error(block.errors.join("; "));
@@ -2629,92 +2630,6 @@ function getPayloadContent(block: ZoteroNotePayloadBlock) {
     return JSON.stringify(block.payload, null, 2);
   }
   return String(block.decodedText || "");
-}
-
-function getPayloadDetailFromBlock(
-  block: ZoteroNotePayloadBlock,
-  args: ZoteroHostNotePayloadDetailArgs = {},
-): ZoteroNotePayloadDetail {
-  const fullContent = getPayloadContent(block);
-  const maxChars = Math.min(
-    NOTE_DETAIL_CHUNK_MAX,
-    Math.max(
-      1,
-      parsePositiveInteger(args.maxChars) || NOTE_DETAIL_CHUNK_DEFAULT,
-    ),
-  );
-  const offset = Math.min(
-    fullContent.length,
-    Math.max(0, parseNonNegativeInteger(args.offset)),
-  );
-  const content = fullContent.slice(offset, offset + maxChars);
-  const nextOffset = Math.min(fullContent.length, offset + content.length);
-  return {
-    ...block,
-    content,
-    offset,
-    nextOffset,
-    hasMore: nextOffset < fullContent.length,
-    totalChars: fullContent.length,
-    truncated: nextOffset < fullContent.length,
-  };
-}
-
-async function serializeNotePayloadSummary(
-  item: Zotero.Item,
-): Promise<ZoteroHostNotePayloadSummaryDto[]> {
-  return (await listNotePayloadBlocksForItem(item)).map((entry) => ({
-    payloadType: entry.payloadType,
-    noteKind: entry.noteKind,
-    version: entry.version,
-    encoding: entry.encoding,
-    estimatedSize: entry.estimatedSize,
-    format: entry.format,
-    ...(entry.errors ? { errors: entry.errors } : {}),
-    ...(entry.source ? { source: entry.source } : {}),
-    ...(entry.attachmentKey ? { attachmentKey: entry.attachmentKey } : {}),
-  }));
-}
-
-async function serializeNotePayloadDetail(
-  item: Zotero.Item,
-  args: ZoteroHostNotePayloadDetailArgs = {},
-): Promise<ZoteroHostNotePayloadDetailDto> {
-  const html = extractNoteHtml(item, []);
-  const blocks = await listNotePayloadBlocksForItem(item);
-  const selected = selectPreferredNotePayloadBlock(blocks, args.payloadType);
-  const detail =
-    selected?.source === "embedded-image-attachment"
-      ? getPayloadDetailFromBlock(selected, args)
-      : getNotePayloadDetail(html, args);
-  const payload = detail.payload ?? null;
-  assertJsonValue(payload, "note payload");
-  return {
-    payloadType: detail.payloadType,
-    noteKind: detail.noteKind,
-    version: detail.version,
-    encoding: detail.encoding,
-    estimatedSize: detail.estimatedSize,
-    payload,
-    ...(detail.markdown !== undefined ? { markdown: detail.markdown } : {}),
-    format: detail.format,
-    ...(detail.errors ? { errors: detail.errors } : {}),
-    ...(detail.source ? { source: detail.source } : {}),
-    ...(detail.attachmentKey ? { attachmentKey: detail.attachmentKey } : {}),
-    content: detail.content,
-    offset: detail.offset,
-    nextOffset: detail.nextOffset,
-    hasMore: detail.hasMore,
-    totalChars: detail.totalChars,
-    truncated: detail.truncated,
-    maxChars: Math.min(
-      NOTE_DETAIL_CHUNK_MAX,
-      Math.max(
-        1,
-        parsePositiveInteger(args.maxChars) || NOTE_DETAIL_CHUNK_DEFAULT,
-      ),
-    ),
-  };
 }
 
 async function serializeAttachment(
@@ -2762,34 +2677,6 @@ function childError(code: string, error: unknown): ZoteroHostMutationError {
   return {
     code,
     message: error instanceof Error ? error.message : String(error || code),
-  };
-}
-
-function failedNoteDto(id: unknown, error: unknown): ZoteroHostNoteDto {
-  return {
-    id: parsePositiveInteger(id),
-    key: "",
-    libraryId: 0,
-    title: "",
-    html: "",
-    text: "",
-    errors: [childError("zotero_note_child_failed", error)],
-  };
-}
-
-function failedAttachmentDto(
-  id: unknown,
-  error: unknown,
-): ZoteroHostAttachmentDto {
-  return {
-    id: parsePositiveInteger(id),
-    key: "",
-    libraryId: 0,
-    title: "",
-    contentType: "",
-    path: "",
-    filename: "",
-    errors: [childError("zotero_attachment_child_failed", error)],
   };
 }
 
@@ -2862,126 +2749,6 @@ function serializeAnnotation(
       readAnnotationField("annotationSortIndex") ||
       readAnnotationField("sortIndex"),
   };
-}
-
-function collectionPath(
-  collection: Zotero.Collection,
-  byId: Map<string, Zotero.Collection>,
-) {
-  const names: string[] = [];
-  const seen = new Set<string>();
-  let current: Zotero.Collection | undefined = collection;
-  while (current) {
-    const id = String((current as unknown as { id?: unknown }).id || "");
-    if (id && seen.has(id)) {
-      break;
-    }
-    if (id) {
-      seen.add(id);
-    }
-    const name = trimText((current as unknown as { name?: unknown }).name);
-    if (name) {
-      names.unshift(name);
-    }
-    const parentId = parsePositiveInteger(
-      (
-        current as unknown as {
-          parentID?: unknown;
-          parentCollectionID?: unknown;
-        }
-      ).parentID ||
-        (current as unknown as { parentCollectionID?: unknown })
-          .parentCollectionID,
-    );
-    current = parentId ? byId.get(String(parentId)) : undefined;
-  }
-  return names;
-}
-
-export async function listZoteroCollections(args: { libraryId?: number } = {}) {
-  const zotero = resolveZotero();
-  const libraryId =
-    parsePositiveInteger(args.libraryId) ||
-    normalizeLibraryId(zotero.Libraries?.userLibraryID);
-  const collectionsApi = (zotero.Collections || {}) as unknown as {
-    get?: (id: number) => Zotero.Collection | undefined;
-    getByLibrary?: (
-      libraryId: number,
-    ) => Zotero.Collection[] | Promise<Zotero.Collection[]>;
-    getByLibraryID?: (
-      libraryId: number,
-    ) => Zotero.Collection[] | Promise<Zotero.Collection[]>;
-    getAll?: () => Zotero.Collection[] | Promise<Zotero.Collection[]>;
-  };
-  let collections: Zotero.Collection[] = [];
-  if (typeof collectionsApi.getByLibrary === "function") {
-    const loaded = await collectionsApi.getByLibrary(libraryId);
-    if (Array.isArray(loaded)) {
-      collections = loaded;
-    }
-  }
-  if (
-    collections.length === 0 &&
-    typeof collectionsApi.getByLibraryID === "function"
-  ) {
-    const loaded = await collectionsApi.getByLibraryID(libraryId);
-    if (Array.isArray(loaded)) {
-      collections = loaded;
-    }
-  }
-  if (collections.length === 0 && typeof collectionsApi.getAll === "function") {
-    const loaded = await collectionsApi.getAll();
-    if (Array.isArray(loaded)) {
-      collections = loaded.filter(
-        (collection) =>
-          (parsePositiveInteger(
-            (collection as unknown as { libraryID?: unknown }).libraryID,
-          ) || libraryId) === libraryId,
-      );
-    }
-  }
-  if (collections.length === 0 && typeof collectionsApi.get === "function") {
-    let misses = 0;
-    for (let id = 1; id <= 50000; id += 1) {
-      const collection = collectionsApi.get(id);
-      if (!collection) {
-        misses += 1;
-        if (misses >= 200) {
-          break;
-        }
-        continue;
-      }
-      misses = 0;
-      if (
-        (parsePositiveInteger(
-          (collection as unknown as { libraryID?: unknown }).libraryID,
-        ) || libraryId) === libraryId
-      ) {
-        collections.push(collection);
-      }
-    }
-  }
-
-  const byId = new Map<string, Zotero.Collection>();
-  for (const collection of collections) {
-    const id = String((collection as unknown as { id?: unknown }).id || "");
-    if (id) {
-      byId.set(id, collection);
-    }
-  }
-  return collections
-    .map((collection) => {
-      const serialized = serializeCollection(collection);
-      return {
-        ...serialized,
-        path: collectionPath(collection, byId),
-      };
-    })
-    .sort((a, b) =>
-      (a.path || [a.name])
-        .join("\u0000")
-        .localeCompare((b.path || [b.name]).join("\u0000")),
-    );
 }
 
 export async function getAllRegularZoteroItems(libraryId?: number | string) {
@@ -3396,11 +3163,15 @@ function resolveNoteCreateRequest(request: NoteCreateRequestDto) {
       });
     }
     if (request.initialTags.length > TAG_LIMIT_MAX) {
-      throw capabilityError("resource_limited", "initialTags exceeds the limit", {
-        resource: "entries",
-        limit: TAG_LIMIT_MAX,
-        observed: request.initialTags.length,
-      });
+      throw capabilityError(
+        "resource_limited",
+        "initialTags exceeds the limit",
+        {
+          resource: "entries",
+          limit: TAG_LIMIT_MAX,
+          observed: request.initialTags.length,
+        },
+      );
     }
     initialTags = Array.from(
       new Set(
@@ -3414,11 +3185,15 @@ function resolveNoteCreateRequest(request: NoteCreateRequestDto) {
           }
           const tag = entry.trim();
           if (tag.length > TAG_TEXT_LIMIT) {
-            throw capabilityError("resource_limited", "initial tag exceeds the limit", {
-              resource: "characters",
-              limit: TAG_TEXT_LIMIT,
-              observed: tag.length,
-            });
+            throw capabilityError(
+              "resource_limited",
+              "initial tag exceeds the limit",
+              {
+                resource: "characters",
+                limit: TAG_TEXT_LIMIT,
+                observed: tag.length,
+              },
+            );
           }
           return tag;
         }),
@@ -3459,7 +3234,8 @@ function resolveNoteCreateRequest(request: NoteCreateRequestDto) {
     });
   }
   const libraryId =
-    (placement.libraryId as number | undefined) || normalizeLibraryId(undefined);
+    (placement.libraryId as number | undefined) ||
+    normalizeLibraryId(undefined);
   if (
     placement.collectionRefs !== undefined &&
     !Array.isArray(placement.collectionRefs)
@@ -3493,10 +3269,14 @@ function resolveNoteCreateRequest(request: NoteCreateRequestDto) {
       });
     }
     if (normalizeLibraryId((collection as any).libraryID) !== libraryId) {
-      throw capabilityError("invalid_request", "note placement crosses libraries", {
-        reason: "invalid_combination",
-        operation: "notes.create",
-      });
+      throw capabilityError(
+        "invalid_request",
+        "note placement crosses libraries",
+        {
+          reason: "invalid_combination",
+          operation: "notes.create",
+        },
+      );
     }
     return collection;
   });
@@ -4289,7 +4069,7 @@ function logicalPayloadHashFromBlock(block: ZoteroNotePayloadBlock) {
     format: block.format,
     value:
       block.format === "markdown"
-        ? block.markdown ?? block.payload
+        ? (block.markdown ?? block.payload)
         : block.payload,
   });
 }
@@ -4309,6 +4089,7 @@ async function upsertNotePayloadAttachment(
   note: Zotero.Item,
   payload: LogicalNotePayloadDto,
   previous: ZoteroNotePayloadBlock[],
+  control?: WorkflowCallControl,
 ) {
   if (previous.length > 1) {
     throw new MutationAuthorityExecutionError(
@@ -4362,10 +4143,12 @@ async function upsertNotePayloadAttachment(
   }
   let attachment: Zotero.Item;
   try {
-    attachment = await zotero.Attachments.importEmbeddedImage({
-      blob: blobFromBytes(bytes, "image/png"),
-      parentItemID: note.id,
-    });
+    attachment = await withZoteroHostSlice(control, () =>
+      zotero.Attachments.importEmbeddedImage({
+        blob: blobFromBytes(bytes, "image/png"),
+        parentItemID: note.id,
+      }),
+    );
   } catch (error) {
     throw new MutationAuthorityExecutionError(
       "failed",
@@ -4385,30 +4168,38 @@ async function upsertNotePayloadAttachment(
       ],
     );
   }
-  const attachmentKey = trimText(attachment?.key);
-  const originalContent = String(note.getNote?.() || "");
+  const attachmentKey = await withZoteroHostSlice(control, () =>
+    trimText(attachment?.key),
+  );
+  const originalContent = await withZoteroHostSlice(control, () =>
+    String(note.getNote?.() || ""),
+  );
   try {
     if (!attachmentKey) throw new Error("payload attachment has no key");
-    await updateNoteContentDirect(
-      note,
-      appendPayloadAnchor(
-        stripInlinePayloadForType(originalContent, payloadType),
-        payloadType,
-        attachmentKey,
+    await withZoteroHostSlice(control, () =>
+      updateNoteContentDirect(
+        note,
+        appendPayloadAnchor(
+          stripInlinePayloadForType(originalContent, payloadType),
+          payloadType,
+          attachmentKey,
+        ),
       ),
     );
   } catch (error) {
-    note.setNote?.(originalContent);
-    const attachmentRef = {
+    await withZoteroHostSlice(control, () => note.setNote?.(originalContent));
+    const attachmentRef = await withZoteroHostSlice(control, () => ({
       kind: "item" as const,
       ref: {
         libraryId: normalizeLibraryId(attachment.libraryID),
         key: trimText(attachment.key),
       },
-    };
-    let residualRefs: typeof attachmentRef[] = [];
+    }));
+    let residualRefs: (typeof attachmentRef)[] = [];
     try {
-      await handlers.attachment.remove(attachment);
+      await withZoteroHostSlice(control, () =>
+        handlers.attachment.remove(attachment),
+      );
     } catch {
       residualRefs = [attachmentRef];
     }
@@ -4433,25 +4224,33 @@ async function upsertNotePayloadAttachment(
   let removedAttachment: Zotero.Item | null = null;
   const old = previous[0];
   if (old?.attachmentKey && old.attachmentKey !== attachmentKey) {
-    const oldAttachment =
-      zotero.Items.getByLibraryAndKey?.(
-        normalizeLibraryId(
-          (note as unknown as { libraryID?: unknown }).libraryID,
-        ),
-        old.attachmentKey,
-      ) || null;
+    const oldAttachment = await withZoteroHostSlice(
+      control,
+      () =>
+        zotero.Items.getByLibraryAndKey?.(
+          normalizeLibraryId(
+            (note as unknown as { libraryID?: unknown }).libraryID,
+          ),
+          old.attachmentKey!,
+        ) || null,
+    );
     if (oldAttachment) {
-      const parentId =
-        (
-          oldAttachment as unknown as {
-            parentID?: unknown;
-            parentItemID?: unknown;
-          }
-        ).parentID ||
-        (oldAttachment as unknown as { parentItemID?: unknown }).parentItemID;
+      const parentId = await withZoteroHostSlice(
+        control,
+        () =>
+          (
+            oldAttachment as unknown as {
+              parentID?: unknown;
+              parentItemID?: unknown;
+            }
+          ).parentID ||
+          (oldAttachment as unknown as { parentItemID?: unknown }).parentItemID,
+      );
       if (Number(parentId) === Number(note.id)) {
         try {
-          await handlers.attachment.remove(oldAttachment);
+          await withZoteroHostSlice(control, () =>
+            handlers.attachment.remove(oldAttachment!),
+          );
           removedAttachment = oldAttachment;
         } catch (error) {
           const residualRef = {
@@ -4521,7 +4320,8 @@ async function upsertNotePayloadAttachment(
       },
       note,
     ),
-    outcome: previous.length === 0 ? ("created" as const) : ("replaced" as const),
+    outcome:
+      previous.length === 0 ? ("created" as const) : ("replaced" as const),
     createdAttachment: attachment,
     removedAttachment,
   };
@@ -4940,6 +4740,35 @@ function mutationAdmissionError(error: MutationAuthorityAdmissionError) {
   );
 }
 
+async function listMutationPayloadBlocks(
+  note: Zotero.Item,
+  control?: WorkflowCallControl,
+) {
+  const blocks: ZoteroNotePayloadBlock[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    throwIfWorkflowCallCanceled(control);
+    const page = await listNotePayloadBlocksForItemPage(
+      note,
+      { limit: 100, ...(cursor ? { cursor } : {}) },
+      {
+        runNativeSlice: (run) => withZoteroHostSlice(control, run),
+        checkCanceled: () => throwIfWorkflowCallCanceled(control),
+      },
+    );
+    blocks.push(...page.blocks);
+    if (!page.hasMore) return blocks;
+    if (!page.nextCursor) {
+      throw capabilityError(
+        "execution_failed",
+        "note payload source returned an invalid continuation",
+        { phase: "adapter", recovery: "retry_same_operation" },
+      );
+    }
+    cursor = page.nextCursor;
+  }
+}
+
 async function executeItemCreate(
   request: Extract<MutationExecuteRequest, { operation: "item.create" }>,
   scope: ZoteroHostMutationCallerScope,
@@ -4956,7 +4785,9 @@ async function executeItemCreate(
     });
   }
   try {
-    resolveZotero().ItemTypes.getID(itemType);
+    await withZoteroHostSlice(control, () =>
+      resolveZotero().ItemTypes.getID(itemType),
+    );
   } catch {
     throw capabilityError("invalid_request", "item type is unsupported", {
       reason: "unsupported_value",
@@ -4964,25 +4795,37 @@ async function executeItemCreate(
       operation: "item.create",
     });
   }
-  const probe = new (resolveZotero().Item as typeof Zotero.Item)(
-    itemType as any,
-  );
-  const fields = Object.keys(request.fields || {}).length
-    ? validateFieldPatch(probe, request.fields)
-    : {};
+  const fields = await withZoteroHostSlice(control, () => {
+    const probe = new (resolveZotero().Item as typeof Zotero.Item)(
+      itemType as any,
+    );
+    return Object.keys(request.fields || {}).length
+      ? validateFieldPatch(probe, request.fields)
+      : {};
+  });
   const tags = Array.from(new Set(request.initialTags || [])).map((tag) =>
     trimText(tag, TAG_TEXT_LIMIT),
   );
   const collectionRefs = (request.collectionRefs || []).map(
     canonicalCollectionRef,
   );
-  const collections = collectionRefs.map((ref) => {
-    const collection = resolveCollection(ref);
+  const collections: Zotero.Collection[] = [];
+  for (const ref of collectionRefs) {
+    const collection = await withZoteroHostSlice(control, () =>
+      resolveCollection(ref),
+    );
     if (!collection) throw notFoundError("collection", ref);
-    return collection;
-  });
+    collections.push(collection);
+  }
   const relatedRefs = (request.initialRelatedRefs || []).map(canonicalItemRef);
-  const related = relatedRefs.map((ref) => requireItem(ref, "related item"));
+  const related: Zotero.Item[] = [];
+  for (const ref of relatedRefs) {
+    related.push(
+      await withZoteroHostSlice(control, () =>
+        requireItem(ref, "related item"),
+      ),
+    );
+  }
   const normalized = {
     operation: "item.create" as const,
     operationId,
@@ -5004,22 +4847,33 @@ async function executeItemCreate(
       async execute() {
         let created: Zotero.Item | null = null;
         try {
-          created = await handlers.item.create({
-            itemType,
-            libraryID: libraryId,
-            fields,
-          });
+          created = await withZoteroHostSlice(control, () =>
+            handlers.item.create({
+              itemType,
+              libraryID: libraryId,
+              fields,
+            }),
+          );
           if (request.creators !== undefined) {
-            await handlers.parent.updateMetadata(created, {
-              creators: request.creators,
-            });
+            await withZoteroHostSlice(control, () =>
+              handlers.parent.updateMetadata(created!, {
+                creators: request.creators,
+              }),
+            );
           }
-          if (tags.length) await handlers.tag.add(created, tags);
+          if (tags.length)
+            await withZoteroHostSlice(control, () =>
+              handlers.tag.add(created!, tags),
+            );
           for (const collection of collections) {
-            await handlers.collection.add(created, collection);
+            await withZoteroHostSlice(control, () =>
+              handlers.collection.add(created!, collection),
+            );
           }
           if (related.length)
-            await handlers.parent.addRelated(created, related);
+            await withZoteroHostSlice(control, () =>
+              handlers.parent.addRelated(created!, related),
+            );
         } catch (primary) {
           if (!created) {
             throw new MutationAuthorityExecutionError(
@@ -5031,12 +4885,14 @@ async function executeItemCreate(
               primary instanceof Error ? primary.message : "item create failed",
             );
           }
-          const ref = {
-            libraryId: normalizeLibraryId(created.libraryID),
-            key: trimText(created.key),
-          };
+          const ref = await withZoteroHostSlice(control, () => ({
+            libraryId: normalizeLibraryId(created!.libraryID),
+            key: trimText(created!.key),
+          }));
           try {
-            await handlers.item.remove(created);
+            await withZoteroHostSlice(control, () =>
+              handlers.item.remove(created!),
+            );
           } catch {
             throw new MutationAuthorityExecutionError(
               "repair_required",
@@ -5072,24 +4928,26 @@ async function executeItemCreate(
             [{ kind: "item", ref }],
           );
         }
-        const ref = {
-          libraryId: normalizeLibraryId(created.libraryID),
-          key: trimText(created.key),
-        };
-        const afterItem = requireItem(ref, "created item");
-        const after = canonicalItemVersion(afterItem);
-        return {
-          outcome: "committed",
-          changes: [
-            {
-              entity: { kind: "item", ref },
-              effect: "created",
-              before: null,
-              after,
-            },
-          ],
-          result: { item: canonicalMutationItemResult(afterItem) },
-        };
+        return withZoteroHostSlice(control, () => {
+          const ref = {
+            libraryId: normalizeLibraryId(created!.libraryID),
+            key: trimText(created!.key),
+          };
+          const afterItem = requireItem(ref, "created item");
+          const after = canonicalItemVersion(afterItem);
+          return {
+            outcome: "committed" as const,
+            changes: [
+              {
+                entity: { kind: "item" as const, ref },
+                effect: "created" as const,
+                before: null,
+                after,
+              },
+            ],
+            result: { item: canonicalMutationItemResult(afterItem) },
+          };
+        });
       },
     })) as MutationExecutionResult<JsonObject>;
   } catch (error) {
@@ -5135,7 +4993,9 @@ async function executeItemChangeType(
       semanticInput: normalized as unknown as JsonValue,
       control,
       async execute() {
-        const basis = buildItemChangeTypePreview(normalized);
+        const basis = await withZoteroHostSlice(control, () =>
+          buildItemChangeTypePreview(normalized),
+        );
         validateMutationPreviewToken({
           scope,
           token: normalized.previewToken,
@@ -5167,15 +5027,19 @@ async function executeItemChangeType(
             "incompatible item data prevents conversion",
           );
         }
-        const item = requireItem(normalized.itemRef, "item");
-        const before = canonicalItemVersion(item);
+        const { item, before } = await withZoteroHostSlice(control, () => {
+          const item = requireItem(normalized.itemRef, "item");
+          return { item, before: canonicalItemVersion(item) };
+        });
         if (item.itemType !== normalized.targetItemType) {
           try {
-            await handlers.parent.updateMetadata(item, {
-              itemType: normalized.targetItemType,
-              fields: basis.plan.resultFields,
-              creators: basis.plan.resultCreators,
-            });
+            await withZoteroHostSlice(control, () =>
+              handlers.parent.updateMetadata(item, {
+                itemType: normalized.targetItemType,
+                fields: basis.plan.resultFields,
+                creators: basis.plan.resultCreators,
+              }),
+            );
           } catch (error) {
             throw new MutationAuthorityExecutionError(
               "failed",
@@ -5188,7 +5052,9 @@ async function executeItemChangeType(
             );
           }
         }
-        const afterItem = requireItem(normalized.itemRef, "item");
+        const afterItem = await withZoteroHostSlice(control, () =>
+          requireItem(normalized.itemRef, "item"),
+        );
         if (afterItem.itemType !== normalized.targetItemType) {
           throw new MutationAuthorityExecutionError(
             "unknown",
@@ -5418,9 +5284,11 @@ function assertCollectionPlacementTarget(
     const parentId: number = Number((cursor as any).parentID || 0);
     if (!parentId) break;
     cursor =
-      (resolveZotero().Collections as unknown as {
-        get?: (id: number) => Zotero.Collection | undefined;
-      }).get?.(parentId) || null;
+      (
+        resolveZotero().Collections as unknown as {
+          get?: (id: number) => Zotero.Collection | undefined;
+        }
+      ).get?.(parentId) || null;
     if (!cursor) {
       throw new MutationAuthorityExecutionError(
         "failed",
@@ -5466,10 +5334,20 @@ async function executeOtherCanonicalMutation(
         switch (request.operation) {
           case "item.updateTags": {
             const itemRef = canonicalItemRef(request.itemRef);
-            const item = requireItem(itemRef, "item");
-            const before = assertExpectedItemRevision(
-              item,
-              request.expectedRevision,
+            const { item, before, current } = await withZoteroHostSlice(
+              control,
+              () => {
+                const item = requireItem(itemRef, "item");
+                const before = assertExpectedItemRevision(
+                  item,
+                  request.expectedRevision,
+                );
+                return {
+                  item,
+                  before,
+                  current: failClosedMutationTags(item, itemRef),
+                };
+              },
             );
             const add = Array.from(
               new Set(request.add.map((tag) => trimText(tag, TAG_TEXT_LIMIT))),
@@ -5496,37 +5374,43 @@ async function executeOtherCanonicalMutation(
                 "tag delta is invalid",
               );
             }
-            const current = failClosedMutationTags(item, itemRef);
             const next = current
               .filter((tag) => !remove.includes(tag))
               .concat(add.filter((tag) => !current.includes(tag)))
               .sort();
             const changed =
               JSON.stringify([...current].sort()) !== JSON.stringify(next);
-            if (changed) await handlers.tag.update(item, next);
-            const afterItem = requireItem(itemRef, "item");
-            const after = canonicalItemVersion(afterItem);
-            return {
-              outcome: changed ? "committed" : "unchanged",
-              changes: [
-                {
-                  entity: { kind: "item", ref: itemRef },
-                  effect: changed ? "updated" : "unchanged",
-                  before,
-                  after,
-                },
-              ],
-              result: { item: canonicalMutationItemResult(afterItem) },
-            };
+            if (changed)
+              await withZoteroHostSlice(control, () =>
+                handlers.tag.update(item, next),
+              );
+            return withZoteroHostSlice(control, () => {
+              const afterItem = requireItem(itemRef, "item");
+              const after = canonicalItemVersion(afterItem);
+              return {
+                outcome: changed
+                  ? ("committed" as const)
+                  : ("unchanged" as const),
+                changes: [
+                  {
+                    entity: { kind: "item" as const, ref: itemRef },
+                    effect: changed
+                      ? ("updated" as const)
+                      : ("unchanged" as const),
+                    before,
+                    after,
+                  },
+                ],
+                result: { item: canonicalMutationItemResult(afterItem) },
+              };
+            });
           }
           case "item.addRelated":
           case "item.removeRelated": {
             const sourceRef = canonicalItemRef(request.sourceRef);
             const relatedRef = canonicalItemRef(request.relatedRef);
             const rejectRelatedValidation = (
-              reason:
-                | "invalid_value"
-                | "invalid_combination",
+              reason: "invalid_value" | "invalid_combination",
               message: string,
               field?: string,
             ): never => {
@@ -5558,71 +5442,91 @@ async function executeOtherCanonicalMutation(
                 "related item endpoints must belong to one library",
               );
             }
-            const source = requireItem(sourceRef, "source item");
-            const related = requireItem(relatedRef, "related item");
-            if (canonicalItemState(source) !== "active") {
-              rejectRelatedValidation(
-                "invalid_value",
-                "source item is deleted or trashed",
-                "sourceRef",
-              );
-            }
-            if (canonicalItemState(related) !== "active") {
-              rejectRelatedValidation(
-                "invalid_value",
-                "related item is deleted or trashed",
-                "relatedRef",
-              );
-            }
-            const before = assertExpectedItemRevision(
-              source,
-              request.expectedRevision,
-            );
-            const current = Array.isArray((source as any).relatedItems)
-              ? [...(source as any).relatedItems]
-              : [];
+            const { source, related, before, current } =
+              await withZoteroHostSlice(control, () => {
+                const source = requireItem(sourceRef, "source item");
+                const related = requireItem(relatedRef, "related item");
+                if (canonicalItemState(source) !== "active") {
+                  rejectRelatedValidation(
+                    "invalid_value",
+                    "source item is deleted or trashed",
+                    "sourceRef",
+                  );
+                }
+                if (canonicalItemState(related) !== "active") {
+                  rejectRelatedValidation(
+                    "invalid_value",
+                    "related item is deleted or trashed",
+                    "relatedRef",
+                  );
+                }
+                const before = assertExpectedItemRevision(
+                  source,
+                  request.expectedRevision,
+                );
+                const current = Array.isArray((source as any).relatedItems)
+                  ? [...(source as any).relatedItems]
+                  : [];
+                return { source, related, before, current };
+              });
             const present = current.includes(related.key);
             const shouldBePresent = request.operation === "item.addRelated";
             const changed = present !== shouldBePresent;
             if (changed) {
               if (shouldBePresent)
-                await handlers.parent.addRelated(source, related);
-              else await handlers.parent.removeRelated(source, related);
+                await withZoteroHostSlice(control, () =>
+                  handlers.parent.addRelated(source, related),
+                );
+              else
+                await withZoteroHostSlice(control, () =>
+                  handlers.parent.removeRelated(source, related),
+                );
             }
-            const afterItem = requireItem(sourceRef, "source item");
-            const after = canonicalItemVersion(afterItem);
-            return {
-              outcome: changed ? "committed" : "unchanged",
-              changes: [
-                {
-                  entity: { kind: "item", ref: sourceRef },
-                  effect: changed ? "updated" : "unchanged",
-                  before,
-                  after,
+            return withZoteroHostSlice(control, () => {
+              const afterItem = requireItem(sourceRef, "source item");
+              const after = canonicalItemVersion(afterItem);
+              return {
+                outcome: changed
+                  ? ("committed" as const)
+                  : ("unchanged" as const),
+                changes: [
+                  {
+                    entity: { kind: "item" as const, ref: sourceRef },
+                    effect: changed
+                      ? ("updated" as const)
+                      : ("unchanged" as const),
+                    before,
+                    after,
+                  },
+                ],
+                result: {
+                  sourceRef,
+                  relatedRef,
+                  outcome:
+                    request.operation === "item.addRelated"
+                      ? changed
+                        ? "added"
+                        : "already_present"
+                      : changed
+                        ? "removed"
+                        : "already_absent",
+                  sourceRevision: after.revision,
                 },
-              ],
-              result: {
-                sourceRef,
-                relatedRef,
-                outcome:
-                  request.operation === "item.addRelated"
-                    ? changed
-                      ? "added"
-                      : "already_present"
-                    : changed
-                      ? "removed"
-                      : "already_absent",
-                sourceRevision: after.revision,
-              },
-            };
+              };
+            });
           }
           case "item.remove": {
             const itemRef = canonicalItemRef(request.itemRef);
-            const item = requireItem(itemRef, "item");
-            const before = assertExpectedItemRevision(
-              item,
-              request.expectedRevision,
-            );
+            const { item, before } = await withZoteroHostSlice(control, () => {
+              const item = requireItem(itemRef, "item");
+              return {
+                item,
+                before: assertExpectedItemRevision(
+                  item,
+                  request.expectedRevision,
+                ),
+              };
+            });
             if (request.disposition !== "trash") {
               throw new MutationAuthorityExecutionError(
                 "failed",
@@ -5647,21 +5551,23 @@ async function executeOtherCanonicalMutation(
                 result: { itemRef, outcome: "already_trashed" },
               };
             }
-            await handlers.item.trash(item);
-            const afterItem = requireItem(itemRef, "item");
-            const after = canonicalItemVersion(afterItem);
-            return {
-              outcome: "committed",
-              changes: [
-                {
-                  entity: { kind: "item", ref: itemRef },
-                  effect: "trashed",
-                  before,
-                  after,
-                },
-              ],
-              result: { itemRef, outcome: "trashed" },
-            };
+            await withZoteroHostSlice(control, () => handlers.item.trash(item));
+            return withZoteroHostSlice(control, () => {
+              const afterItem = requireItem(itemRef, "item");
+              const after = canonicalItemVersion(afterItem);
+              return {
+                outcome: "committed" as const,
+                changes: [
+                  {
+                    entity: { kind: "item" as const, ref: itemRef },
+                    effect: "trashed" as const,
+                    before,
+                    after,
+                  },
+                ],
+                result: { itemRef, outcome: "trashed" },
+              };
+            });
           }
           case "collection.create": {
             const name = trimText(request.name, 1024);
@@ -5679,60 +5585,77 @@ async function executeOtherCanonicalMutation(
                 "collection name is required",
               );
             }
-            let parent: Zotero.Collection | null = null;
-            let libraryId = normalizeLibraryId(undefined);
-            if (request.placement.kind === "root") {
-              libraryId =
-                parsePositiveInteger(request.placement.libraryId) || libraryId;
-            } else {
-              parent = resolveCollection(
-                canonicalCollectionRef(request.placement.parentRef),
-              );
-              if (!parent)
-                throw notFoundError("collection", request.placement.parentRef);
-              libraryId = normalizeLibraryId((parent as any).libraryID);
-            }
             const initialMemberRefs = (request.initialMemberRefs || []).map(
               (ref) => canonicalItemRef(ref),
             );
-            const members = initialMemberRefs.length
-              ? resolveCollectionMembershipTargets(
-                  request.operation,
-                  normalizeCollectionMembershipRefs(
-                    request.operation,
-                    initialMemberRefs,
-                    [],
-                    { allowEmpty: true },
-                  ).addRefs,
-                  libraryId,
-                )
-              : [];
-            const memberBefore = new Map(
-              members.map(({ ref, item }) => [
-                membershipRefIdentity(ref),
-                canonicalItemVersion(item),
-              ]),
-            );
+            const { parent, libraryId, members, memberBefore } =
+              await withZoteroHostSlice(control, () => {
+                let parent: Zotero.Collection | null = null;
+                let libraryId = normalizeLibraryId(undefined);
+                if (request.placement.kind === "root") {
+                  libraryId =
+                    parsePositiveInteger(request.placement.libraryId) ||
+                    libraryId;
+                } else {
+                  parent = resolveCollection(
+                    canonicalCollectionRef(request.placement.parentRef),
+                  );
+                  if (!parent)
+                    throw notFoundError(
+                      "collection",
+                      request.placement.parentRef,
+                    );
+                  libraryId = normalizeLibraryId((parent as any).libraryID);
+                }
+                const members = initialMemberRefs.length
+                  ? resolveCollectionMembershipTargets(
+                      request.operation,
+                      normalizeCollectionMembershipRefs(
+                        request.operation,
+                        initialMemberRefs,
+                        [],
+                        { allowEmpty: true },
+                      ).addRefs,
+                      libraryId,
+                    )
+                  : [];
+                const memberBefore = new Map(
+                  members.map(({ ref, item }) => [
+                    membershipRefIdentity(ref),
+                    canonicalItemVersion(item),
+                  ]),
+                );
+                return { parent, libraryId, members, memberBefore };
+              });
             let created: Zotero.Collection | null = null;
             try {
-              created = await handlers.collection.create({
-                name,
-                libraryID: libraryId,
-              });
+              created = await withZoteroHostSlice(control, () =>
+                handlers.collection.create({
+                  name,
+                  libraryID: libraryId,
+                }),
+              );
               if (parent) {
-                await handlers.collection.update(created, {
-                  parentID: Number((parent as any).id),
-                });
+                await withZoteroHostSlice(control, () =>
+                  handlers.collection.update(created!, {
+                    parentID: Number((parent as any).id),
+                  }),
+                );
               }
               for (const { item } of members)
-                await handlers.collection.add(item, created);
-              const createdId = Number((created as any).id);
+                await withZoteroHostSlice(control, () =>
+                  handlers.collection.add(item, created!),
+                );
+              const createdId = await withZoteroHostSlice(control, () =>
+                Number((created as any).id),
+              );
               for (const { ref } of members) {
-                if (
-                  !requireItem(ref, "initial member")
+                const confirmed = await withZoteroHostSlice(control, () =>
+                  requireItem(ref, "initial member")
                     .getCollections()
-                    .includes(createdId)
-                ) {
+                    .includes(createdId),
+                );
+                if (!confirmed) {
                   throw new MutationAuthorityExecutionError(
                     "unknown",
                     "execution_failed",
@@ -5747,12 +5670,14 @@ async function executeOtherCanonicalMutation(
             } catch (error) {
               if (created) {
                 try {
-                  await handlers.collection.delete(created);
+                  await withZoteroHostSlice(control, () =>
+                    handlers.collection.delete(created!),
+                  );
                 } catch {
-                  const ref = {
+                  const ref = await withZoteroHostSlice(control, () => ({
                     libraryId,
                     key: trimText((created as any).key),
-                  };
+                  }));
                   throw new MutationAuthorityExecutionError(
                     "repair_required",
                     "execution_failed",
@@ -5773,115 +5698,149 @@ async function executeOtherCanonicalMutation(
               }
               throw error;
             }
-            const ref = { libraryId, key: trimText((created as any).key) };
-            const after = canonicalCollectionVersion(created);
-            return {
-              outcome: "committed",
-              changes: [
-                {
-                  entity: { kind: "collection", ref },
-                  effect: "created",
-                  before: null,
-                  after,
+            return withZoteroHostSlice(control, () => {
+              const ref = { libraryId, key: trimText((created as any).key) };
+              const after = canonicalCollectionVersion(created!);
+              return {
+                outcome: "committed" as const,
+                changes: [
+                  {
+                    entity: { kind: "collection" as const, ref },
+                    effect: "created" as const,
+                    before: null,
+                    after,
+                  },
+                  ...members.map(({ ref: memberRef }) => ({
+                    entity: { kind: "item" as const, ref: memberRef },
+                    effect: "updated" as const,
+                    before: memberBefore.get(membershipRefIdentity(memberRef))!,
+                    after: canonicalItemVersion(
+                      requireItem(memberRef, "initial member"),
+                    ),
+                  })),
+                ],
+                result: {
+                  collection: canonicalMutationCollectionResult(created!),
                 },
-                ...members.map(({ ref: memberRef }) => ({
-                  entity: { kind: "item" as const, ref: memberRef },
-                  effect: "updated" as const,
-                  before: memberBefore.get(membershipRefIdentity(memberRef))!,
-                  after: canonicalItemVersion(
-                    requireItem(memberRef, "initial member"),
-                  ),
-                })),
-              ],
-              result: {
-                collection: canonicalMutationCollectionResult(created),
-              },
-            };
+              };
+            });
           }
           case "collection.update": {
             const collectionRef = canonicalCollectionRef(request.collectionRef);
-            const collection = resolveCollection(collectionRef);
-            if (!collection) throw notFoundError("collection", collectionRef);
-            const before = assertExpectedCollectionRevision(
-              collection,
-              request.expectedRevision,
-            );
-            const patch: { name?: string; parentID?: number | null } = {};
-            if (request.patch.name !== undefined)
-              patch.name = trimText(request.patch.name, 1024);
-            if (request.patch.parentRef !== undefined) {
-              if (request.patch.parentRef === null) patch.parentID = null;
-              else {
-                const parent = assertCollectionPlacementTarget(
-                  request.operation,
+            const { collection, before, patch, changed } =
+              await withZoteroHostSlice(control, () => {
+                const collection = resolveCollection(collectionRef);
+                if (!collection)
+                  throw notFoundError("collection", collectionRef);
+                const before = assertExpectedCollectionRevision(
                   collection,
-                  collectionRef,
-                  canonicalCollectionRef(request.patch.parentRef),
+                  request.expectedRevision,
                 );
-                patch.parentID = Number((parent as any).id);
-              }
-            }
-            const dto = serializeCollection(collection);
-            const changed =
-              (patch.name !== undefined && patch.name !== dto.name) ||
-              (patch.parentID !== undefined &&
-                patch.parentID !== Number(dto.parentId || 0));
-            if (changed) await handlers.collection.update(collection, patch);
-            const afterCollection = resolveCollection(collectionRef)!;
-            const after = canonicalCollectionVersion(afterCollection);
-            return {
-              outcome: changed ? "committed" : "unchanged",
-              changes: [
-                {
-                  entity: { kind: "collection", ref: collectionRef },
-                  effect: changed ? "updated" : "unchanged",
-                  before,
-                  after,
+                const patch: { name?: string; parentID?: number | null } = {};
+                if (request.patch.name !== undefined)
+                  patch.name = trimText(request.patch.name, 1024);
+                if (request.patch.parentRef !== undefined) {
+                  if (request.patch.parentRef === null) patch.parentID = null;
+                  else {
+                    const parent = assertCollectionPlacementTarget(
+                      request.operation,
+                      collection,
+                      collectionRef,
+                      canonicalCollectionRef(request.patch.parentRef),
+                    );
+                    patch.parentID = Number((parent as any).id);
+                  }
+                }
+                const dto = serializeCollection(collection);
+                const changed =
+                  (patch.name !== undefined && patch.name !== dto.name) ||
+                  (patch.parentID !== undefined &&
+                    patch.parentID !== Number(dto.parentId || 0));
+                return { collection, before, patch, changed };
+              });
+            if (changed)
+              await withZoteroHostSlice(control, () =>
+                handlers.collection.update(collection, patch),
+              );
+            return withZoteroHostSlice(control, () => {
+              const afterCollection = resolveCollection(collectionRef)!;
+              const after = canonicalCollectionVersion(afterCollection);
+              return {
+                outcome: changed
+                  ? ("committed" as const)
+                  : ("unchanged" as const),
+                changes: [
+                  {
+                    entity: { kind: "collection" as const, ref: collectionRef },
+                    effect: changed
+                      ? ("updated" as const)
+                      : ("unchanged" as const),
+                    before,
+                    after,
+                  },
+                ],
+                result: {
+                  collection:
+                    canonicalMutationCollectionResult(afterCollection),
                 },
-              ],
-              result: {
-                collection: canonicalMutationCollectionResult(afterCollection),
-              },
-            };
+              };
+            });
           }
           case "collection.updateMembership": {
             const collectionRef = canonicalCollectionRef(request.collectionRef);
-            const collection = resolveCollection(collectionRef);
-            if (!collection) throw notFoundError("collection", collectionRef);
-            const before = assertExpectedCollectionRevision(
-              collection,
-              request.expectedRevision,
-            );
             const refIdentity = membershipRefIdentity;
             const { addRefs, removeRefs } = normalizeCollectionMembershipRefs(
               request.operation,
               request.add,
               request.remove,
             );
-            const collectionId = Number((collection as { id?: unknown }).id);
-            const targets = resolveCollectionMembershipTargets(
-              request.operation,
-              [...addRefs, ...removeRefs],
-              collectionRef.libraryId,
-            );
-            const itemBefore = new Map(
-              targets.map(({ ref, item }) => [
-                refIdentity(ref),
-                canonicalItemVersion(item),
-              ]),
-            );
-            const additions = targets.filter(
-              ({ ref, item }) =>
-                addRefs.some(
-                  (candidate) => refIdentity(candidate) === refIdentity(ref),
-                ) && !item.getCollections().includes(collectionId),
-            );
-            const removals = targets.filter(
-              ({ ref, item }) =>
-                removeRefs.some(
-                  (candidate) => refIdentity(candidate) === refIdentity(ref),
-                ) && item.getCollections().includes(collectionId),
-            );
+            const {
+              collection,
+              before,
+              collectionId,
+              itemBefore,
+              additions,
+              removals,
+            } = await withZoteroHostSlice(control, () => {
+              const collection = resolveCollection(collectionRef);
+              if (!collection) throw notFoundError("collection", collectionRef);
+              const before = assertExpectedCollectionRevision(
+                collection,
+                request.expectedRevision,
+              );
+              const collectionId = Number((collection as { id?: unknown }).id);
+              const targets = resolveCollectionMembershipTargets(
+                request.operation,
+                [...addRefs, ...removeRefs],
+                collectionRef.libraryId,
+              );
+              const itemBefore = new Map(
+                targets.map(({ ref, item }) => [
+                  refIdentity(ref),
+                  canonicalItemVersion(item),
+                ]),
+              );
+              const additions = targets.filter(
+                ({ ref, item }) =>
+                  addRefs.some(
+                    (candidate) => refIdentity(candidate) === refIdentity(ref),
+                  ) && !item.getCollections().includes(collectionId),
+              );
+              const removals = targets.filter(
+                ({ ref, item }) =>
+                  removeRefs.some(
+                    (candidate) => refIdentity(candidate) === refIdentity(ref),
+                  ) && item.getCollections().includes(collectionId),
+              );
+              return {
+                collection,
+                before,
+                collectionId,
+                itemBefore,
+                additions,
+                removals,
+              };
+            });
             const addedRefs: typeof addRefs = [];
             const removedRefs: typeof removeRefs = [];
             const applied: Array<{
@@ -5891,12 +5850,16 @@ async function executeOtherCanonicalMutation(
             }> = [];
             try {
               for (const { ref, item } of additions) {
-                await handlers.collection.add(item, collection);
+                await withZoteroHostSlice(control, () =>
+                  handlers.collection.add(item, collection),
+                );
                 applied.push({ kind: "add", ref, item });
                 addedRefs.push(ref);
               }
               for (const { ref, item } of removals) {
-                await handlers.collection.remove(item, collection);
+                await withZoteroHostSlice(control, () =>
+                  handlers.collection.remove(item, collection),
+                );
                 applied.push({ kind: "remove", ref, item });
                 removedRefs.push(ref);
               }
@@ -5905,9 +5868,13 @@ async function executeOtherCanonicalMutation(
               for (const entry of [...applied].reverse()) {
                 try {
                   if (entry.kind === "add") {
-                    await handlers.collection.remove(entry.item, collection);
+                    await withZoteroHostSlice(control, () =>
+                      handlers.collection.remove(entry.item, collection),
+                    );
                   } else {
-                    await handlers.collection.add(entry.item, collection);
+                    await withZoteroHostSlice(control, () =>
+                      handlers.collection.add(entry.item, collection),
+                    );
                   }
                 } catch {
                   residualRefs.push({ kind: "item", ref: entry.ref });
@@ -5935,11 +5902,12 @@ async function executeOtherCanonicalMutation(
             }
             const changed = addedRefs.length + removedRefs.length > 0;
             for (const { ref } of additions) {
-              if (
-                !requireItem(ref, "member item")
+              const confirmed = await withZoteroHostSlice(control, () =>
+                requireItem(ref, "member item")
                   .getCollections()
-                  .includes(collectionId)
-              ) {
+                  .includes(collectionId),
+              );
+              if (!confirmed) {
                 throw new MutationAuthorityExecutionError(
                   "unknown",
                   "execution_failed",
@@ -5952,11 +5920,12 @@ async function executeOtherCanonicalMutation(
               }
             }
             for (const { ref } of removals) {
-              if (
+              const confirmed = await withZoteroHostSlice(control, () =>
                 requireItem(ref, "member item")
                   .getCollections()
-                  .includes(collectionId)
-              ) {
+                  .includes(collectionId),
+              );
+              if (confirmed) {
                 throw new MutationAuthorityExecutionError(
                   "unknown",
                   "execution_failed",
@@ -5968,38 +5937,51 @@ async function executeOtherCanonicalMutation(
                 );
               }
             }
-            const afterCollection = resolveCollection(collectionRef);
-            if (!afterCollection) {
-              throw new MutationAuthorityExecutionError(
-                "unknown",
-                "execution_failed",
-                "verification",
-                "reconcile",
-                { phase: "verification", recovery: "reconcile" },
-                "collection disappeared during membership verification",
+            const final = await withZoteroHostSlice(control, () => {
+              const afterCollection = resolveCollection(collectionRef);
+              if (!afterCollection) {
+                throw new MutationAuthorityExecutionError(
+                  "unknown",
+                  "execution_failed",
+                  "verification",
+                  "reconcile",
+                  { phase: "verification", recovery: "reconcile" },
+                  "collection disappeared during membership verification",
+                );
+              }
+              const after = canonicalCollectionVersion(afterCollection);
+              const itemAfter = new Map(
+                [...addedRefs, ...removedRefs].map((ref) => [
+                  refIdentity(ref),
+                  canonicalItemVersion(requireItem(ref, "member item")),
+                ]),
               );
-            }
-            const after = canonicalCollectionVersion(afterCollection);
+              return {
+                after,
+                itemAfter,
+                collection: canonicalMutationCollectionResult(afterCollection),
+              };
+            });
             const changedItems = [...addedRefs, ...removedRefs];
             const changes: MutationChangeDto[] = [
               {
                 entity: { kind: "collection", ref: collectionRef },
                 effect: changed ? "updated" : "unchanged",
                 before,
-                after,
+                after: final.after,
               },
               ...changedItems.map((ref) => ({
                 entity: { kind: "item" as const, ref },
                 effect: "updated" as const,
                 before: itemBefore.get(refIdentity(ref)) || null,
-                after: canonicalItemVersion(requireItem(ref, "member item")),
+                after: final.itemAfter.get(refIdentity(ref))!,
               })),
             ];
             return {
               outcome: changed ? "committed" : "unchanged",
               changes,
               result: {
-                collection: canonicalMutationCollectionResult(afterCollection),
+                collection: final.collection,
                 addedRefs,
                 removedRefs,
               },
@@ -6055,7 +6037,9 @@ async function executeDestructiveCanonicalMutation(
             disposition: "permanent" as const,
             childPolicy: request.childPolicy,
           };
-          const preview = await previewCanonicalMutation(previewRequest, scope);
+          const preview = await withZoteroHostSlice(control, () =>
+            previewCanonicalMutation(previewRequest, scope),
+          );
           discardMutationPreviewToken(preview.token.value);
           validateMutationPreviewToken({
             scope,
@@ -6101,8 +6085,12 @@ async function executeDestructiveCanonicalMutation(
           const deleted: typeof targetRefs = [];
           try {
             for (const ref of targetRefs) {
-              const item = requireItem(ref, "removal target");
-              await handlers.item.remove(item);
+              const item = await withZoteroHostSlice(control, () =>
+                requireItem(ref, "removal target"),
+              );
+              await withZoteroHostSlice(control, () =>
+                handlers.item.remove(item),
+              );
               deleted.push(ref);
             }
           } catch (error) {
@@ -6152,7 +6140,9 @@ async function executeDestructiveCanonicalMutation(
           collectionRef: canonicalCollectionRef(request.collectionRef),
           childPolicy: request.childPolicy,
         };
-        const preview = await previewCanonicalMutation(previewRequest, scope);
+        const preview = await withZoteroHostSlice(control, () =>
+          previewCanonicalMutation(previewRequest, scope),
+        );
         discardMutationPreviewToken(preview.token.value);
         validateMutationPreviewToken({
           scope,
@@ -6195,13 +6185,24 @@ async function executeDestructiveCanonicalMutation(
         );
         try {
           for (const membership of plan.detachedMemberships) {
-            const item = requireItem(membership.itemRef, "collection member");
-            const collection = resolveCollection(membership.collectionRef);
-            if (collection) await handlers.collection.remove(item, collection);
+            const target = await withZoteroHostSlice(control, () => {
+              const item = requireItem(membership.itemRef, "collection member");
+              const collection = resolveCollection(membership.collectionRef);
+              return { item, collection };
+            });
+            if (target.collection)
+              await withZoteroHostSlice(control, () =>
+                handlers.collection.remove(target.item, target.collection!),
+              );
           }
           for (const entry of [...plan.deletedCollections].reverse()) {
-            const collection = resolveCollection(entry.ref);
-            if (collection) await handlers.collection.delete(collection);
+            const collection = await withZoteroHostSlice(control, () =>
+              resolveCollection(entry.ref),
+            );
+            if (collection)
+              await withZoteroHostSlice(control, () =>
+                handlers.collection.delete(collection),
+              );
           }
         } catch (error) {
           throw new MutationAuthorityExecutionError(
@@ -6224,6 +6225,18 @@ async function executeDestructiveCanonicalMutation(
             })),
           );
         }
+        const detachedItems = await withZoteroHostSlice(
+          control,
+          () =>
+            new Map(
+              plan.detachedMemberships.map((entry) => [
+                entry.itemRef.key,
+                canonicalItemVersion(
+                  requireItem(entry.itemRef, "detached member"),
+                ),
+              ]),
+            ),
+        );
         const changes: MutationChangeDto[] = [
           ...plan.deletedCollections.map((entry) => ({
             entity: { kind: "collection" as const, ref: entry.ref },
@@ -6246,12 +6259,11 @@ async function executeDestructiveCanonicalMutation(
               ]),
             ).values(),
           ).map((ref) => {
-            const item = requireItem(ref, "detached member");
             return {
               entity: { kind: "item" as const, ref },
               effect: "updated" as const,
               before: itemBefore.get(ref.key) || null,
-              after: canonicalItemVersion(item),
+              after: detachedItems.get(ref.key)!,
             };
           }),
         ];
@@ -6324,7 +6336,9 @@ async function executeCanonicalMutation(
       semanticInput: normalized as unknown as JsonValue,
       control,
       async execute() {
-        const item = requireItem(normalized.itemRef, "item");
+        const item = await withZoteroHostSlice(control, () =>
+          requireItem(normalized.itemRef, "item"),
+        );
         if (item.isNote?.() || item.isAttachment?.() || item.isAnnotation?.()) {
           throw new MutationAuthorityExecutionError(
             "failed",
@@ -6335,7 +6349,9 @@ async function executeCanonicalMutation(
             "item.updateMetadata requires an active regular item",
           );
         }
-        const before = canonicalItemVersion(item);
+        const before = await withZoteroHostSlice(control, () =>
+          canonicalItemVersion(item),
+        );
         if (
           normalized.expectedRevision &&
           normalized.expectedRevision !== before.revision
@@ -6349,66 +6365,73 @@ async function executeCanonicalMutation(
             "item revision no longer matches expectedRevision",
           );
         }
-        let fields: ReturnType<typeof validateFieldPatch> | undefined;
-        if (normalized.patch.fields) {
-          try {
-            fields = validateFieldPatch(item, normalized.patch.fields);
-          } catch (error) {
-            const invalidField = Object.entries(normalized.patch.fields).find(
-              ([field, value]) => {
-                try {
-                  validateFieldPatch(item, { [field]: value });
-                  return false;
-                } catch {
-                  return true;
-                }
-              },
-            )?.[0];
-            throw new MutationAuthorityExecutionError(
-              "failed",
-              "invalid_request",
-              "validation",
-              "refresh_and_retry_new_operation",
-              {
-                reason: "invalid_value",
-                field: invalidField
-                  ? `patch.fields.${invalidField}`
-                  : "patch.fields",
-                operation: "item.updateMetadata",
-              },
-              error instanceof Error
-                ? error.message
-                : "metadata field is invalid",
+        const { fields, fieldsChanged, creatorsChanged } =
+          await withZoteroHostSlice(control, () => {
+            let fields: ReturnType<typeof validateFieldPatch> | undefined;
+            if (normalized.patch.fields) {
+              try {
+                fields = validateFieldPatch(item, normalized.patch.fields);
+              } catch (error) {
+                const invalidField = Object.entries(
+                  normalized.patch.fields,
+                ).find(([field, value]) => {
+                  try {
+                    validateFieldPatch(item, { [field]: value });
+                    return false;
+                  } catch {
+                    return true;
+                  }
+                })?.[0];
+                throw new MutationAuthorityExecutionError(
+                  "failed",
+                  "invalid_request",
+                  "validation",
+                  "refresh_and_retry_new_operation",
+                  {
+                    reason: "invalid_value",
+                    field: invalidField
+                      ? `patch.fields.${invalidField}`
+                      : "patch.fields",
+                    operation: "item.updateMetadata",
+                  },
+                  error instanceof Error
+                    ? error.message
+                    : "metadata field is invalid",
+                );
+              }
+            }
+            const currentCreators = (() => {
+              try {
+                return (
+                  (
+                    item as Zotero.Item & {
+                      getCreators?: () => ZoteroHostMetadataCreatorDto[];
+                    }
+                  ).getCreators?.() || []
+                );
+              } catch {
+                return [];
+              }
+            })();
+            const fieldsChanged = Object.entries(fields || {}).some(
+              ([field, value]) =>
+                readField(item, field, FIELD_TEXT_LIMIT) !==
+                String(value ?? ""),
             );
-          }
-        }
-        const currentCreators = (() => {
-          try {
-            return (
-              (
-                item as Zotero.Item & {
-                  getCreators?: () => ZoteroHostMetadataCreatorDto[];
-                }
-              ).getCreators?.() || []
-            );
-          } catch {
-            return [];
-          }
-        })();
-        const fieldsChanged = Object.entries(fields || {}).some(
-          ([field, value]) =>
-            readField(item, field, FIELD_TEXT_LIMIT) !== String(value ?? ""),
-        );
-        const creatorsChanged =
-          normalized.patch.creators !== undefined &&
-          JSON.stringify(currentCreators) !==
-            JSON.stringify(normalized.patch.creators);
+            const creatorsChanged =
+              normalized.patch.creators !== undefined &&
+              JSON.stringify(currentCreators) !==
+                JSON.stringify(normalized.patch.creators);
+            return { fields, fieldsChanged, creatorsChanged };
+          });
         if (fieldsChanged || creatorsChanged) {
           try {
-            await handlers.parent.updateMetadata(item, {
-              fields,
-              creators: normalized.patch.creators,
-            });
+            await withZoteroHostSlice(control, () =>
+              handlers.parent.updateMetadata(item, {
+                fields,
+                creators: normalized.patch.creators,
+              }),
+            );
           } catch (error) {
             throw new MutationAuthorityExecutionError(
               "failed",
@@ -6421,24 +6444,27 @@ async function executeCanonicalMutation(
             );
           }
         }
-        const afterItem = requireItem(normalized.itemRef, "item");
-        const after = canonicalItemVersion(afterItem);
-        for (const [field, value] of Object.entries(fields || {})) {
-          if (
-            readField(afterItem, field, FIELD_TEXT_LIMIT) !==
-            String(value ?? "")
-          ) {
-            throw new MutationAuthorityExecutionError(
-              "unknown",
-              "execution_failed",
-              "verification",
-              "reconcile",
-              { phase: "verification", recovery: "reconcile" },
-              "item metadata final state could not be confirmed",
-              [{ kind: "item", ref: normalized.itemRef }],
-            );
+        const { afterItem, after } = await withZoteroHostSlice(control, () => {
+          const afterItem = requireItem(normalized.itemRef, "item");
+          const after = canonicalItemVersion(afterItem);
+          for (const [field, value] of Object.entries(fields || {})) {
+            if (
+              readField(afterItem, field, FIELD_TEXT_LIMIT) !==
+              String(value ?? "")
+            ) {
+              throw new MutationAuthorityExecutionError(
+                "unknown",
+                "execution_failed",
+                "verification",
+                "reconcile",
+                { phase: "verification", recovery: "reconcile" },
+                "item metadata final state could not be confirmed",
+                [{ kind: "item", ref: normalized.itemRef }],
+              );
+            }
           }
-        }
+          return { afterItem, after };
+        });
         const outcome =
           fieldsChanged || creatorsChanged ? "committed" : "unchanged";
         const change: MutationChangeDto = {
@@ -6535,12 +6561,20 @@ async function executeStatusTagTransition(
       semanticInput: normalized as unknown as JsonValue,
       control,
       async execute() {
-        const item = requireItem(itemRef, "status item");
-        const before = assertExpectedItemRevision(
-          item,
-          normalized.expectedRevision,
+        const { item, before, current } = await withZoteroHostSlice(
+          control,
+          () => {
+            const item = requireItem(itemRef, "status item");
+            return {
+              item,
+              before: assertExpectedItemRevision(
+                item,
+                normalized.expectedRevision,
+              ),
+              current: failClosedMutationTags(item, itemRef),
+            };
+          },
         );
-        const current = failClosedMutationTags(item, itemRef);
         const addTags = addKeys.map(getBuiltinStatusTag);
         const removeTags = removeKeys.map(getBuiltinStatusTag);
         const added = addTags.filter((tag) => !current.includes(tag));
@@ -6556,7 +6590,9 @@ async function executeStatusTagTransition(
         const changed = added.length + removed.length > 0;
         if (changed) {
           try {
-            await handlers.tag.update(item, next);
+            await withZoteroHostSlice(control, () =>
+              handlers.tag.update(item, next),
+            );
           } catch (error) {
             throw new MutationAuthorityExecutionError(
               "failed",
@@ -6571,36 +6607,38 @@ async function executeStatusTagTransition(
             );
           }
         }
-        const afterItem = requireItem(itemRef, "status item");
-        let finalTags: string[];
-        try {
-          finalTags = canonicalTags(afterItem);
-        } catch {
-          throw new MutationAuthorityExecutionError(
-            "unknown",
-            "execution_failed",
-            "verification",
-            "reconcile",
-            { phase: "verification", recovery: "reconcile" },
-            "status transition final tags could not be read completely",
-            [{ kind: "item", ref: itemRef }],
-          );
-        }
-        if (
-          addTags.some((tag) => !finalTags.includes(tag)) ||
-          removeTags.some((tag) => finalTags.includes(tag))
-        ) {
-          throw new MutationAuthorityExecutionError(
-            "unknown",
-            "execution_failed",
-            "verification",
-            "reconcile",
-            { phase: "verification", recovery: "reconcile" },
-            "status transition final state could not be confirmed",
-            [{ kind: "item", ref: itemRef }],
-          );
-        }
-        const after = canonicalItemVersion(afterItem);
+        const { afterItem, after } = await withZoteroHostSlice(control, () => {
+          const afterItem = requireItem(itemRef, "status item");
+          let finalTags: string[];
+          try {
+            finalTags = canonicalTags(afterItem);
+          } catch {
+            throw new MutationAuthorityExecutionError(
+              "unknown",
+              "execution_failed",
+              "verification",
+              "reconcile",
+              { phase: "verification", recovery: "reconcile" },
+              "status transition final tags could not be read completely",
+              [{ kind: "item", ref: itemRef }],
+            );
+          }
+          if (
+            addTags.some((tag) => !finalTags.includes(tag)) ||
+            removeTags.some((tag) => finalTags.includes(tag))
+          ) {
+            throw new MutationAuthorityExecutionError(
+              "unknown",
+              "execution_failed",
+              "verification",
+              "reconcile",
+              { phase: "verification", recovery: "reconcile" },
+              "status transition final state could not be confirmed",
+              [{ kind: "item", ref: itemRef }],
+            );
+          }
+          return { afterItem, after: canonicalItemVersion(afterItem) };
+        });
         return {
           outcome: changed ? "committed" : "unchanged",
           changes: [
@@ -6720,10 +6758,18 @@ function normalizeLogicalNotePayloadRequest(
       operation: "notes.upsertPayload",
     });
   }
-  if (!noteKind || noteKind.length > 80 || !schemaVersion || schemaVersion.length > 200) {
+  if (
+    !noteKind ||
+    noteKind.length > 80 ||
+    !schemaVersion ||
+    schemaVersion.length > 200
+  ) {
     throw capabilityError("invalid_request", "payload identity is invalid", {
       reason: "invalid_value",
-      field: !noteKind || noteKind.length > 80 ? "payload.noteKind" : "payload.schemaVersion",
+      field:
+        !noteKind || noteKind.length > 80
+          ? "payload.noteKind"
+          : "payload.schemaVersion",
       operation: "notes.upsertPayload",
     });
   }
@@ -6734,7 +6780,10 @@ function normalizeLogicalNotePayloadRequest(
       operation: "notes.upsertPayload",
     });
   }
-  if ((format === "markdown" || format === "text") && typeof raw.value !== "string") {
+  if (
+    (format === "markdown" || format === "text") &&
+    typeof raw.value !== "string"
+  ) {
     throw capabilityError("invalid_request", "payload value is invalid", {
       reason: "invalid_type",
       field: "payload.value",
@@ -6758,11 +6807,15 @@ function normalizeLogicalNotePayloadRequest(
   }
   const bytes = new TextEncoder().encode(serialized).byteLength;
   if (bytes > NOTE_PAYLOAD_MAX_BYTES) {
-    throw capabilityError("resource_limited", "note payload exceeds the limit", {
-      resource: "bytes",
-      limit: NOTE_PAYLOAD_MAX_BYTES,
-      observed: bytes,
-    });
+    throw capabilityError(
+      "resource_limited",
+      "note payload exceeds the limit",
+      {
+        resource: "bytes",
+        limit: NOTE_PAYLOAD_MAX_BYTES,
+        observed: bytes,
+      },
+    );
   }
   return {
     payloadType,
@@ -6814,11 +6867,14 @@ function resolveNoteImageBindings(
   });
 }
 
-async function cleanupNoteMutationItems(items: Zotero.Item[]) {
+async function cleanupNoteMutationItems(
+  items: Zotero.Item[],
+  control?: WorkflowCallControl,
+) {
   const residualRefs: MutationEntityRef[] = [];
   for (const item of [...items].reverse()) {
     try {
-      await handlers.item.remove(item);
+      await withZoteroHostSlice(control, () => handlers.item.remove(item));
     } catch {
       const key = trimText(item.key);
       if (key) {
@@ -6838,6 +6894,7 @@ async function cleanupNoteMutationItems(items: Zotero.Item[]) {
 async function importPreparedNoteImages(
   note: Zotero.Item,
   bindings: ResolvedNoteImageBinding[],
+  control?: WorkflowCallControl,
 ) {
   const zotero = resolveZotero();
   if (typeof zotero.Attachments?.importEmbeddedImage !== "function") {
@@ -6854,10 +6911,12 @@ async function importPreparedNoteImages(
   const attachmentKeys = new Map<string, string>();
   try {
     for (const binding of bindings) {
-      const attachment = await zotero.Attachments.importEmbeddedImage({
-        blob: binding.blob,
-        parentItemID: note.id,
-      });
+      const attachment = await withZoteroHostSlice(control, () =>
+        zotero.Attachments.importEmbeddedImage({
+          blob: binding.blob,
+          parentItemID: note.id,
+        }),
+      );
       const key = trimText(attachment?.key);
       if (!key) throw new Error("embedded image attachment has no key");
       attachments.push(attachment);
@@ -6865,7 +6924,7 @@ async function importPreparedNoteImages(
     }
     return { attachments, attachmentKeys };
   } catch (error) {
-    const residualRefs = await cleanupNoteMutationItems(attachments);
+    const residualRefs = await cleanupNoteMutationItems(attachments, control);
     throw new MutationAuthorityExecutionError(
       residualRefs.length ? "repair_required" : "failed",
       "execution_failed",
@@ -6935,10 +6994,12 @@ async function executeNoteMutation(
         )
       : null;
   if (logicalPayload) {
-    const note = requireNote(
-      canonicalItemRef((request as NotePayloadUpsertRequestDto).noteRef),
+    const note = await withZoteroHostSlice(control, () =>
+      requireNote(
+        canonicalItemRef((request as NotePayloadUpsertRequestDto).noteRef),
+      ),
     );
-    const matches = (await listNotePayloadBlocksForItem(note)).filter(
+    const matches = (await listMutationPayloadBlocks(note, control)).filter(
       (block) => block.payloadType === logicalPayload.payloadType,
     );
     if (matches.length > 1) {
@@ -6969,13 +7030,15 @@ async function executeNoteMutation(
           const content = noteContent as NonNullable<typeof noteContent>;
           let note: Zotero.Item;
           try {
-            note = await handlers.note.create({
-              content: content.value,
-              parent: noteCreate!.parent,
-              libraryID: noteCreate!.libraryId,
-              tags: noteCreate!.initialTags,
-              collections: noteCreate!.collections,
-            });
+            note = await withZoteroHostSlice(control, () =>
+              handlers.note.create({
+                content: content.value,
+                parent: noteCreate!.parent,
+                libraryID: noteCreate!.libraryId,
+                tags: noteCreate!.initialTags,
+                collections: noteCreate!.collections,
+              }),
+            );
           } catch (error) {
             throw new MutationAuthorityExecutionError(
               "unknown",
@@ -6992,19 +7055,22 @@ async function executeNoteMutation(
               const staged = await importPreparedNoteImages(
                 note,
                 resolvedImages,
+                control,
               );
               attachments = staged.attachments;
-              await handlers.note.update(note, {
-                content: bindNoteImageSlots(
-                  content.value,
-                  staged.attachmentKeys,
-                ),
-              });
+              await withZoteroHostSlice(control, () =>
+                handlers.note.update(note, {
+                  content: bindNoteImageSlots(
+                    content.value,
+                    staged.attachmentKeys,
+                  ),
+                }),
+              );
             } catch (error) {
-              const residualRefs = await cleanupNoteMutationItems([
-                ...attachments,
-                note,
-              ]);
+              const residualRefs = await cleanupNoteMutationItems(
+                [...attachments, note],
+                control,
+              );
               if (error instanceof MutationAuthorityExecutionError) {
                 if (residualRefs.length === 0) throw error;
                 throw new MutationAuthorityExecutionError(
@@ -7039,22 +7105,18 @@ async function executeNoteMutation(
               );
             }
           }
-          const ref = {
-            libraryId: normalizeLibraryId(note.libraryID),
-            key: trimText(note.key),
-          };
-          const committedNote = requireNote(ref);
-          const after = canonicalNoteVersion(committedNote);
-          return {
-            outcome: "committed",
-            changes: [
-              {
-                entity: { kind: "item", ref },
-                effect: "created",
-                before: null,
-                after,
-              },
-              ...attachments.map((attachment) => ({
+          const committed = await withZoteroHostSlice(control, () => {
+            const ref = {
+              libraryId: normalizeLibraryId(note.libraryID),
+              key: trimText(note.key),
+            };
+            const committedNote = requireNote(ref);
+            return {
+              ref,
+              committedNote,
+              after: canonicalNoteVersion(committedNote),
+              noteResult: canonicalNoteResult(committedNote),
+              attachmentVersions: attachments.map((attachment) => ({
                 entity: {
                   kind: "item" as const,
                   ref: {
@@ -7066,9 +7128,21 @@ async function executeNoteMutation(
                 before: null,
                 after: canonicalItemVersion(attachment),
               })),
+            };
+          });
+          return {
+            outcome: "committed",
+            changes: [
+              {
+                entity: { kind: "item", ref: committed.ref },
+                effect: "created",
+                before: null,
+                after: committed.after,
+              },
+              ...committed.attachmentVersions,
             ],
             result: strictJsonObject({
-              note: canonicalNoteResult(committedNote),
+              note: committed.noteResult,
             }),
           };
         }
@@ -7081,29 +7155,45 @@ async function executeNoteMutation(
               | NotePayloadUpsertRequestDto
           ).noteRef,
         );
-        const note = requireNote(noteRef);
         const expectedRevision =
           "expectedRevision" in request ? request.expectedRevision : undefined;
-        const before = assertExpectedNoteRevision(note, expectedRevision);
+        const { note, before } = await withZoteroHostSlice(control, () => {
+          const note = requireNote(noteRef);
+          return {
+            note,
+            before: assertExpectedNoteRevision(note, expectedRevision),
+          };
+        });
 
         if (operation === "notes.updateContent") {
           const contentInput = noteContent as NonNullable<typeof noteContent>;
           let content = contentInput.value;
           let attachments: Zotero.Item[] = [];
           if (resolvedImages.length > 0) {
-            const staged = await importPreparedNoteImages(note, resolvedImages);
+            const staged = await importPreparedNoteImages(
+              note,
+              resolvedImages,
+              control,
+            );
             attachments = staged.attachments;
             content = bindNoteImageSlots(content, staged.attachmentKeys);
           }
-          const current = trimText(note.getNote?.(), NOTE_HTML_INPUT_LIMIT);
+          const current = await withZoteroHostSlice(control, () =>
+            trimText(note.getNote?.(), NOTE_HTML_INPUT_LIMIT),
+          );
           const oldManagedImageKeys = managedNoteImageKeys(current);
           const retainedImageKeys = managedNoteImageKeys(content);
           const changed = current !== content;
           if (changed) {
             try {
-              await handlers.note.update(note, { content });
+              await withZoteroHostSlice(control, () =>
+                handlers.note.update(note, { content }),
+              );
             } catch (error) {
-              const residualRefs = await cleanupNoteMutationItems(attachments);
+              const residualRefs = await cleanupNoteMutationItems(
+                attachments,
+                control,
+              );
               throw new MutationAuthorityExecutionError(
                 residualRefs.length ? "repair_required" : "failed",
                 "execution_failed",
@@ -7127,19 +7217,27 @@ async function executeNoteMutation(
           if (changed) {
             for (const key of oldManagedImageKeys) {
               if (retainedImageKeys.has(key)) continue;
-              const attachment =
-                resolveZotero().Items.getByLibraryAndKey?.(
-                  normalizeLibraryId(note.libraryID),
-                  key,
-                ) || null;
+              const attachment = await withZoteroHostSlice(
+                control,
+                () =>
+                  resolveZotero().Items.getByLibraryAndKey?.(
+                    normalizeLibraryId(note.libraryID),
+                    key,
+                  ) || null,
+              );
               if (!attachment) continue;
-              const attachmentRef = {
-                libraryId: normalizeLibraryId(attachment.libraryID),
-                key,
-              };
-              const attachmentBefore = canonicalItemVersion(attachment);
+              const { attachmentRef, attachmentBefore } =
+                await withZoteroHostSlice(control, () => ({
+                  attachmentRef: {
+                    libraryId: normalizeLibraryId(attachment!.libraryID),
+                    key,
+                  },
+                  attachmentBefore: canonicalItemVersion(attachment!),
+                }));
               try {
-                await handlers.item.remove(attachment);
+                await withZoteroHostSlice(control, () =>
+                  handlers.item.remove(attachment!),
+                );
               } catch (error) {
                 throw new MutationAuthorityExecutionError(
                   "repair_required",
@@ -7183,21 +7281,41 @@ async function executeNoteMutation(
               });
             }
           }
-          const afterNote = requireNote(noteRef);
-          if (
-            trimText(afterNote.getNote?.(), NOTE_HTML_INPUT_LIMIT) !== content
-          ) {
-            throw new MutationAuthorityExecutionError(
-              "unknown",
-              "execution_failed",
-              "verification",
-              "reconcile",
-              { phase: "verification", recovery: "reconcile" },
-              "note content final state could not be confirmed",
-              [{ kind: "item", ref: noteRef }],
-            );
-          }
-          const after = canonicalNoteVersion(afterNote);
+          const { after, attachmentVersions, noteResult } =
+            await withZoteroHostSlice(control, () => {
+              const afterNote = requireNote(noteRef);
+              if (
+                trimText(afterNote.getNote?.(), NOTE_HTML_INPUT_LIMIT) !==
+                content
+              ) {
+                throw new MutationAuthorityExecutionError(
+                  "unknown",
+                  "execution_failed",
+                  "verification",
+                  "reconcile",
+                  { phase: "verification", recovery: "reconcile" },
+                  "note content final state could not be confirmed",
+                  [{ kind: "item", ref: noteRef }],
+                );
+              }
+              return {
+                afterNote,
+                after: canonicalNoteVersion(afterNote),
+                noteResult: canonicalNoteResult(afterNote),
+                attachmentVersions: attachments.map((attachment) => ({
+                  entity: {
+                    kind: "item" as const,
+                    ref: {
+                      libraryId: normalizeLibraryId(attachment.libraryID),
+                      key: trimText(attachment.key),
+                    },
+                  },
+                  effect: "created" as const,
+                  before: null,
+                  after: canonicalItemVersion(attachment),
+                })),
+              };
+            });
           return {
             outcome: changed ? "committed" : "unchanged",
             changes: [
@@ -7207,31 +7325,26 @@ async function executeNoteMutation(
                 before,
                 after,
               },
-              ...attachments.map((attachment) => ({
-                entity: {
-                  kind: "item" as const,
-                  ref: {
-                    libraryId: normalizeLibraryId(attachment.libraryID),
-                    key: trimText(attachment.key),
-                  },
-                },
-                effect: "created" as const,
-                before: null,
-                after: canonicalItemVersion(attachment),
-              })),
+              ...attachmentVersions,
               ...removedImageChanges,
             ],
-            result: strictJsonObject({ note: canonicalNoteResult(afterNote) }),
+            result: strictJsonObject({ note: noteResult }),
           };
         }
 
         if (operation === "notes.remove") {
           const disposition = (request as NoteRemoveRequestDto).disposition;
-          if (disposition === "trash") await handlers.item.trash(note);
-          else await handlers.note.remove(note);
+          if (disposition === "trash")
+            await withZoteroHostSlice(control, () => handlers.item.trash(note));
+          else
+            await withZoteroHostSlice(control, () =>
+              handlers.note.remove(note),
+            );
           const after =
             disposition === "trash"
-              ? canonicalNoteVersion(requireNote(noteRef))
+              ? await withZoteroHostSlice(control, () =>
+                  canonicalNoteVersion(requireNote(noteRef)),
+                )
               : {
                   revision: hashSynthesisContractCanonicalJson({
                     ref: noteRef,
@@ -7262,13 +7375,16 @@ async function executeNoteMutation(
           ReturnType<typeof upsertNotePayloadAttachment>
         >;
         try {
-          const matches = (await listNotePayloadBlocksForItem(note)).filter(
+          const matches = (
+            await listMutationPayloadBlocks(note, control)
+          ).filter(
             (block) => block.payloadType === logicalPayload!.payloadType,
           );
           payloadResult = await upsertNotePayloadAttachment(
             note,
             logicalPayload!,
             matches,
+            control,
           );
         } catch (error) {
           if (error instanceof MutationAuthorityExecutionError) throw error;
@@ -7284,39 +7400,46 @@ async function executeNoteMutation(
             [{ kind: "item", ref: noteRef }],
           );
         }
-        const afterNote = requireNote(noteRef);
-        const after = canonicalNoteVersion(afterNote);
         const noteChanged = payloadResult.outcome !== "unchanged";
-        const attachmentChanges = [];
-        if (payloadResult.createdAttachment) {
-          attachmentChanges.push({
-            entity: {
-              kind: "item" as const,
-              ref: canonicalItemRef(payloadResult.createdAttachment),
-            },
-            effect: "created" as const,
-            before: null,
-            after: canonicalItemVersion(payloadResult.createdAttachment),
+        const { after, noteResult, attachmentChanges } =
+          await withZoteroHostSlice(control, () => {
+            const afterNote = requireNote(noteRef);
+            const attachmentChanges: MutationChangeDto[] = [];
+            if (payloadResult.createdAttachment) {
+              attachmentChanges.push({
+                entity: {
+                  kind: "item" as const,
+                  ref: canonicalItemRef(payloadResult.createdAttachment),
+                },
+                effect: "created" as const,
+                before: null,
+                after: canonicalItemVersion(payloadResult.createdAttachment),
+              });
+            }
+            if (payloadResult.removedAttachment) {
+              attachmentChanges.push({
+                entity: {
+                  kind: "item" as const,
+                  ref: canonicalItemRef(payloadResult.removedAttachment),
+                },
+                effect: "deleted" as const,
+                before: canonicalItemVersion(payloadResult.removedAttachment),
+                after: {
+                  revision: hashSynthesisContractCanonicalJson({
+                    ref: canonicalItemRef(payloadResult.removedAttachment),
+                    state: "deleted",
+                    operationId,
+                  }),
+                  state: "deleted" as const,
+                },
+              });
+            }
+            return {
+              after: canonicalNoteVersion(afterNote),
+              noteResult: canonicalNoteSummaryDto(afterNote),
+              attachmentChanges,
+            };
           });
-        }
-        if (payloadResult.removedAttachment) {
-          attachmentChanges.push({
-            entity: {
-              kind: "item" as const,
-              ref: canonicalItemRef(payloadResult.removedAttachment),
-            },
-            effect: "deleted" as const,
-            before: canonicalItemVersion(payloadResult.removedAttachment),
-            after: {
-              revision: hashSynthesisContractCanonicalJson({
-                ref: canonicalItemRef(payloadResult.removedAttachment),
-                state: "deleted",
-                operationId,
-              }),
-              state: "deleted" as const,
-            },
-          });
-        }
         return {
           outcome: noteChanged ? "committed" : "unchanged",
           changes: [
@@ -7329,7 +7452,7 @@ async function executeNoteMutation(
             ...attachmentChanges,
           ],
           result: strictJsonObject({
-            note: canonicalNoteSummaryDto(afterNote),
+            note: noteResult,
             payload: payloadResult.payload,
             outcome: payloadResult.outcome,
           }),
@@ -7518,30 +7641,42 @@ async function executeAttachmentMutation(
           const input = request as AttachmentCreateRequestDto;
           const parent =
             input.placement.kind === "child"
-              ? requireItem(
-                  canonicalItemRef(input.placement.parentRef),
-                  "parent item",
-                )
+              ? await (async () => {
+                  const placement = input.placement;
+                  if (placement.kind !== "child") return null;
+                  return withZoteroHostSlice(control, () =>
+                    requireItem(
+                      canonicalItemRef(placement.parentRef),
+                      "parent item",
+                    ),
+                  );
+                })()
               : null;
-          const libraryId = parent
-            ? normalizeLibraryId(parent.libraryID)
-            : parsePositiveInteger(
-                input.placement.kind === "top_level"
-                  ? input.placement.libraryId
-                  : undefined,
-              ) || normalizeLibraryId(undefined);
+          const libraryId = await withZoteroHostSlice(control, () =>
+            parent
+              ? normalizeLibraryId(parent.libraryID)
+              : parsePositiveInteger(
+                  input.placement.kind === "top_level"
+                    ? input.placement.libraryId
+                    : undefined,
+                ) || normalizeLibraryId(undefined),
+          );
           const collectionRefs =
             input.placement.kind === "top_level"
               ? (input.placement.collectionRefs || []).map(
                   canonicalCollectionRef,
                 )
               : [];
-          const collections = collectionRefs.map((ref) => {
-            const collection = resolveCollection(ref);
+          const collections: Zotero.Collection[] = [];
+          for (const ref of collectionRefs) {
+            const collection = await withZoteroHostSlice(control, () =>
+              resolveCollection(ref),
+            );
             if (!collection) throw notFoundError("collection", ref);
-            if (
-              normalizeLibraryId((collection as any).libraryID) !== libraryId
-            ) {
+            const collectionLibraryId = await withZoteroHostSlice(control, () =>
+              normalizeLibraryId((collection as any).libraryID),
+            );
+            if (collectionLibraryId !== libraryId) {
               throw capabilityError(
                 "invalid_request",
                 "attachment placement crosses libraries",
@@ -7551,8 +7686,8 @@ async function executeAttachmentMutation(
                 },
               );
             }
-            return collection;
-          });
+            collections.push(collection);
+          }
           let created: Zotero.Item | null = null;
           try {
             if (input.source.kind === "stored_file") {
@@ -7561,31 +7696,42 @@ async function executeAttachmentMutation(
               }
               created = await primitives.createStoredFile(input, parent);
             } else if (input.source.kind === "linked_file") {
-              created = await handlers.attachment.createFromPath({
-                parent,
-                path: input.source.path,
-                title: input.metadata?.title,
-                mimeType: input.metadata?.contentType,
-              });
+              const source = input.source;
+              created = await withZoteroHostSlice(control, () =>
+                handlers.attachment.createFromPath({
+                  parent,
+                  path: source.path,
+                  title: input.metadata?.title,
+                  mimeType: input.metadata?.contentType,
+                }),
+              );
             } else if (input.source.kind === "linked_url") {
-              created = await handlers.attachment.createFromUrl({
-                parent,
-                url: input.source.url,
-                title: input.metadata?.title,
-                mimeType: input.metadata?.contentType,
-                deduplicate: false,
-              });
+              const source = input.source;
+              created = await withZoteroHostSlice(control, () =>
+                handlers.attachment.createFromUrl({
+                  parent,
+                  url: source.url,
+                  title: input.metadata?.title,
+                  mimeType: input.metadata?.contentType,
+                  deduplicate: false,
+                }),
+              );
             } else {
-              created = await handlers.attachment.importStoredFromUrl({
-                parent,
-                url: input.source.url,
-                title: input.metadata?.title,
-                mimeType: input.metadata?.contentType,
-                deduplicate: false,
-              });
+              const source = input.source;
+              created = await withZoteroHostSlice(control, () =>
+                handlers.attachment.importStoredFromUrl({
+                  parent,
+                  url: source.url,
+                  title: input.metadata?.title,
+                  mimeType: input.metadata?.contentType,
+                  deduplicate: false,
+                }),
+              );
             }
             for (const collection of collections) {
-              await handlers.collection.add(created, collection);
+              await withZoteroHostSlice(control, () =>
+                handlers.collection.add(created!, collection),
+              );
             }
           } catch (primary) {
             if (!created) {
@@ -7600,9 +7746,13 @@ async function executeAttachmentMutation(
                   : "attachment creation failed",
               );
             }
-            const ref = attachmentRefFromItem(created);
+            const ref = await withZoteroHostSlice(control, () =>
+              attachmentRefFromItem(created!),
+            );
             try {
-              await handlers.attachment.remove(created);
+              await withZoteroHostSlice(control, () =>
+                handlers.attachment.remove(created!),
+              );
             } catch {
               throw new MutationAuthorityExecutionError(
                 "repair_required",
@@ -7639,22 +7789,24 @@ async function executeAttachmentMutation(
               [{ kind: "item", ref }],
             );
           }
-          const ref = attachmentRefFromItem(created);
-          const confirmed = requireAttachment(ref);
-          return {
-            outcome: "committed",
-            changes: [
-              {
-                entity: { kind: "item", ref },
-                effect: "created",
-                before: null,
-                after: await canonicalAttachmentVersion(confirmed),
-              },
-            ],
-            result: strictJsonObject({
-              attachment: await canonicalAttachmentResult(confirmed),
-            }),
-          };
+          return withZoteroHostSlice(control, async () => {
+            const ref = attachmentRefFromItem(created!);
+            const confirmed = requireAttachment(ref);
+            return {
+              outcome: "committed" as const,
+              changes: [
+                {
+                  entity: { kind: "item" as const, ref },
+                  effect: "created" as const,
+                  before: null,
+                  after: await canonicalAttachmentVersion(confirmed),
+                },
+              ],
+              result: strictJsonObject({
+                attachment: await canonicalAttachmentResult(confirmed),
+              }),
+            };
+          });
         }
 
         const input = request as
@@ -7663,21 +7815,29 @@ async function executeAttachmentMutation(
           | AttachmentMoveRequestDto
           | AttachmentRemoveRequestDto;
         const attachmentRef = canonicalItemRef(input.attachmentRef);
-        const attachment = requireAttachment(attachmentRef);
-        if ((await canonicalAttachmentRole(attachment)) !== "ordinary") {
-          throw new MutationAuthorityExecutionError(
-            "failed",
-            "invalid_ref",
-            "read",
-            "refresh_and_retry_new_operation",
-            { kind: "attachment", reason: "wrong_kind" },
-            `${operation} requires an ordinary attachment`,
-            [{ kind: "item", ref: attachmentRef }],
-          );
-        }
-        const before = await assertExpectedAttachmentRevision(
-          attachment,
-          input.expectedRevision,
+        const { attachment, before } = await withZoteroHostSlice(
+          control,
+          async () => {
+            const attachment = requireAttachment(attachmentRef);
+            if ((await canonicalAttachmentRole(attachment)) !== "ordinary") {
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "invalid_ref",
+                "read",
+                "refresh_and_retry_new_operation",
+                { kind: "attachment", reason: "wrong_kind" },
+                `${operation} requires an ordinary attachment`,
+                [{ kind: "item", ref: attachmentRef }],
+              );
+            }
+            return {
+              attachment,
+              before: await assertExpectedAttachmentRevision(
+                attachment,
+                input.expectedRevision,
+              ),
+            };
+          },
         );
 
         if (operation === "attachments.updateMetadata") {
@@ -7698,33 +7858,43 @@ async function executeAttachmentMutation(
               "attachment metadata patch is empty",
             );
           }
-          const current = Object.fromEntries(
-            Object.keys(fields).map((field) => [
-              field,
-              trimText(attachment.getField?.(field)),
-            ]),
+          const current = await withZoteroHostSlice(control, () =>
+            Object.fromEntries(
+              Object.keys(fields).map((field) => [
+                field,
+                trimText(attachment.getField?.(field)),
+              ]),
+            ),
           );
           const changed = Object.entries(fields).some(
             ([field, value]) => current[field] !== String(value),
           );
           if (changed)
-            await handlers.attachment.update(attachment, fields as any);
-          const afterAttachment = requireAttachment(attachmentRef);
-          const after = await canonicalAttachmentVersion(afterAttachment);
-          return {
-            outcome: changed ? "committed" : "unchanged",
-            changes: [
-              {
-                entity: { kind: "item", ref: attachmentRef },
-                effect: changed ? "updated" : "unchanged",
-                before,
-                after,
-              },
-            ],
-            result: strictJsonObject({
-              attachment: await canonicalAttachmentResult(afterAttachment),
-            }),
-          };
+            await withZoteroHostSlice(control, () =>
+              handlers.attachment.update(attachment, fields as any),
+            );
+          return withZoteroHostSlice(control, async () => {
+            const afterAttachment = requireAttachment(attachmentRef);
+            const after = await canonicalAttachmentVersion(afterAttachment);
+            return {
+              outcome: changed
+                ? ("committed" as const)
+                : ("unchanged" as const),
+              changes: [
+                {
+                  entity: { kind: "item" as const, ref: attachmentRef },
+                  effect: changed
+                    ? ("updated" as const)
+                    : ("unchanged" as const),
+                  before,
+                  after,
+                },
+              ],
+              result: strictJsonObject({
+                attachment: await canonicalAttachmentResult(afterAttachment),
+              }),
+            };
+          });
         }
 
         if (operation === "attachments.replaceFile") {
@@ -7758,60 +7928,89 @@ async function executeAttachmentMutation(
               [{ kind: "item", ref: attachmentRef }],
             );
           }
-          const after = await canonicalAttachmentVersion(replaced);
-          const changed = before.revision !== after.revision;
-          return {
-            outcome: changed ? "committed" : "unchanged",
-            changes: [
-              {
-                entity: { kind: "item", ref: attachmentRef },
-                effect: changed ? "updated" : "unchanged",
-                before,
-                after,
-              },
-            ],
-            result: strictJsonObject({
-              attachment: await canonicalAttachmentResult(replaced),
-              outcome: changed ? "replaced" : "unchanged",
-            }),
-          };
+          return withZoteroHostSlice(control, async () => {
+            const after = await canonicalAttachmentVersion(replaced);
+            const changed = before.revision !== after.revision;
+            return {
+              outcome: changed
+                ? ("committed" as const)
+                : ("unchanged" as const),
+              changes: [
+                {
+                  entity: { kind: "item" as const, ref: attachmentRef },
+                  effect: changed
+                    ? ("updated" as const)
+                    : ("unchanged" as const),
+                  before,
+                  after,
+                },
+              ],
+              result: strictJsonObject({
+                attachment: await canonicalAttachmentResult(replaced),
+                outcome: changed ? "replaced" : "unchanged",
+              }),
+            };
+          });
         }
 
         if (operation === "attachments.move") {
           const placement = (input as AttachmentMoveRequestDto).placement;
-          const oldParent = (attachment as any).parentItem || null;
-          const oldCollections = attachment.getCollections();
-          const nextParent =
-            placement.kind === "child"
-              ? requireItem(
-                  canonicalItemRef(placement.parentRef),
-                  "parent item",
-                )
-              : null;
-          const nextCollections =
-            placement.kind === "top_level"
-              ? (placement.collectionRefs || []).map((ref) => {
-                  const collection = resolveCollection(
-                    canonicalCollectionRef(ref),
-                  );
-                  if (!collection) throw notFoundError("collection", ref);
-                  return collection;
-                })
-              : [];
-          const changed =
-            Number(oldParent?.id || 0) !== Number(nextParent?.id || 0) ||
-            JSON.stringify([...oldCollections].sort()) !==
-              JSON.stringify(
-                nextCollections.map((entry: any) => entry.id).sort(),
-              );
+          const {
+            oldParent,
+            oldCollections,
+            nextParent,
+            nextCollections,
+            changed,
+          } = await withZoteroHostSlice(control, () => {
+            const oldParent = (attachment as any).parentItem || null;
+            const oldCollections = attachment.getCollections();
+            const nextParent =
+              placement.kind === "child"
+                ? requireItem(
+                    canonicalItemRef(placement.parentRef),
+                    "parent item",
+                  )
+                : null;
+            const nextCollections =
+              placement.kind === "top_level"
+                ? (placement.collectionRefs || []).map((ref) => {
+                    const collection = resolveCollection(
+                      canonicalCollectionRef(ref),
+                    );
+                    if (!collection) throw notFoundError("collection", ref);
+                    return collection;
+                  })
+                : [];
+            const changed =
+              Number(oldParent?.id || 0) !== Number(nextParent?.id || 0) ||
+              JSON.stringify([...oldCollections].sort()) !==
+                JSON.stringify(
+                  nextCollections.map((entry: any) => entry.id).sort(),
+                );
+            return {
+              oldParent,
+              oldCollections,
+              nextParent,
+              nextCollections,
+              changed,
+            };
+          });
           if (changed) {
             try {
-              await handlers.item.setParent(attachment, nextParent);
-              await handlers.collection.replace(attachment, nextCollections);
+              await withZoteroHostSlice(control, () =>
+                handlers.item.setParent(attachment, nextParent),
+              );
+              await withZoteroHostSlice(control, () =>
+                handlers.collection.replace(attachment, nextCollections),
+              );
             } catch (primary) {
               try {
-                await handlers.item.setParent(attachment, oldParent);
-                await handlers.collection.replace(attachment, oldCollections);
+                await withZoteroHostSlice(control, () =>
+                  handlers.item.setParent(attachment, oldParent),
+                );
+                await withZoteroHostSlice(control, () =>
+                  handlers.collection.replace(attachment, oldCollections),
+                );
               } catch {
                 throw new MutationAuthorityExecutionError(
                   "repair_required",
@@ -7849,31 +8048,45 @@ async function executeAttachmentMutation(
               );
             }
           }
-          const afterAttachment = requireAttachment(attachmentRef);
-          const after = await canonicalAttachmentVersion(afterAttachment);
-          return {
-            outcome: changed ? "committed" : "unchanged",
-            changes: [
-              {
-                entity: { kind: "item", ref: attachmentRef },
-                effect: changed ? "updated" : "unchanged",
-                before,
-                after,
-              },
-            ],
-            result: strictJsonObject({
-              attachment: await canonicalAttachmentResult(afterAttachment),
-              outcome: changed ? "moved" : "unchanged",
-            }),
-          };
+          return withZoteroHostSlice(control, async () => {
+            const afterAttachment = requireAttachment(attachmentRef);
+            const after = await canonicalAttachmentVersion(afterAttachment);
+            return {
+              outcome: changed
+                ? ("committed" as const)
+                : ("unchanged" as const),
+              changes: [
+                {
+                  entity: { kind: "item" as const, ref: attachmentRef },
+                  effect: changed
+                    ? ("updated" as const)
+                    : ("unchanged" as const),
+                  before,
+                  after,
+                },
+              ],
+              result: strictJsonObject({
+                attachment: await canonicalAttachmentResult(afterAttachment),
+                outcome: changed ? "moved" : "unchanged",
+              }),
+            };
+          });
         }
 
         const disposition = (input as AttachmentRemoveRequestDto).disposition;
-        if (disposition === "trash") await handlers.item.trash(attachment);
-        else await handlers.attachment.remove(attachment);
+        if (disposition === "trash")
+          await withZoteroHostSlice(control, () =>
+            handlers.item.trash(attachment),
+          );
+        else
+          await withZoteroHostSlice(control, () =>
+            handlers.attachment.remove(attachment),
+          );
         const after =
           disposition === "trash"
-            ? await canonicalAttachmentVersion(requireAttachment(attachmentRef))
+            ? await withZoteroHostSlice(control, () =>
+                canonicalAttachmentVersion(requireAttachment(attachmentRef)),
+              )
             : {
                 revision: hashSynthesisContractCanonicalJson({
                   ref: attachmentRef,
@@ -8328,25 +8541,14 @@ async function selectLibraryItemPage(args: ZoteroHostLibraryListArgs = {}) {
   };
 }
 
-export async function listLegacyZoteroLibraryItems(
-  args: ZoteroHostLibraryListArgs = {},
-): Promise<ZoteroHostLibraryListResponse> {
-  const selection = await selectLibraryItemPage(args);
-  const { page, ...response } = selection;
-  return {
-    ...response,
-    items: page.map(serializeLibraryItemSummary),
-  };
-}
-
 async function listLibraryItems(
   input: LibraryListItemsRequestDto = {},
   control: WorkflowCallControl = {},
 ): Promise<LibraryListItemsPageDto> {
   throwIfWorkflowCallCanceled(control);
-  const collection = input.collectionRef
-    ? resolveCollection(input.collectionRef)
-    : null;
+  const collection = await withZoteroHostSlice(control, () =>
+    input.collectionRef ? resolveCollection(input.collectionRef) : null,
+  );
   if (input.collectionRef && !collection) {
     throw notFoundError("collection", input.collectionRef);
   }
@@ -8361,30 +8563,35 @@ async function listLibraryItems(
     );
   }
   try {
-    const page = await queryZoteroLibraryPage(
-      {
-        libraryId,
-        collectionId: collection
-          ? parsePositiveInteger((collection as any).id)
-          : undefined,
-        tag: input.tag,
-        itemType: input.itemType,
-        query: input.query,
-        limit: input.limit,
-        cursor: input.cursor,
-      },
-      {
-        defaultLibraryId: libraryId,
-        defaultLimit: LIBRARY_LIST_LIMIT_DEFAULT,
-        maxLimit: LIBRARY_LIST_LIMIT_MAX,
-      },
+    const page = await withZoteroHostSlice(control, () =>
+      queryZoteroLibraryPage(
+        {
+          libraryId,
+          collectionId: collection
+            ? parsePositiveInteger((collection as any).id)
+            : undefined,
+          tag: input.tag,
+          itemType: input.itemType,
+          query: input.query,
+          limit: input.limit,
+          cursor: input.cursor,
+        },
+        {
+          defaultLibraryId: libraryId,
+          defaultLimit: LIBRARY_LIST_LIMIT_DEFAULT,
+          maxLimit: LIBRARY_LIST_LIMIT_MAX,
+        },
+      ),
     );
-    const items = await Promise.all(
-      page.items.map(serializeCanonicalItemSummary),
+    const items = await mapZoteroHostTargets(
+      page.items,
+      control,
+      serializeCanonicalItemSummary,
     );
     throwIfWorkflowCallCanceled(control);
     return {
       items,
+      limit: page.limit,
       nextCursor: page.nextCursor || null,
       hasMore: page.hasMore,
       returned: items.length,
@@ -8419,7 +8626,8 @@ async function listLibraryItems(
         field: "cursor",
       });
     }
-    throw error;
+    if (error instanceof ZoteroHostCapabilityError) throw error;
+    throw canonicalReadFailure("item");
   }
 }
 
@@ -8450,39 +8658,24 @@ function canonicalCollectionDto(
   };
 }
 
-type CollectionCursor = {
-  version: 1;
-  criteriaDigest: string;
-  afterKey: string;
-};
-
-function decodeCollectionCursor(value: string): CollectionCursor {
-  try {
-    const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
-    const parsed = JSON.parse(
-      decodeBase64Utf8(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")),
+function canonicalCollectionPath(collection: Zotero.Collection) {
+  const names: string[] = [];
+  const seen = new Set<number>();
+  let current: Zotero.Collection | null = collection;
+  for (let depth = 0; current && depth < 1_000; depth += 1) {
+    const id = parsePositiveInteger((current as any).id);
+    if (id && seen.has(id)) break;
+    if (id) seen.add(id);
+    const name = trimText((current as any).name);
+    if (name) names.unshift(name);
+    const parentId = parsePositiveInteger(
+      (current as any).parentID ?? (current as any).parentCollectionID,
     );
-    if (
-      parsed?.version !== 1 ||
-      typeof parsed.criteriaDigest !== "string" ||
-      typeof parsed.afterKey !== "string"
-    ) {
-      throw new Error("invalid collection cursor");
-    }
-    return parsed;
-  } catch {
-    throw capabilityError("invalid_request", "collection cursor is invalid", {
-      reason: "invalid_value",
-      field: "cursor",
-    });
+    current = parentId
+      ? resolveZotero().Collections?.get?.(parentId) || null
+      : null;
   }
-}
-
-function encodeCollectionCursor(cursor: CollectionCursor) {
-  return encodeBase64Utf8(JSON.stringify(cursor))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/u, "");
+  return names;
 }
 
 async function listLibraryCollections(
@@ -8500,90 +8693,114 @@ async function listLibraryCollections(
     });
   }
   const libraryId = normalizeLibraryId(input.libraryId);
-  const limit = input.limit ?? 100;
-  if (!Number.isSafeInteger(limit) || limit <= 0) {
-    throw capabilityError(
-      "invalid_request",
-      "collection page limit is invalid",
-      {
-        reason: "invalid_value",
-        field: "limit",
-      },
-    );
-  }
-  if (limit > 500) {
-    throw capabilityError(
-      "resource_limited",
-      "collection page limit is invalid",
-      {
-        resource: "items",
-        limit: 500,
-        observed: Number.isFinite(limit) ? Number(limit) : undefined,
-      },
-    );
-  }
-  const criteriaDigest = await sha256Hex(
-    new TextEncoder().encode(
-      JSON.stringify({
-        schema: "zotero-agents.library-live-collections.v1",
+  let page;
+  try {
+    page = await withZoteroHostSlice(control, () =>
+      queryZoteroCollectionPage({
         libraryId,
-        order: "stable_identity",
+        limit: input.limit,
+        cursor: input.cursor,
       }),
-    ),
-  );
-  if (!criteriaDigest) {
-    throw capabilityError(
-      "unavailable",
-      "collection cursor hashing is unavailable",
-      {
-        reason: "runtime",
-        kind: "collection",
-      },
     );
-  }
-  let afterKey = "";
-  if (input.cursor) {
-    const cursor = decodeCollectionCursor(input.cursor);
-    if (cursor.criteriaDigest !== criteriaDigest) {
-      throw capabilityError(
-        "invalid_request",
-        "collection cursor criteria changed",
-        {
-          reason: "invalid_value",
-          field: "cursor",
-        },
-      );
-    }
-    afterKey = cursor.afterKey;
-  }
-  const legacy = await listZoteroCollections({ libraryId });
-  const collections = legacy
-    .map((entry) => {
-      const raw = resolveCollection({
-        libraryId: entry.libraryId,
-        key: entry.key,
+  } catch (error) {
+    if (error instanceof ZoteroLibraryPageLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "items",
+        limit: error.limit,
+        observed: Number.isFinite(error.observed) ? error.observed : undefined,
       });
-      if (!raw) throw canonicalReadFailure("collection");
-      return canonicalCollectionDto(raw, entry.path || [entry.name]);
-    })
-    .sort((left, right) => left.ref.key.localeCompare(right.ref.key));
-  const remaining = collections.filter((entry) => entry.ref.key > afterKey);
-  const page = remaining.slice(0, limit);
-  const hasMore = remaining.length > limit;
+    }
+    if (error instanceof ZoteroLibraryCursorError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason: "invalid_value",
+        field: "cursor",
+      });
+    }
+    if (error instanceof ZoteroLibrarySourceQueryError) {
+      throw canonicalReadFailure("collection");
+    }
+    throw error;
+  }
+  const collections = await mapZoteroHostTargets(page.rows, control, (row) => {
+    const id = parsePositiveInteger(
+      (row as any).collectionID ?? (row as any).collectionId,
+    );
+    const raw = id ? resolveZotero().Collections?.get?.(id) : null;
+    if (!raw || normalizeLibraryId((raw as any).libraryID) !== libraryId) {
+      throw canonicalReadFailure("collection");
+    }
+    return canonicalCollectionDto(raw, canonicalCollectionPath(raw));
+  });
   throwIfWorkflowCallCanceled(control);
   return {
-    collections: page,
+    collections,
     libraryId,
-    nextCursor:
-      hasMore && page.length
-        ? encodeCollectionCursor({
-            version: 1,
-            criteriaDigest,
-            afterKey: page.at(-1)!.ref.key,
-          })
-        : null,
-    hasMore,
-    returned: page.length,
+    limit: page.limit,
+    total: page.total,
+    nextCursor: page.nextCursor,
+    hasMore: page.hasMore,
+    returned: collections.length,
+    order: "stable_identity",
+  };
+}
+
+async function listLibrarySavedSearches(
+  input: LibraryListSavedSearchesRequestDto = {},
+  control: WorkflowCallControl = {},
+): Promise<LibraryListSavedSearchesPageDto> {
+  throwIfWorkflowCallCanceled(control);
+  const libraryId = normalizeLibraryId(input.libraryId);
+  let page;
+  try {
+    page = await withZoteroHostSlice(control, () =>
+      queryZoteroSavedSearchPage({
+        libraryId,
+        limit: input.limit,
+        cursor: input.cursor,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof ZoteroLibraryPageLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "items",
+        limit: error.limit,
+        observed: Number.isFinite(error.observed) ? error.observed : undefined,
+      });
+    }
+    if (error instanceof ZoteroLibraryCursorError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason: "invalid_value",
+        field: "cursor",
+      });
+    }
+    if (error instanceof ZoteroLibrarySourceQueryError) {
+      throw canonicalReadFailure("item");
+    }
+    throw error;
+  }
+  const savedSearches = page.rows.map((row) => {
+    const key = trimText((row as any).key, 64);
+    const rowLibraryId = normalizeLibraryId(
+      (row as any).libraryID ?? (row as any).libraryId,
+    );
+    const name = trimText((row as any).savedSearchName ?? (row as any).name);
+    if (!key || rowLibraryId !== libraryId) {
+      throw canonicalReadFailure("item");
+    }
+    return {
+      ref: { libraryId, key },
+      name,
+    };
+  });
+  throwIfWorkflowCallCanceled(control);
+  return {
+    savedSearches,
+    libraryId,
+    limit: page.limit,
+    total: page.total,
+    returned: savedSearches.length,
+    hasMore: page.hasMore,
+    nextCursor: page.nextCursor,
     order: "stable_identity",
   };
 }
@@ -8772,15 +8989,18 @@ async function traverseLibraryItems(
       return { outcome: "canceled", libraryId, visitedItems, visitedBatches };
     }
     const remainingItems = maxItems - visitedItems;
-    const page = await listLibraryItems({
-      libraryId,
-      collectionRef: input.collectionRef,
-      tag: input.tag,
-      itemType: input.itemType,
-      query: input.query,
-      limit: Math.min(pageSize, remainingItems),
-      cursor,
-    });
+    const page = await listLibraryItems(
+      {
+        libraryId,
+        collectionRef: input.collectionRef,
+        tag: input.tag,
+        itemType: input.itemType,
+        query: input.query,
+        limit: Math.min(pageSize, remainingItems),
+        cursor,
+      },
+      control,
+    );
     if (!criteriaDigest) {
       criteriaDigest =
         (await sha256Hex(
@@ -8968,25 +9188,35 @@ function uniqueSnapshotToken(prefix: "snapshot" | "cursor") {
   );
 }
 
-async function captureSnapshotItems(libraryId: number) {
+async function captureSnapshotItems(
+  libraryId: number,
+  control: WorkflowCallControl = {},
+) {
   let cursor: string | undefined;
   const captured: ZoteroHostSnapshotCapturedItem[] = [];
   let expectedTotal: number | null = null;
   for (;;) {
-    const page = await queryZoteroLibraryPage(
-      {
-        libraryId,
-        limit: SNAPSHOT_CAPTURE_PAGE_SIZE,
-        ...(cursor ? { cursor } : {}),
-      },
-      {
-        defaultLibraryId: libraryId,
-        defaultLimit: SNAPSHOT_CAPTURE_PAGE_SIZE,
-        maxLimit: SNAPSHOT_CAPTURE_PAGE_SIZE,
-      },
+    const sourcePage = await withZoteroHostSlice(control, () =>
+      queryZoteroLibraryPage(
+        {
+          libraryId,
+          limit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+          ...(cursor ? { cursor } : {}),
+        },
+        {
+          defaultLibraryId: libraryId,
+          defaultLimit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+          maxLimit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+        },
+      ),
+    );
+    const snapshots = await mapZoteroHostTargets(
+      sourcePage.items,
+      control,
+      serializeLibrarySyncSnapshotItem,
     );
     if (expectedTotal === null) {
-      expectedTotal = page.totalScanned;
+      expectedTotal = sourcePage.totalScanned;
       if (expectedTotal > snapshotRuntime.maxItems) {
         throw capabilityError(
           "resource_limited",
@@ -8998,22 +9228,21 @@ async function captureSnapshotItems(libraryId: number) {
           },
         );
       }
-    } else if (page.totalScanned !== expectedTotal) {
+    } else if (sourcePage.totalScanned !== expectedTotal) {
       throw capabilityError(
         "conflict",
         "snapshot item set changed during capture",
         { reason: "concurrent_modification", kind: "library" },
       );
     }
-    if (page.items.length !== page.returned) {
+    if (sourcePage.items.length !== sourcePage.returned) {
       throw capabilityError(
         "execution_failed",
         "snapshot item hydration was incomplete",
         { phase: "read", recovery: "refresh_and_retry_new_operation" },
       );
     }
-    for (const item of page.items) {
-      const snapshot = serializeLibrarySyncSnapshotItem(item);
+    for (const snapshot of snapshots) {
       captured.push({ ref: snapshot.ref, revision: snapshot.revision });
       if (captured.length > snapshotRuntime.maxItems) {
         throw capabilityError(
@@ -9027,21 +9256,85 @@ async function captureSnapshotItems(libraryId: number) {
         );
       }
     }
-    if (!page.hasMore) break;
-    if (!page.nextCursor) {
+    if (!sourcePage.hasMore) break;
+    if (!sourcePage.nextCursor) {
       throw capabilityError(
         "execution_failed",
         "snapshot capture continuation is missing",
         { phase: "read", recovery: "refresh_and_retry_new_operation" },
       );
     }
-    cursor = page.nextCursor;
+    cursor = sourcePage.nextCursor;
   }
   if (captured.length !== (expectedTotal || 0)) {
     throw capabilityError("conflict", "snapshot captured item count changed", {
       reason: "concurrent_modification",
       kind: "library",
     });
+  }
+  // Validate captured membership and revisions before publishing a session.
+  // Counts alone miss edits to pages read earlier in the capture.
+  cursor = undefined;
+  let verified = 0;
+  for (;;) {
+    const source = await withZoteroHostSlice(control, () =>
+      queryZoteroLibraryPage(
+        {
+          libraryId,
+          limit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+          ...(cursor ? { cursor } : {}),
+        },
+        {
+          defaultLibraryId: libraryId,
+          defaultLimit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+          maxLimit: SNAPSHOT_CAPTURE_PAGE_SIZE,
+        },
+      ),
+    );
+    const page = {
+      total: source.totalScanned,
+      hasMore: source.hasMore,
+      nextCursor: source.nextCursor,
+      items: await mapZoteroHostTargets(source.items, control, (item) => {
+        const snapshot = serializeLibrarySyncSnapshotItem(item);
+        return { ref: snapshot.ref, revision: snapshot.revision };
+      }),
+    };
+    if (
+      page.total !== captured.length ||
+      page.items.some((item, index) => {
+        const expected = captured[verified + index];
+        return (
+          !expected ||
+          item.ref.key !== expected.ref.key ||
+          item.ref.libraryId !== expected.ref.libraryId ||
+          item.revision !== expected.revision
+        );
+      })
+    ) {
+      throw capabilityError(
+        "conflict",
+        "snapshot source changed during capture",
+        {
+          reason: "concurrent_modification",
+          kind: "library",
+        },
+      );
+    }
+    verified += page.items.length;
+    if (!page.hasMore) break;
+    if (!page.nextCursor) throw canonicalReadFailure("item");
+    cursor = page.nextCursor;
+  }
+  if (verified !== captured.length) {
+    throw capabilityError(
+      "conflict",
+      "snapshot membership changed during capture",
+      {
+        reason: "concurrent_modification",
+        kind: "library",
+      },
+    );
   }
   captured.sort((left, right) =>
     `${left.ref.libraryId}\n${left.ref.key}`.localeCompare(
@@ -9060,14 +9353,22 @@ async function captureSnapshotItems(libraryId: number) {
     }
     seen.add(identity);
   }
-  return captured;
+  const basisDigest = hashSynthesisContractCanonicalJson({
+    libraryId,
+    items: captured,
+  });
+  return { items: captured, basisDigest };
 }
 
-async function openSnapshotSession(args: {
-  libraryId: number;
-  batchSize: number;
-  ownerId: string;
-}) {
+async function openSnapshotSession(
+  args: {
+    libraryId: number;
+    batchSize: number;
+    ownerId: string;
+  },
+  control: WorkflowCallControl = {},
+) {
+  throwIfWorkflowCallCanceled(control);
   const now = snapshotRuntime.now();
   purgeExpiredSnapshotSessions(now);
   if (snapshotSessions.size >= SNAPSHOT_ACTIVE_SESSION_LIMIT) {
@@ -9081,7 +9382,8 @@ async function openSnapshotSession(args: {
       },
     );
   }
-  const items = await captureSnapshotItems(args.libraryId);
+  const capture = await captureSnapshotItems(args.libraryId, control);
+  throwIfWorkflowCallCanceled(control);
   const snapshotId = uniqueSnapshotToken("snapshot");
   const session: ZoteroHostSnapshotSession = {
     processId: snapshotProcessId,
@@ -9091,7 +9393,8 @@ async function openSnapshotSession(args: {
     batchSize: args.batchSize,
     createdAt: now,
     expiresAt: now + ZOTERO_LIBRARY_SNAPSHOT_TTL_MS,
-    items,
+    items: capture.items,
+    basisDigest: capture.basisDigest,
     deliveredItems: 0,
     deliveredBatches: 0,
     expectedCursor: null,
@@ -9187,30 +9490,37 @@ function cancelLibrarySnapshot(
 
 async function readSnapshotSession(
   session: ZoteroHostSnapshotSession,
+  control: WorkflowCallControl = {},
 ): Promise<ZoteroHostLibrarySyncSnapshotResponse> {
   const offset = session.expectedOffset;
   const captured = session.items.slice(offset, offset + session.batchSize);
   const items: ZoteroHostLibrarySyncSnapshotItemDto[] = [];
   try {
-    for (const expected of captured) {
-      const item = resolveItem(expected.ref);
-      if (!item) {
-        throw capabilityError(
-          "conflict",
-          "snapshot item disappeared after capture",
-          { reason: "concurrent_modification", kind: "library" },
-        );
-      }
-      const serialized = serializeLibrarySyncSnapshotItem(item);
-      if (serialized.revision !== expected.revision) {
-        throw capabilityError(
-          "conflict",
-          "snapshot item revision changed after capture",
-          { reason: "revision_mismatch", kind: "library" },
-        );
-      }
-      items.push(serialized);
-    }
+    const serialized = await mapZoteroHostTargets(
+      captured,
+      control,
+      (expected) => {
+        const item = resolveItem(expected.ref);
+        if (!item) {
+          throw capabilityError(
+            "conflict",
+            "snapshot item disappeared after capture",
+            { reason: "concurrent_modification", kind: "library" },
+          );
+        }
+        const value = serializeLibrarySyncSnapshotItem(item);
+        if (value.revision !== expected.revision) {
+          throw capabilityError(
+            "conflict",
+            "snapshot item revision changed after capture",
+            { reason: "revision_mismatch", kind: "library" },
+          );
+        }
+        return value;
+      },
+    );
+    items.push(...serialized);
+    throwIfWorkflowCallCanceled(control);
   } catch (error) {
     snapshotSessions.delete(session.snapshotId);
     throw error;
@@ -9276,7 +9586,9 @@ async function readSnapshotSession(
 async function syncLibrarySnapshot(
   args: ZoteroHostLibrarySyncSnapshotRequest,
   scope?: ZoteroHostLibrarySnapshotCallerScope,
+  control: WorkflowCallControl = {},
 ): Promise<ZoteroHostLibrarySyncSnapshotResponse> {
+  throwIfWorkflowCallCanceled(control);
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw capabilityError("invalid_request", "snapshot request is invalid", {
       reason: "invalid_type",
@@ -9301,30 +9613,52 @@ async function syncLibrarySnapshot(
         batchSize: args.batchSize,
         cursor,
       })
-    : await openSnapshotSession({
-        libraryId,
-        batchSize: snapshotBatchSize(args.batchSize),
-        ownerId,
-      });
-  return readSnapshotSession(session);
+    : await openSnapshotSession(
+        {
+          libraryId,
+          batchSize: snapshotBatchSize(args.batchSize),
+          ownerId,
+        },
+        control,
+      );
+  return readSnapshotSession(session, control);
 }
 
 async function readinessAudit(
   args: ZoteroHostLibraryReadinessAuditArgs = {},
+  control: WorkflowCallControl = {},
 ): Promise<ZoteroHostLibraryReadinessAuditResponse> {
-  const selection = await selectLibraryItemPage(args);
+  throwIfWorkflowCallCanceled(control);
+  const selection = await withZoteroHostSlice(control, () =>
+    selectLibraryItemPage(args),
+  );
   const checks = normalizeReadinessChecks(args.checks);
   const missingOnly = parseBooleanInput(args.missingOnly ?? args.missing_only);
   const items: ZoteroHostLibraryReadinessItemDto[] = [];
+  let sliceStartedAt = Date.now();
+  let sliceProcessed = 0;
   for (const item of selection.page) {
+    throwIfWorkflowCallCanceled(control);
     const dto = await serializeLibraryReadinessItem(
       item as LibraryArtifactItem,
       checks,
+      {
+        runNativeSlice: (run) => withZoteroHostSlice(control, run),
+        checkCanceled: () => throwIfWorkflowCallCanceled(control),
+      },
     );
+    throwIfWorkflowCallCanceled(control);
     if (!missingOnly || dto.missing.length > 0) {
       items.push(dto);
     }
+    sliceProcessed += 1;
+    if (shouldYieldHostSlice(sliceStartedAt, sliceProcessed)) {
+      await yieldToEventLoop();
+      sliceStartedAt = Date.now();
+      sliceProcessed = 0;
+    }
   }
+  throwIfWorkflowCallCanceled(control);
   return {
     schema: "zotero.library.readiness_audit.v1",
     generatedAt: new Date().toISOString(),
@@ -9356,8 +9690,15 @@ function normalizeReadinessChecks(value: unknown) {
 async function serializeLibraryReadinessItem(
   item: LibraryArtifactItem,
   checks: ZoteroHostLibraryReadinessCheck[],
+  options: LibraryArtifactReadOptions = {},
 ): Promise<ZoteroHostLibraryReadinessItemDto> {
-  const artifactReadiness = await resolveLibraryArtifactReadiness(item);
+  const artifactReadiness = await resolveLibraryArtifactReadiness(
+    item,
+    options,
+  );
+  const summary = options.runNativeSlice
+    ? await options.runNativeSlice(() => serializeLibraryItemSummary(item))
+    : serializeLibraryItemSummary(item);
   const readiness = {
     pdf: artifactReadiness.pdf.present ? "present" : "missing",
     markdown: artifactReadiness.sourceMarkdown.present ? "present" : "missing",
@@ -9365,7 +9706,7 @@ async function serializeLibraryReadinessItem(
   } satisfies ZoteroHostLibraryReadinessItemDto["readiness"];
   const missing = checks.filter((check) => readiness[check] === "missing");
   return {
-    ...serializeLibraryItemSummary(item),
+    ...summary,
     readiness,
     missing,
     evidence: {
@@ -9558,12 +9899,13 @@ async function getSelectedItems(
       kind: "item",
     });
   }
-  let raw: unknown;
-  try {
-    raw = pane.getSelectedItems();
-  } catch {
-    throw canonicalReadFailure("item");
-  }
+  const raw = await withZoteroHostSlice(control, () => {
+    try {
+      return pane.getSelectedItems();
+    } catch {
+      throw canonicalReadFailure("item");
+    }
+  });
   if (!Array.isArray(raw)) throw canonicalReadFailure("item");
   if (raw.length > 10_000) {
     throw capabilityError("resource_limited", "selection exceeds the limit", {
@@ -9573,26 +9915,34 @@ async function getSelectedItems(
     });
   }
   const items: SelectedItemsSnapshotDto["items"] = [];
-  for (let index = 0; index < raw.length; index += 1) {
-    if (control.signal?.aborted) {
-      throw capabilityError("canceled", "selection capture was canceled", {
-        reason: "caller_signal",
-      });
-    }
-    let item = raw[index];
-    if (!isRawZoteroItem(item)) throw canonicalReadFailure("item");
-    if (item.isAttachment?.()) {
-      const parent = canonicalParentRef(item);
-      if (parent) item = requireItem(parent);
-    }
-    const parentRef = canonicalParentRef(item);
-    items.push({
-      ref: canonicalItemRef(item),
-      itemType: String(item.itemType || ""),
-      ...(getItemTitle(item) ? { title: getItemTitle(item) } : {}),
-      ...(parentRef ? { parentRef } : {}),
+  let sliceStartedAt = Date.now();
+  let sliceProcessed = 0;
+  for (let offset = 0; offset < raw.length; offset += 1) {
+    throwIfWorkflowCallCanceled(control);
+    const selected = await withZoteroHostSlice(control, () => {
+      let item = raw[offset];
+      if (!isRawZoteroItem(item)) throw canonicalReadFailure("item");
+      if (item.isAttachment?.()) {
+        const parent = canonicalParentRef(item);
+        if (parent) item = requireItem(parent);
+      }
+      const parentRef = canonicalParentRef(item);
+      const title = getItemTitle(item);
+      return {
+        ref: canonicalItemRef(item),
+        itemType: String(item.itemType || ""),
+        ...(title ? { title } : {}),
+        ...(parentRef ? { parentRef } : {}),
+      };
     });
-    if (index > 0 && index % 128 === 0) await Promise.resolve();
+    throwIfWorkflowCallCanceled(control);
+    items.push(selected);
+    sliceProcessed += 1;
+    if (shouldYieldHostSlice(sliceStartedAt, sliceProcessed)) {
+      await yieldToEventLoop();
+      sliceStartedAt = Date.now();
+      sliceProcessed = 0;
+    }
   }
   return { capturedAt: new Date().toISOString(), items };
 }
@@ -9829,15 +10179,45 @@ export function createZoteroHostCapabilityBroker(
       listItems: listLibraryItems,
       traverseItems: traverseLibraryItems,
       listCollections: listLibraryCollections,
-      syncSnapshot: syncLibrarySnapshot,
+      listSavedSearches: listLibrarySavedSearches,
+      syncSnapshot: (
+        args: ZoteroHostLibrarySyncSnapshotRequest,
+        scope?: ZoteroHostLibrarySnapshotCallerScope,
+        control?: WorkflowCallControl,
+      ) => syncLibrarySnapshot(args, scope, control),
       cancelSnapshot: cancelLibrarySnapshot,
-      readinessAudit,
+      readinessAudit: (
+        args: ZoteroHostLibraryReadinessAuditArgs,
+        control?: WorkflowCallControl,
+      ) => readinessAudit(args, control),
       async getItemDetail(
         ref: ZoteroHostItemRefInput,
         control: WorkflowCallControl = {},
       ) {
         throwIfWorkflowCallCanceled(control);
-        const detail = await serializeCanonicalItemDetail(requireItem(ref));
+        const target = await withZoteroHostSlice(control, () => {
+          const item = requireItem(ref);
+          const kind = canonicalItemKind(item);
+          return {
+            item,
+            kind,
+            ...(kind === "attachment"
+              ? { linkMode: canonicalAttachmentLinkMode(item) }
+              : {}),
+          };
+        });
+        let attachmentPath: string | undefined;
+        if (target.kind === "attachment") {
+          throwIfWorkflowCallCanceled(control);
+          attachmentPath = await readAttachmentPathOutsideHostSlice(
+            target.item,
+            target.linkMode!,
+          );
+          throwIfWorkflowCallCanceled(control);
+        }
+        const detail = await withZoteroHostSlice(control, () =>
+          serializeCanonicalItemDetail(target.item, attachmentPath),
+        );
         throwIfWorkflowCallCanceled(control);
         return detail;
       },
@@ -9846,15 +10226,21 @@ export function createZoteroHostCapabilityBroker(
         control: WorkflowCallControl = {},
       ) {
         throwIfWorkflowCallCanceled(control);
-        const item = requireItem(ref);
-        const detail = await serializeCanonicalItemDetail(item);
-        if (detail.kind !== "regular") {
-          throw capabilityError("invalid_request", "item is not regular", {
-            reason: "invalid_type",
-            field: "itemRef",
-          });
-        }
-        const tags = Array.from(new Set(detail.item.tags)).sort(
+        const { summary, revision } = await withZoteroHostSlice(
+          control,
+          async () => {
+            const item = requireItem(ref);
+            if (canonicalItemKind(item) !== "regular") {
+              throw capabilityError("invalid_request", "item is not regular", {
+                reason: "invalid_type",
+                field: "itemRef",
+              });
+            }
+            const summary = canonicalRegularSummary(item);
+            return { summary, revision: canonicalItemVersion(item).revision };
+          },
+        );
+        const tags = Array.from(new Set(summary.tags)).sort(
           compareCanonicalTextCodeUnits,
         );
         const tagDigest = await sha256Hex(
@@ -9864,19 +10250,20 @@ export function createZoteroHostCapabilityBroker(
         throwIfWorkflowCallCanceled(control);
         return {
           target: {
-            libraryId: detail.item.ref.libraryId,
-            itemKey: detail.item.ref.key,
+            libraryId: summary.ref.libraryId,
+            itemKey: summary.ref.key,
           },
-          revision: canonicalItemVersion(item).revision,
+          revision,
           tagDigest,
           tags,
         };
       },
       async getItemNotes(
         ref: ZoteroHostItemRefInput,
+        page: LibraryPageRequestDto = {},
         control: WorkflowCallControl = {},
       ) {
-        return getCanonicalItemNotes(ref, control);
+        return getCanonicalItemNotes(ref, page, control);
       },
       async getNoteDetail(
         ref: ZoteroHostItemRefInput,
@@ -9887,9 +10274,10 @@ export function createZoteroHostCapabilityBroker(
       },
       async listNotePayloads(
         ref: ZoteroHostItemRefInput,
+        page: LibraryPageRequestDto = {},
         control: WorkflowCallControl = {},
       ) {
-        return listCanonicalNotePayloads(ref, control);
+        return listCanonicalNotePayloads(ref, page, control);
       },
       async getNotePayload(
         ref: ZoteroHostItemRefInput,
@@ -9900,16 +10288,56 @@ export function createZoteroHostCapabilityBroker(
       },
       async listAnnotations(
         ref: ZoteroHostItemRefInput,
+        page: LibraryPageRequestDto = {},
         control: WorkflowCallControl = {},
       ) {
-        return canonicalAnnotationItems(ref, control);
+        return canonicalAnnotationItems(ref, page, control);
       },
       exportPortableItems: exportCanonicalPortableItems,
       async exportAnnotations(
         ref: ZoteroHostItemRefInput,
         args: { format?: string } = {},
+        control: WorkflowCallControl = {},
       ) {
-        const annotations = annotationsFromItem(requireItem(ref, "item"));
+        throwIfWorkflowCallCanceled(control);
+        const item = await withZoteroHostSlice(control, () =>
+          requireItem(ref, "item"),
+        );
+        const itemRef = canonicalItemRef(item);
+        const annotations: ZoteroHostAnnotationDto[] = [];
+        let sliceStartedAt = Date.now();
+        let sliceProcessed = 0;
+        let cursor: string | undefined;
+        do {
+          throwIfWorkflowCallCanceled(control);
+          const page = await canonicalAnnotationItems(
+            itemRef,
+            { limit: 100, ...(cursor ? { cursor } : {}) },
+            control,
+          );
+          for (const annotation of page.annotations) {
+            throwIfWorkflowCallCanceled(control);
+            const serialized = await withZoteroHostSlice(control, () => {
+              const rawAnnotation = resolveItem(annotation.ref);
+              const rawAttachment = resolveItem(annotation.attachmentRef);
+              if (!rawAnnotation || !rawAttachment) {
+                throw canonicalReadFailure("annotation");
+              }
+              return serializeAnnotation(rawAnnotation, rawAttachment);
+            });
+            throwIfWorkflowCallCanceled(control);
+            annotations.push(serialized);
+            sliceProcessed += 1;
+            if (shouldYieldHostSlice(sliceStartedAt, sliceProcessed)) {
+              await yieldToEventLoop();
+              sliceStartedAt = Date.now();
+              sliceProcessed = 0;
+            }
+          }
+          cursor = page.nextCursor || undefined;
+          if (!page.hasMore) break;
+        } while (cursor);
+        throwIfWorkflowCallCanceled(control);
         const format = trimText(args.format).toLowerCase() || "markdown";
         if (format === "json") {
           return {
@@ -9925,9 +10353,10 @@ export function createZoteroHostCapabilityBroker(
       },
       async getItemAttachments(
         ref: ZoteroHostItemRefInput,
+        page: LibraryPageRequestDto = {},
         control: WorkflowCallControl = {},
       ) {
-        return getCanonicalItemAttachments(ref, control);
+        return getCanonicalItemAttachments(ref, page, control);
       },
     },
     metadata: {
@@ -10060,15 +10489,25 @@ export function createZoteroHostCapabilityBroker(
                           request.note || request.target!,
                         ),
                         payload: {
-                          payloadType: normalizePayloadType(request.payloadType),
+                          payloadType: normalizePayloadType(
+                            request.payloadType,
+                          ),
                           noteKind: trimText(request.noteKind, 80),
                           schemaVersion: trimText(
                             (request.payload as Record<string, unknown> | null)
                               ?.schemaVersion ||
-                              (request.payload as Record<string, unknown> | null)
-                                ?.schema ||
-                              (request.payload as Record<string, unknown> | null)
-                                ?.version ||
+                              (
+                                request.payload as Record<
+                                  string,
+                                  unknown
+                                > | null
+                              )?.schema ||
+                              (
+                                request.payload as Record<
+                                  string,
+                                  unknown
+                                > | null
+                              )?.version ||
                               `${normalizePayloadType(request.payloadType)}.v1`,
                             200,
                           ),
@@ -10113,7 +10552,9 @@ export function createZoteroHostCapabilityBroker(
                       noteKind: String(payload.noteKind || ""),
                       attachmentKey:
                         source?.kind === "embedded_attachment"
-                          ? String((source.attachmentRef as JsonObject)?.key || "")
+                          ? String(
+                              (source.attachmentRef as JsonObject)?.key || "",
+                            )
                           : "",
                       bytes: Number(payload.estimatedBytes) || 0,
                       replaced: result.outcome === "replaced" ? 1 : 0,
@@ -10172,12 +10613,162 @@ function throwIfWorkflowCallCanceled(control: WorkflowCallControl = {}) {
   }
 }
 
+type HostSliceWaiter<T> = {
+  control: WorkflowCallControl;
+  run: () => Promise<T> | T;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (error: unknown) => void;
+  queued: boolean;
+  started: boolean;
+  settled: boolean;
+  canceled: boolean;
+  abort?: () => void;
+};
+
+const hostSliceQueue: Array<HostSliceWaiter<unknown>> = [];
+let hostSliceActive = false;
+
+function pumpHostSlices() {
+  if (hostSliceActive) return;
+  let waiter = hostSliceQueue.shift();
+  while (waiter && !waiter.queued) waiter = hostSliceQueue.shift();
+  if (!waiter) return;
+  waiter.queued = false;
+  waiter.started = true;
+  hostSliceActive = true;
+  Promise.resolve()
+    .then(() => {
+      if (waiter.canceled || waiter.control.signal?.aborted) {
+        throw capabilityError("canceled", "workflow call was canceled", {
+          reason: "caller_signal",
+        });
+      }
+      return waiter.run();
+    })
+    .then(
+      (value) => {
+        if (waiter.canceled || waiter.control.signal?.aborted) {
+          waiter.reject(
+            capabilityError("canceled", "workflow call was canceled", {
+              reason: "caller_signal",
+            }),
+          );
+        } else {
+          waiter.resolve(value);
+        }
+      },
+      (error) => {
+        if (waiter.canceled || waiter.control.signal?.aborted) {
+          waiter.reject(
+            capabilityError("canceled", "workflow call was canceled", {
+              reason: "caller_signal",
+            }),
+          );
+        } else {
+          waiter.reject(error);
+        }
+      },
+    )
+    .finally(() => {
+      waiter.settled = true;
+      if (waiter.abort) {
+        waiter.control.signal?.removeEventListener("abort", waiter.abort);
+      }
+      hostSliceActive = false;
+      pumpHostSlices();
+    });
+}
+
+function withZoteroHostSlice<T>(
+  control: WorkflowCallControl = {},
+  run: () => Promise<T> | T,
+): Promise<T> {
+  throwIfWorkflowCallCanceled(control);
+  return new Promise<T>((resolve, reject) => {
+    const waiter: HostSliceWaiter<T> = {
+      control,
+      run,
+      resolve,
+      reject,
+      queued: true,
+      started: false,
+      settled: false,
+      canceled: false,
+    };
+    const abort = () => {
+      if (waiter.settled) return;
+      waiter.canceled = true;
+      if (!waiter.started) {
+        waiter.queued = false;
+        const index = hostSliceQueue.indexOf(
+          waiter as unknown as HostSliceWaiter<unknown>,
+        );
+        if (index >= 0) hostSliceQueue.splice(index, 1);
+        waiter.settled = true;
+        reject(
+          capabilityError("canceled", "workflow call was canceled", {
+            reason: "caller_signal",
+          }),
+        );
+        pumpHostSlices();
+      }
+    };
+    waiter.abort = abort;
+    control.signal?.addEventListener("abort", abort, { once: true });
+    hostSliceQueue.push(waiter as unknown as HostSliceWaiter<unknown>);
+    pumpHostSlices();
+  });
+}
+
+export function resetZoteroHostSliceGateForTests() {
+  while (hostSliceQueue.length) {
+    const waiter = hostSliceQueue.shift();
+    if (!waiter) break;
+    waiter.queued = false;
+    waiter.canceled = true;
+    waiter.settled = true;
+    if (waiter.abort) {
+      waiter.control.signal?.removeEventListener("abort", waiter.abort);
+    }
+    waiter.reject(
+      capabilityError("canceled", "host slice gate was reset", {
+        reason: "caller_signal",
+      }),
+    );
+  }
+}
+
+function shouldYieldHostSlice(startedAt: number, processed: number) {
+  return processed >= 100 || Date.now() - startedAt >= 50;
+}
+
+async function mapZoteroHostTargets<T, R>(
+  targets: readonly T[],
+  control: WorkflowCallControl,
+  project: (target: T) => R | Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let startedAt = Date.now();
+  let processed = 0;
+  for (const target of targets) {
+    results.push(await withZoteroHostSlice(control, () => project(target)));
+    processed += 1;
+    if (shouldYieldHostSlice(startedAt, processed)) {
+      await yieldToEventLoop();
+      throwIfWorkflowCallCanceled(control);
+      startedAt = Date.now();
+      processed = 0;
+    }
+  }
+  return results;
+}
+
 async function openZoteroItem(
   ref: ZoteroHostItemRefInput,
   control: WorkflowCallControl = {},
 ): Promise<NavigationResultDto> {
   throwIfWorkflowCallCanceled(control);
-  const item = requireItem(ref);
+  const item = await withZoteroHostSlice(control, () => requireItem(ref));
   if (canonicalItemKind(item) !== "regular") {
     throw invalidRefError(
       "item",
@@ -10185,7 +10776,7 @@ async function openZoteroItem(
       "ref does not identify a regular item",
     );
   }
-  await selectZoteroItems([item]);
+  await withZoteroHostSlice(control, () => selectZoteroItems([item]));
   throwIfWorkflowCallCanceled(control);
   return {
     openedAt: new Date().toISOString(),
@@ -10198,8 +10789,8 @@ async function openZoteroNote(
   control: WorkflowCallControl = {},
 ): Promise<NavigationResultDto> {
   throwIfWorkflowCallCanceled(control);
-  const note = requireNote(ref);
-  await selectZoteroItems([note]);
+  const note = await withZoteroHostSlice(control, () => requireNote(ref));
+  await withZoteroHostSlice(control, () => selectZoteroItems([note]));
   throwIfWorkflowCallCanceled(control);
   return {
     openedAt: new Date().toISOString(),
@@ -10212,9 +10803,11 @@ async function openZoteroCollection(
   control: WorkflowCallControl = {},
 ): Promise<NavigationResultDto> {
   throwIfWorkflowCallCanceled(control);
-  const collection = resolveCollection(ref);
+  const collection = await withZoteroHostSlice(control, () =>
+    resolveCollection(ref),
+  );
   if (!collection) throw notFoundError("collection", ref);
-  await selectZoteroCollection(collection);
+  await withZoteroHostSlice(control, () => selectZoteroCollection(collection));
   throwIfWorkflowCallCanceled(control);
   return {
     openedAt: new Date().toISOString(),
@@ -10245,9 +10838,11 @@ async function openZoteroSelection(
   }
   const seen = new Set<string>();
   const items: Zotero.Item[] = [];
+  let sliceStartedAt = Date.now();
+  let sliceProcessed = 0;
   for (const ref of input.itemRefs) {
     throwIfWorkflowCallCanceled(control);
-    const item = requireItem(ref);
+    const item = await withZoteroHostSlice(control, () => requireItem(ref));
     const normalized = canonicalItemRef(item);
     const identity = `${normalized.libraryId}:${normalized.key}`;
     if (seen.has(identity)) {
@@ -10262,8 +10857,14 @@ async function openZoteroSelection(
     }
     seen.add(identity);
     items.push(item);
+    sliceProcessed += 1;
+    if (shouldYieldHostSlice(sliceStartedAt, sliceProcessed)) {
+      await yieldToEventLoop();
+      sliceStartedAt = Date.now();
+      sliceProcessed = 0;
+    }
   }
-  await selectZoteroItems(items);
+  await withZoteroHostSlice(control, () => selectZoteroItems(items));
   throwIfWorkflowCallCanceled(control);
   return {
     openedAt: new Date().toISOString(),
@@ -10271,123 +10872,66 @@ async function openZoteroSelection(
   };
 }
 
-export async function getLegacyZoteroItemDetail(ref: ZoteroHostItemRefInput) {
-  const item = resolveItem(ref);
-  return item ? serializeItemDetail(item) : null;
-}
-
-export async function getLegacyZoteroItemNotes(
-  ref: ZoteroHostItemRefInput,
-  args: {
-    limit?: number | string;
-    cursor?: number | string;
-    maxExcerptChars?: number | string;
-  } = {},
-) {
-  const item = requireItem(ref, "item");
-  let noteIds: unknown[] = [];
-  try {
-    noteIds = item.getNotes?.() || [];
-  } catch {
-    return [];
-  }
-  const limit = Math.min(
-    TARGET_LIMIT_MAX,
-    Math.max(1, parsePositiveInteger(args.limit) || TARGET_LIMIT_MAX),
-  );
-  const cursor = parseNonNegativeInteger(args.cursor);
-  const maxExcerptChars = Math.min(
-    NOTE_EXCERPT_MAX,
-    Math.max(
-      1,
-      parsePositiveInteger(args.maxExcerptChars) || NOTE_EXCERPT_DEFAULT,
-    ),
-  );
-  return noteIds.slice(cursor, cursor + limit).map((id) => {
-    try {
-      const note = resolveZotero().Items.get(id as number);
-      return note
-        ? serializeNoteSummary(note, maxExcerptChars)
-        : failedNoteDto(id, new Error("child note not found"));
-    } catch (error) {
-      return failedNoteDto(id, error);
-    }
-  });
-}
-
-export async function getLegacyZoteroNoteDetail(
-  ref: ZoteroHostItemRefInput,
-  args: ZoteroHostNoteDetailArgs = {},
-) {
-  return serializeNoteDetailChunk(requireNote(ref), args);
-}
-
-export async function listLegacyZoteroNotePayloads(
-  ref: ZoteroHostItemRefInput,
-) {
-  return serializeNotePayloadSummary(requireNote(ref));
-}
-
-export async function getLegacyZoteroNotePayload(
-  ref: ZoteroHostItemRefInput,
-  args: ZoteroHostNotePayloadDetailArgs = {},
-) {
-  return serializeNotePayloadDetail(requireNote(ref), args);
-}
-
-export async function getLegacyZoteroItemAttachments(
-  ref: ZoteroHostItemRefInput,
-) {
-  const item = requireItem(ref, "item");
-  let attachmentIds: unknown[] = [];
-  try {
-    attachmentIds = item.getAttachments?.() || [];
-  } catch {
-    return [];
-  }
-  const attachments: ZoteroHostAttachmentDto[] = [];
-  for (const id of attachmentIds) {
-    try {
-      const attachment = resolveZotero().Items.get(id as number);
-      attachments.push(
-        attachment
-          ? await serializeAttachment(attachment)
-          : failedAttachmentDto(id, new Error("child attachment not found")),
-      );
-    } catch (error) {
-      attachments.push(failedAttachmentDto(id, error));
-    }
-  }
-  return attachments;
-}
-
 async function getCanonicalItemNotes(
   ref: ZoteroHostItemRefInput,
+  page: LibraryPageRequestDto = {},
   control: WorkflowCallControl = {},
-) {
+): Promise<LibraryListItemNotesPageDto> {
   throwIfWorkflowCallCanceled(control);
-  const item = requireItem(ref, "item");
-  let ids: unknown;
+  const item = await withZoteroHostSlice(control, () =>
+    requireItem(ref, "item"),
+  );
+  const itemKind = await withZoteroHostSlice(control, () =>
+    canonicalItemKind(item),
+  );
+  if (itemKind !== "regular") {
+    throw invalidRefError("item", "wrong_kind", "notes require a regular item");
+  }
+  let sourcePage;
   try {
-    ids = item.getNotes?.();
-  } catch {
+    sourcePage = await withZoteroHostSlice(control, () =>
+      queryZoteroChildItemPage({
+        domain: "notes",
+        libraryId: normalizeLibraryId((item as any).libraryID),
+        parentItemId: parsePositiveInteger((item as any).id),
+        limit: page.limit,
+        cursor: page.cursor,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof ZoteroLibraryPageLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "items",
+        limit: error.limit,
+        observed: Number.isFinite(error.observed) ? error.observed : undefined,
+      });
+    }
+    if (error instanceof ZoteroLibraryCursorError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason: "invalid_value",
+        field: "cursor",
+      });
+    }
+    if (error instanceof ZoteroHostCapabilityError) throw error;
     throw canonicalReadFailure("note");
   }
-  if (!Array.isArray(ids)) throw canonicalReadFailure("note");
-  if (ids.length > 500) {
-    throw capabilityError("resource_limited", "child notes exceed the limit", {
-      resource: "items",
-      limit: 500,
-      observed: ids.length,
-    });
-  }
-  const notes = ids.map((id) => {
-    const note = resolveZotero().Items.get(id as number);
-    if (!note || !note.isNote?.()) throw canonicalReadFailure("note");
-    return canonicalNoteSummaryDto(note);
-  });
+  const notes = await mapZoteroHostTargets(
+    sourcePage.items,
+    control,
+    (note) => {
+      if (!note.isNote?.()) throw canonicalReadFailure("note");
+      return canonicalNoteSummaryDto(note);
+    },
+  );
   throwIfWorkflowCallCanceled(control);
-  return notes;
+  return {
+    notes,
+    limit: sourcePage.limit,
+    total: sourcePage.total,
+    returned: notes.length,
+    hasMore: sourcePage.hasMore,
+    nextCursor: sourcePage.nextCursor,
+  };
 }
 
 async function getCanonicalNoteDetail(
@@ -10402,16 +10946,18 @@ async function getCanonicalNoteDetail(
       field: "format",
     });
   }
-  const note = requireNote(ref);
-  const content = canonicalNoteText(note);
-  const detail = {
-    ref: canonicalItemRef(note),
-    parentRef: canonicalParentRef(note),
-    title: canonicalTitle(note) || content.text.slice(0, 80),
-    format: options.format,
-    content: options.format === "html" ? content.html : content.text,
-    revision: canonicalNoteVersion(note).revision,
-  };
+  const detail = await withZoteroHostSlice(control, () => {
+    const note = requireNote(ref);
+    const content = canonicalNoteText(note);
+    return {
+      ref: canonicalItemRef(note),
+      parentRef: canonicalParentRef(note),
+      title: canonicalTitle(note) || content.text.slice(0, 80),
+      format: options.format,
+      content: options.format === "html" ? content.html : content.text,
+      revision: canonicalNoteVersion(note).revision,
+    };
+  });
   throwIfWorkflowCallCanceled(control);
   return detail;
 }
@@ -10472,14 +11018,77 @@ function canonicalPayloadSummary(
 
 async function listCanonicalNotePayloads(
   ref: ZoteroHostItemRefInput,
+  page: LibraryPageRequestDto = {},
   control: WorkflowCallControl = {},
-) {
+): Promise<LibraryListNotePayloadsPageDto> {
   throwIfWorkflowCallCanceled(control);
-  const note = requireNote(ref);
-  const blocks = await listNotePayloadBlocksForItem(note);
-  const payloads = blocks.map((block) => canonicalPayloadSummary(block, note));
+  const note = await withZoteroHostSlice(control, () => requireNote(ref));
+  let sourcePage;
+  try {
+    sourcePage = await listNotePayloadBlocksForItemPage(
+      note,
+      {
+        limit: page.limit,
+        cursor: page.cursor,
+      },
+      {
+        runNativeSlice: (run) => withZoteroHostSlice(control, run),
+        checkCanceled: () => throwIfWorkflowCallCanceled(control),
+      },
+    );
+  } catch (error) {
+    if (error instanceof ZoteroNotePayloadResourceLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "bytes",
+        limit: error.limit,
+      });
+    }
+    if (error instanceof ZoteroLibraryPageLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "items",
+        limit: error.limit,
+        observed: Number.isFinite(error.observed) ? error.observed : undefined,
+      });
+    }
+    if (error instanceof ZoteroLibraryCursorError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason: "invalid_value",
+        field: "cursor",
+      });
+    }
+    if (error instanceof ZoteroNotePayloadCursorError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason: "invalid_value",
+        field: "cursor",
+      });
+    }
+    if (error instanceof ZoteroNotePayloadPageLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "items",
+        limit: error.limit,
+        observed: Number.isFinite(error.observed) ? error.observed : undefined,
+      });
+    }
+    if (error instanceof ZoteroHostCapabilityError) throw error;
+    throw canonicalReadFailure("note");
+  }
+  const payloads = await mapZoteroHostTargets(
+    sourcePage.blocks,
+    control,
+    (block) => canonicalPayloadSummary(block, note),
+  );
   throwIfWorkflowCallCanceled(control);
-  return payloads;
+  const limit =
+    page.limit === undefined || page.limit === null ? 25 : Number(page.limit);
+  return {
+    payloads,
+    limit,
+    scanned: sourcePage.scanned,
+    total: null,
+    returned: payloads.length,
+    hasMore: sourcePage.hasMore,
+    nextCursor: sourcePage.nextCursor,
+  };
 }
 
 async function getCanonicalNotePayload(
@@ -10495,10 +11104,63 @@ async function getCanonicalNotePayload(
       field: "payloadType",
     });
   }
-  const note = requireNote(ref);
-  const blocks = (await listNotePayloadBlocksForItem(note)).filter(
-    (block) => block.payloadType === payloadType,
-  );
+  const note = await withZoteroHostSlice(control, () => requireNote(ref));
+  const blocks: ZoteroNotePayloadBlock[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    throwIfWorkflowCallCanceled(control);
+    let sourcePage;
+    try {
+      sourcePage = await listNotePayloadBlocksForItemPage(
+        note,
+        {
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        },
+        {
+          runNativeSlice: (run) => withZoteroHostSlice(control, run),
+          checkCanceled: () => throwIfWorkflowCallCanceled(control),
+        },
+      );
+    } catch (error) {
+      if (error instanceof ZoteroNotePayloadResourceLimitError) {
+        throw capabilityError("resource_limited", error.message, {
+          resource: "bytes",
+          limit: error.limit,
+        });
+      }
+      if (error instanceof ZoteroLibraryCursorError) {
+        throw capabilityError("invalid_request", error.message, {
+          reason: "invalid_value",
+          field: "cursor",
+        });
+      }
+      if (error instanceof ZoteroNotePayloadCursorError) {
+        throw capabilityError("invalid_request", error.message, {
+          reason: "invalid_value",
+          field: "cursor",
+        });
+      }
+      if (error instanceof ZoteroNotePayloadPageLimitError) {
+        throw capabilityError("resource_limited", error.message, {
+          resource: "items",
+          limit: error.limit,
+          observed: Number.isFinite(error.observed)
+            ? error.observed
+            : undefined,
+        });
+      }
+      if (error instanceof ZoteroHostCapabilityError) throw error;
+      throw canonicalReadFailure("note");
+    }
+    blocks.push(
+      ...sourcePage.blocks.filter((block) => block.payloadType === payloadType),
+    );
+    throwIfWorkflowCallCanceled(control);
+    if (!sourcePage.hasMore) break;
+    if (!sourcePage.nextCursor) throw canonicalReadFailure("note");
+    cursor = sourcePage.nextCursor;
+  }
   if (blocks.length === 0) throw notFoundError("note", ref);
   if (blocks.length > 1) {
     throw capabilityError("conflict", "note payload is ambiguous", {
@@ -10507,7 +11169,9 @@ async function getCanonicalNotePayload(
     });
   }
   const block = blocks[0];
-  const summary = canonicalPayloadSummary(block, note);
+  const summary = await withZoteroHostSlice(control, () =>
+    canonicalPayloadSummary(block, note),
+  );
   if (summary.state !== "available") {
     throw capabilityError(
       "execution_failed",
@@ -10554,44 +11218,103 @@ async function getCanonicalNotePayload(
 
 async function getCanonicalItemAttachments(
   ref: ZoteroHostItemRefInput,
+  page: LibraryPageRequestDto = {},
   control: WorkflowCallControl = {},
-) {
+): Promise<LibraryListItemAttachmentsPageDto> {
   throwIfWorkflowCallCanceled(control);
-  const item = requireItem(ref, "item");
-  let ids: unknown;
+  const item = await withZoteroHostSlice(control, () =>
+    requireItem(ref, "item"),
+  );
+  const itemKind = await withZoteroHostSlice(control, () =>
+    canonicalItemKind(item),
+  );
+  if (itemKind !== "regular" && itemKind !== "note") {
+    throw invalidRefError(
+      "item",
+      "wrong_kind",
+      "attachments require a regular item or note",
+    );
+  }
+  let sourcePage;
   try {
-    ids = item.getAttachments?.();
-  } catch {
+    sourcePage = await withZoteroHostSlice(control, () =>
+      queryZoteroChildItemPage({
+        domain: "attachments",
+        libraryId: normalizeLibraryId((item as any).libraryID),
+        parentItemId: parsePositiveInteger((item as any).id),
+        limit: page.limit,
+        cursor: page.cursor,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof ZoteroLibraryPageLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "items",
+        limit: error.limit,
+        observed: Number.isFinite(error.observed) ? error.observed : undefined,
+      });
+    }
+    if (error instanceof ZoteroLibraryCursorError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason: "invalid_value",
+        field: "cursor",
+      });
+    }
+    if (error instanceof ZoteroHostCapabilityError) throw error;
     throw canonicalReadFailure("attachment");
   }
-  if (!Array.isArray(ids)) throw canonicalReadFailure("attachment");
-  if (ids.length > 500) {
-    throw capabilityError("resource_limited", "attachments exceed the limit", {
-      resource: "items",
-      limit: 500,
-      observed: ids.length,
-    });
-  }
-  const result: AttachmentDetailDto[] = [];
-  for (const id of ids) {
+  const attachments = await mapZoteroHostTargets(
+    sourcePage.items,
+    control,
+    (attachment) => {
+      if (!attachment || !attachment.isAttachment?.()) {
+        throw canonicalReadFailure("attachment");
+      }
+      return {
+        item: attachment,
+        linkMode: canonicalAttachmentLinkMode(attachment),
+      };
+    },
+  );
+  const paths: string[] = [];
+  for (const attachment of attachments) {
     throwIfWorkflowCallCanceled(control);
-    const attachment = resolveZotero().Items.get(id as number);
-    if (!attachment || !attachment.isAttachment?.()) {
-      throw canonicalReadFailure("attachment");
-    }
-    result.push(await canonicalAttachmentDetail(attachment));
+    paths.push(
+      await readAttachmentPathOutsideHostSlice(
+        attachment.item,
+        attachment.linkMode,
+      ),
+    );
   }
+  const result = await mapZoteroHostTargets(
+    [...attachments.entries()],
+    control,
+    ([index, attachment]) =>
+      canonicalAttachmentDetail(attachment.item, paths[index]),
+  );
   throwIfWorkflowCallCanceled(control);
-  return result;
+  return {
+    attachments: result,
+    limit: sourcePage.limit,
+    total: sourcePage.total,
+    returned: result.length,
+    hasMore: sourcePage.hasMore,
+    nextCursor: sourcePage.nextCursor,
+  };
 }
 
-function canonicalAnnotationItems(
+async function canonicalAnnotationItems(
   ref: ZoteroHostItemRefInput,
+  page: LibraryPageRequestDto = {},
   control: WorkflowCallControl = {},
-) {
+): Promise<LibraryListAnnotationsPageDto> {
   throwIfWorkflowCallCanceled(control);
-  const item = requireItem(ref, "item");
-  const itemKind = canonicalItemKind(item);
+  const item = await withZoteroHostSlice(control, () =>
+    requireItem(ref, "item"),
+  );
+  const itemKind = await withZoteroHostSlice(control, () =>
+    canonicalItemKind(item),
+  );
   if (itemKind !== "regular" && itemKind !== "attachment") {
     throw invalidRefError(
       "item",
@@ -10599,64 +11322,56 @@ function canonicalAnnotationItems(
       "annotation listing requires a regular item or attachment",
     );
   }
-  const carriers =
-    itemKind === "attachment"
-      ? [item]
-      : (() => {
-          let ids: unknown;
-          try {
-            ids = item.getAttachments?.();
-          } catch {
-            throw canonicalReadFailure("annotation");
-          }
-          if (!Array.isArray(ids)) throw canonicalReadFailure("annotation");
-          return ids.map((id) => {
-            const attachment = resolveZotero().Items.get(id as number);
-            if (!attachment || !attachment.isAttachment?.()) {
-              throw canonicalReadFailure("attachment");
-            }
-            return attachment;
-          });
-        })();
-  const annotations: Zotero.Item[] = [];
-  for (const carrier of carriers) {
-    throwIfWorkflowCallCanceled(control);
-    let values: unknown;
-    try {
-      values = (carrier as any).getAnnotations?.();
-    } catch {
-      throw canonicalReadFailure("annotation");
+  let sourcePage;
+  try {
+    sourcePage = await withZoteroHostSlice(control, () =>
+      queryZoteroAnnotationPage({
+        libraryId: normalizeLibraryId((item as any).libraryID),
+        parentItemId: parsePositiveInteger((item as any).id),
+        parentKind: itemKind,
+        limit: page.limit,
+        cursor: page.cursor,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof ZoteroLibraryPageLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "items",
+        limit: error.limit,
+        observed: Number.isFinite(error.observed) ? error.observed : undefined,
+      });
     }
-    if (!Array.isArray(values)) throw canonicalReadFailure("annotation");
-    for (const value of values) {
-      throwIfWorkflowCallCanceled(control);
-      const annotation =
-        typeof value === "number" ? resolveZotero().Items.get(value) : value;
+    if (error instanceof ZoteroLibraryCursorError) {
+      throw capabilityError("invalid_request", error.message, {
+        reason: "invalid_value",
+        field: "cursor",
+      });
+    }
+    if (error instanceof ZoteroHostCapabilityError) throw error;
+    throw canonicalReadFailure("annotation");
+  }
+  const result = await mapZoteroHostTargets(
+    sourcePage.items,
+    control,
+    (annotation) => {
       if (
         !isRawZoteroItem(annotation) ||
         canonicalItemKind(annotation) !== "annotation"
       ) {
         throw canonicalReadFailure("annotation");
       }
-      annotations.push(annotation);
-    }
-  }
-  if (annotations.length > 5_000) {
-    throw capabilityError("resource_limited", "annotations exceed the limit", {
-      resource: "items",
-      limit: 5_000,
-      observed: annotations.length,
-    });
-  }
-  const result = annotations
-    .map(canonicalAnnotationDetail)
-    .sort(
-      (left, right) =>
-        left.location.sortIndex.localeCompare(right.location.sortIndex) ||
-        left.ref.key.localeCompare(right.ref.key),
-    );
+      return canonicalAnnotationDetail(annotation);
+    },
+  );
   throwIfWorkflowCallCanceled(control);
-  return result;
+  return {
+    annotations: result,
+    limit: sourcePage.limit,
+    total: sourcePage.total,
+    returned: result.length,
+    hasMore: sourcePage.hasMore,
+    nextCursor: sourcePage.nextCursor,
+  };
 }
 
 async function exportCanonicalPortableItems(
@@ -10675,25 +11390,38 @@ async function exportCanonicalPortableItems(
       },
     );
   }
-  const result = refs.map((ref) => {
+  const result: PortableRegularItemDto[] = [];
+  let sliceStartedAt = Date.now();
+  let sliceProcessed = 0;
+  for (const ref of refs) {
     throwIfWorkflowCallCanceled(control);
-    const item = requireItem(ref);
-    if (canonicalItemKind(item) !== "regular") {
-      throw invalidRefError(
-        "item",
-        "wrong_kind",
-        "portable export requires regular items",
-      );
+    const portable = await withZoteroHostSlice(control, () => {
+      const item = requireItem(ref);
+      if (canonicalItemKind(item) !== "regular") {
+        throw invalidRefError(
+          "item",
+          "wrong_kind",
+          "portable export requires regular items",
+        );
+      }
+      const summary = canonicalRegularSummary(item);
+      return {
+        schema: "zotero-agents.portable-regular-item.v1" as const,
+        itemType: summary.itemType,
+        fields: canonicalRegularFields(item),
+        creators: summary.creators,
+        tags: summary.tags,
+      };
+    });
+    throwIfWorkflowCallCanceled(control);
+    result.push(portable);
+    sliceProcessed += 1;
+    if (shouldYieldHostSlice(sliceStartedAt, sliceProcessed)) {
+      await yieldToEventLoop();
+      sliceStartedAt = Date.now();
+      sliceProcessed = 0;
     }
-    const summary = canonicalRegularSummary(item);
-    return {
-      schema: "zotero-agents.portable-regular-item.v1" as const,
-      itemType: summary.itemType,
-      fields: canonicalRegularFields(item),
-      creators: summary.creators,
-      tags: summary.tags,
-    };
-  });
+  }
   const bytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
   if (bytes > 64 * 1024 * 1024) {
     throw capabilityError(

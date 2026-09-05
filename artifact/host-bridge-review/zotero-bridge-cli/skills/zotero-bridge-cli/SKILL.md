@@ -79,7 +79,11 @@ Every canonical command declares exactly one `outputBoundary.strategy` in its de
 
 For a `cursor` result, preserve the original canonical command and all normalized selectors and filters. Read the declared domain array, record `returned`, `total`, `limit`, `hasMore`, and `nextCursor`, and continue only by passing that opaque cursor back to the same command with the same criteria. A cursor is not an item id, timestamp, array offset, or reusable cross-command token. Never decode it to construct a new cursor, substitute a cursor from another section, or silently restart when continuation fails.
 
-When `hasMore` is true, a missing `nextCursor` is an incomplete response and blocks completion. When `hasMore` is false, require an empty continuation and stop. Merge pages by stable domain identity, reject duplicates, and compare the final number of unique rows with the available `total` when that total describes the same filtered collection. For a response with several paged arrays, follow only the cursor under `pagination.<section>` that owns the array being consumed; do not advance unrelated sections implicitly.
+当 `hasMore` 为真时，缺少 `nextCursor` 表示响应不完整，不能宣布完成。当 `hasMore` 为假时，确认续页标记为空后停止。对于以身份区分对象的列表，按稳定的领域身份合并各页并拒绝重复；如果可用的 `total` 描述同一过滤集合，将最终唯一行数与它核对。若响应包含多个分页数组，只使用所读取数组对应的 `pagination.<section>` 下的游标；不得隐式推进无关区段。
+
+使用 `library note payloads` 时，按源顺序保留全部候选，包括 payload 类型相同的候选。`scanned` 表示源扫描进度，`returned` 表示匹配数；`total: null` 表示无法提供精确总数。payload 页即使为空，只要 `hasMore: true`，仍须沿返回的游标继续。扫描完毕后才能判断不存在；读取完整值时，向 `library note payload` 明确传入 payload 类型，由其在全部候选中检查唯一性。一个候选失败会使整页失败；将此前接受的证据保留为不完整状态，并根据结构化错误判断能否继续。payload 输入、解码后的值和笔记 HTML 各有 1 MiB 上限；不得通过认定首个可读候选具有权威性来绕过资源限制。
+
+普通文献库列表首次调用省略游标，默认返回 25 行，最多 100 行。游标绑定领域、来源、选择条件和排序位置，没有有效期，也不保证快照一致性。通过 `library saved-searches list` 发现已保存的搜索；保留返回的每个 portable ref，因为相同显示名称可能对应不同搜索。遇到 `invalid_library_cursor` 或 `basis_mismatch` 时，保留结构化原因和不完整证据，修正输入或明确重新获取整次逻辑读取，并将新的获取结果与失败的那次分开。仅凭列表数量未变，无法证明成员或内容未变。
 
 `invalid_host_bridge_cursor` means the cursor is malformed, expired, scoped to another command, bound to different criteria, or anchored to a row that is no longer available. Preserve the structured `reason`. If the intended read is still required, intentionally restart from the first page with the original filters, rebuild the result, and report that the snapshot changed; do not append a restarted first page to rows collected under the failed cursor.
 

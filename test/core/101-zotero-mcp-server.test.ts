@@ -30,6 +30,7 @@ import {
   writeRuntimeBytes,
 } from "../../src/modules/runtimePersistence";
 import { joinPath } from "../../src/utils/path";
+import { createCancellationController } from "../../src/utils/wait";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
 
 const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "context.get_current_view";
@@ -446,7 +447,7 @@ describe("embedded Zotero MCP server protocol", function () {
     );
     assert.include(
       listItems.description,
-      "do not call Zotero MCP tools concurrently",
+      "Up to nine ordinary tool requests may be in flight",
     );
     const noteDetail = (response as any).result.tools.find(
       (tool: { name: string }) => tool.name === ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
@@ -831,6 +832,58 @@ describe("embedded Zotero MCP server protocol", function () {
     assertNotCountOnlyToolText(text);
   });
 
+  it("forwards trusted call control to Broker-backed MCP read handlers", async function () {
+    const controller = createCancellationController();
+    controller.abort();
+    let observedSignal: { readonly aborted: boolean } | undefined;
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "control-forwarding",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL,
+          arguments: {
+            key: "PARENTKEY",
+            libraryId: 1,
+          },
+        },
+      },
+      {
+        control: { signal: controller.signal },
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
+            library: {
+              getItemDetail: async (_ref, control) => {
+                observedSignal = control?.signal;
+                return {
+                  id: 10,
+                  key: "PARENTKEY",
+                  libraryId: 1,
+                  itemType: "journalArticle",
+                  title: "Parent Paper",
+                  creators: ["Example Author"],
+                  year: "2024",
+                  date: "2024",
+                  publicationTitle: "Journal",
+                  tags: ["mcp"],
+                  collections: [],
+                  fields: {},
+                  noteCount: 0,
+                  attachmentCount: 0,
+                  relatedItemKeys: [],
+                };
+              },
+            },
+          }),
+      },
+    );
+
+    assert.strictEqual(observedSignal, controller.signal);
+    assert.isTrue(observedSignal?.aborted);
+    assert.property((response as any).result, "structuredContent");
+  });
+
   it("returns paged library item summaries without large child content", async function () {
     let observedArgs: any = null;
     const response = await handleZoteroMcpRequestForTests(
@@ -1016,36 +1069,42 @@ describe("embedded Zotero MCP server protocol", function () {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
             library: {
-              getItemNotes: async () => [
-                {
-                  id: 11,
-                  key: "NOTEKEY1",
-                  libraryId: 1,
-                  title: "Long note",
-                  textExcerpt: largeText.slice(0, 50),
-                  textLength: largeText.length,
-                  htmlLength: largeText.length + 7,
-                },
-              ],
+              getItemNotes: async () => ({
+                notes: [
+                  {
+                    ref: { libraryId: 1, key: "NOTEKEY1" },
+                    parentRef: { libraryId: 1, key: "PARENTKEY" },
+                    title: "Long note",
+                    textExcerpt: largeText.slice(0, 50),
+                    textLength: largeText.length,
+                    htmlLength: largeText.length + 7,
+                    revision: "note-revision-1",
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+                returned: 1,
+                total: 1,
+                limit: 25,
+              }),
             },
           }),
       },
     );
     const notesPage = (notesResponse as any).result.structuredContent.data;
-    const notes = notesPage.items;
-    assert.strictEqual(notes[0].key, "NOTEKEY1");
+    const notes = notesPage.notes;
+    assert.deepEqual(notes[0].ref, { libraryId: 1, key: "NOTEKEY1" });
     assert.strictEqual(notes[0].textLength, largeText.length);
     assert.notProperty(notes[0], "html");
     assert.deepInclude(notesPage, {
-      nextCursor: "",
+      nextCursor: null,
       hasMore: false,
       returned: 1,
       total: 1,
       limit: 25,
     });
     const notesText = toolText(notesResponse);
-    assert.include(notesText, "NOTEKEY1");
-    assert.include(notesText, "libraryId=1");
+    assert.include(notesText, 'title="Long note"');
     assert.include(notesText, "textLength=1000");
     assert.include(notesText, largeText.slice(0, 20));
     assert.include(notesText, ZOTERO_MCP_TOOL_GET_NOTE_DETAIL);
@@ -1070,17 +1129,12 @@ describe("embedded Zotero MCP server protocol", function () {
           createFailClosedZoteroHostCapabilityBroker({
             library: {
               getNoteDetail: async () => ({
-                id: 11,
-                key: "NOTEKEY1",
-                libraryId: 1,
+                ref: { libraryId: 1, key: "NOTEKEY1" },
+                parentRef: { libraryId: 1, key: "PARENTKEY" },
                 title: "Long note",
                 format: "text",
-                content: largeText.slice(0, 12),
-                offset: 0,
-                nextOffset: 12,
-                hasMore: true,
-                totalChars: largeText.length,
-                truncated: true,
+                content: largeText,
+                revision: "note-revision-1",
               }),
             },
           }),
@@ -1166,35 +1220,64 @@ describe("embedded Zotero MCP server protocol", function () {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
             library: {
-              getItemAttachments: async () => [
-                {
-                  id: 4,
-                  key: "ATTACHMD",
-                  libraryId: 1,
-                  title: "paper.md",
-                  contentType: "text/markdown",
-                  path: markdownPath,
-                  filename: "paper.md",
-                },
-                {
-                  id: 2,
-                  key: "ATTACH1",
-                  libraryId: 1,
-                  title: "paper.pdf",
-                  contentType: "application/pdf",
-                  path: pdfPath,
-                  filename: "paper.pdf",
-                },
-                {
-                  id: 3,
-                  key: "ATTACH2",
-                  libraryId: 1,
-                  title: "linked record",
-                  contentType: "",
-                  path: "",
-                  filename: "",
-                },
-              ],
+              getItemAttachments: async () => ({
+                attachments: [
+                  {
+                    ref: { libraryId: 1, key: "ATTACHMD" },
+                    parentRef: { libraryId: 1, key: "PARENT1" },
+                    revision: "attachment-revision-md",
+                    title: "paper.md",
+                    filename: "paper.md",
+                    contentType: "text/markdown",
+                    charset: null,
+                    url: null,
+                    linkMode: "stored_file",
+                    role: "ordinary",
+                    file: {
+                      state: "available",
+                      path: markdownPath,
+                      sizeBytes: 7,
+                      modifiedAt: null,
+                    },
+                  },
+                  {
+                    ref: { libraryId: 1, key: "ATTACH1" },
+                    parentRef: { libraryId: 1, key: "PARENT1" },
+                    revision: "attachment-revision-pdf",
+                    title: "paper.pdf",
+                    filename: "paper.pdf",
+                    contentType: "application/pdf",
+                    charset: null,
+                    url: null,
+                    linkMode: "stored_file",
+                    role: "ordinary",
+                    file: {
+                      state: "available",
+                      path: pdfPath,
+                      sizeBytes: 4,
+                      modifiedAt: null,
+                    },
+                  },
+                  {
+                    ref: { libraryId: 1, key: "ATTACH2" },
+                    parentRef: { libraryId: 1, key: "PARENT1" },
+                    revision: "attachment-revision-linked",
+                    title: "linked record",
+                    filename: null,
+                    contentType: null,
+                    charset: null,
+                    url: null,
+                    linkMode: "linked_file",
+                    role: "ordinary",
+                    file: { state: "missing" },
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+                returned: 3,
+                total: 3,
+                limit: 25,
+              }),
             },
           }),
       },
@@ -1204,24 +1287,25 @@ describe("embedded Zotero MCP server protocol", function () {
     const attachments = attachmentPage.attachments;
     assert.strictEqual(attachments[0].access.mode, "bridge-download");
     assert.strictEqual(attachments[0].access.file.displayName, "paper.md");
-    assert.strictEqual(attachments[0].access.file.owner.itemKey, "ATTACHMD");
+    assert.strictEqual(attachments[0].access.file.owner.itemKey, "PARENT1");
+    assert.deepEqual(attachments[0].ref, { libraryId: 1, key: "ATTACHMD" });
     assert.isUndefined(attachments[0].path);
     assert.strictEqual(attachments[2].access.mode, "unavailable");
     assert.notProperty(attachments[0], "content");
     assert.deepInclude(attachmentPage, {
-      nextCursor: "",
+      nextCursor: null,
       hasMore: false,
       returned: 3,
       total: 3,
       limit: 25,
     });
     const text = toolText(response);
-    assert.include(text, "ATTACHMD");
-    assert.include(text, "ATTACH1");
+    assert.include(text, 'filename="paper.md"');
+    assert.include(text, 'filename="paper.pdf"');
     assert.include(text, "paper.pdf");
     assert.include(text, "contentType=application/pdf");
     assert.include(text, "access.mode=bridge-download");
-    assert.include(text, "ATTACH2");
+    assert.include(text, 'filename="linked record"');
     assert.include(text, "access.mode=unavailable");
     assertNotCountOnlyToolText(text);
   });
@@ -1306,42 +1390,51 @@ describe("embedded Zotero MCP server protocol", function () {
   it("lists and reads Zotero note payloads for workflow notes", async function () {
     const broker = createFailClosedZoteroHostCapabilityBroker({
       library: {
-        listNotePayloads: async () => [
-          {
+        listNotePayloads: async () => ({
+          payloads: [
+            {
+              payloadType: "digest-markdown",
+              noteKind: "digest",
+              version: "1",
+              encoding: "base64",
+              estimatedBytes: 42,
+              format: "markdown",
+              source: { kind: "inline" },
+              state: "available",
+              issues: [],
+            },
+            {
+              payloadType: "references-json",
+              noteKind: "references",
+              version: "1",
+              encoding: "base64",
+              estimatedBytes: 120,
+              format: "json",
+              source: { kind: "inline" },
+              state: "available",
+              issues: [],
+            },
+          ],
+          scanned: 2,
+          nextCursor: null,
+          hasMore: false,
+          returned: 2,
+          total: null,
+          limit: 25,
+        }),
+        getNotePayload: async () => ({
+          summary: {
             payloadType: "digest-markdown",
             noteKind: "digest",
             version: "1",
             encoding: "base64",
-            estimatedSize: 42,
+            estimatedBytes: 42,
             format: "markdown",
+            source: { kind: "inline" },
+            state: "available",
+            issues: [],
           },
-          {
-            payloadType: "references-json",
-            noteKind: "references",
-            version: "1",
-            encoding: "base64",
-            estimatedSize: 120,
-            format: "json",
-          },
-        ],
-        getNotePayload: async () => ({
-          payloadType: "digest-markdown",
-          noteKind: "digest",
-          version: "1",
-          encoding: "base64",
-          estimatedSize: 42,
-          format: "markdown",
-          markdown: "# Digest\n\nBody",
-          payload: {
-            version: 1,
-            content: "# Digest\n\nBody",
-          },
-          content: "# Digest",
-          offset: 0,
-          nextOffset: 8,
-          totalChars: 14,
-          hasMore: true,
-          truncated: true,
+          value: "# Digest\n\nBody",
         }),
       },
     });
@@ -1375,10 +1468,11 @@ describe("embedded Zotero MCP server protocol", function () {
       ["digest-markdown", "references-json"],
     );
     assert.deepInclude(payloadPage, {
-      nextCursor: "",
+      nextCursor: null,
       hasMore: false,
       returned: 2,
-      total: 2,
+      total: null,
+      scanned: 2,
       limit: 25,
     });
 
@@ -1393,7 +1487,6 @@ describe("embedded Zotero MCP server protocol", function () {
             key: "NOTEPAY1",
             libraryId: 1,
             payloadType: "digest-markdown",
-            maxChars: 8,
           },
         },
       },
@@ -1402,11 +1495,9 @@ describe("embedded Zotero MCP server protocol", function () {
       },
     );
     const detailPayload = (detail as any).result.structuredContent.data;
-    assert.strictEqual(detailPayload.payloadType, "digest-markdown");
-    assert.strictEqual(detailPayload.markdown, "# Digest\n\nBody");
-    assert.strictEqual(detailPayload.hasMore, true);
-    assert.include(toolText(detail), "nextOffset=8");
-    assert.include(toolText(detail), "hasMore=true");
+    assert.strictEqual(detailPayload.summary.payloadType, "digest-markdown");
+    assert.strictEqual(detailPayload.value, "# Digest\n\nBody");
+    assert.include(toolText(detail), ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD);
   });
 
   it("previews mutations without requesting permission or executing", async function () {
@@ -2406,7 +2497,7 @@ describe("embedded Zotero MCP server protocol", function () {
     }
   });
 
-  it("serializes concurrent Streamable HTTP tool calls and records timing diagnostics", async function () {
+  it("admits concurrent Streamable HTTP tool calls and records admission diagnostics", async function () {
     const token = configureZoteroMcpServerForTests({
       resolveZoteroHostCapabilityBroker: () =>
         createFailClosedZoteroHostCapabilityBroker({
@@ -2463,34 +2554,29 @@ describe("embedded Zotero MCP server protocol", function () {
       ["success", "success"],
     );
     assert.isAtLeast(toolLogs[0].durationMs, 0);
-    assert.isAtLeast(toolLogs[1].queueWaitMs, 0);
+    assert.isAtLeast(toolLogs[0].inflightAtAccept, 0);
+    assert.isAtLeast(toolLogs[1].inflightAtAccept, 0);
   });
 
-  it("accepts one running and eight pending tool calls under the default queue policy", async function () {
-    let releaseFirst!: () => void;
-    let shouldBlock = true;
+  it("admits nine concurrent tool calls under the fixed inflight policy", async function () {
+    let releaseAll!: () => void;
+    const allCallsBlocked = new Promise<void>((resolve) => {
+      releaseAll = resolve;
+    });
     const token = configureZoteroMcpServerForTests({
       resolveZoteroHostCapabilityBroker: () =>
         createFailClosedZoteroHostCapabilityBroker({
           context: {
             getCurrentView: () => ({
               target: "library",
-              libraryId: "queue-policy",
-              libraryIds: ["queue-policy"],
+              libraryId: "admission-policy",
+              libraryIds: ["admission-policy"],
               selectionEmpty: true,
               selectedItems: [],
             }),
           },
         }),
-      beforeToolCallForTests: async () => {
-        if (!shouldBlock) {
-          return;
-        }
-        shouldBlock = false;
-        await new Promise<void>((resolve) => {
-          releaseFirst = resolve;
-        });
-      },
+      beforeToolCallForTests: () => allCallsBlocked,
     });
 
     const requests = Array.from({ length: 9 }, (_entry, index) =>
@@ -2503,7 +2589,7 @@ describe("embedded Zotero MCP server protocol", function () {
         },
         body: JSON.stringify({
           jsonrpc: "2.0",
-          id: `queue-${index}`,
+          id: `admission-${index}`,
           method: "tools/call",
           params: {
             name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
@@ -2514,16 +2600,14 @@ describe("embedded Zotero MCP server protocol", function () {
     );
 
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const queuedStatus = getZoteroMcpServerStatus();
-    assert.deepEqual(queuedStatus.queuePolicy, {
-      runningLimit: 1,
-      pendingLimit: 8,
-      queueTimeoutMs: 30000,
+    const admittedStatus = getZoteroMcpServerStatus();
+    assert.deepEqual(admittedStatus.admissionPolicy, {
+      inflightLimit: 9,
       runningTimeoutMs: 45000,
     });
-    assert.strictEqual(queuedStatus.queueState.running, 1);
-    assert.strictEqual(queuedStatus.queueState.pending, 8);
-    releaseFirst();
+    assert.strictEqual(admittedStatus.admissionState.inflight, 9);
+    assert.strictEqual(admittedStatus.admissionState.limit, 9);
+    releaseAll();
 
     const responses = await Promise.all(requests);
     assert.deepEqual(
@@ -2535,8 +2619,8 @@ describe("embedded Zotero MCP server protocol", function () {
     );
     assert.lengthOf(toolLogs, 9);
     assert.deepEqual(
-      toolLogs.map((entry) => entry.queuePosition),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      toolLogs.map((entry) => entry.inflightAtAccept).sort((a, b) => a - b),
+      [0, 1, 2, 3, 4, 5, 6, 7, 8],
     );
     assert.deepEqual(
       toolLogs.map((entry) => entry.toolOutcome),
@@ -2544,7 +2628,7 @@ describe("embedded Zotero MCP server protocol", function () {
     );
   });
 
-  it("returns a structured JSON-RPC error when the tool-call queue is full", async function () {
+  it("returns a structured JSON-RPC error when the inflight admission limit is reached", async function () {
     let releaseFirst!: () => void;
     let shouldBlock = true;
     const token = configureZoteroMcpServerForTests({
@@ -2577,7 +2661,7 @@ describe("embedded Zotero MCP server protocol", function () {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
         },
-        body: bodyFor(`queue-full-${index}`),
+        body: bodyFor(`inflight-limit-${index}`),
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -2585,7 +2669,7 @@ describe("embedded Zotero MCP server protocol", function () {
     const responses = await Promise.all(requests);
     const parsed = responses.map(parseJsonBody);
     const full = parsed.find(
-      (entry) => entry.error?.data?.code === "zotero_mcp_queue_full",
+      (entry) => entry.error?.data?.code === "zotero_mcp_inflight_limit",
     );
 
     assert.exists(full);
@@ -2594,70 +2678,16 @@ describe("embedded Zotero MCP server protocol", function () {
       (entry) => entry.jsonrpcMethod === "tools/call",
     );
     assert.isAtLeast(logs.length, 10);
-    const fullLog = logs.find((entry) => entry.limitReason === "queue_full");
+    const fullLog = logs.find(
+      (entry) => entry.limitReason === "inflight_limit",
+    );
     assert.exists(fullLog);
     assert.strictEqual(fullLog?.toolOutcome, "error");
-    assert.strictEqual(fullLog?.toolErrorName, "ZoteroMcpQueueFullError");
+    assert.strictEqual(fullLog?.toolErrorName, "ZoteroMcpInflightLimitError");
     assert.strictEqual(getZoteroMcpServerStatus().toolCallCount, 9);
   });
 
-  it("returns a structured JSON-RPC error when a queued tool call times out", async function () {
-    let releaseFirst!: () => void;
-    let shouldBlock = true;
-    const token = configureZoteroMcpServerForTests({
-      queueTimeoutMs: 10,
-      beforeToolCallForTests: async () => {
-        if (!shouldBlock) {
-          return;
-        }
-        shouldBlock = false;
-        await new Promise<void>((resolve) => {
-          releaseFirst = resolve;
-        });
-      },
-    });
-    const makeRequest = (id: string) =>
-      handleZoteroMcpHttpRequestForTests({
-        method: "POST",
-        path: "/mcp",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id,
-          method: "tools/call",
-          params: {
-            name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
-            arguments: {},
-          },
-        }),
-      });
-
-    const first = makeRequest("timeout-first");
-    const second = makeRequest("timeout-second");
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    const secondResponse = parseJsonBody(await second);
-    releaseFirst();
-    const firstResponse = parseJsonBody(await first);
-
-    assert.notProperty(firstResponse, "error");
-    assert.strictEqual(secondResponse.error.code, -32002);
-    assert.strictEqual(
-      secondResponse.error.data.code,
-      "zotero_mcp_queue_timeout",
-    );
-    const timeoutLog = getZoteroMcpServerStatus().recentRequests.find(
-      (entry) => entry.limitReason === "queue_timeout",
-    );
-    assert.exists(timeoutLog);
-    assert.strictEqual(timeoutLog?.toolOutcome, "error");
-    assert.strictEqual(timeoutLog?.toolErrorName, "ZoteroMcpQueueTimeoutError");
-    assert.strictEqual(getZoteroMcpServerStatus().toolCallCount, 1);
-  });
-
-  it("does not queue tools/list while a tool call is running", async function () {
+  it("bypasses admission for tools/list while a tool call is running", async function () {
     let releaseFirst!: () => void;
     let shouldBlock = true;
     const token = configureZoteroMcpServerForTests({
@@ -2712,8 +2742,7 @@ describe("embedded Zotero MCP server protocol", function () {
       (entry) => entry.jsonrpcMethod === "tools/list",
     );
     assert.exists(toolsLog);
-    assert.strictEqual(toolsLog?.queueWaitMs, 0);
-    assert.strictEqual(toolsLog?.queuePosition, 0);
+    assert.strictEqual(toolsLog?.inflightAtAccept, 0);
   });
 
   it("returns a structured timeout error when a running tool exceeds its guard timeout", async function () {
@@ -2761,22 +2790,30 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(timeoutLog?.toolErrorName, "ZoteroMcpToolTimeoutError");
   });
 
-  it("retains the single host-call slot until a timed-out tool really settles", async function () {
+  it("retains inflight admission until a timed-out tool really settles", async function () {
     let releaseFirst!: () => void;
-    let shouldBlock = true;
+    let releaseOthers!: () => void;
+    let callCount = 0;
+    const otherCallsBlocked = new Promise<void>((resolve) => {
+      releaseOthers = resolve;
+    });
     const token = configureZoteroMcpServerForTests({
       runningTimeoutMs: 10,
       beforeToolCallForTests: async () => {
-        if (!shouldBlock) {
+        callCount += 1;
+        if (callCount > 1) {
+          await otherCallsBlocked;
           return;
         }
-        shouldBlock = false;
         await new Promise<void>((resolve) => {
           releaseFirst = resolve;
         });
       },
     });
-    const makeRequest = (id: string) =>
+    const makeRequest = (
+      id: string,
+      toolName = ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+    ) =>
       handleZoteroMcpHttpRequestForTests({
         method: "POST",
         path: "/mcp",
@@ -2789,7 +2826,7 @@ describe("embedded Zotero MCP server protocol", function () {
           id,
           method: "tools/call",
           params: {
-            name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+            name: toolName,
             arguments: {},
           },
         }),
@@ -2798,22 +2835,44 @@ describe("embedded Zotero MCP server protocol", function () {
     const first = makeRequest("retained-timeout-first");
     await new Promise((resolve) => setTimeout(resolve, 40));
     const firstResponse = parseJsonBody(await first);
-    const second = makeRequest("retained-timeout-second");
-    await new Promise((resolve) => setTimeout(resolve, 20));
     const retainedStatus = getZoteroMcpServerStatus();
 
     assert.strictEqual(
       firstResponse.error.data.code,
       "zotero_mcp_tool_timeout",
     );
-    assert.strictEqual(retainedStatus.queueState.running, 1);
-    assert.strictEqual(retainedStatus.queueState.pending, 1);
+    assert.strictEqual(retainedStatus.admissionState.inflight, 1);
+    assert.strictEqual(retainedStatus.admissionState.limit, 9);
     assert.isTrue(retainedStatus.guardState.timedOutButStillRunning);
     assert.include(retainedStatus.guardState.retryGuidance, "wait");
 
-    releaseFirst();
+    const fillerToolNames = [
+      ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS,
+      ZOTERO_MCP_TOOL_SEARCH_ITEMS,
+      ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+      ZOTERO_MCP_TOOL_GET_ITEM_DETAIL,
+      ZOTERO_MCP_TOOL_GET_ITEM_NOTES,
+      ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
+      ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
+      ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+    ];
+    const fillers = fillerToolNames.map((toolName, index) =>
+      makeRequest(`retained-timeout-filler-${index}`, toolName),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const second = makeRequest("retained-timeout-second");
     const secondResponse = parseJsonBody(await second);
-    assert.notProperty(secondResponse, "error");
+    assert.strictEqual(getZoteroMcpServerStatus().admissionState.inflight, 9);
+    assert.strictEqual(secondResponse.error.code, -32001);
+    assert.strictEqual(
+      secondResponse.error.data.code,
+      "zotero_mcp_inflight_limit",
+    );
+
+    releaseFirst();
+    releaseOthers();
+    await Promise.all(fillers);
   });
 
   it("opens a per-tool circuit after repeated runtime failures", async function () {
@@ -2862,8 +2921,34 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(breaker?.failureCount, 3);
   });
 
-  it("exposes safe MCP guard and queue status through a non-queued status tool", async function () {
-    const token = configureZoteroMcpServerForTests();
+  it("exposes safe MCP guard and admission status through a bypassed status tool", async function () {
+    let releaseAll!: () => void;
+    const allCallsBlocked = new Promise<void>((resolve) => {
+      releaseAll = resolve;
+    });
+    const token = configureZoteroMcpServerForTests({
+      beforeToolCallForTests: () => allCallsBlocked,
+    });
+    const activeCalls = Array.from({ length: 9 }, (_entry, index) =>
+      handleZoteroMcpHttpRequestForTests({
+        method: "POST",
+        path: "/mcp",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: `status-bypass-${index}`,
+          method: "tools/call",
+          params: {
+            name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+            arguments: {},
+          },
+        }),
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
     const raw = await handleZoteroMcpHttpRequestForTests({
       method: "POST",
       path: "/mcp",
@@ -2892,10 +2977,13 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.property(status, "endpoint");
     assert.property(status, "tokenMasked");
     assert.notInclude(JSON.stringify(status), token);
+    assert.strictEqual(getZoteroMcpServerStatus().admissionState.inflight, 9);
     const logs = getZoteroMcpServerStatus().recentRequests.filter(
       (entry) => entry.jsonrpcToolName === ZOTERO_MCP_TOOL_GET_MCP_STATUS,
     );
-    assert.strictEqual(logs[0]?.queuePosition, 0);
+    assert.strictEqual(logs[0]?.inflightAtAccept, 0);
+    releaseAll();
+    await Promise.all(activeCalls);
   });
 
   it("records host-side MCP runtime logs for a successful tool call", async function () {

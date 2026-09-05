@@ -41,14 +41,15 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `context.get_current_view` | context | `none` | `object` |  | mcp-mirror |
 | `context.get_selected_items` | context | `none` | `object` |  | mcp-mirror |
 | `library.export_annotations` | library | `none` | `object` | `library annotation export` | response:selector-bounded, mcp-mirror |
-| `library.get_item_attachments` | library | `none` | `object` | `library item attachments` | response:selector-bounded, mcp-mirror |
+| `library.get_item_attachments` | library | `none` | `object` | `library item attachments` | response:paged, mcp-mirror |
 | `library.get_item_detail` | library | `none` | `object` | `library item get` | response:selector-bounded, mcp-mirror |
 | `library.get_item_notes` | library | `none` | `object` | `library item notes` | response:paged, mcp-mirror |
 | `library.get_note_detail` | library | `none` | `object` | `library note get` | response:paged, mcp-mirror |
-| `library.get_note_payload` | library | `none` | `object` | `library note payload` | response:paged, mcp-mirror |
-| `library.list_annotations` | library | `none` | `object` | `library annotation list` | response:selector-bounded, mcp-mirror |
+| `library.get_note_payload` | library | `none` | `object required` | `library note payload` | response:selector-bounded, mcp-mirror |
+| `library.list_annotations` | library | `none` | `object` | `library annotation list` | response:paged, mcp-mirror |
 | `library.list_items` | library | `none` | `object` | `library items list` | response:paged, mcp-mirror |
-| `library.list_note_payloads` | library | `none` | `object` | `library note payloads` | response:selector-bounded, mcp-mirror |
+| `library.list_note_payloads` | library | `none` | `object` | `library note payloads` | response:paged, mcp-mirror |
+| `library.list_saved_searches` | library | `none` | `object` | `library saved-searches list` | response:paged, mcp-mirror |
 | `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | response:paged, mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `library item search` | response:limit-bounded, mcp-mirror |
 | `library.sync_snapshot` | library | `none` | `object required` | `library snapshot` | response:paged, mcp-mirror |
@@ -110,6 +111,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `library readiness missing-analysis` | `library.readiness_audit` | capability | - |
 | `library readiness missing-markdown` | `library.readiness_audit` | capability | - |
 | `library readiness missing-pdf` | `library.readiness_audit` | capability | - |
+| `library saved-searches list` | `library.list_saved_searches` | capability | - |
 | `library snapshot` | `library.sync_snapshot` | capability | - |
 | `synthesis artifact export-filtered` | `paper_artifacts.export_filtered` | capability | - |
 | `synthesis artifact manifest` | `paper_artifacts.get_manifest` | capability | - |
@@ -552,14 +554,15 @@ zotero-bridge bridge status
 zotero-bridge bridge manifest
 zotero-bridge call <capability> [--input <JSON_OR_FILE>]
 zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'
-zotero-bridge library snapshot --query '{"limit":200,"cursor":"0"}'
+zotero-bridge library snapshot --query '{"libraryId":1,"batchSize":200}'
 zotero-bridge library item search --query '{"query":"...","limit":10,"libraryId":1}'
 zotero-bridge library item get (--key <key> | --id <id>) [--library-id <id>]
-zotero-bridge library item notes (--key <key> | --id <id>) [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
-zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>]
+zotero-bridge library item notes (--key <key> | --id <id>) [--limit <n>] [--cursor <opaque>]
+zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>] [--limit <n>] [--cursor <opaque>]
 zotero-bridge library note get (--key <key> | --id <id>) [--format text|html] [--offset <n>] [--max-chars <n>]
-zotero-bridge library note payloads (--key <key> | --id <id>)
-zotero-bridge library note payload (--key <key> | --id <id>) [--payload-type <type>] [--offset <n>] [--max-chars <n>]
+zotero-bridge library note payloads (--key <key> | --id <id>) [--limit <n>] [--cursor <opaque>]
+zotero-bridge library note payload (--key <key> | --id <id>) --payload-type <type>
+zotero-bridge library saved-searches list [--library-id <id>] [--limit <n>] [--cursor <opaque>]
 zotero-bridge synthesis topic <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge synthesis graph <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge synthesis artifact <subcommand> [--query <JSON_OR_FILE>]
@@ -1799,14 +1802,14 @@ Capability input 见“item/note ref 参数”。
 }
 ```
 
-未找到 item 时，当前 broker 返回 `null`，仍是成功 envelope。
+未找到 item 时，Broker 返回结构化 `not_found` 失败。
 
 ### 12.10 `library item notes`
 
 调用格式：
 
 ```text
-zotero-bridge library item notes (--key <key> | --id <id>) [--library-id <id>] [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
+zotero-bridge library item notes (--key <key> | --id <id>) [--library-id <id>] [--limit <n>] [--cursor <opaque>]
 ```
 
 Capability 映射：
@@ -1821,41 +1824,41 @@ Capability input：
 {
   "key": "ABCD1234",
   "libraryId": 1,
-  "limit": 20,
-  "cursor": 0,
-  "maxExcerptChars": 500
+  "limit": 25
 }
 ```
 
 成功 `data.data`：
 
 ```json
-[
-  {
-    "id": 456,
-    "key": "NOTE1234",
-    "libraryId": 1,
+{
+  "notes": [{
+    "ref": { "libraryId": 1, "key": "NOTE1234" },
+    "parentRef": { "libraryId": 1, "key": "ABCD1234" },
     "title": "Note title",
     "textExcerpt": "Excerpt",
     "textLength": 1200,
     "htmlLength": 1800,
-    "parent": {
-      "id": 123,
-      "key": "ABCD1234",
-      "title": "Paper title"
-    }
-  }
-]
+    "revision": "1"
+  }],
+  "returned": 1,
+  "total": 1,
+  "limit": 25,
+  "hasMore": false,
+  "nextCursor": null
+}
 ```
 
-如果 child note 解析失败，数组中对应条目可能包含 `errors`。
+结果为 `notes` 源头分页对象，含 `returned / total / limit / hasMore / nextCursor`；
+每条笔记使用 portable `ref / parentRef` 和 revision。任一 child note 读取失败会使
+整页失败，不能将部分笔记作为完整成功结果。
 
 ### 12.11 `library item attachments`
 
 调用格式：
 
 ```text
-zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>]
+zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>] [--limit <n>] [--cursor <opaque>]
 ```
 
 Capability 映射：
@@ -1867,19 +1870,19 @@ library.get_item_attachments
 成功 `data.data`：
 
 ```json
-[
-  {
-    "id": 789,
-    "key": "ATTACH12",
-    "libraryId": 1,
+{
+  "attachments": [{
+    "ref": { "libraryId": 1, "key": "ATTACH12" },
+    "parentRef": { "libraryId": 1, "key": "ABCD1234" },
+    "revision": "1",
     "title": "paper.pdf",
     "contentType": "application/pdf",
     "filename": "paper.pdf",
-    "parent": {
-      "id": 123,
-      "key": "ABCD1234",
-      "title": "Paper title"
-    },
+    "charset": null,
+    "url": null,
+    "linkMode": "stored_file",
+    "role": "ordinary",
+    "file": { "state": "available", "sizeBytes": 12345, "modifiedAt": null },
     "access": {
       "mode": "bridge-download",
       "file": {
@@ -1897,8 +1900,13 @@ library.get_item_attachments
         }
       }
     }
-  }
-]
+  }],
+  "returned": 1,
+  "total": 1,
+  "limit": 25,
+  "hasMore": false,
+  "nextCursor": null
+}
 ```
 
 若附件无可用本地文件或存在附件错误：
@@ -1970,7 +1978,7 @@ Capability input：
 调用格式：
 
 ```text
-zotero-bridge library note payloads (--key <key> | --id <id>) [--library-id <id>]
+zotero-bridge library note payloads (--key <key> | --id <id>) [--library-id <id>] [--limit <n>] [--cursor <opaque>]
 ```
 
 Capability 映射：
@@ -1979,16 +1987,16 @@ Capability 映射：
 library.list_note_payloads
 ```
 
-成功 `data.data` 是 payload summary 数组。该数组不包含 encoded value、
-decoded text、完整 payload 或 markdown 正文。具体字段由 note payload codec
-产生，调用方应以 manifest 中的 payload metadata 和后续 `note payload` 读取为准。
+成功 `data.data` 是含 `payloads / returned / scanned / total / limit / hasMore / nextCursor`
+的候选扫描页。`total` 为 `null`；空页仍可能有后续页。候选保留源顺序及重复类型，
+不含完整 payload 值。继续扫描后，通过明确 payload 类型的 `note payload` 读取完整值。
 
 ### 12.14 `library note payload`
 
 调用格式：
 
 ```text
-zotero-bridge library note payload (--key <key> | --id <id>) [--library-id <id>] [--payload-type <type>] [--offset <n>] [--max-chars <n>]
+zotero-bridge library note payload (--key <key> | --id <id>) [--library-id <id>] --payload-type <type>
 ```
 
 Capability 映射：
@@ -2003,16 +2011,13 @@ Capability input：
 {
   "key": "NOTE1234",
   "libraryId": 1,
-  "payloadType": "workflow-result",
-  "offset": 0,
-  "maxChars": 4000
+  "payloadType": "references-json"
 }
 ```
 
-成功 `data.data` 为一个 decoded payload detail，不包含原始 encoded value。
-大 payload 可通过 `offset` / `maxChars` 分块读取。具体字段由
-`notePayloadCodec` 的 detail DTO 决定，调用方应保持向后兼容：识别
-`payloadType`、正文 chunk、offset/hasMore 类字段，忽略未知字段。
+成功 `data.data` 为 `{ summary, value }`，返回完整 strict-JSON 值。
+Broker 扫描全部候选以排除同类型歧义；源 HTML、encoded input 和 decoded value
+各受 1 MiB 上限约束。超过上限或存在歧义时返回结构化失败。
 
 ### 12.15 `workflow list`
 

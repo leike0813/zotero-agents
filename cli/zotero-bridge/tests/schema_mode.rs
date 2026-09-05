@@ -28,6 +28,48 @@ fn run_executable(args: &[&str]) -> (i32, Value, String) {
 }
 
 #[test]
+fn saved_search_discovery_is_available_offline_with_bounded_continuation() {
+    let (code, output, _) = run(&["surface", "describe", "library saved-searches list"]);
+    assert_eq!(code, 0);
+    let descriptor = &output["data"];
+    let serialized = serde_json::to_string(descriptor).unwrap();
+    assert!(serialized.contains("library.list_saved_searches"));
+    assert!(serialized.contains("cursor"));
+    assert!(serialized.contains("savedSearches"));
+}
+
+#[test]
+fn ordinary_reads_reject_removed_payload_windows_and_note_excerpt_options() {
+    for args in [
+        vec![
+            "library",
+            "note",
+            "payload",
+            "--key",
+            "ABC12345",
+            "--payload-type",
+            "references-json",
+            "--offset",
+            "1",
+        ],
+        vec![
+            "library",
+            "item",
+            "notes",
+            "--key",
+            "ABC12345",
+            "--max-excerpt-chars",
+            "40",
+        ],
+    ] {
+        let (code, output, _) = run_executable(&args);
+        assert_eq!(code, 2);
+        assert_eq!(output["error"]["code"], "cli_unknown_argument");
+        assert_eq!(output["error"]["details"]["phase"], "argv");
+    }
+}
+
+#[test]
 fn schema_mode_accepts_leading_and_trailing_global_flag_without_required_values() {
     let (_, trailing, _) = run(&["workflow", "submit", "--schema"]);
     let (_, leading, _) = run(&["--schema", "workflow", "submit"]);

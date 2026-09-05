@@ -124,14 +124,14 @@ Desired state:
 - Destructive effects and affected children are explicit.
 - Heterogeneous changes are split into independent batches.
 
-Authority:
+权威机构：
 
 - The exact current proposal was shown at the correct approval boundary.
 - A prior preview, approval, or workflow does not authorize this new effect.
 - Uploaded bytes are not consumed outside their declared next step.
 - Apply-back uses the complete typed request-to-result mapping.
 
-Verification:
+验证：
 
 - Every affected live object was re-read.
 - Actual and approved states were compared per target.

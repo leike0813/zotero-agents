@@ -73,18 +73,18 @@ async function createTempItem(title: string) {
   return item;
 }
 
-describe("Zotero MCP concurrency queue policy in Zotero runtime", function () {
+describe("Zotero MCP concurrency admission policy in Zotero runtime", function () {
   this.timeout(20000);
 
   afterEach(function () {
     resetZoteroMcpServerForTests();
   });
 
-  it("serializes concurrent read and controlled write tool calls without transport failure", async function () {
+  it("admits concurrent read and controlled write tool calls without transport failure", async function () {
     if (!isRealZoteroRuntime()) {
       this.skip();
     }
-    const tempItem = await createTempItem("MCP Queue Policy Runtime Probe");
+    const tempItem = await createTempItem("MCP Admission Policy Runtime Probe");
     const token = configureZoteroMcpServerForTests({
       requestToolPermission: () => ({
         outcome: "approved",
@@ -106,7 +106,7 @@ describe("Zotero MCP concurrency queue policy in Zotero runtime", function () {
           {},
         ),
         postToolCall(token, "runtime-search", ZOTERO_MCP_TOOL_SEARCH_ITEMS, {
-          query: "MCP Queue Policy Runtime Probe",
+          query: "MCP Admission Policy Runtime Probe",
           limit: 3,
         }),
         postToolCall(
@@ -119,13 +119,13 @@ describe("Zotero MCP concurrency queue policy in Zotero runtime", function () {
               target: {
                 id: tempItem.id,
               },
-              tags: ["test:mcp-queue-preview"],
+              tags: ["test:mcp-admission-preview"],
             },
           },
         ),
         postToolCall(token, "runtime-write", ZOTERO_MCP_TOOL_ADD_ITEM_TAGS, {
           id: tempItem.id,
-          tags: ["test:mcp-queue-write"],
+          tags: ["test:mcp-admission-write"],
         }),
         postToolCall(
           token,
@@ -152,16 +152,12 @@ describe("Zotero MCP concurrency queue policy in Zotero runtime", function () {
       );
       assert.isAtLeast(logs.length, calls.length);
       assert.isAtLeast(
-        logs.filter((entry) => entry.queuePosition > 1).length,
+        logs.filter((entry) => entry.inflightAtAccept > 0).length,
         1,
       );
       assert.notInclude(
         logs.map((entry) => entry.limitReason),
-        "queue_full",
-      );
-      assert.notInclude(
-        logs.map((entry) => entry.limitReason),
-        "queue_timeout",
+        "inflight_limit",
       );
     } finally {
       await tempItem.eraseTx?.();

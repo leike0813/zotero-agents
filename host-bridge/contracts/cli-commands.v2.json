@@ -2583,7 +2583,7 @@
       "inputs": {},
       "outputBoundary": {
         "strategy": "cursor",
-        "section": "data.items",
+        "section": "data.notes",
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
@@ -2634,12 +2634,6 @@
             "field": "cursor",
             "transform": "identity",
             "required": false
-          },
-          {
-            "argument": "max_excerpt_chars",
-            "field": "maxExcerptChars",
-            "transform": "identity",
-            "required": false
           }
         ]
       },
@@ -2684,10 +2678,7 @@
         "limit",
         "LIMIT",
         "cursor",
-        "CURSOR",
-        "max_excerpt_chars",
-        "max-excerpt-chars",
-        "MAX_EXCERPT_CHARS"
+        "CURSOR"
       ],
       "hiddenFromIntentSearch": false,
       "pagination": "cursor",
@@ -3080,18 +3071,7 @@
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {},
       "outputBoundary": {
-        "strategy": "offset",
-        "section": "data.content",
-        "defaultLimit": 8000,
-        "maxLimit": 16000,
-        "cursorInput": "offset",
-        "continuation": [
-          "data.nextOffset",
-          "data.hasMore",
-          "data.totalChars",
-          "data.truncated",
-          "data.maxChars"
-        ]
+        "strategy": "fixed"
       },
       "target": {
         "kind": "capability",
@@ -3124,18 +3104,6 @@
           {
             "argument": "payload_type",
             "field": "payloadType",
-            "transform": "identity",
-            "required": false
-          },
-          {
-            "argument": "offset",
-            "field": "offset",
-            "transform": "identity",
-            "required": false
-          },
-          {
-            "argument": "max_chars",
-            "field": "maxChars",
             "transform": "identity",
             "required": false
           }
@@ -3181,15 +3149,10 @@
         "LIBRARY_ID",
         "payload_type",
         "payload-type",
-        "PAYLOAD_TYPE",
-        "offset",
-        "OFFSET",
-        "max_chars",
-        "max-chars",
-        "MAX_CHARS"
+        "PAYLOAD_TYPE"
       ],
       "hiddenFromIntentSearch": false,
-      "pagination": "cursor",
+      "pagination": "none",
       "payloadSchemaSource": "target-capability"
     },
     "library note payloads": {
@@ -3206,7 +3169,8 @@
           "data.hasMore",
           "data.returned",
           "data.total",
-          "data.limit"
+          "data.limit",
+          "data.scanned"
         ]
       },
       "target": {
@@ -3639,6 +3603,92 @@
         "missing-pdf",
         "query",
         "JSON_OR_FILE"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "cursor",
+      "payloadSchemaSource": "target-capability"
+    },
+    "library saved-searches list": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {},
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.savedSearches",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "library.list_saved_searches",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "object",
+      "composition": {
+        "constants": {},
+        "mappings": [
+          {
+            "argument": "library_id",
+            "field": "libraryId",
+            "transform": "identity",
+            "required": false
+          },
+          {
+            "argument": "cursor",
+            "field": "cursor",
+            "transform": "identity",
+            "required": false
+          },
+          {
+            "argument": "limit",
+            "field": "limit",
+            "transform": "identity",
+            "required": false
+          }
+        ]
+      },
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads state without changing Zotero-managed data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The read fails or returns incomplete evidence.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect the error and retry only when retryable is true.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "operationalAliases": [
+        "library saved-searches list",
+        "library",
+        "saved-searches",
+        "list",
+        "library-id",
+        "cursor",
+        "limit"
       ],
       "hiddenFromIntentSearch": false,
       "pagination": "cursor",

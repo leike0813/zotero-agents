@@ -5,7 +5,7 @@ import {
   readTagAttribute,
 } from "./htmlCodec.mjs";
 import { extractMarkedEmbeddedImageKeys } from "./noteEmbeddedImages.mjs";
-import { portableItemRef, requireHostApi } from "./runtime.mjs";
+import { portableItemRef, readHostPages, requireHostApi } from "./runtime.mjs";
 
 const REPRESENTATIVE_IMAGE_MARKDOWN_BLOCK_RE =
   /\n?<!--\s*zs:representative-image:v1\s+({[\s\S]*?})\s*-->\s*\n?!\[[^\]]*]\([^)]+\)\s*\n?<!--\s*\/zs:representative-image\s*-->\s*/i;
@@ -628,7 +628,11 @@ export async function cleanupRepresentativeImageAttachments(args) {
   const hostApi = requireHostApi(args.runtime);
   const note = args.digestNote;
   const noteRef = portableItemRef(note);
-  const attachments = await hostApi.library.getItemAttachments(noteRef);
+  const attachments = await readHostPages({
+    readPage: (page) => hostApi.library.getItemAttachments(noteRef, page),
+    getItems: (page) => page.attachments,
+    operation: "representative image attachment read",
+  });
   for (const key of args.keys || []) {
     try {
       const attachment = attachments.find((entry) => entry.ref.key === key);

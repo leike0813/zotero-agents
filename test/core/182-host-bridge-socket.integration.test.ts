@@ -723,7 +723,11 @@ describe("host bridge socket integration in Zotero runtime", function () {
       ].join("\r\n"),
       splitHead: true,
     });
-    assert.equal(health.response.status, 200);
+    assert.equal(
+      health.response.status,
+      200,
+      `health status=${health.response.status} body=${health.response.body.slice(0, 1000)}`,
+    );
     assert.isAbove(health.heartbeat, 0);
 
     const uploadBody = new Uint8Array(0x18005);
@@ -746,7 +750,11 @@ describe("host bridge socket integration in Zotero runtime", function () {
       ].join("\r\n"),
       body: uploadBody,
     });
-    assert.equal(upload.response.status, 200);
+    assert.equal(
+      upload.response.status,
+      200,
+      `upload status=${upload.response.status} body=${upload.response.body.slice(0, 1000)}`,
+    );
     const uploadedFile = JSON.parse(upload.response.body).result.file;
     assert.equal(uploadedFile.size, uploadBody.byteLength);
     assert.isAbove(upload.heartbeat, 0);
@@ -755,7 +763,11 @@ describe("host bridge socket integration in Zotero runtime", function () {
       url: `${bridgeUrl}/files/${uploadedFile.fileId}`,
       token,
     });
-    assert.equal(download.status, 200);
+    assert.equal(
+      download.status,
+      200,
+      `download status=${download.status} bytes=${download.bytes.byteLength}`,
+    );
     assert.equal(download.bytes.byteLength, uploadBody.byteLength);
     assert.deepEqual(download.bytes, uploadBody);
     assert.isAbove(download.heartbeat, 0);
@@ -786,7 +798,11 @@ describe("host bridge socket integration in Zotero runtime", function () {
       ].join("\r\n"),
       body: mcpBody,
     });
-    assert.equal(mcp.response.status, 200);
+    assert.equal(
+      mcp.response.status,
+      200,
+      `mcp status=${mcp.response.status} body=${mcp.response.body.slice(0, 2000)}`,
+    );
     assert.equal(JSON.parse(mcp.response.body).id, "fragmented-initialize");
     assert.equal(
       [...getZoteroMcpServerStatus().recentRequests].reverse()[0]

@@ -37,6 +37,12 @@ import {
   attachWorkbenchPayloadToNote,
   parseWorkbenchEmbeddedPayloadBytes,
 } from "../../workflows_builtin/literature-workbench-package/lib/embeddedPayloadAttachments.mjs";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 async function bindLiteratureImportHost(
   baseHost: ReturnType<typeof createWorkflowHostApi>,
@@ -207,6 +213,9 @@ const portableLiteratureScore = {
 };
 
 describe("literature portable bundle workflows", function () {
+  afterEach(() => {
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
+  });
   it("loads export and import as non-core pass-through workflows", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const exported = loaded.workflows.find(
@@ -374,17 +383,21 @@ describe("literature portable bundle workflows", function () {
       selectionContext: { items: { parents: [{ item: { ref } }] } },
     });
     assert.equal(result.schemaId, "literature_bundle.product");
-    await archive.withExtractedZip({ sourcePath: targetPath }, {}, async (extracted: any) => {
-      const manifest = JSON.parse(await extracted.readText("manifest.json"));
-      assert.equal(manifest.schema_id, "literature_bundle.product");
-      assert.equal(manifest.schema_version, "1.0.0");
-      assert.notProperty(manifest.papers[0], "role");
-      assert.property(manifest.papers[0], "attachments");
-      assert.property(manifest.papers[0], "notes");
-      assert.property(manifest.papers[0], "payloads");
-      assert.include(extracted.entries, "index.md");
-      assert.property(manifest.files, "index.md");
-    });
+    await archive.withExtractedZip(
+      { sourcePath: targetPath },
+      {},
+      async (extracted: any) => {
+        const manifest = JSON.parse(await extracted.readText("manifest.json"));
+        assert.equal(manifest.schema_id, "literature_bundle.product");
+        assert.equal(manifest.schema_version, "1.0.0");
+        assert.notProperty(manifest.papers[0], "role");
+        assert.property(manifest.papers[0], "attachments");
+        assert.property(manifest.papers[0], "notes");
+        assert.property(manifest.papers[0], "payloads");
+        assert.include(extracted.entries, "index.md");
+        assert.property(manifest.files, "index.md");
+      },
+    );
   });
 
   it("exports a remote literature bundle through the bound output resource", async function () {
@@ -457,10 +470,14 @@ describe("literature portable bundle workflows", function () {
       result.resourceOutputs[0].fileId,
       "file-remote-literature-bundle",
     );
-    await archive.withExtractedZip({ sourcePath: targetPath }, {}, async (extracted: any) => {
-      assert.include(extracted.entries, "manifest.json");
-      assert.include(extracted.entries, "index.md");
-    });
+    await archive.withExtractedZip(
+      { sourcePath: targetPath },
+      {},
+      async (extracted: any) => {
+        assert.include(extracted.entries, "manifest.json");
+        assert.include(extracted.entries, "index.md");
+      },
+    );
   });
 
   it("converts note attachment keys to portable refs and restores new keys", function () {
@@ -1014,7 +1031,11 @@ describe("literature portable bundle workflows", function () {
             },
           },
           archive: {
-            async withExtractedZip(input: { sourcePath: string }, _control: any, callback: any) {
+            async withExtractedZip(
+              input: { sourcePath: string },
+              _control: any,
+              callback: any,
+            ) {
               openedPath = input.sourcePath;
               return callback({
                 entries: ["manifest.json"],
@@ -1252,7 +1273,11 @@ describe("literature portable bundle workflows", function () {
           hostApi: {
             file: { pickFile: async () => "/tmp/valid-literature-bundle.zip" },
             archive: {
-              withExtractedZip: async (_input: any, _control: any, callback: any) =>
+              withExtractedZip: async (
+                _input: any,
+                _control: any,
+                callback: any,
+              ) =>
                 callback({
                   entries: ["manifest.json"],
                   readText: async () => JSON.stringify(manifest),
@@ -1310,7 +1335,11 @@ describe("literature portable bundle workflows", function () {
           hostApi: {
             file: { pickFile: async () => "/tmp/valid-literature-bundle.zip" },
             archive: {
-              withExtractedZip: async (_input: any, _control: any, callback: any) =>
+              withExtractedZip: async (
+                _input: any,
+                _control: any,
+                callback: any,
+              ) =>
                 callback({
                   entries: ["manifest.json"],
                   readText: async () => JSON.stringify(manifest),
@@ -1385,6 +1414,9 @@ describe("literature portable bundle workflows", function () {
   });
 
   it("round-trips metadata, stored content, note images, and repeated imports", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
     const root = await mkTempDir("literature-bundle-roundtrip");
     const sourcePath = joinPath(root, "paper.md");
     await writeUtf8(sourcePath, "# Portable\n\n![asset](asset.png)");
@@ -1542,7 +1574,8 @@ describe("literature portable bundle workflows", function () {
     const exportedPayloadTypes = [];
     for (const entry of built.entries.filter(
       (candidate: any) =>
-        candidate.content?.kind === "file" && candidate.name.includes("/notes/"),
+        candidate.content?.kind === "file" &&
+        candidate.name.includes("/notes/"),
     )) {
       const parsed = parseWorkbenchEmbeddedPayloadBytes(
         await readBytes(entry.content.sourcePath),

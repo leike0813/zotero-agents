@@ -20,7 +20,7 @@ export const LITERATURE_PRODUCT_SCHEMA = "literature_bundle.product";
 export const LITERATURE_PRODUCT_SCHEMA_VERSION = "1.0.0";
 export const LITERATURE_BUNDLE_SOURCE_ONLY_KIND = "zotero-agents-literature-bundle-source-only";
 export const LITERATURE_EXPORT_MODES = new Set(["selection", "collection", "library"]);
-const LIST_PAGE_LIMIT = 200;
+const LIST_PAGE_LIMIT = 100;
 const LIST_PAGE_GUARD = 10000;
 
 function toManifestFileIntegrity(files) {
@@ -916,7 +916,7 @@ async function listTopLevelRegularParents(host, args) {
     }
     if (cursor !== undefined) input.cursor = cursor;
     const page = await host.library.listItems(input);
-    for (const summary of Array.isArray(page?.items) ? page.items : []) {
+    for (const summary of page.items) {
       if (!isTopLevelRegularSummary(summary)) continue;
       const paperRef = `${summary.ref.libraryId}:${summary.ref.key}`;
       if (byRef.has(paperRef)) continue;

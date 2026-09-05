@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   hostBridgeSkillGeneratedRoot,
@@ -144,9 +144,14 @@ function structureDigest(markdown: string) {
 }
 
 function assertInside(parent: string, child: string) {
-  const parentPath = `${resolve(parent)}/`;
   const childPath = resolve(child);
-  if (!childPath.startsWith(parentPath)) {
+  const path = relative(resolve(parent), childPath);
+  if (
+    !path ||
+    isAbsolute(path) ||
+    path === ".." ||
+    path.startsWith(`..${sep}`)
+  ) {
     throw new Error(`Review mirror path escapes its root: ${childPath}`);
   }
 }

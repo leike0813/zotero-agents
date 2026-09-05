@@ -6,6 +6,7 @@ import { getBaseName } from "../../lib/path.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import {
   portableItemRef,
+  readHostPages,
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
@@ -29,13 +30,23 @@ async function resolveSourceAttachmentByKey(host, noteItem, payload) {
   if (!key) {
     return null;
   }
-  return (await host.library.getItemAttachments(noteItem.parentRef))
-    .find((attachment) => attachment.ref.key === key) || null;
+  const attachments = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemAttachments(noteItem.parentRef, page),
+    getItems: (page) => page.attachments,
+    operation: "representative image source attachment read",
+  });
+  return attachments.find((attachment) => attachment.ref.key === key) || null;
 }
 
 async function collectParentMarkdownAttachments(host, parentItem) {
   const candidates = [];
-  for (const attachment of await host.library.getItemAttachments(parentItem.ref)) {
+  const attachments = await readHostPages({
+    readPage: (page) => host.library.getItemAttachments(parentItem.ref, page),
+    getItems: (page) => page.attachments,
+    operation: "representative image parent attachment read",
+  });
+  for (const attachment of attachments) {
     const path = attachment.file.state === "available" ? attachment.file.path : "";
     const title = normalizeText(attachment.title);
     const contentType = normalizeText(attachment.contentType);

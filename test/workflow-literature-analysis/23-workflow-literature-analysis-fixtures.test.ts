@@ -158,9 +158,23 @@ describeFixtureMatrixSuite(
                 },
               };
             },
-            async getItemNotes(ref: { libraryId: number; key: string }) {
-              if (findFixtureParent(ref)) return [];
-              return baseHostApi.library.getItemNotes(ref);
+            async getItemNotes(
+              ref: { libraryId: number; key: string },
+              page: { limit?: number; cursor?: string } = {},
+              control?: { signal?: AbortSignal },
+            ) {
+              if (findFixtureParent(ref)) {
+                const limit = page.limit || 25;
+                return {
+                  notes: [],
+                  limit,
+                  nextCursor: null,
+                  hasMore: false,
+                  returned: 0,
+                  total: 0,
+                };
+              }
+              return baseHostApi.library.getItemNotes(ref, page, control);
             },
           },
           synthesis: {

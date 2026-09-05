@@ -65,7 +65,7 @@ fail with `interaction_required` when invoked non-interactively.
 `handlers` remains an internal primitive behind trusted owners. It must not grow
 into an unbounded mirror of Zotero native APIs or enter workflow hook scope.
 
-`ZoteroHostCapabilityBroker` owns only JSON-safe capability semantics and effects. It is stateless: `createZoteroHostCapabilityBroker()` creates an implementation and `resolveZoteroHostCapabilityBroker()` resolves the default implementation without singleton identity, caching, reset state, or a runtime version number. Its public refs are portable JSON refs; raw `Zotero.Item` and `Zotero.Collection` inputs are rejected.
+`ZoteroHostCapabilityBroker` owns JSON-safe capability semantics and effects. `createZoteroHostCapabilityBroker()` creates an implementation and `resolveZoteroHostCapabilityBroker()` resolves the default implementation; all instances share process-level FIFO admission for native Host slices. Public refs are portable JSON refs; raw `Zotero.Item` and `Zotero.Collection` inputs are rejected. Trusted call control carries cancellation outside semantic JSON.
 
 `WorkflowHostApi` owns trusted workflow composition. Public inputs use portable
 refs and closed DTOs. The projection uses explicit object literals and
@@ -131,34 +131,24 @@ Transport rules:
 
 This boundary exists because real agent transcripts showed successful Zotero MCP injection followed by tool-call failures in the legacy SSE path. Future compatibility work should improve Streamable HTTP behavior rather than reintroduce SSE transport state.
 
-## MCP Concurrency And Queue Policy
+## MCP Concurrent Admission
 
-MCP clients may issue concurrent Streamable HTTP requests, but Zotero Agents v1 does not claim that Zotero host APIs are reentrant. All `tools/call` requests enter a single FIFO worker before touching Zotero host APIs. `initialize`, `tools/list`, and JSON-RPC notifications bypass this queue.
+MCP admits nine concurrent `tools/call` handlers. The Broker serializes only native Host slices across callers and instances. `initialize`, `tools/list`, JSON-RPC notifications, and `zotero.get_mcp_status` bypass tool admission.
 
-The default v1 queue policy is:
-
-- `runningLimit`: `1`
-- `pendingLimit`: `8`
-- `queueTimeoutMs`: `30000`
-
-When the queue is full, the server returns JSON-RPC error `-32001` with `data.code = "zotero_mcp_queue_full"`. When a queued request waits too long, the server returns JSON-RPC error `-32002` with `data.code = "zotero_mcp_queue_timeout"`. These are capacity failures, not tool parameter errors.
-
-Diagnostics must expose queue policy, current queue state, queue wait time, queue position, limit reason, and tool outcome so agent failures can be distinguished from transport failures and Zotero tool errors.
+The tenth inflight request fails before handler entry with JSON-RPC `-32001` and `data.code = "zotero_mcp_inflight_limit"`. Diagnostics report inflight limit/count, count at acceptance, execution duration, limit reason, and outcome. There is no pending tool queue, queue position, or queue-wait timeout.
 
 ## MCP Guard, Watchdog, And Circuit Breakers
 
-The MCP queue policy protects Zotero native APIs from concurrent entry, but it does not by itself make the embedded HTTP server resilient. The server must also guard running tools, request-level failures, and repeated tool crashes.
+Broker native admission protects Zotero APIs from concurrent entry. MCP separately guards running tools, request-level failures, and repeated tool crashes.
 
 Reliability rules:
 
-- A running `tools/call` has a separate timeout from pending queue wait. Running timeout returns JSON-RPC error `zotero_mcp_tool_timeout`.
-- A running timeout does not release the single Zotero host-call slot until the
-  underlying handler settles; this preserves non-reentrant host API protection
-  even after the caller has received a timeout response.
+- A running `tools/call` has a 45-second watchdog. Timeout returns JSON-RPC `-32003` with `zotero_mcp_tool_timeout` and signals trusted logical cancellation.
+- Timed-out handlers remain inflight until they settle. A native slice also retains its own admission until its underlying Host work settles, even after cancellation.
 - Repeated native/runtime failures for the same tool should open a short-lived circuit breaker. Open circuits return `zotero_mcp_tool_circuit_open` with retry guidance instead of executing the tool again.
 - Request listener failures should attempt a JSON-RPC fallback response before closing the transport, so clients do not only see `fetch failed` or `terminated`.
 - Watchdog restarts should be diagnosable. If a restart changes the endpoint, diagnostics must mark the descriptor as stale because the active ACP agent session may need to reconnect to receive the new descriptor.
-- Agents can call the `get_mcp_status` tool on the `zotero` MCP server to inspect server, queue, guard, and recent request state. The status tool must never expose bearer tokens.
+- Agents can call `zotero.get_mcp_status` to inspect server, inflight admission, guard, and recent request state. The status tool must never expose bearer tokens.
 
 These guardrails are a reliability layer around the broker; they do not change the broker boundary or permit raw Zotero access.
 
@@ -184,7 +174,11 @@ Broker `library.listItems`, `syncSnapshot`, and `readinessAudit` share `zoteroLi
 
 Text queries match title, creator, date, publication, abstract, tag, or item key as independent fields under Zotero SQLite `NOCASE` semantics. `%` and `_` are escaped as literal query characters. The structural predicate excludes deleted items, child notes, and child attachments before paging.
 
-Library cursors are opaque, short-lived strings bound to normalized criteria and the last returned item ID. A first request omits `cursor` or uses string `"0"`; subsequent requests pass through the exact returned `nextCursor`. Clients must not decode, increment, persist as durable identity, or substitute numeric offsets. Malformed, unsupported, criteria-mismatched, and numeric cursors fail as non-retryable `invalid_library_cursor` errors instead of restarting from the first page.
+Ordinary library cursors are opaque strings bound to domain, source, normalized criteria, and ordering position. They have no TTL and do not promise snapshot consistency. A first request omits `cursor`; subsequent requests pass through the exact returned `nextCursor`. Clients must not decode, increment, persist as durable identity, or substitute numeric offsets. Malformed, unsupported, criteria-mismatched, and numeric cursors fail with the Broker's non-retryable `invalid_request` and `details.field: cursor`; the existing Bridge item-list adapter maps this to `invalid_library_cursor`. Neither boundary restarts from the first page.
+
+Collections, Saved Searches, child notes, attachments, and annotations use source pages with default 25 and maximum 100, hydrating only current targets. Saved Searches return portable refs and display names; duplicate names remain distinct identities. Any failed target fails the entire page. Payload discovery scans bounded candidates, preserves duplicates, and returns `scanned`, `returned`, `total: null`, and continuation; consumers must follow empty nonterminal pages. Single-type lookup checks the complete candidate set for ambiguity. Note HTML, encoded payload input, and decoded values each have a 1 MiB bound.
+
+Long native loops release admission after at most 100 items or 50 ms, whichever comes first. Network/file work, callbacks, detached JSON processing, and completion hashing stay outside admission. Cancellation is checked before enqueue, before entry, between bounded targets, and after awaited Host work. Snapshot sessions retain their independent 30-minute TTL, 500/1000 public batches, and fixed-basis completion evidence; multiple native slices may serve one public batch.
 
 `totalScanned` remains the total number of items matching the current normalized criteria, while `returned` is the number of DTOs emitted by the capability. The count may therefore exceed the current page size without causing non-page Zotero items to be materialized in JavaScript.
 

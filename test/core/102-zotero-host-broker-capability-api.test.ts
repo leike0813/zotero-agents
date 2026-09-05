@@ -23,9 +23,15 @@ import {
 } from "../../src/modules/zoteroMcpServer";
 import {
   resetZoteroLibraryPageQueryAdapterForTests,
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
   setZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+  type ZoteroLibraryPageQueryAdapter,
 } from "../../src/modules/zoteroLibraryPageQuery";
-import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import {
+  createMockZoteroLibraryPageQueryAdapter,
+  createMockZoteroLibrarySourcePageQueryAdapter,
+} from "../helpers/zoteroLibraryPageQueryAdapter";
 import {
   resetDefaultSynthesisClientForTests,
   setDefaultSynthesisClientCompositionFactoryForTests,
@@ -38,6 +44,7 @@ import {
   consumeTagAuditTraversalCompletionEvidence,
   createZoteroHostCapabilityBroker,
   verifyLibraryTraversalCompletionEvidence,
+  resetZoteroHostSliceGateForTests,
   resetZoteroHostMutationRuntimeForTests,
   resetZoteroHostSnapshotRuntimeForTests,
   ZoteroHostCapabilityError,
@@ -59,6 +66,7 @@ import {
   type WorkflowHostErrorDetailsByCode,
 } from "../../src/workflows/workflowHostErrorContract";
 import { createSha256Accumulator, sha256Hex } from "../../src/utils/sha256";
+import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { createWorkflowPreparedImageScope } from "../../src/workflows/workflowNoteImagePreparation";
 import { createWorkflowBibliographyOwner } from "../../src/workflows/bibliography";
 import {
@@ -111,7 +119,11 @@ async function expectedCoverageDigestHex(
   const sorted = [...tuples].sort(
     (left, right) =>
       left.ref.libraryId - right.ref.libraryId ||
-      (left.ref.key < right.ref.key ? -1 : left.ref.key > right.ref.key ? 1 : 0),
+      (left.ref.key < right.ref.key
+        ? -1
+        : left.ref.key > right.ref.key
+          ? 1
+          : 0),
   );
   for (const tuple of sorted) {
     coverage!.update(
@@ -178,8 +190,7 @@ async function withMockTranslate<T>(
     async getTranslators() {
       args.onGetTranslators?.();
       return (
-        args.translators ??
-        [
+        args.translators ?? [
           {
             translatorID: "metadata-translator",
             label: "Metadata Translator",
@@ -281,23 +292,74 @@ describe("zotero host broker capability api", function () {
     setZoteroLibraryPageQueryAdapterForTests(
       createMockZoteroLibraryPageQueryAdapter(),
     );
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
   });
 
   afterEach(async function () {
+    resetZoteroHostSliceGateForTests();
     resetZoteroHostMutationRuntimeForTests();
     resetZoteroHostSnapshotRuntimeForTests();
     resetZoteroLibraryPageQueryAdapterForTests();
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
     resetWorkflowHostApiForTests();
     resetZoteroMcpServerForTests();
     setDefaultSynthesisClientCompositionFactoryForTests(null);
     await resetDefaultSynthesisClientForTests();
   });
 
+  it("keeps translator network waits outside Host admission and suppresses canceled results", async function () {
+    await createParentItem("Concurrent translation read");
+    let release!: () => void;
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const network = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const previousTranslate = (Zotero as any).Translate;
+    (Zotero as any).Translate = {
+      Search: class {
+        setIdentifier() {}
+        async getTranslators() {
+          return [{ translatorID: "pending", label: "Pending" }];
+        }
+        setTranslator() {}
+        async translate() {
+          entered();
+          await network;
+          return [];
+        }
+      },
+    };
+    const controller = new AbortController();
+    const lookup =
+      createZoteroHostCapabilityBroker().metadata.translateIdentifier(
+        { type: "DOI", value: "10.1000/pending" },
+        { signal: controller.signal },
+      );
+    try {
+      await waiting;
+      const page = await createZoteroHostCapabilityBroker().library.listItems({
+        limit: 1,
+      });
+      assert.strictEqual(page.returned, 1);
+      controller.abort();
+      release();
+      await expectBrokerError(lookup, "canceled");
+    } finally {
+      release();
+      (Zotero as any).Translate = previousTranslate;
+    }
+  });
+
   it("closes metadata identifier input before invoking a translator", async function () {
     let calls = 0;
     await withMockTranslate({ onGetTranslators: () => calls++ }, async () => {
-      const translate = createZoteroHostCapabilityBroker().metadata
-        .translateIdentifier;
+      const translate =
+        createZoteroHostCapabilityBroker().metadata.translateIdentifier;
       const invalidInputs = [
         { type: "DOI", normalized: "10.1000/legacy" },
         { type: "HANDLE", value: "10.1000/open-type" },
@@ -313,8 +375,8 @@ describe("zotero host broker capability api", function () {
   });
 
   it("returns the closed metadata outcomes from exact matches with uniform evidence", async function () {
-    const translate = createZoteroHostCapabilityBroker().metadata
-      .translateIdentifier;
+    const translate =
+      createZoteroHostCapabilityBroker().metadata.translateIdentifier;
     const run = (items: Array<Record<string, unknown>>) =>
       withMockTranslate({ items }, () =>
         translate({ type: "DOI", value: "https://doi.org/10.1000/target" }),
@@ -331,7 +393,9 @@ describe("zotero host broker capability api", function () {
       normalizedIdentifier: "10.1000/target",
       candidateCount: 2,
       matchingCandidateCount: 1,
-      translators: [{ id: "metadata-translator", label: "Metadata Translator" }],
+      translators: [
+        { id: "metadata-translator", label: "Metadata Translator" },
+      ],
     });
 
     const ambiguous = await run([
@@ -366,7 +430,13 @@ describe("zotero host broker capability api", function () {
       outcome: "not_found",
       reason: "no_translator",
     });
-    for (const result of [matched, ambiguous, mismatch, noCandidate, noTranslator]) {
+    for (const result of [
+      matched,
+      ambiguous,
+      mismatch,
+      noCandidate,
+      noTranslator,
+    ]) {
       assert.hasAllKeys(result.evidence, [
         "normalizedIdentifier",
         "candidateCount",
@@ -377,8 +447,8 @@ describe("zotero host broker capability api", function () {
   });
 
   it("fails metadata lookup instead of truncating hard-budget overflow", async function () {
-    const translate = createZoteroHostCapabilityBroker().metadata
-      .translateIdentifier;
+    const translate =
+      createZoteroHostCapabilityBroker().metadata.translateIdentifier;
     const translatorOverflow = await withMockTranslate(
       {
         translators: Array.from({ length: 33 }, (_, index) => ({
@@ -446,13 +516,11 @@ describe("zotero host broker capability api", function () {
       { translatorID: "x".repeat(129), label: "Translator" },
       { translatorID: "translator", label: "x".repeat(257) },
     ]) {
-      const error = await withMockTranslate(
-        { translators: [translator] },
-        () =>
-          expectBrokerError(
-            translate({ type: "DOI", value: "10.1000/target" }),
-            "resource_limited",
-          ),
+      const error = await withMockTranslate({ translators: [translator] }, () =>
+        expectBrokerError(
+          translate({ type: "DOI", value: "10.1000/target" }),
+          "resource_limited",
+        ),
       );
       assert.hasAllKeys(error.details, ["resource", "limit", "observed"]);
     }
@@ -636,7 +704,8 @@ describe("zotero host broker capability api", function () {
     const broker = createZoteroHostCapabilityBroker();
     const scope = { ownerId: "note-placement-test" };
     const originalSave = Zotero.Item.prototype.saveTx;
-    const firstSaveState: Array<{ tags: string[]; collections: unknown[] }> = [];
+    const firstSaveState: Array<{ tags: string[]; collections: unknown[] }> =
+      [];
     Zotero.Item.prototype.saveTx = async function (...args: unknown[]) {
       if (this.isNote?.() && !this.id) {
         firstSaveState.push({
@@ -671,7 +740,10 @@ describe("zotero host broker capability api", function () {
         (created.result.note as any).ref.libraryId,
         (created.result.note as any).ref.key,
       );
-      assert.strictEqual(topLevelNote.libraryID, Zotero.Libraries.userLibraryID);
+      assert.strictEqual(
+        topLevelNote.libraryID,
+        Zotero.Libraries.userLibraryID,
+      );
 
       const child = await broker.notes.create(
         {
@@ -790,7 +862,7 @@ describe("zotero host broker capability api", function () {
             ? "not_found"
             : request.operationId.includes("deleted-collection")
               ? "invalid_ref"
-            : "invalid_request",
+              : "invalid_request",
         );
       }
       assert.strictEqual(noteWrites, 0);
@@ -1116,7 +1188,10 @@ describe("zotero host broker capability api", function () {
       if (created.outcome !== "committed") assert.fail("expected create");
       assert.hasAllKeys(created.result, ["note", "payload", "outcome"]);
       assert.strictEqual((created.result as any).outcome, "created");
-      assert.strictEqual((created.result as any).payload.payloadType, "logical-json");
+      assert.strictEqual(
+        (created.result as any).payload.payloadType,
+        "logical-json",
+      );
 
       const replayed = await broker.notes.upsertPayload(
         { operationId: "logical-payload-create", noteRef, payload },
@@ -1179,7 +1254,11 @@ describe("zotero host broker capability api", function () {
       {
         operationId: "payload-too-large",
         noteRef,
-        payload: { ...base, format: "text", value: "x".repeat(1024 * 1024 + 1) },
+        payload: {
+          ...base,
+          format: "text",
+          value: "x".repeat(1024 * 1024 + 1),
+        },
       },
     ]) {
       await expectBrokerError(
@@ -1214,7 +1293,9 @@ describe("zotero host broker capability api", function () {
 
   it("compensates a staged payload attachment and exposes cleanup residuals", async function () {
     for (const cleanupFails of [false, true]) {
-      const parent = await createParentItem(`Payload Compensation ${cleanupFails}`);
+      const parent = await createParentItem(
+        `Payload Compensation ${cleanupFails}`,
+      );
       const note = await handlers.parent.addNote(parent, {
         content: "<div><p>payload basis</p></div>",
       });
@@ -1236,25 +1317,29 @@ describe("zotero host broker capability api", function () {
         };
       }
       try {
-        const result = await createZoteroHostCapabilityBroker().notes.upsertPayload(
-          {
-            operationId: `payload-compensation-${cleanupFails}`,
-            noteRef: { libraryId: note.libraryID, key: note.key },
-            payload: {
-              payloadType: "compensation-json",
-              noteKind: "digest",
-              schemaVersion: "compensation.v1",
-              format: "json",
-              value: { value: 1 },
+        const result =
+          await createZoteroHostCapabilityBroker().notes.upsertPayload(
+            {
+              operationId: `payload-compensation-${cleanupFails}`,
+              noteRef: { libraryId: note.libraryID, key: note.key },
+              payload: {
+                payloadType: "compensation-json",
+                noteKind: "digest",
+                schemaVersion: "compensation.v1",
+                format: "json",
+                value: { value: 1 },
+              },
             },
-          },
-          { ownerId: `payload-compensation-${cleanupFails}` },
-        );
+            { ownerId: `payload-compensation-${cleanupFails}` },
+          );
         assert.strictEqual(
           result.outcome,
           cleanupFails ? "repair_required" : "failed",
         );
-        assert.include(result.attempt.error.message, "note payload commit failed");
+        assert.include(
+          result.attempt.error.message,
+          "note payload commit failed",
+        );
         assert.lengthOf(result.attempt.residualRefs, cleanupFails ? 1 : 0);
         assert.isNotEmpty(stagedKey);
         assert.strictEqual(
@@ -1482,9 +1567,7 @@ describe("zotero host broker capability api", function () {
       operationId: "create-member-cross-library",
       name: "Create Cross Library Member",
       placement: { kind: "root", libraryId: member.libraryID },
-      initialMemberRefs: [
-        { libraryId: member.libraryID + 1, key: member.key },
-      ],
+      initialMemberRefs: [{ libraryId: member.libraryID + 1, key: member.key }],
     });
     assert.strictEqual(crossLibrary.outcome, "failed");
     assert.strictEqual(
@@ -1501,12 +1584,15 @@ describe("zotero host broker capability api", function () {
     });
     assert.strictEqual(created.outcome, "committed");
     assert.strictEqual(created.receipt.changes.length, 2);
-    assert.include(member.getCollections(), Number(
-      Zotero.Collections.getByLibraryAndKey(
-        member.libraryID,
-        created.result.collection.ref.key,
-      )!.id,
-    ));
+    assert.include(
+      member.getCollections(),
+      Number(
+        Zotero.Collections.getByLibraryAndKey(
+          member.libraryID,
+          created.result.collection.ref.key,
+        )!.id,
+      ),
+    );
   });
 
   it("bounds collection removal preview membership scans and fails closed on unreadable members", async function () {
@@ -2441,10 +2527,7 @@ describe("zotero host broker capability api", function () {
     });
     assert.strictEqual(trashedResult.outcome, "failed");
     assert.strictEqual(trashedResult.attempt.error.code, "invalid_request");
-    assert.strictEqual(
-      trashedResult.attempt.error.details.field,
-      "relatedRef",
-    );
+    assert.strictEqual(trashedResult.attempt.error.details.field, "relatedRef");
   });
 
   it("executes permanent item and collection removals only against complete preview evidence", async function () {
@@ -2979,6 +3062,57 @@ describe("zotero host broker capability api", function () {
     }
   });
 
+  it("yields the event loop during snapshot capture without publishing canceled completion", async function () {
+    for (let index = 0; index < 101; index += 1) {
+      await createParentItem(`Snapshot yield ${index}`);
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 0);
+    try {
+      await expectBrokerError(
+        createZoteroHostCapabilityBroker().library.syncSnapshot(
+          { libraryId: Zotero.Libraries.userLibraryID },
+          { ownerId: "snapshot-yield-test" },
+          { signal: controller.signal },
+        ),
+        "canceled",
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it("rejects same-count content changes during snapshot capture", async function () {
+    const items = [];
+    for (let index = 0; index < 101; index++)
+      items.push(await createParentItem(`Capture ${index}`));
+    const base = createMockZoteroLibraryPageQueryAdapter();
+    let changed = false;
+    setZoteroLibraryPageQueryAdapterForTests({
+      async queryAsync(sql, params, context) {
+        if (!changed && context.kind === "page" && context.afterItemId > 0) {
+          changed = true;
+          await handlers.parent.updateFields(items[50], {
+            title: "Changed after capture started",
+          });
+        }
+        return base.queryAsync(sql, params, context);
+      },
+      hydrateItems: base.hydrateItems,
+    });
+    try {
+      await createZoteroHostCapabilityBroker().library.syncSnapshot({
+        libraryId: items[0].libraryID,
+        batchSize: 1,
+      });
+      assert.fail("expected capture basis failure");
+    } catch (error) {
+      assert.instanceOf(error, ZoteroHostCapabilityError);
+      assert.strictEqual((error as ZoteroHostCapabilityError).code, "conflict");
+      assert.notProperty(error as object, "completionEvidence");
+    }
+  });
+
   it("fails snapshot delivery without completion evidence when a tag read fails", async function () {
     const item = await createParentItem("Snapshot Tag Failure");
     const originalGetTags = item.getTags;
@@ -3014,6 +3148,8 @@ describe("zotero host broker capability api", function () {
 
   it("drives withItemSnapshot through the broker injected into the workflow host", async function () {
     const syncCalls: Array<Record<string, unknown>> = [];
+    const controls: unknown[] = [];
+    const control = { signal: new AbortController().signal };
     const cancelCalls: string[] = [];
     const activePage = {
       schema: "zotero-agents.library-snapshot.v1",
@@ -3037,8 +3173,13 @@ describe("zotero host broker capability api", function () {
     };
     const stubBroker = {
       library: {
-        syncSnapshot: async (request: Record<string, unknown>) => {
+        syncSnapshot: async (
+          request: Record<string, unknown>,
+          _scope: unknown,
+          receivedControl: unknown,
+        ) => {
           syncCalls.push(request);
+          controls.push(receivedControl);
           return request.cursor ? completedPage : activePage;
         },
         cancelSnapshot: (snapshotId: string) => {
@@ -3053,13 +3194,14 @@ describe("zotero host broker capability api", function () {
     const batchIndexes: number[] = [];
     const completed = await withItemSnapshot(
       { libraryId: 1, batchSize: 1 },
-      {},
+      control,
       async (batch) => {
         batchIndexes.push(batch.batchIndex);
       },
     );
     assert.strictEqual(completed.outcome, "completed");
     assert.lengthOf(syncCalls, 2);
+    assert.isTrue(controls.every((received) => received === control));
     assert.deepEqual(batchIndexes, [0, 1]);
     assert.isEmpty(cancelCalls);
 
@@ -3327,13 +3469,20 @@ describe("zotero host broker capability api", function () {
     const attachmentDetail = await broker.library.getItemDetail(attachmentRef);
     const annotationDetail = await broker.library.getItemDetail(annotationRef);
     assert.strictEqual(regularDetail.kind, "regular");
+    if (regularDetail.kind === "regular") {
+      assert.deepEqual(regularDetail.item.childCounts, {
+        notes: 1,
+        attachments: 1,
+        annotations: 1,
+      });
+    }
     assert.strictEqual(noteDetail.kind, "note");
     assert.strictEqual(attachmentDetail.kind, "attachment");
     assert.strictEqual(annotationDetail.kind, "annotation");
 
     const notes = await broker.library.getItemNotes(parentRef);
     assert.deepEqual(
-      notes.map((entry) => entry.ref),
+      notes.notes.map((entry) => entry.ref),
       [noteRef],
     );
     assert.include(
@@ -3342,8 +3491,14 @@ describe("zotero host broker capability api", function () {
     );
     const payloads = await broker.library.listNotePayloads(noteRef);
     assert.include(
-      payloads.map((entry) => entry.payloadType),
+      payloads.payloads.map((entry) => entry.payloadType),
       "canonical-json",
+    );
+    assert.strictEqual(payloads.total, null);
+    assert.strictEqual(payloads.returned, payloads.payloads.length);
+    await expectBrokerError(
+      broker.library.listNotePayloads(noteRef, { cursor: "damaged!" }),
+      "invalid_request",
     );
     const payload = await broker.library.getNotePayload(noteRef, {
       payloadType: "canonical-json",
@@ -3352,17 +3507,20 @@ describe("zotero host broker capability api", function () {
 
     const attachments = await broker.library.getItemAttachments(parentRef);
     assert.deepEqual(
-      attachments.map((entry) => entry.ref),
+      attachments.attachments.map((entry) => entry.ref),
       [attachmentRef],
     );
-    assert.strictEqual(attachments[0].file.state, "available");
+    assert.strictEqual(attachments.attachments[0].file.state, "available");
+    const noteAttachments = await broker.library.getItemAttachments(noteRef);
+    assert.lengthOf(noteAttachments.attachments, 1);
+    assert.strictEqual(noteAttachments.attachments[0].role, "note_payload");
     const annotations = await broker.library.listAnnotations(parentRef);
     assert.deepEqual(
-      annotations.map((entry) => entry.ref),
+      annotations.annotations.map((entry) => entry.ref),
       [annotationRef],
     );
-    assert.deepEqual(annotations[0].attachmentRef, attachmentRef);
-    assert.deepEqual(annotations[0].itemRef, parentRef);
+    assert.deepEqual(annotations.annotations[0].attachmentRef, attachmentRef);
+    assert.deepEqual(annotations.annotations[0].itemRef, parentRef);
 
     const portable = await broker.library.exportPortableItems([parentRef]);
     assert.strictEqual(
@@ -3382,6 +3540,295 @@ describe("zotero host broker capability api", function () {
       annotations,
       portable,
     });
+  });
+
+  it("keeps payload continuation through empty candidates and rejects stale content", async function () {
+    const parent = await createParentItem("Payload scan parent");
+    const note = await handlers.parent.addNote(parent, {
+      content: "<p>Payload</p>",
+    });
+    const noteRef = { libraryId: note.libraryID, key: note.key };
+    const temp = await mkTempDir("payload-page");
+    const ordinaryPath = joinPath(temp, "ordinary.txt");
+    await writeUtf8(ordinaryPath, "ordinary non-payload bytes");
+    const ordinary = new Zotero.Item("attachment");
+    (ordinary as any).parentItemID = note.id;
+    (ordinary as any).setFilePath(ordinaryPath);
+    await ordinary.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+    try {
+      const write = await broker.notes.upsertPayload(
+        {
+          operationId: "payload-page-write",
+          noteRef,
+          payload: {
+            payloadType: "page-json",
+            noteKind: "test",
+            schemaVersion: "page.v1",
+            format: "json",
+            value: { answer: 42 },
+          },
+        },
+        { ownerId: "payload-page-test" },
+      );
+      assert.strictEqual(write.outcome, "committed");
+      const first = await broker.library.listNotePayloads(noteRef, {
+        limit: 1,
+      });
+      assert.isEmpty(first.payloads);
+      assert.isTrue(first.hasMore);
+      assert.strictEqual(first.total, null);
+      assert.strictEqual(first.scanned, 1);
+      const second = await broker.library.listNotePayloads(noteRef, {
+        limit: 1,
+        cursor: first.nextCursor!,
+      });
+      assert.deepEqual(
+        second.payloads.map((entry) => entry.payloadType),
+        ["page-json"],
+      );
+      await writeUtf8(ordinaryPath, "changed candidate bytes");
+      await expectBrokerError(
+        broker.library.listNotePayloads(noteRef, {
+          limit: 1,
+          cursor: first.nextCursor!,
+        }),
+        "invalid_request",
+      );
+      await writeUtf8(ordinaryPath, "x".repeat(1024 * 1024 + 1));
+      await expectBrokerError(
+        broker.library.listNotePayloads(noteRef, { limit: 1 }),
+        "resource_limited",
+      );
+      await removeRuntimePath(ordinaryPath);
+      await expectBrokerError(
+        broker.library.listNotePayloads(noteRef, { limit: 1 }),
+        "execution_failed",
+      );
+    } finally {
+      await removeRuntimePath(temp, { recursive: true });
+    }
+  });
+
+  it("discovers identically named Saved Searches with portable refs and fixed page bounds", async function () {
+    const rows = Array.from({ length: 101 }, (_, index) => ({
+      savedSearchID: index + 1,
+      key: `S${String(index + 1).padStart(7, "0")}`,
+      libraryID: Zotero.Libraries.userLibraryID,
+      savedSearchName: "Same name",
+    }));
+    setZoteroLibrarySourcePageQueryAdapterForTests({
+      async queryAsync(_sql, _params, context) {
+        if (context.domain !== "saved-searches")
+          throw new Error("unexpected domain");
+        return context.kind === "count"
+          ? [{ total: rows.length }]
+          : rows
+              .filter(
+                (row) => row.savedSearchID > Number(context.position?.id || 0),
+              )
+              .slice(0, context.limitPlusOne);
+      },
+      async hydrateItems() {
+        throw new Error("Saved Search discovery must not hydrate items");
+      },
+    });
+    const broker = createZoteroHostCapabilityBroker();
+    const first = await broker.library.listSavedSearches({});
+    assert.strictEqual(first.returned, 25);
+    assert.strictEqual(first.limit, 25);
+    assert.strictEqual(first.libraryId, Zotero.Libraries.userLibraryID);
+    assert.strictEqual(
+      new Set(first.savedSearches.map((row) => row.ref.key)).size,
+      25,
+    );
+    const tail = await broker.library.listSavedSearches({
+      limit: 100,
+      cursor: first.nextCursor!,
+    });
+    assert.strictEqual(tail.returned, 76);
+    assert.isFalse(tail.hasMore);
+    await expectBrokerError(
+      broker.library.listSavedSearches({ limit: 101 }),
+      "resource_limited",
+    );
+    await expectBrokerError(
+      broker.library.listSavedSearches({ cursor: "1" }),
+      "invalid_request",
+    );
+    await expectBrokerError(
+      broker.library.listSavedSearches({
+        libraryId: 99,
+        cursor: first.nextCursor!,
+      }),
+      "invalid_request",
+    );
+  });
+
+  it("checks payload ambiguity beyond the first scan page", async function () {
+    const parent = await createParentItem("Ambiguous payload parent");
+    const html = Array.from({ length: 101 }, (_, index) =>
+      renderPayloadBlock({
+        payloadType: index === 100 ? "candidate-0" : `candidate-${index}`,
+        payload: { value: index },
+      }),
+    ).join("\n");
+    const note = await handlers.parent.addNote(parent, { content: html });
+    const broker = createZoteroHostCapabilityBroker();
+    await expectBrokerError(
+      broker.library.getNotePayload(
+        { libraryId: note.libraryID, key: note.key },
+        { payloadType: "candidate-0" },
+      ),
+      "conflict",
+    );
+  });
+
+  it("serializes native read slices across Broker instances and drops canceled waiters", async function () {
+    await createParentItem("Host slice gate item");
+    const base = createMockZoteroLibraryPageQueryAdapter();
+    let active = 0;
+    let maximumActive = 0;
+    let queryCount = 0;
+    const admittedQueries: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    let firstEntered: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const adapter: ZoteroLibraryPageQueryAdapter = {
+      async queryAsync(sql, params, context) {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        queryCount += 1;
+        if (context.kind === "count")
+          admittedQueries.push(context.criteria.query);
+        if (queryCount === 1) firstEntered?.();
+        await release;
+        try {
+          return await base.queryAsync(sql, params, context);
+        } finally {
+          active -= 1;
+        }
+      },
+      hydrateItems: base.hydrateItems,
+    };
+    setZoteroLibraryPageQueryAdapterForTests(adapter);
+    const first = createZoteroHostCapabilityBroker().library.listItems({
+      limit: 1,
+      query: "first",
+    });
+    await entered;
+    const controller = new AbortController();
+    const second = createZoteroHostCapabilityBroker().library.listItems(
+      { limit: 1 },
+      { signal: controller.signal },
+    );
+    controller.abort();
+    await expectBrokerError(second, "canceled");
+    const third = createZoteroHostCapabilityBroker().library.listItems({
+      limit: 1,
+      query: "third",
+    });
+    const fourth = createZoteroHostCapabilityBroker().library.listItems({
+      limit: 1,
+      query: "fourth",
+    });
+    releaseFirst?.();
+    await Promise.all([first, third, fourth]);
+    assert.strictEqual(maximumActive, 1);
+    assert.strictEqual(queryCount, 6);
+    assert.deepEqual(admittedQueries, ["first", "third", "fourth"]);
+  });
+
+  it("holds the native slice until an active canceled read settles", async function () {
+    await createParentItem("Host slice active cancellation item");
+    const base = createMockZoteroLibraryPageQueryAdapter();
+    let active = 0;
+    let maximumActive = 0;
+    let queryCount = 0;
+    let releaseFirst: (() => void) | undefined;
+    let firstEntered: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const adapter: ZoteroLibraryPageQueryAdapter = {
+      async queryAsync(sql, params, context) {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        queryCount += 1;
+        if (queryCount === 1) firstEntered?.();
+        if (queryCount === 1) await release;
+        try {
+          return await base.queryAsync(sql, params, context);
+        } finally {
+          active -= 1;
+        }
+      },
+      hydrateItems: base.hydrateItems,
+    };
+    setZoteroLibraryPageQueryAdapterForTests(adapter);
+    const controller = new AbortController();
+    let firstSettled = false;
+    const first = createZoteroHostCapabilityBroker()
+      .library.listItems({ limit: 1 }, { signal: controller.signal })
+      .then(
+        () => {
+          firstSettled = true;
+        },
+        (error) => {
+          firstSettled = true;
+          throw error;
+        },
+      );
+    await entered;
+    controller.abort();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assert.isFalse(firstSettled);
+
+    const second = createZoteroHostCapabilityBroker().library.listItems({
+      limit: 1,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assert.strictEqual(queryCount, 1);
+
+    releaseFirst?.();
+    await expectBrokerError(first, "canceled");
+    await second;
+    assert.strictEqual(maximumActive, 1);
+    assert.isAtLeast(queryCount, 3);
+  });
+
+  it("preserves cancellation when child source queries settle after abort", async function () {
+    const parent = await createParentItem("Canceled child page");
+    const ref = { libraryId: parent.libraryID, key: parent.key };
+    const broker = createZoteroHostCapabilityBroker();
+    for (const read of [
+      broker.library.getItemNotes,
+      broker.library.getItemAttachments,
+      broker.library.listAnnotations,
+    ]) {
+      const controller = new AbortController();
+      setZoteroLibrarySourcePageQueryAdapterForTests({
+        async queryAsync(_sql, _params, context) {
+          controller.abort();
+          return context.kind === "count" ? [{ total: 0 }] : [];
+        },
+        async hydrateItems() {
+          assert.fail("an empty canceled source must not hydrate targets");
+        },
+      });
+      await expectBrokerError(
+        read(ref, {}, { signal: controller.signal }),
+        "canceled",
+      );
+    }
   });
 
   it("binds canonical item and collection cursors to normalized criteria", async function () {
@@ -4158,11 +4605,17 @@ describe("zotero host broker capability api", function () {
     const runtime = globalThis as {
       IOUtils?: {
         exists?: (path: string) => Promise<boolean>;
+        stat?: (path: string) => Promise<{
+          type?: string;
+          size?: number;
+          lastModified?: number;
+        }>;
         readUTF8?: (path: string) => Promise<string>;
       };
     };
     const previousIOUtils = runtime.IOUtils;
     const probed: string[] = [];
+    const stated: string[] = [];
     const read: string[] = [];
     runtime.IOUtils = {
       async exists(target) {
@@ -4171,6 +4624,10 @@ describe("zotero host broker capability api", function () {
           throw new Error("NS_ERROR_FILE_UNRECOGNIZED_PATH");
         }
         return true;
+      },
+      async stat(target) {
+        stated.push(target);
+        return { type: "regular", size: 7 };
       },
       async readUTF8(target) {
         read.push(target);
@@ -4198,6 +4655,7 @@ describe("zotero host broker capability api", function () {
         "E:\\research\\a b.md",
         "E:\\research\\broken.md",
       ]);
+      assert.deepEqual(stated, ["E:\\research\\a b.md"]);
       assert.deepEqual(read, ["E:\\research\\a b.md"]);
     } finally {
       if (previousIOUtils === undefined) {
@@ -4321,7 +4779,11 @@ describe("zotero host broker capability api", function () {
   it("rejects unknown mutation operations at admission with unsupported_operation", async function () {
     const item = await createParentItem("Unsupported Operation Item");
     const broker = createZoteroHostCapabilityBroker();
-    for (const operation of ["item.updateFields", "item.addTags", "item.future"]) {
+    for (const operation of [
+      "item.updateFields",
+      "item.addTags",
+      "item.future",
+    ]) {
       try {
         await (broker.mutations.execute as any)(
           {
@@ -4336,10 +4798,7 @@ describe("zotero host broker capability api", function () {
         assert.instanceOf(error, ZoteroHostCapabilityError);
         const brokerError = error as ZoteroHostCapabilityError;
         assert.strictEqual(brokerError.code, "unsupported_operation");
-        assert.strictEqual(
-          brokerError.details.memberOrOperation,
-          operation,
-        );
+        assert.strictEqual(brokerError.details.memberOrOperation, operation);
       }
     }
   });

@@ -44,6 +44,11 @@ export type PortableCollectionRef = Readonly<{
   key: string;
 }>;
 
+export type PortableSavedSearchRef = Readonly<{
+  libraryId: number;
+  key: string;
+}>;
+
 export type AddonIdentityDto = {
   readonly addonName: string;
   readonly addonRef: string;
@@ -312,6 +317,30 @@ export type NotePayloadValueDto = {
   value: JsonValue;
 };
 
+export type LibraryPageRequestDto = Readonly<{
+  limit?: number;
+  cursor?: string;
+}>;
+
+export type LibraryListItemNotesPageDto = Readonly<{
+  notes: NoteSummaryDto[];
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+}>;
+
+export type LibraryListNotePayloadsPageDto = Readonly<{
+  payloads: NotePayloadSummaryDto[];
+  limit: number;
+  scanned: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: null;
+}>;
+
 export type AttachmentDetailDto = {
   ref: PortableItemRef;
   parentRef: PortableItemRef | null;
@@ -334,6 +363,15 @@ export type AttachmentDetailDto = {
     | { state: "not_applicable" };
 };
 
+export type LibraryListItemAttachmentsPageDto = Readonly<{
+  attachments: AttachmentDetailDto[];
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+}>;
+
 export type AnnotationDetailDto = {
   ref: PortableItemRef;
   itemRef: PortableItemRef;
@@ -353,6 +391,15 @@ export type AnnotationDetailDto = {
   createdAt: string;
   modifiedAt: string;
 };
+
+export type LibraryListAnnotationsPageDto = Readonly<{
+  annotations: AnnotationDetailDto[];
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+}>;
 
 export type ItemDetailDto =
   | { kind: "regular"; item: RegularItemDetailDto }
@@ -588,6 +635,7 @@ export type LibraryListItemsRequestDto = {
 
 export type LibraryListItemsPageDto = {
   items: ItemSummaryDto[];
+  limit: number;
   nextCursor: string | null;
   hasMore: boolean;
   returned: number;
@@ -611,11 +659,35 @@ export type LibraryListCollectionsRequestDto = {
 export type LibraryListCollectionsPageDto = {
   collections: CollectionDto[];
   libraryId: number;
+  limit: number;
   nextCursor: string | null;
   hasMore: boolean;
   returned: number;
+  total: number;
   order: "stable_identity";
 };
+
+export type SavedSearchDto = Readonly<{
+  ref: PortableSavedSearchRef;
+  name: string;
+}>;
+
+export type LibraryListSavedSearchesRequestDto = Readonly<{
+  libraryId?: number;
+  limit?: number;
+  cursor?: string;
+}>;
+
+export type LibraryListSavedSearchesPageDto = Readonly<{
+  savedSearches: SavedSearchDto[];
+  libraryId: number;
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+  order: "stable_identity";
+}>;
 
 export type LibraryTraversalRequestDto = {
   libraryId?: number;
@@ -1359,6 +1431,7 @@ export type WorkflowHostLiveReadAdapters = {
     | "listItems"
     | "traverseItems"
     | "listCollections"
+    | "listSavedSearches"
     | "getItemDetail"
     | "getItemNotes"
     | "getNoteDetail"
@@ -1885,13 +1958,14 @@ export type WorkflowHostApiV12 = Readonly<{
     traverseItems(input: LibraryTraversalRequestDto, control: WorkflowCallControl, onBatch: (batch: LibraryTraversalBatchDto) => Promise<void> | void): Promise<LibraryTraversalResultDto>;
     withItemSnapshot(input: LibrarySnapshotRequestDto, control: WorkflowCallControl, onBatch: (batch: LibrarySnapshotBatchDto) => Promise<void> | void): Promise<LibrarySnapshotResultDto>;
     listCollections(input: LibraryListCollectionsRequestDto, control?: WorkflowCallControl): Promise<LibraryListCollectionsPageDto>;
+    listSavedSearches(input: LibraryListSavedSearchesRequestDto, control?: WorkflowCallControl): Promise<LibraryListSavedSearchesPageDto>;
     getItemDetail(ref: PortableItemRef, control?: WorkflowCallControl): Promise<ItemDetailDto>;
-    getItemNotes(parentRef: PortableItemRef, control?: WorkflowCallControl): Promise<NoteSummaryDto[]>;
+    getItemNotes(parentRef: PortableItemRef, page?: LibraryPageRequestDto, control?: WorkflowCallControl): Promise<LibraryListItemNotesPageDto>;
     getNoteDetail(noteRef: PortableItemRef, options: NoteDetailOptionsDto, control?: WorkflowCallControl): Promise<NoteDetailDto>;
-    listNotePayloads(noteRef: PortableItemRef, control?: WorkflowCallControl): Promise<NotePayloadSummaryDto[]>;
+    listNotePayloads(noteRef: PortableItemRef, page?: LibraryPageRequestDto, control?: WorkflowCallControl): Promise<LibraryListNotePayloadsPageDto>;
     getNotePayload(noteRef: PortableItemRef, options: NotePayloadOptionsDto, control?: WorkflowCallControl): Promise<NotePayloadValueDto>;
-    getItemAttachments(parentRef: PortableItemRef, control?: WorkflowCallControl): Promise<AttachmentDetailDto[]>;
-    listAnnotations(ref: PortableItemRef, control?: WorkflowCallControl): Promise<AnnotationDetailDto[]>;
+    getItemAttachments(parentRef: PortableItemRef, page?: LibraryPageRequestDto, control?: WorkflowCallControl): Promise<LibraryListItemAttachmentsPageDto>;
+    listAnnotations(ref: PortableItemRef, page?: LibraryPageRequestDto, control?: WorkflowCallControl): Promise<LibraryListAnnotationsPageDto>;
     exportPortableItems(itemRefs: PortableItemRef[], control?: WorkflowCallControl): Promise<PortableRegularItemDto[]>;
   }>;
   metadata: Readonly<{

@@ -8,6 +8,7 @@ import {
 import { sanitizeFileNameSegment } from "./path.mjs";
 import {
   portableItemRef,
+  readHostPages,
   requireCommittedMutation,
   requireHostApi,
 } from "./runtime.mjs";
@@ -135,7 +136,13 @@ export async function findLinkedAttachmentForPath(
     return null;
   }
   const host = requireHostApi(runtime);
-  for (const attachment of await host.library.getItemAttachments(portableItemRef(parentItem))) {
+  const attachments = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemAttachments(portableItemRef(parentItem), page),
+    getItems: (page) => page.attachments,
+    operation: "translator attachment read",
+  });
+  for (const attachment of attachments) {
     const attachmentPath = attachment.file?.state === "available"
       ? attachment.file.path
       : "";

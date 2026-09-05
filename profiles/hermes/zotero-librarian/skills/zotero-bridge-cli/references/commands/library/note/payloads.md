@@ -105,6 +105,7 @@ This command has no structured JSON input parameter.
       ]
     },
     "key": {
+      "minLength": 1,
       "type": "string"
     },
     "libraryId": {
@@ -114,6 +115,7 @@ This command has no structured JSON input parameter.
       ]
     },
     "limit": {
+      "maximum": 100,
       "minimum": 1,
       "type": [
         "number",
@@ -182,13 +184,14 @@ The executable command contract owns the base source, fixed values, field mappin
     },
     "data": {
       "additionalProperties": true,
-      "description": "Result data owned by library.list_note_payloads.",
+      "description": "Canonical source page of payloads.",
       "properties": {
         "hasMore": {
           "type": "boolean"
         },
         "limit": {
-          "minimum": 0,
+          "maximum": 100,
+          "minimum": 1,
           "type": "integer"
         },
         "nextCursor": {
@@ -204,13 +207,25 @@ The executable command contract owns the base source, fixed values, field mappin
           "minimum": 0,
           "type": "integer"
         },
-        "total": {
+        "scanned": {
           "minimum": 0,
           "type": "integer"
+        },
+        "total": {
+          "type": "null"
         }
       },
+      "required": [
+        "payloads",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "total",
+        "limit",
+        "scanned"
+      ],
       "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
     }
   },
   "required": [
@@ -508,7 +523,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "data.hasMore",
       "data.returned",
       "data.total",
-      "data.limit"
+      "data.limit",
+      "data.scanned"
     ],
     "cursorInput": "cursor",
     "defaultLimit": 25,
@@ -530,6 +546,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       },
       "key": {
+        "minLength": 1,
         "type": "string"
       },
       "libraryId": {
@@ -539,6 +556,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       },
       "limit": {
+        "maximum": 100,
         "minimum": 1,
         "type": [
           "number",
@@ -569,13 +587,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "data": {
         "additionalProperties": true,
-        "description": "Result data owned by library.list_note_payloads.",
+        "description": "Canonical source page of payloads.",
         "properties": {
           "hasMore": {
             "type": "boolean"
           },
           "limit": {
-            "minimum": 0,
+            "maximum": 100,
+            "minimum": 1,
             "type": "integer"
           },
           "nextCursor": {
@@ -591,13 +610,25 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "minimum": 0,
             "type": "integer"
           },
-          "total": {
+          "scanned": {
             "minimum": 0,
             "type": "integer"
+          },
+          "total": {
+            "type": "null"
           }
         },
+        "required": [
+          "payloads",
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit",
+          "scanned"
+        ],
         "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
       }
     },
     "required": [
@@ -632,7 +663,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ## Operational contract
 
 - Canonical argv path: `library` `note` `payloads`.
-- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.payloads","strategy":"cursor"}.
+- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit","data.scanned"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.payloads","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Structured binding mode: `object`.

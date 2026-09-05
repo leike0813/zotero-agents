@@ -183,7 +183,7 @@ risk_class: additive | corrective | destructive
 - 变换规则或证据；
 - 明确保留的标签；
 - 预期的副作用；
-- 审批范围；
+- approval scope;
 - 验证读取。
 
 安全默认值：

@@ -573,6 +573,7 @@ export function createWorkflowHostLiveReadAdapters(args: {
       listItems: broker.library.listItems,
       traverseItems: broker.library.traverseItems,
       listCollections: broker.library.listCollections,
+      listSavedSearches: broker.library.listSavedSearches,
       getItemDetail: broker.library.getItemDetail,
       getItemNotes: broker.library.getItemNotes,
       getNoteDetail: broker.library.getNoteDetail,
@@ -695,11 +696,11 @@ export function createWorkflowResearchBundleImportApi(args: {
       },
       async readCollectionTarget({ collectionRef, control }) {
         let cursor: string | undefined;
-        do {
+        while (true) {
           const page = await broker.library.listCollections(
             {
               libraryId: collectionRef.libraryId,
-              limit: 500,
+              limit: 100,
               ...(cursor ? { cursor } : {}),
             },
             control,
@@ -713,9 +714,13 @@ export function createWorkflowResearchBundleImportApi(args: {
               revision: collection.revision,
             };
           }
-          cursor = page.nextCursor || undefined;
-        } while (cursor);
-        return null;
+          if (!page.hasMore) return null;
+          const nextCursor = page.nextCursor?.trim();
+          if (!nextCursor || nextCursor === cursor) {
+            throw new Error("Research import collection pagination is invalid");
+          }
+          cursor = nextCursor;
+        }
       },
       async resolveResource({ resourceRef }) {
         const resource = await args.resources.get(resourceRef);
@@ -1053,6 +1058,29 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
   };
 }) {
   const broker = createZoteroHostCapabilityBroker();
+  async function readAllLibraryPages<TPage extends {
+    hasMore: boolean;
+    nextCursor: string | null;
+  }, TItem>(
+    readPage: (page: { limit: number; cursor?: string }) => Promise<TPage>,
+    getItems: (page: TPage) => readonly TItem[],
+  ): Promise<TItem[]> {
+    const items: TItem[] = [];
+    let cursor: string | undefined;
+    while (true) {
+      const page = await readPage({
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      });
+      items.push(...getItems(page));
+      if (!page.hasMore) return items;
+      const nextCursor = page.nextCursor?.trim();
+      if (!nextCursor || nextCursor === cursor) {
+        throw new Error("Workflow Host page continuation is invalid");
+      }
+      cursor = nextCursor;
+    }
+  }
   const readPaper = async (
     ref: PortableItemRef,
     control: WorkflowCallControl | undefined,
@@ -1074,7 +1102,10 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       if (!detail || detail.kind !== "regular") return null;
       const [item] = await broker.library.exportPortableItems([ref], control);
       if (!item) return null;
-      const noteSummaries = await broker.library.getItemNotes(ref, control);
+      const noteSummaries = await readAllLibraryPages(
+        (page) => broker.library.getItemNotes(ref, page, control),
+        (page) => page.notes,
+      );
       const notes = await Promise.all(
         noteSummaries.map(async (summary) => {
           const note = await broker.library.getNoteDetail(
@@ -1082,9 +1113,9 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
             { format: "html" },
             control,
           );
-          const payloadSummaries = await broker.library.listNotePayloads(
-            summary.ref,
-            control,
+          const payloadSummaries = await readAllLibraryPages(
+            (page) => broker.library.listNotePayloads(summary.ref, page, control),
+            (page) => page.payloads,
           );
           const payloads = await Promise.all(
             payloadSummaries
@@ -1100,7 +1131,11 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
           let content = note.content;
           const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] = [];
           const imageAttachments = (
-            await broker.library.getItemAttachments(summary.ref, control)
+            await readAllLibraryPages(
+              (page) =>
+                broker.library.getItemAttachments(summary.ref, page, control),
+              (page) => page.attachments,
+            )
           ).filter(
             (attachment) =>
               (attachment.role === "note_image" ||
@@ -1159,9 +1194,15 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
         }),
       );
       const attachments = (
-        await broker.library.getItemAttachments(ref, control)
+        await readAllLibraryPages(
+          (page) => broker.library.getItemAttachments(ref, page, control),
+          (page) => page.attachments,
+        )
       ).filter((attachment) => attachment.role === "ordinary");
-      const annotations = await broker.library.listAnnotations(ref, control);
+      const annotations = await readAllLibraryPages(
+        (page) => broker.library.listAnnotations(ref, page, control),
+        (page) => page.annotations,
+      );
       return {
         source: { ref: detail.item.ref, revision: detail.item.revision },
         item,
@@ -1268,7 +1309,7 @@ export function createWorkflowLibraryItemSnapshotApi(
       );
     }
     const scope = { ownerId: workflowSnapshotOwnerId() };
-    let page = await broker.library.syncSnapshot(request, scope);
+    let page = await broker.library.syncSnapshot(request, scope, control);
     for (;;) {
       try {
         await onBatch({
@@ -1308,6 +1349,7 @@ export function createWorkflowLibraryItemSnapshotApi(
           cursor: page.nextCursor,
         },
         scope,
+        control,
       );
     }
   };

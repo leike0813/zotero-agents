@@ -1,6 +1,6 @@
 import { parseNoteKind } from "./notePayloadCodec";
 import {
-  listNotePayloadBlocksForItem,
+  listNotePayloadBlocksForItemPage,
   selectPreferredNotePayloadBlock,
 } from "./zoteroNotePayloadResolver";
 import {
@@ -14,7 +14,8 @@ import type {
   WorkflowGeneratedNoteReadinessFilter,
   WorkflowGeneratedNoteReadinessResult,
 } from "../workflows/types";
-import { hydrateZoteroItemsByIds } from "./zoteroLibraryPageQuery";
+import { yieldToEventLoop } from "../utils/runtimeCompatibility";
+import { queryZoteroChildItemPage } from "./zoteroLibraryPageQuery";
 
 export type LibraryArtifactKind =
   | "source-markdown"
@@ -113,61 +114,244 @@ const PAYLOAD_TYPES_BY_NOTE_KIND: Record<
   "citation-analysis": ["citation-analysis-json", "citation-analysis-markdown"],
 };
 
-function childItemIds(value: unknown) {
-  return (Array.isArray(value) ? value : [])
-    .map(Number)
-    .filter((id) => Number.isSafeInteger(id) && id > 0);
+export type LibraryArtifactReadOptions = {
+  runNativeSlice?: <T>(run: () => Promise<T> | T) => Promise<T>;
+  checkCanceled?: () => void;
+};
+
+const ARTIFACT_READ_PAGE_LIMIT = 100;
+
+export type LibraryArtifactPayloadBlock = Awaited<
+  ReturnType<typeof listNotePayloadBlocksForItemPage>
+>["blocks"][number];
+
+export type LibraryArtifactNoteFacts = {
+  id: number;
+  key: string;
+  title: string;
+  html: string;
+  updatedAt: string;
+  payloadBlocks: LibraryArtifactPayloadBlock[];
+};
+
+export type LibraryArtifactGeneratedNoteFacts = Omit<
+  LibraryArtifactNoteFacts,
+  "id"
+> & { id?: number };
+
+type LibraryArtifactAttachmentFacts = {
+  id: number;
+  key: string;
+  filename: string;
+  isPdf: boolean;
+  isMarkdown: boolean;
+};
+
+function checkArtifactRead(options: LibraryArtifactReadOptions) {
+  options.checkCanceled?.();
 }
 
-async function resolveArtifactChildren(item: LibraryArtifactItem) {
-  const zotero = (globalThis as { Zotero?: any }).Zotero;
-  if (typeof zotero?.Items?.loadDataTypes === "function") {
-    await zotero.Items.loadDataTypes([item], ["childItems"]);
+function runArtifactNative<T>(
+  options: LibraryArtifactReadOptions,
+  run: () => Promise<T> | T,
+) {
+  return options.runNativeSlice
+    ? options.runNativeSlice(run)
+    : Promise.resolve().then(run);
+}
+
+function requireArtifactNextCursor(
+  currentCursor: string | undefined,
+  nextCursor: unknown,
+  resource: string,
+) {
+  const next = String(nextCursor || "").trim();
+  if (!next || next === currentCursor) {
+    throw new Error(`${resource} page cursor did not advance`);
   }
-  const noteIds = childItemIds(item.getNotes?.() || []);
-  const attachmentIds = childItemIds(item.getAttachments?.() || []);
-  const childIds = Array.from(new Set([...noteIds, ...attachmentIds]));
-  const children = childIds.length
-    ? ((await hydrateZoteroItemsByIds(
-        childIds,
-        zotero,
-      )) as LibraryArtifactItem[])
-    : [];
-  const byId = new Map(children.map((child) => [Number(child.id), child]));
+  return next;
+}
+
+async function forEachArtifactChildPage(
+  item: LibraryArtifactItem,
+  domain: "notes" | "attachments",
+  options: LibraryArtifactReadOptions,
+  onPage: (items: LibraryArtifactItem[]) => Promise<void>,
+) {
+  const libraryId = Number((item as any).libraryID);
+  const parentItemId = Number((item as any).id);
+  let cursor: string | undefined;
+  for (;;) {
+    checkArtifactRead(options);
+    const page = await runArtifactNative(options, () =>
+      queryZoteroChildItemPage({
+        domain,
+        libraryId,
+        parentItemId,
+        limit: ARTIFACT_READ_PAGE_LIMIT,
+        ...(cursor ? { cursor } : {}),
+      }),
+    );
+    checkArtifactRead(options);
+    await onPage(page.items as LibraryArtifactItem[]);
+    checkArtifactRead(options);
+    if (!page.hasMore) {
+      return;
+    }
+    cursor = requireArtifactNextCursor(cursor, page.nextCursor, domain);
+  }
+}
+
+async function detachArtifactNote(
+  note: LibraryArtifactItem,
+  options: LibraryArtifactReadOptions,
+): Promise<LibraryArtifactNoteFacts | null> {
+  if (!(await runArtifactNative(options, () => note?.isNote?.()))) {
+    return null;
+  }
+  const detached = await runArtifactNative(options, () => ({
+    id: Number(note.id),
+    key: String(note.key || ""),
+    title: String(note.getField?.("title") || note.getDisplayTitle?.() || ""),
+    html: String(note.getNote?.() || ""),
+    updatedAt: String(note.dateModified || note.dateAdded || ""),
+  }));
+  const payloadBlocks = await listLibraryArtifactPayloadBlocks(note, options);
   return {
-    notes: noteIds
-      .map((id) => byId.get(id))
-      .filter((child): child is LibraryArtifactItem => Boolean(child)),
-    attachments: attachmentIds
-      .map((id) => byId.get(id))
-      .filter((child): child is LibraryArtifactItem => Boolean(child)),
+    ...detached,
+    payloadBlocks,
   };
+}
+
+async function detachArtifactAttachment(
+  attachment: LibraryArtifactItem,
+  options: LibraryArtifactReadOptions,
+): Promise<LibraryArtifactAttachmentFacts | null> {
+  if (!(await runArtifactNative(options, () => attachment?.isAttachment?.()))) {
+    return null;
+  }
+  const filename = await resolveAttachmentFilename(attachment, options);
+  const isPdf = await runArtifactNative(options, () =>
+    isPdfAttachment(attachment),
+  );
+  const identity = await runArtifactNative(options, () => ({
+    id: Number(attachment.id),
+    key: String(attachment.key || ""),
+  }));
+  return {
+    ...identity,
+    filename,
+    isPdf,
+    isMarkdown: MARKDOWN_EXTENSIONS.has(resolveExtension(filename)),
+  };
+}
+
+async function resolveArtifactChildren(
+  item: LibraryArtifactItem,
+  options: LibraryArtifactReadOptions = {},
+) {
+  const notes: LibraryArtifactNoteFacts[] = [];
+  const attachments: LibraryArtifactAttachmentFacts[] = [];
+  const processPage = async <T>(
+    items: LibraryArtifactItem[],
+    process: (item: LibraryArtifactItem) => Promise<T | null>,
+    output: T[],
+  ) => {
+    let startedAt = Date.now();
+    let processed = 0;
+    for (const child of items) {
+      checkArtifactRead(options);
+      const fact = await process(child);
+      if (fact) {
+        output.push(fact);
+      }
+      processed += 1;
+      if (processed >= 100 || Date.now() - startedAt >= 50) {
+        await yieldToEventLoop();
+        checkArtifactRead(options);
+        startedAt = Date.now();
+        processed = 0;
+      }
+    }
+  };
+  await Promise.all([
+    forEachArtifactChildPage(item, "notes", options, (page) =>
+      processPage(page, (child) => detachArtifactNote(child, options), notes),
+    ),
+    forEachArtifactChildPage(item, "attachments", options, (page) =>
+      processPage(
+        page,
+        (child) => detachArtifactAttachment(child, options),
+        attachments,
+      ),
+    ),
+  ]);
+  return { notes, attachments };
+}
+
+export async function listLibraryArtifactPayloadBlocks(
+  note: LibraryArtifactItem,
+  options: LibraryArtifactReadOptions = {},
+) {
+  const blocks: Awaited<
+    ReturnType<typeof listNotePayloadBlocksForItemPage>
+  >["blocks"] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    checkArtifactRead(options);
+    const page = await listNotePayloadBlocksForItemPage(
+      note,
+      {
+        limit: ARTIFACT_READ_PAGE_LIMIT,
+        ...(cursor ? { cursor } : {}),
+      },
+      {
+        ...(options.runNativeSlice
+          ? { runNativeSlice: options.runNativeSlice }
+          : {}),
+        ...(options.checkCanceled
+          ? { checkCanceled: options.checkCanceled }
+          : {}),
+      },
+    );
+    checkArtifactRead(options);
+    blocks.push(...page.blocks);
+    if (!page.hasMore) {
+      return blocks;
+    }
+    cursor = requireArtifactNextCursor(cursor, page.nextCursor, "payload");
+  }
 }
 
 export async function resolveLibraryArtifactReadiness(
   item: LibraryArtifactItem,
+  options: LibraryArtifactReadOptions = {},
 ): Promise<LibraryArtifactReadiness> {
-  if (!isTopLevelRegularArtifactItem(item)) {
+  if (
+    !(await runArtifactNative(options, () =>
+      isTopLevelRegularArtifactItem(item),
+    ))
+  ) {
     return emptyLibraryArtifactReadiness();
   }
-  const children = await resolveArtifactChildren(item);
+  const children = await resolveArtifactChildren(item, options);
   const artifacts = new Set<LibraryArtifactKind>();
-  const pdfAttachment = await resolveBestPdfAttachment(
+  const pdfAttachment = await resolveBestPdfAttachmentFacts(
     item,
     children.attachments,
+    options,
   );
-  const pdfFilename = pdfAttachment
-    ? await resolveAttachmentFilename(pdfAttachment)
-    : "";
+  const pdfFilename = pdfAttachment?.filename || "";
   const pdfStem = pdfAttachment ? resolveStem(pdfFilename) : "";
-  const markdownStems = await resolveMarkdownAttachmentStems(
-    children.attachments,
-  );
+  const markdownStems = resolveMarkdownAttachmentStems(children.attachments);
   const hasSourceMarkdown = !!pdfStem && markdownStems.has(pdfStem);
   if (hasSourceMarkdown) {
     artifacts.add("source-markdown");
   }
-  const generatedNotes = await resolveGeneratedNoteArtifacts(children.notes);
+  const generatedNotes = await resolveGeneratedNoteArtifacts(
+    children.notes,
+    options,
+  );
   for (const artifact of generatedNotes.artifacts) {
     artifacts.add(artifact);
   }
@@ -222,19 +406,72 @@ export function parseLibraryArtifactState(data: string) {
 export async function resolveBestPdfAttachment(
   item: LibraryArtifactItem,
   resolvedAttachments?: LibraryArtifactItem[],
+  options: LibraryArtifactReadOptions = {},
 ) {
-  const best = await item.getBestAttachment?.();
-  if (best && isPdfAttachment(best as LibraryArtifactItem)) {
+  const best = await runArtifactNative(options, () =>
+    item.getBestAttachment?.(),
+  );
+  if (
+    best &&
+    (await runArtifactNative(options, () =>
+      isPdfAttachment(best as LibraryArtifactItem),
+    ))
+  ) {
     return best as LibraryArtifactItem;
   }
-  const attachments =
-    resolvedAttachments || (await resolveArtifactChildren(item)).attachments;
-  for (const attachment of attachments) {
-    if (attachment && isPdfAttachment(attachment)) {
-      return attachment;
+  if (resolvedAttachments) {
+    for (const attachment of resolvedAttachments) {
+      if (
+        attachment &&
+        (await runArtifactNative(options, () => isPdfAttachment(attachment)))
+      ) {
+        return attachment;
+      }
     }
   }
-  return null;
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await runArtifactNative(options, () =>
+      queryZoteroChildItemPage({
+        domain: "attachments",
+        libraryId: Number(item.libraryID),
+        parentItemId: Number(item.id),
+        limit: ARTIFACT_READ_PAGE_LIMIT,
+        ...(cursor ? { cursor } : {}),
+      }),
+    );
+    for (const attachment of page.items as LibraryArtifactItem[]) {
+      if (await runArtifactNative(options, () => isPdfAttachment(attachment))) {
+        return attachment;
+      }
+    }
+    if (!page.hasMore) return null;
+    cursor = requireArtifactNextCursor(cursor, page.nextCursor, "attachments");
+  }
+}
+
+async function resolveBestPdfAttachmentFacts(
+  item: LibraryArtifactItem,
+  attachments: LibraryArtifactAttachmentFacts[],
+  options: LibraryArtifactReadOptions,
+) {
+  checkArtifactRead(options);
+  const best = await runArtifactNative(options, () =>
+    item.getBestAttachment?.(),
+  );
+  checkArtifactRead(options);
+  if (
+    best &&
+    (await runArtifactNative(options, () =>
+      isPdfAttachment(best as LibraryArtifactItem),
+    ))
+  ) {
+    const bestId = Number((best as LibraryArtifactItem).id);
+    const detached = attachments.find((attachment) => attachment.id === bestId);
+    if (detached) return detached;
+    return detachArtifactAttachment(best as LibraryArtifactItem, options);
+  }
+  return attachments.find((attachment) => attachment.isPdf) || null;
 }
 
 export function isTopLevelRegularArtifactItem(item: LibraryArtifactItem) {
@@ -253,17 +490,18 @@ export function isTopLevelRegularArtifactItem(item: LibraryArtifactItem) {
 export async function evaluateGeneratedNoteReadiness(
   parentItem: LibraryArtifactItem,
   spec: WorkflowGeneratedNoteReadinessFilter,
+  options: LibraryArtifactReadOptions = {},
 ): Promise<WorkflowGeneratedNoteReadinessResult> {
-  const childNotes = (await resolveArtifactChildren(parentItem)).notes;
+  const childNotes = (await resolveArtifactChildren(parentItem, options)).notes;
   const notes: Array<{
-    item: LibraryArtifactItem;
+    item: LibraryArtifactNoteFacts;
     kind: string;
   }> = [];
   for (const note of childNotes) {
-    if (!note?.isNote?.()) {
-      continue;
-    }
-    notes.push({ item: note, kind: await resolveGeneratedNoteKind(note) });
+    notes.push({
+      item: note,
+      kind: await resolveGeneratedNoteKind(note, options),
+    });
   }
 
   const artifacts: WorkflowGeneratedNoteReadinessResult["artifacts"] = {};
@@ -271,6 +509,7 @@ export async function evaluateGeneratedNoteReadiness(
     artifacts[artifactSpec.id] = await evaluateGeneratedNoteArtifact(
       notes,
       artifactSpec,
+      options,
     );
   }
   const mode =
@@ -304,8 +543,9 @@ export async function evaluateGeneratedNoteReadiness(
 }
 
 async function evaluateGeneratedNoteArtifact(
-  notes: Array<{ item: LibraryArtifactItem; kind: string }>,
+  notes: Array<{ item: LibraryArtifactNoteFacts; kind: string }>,
   spec: WorkflowGeneratedNoteArtifactSpec,
+  options: LibraryArtifactReadOptions,
 ): Promise<WorkflowGeneratedNoteReadinessResult["artifacts"][string]> {
   const candidates = notes.filter((note) => spec.noteKinds.includes(note.kind));
   const noteIds = candidates
@@ -321,7 +561,7 @@ async function evaluateGeneratedNoteArtifact(
   for (const candidate of candidates) {
     try {
       const block = selectPreferredNotePayloadBlock(
-        await listNotePayloadBlocksForItem(candidate.item),
+        candidate.item.payloadBlocks,
         spec.payload.type,
       );
       if (!block || block.errors?.length) {
@@ -439,15 +679,16 @@ function emptyLibraryArtifactReadiness(): LibraryArtifactReadiness {
   };
 }
 
-async function resolveGeneratedNoteArtifacts(notes: LibraryArtifactItem[]) {
+async function resolveGeneratedNoteArtifacts(
+  notes: LibraryArtifactNoteFacts[],
+  options: LibraryArtifactReadOptions,
+) {
   const artifacts = new Set<LibraryArtifactKind>();
   let score: LiteratureScoreSummary | null = null;
   let scoreStatus: "available" | "missing" | "invalid" = "missing";
   for (const note of notes) {
-    if (!note?.isNote?.()) {
-      continue;
-    }
-    const noteKind = await resolveGeneratedNoteKind(note);
+    checkArtifactRead(options);
+    const noteKind = await resolveGeneratedNoteKind(note, options);
     if (noteKind === "digest") {
       artifacts.add("digest");
     } else if (noteKind === "references") {
@@ -455,7 +696,7 @@ async function resolveGeneratedNoteArtifacts(notes: LibraryArtifactItem[]) {
     } else if (noteKind === "citation-analysis") {
       artifacts.add("citation-analysis");
     } else if (noteKind === "literature-score") {
-      const resolved = await resolveLiteratureScoreForNote(note);
+      const resolved = await resolveLiteratureScoreForNote(note, options);
       if (resolved) {
         artifacts.add("literature-score");
         score = resolved;
@@ -468,23 +709,42 @@ async function resolveGeneratedNoteArtifacts(notes: LibraryArtifactItem[]) {
   return { artifacts, score, scoreStatus };
 }
 
-async function resolveLiteratureScoreForNote(note: LibraryArtifactItem) {
-  try {
-    const block = selectPreferredNotePayloadBlock(
-      await listNotePayloadBlocksForItem(note),
-      LITERATURE_SCORE_PAYLOAD_TYPE,
-    );
-    if (!block || block.errors?.length) {
-      return null;
-    }
-    return parseLiteratureScore(block.payload);
-  } catch {
-    return null;
-  }
+export async function summarizeLibraryGeneratedArtifacts(
+  notes: ReadonlyArray<LibraryArtifactGeneratedNoteFacts>,
+  options: LibraryArtifactReadOptions = {},
+) {
+  const normalized = notes.map((note, index) => ({
+    id: Number(note.id) || index + 1,
+    key: String(note.key || ""),
+    title: String(note.title || ""),
+    html: String(note.html || ""),
+    updatedAt: String(note.updatedAt || ""),
+    payloadBlocks: note.payloadBlocks,
+  }));
+  return resolveGeneratedNoteArtifacts(normalized, options);
 }
 
-async function resolveGeneratedNoteKind(note: LibraryArtifactItem) {
-  const noteHtml = note.getNote?.() || "";
+async function resolveLiteratureScoreForNote(
+  note: LibraryArtifactNoteFacts,
+  options: LibraryArtifactReadOptions = {},
+) {
+  checkArtifactRead(options);
+  const block = selectPreferredNotePayloadBlock(
+    note.payloadBlocks,
+    LITERATURE_SCORE_PAYLOAD_TYPE,
+  );
+  if (!block || block.errors?.length) {
+    return null;
+  }
+  return parseLiteratureScore(block.payload);
+}
+
+async function resolveGeneratedNoteKind(
+  note: LibraryArtifactNoteFacts,
+  options: LibraryArtifactReadOptions = {},
+) {
+  checkArtifactRead(options);
+  const noteHtml = note.html;
   const markerKind = normalizeGeneratedNoteKindFromMarkers(noteHtml);
   if (markerKind) {
     return markerKind;
@@ -494,11 +754,15 @@ async function resolveGeneratedNoteKind(note: LibraryArtifactItem) {
     return "";
   }
   if (headingKind === "literature-score") {
-    return (await resolveLiteratureScoreForNote(note))
+    return (await resolveLiteratureScoreForNote(note, options))
       ? "literature-score"
       : "";
   }
-  return resolveGeneratedNoteKindFromEmbeddedPayload(note, headingKind);
+  return resolveGeneratedNoteKindFromEmbeddedPayload(
+    note,
+    headingKind,
+    options,
+  );
 }
 
 function normalizeGeneratedNoteKindFromMarkers(noteHtml: unknown) {
@@ -567,18 +831,19 @@ function readHtmlDataAttribute(html: string, name: string) {
 }
 
 async function resolveGeneratedNoteKindFromEmbeddedPayload(
-  note: LibraryArtifactItem,
+  note: LibraryArtifactNoteFacts,
   expectedKind: "digest" | "references" | "citation-analysis",
+  options: LibraryArtifactReadOptions = {},
 ) {
-  try {
-    const blocks = await listNotePayloadBlocksForItem(note);
-    for (const payloadType of PAYLOAD_TYPES_BY_NOTE_KIND[expectedKind]) {
-      if (selectPreferredNotePayloadBlock(blocks, payloadType)) {
-        return expectedKind;
-      }
+  checkArtifactRead(options);
+  for (const payloadType of PAYLOAD_TYPES_BY_NOTE_KIND[expectedKind]) {
+    const block = selectPreferredNotePayloadBlock(
+      note.payloadBlocks,
+      payloadType,
+    );
+    if (block && !block.errors?.length) {
+      return expectedKind;
     }
-  } catch {
-    return "";
   }
   return "";
 }
@@ -611,30 +876,20 @@ function isPdfAttachment(item: LibraryArtifactItem) {
   return filename.endsWith(".pdf");
 }
 
-async function resolveMarkdownAttachmentStems(
-  attachments: LibraryArtifactItem[],
+function resolveMarkdownAttachmentStems(
+  attachments: LibraryArtifactAttachmentFacts[],
 ) {
   const stems = new Set<string>();
   for (const attachment of attachments) {
-    if (!attachment || !(await isMarkdownAttachment(attachment))) {
+    if (!attachment.isMarkdown) {
       continue;
     }
-    const stem = await resolveAttachmentStem(attachment);
+    const stem = resolveStem(attachment.filename);
     if (stem) {
       stems.add(stem);
     }
   }
   return stems;
-}
-
-async function isMarkdownAttachment(item: LibraryArtifactItem) {
-  const filename = await resolveAttachmentFilename(item);
-  return MARKDOWN_EXTENSIONS.has(resolveExtension(filename));
-}
-
-async function resolveAttachmentStem(item: LibraryArtifactItem) {
-  const filename = await resolveAttachmentFilename(item);
-  return resolveStem(filename);
 }
 
 function resolveStem(filename: string) {
@@ -648,13 +903,20 @@ function resolveStem(filename: string) {
     .toLowerCase();
 }
 
-async function resolveAttachmentFilename(item: LibraryArtifactItem) {
-  const syncFilename = resolveAttachmentFilenameSync(item);
+async function resolveAttachmentFilename(
+  item: LibraryArtifactItem,
+  options: LibraryArtifactReadOptions = {},
+) {
+  const syncFilename = await runArtifactNative(options, () =>
+    resolveAttachmentFilenameSync(item),
+  );
   if (syncFilename) {
     return syncFilename;
   }
   try {
-    const filePath = await item.getFilePathAsync?.();
+    const filePath = await runArtifactNative(options, () =>
+      item.getFilePathAsync?.(),
+    );
     return basename(String(filePath || ""));
   } catch {
     return "";

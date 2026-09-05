@@ -174,6 +174,24 @@ export function requireHostApi(runtime, message) {
   return hostApi;
 }
 
+export async function readHostPages({ readPage, getItems, limit = 100, operation = "host read" }) {
+  if (typeof readPage !== "function" || typeof getItems !== "function") {
+    throw new TypeError(`${operation} page reader is required`);
+  }
+  const items = [];
+  let cursor;
+  while (true) {
+    const page = await readPage({ limit, ...(cursor ? { cursor } : {}) });
+    items.push(...getItems(page));
+    if (page.hasMore !== true) return items;
+    const nextCursor = String(page.nextCursor || "").trim();
+    if (!nextCursor || nextCursor === cursor) {
+      throw new Error(`${operation} received hasMore without a new cursor`);
+    }
+    cursor = nextCursor;
+  }
+}
+
 export function requireHostEditor(runtime, message) {
   const editor = requireHostApi(runtime, message).editor;
   if (!editor || typeof editor.openSession !== "function") {

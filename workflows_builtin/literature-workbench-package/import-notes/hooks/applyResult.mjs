@@ -16,6 +16,7 @@ import { resolveRepresentativeImageMarkdownImportCandidate } from "../../lib/rep
 import { buildLiteratureScorePayload } from "../../lib/literatureScoreNote.mjs";
 import {
   portableItemRef,
+  readHostPages,
   requireHostApi,
   requireHostEditor,
   withPackageRuntimeScope,
@@ -697,7 +698,12 @@ async function resolveExistingGeneratedKinds(parentItem, runtime) {
     "literature-score": false,
   };
   const host = requireHostApi(runtime);
-  for (const note of await host.library.getItemNotes(portableItemRef(parentItem))) {
+  for (const note of await readHostPages({
+    readPage: (page) =>
+      host.library.getItemNotes(portableItemRef(parentItem), page),
+    getItems: (page) => page.notes,
+    operation: "import-notes note read",
+  })) {
     const noteItem = await host.library.getNoteDetail(note.ref, { format: "html" });
     const kind = parseGeneratedNoteKind(noteItem.content);
     if (kind === "digest") {

@@ -218,10 +218,6 @@ async function finishReceipt(
   await writeCompatibilityReceipt(receiptPath, receipt);
 }
 
-function npmExecutable() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
 async function runWorker(args: {
   options: CliOptions;
   binaryPath: string;
@@ -232,8 +228,12 @@ async function runWorker(args: {
   const stdoutPath = path.join(args.layout.diagnostics, "runner.stdout.log");
   const stderrPath = path.join(args.layout.diagnostics, "runner.stderr.log");
   const result = await runOwnedCommand({
-    command: npmExecutable(),
-    args: ["run", "test:zotero:compatibility:with-mock"],
+    command: process.platform === "win32" ? "cmd.exe" : "npm",
+    args: [
+      ...(process.platform === "win32" ? ["/d", "/s", "/c", "npm"] : []),
+      "run",
+      "test:zotero:compatibility:with-mock",
+    ],
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,

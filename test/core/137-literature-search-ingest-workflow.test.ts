@@ -11,6 +11,10 @@ import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflowSet
 import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflowParameterOptions";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs";
 
 function completedPayload() {
@@ -58,6 +62,28 @@ async function createCollection(name: string, parentId?: number) {
   }
   await collection.saveTx();
   return collection;
+}
+
+function installCollectionSourcePageAdapter() {
+  setZoteroLibrarySourcePageQueryAdapterForTests({
+    async queryAsync(_sql, _params, context) {
+      const libraryId = Number(context.criteria.libraryId);
+      const collections = Zotero.Collections.getByLibrary(libraryId)
+        .slice()
+        .sort((left, right) => Number(left.id) - Number(right.id));
+      if (context.kind === "count") {
+        return [{ total: collections.length }];
+      }
+      const afterId = Number(context.position.id || 0);
+      return collections
+        .filter((collection) => Number(collection.id) > afterId)
+        .slice(0, context.limitPlusOne)
+        .map((collection) => ({ collectionID: Number(collection.id) }));
+    },
+    async hydrateItems() {
+      return [];
+    },
+  });
 }
 
 describe("Literature Search Ingest workflow contract", function () {
@@ -154,12 +180,18 @@ describe("Literature Search Ingest workflow contract", function () {
   it("resolves targetCollection options from Zotero collections without exposing keys as labels", async function () {
     const parent = await createCollection("Vision");
     const child = await createCollection("Object Detection", parent.id);
-    const resolved = await resolveWorkflowParameterOptionsSource({
-      kind: "zotero.collections",
-      includeEmpty: true,
-      valueFormat: "collectionRef",
-      labelFormat: "path",
-    });
+    installCollectionSourcePageAdapter();
+    let resolved;
+    try {
+      resolved = await resolveWorkflowParameterOptionsSource({
+        kind: "zotero.collections",
+        includeEmpty: true,
+        valueFormat: "collectionRef",
+        labelFormat: "path",
+      });
+    } finally {
+      resetZoteroLibrarySourcePageQueryAdapterForTests();
+    }
 
     const option = resolved.options.find(
       (entry) =>
@@ -169,6 +201,63 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.equal(option?.label, "Vision / Object Detection");
     assert.notEqual(option?.label, child.key);
     assert.equal(option?.meta?.collectionKey, child.key);
+  });
+
+  it("continues collection option pages after an empty nonterminal page", async function () {
+    const calls: Array<{ limit: number; cursor?: string }> = [];
+    const resolved = await resolveWorkflowParameterOptionsSource(
+      {
+        kind: "zotero.collections",
+        includeEmpty: false,
+      },
+      {
+        library: {
+          async listCollections(request) {
+            calls.push(request);
+            if (!request.cursor) {
+              return {
+                collections: [],
+                libraryId: 1,
+                limit: request.limit || 25,
+                nextCursor: "collections-next",
+                hasMore: true,
+                returned: 0,
+                total: 1,
+                order: "stable_identity" as const,
+              };
+            }
+            return {
+              collections: [
+                {
+                  ref: { libraryId: 1, key: "COLL0001" },
+                  name: "Later",
+                  parentRef: null,
+                  revision: "1",
+                  state: "active" as const,
+                  path: ["Later"],
+                },
+              ],
+              libraryId: 1,
+              limit: request.limit || 25,
+              nextCursor: null,
+              hasMore: false,
+              returned: 1,
+              total: 1,
+              order: "stable_identity" as const,
+            };
+          },
+        },
+      },
+    );
+
+    assert.deepEqual(calls, [
+      { libraryId: undefined, limit: 100 },
+      { libraryId: undefined, limit: 100, cursor: "collections-next" },
+    ]);
+    assert.deepEqual(
+      resolved.options.map((option) => option.value),
+      ["1:COLL0001"],
+    );
   });
 
   it("keeps unsupported dynamic option sources recoverable", async function () {
@@ -315,17 +404,23 @@ describe("Literature Search Ingest workflow contract", function () {
     );
     assert.isOk(workflow);
 
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      candidateBackends: [
-        {
-          id: "acp-test",
-          type: "acp",
-          displayName: "ACP Test",
-          baseUrl: "http://127.0.0.1",
-        } as any,
-      ],
-    });
+    installCollectionSourcePageAdapter();
+    let descriptor;
+    try {
+      descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: [
+          {
+            id: "acp-test",
+            type: "acp",
+            displayName: "ACP Test",
+            baseUrl: "http://127.0.0.1",
+          } as any,
+        ],
+      });
+    } finally {
+      resetZoteroLibrarySourcePageQueryAdapterForTests();
+    }
     const targetCollection = descriptor.workflowSchemaEntries.find(
       (entry) => entry.key === "targetCollection",
     );

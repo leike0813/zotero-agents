@@ -5,7 +5,7 @@ Read one embedded workflow payload from a Zotero note
 ## Usage
 
 ```console
-zotero-bridge library note payload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--key <KEY>] [--id <ID>] [--library-id <LIBRARY_ID>] [--payload-type <PAYLOAD_TYPE>] [--offset <OFFSET>] [--max-chars <MAX_CHARS>]
+zotero-bridge library note payload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--key <KEY>] [--id <ID>] [--library-id <LIBRARY_ID>] [--payload-type <PAYLOAD_TYPE>]
 ```
 
 The global options may appear before or after the leaf command. This leaf has no structured JSON input. `--schema` returns `command_input_schema_unavailable`; use command help or `surface describe` to inspect the invocation contract.
@@ -27,8 +27,6 @@ The global options may appear before or after the leaf command. This leaf has no
 | --id | id | option | no | — | ID | no | — | key | Zotero item numeric id |
 | --library-id | library_id | option | no | — | LIBRARY_ID | no | — | — | Zotero library id for key lookup |
 | --payload-type | payload_type | option | no | — | PAYLOAD_TYPE | no | — | — | Payload type to decode |
-| --offset | offset | option | no | — | OFFSET | no | — | — | Start offset |
-| --max-chars | max_chars | option | no | — | MAX_CHARS | no | — | — | Maximum characters |
 
 ## Invocation schema
 
@@ -72,14 +70,6 @@ The global options may appear before or after the leaf command. This leaf has no
       "description": "Zotero library id for key lookup",
       "type": "string"
     },
-    "max-chars": {
-      "description": "Maximum characters",
-      "type": "string"
-    },
-    "offset": {
-      "description": "Start offset",
-      "type": "string"
-    },
     "payload-type": {
       "description": "Payload type to decode",
       "type": "string"
@@ -98,9 +88,33 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "additionalProperties": true,
-  "type": "object",
-  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "key": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "libraryId": {
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "payloadType": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "payloadType"
+  ],
+  "type": "object"
 }
 ```
 
@@ -135,18 +149,6 @@ The executable command contract owns the base source, fixed values, field mappin
       "field": "payloadType",
       "required": false,
       "transform": "identity"
-    },
-    {
-      "argument": "offset",
-      "field": "offset",
-      "required": false,
-      "transform": "identity"
-    },
-    {
-      "argument": "max_chars",
-      "field": "maxChars",
-      "required": false,
-      "transform": "identity"
     }
   ]
 }
@@ -166,30 +168,20 @@ The executable command contract owns the base source, fixed values, field mappin
       "const": "library.get_note_payload"
     },
     "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by library.get_note_payload.",
+      "additionalProperties": false,
       "properties": {
-        "hasMore": {
-          "type": "boolean"
+        "summary": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-openPropertiesReason": "Broker-owned payload summary."
         },
-        "maxChars": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "nextOffset": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "totalChars": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "truncated": {
-          "type": "boolean"
-        }
+        "value": {}
       },
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "required": [
+        "summary",
+        "value"
+      ],
+      "type": "object"
     }
   },
   "required": [
@@ -288,40 +280,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "valueNames": [
         "PAYLOAD_TYPE"
       ]
-    },
-    {
-      "aliases": [],
-      "conflictsWith": [],
-      "defaultValues": [],
-      "global": false,
-      "help": "Start offset",
-      "id": "offset",
-      "kind": "option",
-      "possibleValues": [],
-      "repeatable": false,
-      "required": false,
-      "takesValue": true,
-      "token": "--offset",
-      "valueNames": [
-        "OFFSET"
-      ]
-    },
-    {
-      "aliases": [],
-      "conflictsWith": [],
-      "defaultValues": [],
-      "global": false,
-      "help": "Maximum characters",
-      "id": "max_chars",
-      "kind": "option",
-      "possibleValues": [],
-      "repeatable": false,
-      "required": false,
-      "takesValue": true,
-      "token": "--max-chars",
-      "valueNames": [
-        "MAX_CHARS"
-      ]
     }
   ],
   "argv": [
@@ -369,26 +327,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "valueNames": [
         "PAYLOAD_TYPE"
       ]
-    },
-    {
-      "kind": "option",
-      "property": "offset",
-      "required": false,
-      "takesValue": true,
-      "token": "--offset",
-      "valueNames": [
-        "OFFSET"
-      ]
-    },
-    {
-      "kind": "option",
-      "property": "max-chars",
-      "required": false,
-      "takesValue": true,
-      "token": "--max-chars",
-      "valueNames": [
-        "MAX_CHARS"
-      ]
     }
   ],
   "binding": "object",
@@ -418,18 +356,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
       {
         "argument": "payload_type",
         "field": "payloadType",
-        "required": false,
-        "transform": "identity"
-      },
-      {
-        "argument": "offset",
-        "field": "offset",
-        "required": false,
-        "transform": "identity"
-      },
-      {
-        "argument": "max_chars",
-        "field": "maxChars",
         "required": false,
         "transform": "identity"
       }
@@ -485,14 +411,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "description": "Zotero library id for key lookup",
         "type": "string"
       },
-      "max-chars": {
-        "description": "Maximum characters",
-        "type": "string"
-      },
-      "offset": {
-        "description": "Start offset",
-        "type": "string"
-      },
       "payload-type": {
         "description": "Payload type to decode",
         "type": "string"
@@ -515,32 +433,40 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "LIBRARY_ID",
     "payload_type",
     "payload-type",
-    "PAYLOAD_TYPE",
-    "offset",
-    "OFFSET",
-    "max_chars",
-    "max-chars",
-    "MAX_CHARS"
+    "PAYLOAD_TYPE"
   ],
   "outputBoundary": {
-    "continuation": [
-      "data.nextOffset",
-      "data.hasMore",
-      "data.totalChars",
-      "data.truncated",
-      "data.maxChars"
-    ],
-    "cursorInput": "offset",
-    "defaultLimit": 8000,
-    "maxLimit": 16000,
-    "section": "data.content",
-    "strategy": "offset"
+    "strategy": "fixed"
   },
-  "pagination": "cursor",
+  "pagination": "none",
   "payloadSchema": {
-    "additionalProperties": true,
-    "type": "object",
-    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "key": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "libraryId": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "payloadType": {
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "payloadType"
+    ],
+    "type": "object"
   },
   "recovery": [
     {
@@ -562,30 +488,20 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "const": "library.get_note_payload"
       },
       "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by library.get_note_payload.",
+        "additionalProperties": false,
         "properties": {
-          "hasMore": {
-            "type": "boolean"
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-openPropertiesReason": "Broker-owned payload summary."
           },
-          "maxChars": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "nextOffset": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "totalChars": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "truncated": {
-            "type": "boolean"
-          }
+          "value": {}
         },
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "required": [
+          "summary",
+          "value"
+        ],
+        "type": "object"
       }
     },
     "required": [
@@ -620,12 +536,12 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ## Operational contract
 
 - Canonical argv path: `library` `note` `payload`.
-- Output boundary: `offset`; governed details: {"continuation":["data.nextOffset","data.hasMore","data.totalChars","data.truncated","data.maxChars"],"cursorInput":"offset","defaultLimit":8000,"maxLimit":16000,"section":"data.content","strategy":"offset"}.
-- Pagination: `cursor`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
+- Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Structured binding mode: `object`.
 - Intent visibility: `visible`.
-- Operational aliases: `library note payload`, `library`, `note`, `payload`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `payload_type`, `payload-type`, `PAYLOAD_TYPE`, `offset`, `OFFSET`, `max_chars`, `max-chars`, `MAX_CHARS`.
+- Operational aliases: `library note payload`, `library`, `note`, `payload`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `payload_type`, `payload-type`, `PAYLOAD_TYPE`.
 
 ### Effects
 

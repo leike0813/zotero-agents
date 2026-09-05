@@ -127,6 +127,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge library readiness missing-analysis` | List Zotero items missing literature-analysis generated artifacts | [Open card](commands/library/readiness/missing-analysis.md) |
 | `zotero-bridge library readiness missing-markdown` | List Zotero items missing same-stem source Markdown | [Open card](commands/library/readiness/missing-markdown.md) |
 | `zotero-bridge library readiness missing-pdf` | List Zotero items missing a PDF attachment | [Open card](commands/library/readiness/missing-pdf.md) |
+| `zotero-bridge library saved-searches list` | 从源头分页列出已保存的搜索 | [打开命令卡](commands/library/saved-searches/list.md) |
 | `zotero-bridge library snapshot` | 读取固定的 Zotero 全库 snapshot 页面 | [Open card](commands/library/snapshot.md) |
 
 Selection check:

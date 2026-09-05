@@ -2887,7 +2887,17 @@ describe("skillrunner.sequence.v1 runtime", function () {
               tags: ["legacy:tag"],
             },
           }),
-          getItemNotes: async () => [],
+          getItemNotes: async (
+            _ref: unknown,
+            page: { limit?: number } = {},
+          ) => ({
+            notes: [],
+            limit: page.limit || 25,
+            nextCursor: null,
+            hasMore: false,
+            returned: 0,
+            total: 0,
+          }),
         },
         synthesis: {
           tags: {

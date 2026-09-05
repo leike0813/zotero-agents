@@ -45,6 +45,34 @@ export type ZoteroNotePayloadDetail = ZoteroNotePayloadBlock & {
 
 const DEFAULT_PAYLOAD_CHUNK = 8000;
 const MAX_PAYLOAD_CHUNK = 16000;
+export const NOTE_PAYLOAD_MAX_BYTES = 1024 * 1024;
+export const NOTE_HTML_SOURCE_MAX_BYTES = 1024 * 1024;
+
+export class ZoteroNotePayloadResourceLimitError extends Error {
+  readonly code = "note_payload_resource_limited" as const;
+
+  constructor(
+    readonly resource: "html" | "encoded" | "decoded" | "attachment",
+    readonly limit = NOTE_PAYLOAD_MAX_BYTES,
+  ) {
+    super(`note payload ${resource} exceeds ${limit} bytes`);
+    this.name = "ZoteroNotePayloadResourceLimitError";
+  }
+}
+
+function assertUtf8Bytes(
+  value: string,
+  resource: "html" | "encoded" | "decoded",
+  limit = NOTE_PAYLOAD_MAX_BYTES,
+) {
+  if (new TextEncoder().encode(value).byteLength > limit) {
+    throw new ZoteroNotePayloadResourceLimitError(resource, limit);
+  }
+}
+
+export function assertNoteHtmlSourceWithinLimit(value: string) {
+  assertUtf8Bytes(value, "html", NOTE_HTML_SOURCE_MAX_BYTES);
+}
 export const WORKBENCH_EMBEDDED_PAYLOAD_MARKER =
   "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
 export const WORKBENCH_EMBEDDED_PAYLOAD_CHUNK = "zsPL";
@@ -76,16 +104,32 @@ export function decodeBase64Utf8(value: string) {
   ) {
     throw new Error("Invalid base64 payload value");
   }
+  assertUtf8Bytes(normalized, "encoded");
+  const padding = normalized.endsWith("==")
+    ? 2
+    : normalized.endsWith("=")
+      ? 1
+      : 0;
+  const estimatedDecodedBytes = Math.floor(
+    ((normalized.length - padding) * 3) / 4,
+  );
+  if (estimatedDecodedBytes > NOTE_PAYLOAD_MAX_BYTES) {
+    throw new ZoteroNotePayloadResourceLimitError("decoded");
+  }
   const buffer = getBuffer();
   if (buffer) {
-    return buffer.from(normalized, "base64").toString("utf8");
+    const decoded = buffer.from(normalized, "base64").toString("utf8");
+    assertUtf8Bytes(decoded, "decoded");
+    return decoded;
   }
   const binary = atob(normalized);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
   }
-  return new TextDecoder().decode(bytes);
+  const decoded = new TextDecoder().decode(bytes);
+  assertUtf8Bytes(decoded, "decoded");
+  return decoded;
 }
 
 function toUint8Array(value: unknown) {
@@ -246,11 +290,13 @@ export function canonicalLogicalNotePayloadHash(
   });
 }
 
-export function buildWorkbenchPayloadEnvelope(args: CanonicalLogicalNotePayload & {
-  noteId?: unknown;
-  noteKey?: unknown;
-  parentId?: unknown;
-}) {
+export function buildWorkbenchPayloadEnvelope(
+  args: CanonicalLogicalNotePayload & {
+    noteId?: unknown;
+    noteKey?: unknown;
+    parentId?: unknown;
+  },
+) {
   return {
     schemaVersion: 1,
     payloadStorageVersion: 2,
@@ -309,6 +355,9 @@ function parseV2PayloadEnvelope(bytes: Uint8Array) {
   const chunk = findPngChunk(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK);
   if (!chunk) {
     return null;
+  }
+  if (chunk.byteLength > NOTE_PAYLOAD_MAX_BYTES) {
+    throw new ZoteroNotePayloadResourceLimitError("attachment");
   }
   return JSON.parse(new TextDecoder("utf-8").decode(chunk));
 }
@@ -564,6 +613,7 @@ export function listNotePayloadBlocks(
   noteHtml: unknown,
 ): ZoteroNotePayloadBlock[] {
   const html = String(noteHtml || "");
+  assertNoteHtmlSourceWithinLimit(html);
   const noteKind = parseNoteKind(html);
   const blocks: ZoteroNotePayloadBlock[] = [];
   const pattern =
@@ -601,6 +651,9 @@ export function listNotePayloadBlocks(
       block.payload = projected.payload;
       block.markdown = projected.markdown;
     } catch (error) {
+      if (error instanceof ZoteroNotePayloadResourceLimitError) {
+        throw error;
+      }
       block.errors = [error instanceof Error ? error.message : String(error)];
       block.estimatedSize = encodedValue.length;
     }
@@ -614,6 +667,9 @@ export function parseEmbeddedNotePayloadBlock(
   attachment?: { key?: unknown; id?: unknown } | null,
 ): ZoteroNotePayloadBlock | null {
   const bytes = toUint8Array(bytesInput);
+  if (bytes.byteLength > NOTE_PAYLOAD_MAX_BYTES) {
+    throw new ZoteroNotePayloadResourceLimitError("attachment");
+  }
   const hasV2PayloadChunk = Boolean(
     findPngChunk(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK),
   );
@@ -627,6 +683,9 @@ export function parseEmbeddedNotePayloadBlock(
     v2Envelope = parseV2PayloadEnvelope(bytes);
     envelope = v2Envelope || parseV1TailPayloadEnvelope(bytes);
   } catch (error) {
+    if (error instanceof ZoteroNotePayloadResourceLimitError) {
+      throw error;
+    }
     envelopeError = error instanceof Error ? error.message : String(error);
   }
   if (!envelope) {
@@ -704,6 +763,7 @@ export function parseEmbeddedNotePayloadBlock(
         : format === "json"
           ? JSON.stringify(payload || {})
           : String(payload?.content || "");
+    assertUtf8Bytes(decodedText, "decoded");
     block.payloadType = payloadType;
     block.noteKind = String(envelope?.noteKind || "").trim();
     block.version = logicalSchemaVersion || "1";

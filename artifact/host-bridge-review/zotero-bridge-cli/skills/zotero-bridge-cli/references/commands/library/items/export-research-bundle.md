@@ -2,31 +2,31 @@
 
 将一篇或多篇文献导出为研究包
 
-## 用法
+## Usage
 
 ```console
 zotero-bridge library items export-research-bundle [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --items <JSON_OR_FILE> [--output-dir <DIR>]
 ```
 
-全局选项可放在叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
+The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
 
-## 全局参数
+## Global parameters
 
-| Token | Id | 类型 | 必填 | 条件必填 | 值 / 数量 | 可重复 | 环境变量 | 冲突 | 说明 |
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge service endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports. |
 | --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | Opaque idempotency id for a state-changing Zotero request |
 | --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Path to a Zotero Bridge connection-profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions. |
 | --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | Print the versioned raw JSON Schemas and governed examples for one canonical leaf command. Schema mode is offline and does not load a profile, read Zotero Bridge configuration, or connect to Zotero. |
 
-## 本地选项与位置参数
+## Local options and positionals
 
-| Token | Id | 类型 | 必填 | 条件必填 | 值 / 数量 | 可重复 | 环境变量 | 冲突 | 说明 |
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | --items | items | option | yes | — | JSON_OR_FILE | no | — | — | 一至 100 个 Zotero 条目引用，可传 JSON 数组、文件路径、@file 或用 '-' 从 stdin 读取 |
 | --output-dir | output_dir | option | no | connectionMode 为 local 时必填，为 remote 时禁止。 | DIR | no | — | — | 本地 profile 使用不存在或为空的目标目录；远程 profile 省略此项 |
 
-## 调用 schema
+## Invocation schema
 
 ```json
 {
@@ -48,7 +48,7 @@ zotero-bridge library items export-research-bundle [--endpoint <ENDPOINT>] [--op
 }
 ```
 
-## 结构化输入 schema
+## Structured input schemas
 
 ### `--items` (items)
 
@@ -111,7 +111,7 @@ zotero-bridge library items export-research-bundle [--endpoint <ENDPOINT>] [--op
 }
 ```
 
-## 组合后的 payload schema
+## Composed payload schema
 
 ```json
 {
@@ -176,7 +176,7 @@ zotero-bridge library items export-research-bundle [--endpoint <ENDPOINT>] [--op
 }
 ```
 
-## Payload 组合规则
+## Payload composition
 
 可执行命令契约统一定义下方的基础来源、固定值、字段映射和封闭转换。命令处理器只为所引用的 Clap 参数 ID 提供值。
 
@@ -200,7 +200,7 @@ zotero-bridge library items export-research-bundle [--endpoint <ENDPOINT>] [--op
 }
 ```
 
-## 结果 schema
+## Result schema
 
 ```json
 {
@@ -303,7 +303,7 @@ zotero-bridge library items export-research-bundle [--endpoint <ENDPOINT>] [--op
 }
 ```
 
-## 示例
+## Examples
 
 ### items: shape-only
 
@@ -313,7 +313,7 @@ zotero-bridge library items export-research-bundle [--endpoint <ENDPOINT>] [--op
 zotero-bridge library items export-research-bundle --items '[{"key":"ABCD1234","libraryId":1}]'
 ```
 
-前提：
+Prerequisites:
 
 - 将示例替换为目标文库中有效的一至 100 个 Zotero 条目引用。
 
@@ -325,13 +325,13 @@ zotero-bridge library items export-research-bundle --items '[{"key":"ABCD1234","
 zotero-bridge library items export-research-bundle --output-dir 'research-bundle'
 ```
 
-前提：
+Prerequisites:
 
 - 本地 profile 必须使用 Host 文件系统中不存在或为空的目录。
 
-## 完整命令描述符
+## Complete command descriptor
 
-这个封闭描述符是 `surface describe` 返回的机器可读命令契约。将它直接纳入卡片后，无需加载其他命令引用即可独立审计。
+This closed descriptor is the machine-readable command contract returned by `surface describe`; it is included here so the card remains independently auditable without loading another command reference.
 
 ```json
 {
@@ -739,29 +739,29 @@ zotero-bridge library items export-research-bundle --output-dir 'research-bundle
 }
 ```
 
-## 参数失败与恢复契约
+## Parameter failure and recovery contract
 
-参数失败统一返回一个 JSON 错误信封。先检查 `error.code`，确认 `error.details.schema` 为 `host-bridge.argument-error.v1` 后才能使用结构化边界字段。保留规范命令、已净化的输入和已经返回的类型化 handle；证据中不得包含完整原始 payload。
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
 
-- `argv` 表示 CLI 参数缺失、未知、冲突或无效。根据本卡片的参数表或当前命令帮助重建 argv。
-- `json_source` 表示 stdin 或文件来源不可读。修正该来源，不要把值移到其他绑定。
-- `json_syntax` 表示 JSON 无效，并提供安全的行列上下文。解释领域字段前先修复语法。
-- `command_input` 表示结构化输入违反 schema。检查有界的 `violations`，再对这个叶命令运行 `--schema` 并修正声明的字段或类型；不得臆造别名。
-- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前已违反可执行契约。将其视为实现故障，不得用原始传输绕过语义命令。
-- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得把它接受或报告为成功证据。
-- 违规数组会脱敏、按确定顺序排列，并限制为八项。`truncated` 为 true 时，修正已报告的违规并重新验证，不要请求披露秘密或完整 payload。
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
-## 运行契约
+## Operational contract
 
 - 规范 argv 路径：`library` `items` `export-research-bundle`。
-- 输出边界：`file`；受治理的细节：{"fileField":"data.delivery.bundle","strategy":"file"}。
-- 分页：`file`。
-- 类别：`read`；危险级别：`none`。
-- 结构化绑定模式：`object`。
-- 意图可见性：`visible`。
+- 输出边界：`file`；受治理详情：{"fileField":"data.delivery.bundle","strategy":"file"}。
+- 分页： `file`.
+- Category: `read`; danger: `none`.
+- 结构化 binding 模式： `object`.
+- Intent visibility: `visible`.
 - 运行别名：`library items export-research-bundle`、`library`、`items`、`export-research-bundle`、`JSON_OR_FILE`、`output_dir`、`output-dir`、`DIR`、`paper research bundle`。
 
-### 影响
+### Effects
 
 ```json
 [
@@ -773,7 +773,7 @@ zotero-bridge library items export-research-bundle --output-dir 'research-bundle
 ]
 ```
 
-### 审批
+### Approval
 
 ```json
 {
@@ -783,7 +783,7 @@ zotero-bridge library items export-research-bundle --output-dir 'research-bundle
 }
 ```
 
-### Handle 转换
+### Handle transitions
 
 ```json
 [
@@ -797,7 +797,7 @@ zotero-bridge library items export-research-bundle --output-dir 'research-bundle
 ]
 ```
 
-### 恢复
+### Recovery
 
 ```json
 [
@@ -811,7 +811,7 @@ zotero-bridge library items export-research-bundle --output-dir 'research-bundle
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

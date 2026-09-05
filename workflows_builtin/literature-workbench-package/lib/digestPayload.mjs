@@ -1,4 +1,4 @@
-import { portableItemRef, requireHostApi } from "./runtime.mjs";
+import { portableItemRef, readHostPages, requireHostApi } from "./runtime.mjs";
 import { resolveWorkbenchEmbeddedPayloadBlock } from "./embeddedPayloadAttachments.mjs";
 
 const WORKBENCH_EMBEDDED_PAYLOAD_MARKER = "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
@@ -116,7 +116,12 @@ async function readDigestMarkdownFromWorkbenchPayload(noteItem, runtime) {
 
 export async function resolveDigestMarkdownForParent(parentItem, runtime) {
   const host = requireHostApi(runtime);
-  const notes = await host.library.getItemNotes(portableItemRef(parentItem));
+  const notes = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemNotes(portableItemRef(parentItem), page),
+    getItems: (page) => page.notes,
+    operation: "digest payload note read",
+  });
   for (const noteItem of notes) {
     const detail = await host.library.getNoteDetail(noteItem.ref, {
       format: "html",
