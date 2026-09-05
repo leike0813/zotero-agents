@@ -825,8 +825,14 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     );
   });
 
-  it("controller marks surface-error runtimes and keeps the cached snapshot", function () {
+  it("keeps rendered surface content and drafts when refresh fails", function () {
     const { deps, panels } = makeControllerDeps();
+    const { root, renderer } = renderPanelIntoRoot(null);
+    const collectPanel = deps.renderPanel;
+    deps.renderPanel = (panel) => {
+      collectPanel(panel);
+      renderer.renderPanel(panel);
+    };
     const controller = createSynthesisWorkbenchController(deps);
     controller.handleHostMessage({
       type: "synthesis:snapshot",
@@ -836,6 +842,13 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
       surfaceMessage("tags", 5, makeSnapshot({ selectedTab: "tags" })),
     );
     const before = panels.length;
+    const business = panels.at(-1)?.business;
+    const input = root.querySelector<HTMLInputElement>(
+      'input[type="search"], input',
+    );
+    assert.ok(input);
+    input!.value = "unfinished draft";
+    input!.focus();
 
     controller.handleHostMessage({
       type: "synthesis:surface-error",
@@ -855,13 +868,96 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
       "failed surface keeps its cached snapshot",
     );
     assert.isAbove(panels.length, before, "surface error repaints");
+    assert.strictEqual(panels.at(-1)?.business, business);
+    assert.isTrue(input!.isConnected);
+    assert.equal(input!.value, "unfinished draft");
+    assert.strictEqual(document.activeElement, input);
+    assert.include(
+      root.querySelector('[data-role="synthesis-chrome"]')?.textContent || "",
+      "storage busy",
+    );
+
+    controller.handleHostMessage({
+      type: "synthesis:surface-error",
+      payload: { surface: "tags", requestId: 7, message: "refresh failed" },
+    });
+    assert.strictEqual(panels.at(-1)?.business, business);
+    assert.isTrue(input!.isConnected);
 
     // A stale surface-error must not clobber the recorded failure.
     controller.handleHostMessage({
       type: "synthesis:surface-error",
       payload: { surface: "tags", requestId: 2, message: "stale failure" },
     });
-    assert.equal(controller.state.surfaces.tags?.error, "storage busy");
+    assert.equal(controller.state.surfaces.tags?.error, "refresh failed");
+    controller.handleHostMessage({
+      type: "synthesis:surface-error",
+      payload: {
+        surface: "tags",
+        requestId: 8,
+        message: "refresh failed",
+        i18n: {
+          locale: "zh-CN",
+          messages: { "synthesis-tab-tags": "标签" },
+        },
+      },
+    });
+    assert.equal(panels.at(-1)?.business?.surface, "tags");
+    assert.include(
+      root.querySelector('[data-role="synthesis-shell"]')?.textContent || "",
+      "标签",
+    );
+    assert.isTrue(input!.isConnected);
+    renderer.renderPanel(null);
+  });
+
+  for (const priorLibrary of [undefined, 2]) {
+    it(`shows an error without last-good data for the current owner (${priorLibrary ?? "cold"})`, function () {
+      const { deps, panels } = makeControllerDeps();
+      const controller = createSynthesisWorkbenchController(deps);
+      if (priorLibrary) {
+        controller.handleHostMessage({
+          type: "synthesis:snapshot",
+          payload: makeSnapshot({
+            selectedTab: "tags",
+            libraryId: priorLibrary,
+          }),
+        });
+      }
+      controller.handleHostMessage({
+        type: "synthesis:snapshot",
+        payload: makeSnapshot(),
+      });
+      controller.dispatch("selectTab", { tab: "tags" });
+      controller.handleHostMessage({
+        type: "synthesis:surface-error",
+        payload: { surface: "tags", requestId: 3, message: "failed" },
+      });
+      assert.isUndefined(panels.at(-1)?.business);
+      assert.isTrue(panels.at(-1)?.surface?.isError);
+      assert.isUndefined(controller.state.surfaces.tags?.snapshot);
+    });
+  }
+
+  it("keeps visible content when a hidden surface refresh fails", function () {
+    const { deps, panels } = makeControllerDeps();
+    const controller = createSynthesisWorkbenchController(deps);
+    const tags = makeSnapshot({ selectedTab: "tags" });
+    controller.handleHostMessage({ type: "synthesis:snapshot", payload: tags });
+    controller.handleHostMessage({
+      type: "synthesis:snapshot",
+      payload: makeSnapshot(),
+    });
+    const visibleSnapshot = controller.state.snapshot;
+    const business = panels.at(-1)?.business;
+    controller.handleHostMessage({
+      type: "synthesis:surface-error",
+      payload: { surface: "tags", requestId: 4, message: "failed" },
+    });
+    assert.strictEqual(controller.state.snapshot, visibleSnapshot);
+    assert.strictEqual(panels.at(-1)?.business, business);
+    assert.deepEqual(controller.state.surfaces.tags?.snapshot, tags);
+    assert.equal(controller.state.surfaces.tags?.status, "failed");
   });
 
   it("controller forwards actions to the host and tracks local pending host commands", function () {

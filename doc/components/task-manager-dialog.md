@@ -45,6 +45,13 @@ toast 容器；`dashboardChromeRenderer.ts` 挂载独立 Preact 区域，
 `workflowSettingsDialogApp.ts` 构建。工作流字段使用同一组表单组件。
 页面销毁时卸载 Preact roots 并清理所属计时器和消息监听。
 
+首页 README 将原始 Markdown 与 `baseFileUri` 交给共享 Markdown renderer，
+使用 `document` profile 处理图片、相对资源和标题锚点；renderer 不可用时
+显示宿主提供的安全 HTML。文档内容由组件内独立容器持有，相同内容的刷新
+不重建其 DOM。controller 只记住最近阅读文档的 workflow ID 和滚动位置：
+关闭后重开同一文档恢复位置，换文档从顶部开始。滚动写回不触发渲染，
+也不进入区域 signature 或宿主消息。
+
 ## 入口与调用方
 
 | 入口事件                                  | 调用方                  | 初始 Tab           | 用途                     |

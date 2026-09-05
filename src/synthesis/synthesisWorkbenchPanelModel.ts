@@ -687,9 +687,16 @@ export function projectSynthesisWorkbenchPanel(
       context.retainedBusiness ||
       (context.visibleSurface !== "graph" &&
       (context.surfaceRuntime?.status === "loading" ||
-        context.surfaceRuntime?.status === "failed")
+        (context.surfaceRuntime?.status === "failed" &&
+          !context.surfaceRuntime.snapshot))
         ? undefined
-        : projectBusinessSurface(snapshot, context, t)),
+        : projectBusinessSurface(
+            context.surfaceRuntime?.status === "failed"
+              ? context.surfaceRuntime.snapshot || snapshot
+              : snapshot,
+            context,
+            t,
+          )),
     referenceReview: context.referenceReview,
     shell: hosted ? projectShell(snapshot, ui, t) : null,
     // The standalone topic export shell keeps a minimal header with the

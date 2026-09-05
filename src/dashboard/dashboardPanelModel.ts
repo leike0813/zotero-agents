@@ -226,6 +226,8 @@ function projectHome(
           workflowId: String(docView.workflowId || ""),
           title: docView.workflowLabel || docView.workflowId || "-",
           html: String(docView.html || ""),
+          markdown: String(docView.markdown || ""),
+          baseFileUri: String(docView.baseFileUri || ""),
           missingReadme: docView.missingReadme === true,
           missingReadmeText: labelText(labels, "homeWorkflowDocMissingReadme"),
           backLabel: labelText(labels, "homeWorkflowDocBack"),

@@ -1,4 +1,6 @@
 import { assert } from "chai";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   captureRegionSubtrees,
@@ -48,6 +50,24 @@ function makeLabels(): Record<string, string> {
     homeWorkflowDocMissingReadme: "No README",
     homeWorkflowDocBack: "Back",
   };
+}
+
+function installSharedMarkdownRenderer() {
+  for (const file of [
+    "addon/content/shared/vendor/markdown-it/markdown-it.min.js",
+    "addon/content/shared/markdown-renderer.js",
+  ]) {
+    const source = readFileSync(
+      fileURLToPath(new URL(`../../${file}`, import.meta.url)),
+      "utf8",
+    );
+    const runner = new Function("window", "document", "globalThis", source) as (
+      window: unknown,
+      document: unknown,
+      globalThis: unknown,
+    ) => void;
+    runner.call(window, window, document, window);
+  }
 }
 
 function makeSnapshot(
@@ -290,6 +310,75 @@ describe("dashboard chrome scaffold (src/dashboard)", function () {
     assert.deepEqual(actions, [
       { action: "close-home-workflow-doc", payload: {} },
     ]);
+  });
+
+  it("renders workflow README Markdown through the document renderer contract", function () {
+    installSharedMarkdownRenderer();
+    const markdown = [
+      "# Title",
+      "",
+      "[Jump](#workflow-doc-heading-title)",
+      "",
+      "[Guide](docs/guide.md)",
+      "",
+      "![Figure](images/figure.png)",
+      "",
+      '<script>alert("bad")</script>',
+      '<a href="javascript:alert(1)" onclick="bad()">Bad</a>',
+    ].join("\n");
+
+    const snapshot = makeSnapshot({
+      homeWorkflowDocView: {
+        workflowId: "wf-1",
+        workflowLabel: "Workflow One",
+        html: "<p>fallback</p>",
+        markdown,
+        baseFileUri: "file:///tmp/workflows/wf-1/README.md",
+        missingReadme: false,
+      },
+    });
+    const { root, renderer } = renderPanelIntoRoot(
+      projectDashboardPanel(snapshot, idleUi()),
+    );
+    const content = root.querySelector(".workflow-doc-content")!;
+    assert.ok(
+      content.querySelector('h1[id="workflow-doc-heading-title"]'),
+      "shared renderer adds the requested heading prefix",
+    );
+    const localAnchor = Array.from(content.querySelectorAll("a")).find(
+      (anchor) => anchor.textContent === "Jump",
+    );
+    assert.equal(
+      localAnchor?.getAttribute("href"),
+      "#workflow-doc-heading-title",
+    );
+    assert.equal(
+      content.querySelector("a[href$='/docs/guide.md']")?.getAttribute("href"),
+      "file:///tmp/workflows/wf-1/docs/guide.md",
+    );
+    assert.equal(
+      content.querySelector("img")?.getAttribute("src"),
+      "file:///tmp/workflows/wf-1/images/figure.png",
+    );
+    assert.notInclude(content.innerHTML, "<script");
+    assert.notInclude(content.innerHTML, "onclick");
+    assert.notInclude(content.innerHTML, "javascript:");
+    renderer.renderPanel(
+      projectDashboardPanel(
+        {
+          ...snapshot,
+          homeWorkflowDocView: {
+            ...snapshot.homeWorkflowDocView!,
+            missingReadme: true,
+          },
+        },
+        idleUi(),
+      ),
+    );
+    assert.isNull(root.querySelector(".workflow-doc-content img"));
+    assert.ok(root.querySelector(".workflow-doc-content .empty"));
+    renderer.renderPanel(projectDashboardPanel(snapshot, idleUi()));
+    assert.ok(root.querySelector(".workflow-doc-content img"));
   });
 
   it("keeps region subtree identity when an equal panel re-renders", function () {

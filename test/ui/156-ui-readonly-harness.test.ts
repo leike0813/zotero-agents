@@ -2,7 +2,12 @@ import { strict as assert } from "node:assert";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { JSDOM } from "jsdom";
 
+import {
+  handleRequest,
+  rebuildHarnessBundles,
+} from "../../scripts/ui-harness-serve";
 import { parseHarnessEnv } from "../../src/modules/harness/env";
 import {
   installReadonlyZoteroPrefs,
@@ -392,6 +397,97 @@ async function createPluginStateFixture() {
 }
 
 describe("UI readonly harness", function () {
+  it("serves and boots the Dashboard browser bundle through the Harness route", async function () {
+    this.timeout(30_000);
+    const html = await readFile("addon/content/dashboard/index.html", "utf8");
+    const scriptSource = html.match(/<script\s+src="([^"]*app\.js[^"]*)"/);
+    assert.ok(scriptSource?.[1]);
+    const bundleUrl = new URL(
+      scriptSource[1],
+      "http://127.0.0.1/content/dashboard/index.html",
+    );
+    assert.equal(bundleUrl.pathname, "/content/dashboard/app.js");
+
+    assert.equal(await rebuildHarnessBundles("test:dashboard-route"), true);
+
+    const response = {
+      statusCode: 0,
+      headers: {} as Record<string, string>,
+      body: "",
+      writeHead(status: number, headers: Record<string, string>) {
+        this.statusCode = status;
+        this.headers = headers;
+      },
+      end(body?: string | Buffer) {
+        this.body = Buffer.isBuffer(body) ? body.toString("utf8") : body || "";
+      },
+    };
+    await handleRequest(
+      {
+        method: "GET",
+        url: `${bundleUrl.pathname}${bundleUrl.search}`,
+      } as unknown as Parameters<typeof handleRequest>[0],
+      response as unknown as Parameters<typeof handleRequest>[1],
+    );
+    assert.equal(response.statusCode, 200);
+    assert.equal(
+      response.headers["content-type"],
+      "text/javascript; charset=utf-8",
+    );
+    assert.ok(response.body.length > 0);
+
+    const dom = new JSDOM(html, {
+      runScripts: "outside-only",
+      url: "http://127.0.0.1/content/dashboard/index.html",
+    });
+    try {
+      const messages: unknown[] = [];
+      dom.window.addEventListener("message", (event) =>
+        messages.push(event.data),
+      );
+      dom.window.eval(response.body);
+      dom.window.postMessage(
+        {
+          type: "dashboard:snapshot",
+          payload: {
+            generatedAt: "2026-09-06T00:00:00.000Z",
+            title: "Harness Dashboard",
+            labels: {},
+            selectedTabKey: "home",
+            tabs: [{ key: "home", label: "Home", group: "system" }],
+            summary: {
+              total: 0,
+              running: 0,
+              succeeded: 0,
+              failed: 0,
+              canceled: 0,
+            },
+            runningRows: [],
+            homeWorkflows: [],
+          },
+        },
+        "*",
+      );
+      await new Promise((resolve) => dom.window.setTimeout(resolve, 0));
+      assert.ok(
+        messages.some(
+          (message) =>
+            message &&
+            typeof message === "object" &&
+            (message as { type?: string }).type === "dashboard:action" &&
+            (message as { action?: string }).action === "ready",
+        ),
+      );
+      assert.ok(
+        dom.window.document.querySelector(
+          '[data-region-content="dashboard-tabbar"] button',
+        ),
+      );
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it("parses path-only .env values without exposing other secrets", function () {
     const env = parseHarnessEnv(`
       # comment

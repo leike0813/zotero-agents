@@ -150,6 +150,7 @@ function idleUi(): DashboardUiState {
     selectedTabKey: "",
     synthesisSidecar: { traceFilter: "", selectedTraceId: "" },
     backendTaskScrollTopByTabKey: Object.create(null) as Record<string, number>,
+    homeWorkflowDocScroll: { workflowId: "", scrollTop: 0 },
   };
 }
 
@@ -164,13 +165,17 @@ describe("dashboard A2c integration (src/dashboard)", function () {
 
   function createWiredApp() {
     const sentActions: Array<{ action: string; payload: unknown }> = [];
+    let renderCount = 0;
     const root = document.createElement("div");
     document.body.appendChild(root);
     const controller = createDashboardController({
       sendAction: (action, payload) => {
         sentActions.push({ action, payload: payload || {} });
       },
-      renderPanel: (panel) => renderer.renderPanel(panel),
+      renderPanel: (panel) => {
+        renderCount += 1;
+        renderer.renderPanel(panel);
+      },
     });
     const renderer = createDashboardChromeRenderer({
       root,
@@ -183,8 +188,18 @@ describe("dashboard A2c integration (src/dashboard)", function () {
         controller.recordBackendTaskScroll(scrollKey, scrollTop),
       taskTableScrollTop: (scrollKey) =>
         controller.backendTaskScrollTop(scrollKey),
+      onHomeWorkflowDocScroll: (workflowId, scrollTop) =>
+        controller.recordHomeWorkflowDocScroll(workflowId, scrollTop),
+      homeWorkflowDocScrollTop: (workflowId) =>
+        controller.homeWorkflowDocScrollTop(workflowId),
     });
-    return { sentActions, root, controller, renderer };
+    return {
+      sentActions,
+      root,
+      controller,
+      renderer,
+      getRenderCount: () => renderCount,
+    };
   }
 
   function mainMounts(root: HTMLElement) {
@@ -251,6 +266,56 @@ describe("dashboard A2c integration (src/dashboard)", function () {
     assert.ok(productsMount.childNodes.length > 0);
     const homeMount = root.querySelector('[data-region-mount="home"]')!;
     assert.equal(homeMount.childNodes.length, 0);
+  });
+
+  it("restores the latest workflow README scroll after close and reopen, but not for another workflow", function () {
+    const { root, controller, sentActions, getRenderCount } = createWiredApp();
+    const workflowDoc = (workflowId: string) => ({
+      workflowId,
+      workflowLabel: workflowId === "wf-1" ? "Workflow One" : "Workflow Two",
+      html: `<p>${workflowId}</p>`,
+      markdown: `# ${workflowId}`,
+      baseFileUri: `file:///tmp/${workflowId}/README.md`,
+      missingReadme: false,
+    });
+
+    controller.applySnapshot(
+      makeSnapshot({ homeWorkflowDocView: workflowDoc("wf-1") }),
+    );
+    const firstContent = root.querySelector(
+      ".workflow-doc-content",
+    ) as HTMLElement;
+    const renderCountBeforeScroll = getRenderCount();
+    firstContent.scrollTop = 137;
+    firstContent.dispatchEvent(new window.Event("scroll"));
+    assert.equal(getRenderCount(), renderCountBeforeScroll);
+    assert.deepEqual(sentActions, []);
+
+    controller.applySnapshot(makeSnapshot({ homeWorkflowDocView: undefined }));
+    controller.applySnapshot(
+      makeSnapshot({ homeWorkflowDocView: workflowDoc("wf-1") }),
+    );
+    const reopenedContent = root.querySelector(
+      ".workflow-doc-content",
+    ) as HTMLElement;
+    assert.equal(reopenedContent.scrollTop, 137);
+
+    const docNodes = captureRegionSubtrees({ doc: reopenedContent });
+    controller.applySnapshot(
+      makeSnapshot({ homeWorkflowDocView: workflowDoc("wf-1") }),
+    );
+    assertRegionSubtreesPreserved(
+      { doc: root.querySelector(".workflow-doc-content")! },
+      docNodes,
+    );
+
+    controller.applySnapshot(
+      makeSnapshot({ homeWorkflowDocView: workflowDoc("wf-2") }),
+    );
+    const changedOwnerContent = root.querySelector(
+      ".workflow-doc-content",
+    ) as HTMLElement;
+    assert.equal(changedOwnerContent.scrollTop, 0);
   });
 
   it("keeps synthesis sidecar UI intents local to the controller", function () {

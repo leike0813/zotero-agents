@@ -1,6 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
+import { useLayoutEffect, useRef } from "preact/hooks";
 
 import { equalBySignature } from "../../shared/regionEquality";
 import type {
@@ -57,6 +58,8 @@ export type DashboardHomeDocView = {
   workflowId: string;
   title: string;
   html: string;
+  markdown: string;
+  baseFileUri: string;
   missingReadme: boolean;
   missingReadmeText: string;
   backLabel: string;
@@ -88,7 +91,26 @@ type DashboardHomeAction = Extract<
 type HomeRegionProps = {
   selection: DashboardHomeSelection;
   onAction: DashboardActionHandler<DashboardHomeAction>;
+  onHomeWorkflowDocScroll?: (workflowId: string, scrollTop: number) => void;
+  homeWorkflowDocScrollTop?: number;
 };
+
+type DashboardMarkdownRenderer = {
+  renderInto?: (
+    target: HTMLElement,
+    markdown: string,
+    options: Record<string, unknown>,
+  ) => void;
+};
+
+function dashboardMarkdownRenderer(): DashboardMarkdownRenderer | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (
+    window as typeof window & {
+      ZoteroSkillsMarkdownRenderer?: DashboardMarkdownRenderer;
+    }
+  ).ZoteroSkillsMarkdownRenderer;
+}
 
 function WorkflowBubble(props: {
   bubble: DashboardHomeBubble;
@@ -214,27 +236,57 @@ function RunningTaskTable(props: {
 function HomeDocViewSection(props: {
   doc: DashboardHomeDocView;
   onAction: HomeRegionProps["onAction"];
+  onScroll?: HomeRegionProps["onHomeWorkflowDocScroll"];
+  scrollTop: number;
 }) {
-  const { doc, onAction } = props;
+  const { doc, onAction, onScroll, scrollTop } = props;
+  const contentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const target = contentRef.current;
+    if (!target) return;
+    target.textContent = "";
+    const renderInto = dashboardMarkdownRenderer()?.renderInto;
+    if (typeof renderInto === "function") {
+      renderInto(target, doc.markdown || "", {
+        profile: "document",
+        baseFileUri: doc.baseFileUri || "",
+        headingIdPrefix: "workflow-doc-heading",
+      });
+    } else {
+      target.innerHTML = doc.html || "";
+    }
+    target.scrollTop = scrollTop;
+  }, [
+    doc.workflowId,
+    doc.markdown,
+    doc.baseFileUri,
+    doc.html,
+    doc.missingReadme,
+  ]);
   return (
     <section class="section workflow-doc-section">
       <h3 class="section-title">{doc.title}</h3>
       <div class="panel workflow-doc-panel">
         {doc.missingReadme ? (
           <div
+            key="missing"
             class="workflow-doc-content markdown-body"
             data-workflow-id={doc.workflowId}
           >
             <div class="empty">{doc.missingReadmeText}</div>
           </div>
         ) : (
-          // Trusted channel: the host renders the workflow README to HTML
-          // (see renderHomeWorkflowDoc's innerHTML fallback in the legacy
-          // implementation); the page injects it verbatim.
           <div
+            key="markdown"
             class="workflow-doc-content markdown-body"
             data-workflow-id={doc.workflowId}
-            dangerouslySetInnerHTML={{ __html: doc.html }}
+            ref={contentRef}
+            onScroll={(event) =>
+              onScroll?.(
+                doc.workflowId,
+                (event.currentTarget as HTMLElement).scrollTop,
+              )
+            }
           />
         )}
       </div>
@@ -257,7 +309,12 @@ export const HomeRegion = memo(
       return (
         <div class="dashboard-home" data-region-content="dashboard-home">
           <h2 class="page-title">{selection.pageTitle}</h2>
-          <HomeDocViewSection doc={selection.doc} onAction={onAction} />
+          <HomeDocViewSection
+            doc={selection.doc}
+            onAction={onAction}
+            onScroll={props.onHomeWorkflowDocScroll}
+            scrollTop={props.homeWorkflowDocScrollTop || 0}
+          />
         </div>
       );
     }

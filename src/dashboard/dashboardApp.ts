@@ -61,6 +61,7 @@ function createInitialUiState(): DashboardUiState {
     selectedTabKey: "",
     synthesisSidecar: { traceFilter: "", selectedTraceId: "" },
     backendTaskScrollTopByTabKey: Object.create(null) as Record<string, number>,
+    homeWorkflowDocScroll: { workflowId: "", scrollTop: 0 },
   };
 }
 
@@ -93,6 +94,15 @@ export function createDashboardController(deps: DashboardControllerDeps) {
   return {
     state,
     applySnapshot(snapshot: DashboardPageSnapshot | null): void {
+      const workflowId = String(
+        snapshot?.homeWorkflowDocView?.workflowId || "",
+      ).trim();
+      if (
+        workflowId &&
+        state.ui.homeWorkflowDocScroll.workflowId !== workflowId
+      ) {
+        state.ui.homeWorkflowDocScroll = { workflowId, scrollTop: 0 };
+      }
       state.snapshot = snapshot;
       // The host is authoritative for the selected tab; drop the optimistic
       // override once a snapshot lands.
@@ -143,6 +153,21 @@ export function createDashboardController(deps: DashboardControllerDeps) {
         state.ui.backendTaskScrollTopByTabKey[String(scrollKey || "")] || 0
       );
     },
+    recordHomeWorkflowDocScroll(workflowId: string, scrollTop: number): void {
+      const key = String(workflowId || "").trim();
+      if (key && Number.isFinite(scrollTop)) {
+        state.ui.homeWorkflowDocScroll = {
+          workflowId: key,
+          scrollTop,
+        };
+      }
+    },
+    homeWorkflowDocScrollTop(workflowId: string): number {
+      const key = String(workflowId || "").trim();
+      return state.ui.homeWorkflowDocScroll.workflowId === key
+        ? state.ui.homeWorkflowDocScroll.scrollTop
+        : 0;
+    },
   };
 }
 
@@ -162,6 +187,10 @@ export function bootstrapDashboardApp(): () => void {
       controller.recordBackendTaskScroll(scrollKey, scrollTop),
     taskTableScrollTop: (scrollKey) =>
       controller.backendTaskScrollTop(scrollKey),
+    onHomeWorkflowDocScroll: (workflowId, scrollTop) =>
+      controller.recordHomeWorkflowDocScroll(workflowId, scrollTop),
+    homeWorkflowDocScrollTop: (workflowId) =>
+      controller.homeWorkflowDocScrollTop(workflowId),
   });
 
   function onMessage(event: MessageEvent): void {

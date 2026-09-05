@@ -51,6 +51,14 @@ export type DashboardUiState = {
   // region's onTaskTableScroll seam and read back as taskScrollTop when the
   // scroll key changes. Deliberately outside every region selection.
   backendTaskScrollTopByTabKey: Record<string, number>;
+  // Latest workflow README scroll position. This is deliberately a single
+  // owner-bound slot outside every region selection: closing and reopening
+  // the same document restores it, while a different document starts at
+  // zero.
+  homeWorkflowDocScroll: {
+    workflowId: string;
+    scrollTop: number;
+  };
 };
 
 export type DashboardUiPatch = {

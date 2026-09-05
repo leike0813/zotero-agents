@@ -420,8 +420,13 @@ export function createSynthesisWorkbenchController(
 
   function surfaceRuntime(
     surface: SynthesisWorkbenchSurfaceName,
+    snapshot: SynthesisWorkbenchPageSnapshot | null = state.snapshot,
   ): SynthesisWorkbenchSurfaceRuntime | undefined {
-    return state.surfaces[surfaceRuntimeKey(surface)];
+    const runtime = state.surfaces[surfaceRuntimeKey(surface, snapshot)];
+    return runtime?.snapshot &&
+      runtime.snapshot.libraryId !== snapshot?.libraryId
+      ? undefined
+      : runtime;
   }
 
   function isStaleSurfacePayload(
@@ -455,7 +460,7 @@ export function createSynthesisWorkbenchController(
     } = {},
   ): void {
     const key = surfaceRuntimeKey(surface, snapshot || state.snapshot);
-    const previous = state.surfaces[key];
+    const previous = surfaceRuntime(surface, snapshot || state.snapshot);
     state.surfaces[key] = {
       status,
       revision: (previous?.revision || 0) + 1,
@@ -946,7 +951,7 @@ export function createSynthesisWorkbenchController(
     payload: SynthesisWorkbenchSurfaceErrorPayload,
   ): void {
     const record = recordValue(payload);
-    applyI18nEnvelope(record);
+    const i18nChanged = applyI18nEnvelope(record);
     const surface = String(record.surface || "");
     if (!isWorkbenchSurfaceName(surface)) {
       renderCurrentPanel();
@@ -970,10 +975,7 @@ export function createSynthesisWorkbenchController(
       completed_at: new Date(now()).toISOString(),
       message,
     };
-    const cachedSnapshot =
-      visibleSurface() === surface
-        ? state.snapshot || undefined
-        : surfaceRuntime(surface)?.snapshot;
+    const cachedSnapshot = surfaceRuntime(surface)?.snapshot;
     markSurfaceRuntime(
       surface,
       "failed",
@@ -985,7 +987,11 @@ export function createSynthesisWorkbenchController(
         requestId,
       },
     );
-    renderCurrentPanel();
+    renderCurrentPanel(
+      !i18nChanged &&
+        (visibleSurface() !== surface ||
+          (!!cachedSnapshot && lastPanel?.business?.surface === surface)),
+    );
   }
 
   /** synthesis:init / synthesis:snapshot — full snapshot channel. */

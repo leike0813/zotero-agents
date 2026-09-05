@@ -78,6 +78,8 @@ export type DashboardChromeRendererDeps = {
   // region selection.
   onTaskTableScroll?: (scrollKey: string, scrollTop: number) => void;
   taskTableScrollTop?: (scrollKey: string) => number;
+  onHomeWorkflowDocScroll?: (workflowId: string, scrollTop: number) => void;
+  homeWorkflowDocScrollTop?: (workflowId: string) => number;
 };
 
 type DashboardSkeleton = {
@@ -236,6 +238,11 @@ export function createDashboardChromeRenderer(
         ? h(HomeRegion, {
             selection: homeSelection,
             onAction: deps.dispatchAction,
+            onHomeWorkflowDocScroll: deps.onHomeWorkflowDocScroll,
+            homeWorkflowDocScrollTop: homeSelection.doc
+              ? deps.homeWorkflowDocScrollTop?.(homeSelection.doc.workflowId) ||
+                0
+              : 0,
           })
         : null,
     );

@@ -71,6 +71,7 @@ let synthesisRuntime: SynthesisRuntime | null = null;
 let closeSynthesis: (() => void) | undefined;
 let workspaceBundle: string | null = null;
 let synthesisBundle: string | null = null;
+let dashboardBundle: string | null = null;
 let assistantWorkspaceBundle: string | null = null;
 let acpChildBundle: string | null = null;
 let prototypeWorkspaceBundle: string | null = null;
@@ -237,7 +238,7 @@ function broadcastLiveReload(event: string, payload: Record<string, unknown>) {
   }
 }
 
-async function rebuildHarnessBundles(reason: string) {
+export async function rebuildHarnessBundles(reason: string) {
   try {
     const sidebarOptions = {
       jsx: "automatic" as const,
@@ -247,12 +248,14 @@ async function rebuildHarnessBundles(reason: string) {
     const [
       nextWorkspaceBundle,
       nextSynthesisBundle,
+      nextDashboardBundle,
       nextAssistantWorkspaceBundle,
       nextAcpChildBundle,
       nextPrototypeWorkspaceBundle,
     ] = await Promise.all([
       buildBrowserBundle("src/workspaceApp.ts"),
       buildBrowserBundle("src/synthesisWorkbenchApp.ts", sidebarOptions),
+      buildBrowserBundle("src/dashboard/dashboardApp.ts", sidebarOptions),
       buildBrowserBundle(
         "src/sidebar/assistantWorkspaceApp.js",
         sidebarOptions,
@@ -265,6 +268,7 @@ async function rebuildHarnessBundles(reason: string) {
     ]);
     workspaceBundle = nextWorkspaceBundle;
     synthesisBundle = nextSynthesisBundle;
+    dashboardBundle = nextDashboardBundle;
     assistantWorkspaceBundle = nextAssistantWorkspaceBundle;
     acpChildBundle = nextAcpChildBundle;
     prototypeWorkspaceBundle = nextPrototypeWorkspaceBundle;
@@ -552,7 +556,7 @@ async function handleSynthesisAction(
   return { messages, actionLog: logEntries };
 }
 
-async function handleRequest(req: IncomingMessage, res: ServerResponse) {
+export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url || "/", "http://127.0.0.1");
   try {
     if (url.pathname === "/" || url.pathname === "/content/harness/") {
@@ -566,6 +570,10 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     }
     if (url.pathname === "/content/synthesis/app.bundle.js") {
       text(res, 200, synthesisBundle || "", "text/javascript; charset=utf-8");
+      return;
+    }
+    if (url.pathname === "/content/dashboard/app.js") {
+      text(res, 200, dashboardBundle || "", "text/javascript; charset=utf-8");
       return;
     }
     if (url.pathname === "/content/sidebar/assistant-workspace.bundle.js") {
@@ -873,6 +881,7 @@ async function main() {
           bundles: {
             workspace: Boolean(workspaceBundle),
             synthesis: Boolean(synthesisBundle),
+            dashboard: Boolean(dashboardBundle),
             assistantWorkspace: Boolean(assistantWorkspaceBundle),
             acpChild: Boolean(acpChildBundle),
           },
@@ -909,7 +918,9 @@ async function main() {
   process.once("SIGTERM", close);
 }
 
-void main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  void main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

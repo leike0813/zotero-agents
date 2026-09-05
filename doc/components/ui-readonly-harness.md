@@ -295,11 +295,14 @@ publication protocol as the live plugin.
 `.env` (`ZOTERO_PLUGIN_DATA_DIR`, optional profile/prefs overrides);
 `--check` builds everything, prints component readiness as JSON, and exits.
 
-The server holds the four bundles in memory and rebuilds them on source
-changes: the workspace and synthesis apps, plus the production sidebar
-entries `src/sidebar/assistantWorkspaceApp.js` and
-`src/sidebar/acpChildApp.js` (built with the plugin's JSX/Preact options),
-served at `/content/sidebar/assistant-workspace.bundle.js` and
+The server holds the workspace, Dashboard, Synthesis, Assistant Workspace,
+ACP child and prototype workspace bundles in memory and rebuilds them on source
+changes. Dashboard uses `src/dashboard/dashboardApp.ts` with JSX/Preact and
+Firefox 115 options; `/content/dashboard/app.js` serves that in-memory bundle,
+including on a clean checkout. The production sidebar entries
+`src/sidebar/assistantWorkspaceApp.js` and `src/sidebar/acpChildApp.js`
+use the plugin's JSX/Preact options and are served at
+`/content/sidebar/assistant-workspace.bundle.js` and
 `/content/sidebar/acp-child.bundle.js`. The harness page
 (`addon/content/harness/harness-host.js`) therefore runs the real Assistant
 Workspace shell and child panels. Live reload is delivered over

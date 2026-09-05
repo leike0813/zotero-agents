@@ -37,6 +37,13 @@ surface and status chrome. Each region compares its own visible selection;
 surface payloads and graph pages do not invalidate unrelated chrome. Business
 surface projections select the corresponding component under `src/synthesis`.
 
+Surface refresh failures retain the last successfully loaded content for the
+matching owner and report the failure through chrome. A current shell snapshot
+is not proof that the selected surface has loaded; only that surface's accepted
+snapshot can supply last-known-good data. A failure without such data shows an
+error placeholder. Hidden-surface failures preserve the visible business region,
+and stale responses remain subject to the existing request-order checks.
+
 The Graph region owns its imperative Sigma canvas and camera. Markdown and
 topic timelines use bounded imperative islands inside Reader. Translation
 resolves message keys during projection/rendering from the host envelope;

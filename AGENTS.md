@@ -175,6 +175,8 @@
 - Sigma 实例、camera 与 graph page 累积由 Graph 区域和页面 controller 持有；chrome 更新不得重建 graph 容器。页面卸载必须清理所属监听、observer 和计时器。
 - Dashboard 与 Synthesis 的跨边界 DTO 以 `src/shared/*WireContract.ts` 为唯一来源；页面重构不得改变宿主 action、snapshot 或消息语义。
 - standalone graph/topic 入口仅组合所需区域，不得导入完整 hosted renderer；文案在 projection/render 阶段解析，Markdown 使用共享 sanitize profile。
+- Synthesis surface 刷新失败必须保留对应 owner 已成功加载的内容与交互状态，错误诊断由 chrome 展示；仅无可用旧数据时显示错误占位符，切换标签后的 shell snapshot 不得充当该 surface 已加载的证据。
+- Dashboard README 使用共享 Markdown renderer 的 document profile 和原始 baseFileUri；文档滚动位置属于页面本地状态，不得进入区域 signature 或触发宿主消息。
 
 # ACP Transcript Projection硬约束
 
