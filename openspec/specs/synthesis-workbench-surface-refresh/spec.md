@@ -1,7 +1,7 @@
 # synthesis-workbench-surface-refresh Specification
 
 ## Purpose
-TBD - created by archiving change refactor-synthesis-workbench-surface-refresh-architecture. Update Purpose after archive.
+Defines independent Workbench shell, chrome and surface refreshes, bounded warmup and request coalescing, stale-response rejection, and preservation of visible data and interaction state.
 ## Requirements
 ### Requirement: Workbench loads Shell, Chrome, and Surfaces independently
 
@@ -29,7 +29,7 @@ Workbench surface updates SHALL refresh only the requested surface container.
 
 #### Scenario: Index surface updates
 - **WHEN** the host sends an `index` surface update
-- **THEN** the frontend SHALL replace only the Index surface container
+- **THEN** the frontend SHALL update content within the existing Index surface container while preserving that container's identity
 - **AND** it SHALL NOT rebuild Graph, Tags, Concepts, Review, or the shell.
 
 #### Scenario: Chrome updates
