@@ -78,12 +78,12 @@ _Avoid_: Pi 设置、OMP config
 同一 Pi 模型 Provider 下具有独立 endpoint 或认证方式的可配置身份，例如 API Key 与 OAuth 入口；凭据只能绑定到明确的认证变体。
 _Avoid_: credential fallback、provider 登录状态
 
-**Pi Credential Store（Pi 凭据存储）**：
-Zotero Agents 在当前 Zotero profile 内为 Pi Model Provider Configuration 持有并解析模型 Provider 凭据的安全边界。
-_Avoid_: Oh My Pi auth store、Backend Profile 凭据
+**Built-in Agent Credential Store（内置 Agent 凭据存储）**：
+Zotero Agents 在当前 Zotero profile 内为 Built-in Pi Agent Runtime 持有并解析凭据的安全边界。凭据按用途使用类型化命名空间，例如 `model-provider` 与 `mcp-source`；模型 Provider 和 MCP Source 配置只保存不透明凭据引用。
+_Avoid_: Oh My Pi auth store、Backend Profile 凭据、配置内明文 secret
 
 **Pi OAuth Credential（Pi OAuth 凭据）**：
-由 Pi Model Provider Configuration 对应的模型 Provider 授权流程产生、可刷新并由 Pi Credential Store 持有的凭据。
+由 Pi Model Provider Configuration 对应的模型 Provider 授权流程产生、可刷新并由 Built-in Agent Credential Store 持有的凭据。
 _Avoid_: OAuth token、登录 session
 
 **Pi Model Catalog（Pi 模型目录）**：
@@ -118,6 +118,14 @@ _Avoid_: replay、恢复执行、重放请求
 再次发出模型请求、工具调用、Zotero mutation 或外部网络操作。它可能重复副作用，只有专门合同证明幂等并保留原幂等身份时才可自动执行。
 _Avoid_: Pi Context Reconstruction、恢复投影
 
+**Broker Operation Observation（Broker 操作结果查询）**：
+按可信调用方范围与操作身份读取 Zotero Host Capability Broker 持有的执行证据。它不重新执行操作；缺少证据不表示未产生副作用。
+_Avoid_: mutation retry、执行重放
+
+**Pi Outcome Reconciliation（Pi 执行结果对账）**：
+将迟到或恢复取得的权威执行证据关联到原工具调用，并重新判断 owner 的恢复阻塞。它不改写已取消或已封存的结果，也不自动续跑曾因结果未知而阻塞的任务。
+_Avoid_: 自动重试、人工确认成功
+
 **Tool Gateway（工具网关）**：
 内置 Pi Agent Runtime 发起工具调用的唯一受控入口，负责把调用交给可信原生执行器或 Zotero capability broker；工具目录、策略、审批和审计均由 Zotero Agents 持有。
 _Avoid_: Pi 内置工具、任意工具回调
@@ -127,7 +135,7 @@ Zotero Agents 授予某个 Pi Conversation 或 Pi Skill Run 的能力范围，�
 _Avoid_: 逐调用审批、全局自动批准
 
 **Agent Tool Effect（Agent 工具效应）**：
-Tool Gateway 用于组合描述一次工具调用安全含义的能力维度，包括 `bounded-read`、`workspace-mutation`、`code-execution`、`external-egress`、`local-network`、`zotero-mutation`、`host-control` 和不可授予的 `forbidden`。
+Tool Gateway 用于组合描述一次工具调用安全含义的能力维度，包括 `bounded-read`、`workspace-mutation`、`code-execution`、`external-egress`、`external-mutation`、`local-network`、`zotero-mutation`、`host-control` 和不可授予的 `forbidden`。
 _Avoid_: 工具风险等级、互斥工具类型
 
 **Resource Policy（资源策略）**：
@@ -169,6 +177,10 @@ _Avoid_: Workflow 命令白名单、永久命令白名单
 **代理网络访问（Brokered Network Access）**：
 由 Tool Gateway 或服务连接代理并实施目标、凭据和操作边界的网络访问，包括公开 Web 读取和结构化服务操作。
 _Avoid_: Shell 网络、代理环境变量
+
+**外部状态变更（External Mutation）**：
+通过代理网络工具或远程服务工具改变外部服务状态的操作；它与仅建立外部连接或读取数据的 `external-egress` 分开授权。
+_Avoid_: external-egress、Zotero mutation
 
 **直接原生网络（Direct Native Network）**：
 宿主原生进程直接使用当前用户网络能力的访问方式。其 download、upload 或 unrestricted 授权表达受信 Agent 的执行意图，不构成域名级网络隔离。

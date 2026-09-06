@@ -26,6 +26,7 @@ native/synthesis-sidecar/target/
 build
 logs
 
+.mattpack/
 .agent/
 .vscode/
 .history/
