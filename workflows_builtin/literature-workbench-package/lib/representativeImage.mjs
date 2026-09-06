@@ -637,10 +637,11 @@ export async function cleanupRepresentativeImageAttachments(args) {
     try {
       const attachment = attachments.find((entry) => entry.ref.key === key);
       if (!attachment) continue;
-      await hostApi.attachments.remove({
+      await hostApi.mutations.execute({
+        operation: "trash.setItemsState",
         operationId: `representative-image:remove:${noteRef.libraryId}:${noteRef.key}:${key}`,
-        attachmentRef: attachment.ref,
-        disposition: "trash",
+        itemRefs: [attachment.ref],
+        state: "trashed",
       });
     } catch {
       // Best-effort cleanup only.

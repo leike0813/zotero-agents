@@ -6,7 +6,7 @@ import { buildRequest } from "../../workflows_builtin/literature-workbench-packa
 import { lockSelection } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { workflowsPath } from "./workflow-test-utils";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 
 describe("workflow: literature-analysis sequence step apply", function () {

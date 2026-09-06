@@ -35,7 +35,7 @@ pub(super) fn last_operation_id() -> Option<String> {
         .and_then(|current| current.clone())
 }
 
-fn generated_operation_id() -> String {
+pub(super) fn generated_operation_id() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -52,19 +52,20 @@ fn operation_id_for(config: &BridgeConfig, suffix: Option<&str>) -> String {
     }
 }
 
-fn operation_context(mut error: CliError, operation_id: &str) -> CliError {
-    if !matches!(
-        error.code.as_str(),
-        "bridge_request_failed" | "bridge_response_failed"
-    ) {
-        return error;
-    }
+pub(super) fn operation_context(
+    mut error: CliError,
+    operation_id: &str,
+    next_command: String,
+) -> CliError {
     let mut details = error.details.take().unwrap_or_else(|| json!({}));
     if let Some(object) = details.as_object_mut() {
         object.insert("operationId".to_string(), json!(operation_id));
     }
     error.details = Some(details);
-    error.next_command = Some(format!("operation get {operation_id}"));
+    error.next_command = Some(next_command);
+    error.retryable = Some(false);
+    error.state_change = Some(crate::error::StateChange::Unknown);
+    error.handle_consumption = Some(crate::error::HandleConsumption::Unknown);
     error.safe_next_actions = Some(vec![
         "inspect the durable operation receipt before deciding whether to retry".to_string(),
     ]);
@@ -111,6 +112,25 @@ pub(super) fn call(
     )
 }
 
+pub(super) fn call_mutation_execute(
+    config: &BridgeConfig,
+    input: Value,
+    operation_id: &str,
+) -> Result<Value, CliError> {
+    request_json_with_operation_id(
+        config,
+        "POST",
+        "/call",
+        Some(json!({
+            "capability": "mutation.execute",
+            "input": input
+        })),
+        true,
+        operation_id,
+        format!("mutation get-operation {operation_id}"),
+    )
+}
+
 pub(super) fn get(config: &BridgeConfig, path: &str) -> Result<Value, CliError> {
     request_json(config, "GET", path, None, true)
 }
@@ -148,8 +168,13 @@ pub(super) fn upload(
         display_name.map(sanitize_header_value).as_deref(),
         bytes,
     );
-    let raw = send_http_bytes(&endpoint, &request)
-        .map_err(|error| operation_context(error, &operation_id))?;
+    let raw = send_http_bytes(&endpoint, &request).map_err(|error| {
+        operation_context(
+            error,
+            &operation_id,
+            format!("operation get {operation_id}"),
+        )
+    })?;
     let parsed = parse_http_response_bytes(&raw)?;
     let response_body = String::from_utf8(parsed.body.clone()).map_err(|error| {
         CliError::protocol(
@@ -366,6 +391,38 @@ fn request_json(
     body: Option<Value>,
     auth: bool,
 ) -> Result<Value, CliError> {
+    request_json_inner(config, method, path, body, auth, None, None)
+}
+
+fn request_json_with_operation_id(
+    config: &BridgeConfig,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+    auth: bool,
+    operation_id: &str,
+    next_command: String,
+) -> Result<Value, CliError> {
+    request_json_inner(
+        config,
+        method,
+        path,
+        body,
+        auth,
+        Some(operation_id.to_string()),
+        Some(next_command),
+    )
+}
+
+fn request_json_inner(
+    config: &BridgeConfig,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+    auth: bool,
+    explicit_operation_id: Option<String>,
+    explicit_next_command: Option<String>,
+) -> Result<Value, CliError> {
     let endpoint = parse_endpoint(&config.endpoint)?;
     let token = if auth {
         Some(config.require_token()?)
@@ -387,7 +444,8 @@ fn request_json(
     } else {
         None
     };
-    let operation_id = (method != "GET").then(|| operation_id_for(config, None));
+    let operation_id =
+        explicit_operation_id.or_else(|| (method != "GET").then(|| operation_id_for(config, None)));
     if let Some(operation_id) = operation_id.as_deref() {
         record_operation_id(operation_id);
     }
@@ -408,23 +466,41 @@ fn request_json(
     let raw = send_http(&endpoint, &request).map_err(|error| {
         operation_id
             .as_deref()
-            .map(|operation_id| operation_context(error.clone(), operation_id))
+            .map(|operation_id| {
+                operation_context(
+                    error.clone(),
+                    operation_id,
+                    explicit_next_command
+                        .clone()
+                        .unwrap_or_else(|| format!("operation get {operation_id}")),
+                )
+            })
             .unwrap_or(error)
     })?;
-    let parsed = parse_http_response_bytes(&raw)?;
+    let contextualize = |error| match (operation_id.as_deref(), explicit_next_command.as_deref()) {
+        (Some(operation_id), Some(next_command)) => {
+            operation_context(error, operation_id, next_command.to_string())
+        }
+        _ => error,
+    };
+    let parsed = parse_http_response_bytes(&raw).map_err(contextualize)?;
     let response_body = String::from_utf8(parsed.body.clone()).map_err(|error| {
-        CliError::protocol(
-            "invalid_bridge_json",
-            "Bridge response body is not valid UTF-8 JSON",
+        contextualize(
+            CliError::protocol(
+                "invalid_bridge_json",
+                "Bridge response body is not valid UTF-8 JSON",
+            )
+            .with_details(json!({ "message": error.to_string(), "status": parsed.status })),
         )
-        .with_details(json!({ "message": error.to_string(), "status": parsed.status }))
     })?;
     let json = serde_json::from_str::<Value>(&response_body).map_err(|error| {
-        CliError::protocol(
-            "invalid_bridge_json",
-            "Bridge response body is not valid JSON",
+        contextualize(
+            CliError::protocol(
+                "invalid_bridge_json",
+                "Bridge response body is not valid JSON",
+            )
+            .with_details(json!({ "message": error.to_string(), "status": parsed.status })),
         )
-        .with_details(json!({ "message": error.to_string(), "status": parsed.status }))
     })?;
     if parsed.status == 401 {
         return Err(CliError::auth(
@@ -436,11 +512,13 @@ fn request_json(
         return Err(bridge_error_from_value(parsed.status, json));
     }
     if json.get("status").and_then(Value::as_str) != Some("ok") {
-        return Err(CliError::protocol(
-            "invalid_bridge_envelope",
-            "Bridge response envelope is not status=ok",
-        )
-        .with_details(json!({ "bridge": json })));
+        return Err(contextualize(
+            CliError::protocol(
+                "invalid_bridge_envelope",
+                "Bridge response envelope is not status=ok",
+            )
+            .with_details(json!({ "bridge": json })),
+        ));
     }
     Ok(json.get("result").cloned().unwrap_or(Value::Null))
 }
@@ -775,8 +853,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        bridge_error_from_value, build_http_request, download, get, parse_endpoint,
-        parse_http_response, parse_http_response_bytes, sha256_hex,
+        bridge_error_from_value, build_http_request, call_mutation_execute, download, get,
+        parse_endpoint, parse_http_response, parse_http_response_bytes, sha256_hex,
     };
     use crate::{config::BridgeConfig, contract::set_current_command};
 
@@ -1044,5 +1122,51 @@ mod tests {
         assert_eq!(result["protocol"], "host-bridge.v2");
         assert!(!result.to_string().contains("secret-token"));
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn canonical_mutation_parse_failures_preserve_observation_context() {
+        let responses = [
+            (b"not an HTTP response".to_vec(), "invalid_http_response"),
+            (
+                b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n\xff".to_vec(),
+                "invalid_bridge_json",
+            ),
+            (
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n[]".to_vec(),
+                "invalid_bridge_envelope",
+            ),
+        ];
+        for (response, expected_code) in responses {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let handle = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0_u8; 4096];
+                let read = stream.read(&mut buffer).unwrap_or_default();
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                assert!(request.contains("X-Zotero-Bridge-Operation-Id: mutation-1"));
+                stream.write_all(&response).unwrap();
+            });
+            let error = call_mutation_execute(
+                &download_config(port),
+                json!({ "operation": "item.create", "operationId": "mutation-1" }),
+                "mutation-1",
+            )
+            .unwrap_err();
+            assert_eq!(error.code, expected_code);
+            assert_eq!(
+                error
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("operationId")),
+                Some(&json!("mutation-1")),
+            );
+            assert_eq!(
+                error.next_command.as_deref(),
+                Some("mutation get-operation mutation-1"),
+            );
+            handle.join().unwrap();
+        }
     }
 }

@@ -2,7 +2,7 @@ import { assert } from "chai";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import {
   buildSelectionContext,
   itemRef,

@@ -1,25 +1,25 @@
 ---
 name: zotero-library-agent
-description: Route and coordinate bounded Zotero library research tasks. Use when a request spans, or needs selection among, library query, acquisition, analysis, synthesis, or curation.
+description: 路由并协调有限范围的 Zotero 文献库研究任务。当请求跨越或在文献库查询、获取、分析、综合、遴选之间需要选择时使用。
 ---
 
 # Zotero Library Agent
 
 ## Goal
 
-Route a bounded Zotero research request to the smallest capable task Skill, or coordinate an explicit sequence of task Skills while preserving identity, evidence, authority, and recovery across their boundaries. Return one truthful task result; do not become a resident service or reproduce CLI mechanics.
+将一个有限范围的 Zotero 研究请求路由到最小可胜任的任务 Skill，或协调任务 Skill 的显式序列，同时在各边界之间保留身份、证据、权限与恢复能力。返回一条真实可信的任务结果；不要成为常驻服务，也不要复刻 CLI 机制。
 
 ## Inputs
 
-- The user's research objective, inclusion boundary, desired deliverable, and freshness requirement.
-- Any supplied current-context phrase, Zotero object, collection, topic, workflow, Product, artifact, file, operation, or run handle.
-- Available source material and current authority for acquisition, workflow submission, mutation, or apply-back.
+- 用户的研究目标、纳入边界、期望交付物与新鲜度要求。
+- 任何提供的当前上下文短语、Zotero 对象、收藏、主题、工作流、Product、产物、文件、操作或运行句柄。
+- 可用的源材料与当前权限，用于获取、工作流提交、变更或回写。
 
 ## Natural-language intake
 
-Assume the user knows Zotero as a research library, not this plugin's command or workflow model. Translate their words before selecting a task.
+假定用户把 Zotero 视作一个研究文献库，而不是本插件的命令或工作流模型。在选择任务之前先翻译他们的措辞。
 
-Capture these six slots:
+捕获以下六个槽位：
 
 | Slot | What to establish | Safe default |
 | --- | --- | --- |
@@ -30,9 +30,9 @@ Capture these six slots:
 | Deliverable | Conversation answer, candidate report, analysis artifact, synthesis export, or Zotero change | Conversation answer for a read-only question |
 | State change | None, acquisition, workflow submission, mutation, maintenance, or apply-back | None |
 
-Ask a question when the missing answer would change candidate inclusion, evidence claims, workflow/provider cost, target library state, destructive effect, or approval scope. Otherwise use the safe default and state it in the visible plan or final summary.
+当缺失的答案会改变候选纳入、证据声明、工作流/提供方成本、目标文献库状态、破坏性效果或审批范围时，应当提问。否则使用安全默认值并在可见计划或最终摘要中声明。
 
-Interpret common requests as follows:
+按以下方式解读常见请求：
 
 | User wording | Initial route | Material question or boundary |
 | --- | --- | --- |
@@ -42,16 +42,16 @@ Interpret common requests as follows:
 | “Find papers and summarize them” | Acquisition → analysis | Verify the acquired or selected source set before analysis |
 | “Compare these methods” | Analysis | Resolve sources, comparison dimensions, and acceptable evidence depth |
 | “What does the literature say overall?” | Synthesis | Bound the source set, research question, model, and freshness |
-| “把这些论文下载成研究包” | Synthesis 直接交付 | 要求稳定的 Zotero 条目引用；如果措辞只给出标题或含糊的当前选择，先由 Query 解析身份 |
-| “把这些 Topic 下载成一个研究包” | Synthesis 直接交付 | 要求一个或多个稳定 Topic ID，并在交付前验证每份当前报告 |
+| “Download these papers as a research bundle” | Synthesis direct delivery | Require stable Zotero item refs; if the wording names titles or an ambiguous live selection, use Query to resolve identity first |
+| “Download these topics as one research bundle” | Synthesis direct delivery | Require one or more stable Topic IDs and verify each current report before delivery |
 | “Put this report into Zotero” | Curation | Verify the artifact and target; stop at the write authority boundary |
 | “Clean up duplicates and tags” | Curation | Convert “clean up” into a reviewable proposal and separate destructive choices |
 | “Use the deep-reading workflow” | Analysis with workflow candidate | Confirm live availability, selection input, options, provider, and submission authority |
 | “Keep watching this topic” | Outside Generic | Return the finite result and route persistent supervision to a hosted facet |
 
-Near matches do not erase task boundaries. Searching an existing library is query, while searching external sources is acquisition. Explaining one paper is analysis; relating claims across a bounded source set is synthesis. Producing a proposed correction is still curation even before the write is approved.
+相近的匹配不会抹除任务边界。搜索现有文献库是查询，搜索外部来源是获取。解释一篇论文是分析；在有限来源集之间关联论断才是综合。提出拟议的修正仍然是遴选，即便写入尚未获得批准。
 
-For a read-only task, begin after material identity and scope are known. For acquisition, submission, mutation, maintenance, or apply-back, show the proposed effect and stop for current authority before the first state-changing call.
+对于只读任务，在材料身份和范围已知后再开始。对于获取、提交、变更、维护或回写，在首次状态变更调用之前先展示拟议的效果并停在当前权限边界。
 
 ## Workflow
 
@@ -61,7 +61,7 @@ For a read-only task, begin after material identity and scope are known. For acq
 2. Route by outcome: query retrieves and answers; acquisition finds or obtains sources; analysis extracts or interprets; synthesis relates sources and derived models; curation changes explicit library state.
 3. Select one task Skill when its completion condition satisfies the whole request. Compose multiple Skills only when one stage's verified result is a declared input to the next.
 
-论文研究包和 Topic 研究包的直接交付是独立的只读 Synthesis 分支。稳定条目引用或 Topic ID 已知时，直接路由至 Synthesis；不要插入 acquisition、文献分析、Topic 维护或生成 Product 的 Research Bundle 工作流。身份含糊时，由 Query 解析有界候选项，并只把验证过的 Zotero 引用或 Topic ID 交给 Synthesis。来源正文、digest 或分析工件缺失时保留为研究包诊断，除非用户另行要求生成或修复。
+Direct paper-bundle and Topic-bundle delivery is an independent read-only Synthesis branch. When stable item refs or Topic IDs are already known, route straight to Synthesis; do not insert acquisition, literature analysis, Topic maintenance, or the Product-producing Research Bundle workflow. When identity is ambiguous, Query resolves the bounded candidates and hands only verified Zotero refs or Topic IDs to Synthesis. Missing source text, digest, or analysis artifacts remain bundle diagnostics unless the user separately asks to generate or repair them.
 
 ### Compose and execute stages
 
@@ -77,7 +77,7 @@ For a read-only task, begin after material identity and scope are known. For acq
 9. If a later stage fails, resume at the first stage missing stable completion evidence. Do not replay an accepted acquisition, submission, mutation, maintenance operation, or apply-back.
 10. Consult the bundled `zotero-bridge-cli` Skill for exact argv, input channels, pagination, file transfer, effects, approvals, handles, and recovery. Never reconstruct its command catalog here.
 
-直接交付研究包时，本地完成需要请求的目标目录、`manifest.json` 和声明的论文/Topic 清单都实际存在。远程完成需要获得 bridge 文件 handle、成功下载，并按交付描述符验证字节；只有 handle 不代表研究包已经交付。任一条目或 Topic 选择器无法解析时，在该选择器边界停止整个请求。若 manifest 报告可选内容缺失，连同诊断返回研究包，不得静默启动修复工作流。
+For direct bundle delivery, local completion requires the requested destination, `manifest.json`, and the declared paper/topic inventory to exist. Remote completion requires a returned bridge file handle, successful download, and byte verification from the delivery descriptor; the handle alone is not the delivered bundle. If an item or Topic selector cannot resolve, stop the entire request at that selector boundary. If the manifest reports missing optional content, return the bundle with those diagnostics and do not silently start a repair workflow.
 
 ### Present a visible multi-stage plan
 
@@ -149,7 +149,7 @@ Do not dispatch both analysis and synthesis over an unresolved candidate set mer
 - Do not monitor a self-owned `agentRunId` through the Zotero-managed run plane or use a `workflowRunId` for agent apply-back.
 - Do not model `submissionId`, `queueId`, and `workflowRunId` as aliases. A native queued submission is monitored through its submission projection; only an admitted unit with a real run handle enters the Zotero-managed run plane.
 - Do not create a coordinator-owned workflow queue, reservation table, replay loop, or unattended batch scheduler. The coordinator may choose an explicitly bounded concurrency value for the current authorized submission, while Zotero owns pending-unit ordering, admission, and pending cancellation.
-- Host 签发的 full-snapshot completion evidence 只证明一次捕获的完整集合。active、中断、过期或重启后的 snapshot 不能证明全库中不存在某对象，也不能授权替换缓存 generation；即使 snapshot 已完成，当答案或写入取决于当前状态时，仍需执行后续 live read。
+- Treat Host-issued full-snapshot completion evidence as proof of one captured complete set only. An active, interrupted, expired, or restarted snapshot cannot establish whole-library absence or authorize replacement of a cached generation, and a completed snapshot does not replace a later live read when current state controls the answer or a write.
 
 ## LLM And Tool Responsibilities
 

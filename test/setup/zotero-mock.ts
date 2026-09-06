@@ -90,6 +90,13 @@ type ZoteroMock = {
   logError: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   DataDirectory: { dir: string };
+  HTTP: {
+    download: (
+      uri: string,
+      path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<unknown>;
+  };
   File: {
     putContentsAsync: (file: MockFile, content: string) => Promise<void>;
     createDirectoryIfMissingAsync: (dir: MockFile) => Promise<void>;
@@ -2714,6 +2721,18 @@ function createZoteroMock(): ZoteroMock {
     logError: () => {},
     warn: () => {},
     DataDirectory: { dir: mockZoteroDataDir },
+    HTTP: {
+      download: async (uri, filePath) => {
+        if (
+          !/^https?:\/\//i.test(uri) ||
+          /(?:^|[/?#&])fail(?:[=?&/#]|$)/i.test(uri)
+        ) {
+          throw new Error(`Mock attachment URL download failed: ${uri}`);
+        }
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, "%PDF mock");
+      },
+    },
     File: {
       pathToFile: (filePath: string | MockFile) => {
         if (filePath instanceof MockFile) {

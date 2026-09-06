@@ -1,65 +1,65 @@
-# 文献采集操作手册
+# Literature Acquisition Playbook
 
-## 搜索边界与候选项
+## Search boundary and candidates
 
-将文献需求转化为可审阅搜索 plan：
+Translate the literature need into a reviewable search plan:
 
-- 研究概念和可接受同义词；
-- 纳入与排除标准；
-- 出版时期、语言、venue、文档类型或来源限制；
-- 期望广度、停止规则与排序偏好；
-- 结果是候选报告、Zotero import、附件获取还是可分析集合。
+- research concepts and acceptable synonyms;
+- inclusion and exclusion criteria;
+- publication period, language, venue, document type, or source constraints;
+- desired breadth, stopping rule, and ranking preference;
+- whether the outcome is a candidate report, Zotero import, attachment acquisition, or analysis-ready set.
 
-若合理选择会实质改变哪些作品符合条件，应请求澄清；否则执行有界搜索并说明所搜来源与限制。保留 DOI、ISBN、PMID、arXiv ID、URL 或 provider record ID 等外部标识符，以及足以解释纳入理由的书目字段。
+Ask for clarification when plausible choices would materially change which works qualify. Otherwise perform a bounded search and state the searched sources and limits. Retain external identifiers such as DOI, ISBN, PMID, arXiv ID, URL, or provider record ID together with enough bibliographic fields to explain inclusion.
 
-外部结果始终只是候选项。声称某作品新增或不存在前，先搜索实时 Zotero 文献库。独立记录 provider provenance 与 Zotero 条目身份，以便后续元数据分歧仍然可见。
+External results remain candidates. Search the live Zotero library before saying a work is new or absent. Record provider provenance independently from Zotero item identity so later metadata disagreement remains visible.
 
-## 重复项与身份检查
+## Duplicate and identity checks
 
-比较候选项时先使用最强可用标识符，再比较作者、归一化标题、年份、venue、版本和文档类型。实时条目读取确认相关字段前，将可能匹配视为备选项。不同版次、译本、版本、预印本与正式发表文章可能相关，却不一定是可合并重复项。
+Compare candidates using the strongest available identifiers first, then authorship, title normalization, year, venue, edition, and document type. Treat probable matches as alternatives until a live item read confirms the relevant fields. Different editions, translations, versions, preprints, and published articles may be related without being mergeable duplicates.
 
-对每个可能重复项，报告：
+For every probable duplicate, report:
 
-- 每个实时 Zotero ref 与外部候选 ID；
-- 匹配与冲突字段；
-- 可见时附件、笔记、分类、标签、关系与工作流 artifact 影响；
-- 建议保留项或共存结果；
-- 需要人工决策的不确定性。
+- each live Zotero ref and external candidate ID;
+- matching and conflicting fields;
+- attachment, note, collection, tag, relation, and workflow-artifact implications when visible;
+- the proposed survivor or coexistence outcome;
+- uncertainty that requires a human decision.
 
-重复项评估不授权 merge、delete、relink 或元数据覆盖。provider 元数据与已整理文献库字段冲突时，保留两个来源，并把任何修正路由给 curation。
+A duplicate assessment does not authorize merge, deletion, relinking, or metadata overwrite. If provider metadata conflicts with a curated library field, preserve both sources and route any correction to curation.
 
-## 获取与 readiness
+## Acquisition and readiness
 
-| 结果 | 所需预检 | 完成证据 |
+| Outcome | Required preflight | Completion evidence |
 | --- | --- | --- |
-| 候选短名单 | 明确标准与当前文献库比较 | 候选 provenance、理由及未解决身份字段 |
-| Import 已知参考文献 | 目标 library/collection、重复检查、import payload 审阅 | 实时 item ref，以及请求时的 collection membership |
-| 文献搜索与 ingest | 已描述工作流、已校验 selection/options 与 provider profile | 终态 run 加成功 ingest 的实时条目与 provenance |
-| 附件获取 | 当前条目/附件/readiness 状态及允许来源 | 实时附件记录与已验证交付文件元数据 |
-| 去重 | 完整记录及已审阅 survivor effect | 持久 receipt 加 merge 后或共存的实时状态 |
-| 分析准备 | 已识别必要 PDF/Markdown/分析输入 | 每个成功条目的已验证 readiness 状态 |
+| Candidate shortlist | Explicit criteria and current-library comparison | Candidate provenance, rationale, and unresolved identity fields |
+| Import known references | Target library/collection, duplicate check, import payload review | Live item refs and collection membership when requested |
+| Literature search and ingest | Described workflow, validated selection/options and provider profile | Terminal run plus successfully ingested live items and provenance |
+| Attachment acquisition | Current item/attachment/readiness state and permitted source | Live attachment record and verified delivered-file metadata |
+| Deduplication | Full records and reviewed survivor effects | Durable receipt plus live post-merge or coexistence state |
+| Analysis preparation | Required PDF/Markdown/analysis inputs identified | Verified readiness state for each successful item |
 
-选择修复前，使用 readiness 读取识别缺失 PDF、source Markdown 或分析 artifact。缺失输入列表是诊断结果，不是下载或附加的权限。涉及本地或交付文件时，验证 checksum 与大小，必要时通过声明机制上传，并从父条目确认生成的附件。
+Use readiness reads to identify missing PDFs, source Markdown, or analysis artifacts before selecting remediation. A missing-input list is a diagnostic result, not permission to download or attach. When a local or delivered file is involved, verify its checksum and size, upload through the declared mechanism when required, and confirm the resulting attachment from the parent item.
 
-全文不可用时，候选评估仍可完成；附件获取则不能。保留许可/访问不确定性，不得声称搜索 provider 授予其未声明的再利用权。
+If full text is unavailable, a candidate assessment can still complete; attachment acquisition cannot. Preserve licensing/access uncertainty and do not claim that a search provider grants a reuse right it did not state.
 
-## 工作流与写权限
+## Workflow and write authority
 
-请求需要搜索 provider 交互、多步 ingest、provenance 捕获或可复用业务逻辑时，优先使用声明的获取工作流。描述其当前 requirements 与执行模式。对于 Zotero 托管执行，分别校验工作流选项与 provider profile；只有用户请求获取且 Zotero 端 approval 路径可用后才提交。
+Prefer a declared acquisition workflow when the request needs search-provider interaction, multi-step ingest, provenance capture, or reusable business logic. Describe its current requirements and execution modes. For Zotero-managed execution, validate workflow options and provider profile separately, then submit only after the user requested acquisition and the Zotero-side approval path is available.
 
-只有目标与期望 effect 已具体明确时才使用直接语义 mutation，例如 import 已审阅 payload，或把已验证文件附加到已知条目。呈现确切目标 library/collection 与重复 effect。执行一个已批准 scope，并保留 operation 或 workflow handle。
+Use a direct semantic mutation only when the target and desired effect are already concrete, such as importing a reviewed payload or attaching a verified file to a known item. Present the exact target library/collection and duplicate effect. Execute one approved scope and retain its operation or workflow handle.
 
-显式 provider profile 只适用于当前 submission。不得与连接 profile 混淆，不得为 Agent 自主 handoff 静默复用，也不得未经校验就假设已配置 backend 兼容。除非用户或已批准政策明确允许有界并发，否则默认串行提交工作流。
+An explicit provider profile applies only to the current submission. Do not conflate it with the connection profile, silently reuse it for a self-owned handoff, or assume a configured backend is compatible without validation. Default to serial workflow submissions unless the user or an approved policy explicitly permits bounded concurrency.
 
-对于包含多个候选项的 Zotero 托管 acquisition，把已经审阅且有界的 concurrency 传给当前 workflow submission，并让 Zotero 原生队列负责 pending unit 的排序与准入。host 将工作排入队列时，保留 `submissionId`，把每个已准入 task 与其 candidate identity 关联起来，并且只对仍处于 pending 的 unit 使用 queue cancellation。不得持久化第二套 candidate queue、在本地预留 entry，或重播准入结果尚不确定的 unit。
+For a multi-candidate Zotero-managed acquisition, pass the reviewed bounded concurrency to the current workflow submission and let the native Zotero queue own pending-unit ordering and admission. Preserve `submissionId` when the host queues the work, correlate each admitted task with its candidate identity, and use queue cancellation only for a still-pending unit. Do not persist a second candidate queue, reserve entries locally, or replay a unit whose admission outcome is uncertain.
 
-完成仍须逐候选项判定：检查每个真实 run，然后分别验证每个成功摄取的 Zotero item、provenance record、请求的 collection membership 与 attachment state。aggregate submission 完成并不能证明每个 candidate 均已摄取；canceled 或 failed unit 必须继续在 acquisition report 中可见，不得消失。
+Completion remains candidate-specific: inspect each real run and then verify every successfully ingested Zotero item, provenance record, requested collection membership, and attachment state. Aggregate submission completion does not prove that every candidate was ingested, and a canceled or failed unit must remain visible rather than disappearing from the acquisition report.
 
-## 搜索计划模板
+## Search-plan templates
 
-选择能够公开决策边界的最小模板：
+Choose the smallest template that exposes the decision boundary:
 
-### 探索性领域扫描
+### Exploratory field scan
 
 ```text
 question:
@@ -72,9 +72,9 @@ stop rule:
 output: landscape report | candidate shortlist
 ```
 
-在术语与经典文献尚不确定时使用。记录每个候选项由哪个 concept group 产生，以便后续收窄过程可解释。
+Use this when vocabulary and canonical works are uncertain. Record which concept group produced each candidate so later narrowing is explainable.
 
-### 定向证据搜索
+### Targeted evidence search
 
 ```text
 claim or subquestion:
@@ -86,9 +86,9 @@ stop rule:
 output: candidate shortlist | reviewed import set
 ```
 
-在问题稳定且误报控制比广度更重要时使用。每个被拒候选项保留简洁的排除理由。
+Use this when the question is stable and false positives matter more than breadth. A rejected candidate keeps a compact exclusion reason.
 
-### 已知记录获取
+### Known-record acquisition
 
 ```text
 external identifiers or complete citations:
@@ -99,11 +99,11 @@ metadata source priority:
 output: import proposal | analysis-ready set
 ```
 
-对有限且已声明的列表使用。除非用户另行请求相关文献，否则不要扩展发现范围。
+Use this for a finite declared list. Do not add discovery expansion unless the user separately asks for related works.
 
-## 候选决策记录
+## Candidate decision records
 
-为每个候选项维护一份决策记录，使搜索结果、Zotero 身份与获取结果始终可区分：
+Maintain one decision record per candidate so search results, Zotero identity, and acquisition outcome remain separable:
 
 ```text
 candidate_id:
@@ -119,77 +119,77 @@ attachment_expectation:
 next_action: report | import-proposal | acquire-file | human-review
 ```
 
-对于存在可能 Zotero 匹配的已纳入候选项，在同一记录中保留 candidate 与实时 item ref，但不得折叠为一个身份。对于排除项，只保存说明决策并避免立即重复发现所需的字段。对于未解决项，明确缺失的判别信息——edition、author、year、document type 或 identifier——而不要给出没有决策后果的置信分数。
+For an included candidate with a probable Zotero match, keep the candidate and live item refs in the same record but do not collapse them into one identity. For exclusions, store only the fields needed to explain the decision and prevent immediate rediscovery. For unresolved cases, name the missing discriminator—edition, author, year, document type, or identifier—instead of assigning a confidence score without a decision consequence.
 
-批次摘要应从这些记录推导：included-new、included-existing、excluded、unresolved、imported、attached 与 failed。摘要绝不能取代重试或重复项审阅所需的逐候选 provenance。
+Batch summaries should derive from these records: included-new, included-existing, excluded, unresolved, imported, attached, and failed. The summary never replaces the per-candidate provenance needed for a retry or duplicate review.
 
-## 批次与部分结果矩阵
+## Batch and partial-outcome matrix
 
-| 观察到的批次状态 | 稳定完成的范围 | 剩余范围 | 安全下一步 |
+| Observed batch state | Stable completed scope | Residual scope | Safe next action |
 | --- | --- | --- | --- |
-| 搜索完成；未请求写入 | 已审阅 candidate record | 仅未解决候选项 | 请求缺失判别信息，或带限制完成 |
-| 部分候选项已经存在 | 已确认实时匹配 | 新候选与歧义候选 | 从 import 中排除已有 item；审阅歧义记录 |
-| Import 部分成功 | 已实时验证的新 item ref | 失败或未验证的 candidate ID | 根据当前状态重建 residual proposal |
-| Item 已 import，但 collection 放置失败 | 已验证 item 创建 | 缺失 membership | 仅提出 collection delta |
-| Attachment 获取部分成功 | 已验证 child attachment ref | 仍缺少所需文件的 item | 重新读取 readiness，仅重试缺失文件 |
-| Workflow 已终止但输出缺失 | Run receipt 与任何已找到实时结果 | 承诺的 item、attachment 或 provenance | 保留诊断；解决重复风险前不得重新提交 |
-| 用户或 Zotero 拒绝写入 | Candidate report 与 preflight 仍有效 | 全部被拒 mutation scope | 返回报告；再次写入前需要新请求 |
+| Search completed; no writes requested | Reviewed candidate records | Unresolved candidates only | Ask for missing discriminators or finish with limitations |
+| Some candidates already exist | Confirmed live matches | New and ambiguous candidates | Exclude existing items from import; review ambiguous records |
+| Import partially succeeded | Live-verified new item refs | Failed or unverified candidate IDs | Rebuild a residual proposal from current state |
+| Items imported but collection placement failed | Verified item creation | Missing memberships | Propose only the collection delta |
+| Attachment acquisition partially succeeded | Verified child attachment refs | Items still missing required files | Re-read readiness and retry only missing files |
+| Workflow terminal but outputs are missing | Run receipt and any live results found | Promised items, attachments, or provenance | Preserve diagnostics; do not resubmit until duplication risk is resolved |
+| User or Zotero denies a write | Candidate report and preflight remain valid | Entire denied mutation scope | Return report; require a new request before another write |
 
-当 target collection、重复项状态、provider input 或预期 effect 发生变化时，剩余批次需要新的 preflight。即使后续阶段失败，也要保留成功的实时身份，因为重跑原始批次可能产生重复 item 或 attachment。
+A residual batch gets a new preflight when target collections, duplicate state, provider inputs, or expected effects changed. Preserve successful live identities even when a later stage fails, because rerunning the original batch can create duplicates or duplicate attachments.
 
-## 恢复与易错边界
+## Recovery and near misses
 
-- 找到有用候选项但无写权限时，返回报告并保持 Zotero 不变。
-- 目标 collection 或 library 有歧义时，在 import 前取消；不得为方便而选择当前 UI 位置。
-- import 仅部分成功时，验证并返回成功 item ref，保留失败候选 provenance，且只恢复失败 scope。
-- 工作流终止但缺少预期条目或附件时，报告缺失交付物，不得把 run 完成视为获取完成。
-- 附件访问过期时，从所属条目或来源获取新 handle；绝不能复用猜测的存储路径。
-- 获取后出现元数据冲突时，保留已 import 记录，并把建议修正路由给 curation，不得静默修复。
-- 重复项 effect 比已审阅 proposal 更广时，在 mutation 前停止并呈现新发现后果。
-## 端到端决策轨迹
+- If a useful candidate is found without write authority, return the report and leave Zotero unchanged.
+- If the target collection or library is ambiguous, cancel before import; do not choose the current UI location by convenience.
+- If an import succeeds for only part of a batch, verify and return successful item refs, retain failed candidate provenance, and resume only the failed scope.
+- If a workflow terminates but expected items or attachments are absent, report the missing deliverable instead of treating run completion as acquisition.
+- If attachment access expires, obtain a new handle from the owning item or source; never reuse a guessed storage path.
+- If metadata conflicts appear after acquisition, preserve the imported record and route the proposed correction to curation rather than silently repairing it.
+- If duplicate effects are broader than the reviewed proposal, stop before mutation and present the newly discovered consequences.
+## End-to-end decision traces
 
-这些痕迹展示了有限的获取请求如何从人类措辞转移到候选项、实时重复决策、权限和验证。
+These traces demonstrate how a bounded acquisition request moves from human wording to candidates, live duplicate decisions, authority, and verification.
 
-### Trace 1：“查找关于 X 的最新论文”
+### Trace 1: “Find recent papers on X”
 
-用户话语：
+User utterance:
 
-> 查找一些有关检索增强型科研 agent的最新论文。
+> Find some recent papers on retrieval-augmented scientific agents.
 
-歧义之处：
+Ambiguities:
 
-- “最近”没有日期窗口；
-- “一些”没有结果限制；
-- 外部来源和语言未指定；
-- 用户没有请求导入；
-- 预印本和出版版本可能会重叠。
+- “recent” has no date window;
+- “some” has no result bound;
+- external sources and language are unspecified;
+- the user has not asked for import;
+- preprints and published versions may overlap.
 
-澄清/默认：
+Clarification/default:
 
-当新近度实质上控制包含时，要求提供一个日期窗口。如果用户接受默认值，请公开具体的窗口、结果上限、语言政策、搜索源和仅限候选的结果。
+Ask for a date window when recency materially controls inclusion. If the user accepts defaults, disclose a concrete window, result cap, language policy, searched sources, and candidate-only outcome.
 
-候选项计划：
+Candidate plan:
 
-1. 将研究概念扩展到已声明的搜索术语中。
-2. 搜索指定来源。
-3. 记录查询限制和provider出处。
-4. 保留符合纳入规则的候选项。
-5. 比较强标识符和版本。
-6. 在当前 Zotero 文献库中搜索每个保留的候选项。
-7. 标记每个新的、现有的、可能重复的、相关的或不明确的版本。
+1. Expand the research concept into declared search terms.
+2. Search the named sources.
+3. Record query limits and provider provenance.
+4. Retain candidates meeting the inclusion rule.
+5. Compare strong identifiers and versions.
+6. Search the live Zotero library for every retained candidate.
+7. Label each new, existing, probable duplicate, related version, or ambiguous.
 
-不要：
+Do not:
 
-- 导入，因为用户说“查找”；
-- 隐藏不可用的全文；
-- 在没有版本决定的情况下调用预印本和期刊文章副本；
-- 将结果描述为超越所声明的来源和停止规则的详尽结果。
+- import because the user said “find”;
+- hide unavailable full text;
+- call a preprint and journal article duplicates without a version decision;
+- describe the result as exhaustive beyond the declared sources and stopping rule.
 
-面向人的结果：
+Human-facing result:
 
-> 我从宣布的 2024-2026 年窗口和来源中准备了 12 名候选项。当前的 Zotero 库中已存在四个，两个是相关的预印本/已出版对，还有六个是新出现的。没有导入任何东西。
+> I prepared twelve candidates from the declared 2024–2026 window and sources. Four already exist in the current Zotero library, two are related preprint/published pairs, and six appear new. Nothing has been imported.
 
-完成结果：
+Completed result:
 
 ```json
 {
@@ -206,60 +206,60 @@ next_action: report | import-proposal | acquire-file | human-review
 }
 ```
 
-### Trace 2：把已审阅批次导入 collection
+### Trace 2: Import a reviewed batch into a collection
 
-用户话语：
+User utterance:
 
-> 将这些论文添加到我的“Agent 研究”收藏中，并尽可能获取 PDF。
+> Add these papers to my “Agent Research” collection and get the PDFs where possible.
 
-已解决的输入：
+Resolved inputs:
 
-- 准确的候选项记录；
-- 目标文献库和馆藏标识；
-- 重复的替代方案；
-- 元数据来源；
-- 合法的附件来源；
-- 最小的可审查批次。
+- exact candidate records;
+- target library and collection identity;
+- duplicate alternatives;
+- metadata provenance;
+- lawful attachment sources;
+- smallest reviewable batch.
 
-每位候选项的提案：
+Proposal per candidate:
 
-- 强标识符和书目版本；
-- 当前 Zotero 匹配；
-- 导入还是再利用的决定；
-- 集合会员效应；
+- strong identifiers and bibliographic version;
+- current Zotero match;
+- import versus reuse decision;
+- collection membership effect;
 - attachment source and expected readiness;
-- 元数据冲突；
-- 未修改的字段；
-- 批准和验证路径。
+- metadata conflicts;
+- unmodified fields;
+- approval and verification path.
 
-权威机构：
+Authority:
 
-1. 显示确切的批次。
-2. 获得进口和收集变更的当前授权。
-3. 除非单独批准，否则请在批处理之外保留合并、覆盖、删除和重新链接。
-4. 如果使用了 workflow，则验证 workflow 选项和 provider profile。
+1. Show the exact batch.
+2. Obtain current authority for import and collection changes.
+3. Keep merge, overwrite, delete, and relink outside the batch unless separately approved.
+4. Validate workflow options and provider profile if a workflow is used.
 
 Execution:
 
-1. 提交或申请批准的批次一次。
-2. 保留操作/workflowhandles。
-3. 重新阅读每个结果项目。
-4. 验证集合成员资格。
-5. 单独检查附件状态。
-6. 对成功的、现有的、失败的、未尝试的和模糊的候选项进行分类。
+1. Submit or apply the approved batch once.
+2. Preserve operation/workflow handles.
+3. Re-read every resulting item.
+4. Verify collection membership.
+5. Inspect attachment state separately.
+6. Classify successful, existing, failed, unattempted, and ambiguous candidates.
 
-部分结果：
+Partial outcome:
 
-- 七个项目被进口或重复使用并进行实时验证。
-- 在创建项目之前，一个 provider 请求失败。
-- 两个 PDF 不可用。
+- Seven items are imported or reused and live-verified.
+- One provider request fails before item creation.
+- Two PDFs are unavailable.
 
-结果决定：
+Result decision:
 
-- 请求的整体批次没有完全成功，因此使用`failed`。
-- 保存七个成功的项目refs。
-- 诊断一次失败的采集和两次附件差距。
-- 不要重播整个批次。
+- The requested overall batch did not completely succeed, so use `failed`.
+- Preserve the seven successful item refs.
+- Diagnose the one failed acquisition and two attachment gaps.
+- Do not replay the whole batch.
 
 ```json
 {
@@ -285,36 +285,36 @@ Execution:
 }
 ```
 
-恢复：
+Recovery:
 
-- 仅为失败的候选项准备剩余提案。
-- 将丢失的附件与丢失的书目项目区别对待。
-- 如果建议覆盖不同的源或元数据，请获取新的权限。
+- Prepare a residual proposal for the failed candidate only.
+- Treat missing attachments as distinct from missing bibliographic items.
+- Obtain new authority if a different source or metadata overwrite is proposed.
 
-### Trace 3：provider 发现后出现重复项歧义
+### Trace 3: Duplicate ambiguity after provider discovery
 
-用户话语：
+User utterance:
 
-> 导入最佳版本并删除重复项。
+> Import the best version and remove the duplicate.
 
-观察候选项：
+Observed candidates:
 
-- Zotero 中已有一篇带有注释的会议论文；
-- provider 的一份日记扩展；
-- 相似的标题和重叠的作者；
-- 不同的 DOI 和额外的实验。
+- one conference paper already in Zotero with annotations;
+- one journal extension from the provider;
+- similar title and overlapping authors;
+- distinct DOI and additional experiments.
 
-决定：
+Decision:
 
-- 这些可能是相关版本而不是重复版本。
-- “最佳”是用户偏好，而不是身份事实。
-- 删除现有项目具有破坏性，可能会影响注释、集合、关系和附件。
+- These may be related versions rather than duplicates.
+- “Best” is a user preference, not an identity fact.
+- Removing the existing item is destructive and may affect annotations, collections, relations, and attachments.
 
-澄清：
+Clarification:
 
-> 文献库条目和provider结果似乎是具有不同标识符的会议和期刊版本。您想要保留两者、导入期刊版本并链接它们，还是审查破坏性的合并/删除提案？
+> The library item and provider result appear to be conference and journal versions with different identifiers. Do you want to keep both, import the journal version and link them, or review a destructive merge/removal proposal?
 
-未提供决定时取消结果：
+Canceled result when no decision is supplied:
 
 ```json
 {
@@ -340,46 +340,46 @@ Execution:
 }
 ```
 
-不安全的替代方案：
+Unsafe alternatives:
 
-- 选择期刊版本是因为它较新；
-- 在保留注释之前删除会议记录；
-- 覆盖 provider 字段中精选的元数据；
-- 将标题相似性视为重复证明。
+- choosing the journal version because it is newer;
+- deleting the conference record before preserving annotations;
+- overwriting curated metadata from provider fields;
+- treating title similarity as duplicate proof.
 
-简历：
+Resume:
 
-- 在用户决定后重新读取身份和受影响的儿童。
-- 将破坏性整合路由至管理提案。
+- Re-read both identities and affected children after the user decides.
+- Route destructive consolidation to a curation proposal.
 
-## 对话与记录模板
+## Conversation and record patterns
 
-候选项报告语言：
+Candidate report language:
 
-> 搜索范围覆盖了所声明的来源，并在约定的范围内停止。该报告将外部候选项、当前的 Zotero 匹配、相关版本和未解析的身份分开。
+> The search covered the declared sources and stopped at the agreed bound. The report separates external candidates, current Zotero matches, related versions, and unresolved identities.
 
-撰写提案语言：
+Write proposal language:
 
-> 此批次将创建六个项目，重用三个现有项目，将所有九个项目添加到指定的集合中，并尝试从列出的源添加附件。它不会合并、删除或覆盖冲突的策划元数据。
+> This batch will create six items, reuse three existing items, add all nine to the named collection, and attempt attachments from the listed sources. It will not merge, delete, or overwrite conflicting curated metadata.
 
-附件限制语言：
+Attachment limitation language:
 
-> 书目项目经过实时验证，但未获取可用的附件。我还没有将其标记为分析就绪。
+> The bibliographic item is live-verified, but no usable attachment was acquired. I have not labeled it analysis-ready.
 
-残差恢复语言：
+Residual recovery language:
 
-> 第一批创建了五个项目。剩余提案仅包含两个失败的候选者，并且不会重播已验证的成功。
+> The first batch created five items. The residual proposal contains only the two failed candidates and does not replay verified successes.
 
-每个候选项的决定记录都应保存：
+Every candidate decision record should preserve:
 
-- 外部标识符和出处；
-- 搜索源和查询边界；
-- 纳入原因；
-- 当前 Zotero 候选项；
-- 重复/版本判断；
-- 目标效应；
-- 附着状态；
-- 权威状态；
-- 最终现场验证或诊断。
+- external identifier and provenance;
+- searched source and query boundary;
+- inclusion reason;
+- live Zotero candidates;
+- duplicate/version judgment;
+- target effect;
+- attachment state;
+- authority state;
+- final live verification or diagnostic.
 
-不要将“已存在”、“新导入”、“相关版本”和“获取失败”合并为一个获取计数。
+Do not collapse “already present,” “newly imported,” “related version,” and “failed acquisition” into one acquired count.

@@ -187,6 +187,66 @@ describe("host bridge server phase 1", function () {
     );
   });
 
+  it("keeps mutation.execute out of generic HTTP operation history", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "canonical-mutation-operation-token",
+    });
+    const operationId = "canonical-mutation-operation";
+
+    await handleHostBridgeHttpRequestForTests({
+      method: "POST",
+      path: "/bridge/v2/call",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-zotero-bridge-operation-id": operationId,
+      },
+      body: JSON.stringify({
+        capability: "mutation.execute",
+        input: { operationId },
+      }),
+    });
+
+    const genericOperation = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: `/bridge/v2/operations/${operationId}`,
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+
+    assert.strictEqual(genericOperation.status, 404);
+    assert.strictEqual(genericOperation.json.error.code, "operation_not_found");
+  });
+
+  it("rejects a canonical mutation when its header operation id differs from its input", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "canonical-mutation-operation-mismatch-token",
+    });
+
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v2/call",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-zotero-bridge-operation-id": "header-operation",
+        },
+        body: JSON.stringify({
+          capability: "mutation.execute",
+          input: {
+            operation: "item.updateMetadata",
+            operationId: "input-operation",
+            itemRef: { libraryId: 1, key: "ITEM0001" },
+            patch: { fields: { title: "Mismatch" } },
+          },
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.error.code, "invalid_operation_id");
+  });
+
   it("profiles asynchronous Host Bridge input waits without a real Zotero socket", async function () {
     setDebugModeOverrideForTests(true);
     enableAcpRuntimePerformanceProfiler();

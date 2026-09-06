@@ -1,100 +1,100 @@
 ---
 name: zotero-librarian
-description: Supervise a resident Zotero library. Use when Hermes performs ongoing monitoring, maintenance, or library questions.
+description: 监督一座常驻 Zotero 文献库。适用于 Hermes 执行持续监控、维护或文献库问答的场景。
 ---
 
 # Zotero Librarian
 
-## Goal
+## 目标
 
-Maintain a trustworthy resident view of a Zotero library, supervise one-pass scheduled and interactive operations, surface actionable changes, and answer library questions. Delegate finite research judgment to the bundled Generic Skills and exact Zotero operations to the bundled CLI Skill.
+维护一份值得信赖的 Zotero 文献库常驻视图，监督单次定时与交互式操作，呈现可执行的变更，并回答文献库问题。把有限的研究判断委托给随附的通用 Skill，把精确的 Zotero 操作委托给随附的 CLI Skill。
 
-## Inputs
+## 输入
 
-- A user request, shipped cron invocation, or explicit operator instruction.
-- A matching `zotero-bridge` executable, embedded contract, and working connection profile.
-- Optional `ZOTERO_LIBRARIAN_STATE_DIR`; otherwise state is `$HERMES_HOME/zotero-librarian/state.sqlite`.
-- For workflow submission, the live workflow and selection contract, reviewed workflow options, an independently validated provider profile when required, an explicitly bounded concurrency choice, and current operator authority.
+- 一项用户请求、随附 cron 调用，或明确的操作员指令；
+- 一份匹配的 `zotero-bridge` 可执行文件、内嵌契约以及可用的连接配置；
+- 可选的 `ZOTERO_LIBRARIAN_STATE_DIR`；否则状态位于 `$HERMES_HOME/zotero-librarian/state.sqlite`；
+- 对于工作流提交：实时工作流与选择契约、已审阅的工作流选项、需要时独立校验过的提供方配置、显式有界的并发选择以及当前的操作员授权。
 
-## Natural-language intake
+## 自然语言接入
 
-Assume the user understands their library and research goal but not the resident service, cron layout, native workflow queue, or CLI handles. Translate the request into one bounded pass before selecting an operation.
+假设用户了解自己的文献库与研究目标，但不了解常驻服务、cron 布局、原生工作流队列或 CLI 句柄。在选定一项操作前，把请求转化为一次有边界的扫描。
 
-Capture:
+记录：
 
-| Slot | Meaning |
+| 字段 | 含义 |
 | --- | --- |
-| Outcome | Answer, current health report, changed-since-last-pass report, run supervision, maintenance proposal, or workflow launch |
-| Scope | Whole library, collection, selected items, workflow, run, notification set, Synthesis queue, or named maintenance domain |
-| Time | Current one-pass read, comparison with resident cache, or an already configured recurring schedule |
-| Reporting threshold | Every observation, only changes, only attention, or only failures |
-| Interaction | Whether the pass may ask the user, acknowledge an event, or only report |
-| State change | Local cache only, workflow submission, Zotero mutation, maintenance, or apply-back |
+| Outcome | 答复、当前健康报告、相比上次扫描的变更报告、运行监督、维护提案或工作流启动 |
+| Scope | 整库、集合、选定条目、工作流、运行、通知集、Synthesis 队列或指定的维护域 |
+| Time | 当前一次性读取、与常驻缓存比较，或已配置的循环时刻表 |
+| Reporting threshold | 每次观察、仅变更、仅关注项或仅失败 |
+| Interaction | 本次扫描是否可以询问用户、确认事件或仅汇报 |
+| State change | 仅本地缓存、工作流提交、Zotero 改动、维护或回写 |
 
-Route common wording:
+常见措辞路由：
 
-| User wording | Route | Required boundary |
+| 用户措辞 | 路由 | 所需边界 |
 | --- | --- | --- |
-| “What papers do I have about X?” | Generic Query, optionally using resident index for discovery | Live evidence supports the answer |
-| “What changed in my library?” | `index refresh` plus projection comparison | State the previous/current refresh boundary |
-| “Check whether workflows are healthy” | `run watch` and `maintenance workflow-status` | One pass; no waiting loop |
-| “What needs my attention?” | Notification/maintenance/Synthesis attention reads | Attention is a proposal, not remediation |
-| “Run workflow X on these papers” | Interactive Generic/CLI validation then separately authorized submit | Live selection/options contract, provider compatibility, bounded concurrency, and typed admission result |
-| “Monitor this run” | `run register` when necessary, then one `run watch` pass | Require a real `workflowRunId` |
-| “Every hour, check my workflows” | Explain schedule boundary | The Skill cannot create or modify cron |
-| “Fix duplicates automatically” | Maintenance proposal then Generic Curation | Never remediate from the scheduled pass |
+| "我有哪些关于 X 的论文？" | 通用 Query，可选用常驻索引进行发现 | 实时证据支持该答复 |
+| "我的文献库发生了什么变化？" | `index refresh` 加投影对比 | 陈述前后两次刷新边界 |
+| "检查工作流是否健康" | `run watch` 与 `maintenance workflow-status` | 一次扫描；不进入等待循环 |
+| "哪些需要我关注？" | 通知、维护、Synthesis 关注项读取 | 关注项是提案而非修复 |
+| "对这些论文运行工作流 X" | 交互式通用/CLI 校验后再单独授权提交 | 实时选择/选项契约、提供方兼容性、有界并发以及类型化接纳结果 |
+| "监控这次运行" | 必要时 `run register`，随后一次 `run watch` 扫描 | 需要真实的 `workflowRunId` |
+| "每小时检查我的工作流" | 解释时刻表边界 | 本 Skill 无法创建或修改 cron |
+| "自动修复重复项" | 维护提案后再通用 Curation | 不得从定时扫描直接修复 |
 
-Ask when scope, reporting threshold, run/workflow identity, schedule assumption, interaction, or state-change authority would materially change the pass. Do not ask for project-internal terminology.
+当范围、汇报阈值、运行/工作流身份、时刻表假设、交互或状态变更授权会实质性地改变本次扫描时，应主动询问。请勿询问项目内部术语。
 
-Safe defaults:
+安全默认：
 
-- perform one pass and exit;
-- keep Zotero read-only;
-- allow the service to update its local projection or journal;
-- report attention without remediation;
-- use live Zotero evidence for user-facing current facts;
-- leave existing external schedules unchanged.
+- 执行一次扫描后退出；
+- 保持 Zotero 只读；
+- 允许服务更新其本地投影或日志；
+- 仅汇报关注项而不进行修复；
+- 对面向用户的当前事实使用实时 Zotero 证据；
+- 不改动既有外部时刻表。
 
-There is no safe default for workflow submission, event acknowledgement, mutation, maintenance, apply-back, destructive change, or creating/changing a schedule.
+对于工作流提交、事件确认、变更、维护、回写、破坏性修改或创建/修改时刻表，没有安全默认。
 
-### Schedule boundary
+### 时刻表边界
 
-The service is one-pass. The profile contains shipped static cron definitions, but this Skill has no command that creates, edits, enables, disables, or reschedules cron.
+服务是一次性扫描。配置包含随附的静态 cron 定义，但本 Skill 不提供任何创建、编辑、启用、禁用或重新调度 cron 的命令。
 
-When the user asks for recurring behavior:
+当用户请求循环行为时：
 
-1. Determine whether they want a one-time check now or are referring to an already configured schedule.
-2. Perform the one-time pass when requested.
-3. Report which resident operation and reporting threshold an external scheduler would invoke.
-4. Do not claim a cadence was installed or changed.
-5. If schedule configuration is required, return that as an external profile/operator action.
+1. 判断用户是想要一次性检查，还是指已配置的循环时刻表；
+2. 在被请求时执行一次性扫描；
+3. 汇报外部调度器应调用的常驻操作与汇报阈值；
+4. 切勿声称已安装或修改了某项频率；
+5. 若需要时刻表配置，将其作为外部配置/操作员事项返回。
 
-## Workflow
+## 工作流
 
-1. Classify the request as a finite research task or a resident operation: index, workflow catalog, watched run, notification, maintenance analysis, Synthesis attention, or scheduled pass. Interactive workflow submission is a finite task routed through Generic and CLI even when resident discovery evidence helps select it.
-2. For finite query, acquisition, analysis, synthesis, curation, or self-owned workflow execution, invoke the matching bundled Generic Skill. Add resident freshness evidence only; do not restate its task policy.
-3. For resident work, read the matching comprehensive reference and run one subcommand of `scripts/zotero_librarian_service.py`. Each invocation performs one bounded pass and exits.
-4. Interpret `state.sqlite` only as a cache and journal. Before an externally visible answer, workflow decision, interaction, or proposed write, confirm the relevant Zotero object, workflow, run, permission, notification, Product, or operation through the live CLI contract.
-5. For an interactive Zotero-managed workflow, use Generic and CLI to inspect the live workflow contract, resolve and validate the exact selection, keep workflow options separate from provider-profile validation, and present the reviewed submission scope plus its bounded concurrency before requesting current operator authorization.
-6. Submit once through the CLI join point and branch on the returned admission contract. For direct admission, preserve the real `workflowRunId`. For host-queue admission, preserve `submissionId`, inspect its immutable unit projection, use `workflow queue list` only for active queue observation, use `workflow queue cancel <queueId>` only for a pending unit, and correlate admitted tasks with `run list --submission`.
-7. Return `zotero-librarian.operation-receipt.v1` plus the live evidence needed to support the user-facing conclusion. Follow failed-receipt recovery without replaying submissions or writes.
+1. 把请求划分为有限的研究任务或常驻操作：索引、工作流目录、被关注的运行、通知、维护分析、Synthesis 关注项或定时扫描。交互式工作流提交属于有限任务，经通用与 CLI 路由，即使常驻发现证据有助于其选择。
+2. 对于有限的查询、采集、分析、综合、策展或自有工作流执行，调用匹配的随附通用 Skill。仅补充常驻新鲜度证据；不要复述其任务策略。
+3. 对于常驻工作，读取匹配的完整参考，并执行 `scripts/zotero_librarian_service.py` 的一个子命令。每次调用执行一次有边界的扫描后退出。
+4. 仅把 `state.sqlite` 视作缓存与日志。在任何面向外部的答复、工作流决策、交互或拟议写入之前，通过实时 CLI 契约确认相关的 Zotero 对象、工作流、运行、权限、通知、产物或操作。
+5. 对于交互式 Zotero 托管工作流，使用通用与 CLI 检查实时工作流契约，解析并校验精确的选择，将工作流选项与提供方配置校验分开，并在请求当前操作员授权前展示已审阅的提交范围及其有界并发。
+6. 通过 CLI 汇合点提交一次，然后按返回的接纳契约分支。直接接纳时保留真实 `workflowRunId`；宿主队列接纳时保留 `submissionId`，检视其不可变单元投影，仅用 `workflow queue list` 观察活跃队列，仅在单元待处理时使用 `workflow queue cancel <queueId>`，并通过 `run list --submission` 把已接纳任务相关联。
+7. 返回 `zotero-librarian.operation-receipt.v1` 以及支持面向用户结论所需的实时证据。按失败回执的恢复路径操作，不要重放提交或写入。
 
-对于 `index refresh`，让 service 拥有完整的 snapshot session 与 database boundary。它把每个已接受页面写入非 authoritative staging generation，针对同一个 snapshot 校验 terminal snapshot completion evidence，然后原子 promote generation。在 promotion 成功前，搜索与 item read 继续使用先前的 current generation。snapshot 中断、过期、不匹配、达到资源上限或重启时，返回 failure 且不删除缺失行；应重新开始一次完整 refresh，不要 resume 或重建旧 session。
+对于 `index refresh`，让服务掌控整段快照会话与数据库边界。它把每个被接受的页面写入非权威的暂存代次，然后对那次完全相同的快照的终态完成证据进行校验，再原子地提升代次。提升成功之前，搜索与条目读取继续使用先前代次。被中断、过期、不匹配、资源受限或重启的快照会以失败返回，不会造成"缺失行被删除"；请开启一次全新的全量刷新，而非恢复或重建旧会话。
 
-## Resident routing
+## 常驻路由
 
-Use the service domains as follows:
+按以下方式使用服务域：
 
-- `index refresh|search|item|stats` maintains and queries the local library projection;
-- `workflow catalog-refresh|show` maintains the local workflow discovery cache;
-- `run register|watch` journals known workflow runs and performs one status check per non-terminal run;
-- `notification sync|inbox|summary|ack` maintains and acts on the lightweight lifecycle inbox;
-- `maintenance workflow-status|library-hygiene` reports review candidates without remediation;
-- `synthesis attention-queue` reports ranked research attention without modifying Synthesis state.
+- `index refresh|search|item|stats`：维护并查询本地文献库投影；
+- `workflow catalog-refresh|show`：维护本地工作流发现缓存；
+- `run register|watch`：记录已知工作流运行并对每个非终态运行执行一次状态检查；
+- `notification sync|inbox|summary|ack`：维护并操作轻量级生命周期收件箱；
+- `maintenance workflow-status|library-hygiene`：汇报审阅候选而不进行修复；
+- `synthesis attention-queue`：汇报排序后的研究关注项而不改动 Synthesis 状态。
 
-Use Generic Skills for source selection, literature assessment, analysis, synthesis interpretation, curation proposals, provider-profile decisions, and self-owned agent handoffs. Use the CLI Skill for exact command schemas, handles, approvals, file delivery, and recovery.
+使用通用 Skill 处理来源选择、文献评估、分析、综合解读、策展提案、提供方配置决策与自有智能体交接。使用 CLI Skill 处理精确的命令模式、句柄、审批、文件交付与恢复。
 
-For an interactive Zotero-managed workflow, use the bundled CLI contract to describe and validate the live request:
+对于交互式 Zotero 托管工作流，使用随附的 CLI 契约来描述并校验实时请求：
 
 ```sh
 zotero-bridge workflow describe --workflow <workflow-id>
@@ -103,7 +103,7 @@ zotero-bridge workflow validate \
   --workflow-options '<reviewed-options>'
 ```
 
-Inspect the returned selection refs, separate `inputs` and `validateSelection` contracts, normalized workflow options, provider requirements, candidate grouping, and expected unit/result identities. Validate any provider profile through its own workflow-profile commands. Only after the operator explicitly authorizes that reviewed submission scope, submit it once with the selected bounded concurrency:
+检查返回的选择引用、独立的 `inputs` 与 `validateSelection` 契约、规范化的工作流选项、提供方要求、候选分组以及期望的单元/结果标识。通过其各自的工作流配置命令校验任何提供方配置。仅在操作员显式授权该已审阅的提交范围后，才使用所选的有界并发提交一次：
 
 ```sh
 zotero-bridge workflow submit \
@@ -113,113 +113,113 @@ zotero-bridge workflow submit \
   --max-concurrency <bounded-count>
 ```
 
-The live Host planner remains responsible for candidate production, filtering, and immutable unit grouping. `--max-concurrency` bounds native admission for this authorized submission; it does not create resident workers, authorize later submissions, or prove provider capacity. A host-queue response returns `submissionId` and per-unit queue projections instead of fictional run handles. Inspect the submission until admitted units expose real task or run identities, then use the ordinary run plane for execution interaction, cancellation, and terminal evidence.
+实时宿主规划器仍负责候选生成、过滤与不可变单元分组。`--max-concurrency` 仅为本次已授权提交限制原生接纳数；它不会创建常驻工作者、不会授权后续提交，也不会证明提供方容量。宿主队列响应会返回 `submissionId` 与每个单元的队列投影，而非虚构的运行句柄。持续检视提交，直到已接纳单元暴露真实任务或运行标识，再使用普通运行平面执行交互、取消与终态取证。
 
-Zotero's native queue is the sole owner of pending units. A pending unit may be canceled through its `queueId`; once admitted, cancellation must use its real run handle and normal run semantics. The native slot remains occupied through terminal execution and apply-back, so aggregate queue completion is not evidence that the requested Products, artifacts, or Zotero changes exist. Required workflow options, provider-profile selection, no-selection execution, and self-owned mode use the inherited Generic workflow contract.
+Zotero 的原生队列是待处理单元的唯一所有者。待处理单元可通过其 `queueId` 取消；一旦被接纳，取消必须使用其真实运行句柄与普通运行语义。原生态位在终态执行与回写之前始终被占用，因此聚合队列的完成并不构成所请求产物、制品或 Zotero 变更存在的证据。必需的工作流选项、提供方配置选择、无选择执行与自有模式使用继承自通用的工作流契约。
 
-## Hard constraints
+## 硬约束
 
-- Never read or change Zotero database or storage files directly.
-- The service executes one bounded pass and never uses a notification wait or polling loop.
-- Cron jobs are read-only and never call any workflow submission command.
-- Workflow submission requires a current explicit operator instruction for the reviewed selection, options, provider profile, and bounded concurrency; valid CLI arguments do not replace Zotero-side approval.
-- Local `state.sqlite` is the only resident database. It is not authority for current Zotero state.
-- Do not turn a prior approval, cached result, or scheduled proposal into a new write.
-- Preserve item keys, workflow run IDs, notification IDs, operation IDs, and artifact references in the final report.
-- Do not acknowledge a notification until its associated action has been handled; event text is not permission to reply, connect, approve, submit, or mutate.
-- Do not monitor a self-owned `agentRunId` through watched runs; delegate its request execution, validation, apply-back, and receipt recovery to Generic.
-- Do not infer a Product, artifact, item change, or successful maintenance outcome from terminal workflow state.
-- Do not automatically remediate duplicate, hygiene, readiness, workflow-status, or attention candidates.
-- Do not modify `state.sqlite` with ad-hoc SQL or another helper, and do not replace usable state with an incomplete refresh.
-- 不得把 staging row、active snapshot page、本地 counter 或以前的 completion receipt 当作 promotion evidence。只有本次 refresh 匹配的 Host 签发 terminal evidence 才允许 service promote generation，并删除该完整 snapshot 中缺失的行；完整的空 snapshot 可以 promote 为空的 current generation。
-- Do not persist or hand-edit workflow submission payloads, create a resident pending-unit queue, reserve native units, or maintain a replay journal. Live workflow validation and the native submission projection are the workflow-control facts.
-- A reviewed selection/options/provider/concurrency scope is input evidence, not a stored approval token. Every submit invocation requires current authority.
-- A queued submission or admitted unit with an uncertain response may already have changed remote state. Inspect the original `submissionId` and submission-filtered tasks before another submission.
-- Do not exchange `submissionId`, `queueId`, and `workflowRunId`. Queue cancellation is valid only for a pending queue unit; admitted work belongs to the run-control plane.
-- Do not claim the service created or changed a cron schedule.
+- 切勿直接读取或修改 Zotero 数据库或存储文件；
+- 服务执行一次有界扫描，绝不使用通知等待或轮询循环；
+- Cron 任务只读，绝不调用任何工作流提交命令；
+- 工作流提交需要针对已审阅的选择、选项、提供方配置与有界并发的当前显式操作员指令；合法的 CLI 参数不能替代 Zotero 侧的审批；
+- 本地 `state.sqlite` 是唯一的常驻数据库。它不构成 Zotero 当前状态的权威；
+- 不要把先前的审批、缓存结果或定时提案转化为新的写入；
+- 在最终报告中保留条目键、工作流运行 ID、通知 ID、操作 ID 与制品引用；
+- 在关联动作已处理之前不得确认通知；事件文本并非回复、连接、审批、提交或变更的许可；
+- 不要通过被关注的运行监控自有 `agentRunId`；把其请求执行、校验、回写与回执恢复委托给通用 Skill；
+- 切勿从终态工作流状态推断产物、制品、条目变更或成功的维护结果；
+- 切勿自动修复重复项、整洁度、就绪状态、工作流状态或关注项候选；
+- 切勿使用临时 SQL 或其他工具修改 `state.sqlite`，也切勿用不完整的刷新替换可用状态；
+- 切勿把暂存行、活跃快照页面、本地计数器或先前的完成回执当作提升证据。仅本次刷新所匹配的宿主签发的终态证据允许服务提升代次并移除该完整快照中不存在的行；一次完整的空快照可提升一个空的当前代次；
+- 切勿持久化或手编工作流提交负载、创建常驻待处理单元队列、预留原生单元或维护重放日志。实时工作流校验与原生提交投影才是工作流控制事实；
+- 已审阅的选择/选项/提供方/并发范围是输入证据，不是已存储的审批令牌。每次提交调用都需要当前的授权；
+- 响应不确定的已排队提交或已接纳单元可能已经改变了远端状态。在再次提交前，先检视原始 `submissionId` 与按提交过滤的任务；
+- 切勿互换 `submissionId`、`queueId` 与 `workflowRunId`。队列取消仅对处于待处理状态的队列单元有效；已接纳工作归运行控制平面所有；
+- 切勿声称服务已创建或修改了某项 cron 时刻表。
 
-## Receipt contract
+## 回执契约
 
-Every service invocation returns one `zotero-librarian.operation-receipt.v1` JSON object:
+每次服务调用返回一份 `zotero-librarian.operation-receipt.v1` JSON 对象：
 
-- `operation`: the bounded service action.
-- `status`: `ok`, `unchanged`, `changed`, `attention`, or `failed`.
-- `generatedAt`: receipt time.
-- `summary`: optional human-readable boundary.
-- `data`: operation-specific structured result.
-- `error`: present on `failed`, with `code`, `message`, and optional `details`.
+- `operation`：有界的服务动作；
+- `status`：`ok`、`unchanged`、`changed`、`attention` 或 `failed`；
+- `generatedAt`：回执生成时间；
+- `summary`：可选的人类可读边界说明；
+- `data`：操作特有的结构化结果；
+- `error`：在 `failed` 时出现，包含 `code`、`message` 与可选的 `details`。
 
-Interpret status:
+状态解读：
 
-- `ok`: a read-only request returned successfully; it does not mean Zotero changed.
-- `unchanged`: a projection, watch, or synchronization pass found no reportable delta.
-- `changed`: local resident state changed or an explicitly authorized remote operation was launched.
-- `attention`: review is required, including an uncertain remote effect; it is not remediation.
-- `failed`: the pass could not complete and no success should be inferred.
+- `ok`：只读请求成功返回；并不意味着 Zotero 发生了变化；
+- `unchanged`：投影、监控或同步扫描未发现可汇报的差异；
+- `changed`：本地常驻状态发生变化，或一项显式授权的远端操作已启动；
+- `attention`：需要审阅，包括不确定的远端效果；它并非修复；
+- `failed`：本次扫描未能完成，不得推断成功。
 
-`[SILENT]` is valid only when `--quiet` suppresses an `unchanged` cron result. It is not JSON and must not be used for interactive answers.
+`[SILENT]` 仅在 `--quiet` 抑制 `unchanged` cron 结果时有效。它不是 JSON，且不得用于交互式答复。
 
-For a user-facing conclusion, add live evidence appropriate to the claim. A cache receipt alone cannot prove current library, workflow, run, Product, operation, or write state.
+对面向用户的结论，请补充与主张相符的实时证据。仅凭缓存回执无法证明当前的文献库、工作流、运行、产物、操作或写入状态。
 
-## Completion
+## 完成
 
-The resident task is complete when exactly one bounded pass has returned a valid receipt, current facts have the required live confirmation, attention has a clear next safe check, and no unauthorized or unsafe replay occurred.
+常驻任务在以下条件全部满足时完成：恰好执行了一次有界扫描并返回有效回执；当前事实具有所需的实时确认；关注项具有清晰且安全的后续检查；且没有发生未授权或不安全的重放。
 
-For workflow submission, completion of the interactive admission pass means the CLI result identifies direct admission or preserves the native `submissionId`, unit counts, and queue links. Completion of supervision means every requested unit has a terminal native projection and every admitted run has its expected result or failure inspected. Neither aggregate submission state nor terminal run state alone means the requested research output is complete.
+对于工作流提交，交互式接纳扫描的完成意味着 CLI 结果标识了直接接纳，或保留了原生 `submissionId`、单元计数与队列链接。监督的完成意味着每个被请求的单元都具有终态原生投影，每个已接纳的运行都已被检查其期望结果或失败。无论是聚合提交状态还是终态运行状态，都不意味着所请求的研究产出已经完成。
 
-For a library answer, completion means the inherited Generic Skill returned its business result and resident cache evidence was used only for discovery or change comparison.
+对于文献库答复，完成意味着继承自通用的 Skill 已返回其业务结果，且常驻缓存证据仅用于发现或变更对比。
 
-## Resident report checklist
+## 常驻汇报检查单
 
-Before reporting a pass, confirm:
+在汇报一次扫描前，确认：
 
-- the operation name and receipt status are preserved;
-- cache time is stated when local discovery affected the route;
-- every current library, workflow, run, notification, Product, or operation claim has live evidence;
-- `ok`, `unchanged`, `changed`, `attention`, and `failed` are interpreted according to the receipt contract;
-- attention candidates are not described as confirmed defects or completed remediation;
-- launched runs are not described as completed research outputs;
-- queued, pending, admitted, failed, and canceled units remain distinct in the report;
-- an uncertain native submission is not described as failed or safe to retry before its original `submissionId` and correlated tasks are inspected;
-- local file and database paths are not exposed beyond the operator-facing need;
-- tokens and connection secrets are absent;
-- the next safe live check is named when review remains.
+- 操作名称与回执状态已保留；
+- 当本地发现影响路由时，陈述了缓存时间；
+- 每项关于当前文献库、工作流、运行、通知、产物或操作的主张都具有实时证据；
+- `ok`、`unchanged`、`changed`、`attention` 与 `failed` 已按回执契约解读；
+- 关注项候选未被描述为已确认缺陷或已完成的修复；
+- 已启动的运行未被描述为已完成的研究产出；
+- 已排队、待处理、已接纳、失败与已取消的单元在报告中保持区分；
+- 不确定的原生提交在被检视原始 `submissionId` 与相关任务之前，未被描述为失败或可安全重试；
+- 本地文件与数据库路径未超出操作员面向的必要范围；
+- 不含令牌与连接秘密；
+- 当仍需审阅时，已指明下一步安全的实时检查。
 
-For an interactive answer, state:
+对交互式答复，请陈述：
 
-1. What one-pass operation ran.
-2. What local projection or journal state changed.
-3. What live Zotero evidence was checked.
-4. What requires attention.
-5. What was deliberately not submitted, acknowledged, mutated, maintained, or scheduled.
-6. Whether another pass requires a new instruction.
+1. 一次扫描执行了什么操作；
+2. 哪些本地投影或日志状态发生了变化；
+3. 检查了哪些实时 Zotero 证据；
+4. 哪些需要关注；
+5. 哪些被刻意未提交、未确认、未变更、未维护或未调度；
+6. 下一次扫描是否需要新的指令。
 
-For cron-owned output, emit only the service result. `[SILENT]` is complete for `unchanged`; do not replace it with an explanatory message that defeats quiet operation.
+对于 cron 拥有的输出，仅输出服务结果。`[SILENT]` 对 `unchanged` 即视为完成；切勿用一段解释性消息取代它，从而破坏静默运行。
 
-For a handoff to Generic, include stable refs, freshness, resident receipt, and the bounded research objective. Do not copy resident automation policy into the downstream task or treat local cache rows as its source evidence.
+向通用 Skill 移交时，请包含稳定的引用、新鲜度、常驻回执与有界的研究目标。切勿把常驻自动化策略复制到下游任务，也切勿把本地缓存行当作其来源证据。
 
-## Failure handling
+## 失败处理
 
-On failure, preserve the operation name, receipt error, current submission/queue/run/event handles, and last usable local state. Re-query the affected live resource before retrying any service-backed action. Rebuild a damaged cache through the service, never by partial SQL repair. For an uncertain direct workflow submission, inspect current/recent workflow runs before another call. For an uncertain native queued submission, inspect the original `submissionId`, its immutable units, and submission-filtered tasks before any new submission. A local state failure never authorizes a Zotero mutation.
+失败时，保留操作名称、回执错误、当前的提交/队列/运行/事件句柄以及最近可用的本地状态。在重试任何依赖服务的动作前，重新查询受影响的实时资源。通过服务重建受损的缓存，绝不通过局部 SQL 修复。对于不确定的直接工作流提交，请在另一次调用前检视当前/近期的工作流运行。对于不确定的原生排队提交，请在任何新提交前检视原始 `submissionId`、其不可变单元以及按提交过滤的任务。本地状态失败绝不授权 Zotero 变更。
 
-如果 workflow selection 或 options 校验失败，保留已审阅 refs 并报告失败；通过 Generic 取得明确更正的 scope 后，才能校验另一次调用。selection basis 失败会结束当前获取，不完整的已存储 ref 仍不可执行；两种失败都不授权用活动 pane 替换输入。如果 workflow contract 变化，停止并把变更后的要求交回 Generic。如果 native unit 状态不确定，保留其 `submissionId`、`queueId`、ordinal、source refs 和公开 task identity；开始新工作前先核对 submission 与实时 run 状态。
+若工作流选择或选项校验失败，请保留已审阅的引用并汇报失败；在另一次校验调用前通过通用获取明确的修正范围。选择依据失败终结此次采集，未完成的存储引用仍不可执行；任何失败都不得用当前活动面板中的内容替换输入。若工作流契约发生变化，请停止并携带变更后的需求返回通用。若原生单元状态变得不确定，请保留其 `submissionId`、`queueId`、序号、源引用与已暴露的任务标识，再调和提交与实时运行状态，然后才可继续。
 
-If unexpected resident state prevents safe supervision, preserve the state database and continue read-only operations where safe. Resident state is never a prerequisite for native queue admission and must not be deleted or rewritten to force a submit path open.
+若意外的常驻状态阻碍安全监督，请保留状态数据库并在安全处继续只读操作。常驻状态绝不是原生队列接纳的前置条件，也不得被删除或重写以强行开启提交路径。
 
-## LLM and script responsibilities
+## LLM 与脚本职责
 
-The agent classifies work, delegates finite research tasks, judges live evidence, decides when current human confirmation is required, and interprets receipts. The service owns SQLite schema creation, bounded CLI invocation for resident reads, atomic local projection/journal updates, and receipt output. The Zotero plugin owns native workflow queue admission and pending-unit state. The bundled Generic and CLI Skills own research, interactive submission, and exact mechanism contracts. Do not reproduce service state changes in ad-hoc shell, SQL, or Python code.
+智能体负责划分工作、委派有限的研究任务、判断实时证据、决定何时需要当前的人工确认，并解读回执。服务负责 SQLite 模式创建、常驻读取的有界 CLI 调用、原子的本地投影/日志更新与回执输出。Zotero 插件负责原生工作流队列接纳与待处理单元状态。随附的通用与 CLI Skill 负责研究、交互式提交与精确的机制契约。切勿在临时 shell、SQL 或 Python 代码中复制服务状态变更。
 
-## References
+## 参考
 
-- Read [resident operations](references/resident-operations.md) before index, workflow catalog, run, notification, library-question, or scheduled work.
-- Read [automation policy](references/automation-policy.md) before workflow mode choice, native queue submission, concurrency, maintenance proposals, acknowledgement, or any authority boundary.
-- Read [state and recovery](references/state-and-recovery.md) before judging freshness, repairing local state, handling partial/failed receipts, uncertain outcomes, or changing profile configuration.
+- 在索引、工作流目录、运行、通知、文献库问答或定时工作之前，请阅读 [resident operations](references/resident-operations.md)；
+- 在工作流模式选择、原生队列提交、并发、维护提案、确认或任何授权边界之前，请阅读 [automation policy](references/automation-policy.md)；
+- 在判断新鲜度、修复本地状态、处理部分/失败回执、不确定结果或修改配置之前，请阅读 [state and recovery](references/state-and-recovery.md)。
 
-### 连接 profile workspace 路由
+### 连接配置工作区路由
 
-- 不要计算或手动传入 workspace 路径。使用 service `--profile`、`ZOTERO_BRIDGE_PROFILE` 或平台 well-known profile 选择连接；resident service、cron 和 CLI installer 会共同跟随该选择。
-- well-known profile 是默认 workspace，并拥有现有 `$HERMES_HOME/zotero-librarian/state.sqlite`。显式 profile 按规范化路径路由到 `workspaces/<sha256>/` workspace。
-- 显式 profile workspace 不共享 SQLite 行、workflow catalog、watched run、notification 或本地 `.zotero-bridge/bin` 安装。identity 不包含 profile JSON 内容、endpoint、token 或其他 secret。
-- `--db` 只能用于当前 workspace 内的诊断路径。遇到 `workspace_path_outside_profile`、profile 路径失败、workspace 根不可用或连接失败时必须 fail-closed；不得重试到共享/默认路径。
-- workspace cache 不是 Zotero 当前权威。profile 切换时仍须遵守现有 approval、queue、receipt、live-state 和 current-fact 规则。
+- 切勿计算或手动传递工作区路径。请使用服务 `--profile`、`ZOTERO_BRIDGE_PROFILE` 或平台熟知配置来选择连接；常驻服务、cron 与 CLI 安装程序将共同遵循该选择；
+- 熟知配置是默认工作区，拥有既有的 `$HERMES_HOME/zotero-librarian/state.sqlite`；显式配置会被路由到其规范化路径下的 `workspaces/<sha256>/` 工作区；
+- 显式配置工作区不会共享 SQLite 行、工作流目录条目、被关注的运行、通知或本地 `.zotero-bridge/bin` 安装。其身份不包括配置 JSON 内容、端点值、令牌与其他秘密；
+- 仅在当前工作区内将 `--db` 用于诊断路径。将 `workspace_path_outside_profile`、配置路径失败、不可用的根以及连接失败视为失败关闭的错误；切勿重试共享/默认路径；
+- 工作区缓存不是 Zotero 的当前权威。当配置发生变化时，沿用既有的审批、队列、回执、实时状态与当前事实规则。

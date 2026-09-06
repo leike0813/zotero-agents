@@ -207,7 +207,7 @@ Dashboard 当前不支持：
 - Providers：`doc/components/providers.md`
 - Selection/Context：`doc/components/selection-context.md`
 - Selection/Context Schema：`doc/components/selection-context.schema.json`
-- Handlers：`doc/components/handlers.md`
+- Zotero Host 能力与写入：`doc/components/zotero-host-capability-broker-ssot.md`
 - Job Queue：`doc/components/job-queue.md`
 - Transport：`doc/components/transport.md`
 - Local Cache（占位设计）：`doc/components/local-cache.md`

@@ -1,40 +1,40 @@
 # `zotero-bridge synthesis artifact export-filtered`
 
-Export bounded paper artifacts into the run workspace
+将受限的 paper artifact 导出到 run workspace
 
-## 论文工件合同
+## Paper artifact contract
 
-- 完整的论文工件集是 `digest`、`references`、`citation_analysis` 和 `literature_score`。只有在确实需要全部四项时才省略 `artifact_types`；过滤操作应传入明确子集。
-- 只有四项状态全部可用时，覆盖才算完整。评分缺失记为 `missing`；解码或 schema 失败记为 `error`，并产生无效质量快照。两者在覆盖计算中都不可用。
-- `literature_quality` 是紧凑的固化评分快照。保留其状态、schema/rubric 身份、论文类型、分数、置信度、质量先验、payload hash 和诊断；不要用主观质量标签替换它。
-- 缺失或无效的评分快照使用中性 `quality_prior=0.5`，并保留 `literature_score_missing` 或 `literature_score_invalid`。Reference-sidecar refresh 不会创建或修复评分。
+- The complete paper artifact set is `digest`, `references`, `citation_analysis`, and `literature_score`. Omit `artifact_types` only when all four are intended; pass an explicit subset for a filtered operation.
+- Complete coverage requires all four statuses to be available. A missing score is `missing`; a decode or schema failure is `error` and yields an invalid quality snapshot. Both are unavailable for coverage.
+- `literature_quality` is the compact frozen score snapshot. Preserve its status, schema/rubric identity, paper type, scores, confidence, quality prior, payload hash, and diagnostics; do not replace it with a subjective quality label.
+- Missing or invalid score snapshots use neutral `quality_prior=0.5` and retain `literature_score_missing` or `literature_score_invalid`. Reference-sidecar refresh does not create or repair scores.
 
-选中评分工件时，过滤导出会写入完整的 decoded literature-score payload，并在其版本化 manifest 中携带紧凑的 `literature_quality` 快照。远程交付时，在读取 workspace 路径前先下载并校验返回的 bundle handle。
+The filtered export writes the full decoded literature-score payload when selected and carries the compact `literature_quality` snapshot in its versioned manifest. For remote delivery, download and verify the returned bundle handle before reading workspace paths.
 
-## Usage
+## 用法
 
 ```console
 zotero-bridge synthesis artifact export-filtered [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--query <JSON_OR_FILE>]
 ```
 
-The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
+全局选项可以出现在 leaf 命令之前或之后。使用 `--schema` 可以检查原始的结构化输入 schema，而无需加载 profile 或连接 Zotero。
 
-## Global parameters
-
-| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge service endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports. |
-| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | Opaque idempotency id for a state-changing Zotero request |
-| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Path to a Zotero Bridge connection-profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions. |
-| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | Print the versioned raw JSON Schemas and governed examples for one canonical leaf command. Schema mode is offline and does not load a profile, read Zotero Bridge configuration, or connect to Zotero. |
-
-## Local options and positionals
+## 全局参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --query | query | option | no | — | JSON_OR_FILE | no | — | — | Read query. Use inline JSON by default, such as '{"cursor":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}. |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务的端点基址。若省略，CLI 会读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会随意猜测 bridge 端口。 |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于一次会改变 Zotero 状态的请求的不透明幂等性 id |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。若省略，CLI 会尝试使用 Zotero Agents 的 well-known profile。ACP 运行 profile 通常引用 tokenEnv；本地的 well-known profile 可能包含由用户级文件权限保护的 bearer token。 |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 为一个规范化的 leaf 命令打印版本化的原始 JSON Schema 和受管控的示例。Schema 模式为离线模式，不会加载 profile、读取 Zotero Bridge 配置，也不会连接 Zotero。 |
 
-## Invocation schema
+## 本地选项与位置参数
+
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --query | query | option | no | — | JSON_OR_FILE | no | — | — | 读取 query。默认使用内联 JSON，例如 '{"cursor":1}'。仅在该输入源是刻意选择时，才使用包含 JSON 的文件路径、@file 语法或 '-' 表示 stdin。省略时为 {}。 |
+
+## 调用 schema
 
 ```json
 {
@@ -50,11 +50,11 @@ The global options may appear before or after the leaf command. Use `--schema` t
 }
 ```
 
-## Structured input schemas
+## 结构化输入 schema
 
 ### `--query` (query)
 
-Required: `false`.
+必需：`false`。
 
 ```json
 {
@@ -89,7 +89,7 @@ Required: `false`.
 }
 ```
 
-## Composed payload schema
+## 组合 payload schema
 
 ```json
 {
@@ -124,13 +124,13 @@ Required: `false`.
 }
 ```
 
-## Payload composition
+## Payload 组合
 
-This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+此命令没有单独的字段映射程序。其 binding 模式可直接执行：passthrough 使用唯一的结构化源，而 `none` 和 `raw` 保持其声明的封闭行为。
 
 `composition`: `null`.
 
-## Result schema
+## 结果 schema
 
 ```json
 {
@@ -216,23 +216,23 @@ This command has no separate field-mapping program. Its binding mode is executab
 }
 ```
 
-## Examples
+## 示例
 
-### query: shape-only
+### query: shape-only 示例
 
-用于 --query 的最小 JSON 形状。
+--query 的最小 JSON 形式。
 
 ```console
 zotero-bridge synthesis artifact export-filtered --query '{}'
 ```
 
-Prerequisites:
+前置条件：
 
-- Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution.
+- 执行前，请将示例中的标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
 
-## Complete command descriptor
+## 完整命令描述符
 
-This closed descriptor is the machine-readable command contract returned by `surface describe`; it is included here so the card remains independently auditable without loading another command reference.
+此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它是为了让该卡片在无需加载其他命令参考的情况下仍可独立审计。
 
 ```json
 {
@@ -496,7 +496,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 }
 ```
 
-## Parameter failure and recovery contract
+## 参数失败与恢复契约
 
 Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
 
@@ -508,17 +508,17 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
 - Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
-## Operational contract
+## 运行契约
 
-- 规范 argv 路径： `synthesis` `artifact` `export-filtered`.
-- 输出边界：`file`；受治理详情：{"fileField":"data.delivery.bundle","strategy":"file"}。
-- 分页： `file`.
+- Canonical argv path: `synthesis` `artifact` `export-filtered`.
+- Output boundary: `file`; governed details: {"fileField":"data.delivery.bundle","strategy":"file"}.
+- Pagination: `file`.
 - Category: `read`; danger: `none`.
-- 结构化 binding 模式： `passthrough`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
-- 操作别名： `synthesis artifact export-filtered`, `synthesis`, `artifact`, `export-filtered`, `query`, `JSON_OR_FILE`.
+- Operational aliases: `synthesis artifact export-filtered`, `synthesis`, `artifact`, `export-filtered`, `query`, `JSON_OR_FILE`.
 
-### Effects
+### 影响
 
 ```json
 [
@@ -530,7 +530,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### Approval
+### 审批
 
 ```json
 {
@@ -540,14 +540,14 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 }
 ```
 
-### Handle transitions
+### Handle 转换
 
 ```json
 [
 ]
 ```
 
-### Recovery
+### 恢复
 
 ```json
 [
@@ -561,7 +561,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### Targets
+### 目标
 
 ```json
 [

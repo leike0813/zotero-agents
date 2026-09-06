@@ -260,10 +260,11 @@ async function upsertUniqueGeneratedNote(args) {
       },
       async () =>
         requireCommittedMutation(
-          await requireHostApi(args.runtime).notes.remove({
+          await requireHostApi(args.runtime).mutations.execute({
+            operation: "trash.setItemsState",
             operationId: `generated-note:remove:${noteKind}:${Date.now().toString(36)}:${index}`,
-            noteRef: portableItemRef(existingNotes[index]),
-            disposition: "trash",
+            itemRefs: [portableItemRef(existingNotes[index])],
+            state: "trashed",
           }),
         ),
     );
@@ -283,10 +284,11 @@ async function removeDuplicateGeneratedNotes(args) {
       },
       async () =>
         requireCommittedMutation(
-          await requireHostApi(args.runtime).notes.remove({
+          await requireHostApi(args.runtime).mutations.execute({
+            operation: "trash.setItemsState",
             operationId: `generated-note:remove:${noteKind}:${Date.now().toString(36)}:${index}`,
-            noteRef: portableItemRef(existingNotes[index]),
-            disposition: "trash",
+            itemRefs: [portableItemRef(existingNotes[index])],
+            state: "trashed",
           }),
         ),
     );

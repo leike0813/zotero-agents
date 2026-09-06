@@ -7,7 +7,6 @@ import {
   resolveRuntimeZotero,
 } from "../utils/runtimeBridge";
 import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
-import { handlers } from "../handlers";
 import { resolveWorkflowDisplayLocale } from "./localization";
 import {
   evaluateGeneratedNoteFactsReadiness,
@@ -94,7 +93,6 @@ function createSelectionRuntime(
       ? (globalHostApi as WorkflowRuntimeContext["hostApi"])
       : createWorkflowHostApi());
   return {
-    handlers: override?.handlers || handlers,
     zotero,
     helpers: override?.helpers || createHookHelpers(zotero),
     hostApi,

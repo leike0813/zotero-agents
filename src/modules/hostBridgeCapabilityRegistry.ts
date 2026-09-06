@@ -1,7 +1,18 @@
 import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
+import {
+  executeHostBridgeCanonicalMutation,
+  HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+} from "./hostBridgeMutationAdapter";
 import type {
   AttachmentDetailDto,
+  JsonObject,
   LibraryListItemsRequestDto,
+  MutationExecuteRequest,
+  MutationExecutionResult,
+  MutationPreviewResult,
+  MutationPreviewOperation,
+  MutationPreviewRequestByOperation,
+  MutationRequestByOperation,
   SelectedItemsPageRequestDto,
   WorkflowCallControl,
 } from "../workflows/types";
@@ -9,8 +20,18 @@ import {
   registerHostBridgeFileHandle,
   registerHostBridgeFileHandlesInOrder,
   registerHostBridgeWorkflowArtifactFile,
+  acquireHostBridgeUploadedFileLease,
+  releaseHostBridgeUploadedFileLease,
   type HostBridgeFileDescriptor,
 } from "./hostBridgeFileRegistry";
+import {
+  createCanonicalStoredAttachmentSource,
+  createStoredAttachmentCompleteSemanticInput,
+  createStoredAttachmentNonResourceSemanticInput,
+  createWorkflowPreparedStoredFiles,
+  type WorkflowStoredAttachmentPreparationRequest,
+} from "../workflows/workflowHostOwners";
+import { lookupTrustedStoredAttachmentMutation } from "./zoteroHostMutationAuthority";
 import {
   isDebugModeEnabled,
   isSkillRunnerConnectionAuditAvailable,
@@ -51,12 +72,12 @@ import type {
 import {
   resolveZoteroHostCapabilityBroker,
   ZoteroHostCapabilityError,
+  type ZoteroHostCanonicalMutationControl,
   type ZoteroHostCapabilityBroker,
   type ZoteroHostCollectionRefInput,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
   type ZoteroHostLibrarySyncSnapshotRequest,
-  type ZoteroHostMutationRequest,
   type ZoteroHostAttachmentDto,
 } from "./zoteroHostCapabilityBroker";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
@@ -91,6 +112,10 @@ export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
   control?: WorkflowCallControl;
+  approveMutation?: (
+    preview: MutationPreviewResult<JsonObject>,
+  ) => Promise<void> | void;
+  canonicalMutationControl?: ZoteroHostCanonicalMutationControl;
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
   resolveDirectResearchBundleApplication?: () =>
@@ -653,60 +678,487 @@ async function toBridgeCanonicalAttachmentDescriptors(
   });
 }
 
-async function executeMutationWithBridgeProjection(
-  input: unknown,
-  context: HostBridgeCapabilityContext,
-) {
-  const response = await resolveCapabilityBroker(
-    context,
-  ).legacyMutations.execute(normalizeHostBridgeMutationRequest(input));
-  if (!response.ok || !response.result.attachments?.length) {
-    return response;
+function isCanonicalAttachmentDetail(
+  value: unknown,
+): value is AttachmentDetailDto {
+  const attachment = asObject(value);
+  const ref = asObject(attachment.ref);
+  const file = asObject(attachment.file);
+  return (
+    typeof ref.libraryId === "number" &&
+    typeof ref.key === "string" &&
+    typeof attachment.revision === "string" &&
+    typeof attachment.title === "string" &&
+    (file.state === "missing" ||
+      file.state === "not_applicable" ||
+      (file.state === "available" &&
+        typeof file.path === "string" &&
+        typeof file.sizeBytes === "number"))
+  );
+}
+
+async function projectCanonicalMutationObservation(observation: unknown) {
+  const observationObject = asObject(observation);
+  if (observationObject.state !== "settled") return observation;
+  const execution = asObject(observationObject.result);
+  if (execution.outcome !== "committed" && execution.outcome !== "unchanged") {
+    return observation;
   }
+  const result = asObject(execution.result);
+  if (!isCanonicalAttachmentDetail(result.attachment)) return observation;
+  const [attachment] = await toBridgeCanonicalAttachmentDescriptors([
+    result.attachment,
+  ]);
   return {
-    ...response,
+    ...observationObject,
     result: {
-      ...response.result,
-      attachments: await toBridgeAttachmentDescriptors(
-        response.result.attachments,
-        "mutation.execute",
-      ),
+      ...execution,
+      result: { ...result, attachment },
     },
   };
 }
 
-export function normalizeHostBridgeMutationRequest(
+async function executeMutationWithBridgeProjection(
   input: unknown,
-): ZoteroHostMutationRequest {
-  const request = asObject(input);
-  const itemRefFields = ["target", "item", "parent", "note"] as const;
-  const itemRefArrayFields = ["targets", "items"] as const;
-  const normalized: Record<string, unknown> = { ...request };
-  for (const field of itemRefFields) {
-    if (request[field] !== undefined) {
-      normalized[field] = normalizeHostBridgeItemRef(
-        request[field],
-        field === "note" ? "note" : "item",
-      );
-    }
-  }
-  for (const field of itemRefArrayFields) {
-    const entries = request[field];
-    if (entries !== undefined) {
-      if (!Array.isArray(entries)) {
-        invalidProjectionRef("item", "invalid_shape");
-      }
-      normalized[field] = entries.map((entry) =>
-        normalizeHostBridgeItemRef(entry),
-      );
-    }
-  }
-  if (request.collection !== undefined) {
-    normalized.collection = normalizeHostBridgeCollectionRef(
-      request.collection,
+  context: HostBridgeCapabilityContext,
+) {
+  const storedAttachmentIngress = parseBridgeStoredAttachmentIngress(input);
+  if (isBridgeStoredAttachmentExecuteIngress(storedAttachmentIngress)) {
+    return executeBridgeStoredAttachmentMutation(
+      storedAttachmentIngress,
+      context,
     );
   }
-  return normalized as ZoteroHostMutationRequest;
+  const response = await executeHostBridgeCanonicalMutation({
+    broker: resolveCapabilityBroker(context),
+    request: input as MutationExecuteRequest,
+    control: context.control,
+    ...(context.approveMutation ? { approve: context.approveMutation } : {}),
+    ...(context.canonicalMutationControl
+      ? { mutationControl: context.canonicalMutationControl }
+      : {}),
+  });
+  return projectCanonicalMutationExecution(response);
+}
+
+type BridgeStoredAttachmentOperation =
+  | "attachments.create"
+  | "attachments.replaceFile";
+
+type BridgeStoredAttachmentIngress = Readonly<{
+  operation: BridgeStoredAttachmentOperation;
+  operationId?: string;
+  fileId: string;
+  targetFilename?: string;
+  inputWithoutSource: Record<string, unknown>;
+}>;
+
+type BridgeStoredAttachmentExecuteIngress = BridgeStoredAttachmentIngress &
+  Readonly<{ operationId: string }>;
+
+function isBridgeStoredAttachmentExecuteIngress(
+  ingress: BridgeStoredAttachmentIngress | undefined,
+): ingress is BridgeStoredAttachmentExecuteIngress {
+  return typeof ingress?.operationId === "string" && ingress.operationId !== "";
+}
+
+type BridgeStoredAttachmentCanonicalExecuteInput =
+  | MutationRequestByOperation["attachments.create"]
+  | MutationRequestByOperation["attachments.replaceFile"];
+
+type BridgeStoredAttachmentCanonicalPreviewInput =
+  | MutationPreviewRequestByOperation["attachments.create"]
+  | MutationPreviewRequestByOperation["attachments.replaceFile"];
+
+type BridgeStoredAttachmentCanonicalInput =
+  | BridgeStoredAttachmentCanonicalExecuteInput
+  | BridgeStoredAttachmentCanonicalPreviewInput;
+
+function parseBridgeStoredAttachmentIngress(
+  input: unknown,
+): BridgeStoredAttachmentIngress | undefined {
+  const request = asObject(input);
+  const operation = request.operation;
+  if (
+    operation !== "attachments.create" &&
+    operation !== "attachments.replaceFile"
+  ) {
+    return undefined;
+  }
+  const source = asObject(request.source);
+  if (
+    source.kind !== "stored_file" ||
+    typeof source.fileId !== "string" ||
+    !source.fileId
+  ) {
+    return undefined;
+  }
+  const { source: _source, ...inputWithoutSource } = request;
+  return {
+    operation,
+    ...(typeof request.operationId === "string" && request.operationId
+      ? { operationId: request.operationId }
+      : {}),
+    fileId: source.fileId,
+    ...(typeof source.targetFilename === "string"
+      ? { targetFilename: source.targetFilename }
+      : {}),
+    inputWithoutSource,
+  };
+}
+
+function bridgeStoredAttachmentPreparation(
+  ingress: BridgeStoredAttachmentIngress,
+  path: string,
+): WorkflowStoredAttachmentPreparationRequest {
+  return {
+    main: {
+      source: { kind: "local_path", path },
+      ...(ingress.targetFilename
+        ? { targetFilename: ingress.targetFilename }
+        : {}),
+    },
+  };
+}
+
+function bridgeStoredAttachmentNonResourceSemanticInput(
+  ingress: BridgeStoredAttachmentIngress,
+  source: WorkflowStoredAttachmentPreparationRequest,
+) {
+  if (ingress.operation === "attachments.create") {
+    return createStoredAttachmentNonResourceSemanticInput<"attachments.create">(
+      ingress.inputWithoutSource as Omit<
+        MutationRequestByOperation["attachments.create"],
+        "source"
+      >,
+      source,
+    );
+  }
+  return createStoredAttachmentNonResourceSemanticInput<"attachments.replaceFile">(
+    ingress.inputWithoutSource as Omit<
+      MutationRequestByOperation["attachments.replaceFile"],
+      "source"
+    >,
+    source,
+  );
+}
+
+function bridgeStoredAttachmentCanonicalInput(
+  ingress: BridgeStoredAttachmentIngress,
+  source: WorkflowStoredAttachmentPreparationRequest,
+  prepared: Awaited<
+    ReturnType<
+      ReturnType<
+        typeof createWorkflowPreparedStoredFiles
+      >["prepareStoredAttachment"]
+    >
+  >,
+): BridgeStoredAttachmentCanonicalInput {
+  const sourceWithContent = createCanonicalStoredAttachmentSource(
+    source,
+    prepared.snapshot,
+  );
+  const canonicalSource = {
+    ...sourceWithContent,
+    content: {
+      ...sourceWithContent.content,
+      main: {
+        ...sourceWithContent.content.main,
+        sha256: bridgeCanonicalSha256(sourceWithContent.content.main.sha256),
+      },
+      companions: sourceWithContent.content.companions.map((companion) => ({
+        ...companion,
+        sha256: bridgeCanonicalSha256(companion.sha256),
+      })),
+    },
+  };
+  if (ingress.operation === "attachments.create") {
+    return {
+      ...(ingress.inputWithoutSource as Omit<
+        MutationRequestByOperation["attachments.create"],
+        "source"
+      >),
+      source: canonicalSource,
+    };
+  }
+  return {
+    ...(ingress.inputWithoutSource as Omit<
+      MutationRequestByOperation["attachments.replaceFile"],
+      "source"
+    >),
+    source: canonicalSource,
+  };
+}
+
+function bridgeStoredAttachmentPreviewInput(
+  input: BridgeStoredAttachmentCanonicalInput,
+): BridgeStoredAttachmentCanonicalPreviewInput {
+  const {
+    copyFile: _copyFile,
+    removePath: _removePath,
+    ...source
+  } = input.source as typeof input.source & {
+    copyFile?: unknown;
+    removePath?: unknown;
+  };
+  return {
+    ...input,
+    source,
+  } as BridgeStoredAttachmentCanonicalPreviewInput;
+}
+
+type PreparedBridgeStoredAttachment = Readonly<{
+  canonicalInput: BridgeStoredAttachmentCanonicalInput;
+  preparedFile: Awaited<
+    ReturnType<
+      ReturnType<
+        typeof createWorkflowPreparedStoredFiles
+      >["prepareStoredAttachment"]
+    >
+  >;
+  preparedFiles: ReturnType<
+    typeof createWorkflowPreparedStoredFiles
+  >["preparedFiles"];
+  leaseId: string;
+}>;
+
+async function stageBridgeStoredAttachmentIngress(
+  ingress: BridgeStoredAttachmentIngress,
+): Promise<PreparedBridgeStoredAttachment> {
+  const lease = await acquireHostBridgeUploadedFileLease([ingress.fileId]);
+  const source = bridgeStoredAttachmentPreparation(
+    ingress,
+    lease.resolved[0].source.path,
+  );
+  const files = createWorkflowPreparedStoredFiles();
+  try {
+    const preparedFile = await files.prepareStoredAttachment(source);
+    return {
+      canonicalInput: bridgeStoredAttachmentCanonicalInput(
+        ingress,
+        source,
+        preparedFile,
+      ),
+      preparedFile,
+      preparedFiles: files.preparedFiles,
+      leaseId: lease.leaseId,
+    };
+  } catch (error) {
+    try {
+      await files.preparedFiles.dispose();
+    } catch {
+      // Preserve the staging failure: no canonical execution was admitted.
+    }
+    releaseHostBridgeUploadedFileLease(lease.leaseId, false);
+    throw error;
+  }
+}
+
+async function disposeBridgeStoredAttachmentIngress(
+  prepared: PreparedBridgeStoredAttachment,
+  consumeLease: boolean,
+) {
+  try {
+    await prepared.preparedFiles.dispose();
+  } finally {
+    releaseHostBridgeUploadedFileLease(prepared.leaseId, consumeLease);
+  }
+}
+
+async function previewBridgeStoredAttachmentMutation(
+  ingress: BridgeStoredAttachmentIngress,
+  context: HostBridgeCapabilityContext,
+) {
+  const prepared = await stageBridgeStoredAttachmentIngress(ingress);
+  let result;
+  let hasPrimaryError = false;
+  let primaryError: unknown;
+  let cleanupError: unknown;
+  try {
+    result = await resolveCapabilityBroker(context).mutations.preview(
+      bridgeStoredAttachmentPreviewInput(prepared.canonicalInput),
+      HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+    );
+  } catch (error) {
+    hasPrimaryError = true;
+    primaryError = error;
+  } finally {
+    try {
+      await disposeBridgeStoredAttachmentIngress(prepared, false);
+    } catch (error) {
+      cleanupError = error;
+    }
+  }
+  if (hasPrimaryError) throw primaryError;
+  if (cleanupError !== undefined) throw cleanupError;
+  return result!;
+}
+
+function bridgeCanonicalSha256(value: string) {
+  return value.startsWith("sha256:") ? value : `sha256:${value}`;
+}
+
+function bridgeStoredAttachmentCompleteSemanticInput(
+  ingress: BridgeStoredAttachmentIngress,
+  input: BridgeStoredAttachmentCanonicalInput,
+) {
+  if (ingress.operation === "attachments.create") {
+    return createStoredAttachmentCompleteSemanticInput<"attachments.create">(
+      ingress.inputWithoutSource as Omit<
+        MutationRequestByOperation["attachments.create"],
+        "source"
+      >,
+      input.source as Extract<
+        MutationRequestByOperation["attachments.create"]["source"],
+        { kind: "stored_file" }
+      >,
+    );
+  }
+  return createStoredAttachmentCompleteSemanticInput<"attachments.replaceFile">(
+    ingress.inputWithoutSource as Omit<
+      MutationRequestByOperation["attachments.replaceFile"],
+      "source"
+    >,
+    input.source as Extract<
+      MutationRequestByOperation["attachments.replaceFile"]["source"],
+      { kind: "stored_file" }
+    >,
+  );
+}
+
+function consumesBridgeUpload(result: MutationExecutionResult<JsonObject>) {
+  return result.outcome === "committed" || result.outcome === "unchanged";
+}
+
+async function executeBridgeStoredAttachmentMutation(
+  ingress: BridgeStoredAttachmentExecuteIngress,
+  context: HostBridgeCapabilityContext,
+) {
+  // A settled or tombstoned operation is authoritative before the ephemeral
+  // upload lease is acquired. The opaque file handle is transport-only.
+  const initialSource = bridgeStoredAttachmentPreparation(ingress, "");
+  const existing = await lookupTrustedStoredAttachmentMutation<JsonObject>({
+    scope: HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+    operationId: ingress.operationId,
+    operation: ingress.operation,
+    nonResourceSemanticInput: bridgeStoredAttachmentNonResourceSemanticInput(
+      ingress,
+      initialSource,
+    ),
+  });
+  if (existing.state !== "missing") {
+    return projectCanonicalMutationExecution(existing.result);
+  }
+
+  const lease = await acquireHostBridgeUploadedFileLease([ingress.fileId]);
+  const source = bridgeStoredAttachmentPreparation(
+    ingress,
+    lease.resolved[0].source.path,
+  );
+  const files = createWorkflowPreparedStoredFiles();
+  let adapterOwnsPreparedFiles = false;
+  let consumeLease = false;
+  let hasPrimaryError = false;
+  let cleanupError: unknown;
+  let primaryError: unknown;
+  let result;
+  try {
+    result = await (async () => {
+      const preparedFile = await files.prepareStoredAttachment(source);
+      const canonicalInput = bridgeStoredAttachmentCanonicalInput(
+        ingress,
+        source,
+        preparedFile,
+      ) as BridgeStoredAttachmentCanonicalExecuteInput;
+      const replay = await lookupTrustedStoredAttachmentMutation<JsonObject>({
+        scope: HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+        operationId: ingress.operationId,
+        operation: ingress.operation,
+        nonResourceSemanticInput:
+          bridgeStoredAttachmentNonResourceSemanticInput(ingress, source),
+        completeSemanticInput: bridgeStoredAttachmentCompleteSemanticInput(
+          ingress,
+          canonicalInput,
+        ),
+      });
+      if (replay.state !== "missing") {
+        consumeLease = consumesBridgeUpload(replay.result);
+        return projectCanonicalMutationExecution(replay.result);
+      }
+
+      adapterOwnsPreparedFiles = true;
+      const response = await executeHostBridgeCanonicalMutation({
+        broker: resolveCapabilityBroker(context),
+        request: canonicalInput,
+        control: context.control,
+        resources: {
+          deferredStoredAttachment: {
+            async prepare() {
+              await files.preparedFiles.resolveStoredAttachment(preparedFile);
+              return preparedFile;
+            },
+          },
+          preparedFiles: files.preparedFiles,
+        },
+        ...(context.approveMutation
+          ? { approve: context.approveMutation }
+          : {}),
+        ...(context.canonicalMutationControl
+          ? { mutationControl: context.canonicalMutationControl }
+          : {}),
+      });
+      consumeLease = consumesBridgeUpload(response);
+      return projectCanonicalMutationExecution(response);
+    })();
+  } catch (error) {
+    hasPrimaryError = true;
+    primaryError = error;
+  } finally {
+    if (!adapterOwnsPreparedFiles) {
+      try {
+        await files.preparedFiles.dispose();
+      } catch (error) {
+        cleanupError = error;
+      }
+    }
+    releaseHostBridgeUploadedFileLease(lease.leaseId, consumeLease);
+  }
+  if (hasPrimaryError) throw primaryError;
+  if (cleanupError !== undefined) throw cleanupError;
+  return result!;
+}
+
+async function projectCanonicalMutationExecution(
+  execution: MutationExecutionResult<Record<string, unknown>>,
+) {
+  if (execution.outcome !== "committed" && execution.outcome !== "unchanged") {
+    return execution;
+  }
+  const result = asObject(execution.result);
+  if (!isCanonicalAttachmentDetail(result.attachment)) return execution;
+  const [attachment] = await toBridgeCanonicalAttachmentDescriptors([
+    result.attachment,
+  ]);
+  return {
+    ...execution,
+    result: {
+      ...result,
+      attachment,
+    },
+  };
+}
+
+async function getCanonicalMutationOperation(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const observation = await resolveCapabilityBroker(
+    context,
+  ).mutations.getOperation(
+    { operationId: asObject(input).operationId as string },
+    HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+  );
+  return projectCanonicalMutationObservation(observation);
 }
 
 function capability(
@@ -2203,12 +2655,17 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     }
     return { productId: product.productId, removed: true };
   }),
-  capability("mutation.preview", (input, context) =>
-    resolveCapabilityBroker(context).legacyMutations.preview(
-      normalizeHostBridgeMutationRequest(input),
-    ),
-  ),
+  capability("mutation.preview", (input, context) => {
+    const ingress = parseBridgeStoredAttachmentIngress(input);
+    return ingress
+      ? previewBridgeStoredAttachmentMutation(ingress, context)
+      : resolveCapabilityBroker(context).mutations.preview(
+          input as MutationPreviewRequestByOperation[MutationPreviewOperation],
+          HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+        );
+  }),
   capability("mutation.execute", executeMutationWithBridgeProjection),
+  capability("mutation.get_operation", getCanonicalMutationOperation),
   capability("diagnostic.get_status", (_input, context) => context.getStatus()),
   debugCapability("debug.status", debugStatus),
   debugCapability("debug.persistence.snapshot", debugPersistenceSnapshot),

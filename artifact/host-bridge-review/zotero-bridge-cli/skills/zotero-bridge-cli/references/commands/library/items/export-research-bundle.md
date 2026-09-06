@@ -1,32 +1,32 @@
 # `zotero-bridge library items export-research-bundle`
 
-将一篇或多篇文献导出为研究包
+将一篇或多篇论文导出为 research bundle
 
-## Usage
+## 用法
 
 ```console
 zotero-bridge library items export-research-bundle [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --items <JSON_OR_FILE> [--output-dir <DIR>]
 ```
 
-The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
+全局选项可以出现在 leaf 命令之前或之后。使用 `--schema` 可以检查原始的结构化输入 schema，而无需加载 profile 或连接 Zotero。
 
-## Global parameters
-
-| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge service endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports. |
-| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | Opaque idempotency id for a state-changing Zotero request |
-| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Path to a Zotero Bridge connection-profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions. |
-| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | Print the versioned raw JSON Schemas and governed examples for one canonical leaf command. Schema mode is offline and does not load a profile, read Zotero Bridge configuration, or connect to Zotero. |
-
-## Local options and positionals
+## 全局参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --items | items | option | yes | — | JSON_OR_FILE | no | — | — | 一至 100 个 Zotero 条目引用，可传 JSON 数组、文件路径、@file 或用 '-' 从 stdin 读取 |
-| --output-dir | output_dir | option | no | connectionMode 为 local 时必填，为 remote 时禁止。 | DIR | no | — | — | 本地 profile 使用不存在或为空的目标目录；远程 profile 省略此项 |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务的端点基址。若省略，CLI 会读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会随意猜测 bridge 端口。 |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于一次会改变 Zotero 状态的请求的不透明幂等性 id |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。若省略，CLI 会尝试使用 Zotero Agents 的 well-known profile。ACP 运行 profile 通常引用 tokenEnv；本地的 well-known profile 可能包含由用户级文件权限保护的 bearer token。 |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 为一个规范化的 leaf 命令打印版本化的原始 JSON Schema 和受管控的示例。Schema 模式为离线模式，不会加载 profile、读取 Zotero Bridge 配置，也不会连接 Zotero。 |
 
-## Invocation schema
+## 本地选项与位置参数
+
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --items | items | option | yes | — | JSON_OR_FILE | no | — | — | One to 100 Zotero item refs as a JSON array, file path, @file, or '-' for stdin |
+| --output-dir | output_dir | option | no | Required for connectionMode local; forbidden for connectionMode remote. | DIR | no | — | — | Absent or empty destination directory for local profiles; omit for remote profiles |
+
+## 调用 schema
 
 ```json
 {
@@ -48,11 +48,11 @@ The global options may appear before or after the leaf command. Use `--schema` t
 }
 ```
 
-## Structured input schemas
+## 结构化输入 schema
 
 ### `--items` (items)
 
-必填：`true`。
+必需：`true`。
 
 ```json
 {
@@ -102,7 +102,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ### `--output-dir` (output_dir)
 
-必填：`false`；条件：connectionMode 为 local 时必填，为 remote 时禁止。
+Required: `false`; condition: Required for connectionMode local; forbidden for connectionMode remote..
 
 ```json
 {
@@ -111,7 +111,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 }
 ```
 
-## Composed payload schema
+## 组合 payload schema
 
 ```json
 {
@@ -176,9 +176,9 @@ The global options may appear before or after the leaf command. Use `--schema` t
 }
 ```
 
-## Payload composition
+## Payload 组合
 
-可执行命令契约统一定义下方的基础来源、固定值、字段映射和封闭转换。命令处理器只为所引用的 Clap 参数 ID 提供值。
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
 
 ```json
 {
@@ -200,7 +200,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 }
 ```
 
-## Result schema
+## 结果 schema
 
 ```json
 {
@@ -303,35 +303,35 @@ The global options may appear before or after the leaf command. Use `--schema` t
 }
 ```
 
-## Examples
+## 示例
 
-### items: shape-only
+### items: shape-only 示例
 
-一个基于 key 的 Zotero 条目选择器。
+One key-based Zotero item selector.
 
 ```console
 zotero-bridge library items export-research-bundle --items '[{"key":"ABCD1234","libraryId":1}]'
 ```
 
-Prerequisites:
+前置条件：
 
-- 将示例替换为目标文库中有效的一至 100 个 Zotero 条目引用。
+- Replace the example with one to 100 Zotero item refs valid in the target library.
 
-### output_dir: shape-only
+### output_dir: shape-only 示例
 
-本地研究包的目标目录。
+Local bundle destination directory.
 
 ```console
 zotero-bridge library items export-research-bundle --output-dir 'research-bundle'
 ```
 
-Prerequisites:
+前置条件：
 
-- 本地 profile 必须使用 Host 文件系统中不存在或为空的目录。
+- Use an absent or empty directory on the Host filesystem for a local profile.
 
-## Complete command descriptor
+## 完整命令描述符
 
-This closed descriptor is the machine-readable command contract returned by `surface describe`; it is included here so the card remains independently auditable without loading another command reference.
+此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它是为了让该卡片在无需加载其他命令参考的情况下仍可独立审计。
 
 ```json
 {
@@ -739,7 +739,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 }
 ```
 
-## Parameter failure and recovery contract
+## 参数失败与恢复契约
 
 Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
 
@@ -751,17 +751,17 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
 - Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
-## Operational contract
+## 运行契约
 
-- 规范 argv 路径：`library` `items` `export-research-bundle`。
-- 输出边界：`file`；受治理详情：{"fileField":"data.delivery.bundle","strategy":"file"}。
-- 分页： `file`.
+- Canonical argv path: `library` `items` `export-research-bundle`.
+- Output boundary: `file`; governed details: {"fileField":"data.delivery.bundle","strategy":"file"}.
+- Pagination: `file`.
 - Category: `read`; danger: `none`.
-- 结构化 binding 模式： `object`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
-- 运行别名：`library items export-research-bundle`、`library`、`items`、`export-research-bundle`、`JSON_OR_FILE`、`output_dir`、`output-dir`、`DIR`、`paper research bundle`。
+- Operational aliases: `library items export-research-bundle`, `library`, `items`, `export-research-bundle`, `JSON_OR_FILE`, `output_dir`, `output-dir`, `DIR`, `paper research bundle`.
 
-### Effects
+### 影响
 
 ```json
 [
@@ -773,7 +773,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### Approval
+### 审批
 
 ```json
 {
@@ -783,7 +783,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 }
 ```
 
-### Handle transitions
+### Handle 转换
 
 ```json
 [
@@ -797,7 +797,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### Recovery
+### 恢复
 
 ```json
 [
@@ -811,7 +811,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### Targets
+### 目标
 
 ```json
 [

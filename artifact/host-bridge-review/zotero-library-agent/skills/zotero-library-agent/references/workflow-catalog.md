@@ -222,7 +222,7 @@ Produce and apply a detailed, evidence-grounded deep-reading analysis for one li
 
 **Literature Analysis**
 
-分析单个文献来源，并将其 digest、结构化 references、citation analysis、literature score 以及可选的规范化标签应用到 Zotero。
+Analyze one literature source and apply its digest, structured references, citation analysis, literature score, and optional normalized tags to Zotero.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-analysis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
@@ -380,7 +380,7 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 
 **Topic Planner**
 
-在开展综合之前，逐步把当前文献库整理为 Planned Topics 及 Topic Graph 关系。
+Incrementally organize the current literature library into Planned Topics and Topic Graph relations before synthesis.
 
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/topic-planner/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
@@ -392,14 +392,14 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 - Workflow options:
   - `language`: `{"type":"string","title":"Language","description":"Language for Planned Topic titles, definitions, and planning explanations.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
-- Invocation inputs: 使用 workflow id `topic-planner`、声明的无选择项形式、声明的 workflow 选项，以及 provider 要求时另行验证过的兼容 provider profile。
+- Invocation inputs: use workflow id `topic-planner`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 - External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `create-topic-synthesis`
 
 **Create Topic Synthesis**
 
-物化一个活动 Planned Topic，或先把自然语言种子解析到已有 Planned Topic，再创建新的综合主题。
+Materialize an active Planned Topic or resolve a natural-language seed to an existing Planned Topic before creating a new synthesis topic.
 
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.

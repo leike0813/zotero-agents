@@ -57,12 +57,9 @@ export function createFailClosedZoteroHostCapabilityBroker(
       translateIdentifier: unexpected("metadata.translateIdentifier"),
     },
     mutations: {
+      getOperation: unexpected("mutations.getOperation"),
       preview: unexpected("mutations.preview"),
       execute: unexpected("mutations.execute"),
-    },
-    legacyMutations: {
-      preview: unexpected("legacyMutations.preview"),
-      execute: unexpected("legacyMutations.execute"),
     },
     statusTags: {
       getPolicy: unexpected("statusTags.getPolicy"),
@@ -89,10 +86,6 @@ export function createFailClosedZoteroHostCapabilityBroker(
     library: { ...broker.library, ...configuration.library },
     metadata: { ...broker.metadata, ...configuration.metadata },
     mutations: { ...broker.mutations, ...configuration.mutations },
-    legacyMutations: {
-      ...broker.legacyMutations,
-      ...configuration.legacyMutations,
-    },
     statusTags: { ...broker.statusTags, ...configuration.statusTags },
     notes: { ...broker.notes, ...configuration.notes },
     attachments: { ...broker.attachments, ...configuration.attachments },

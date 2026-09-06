@@ -1,199 +1,199 @@
 # 状态与恢复
 
-## 状态所有权与 schema
+## 状态所有权与模式
 
-`scripts/zotero_librarian_service.py`独家创建并更新`state.sqlite`。当前 schema 标记是`zotero-librarian.state.v4`。其拥有的数据包括：
+`scripts/zotero_librarian_service.py` 专有地创建并更新 `state.sqlite`。当前模式标记为 `zotero-librarian.state.v4`。其所拥有的数据包括：
 
-- 包括最后一次成功 index refresh 在内的元数据；
-- current 与 staging library-index generation，以及以 generation、library ID 和 item key 为键的 item row；
-- 以 workflow ID 为键的缓存工作流定义；
-- 以 `workflowRunId` 为键的 watched Zotero 托管 run；
-- 以 event ID 为键的轻量通知；
+- 元数据，包含最近一次成功的索引刷新；
+- 当前与暂存的文献库索引代次，其条目行按代次、文献库 ID 与条目键为键；
+- 按工作流 ID 为键的缓存工作流定义；
+- 按 `workflowRunId` 为键的被关注 Zotero 托管运行；
+- 按事件 ID 为键的轻量通知；
 
-任何 Skill、cron 文件、shell 片段、外部 helper 或手工 SQL session 都不得创建表、修改 schema 或写入行。服务启用外键，并以事务方式初始化 schema，使并发首次读取收敛到同一个有效数据库。
+任何 Skill、cron 文件、shell 片段、外部辅助或手动 SQL 会话都不得创建表、更改模式或写入行。服务启用外键，并以事务方式初始化模式，使并发首次读取收敛到同一份有效数据库。
 
-该数据库是可重建的缓存和 journal。UI 上下文、文献库内容、工作流定义、执行模式、run、permission、通知、Product、文件、operation 和写入仍以实时 Zotero 为权威。
+该数据库是可重建的缓存与日志。实时 Zotero 在以下方面仍是权威：UI 上下文、文献库内容、工作流定义、执行模式、运行、权限、通知、产物、文件、操作与写入。
 
-## Profile-local state 边界
+## 配置本地状态边界
 
-active connection profile 由 service `--profile`、`ZOTERO_BRIDGE_PROFILE` 或平台 well-known profile 选择。well-known profile 是现有 state path 的默认 owner。每个显式规范化 profile 路径拥有独立的 `workspaces/<sha256>/` root，包括 SQLite database、workflow catalog、watched run、notification 和 `.zotero-bridge/bin`；identity 不包含 profile 内容或 token。Agent 无需手动计算该 root。
+当前连接配置由服务 `--profile`、`ZOTERO_BRIDGE_PROFILE` 或平台熟知配置选择。熟知配置是既有状态路径的默认所有者。每个显式规范化配置路径拥有各自的 `workspaces/<sha256>/` 根，包括其 SQLite 数据库、工作流目录、被关注的运行、通知与 `.zotero-bridge/bin`；配置内容或令牌不参与身份。智能体永远不需要手动计算此根。
 
-`--db` 只能指定当前 root 内的诊断 database。profile/path/root/connection 错误和 `workspace_path_outside_profile` 会在创建 database 前停止 pass，且不回退到共享目录。该路由不改变 `state.v4` schema，也不改变要求 live Zotero facts、current approval、native queue ownership 和 durable receipt 的规则。
+仅当 `--db` 解析后的路径位于所选根内时，才可作为诊断数据库使用。配置/路径/根/连接错误以及 `workspace_path_outside_profile` 在数据库被创建前停止本次扫描，不存在共享目录回退。该路由既不改变 `state.v4` 模式，也不改变那些要求实时 Zotero 事实、当前审批、原生队列所有权与持久回执的规则。
 
 ## 新鲜度与原子更新
 
-每项缓存结论都附带相关刷新或更新时间。缓存用于发现与变化检测；对外可见的当前事实，以及所有可能导致写入或交互的决策，都使用实时读取。
+每一条缓存的结论都带有相应的刷新或更新时间。把缓存用于发现与变更检测；把实时读取用于外部可见的当前事实以及任何可能引发写入或交互的决策。
 
-Index refresh 把每个已接受 snapshot page 写入 staging generation，先前 generation 仍保持 current。service 会校验一个不可变 Host basis：snapshot identity、library、scope、稳定顺序、batch 序列、已交付 counter 与 terminal evidence。只有匹配的 `outcome: completed` evidence 才允许 promotion transaction 将 staged generation 标记为 current、移除 prior-generation row，并记录刷新时间。
+索引刷新在先前代次保持当前的同时，把每个被接受的快照页面写入暂存代次。服务在快照标识、文献库、范围、稳定顺序、批序、交付计数器与终态证据上验证一份不可变的宿主依据。仅匹配的 `outcome: completed` 证据才允许一次提升事务把暂存代次标记为当前、移除先前代次的行并记录刷新时间。
 
-active page、中断、过期、cursor 不匹配、资源上限、Host 重启、解析失败、写入失败或 evidence 不匹配均不能 promote。未完成 generation 保持非 authoritative，先前 current generation 仍可读取。后续 refresh 会打开新的进程内 snapshot；它不会复用缓存的 snapshot identity，也不会从 staged row count 推断完成。完整的空 snapshot 可以 promote 为空 generation，从而移除所有先前 item row。Catalog refresh 同样只提交每项成功取得的变更描述，不虚构定义。
+活跃页面、中断、过期、游标不匹配、资源限制、宿主重启、解析失败、写入失败或证据不匹配都不能提升。不完整的代次仍为非权威，先前当前代次保持可读。随后的刷新开启一次新的进程本地快照；它不会复用缓存的快照标识，也不会从暂存行计数推断完成。一次完成的空快照可以提升一个空代次，从而移除每个先前的条目行。目录刷新类似地在每次成功时提交变更后的描述，而不凭空生成定义。
 
-Run watch 与 notification sync 只更新已接受的实时结果。连接失败时保留最后已知状态以供后续比较。不得抹除旧状态、依据被拒数据推进 cursor，或在刷新失败后把缓存 terminal/run/event 值描述为当前值。
+运行监控与通知同步仅在实时结果被接受后才更新。连接失败保留最近已知状态以供后续比较。切勿擦除旧状态、从被拒绝的数据推进游标，也切勿在失败刷新后把缓存的终态/运行/事件值描述为当前。
 
-## 恢复顺序
+## 恢复序列
 
-1. 保留失败 receipt 的 operation、code、details、输入路径或 handle，以及最后可用本地状态。
-2. 若 Zotero 状态可能已改变，选择重试前检查受影响的实时对象、workflow/run、operation、apply receipt、Product、文件所属对象或通知。
-3. 本地损坏或数据库不可用时，停止常驻操作；条件允许时保留损坏文件供检查。
-4. 只能通过服务初始化新数据库；绝不能手工修复表。
-5. 只刷新下一项决策所需的最小 projection：library index、workflow catalog、watched run 注册/状态或 notification inbox。
-6. 重新运行一个有边界的操作，并将其 receipt 与已保留失败进行比较。
+1. 保留失败回执的操作、错误码、详情、输入路径或句柄，以及最近可用的本地状态；
+2. 若 Zotero 状态可能已变化，请先检视受影响的实时对象、工作流/运行、操作、应用回执、产物、文件所有者或通知，再选择重试；
+3. 对于本地损坏或不可用的数据库，停止常驻操作，并在可行时保留受损文件以供检视；
+4. 仅通过服务初始化一份新数据库；切勿手动修复表；
+5. 刷新下一决策所需的最小投影：文献库索引、工作流目录、被关注的运行注册/状态或通知收件箱；
+6. 重跑一次有界操作，并将其回执与保留的失败进行比较。
 
-重建本地状态不能重放丢失的 Zotero 写入，也不授权 submission、mutation、event 确认处理 或 apply-back。
+重建本地状态不能重放已丢失的 Zotero 写入，也不授权提交、变更、事件确认或回写。
 
-## Handle 与不确定结果
+## 句柄与不确定结果
 
-Zotero ref、`submissionId`、`queueId`、`workflowRunId`、`skillRunId`、`agentRunId`、`operationId`、`permissionRequestId`、`eventId`、`fileId` 和 Product ID 必须留在各自领域。submission 标识一个已 accepted native admission request，queue ID 标识一个仍处于 pending 或 projection 中的 unit，workflow-run ID 标识 admitted execution。本地行身份不能替代 handle。
+把 Zotero 引用、`submissionId`、`queueId`、`workflowRunId`、`skillRunId`、`agentRunId`、`operationId`、`permissionRequestId`、`eventId`、`fileId` 与产物 ID 保留在各自域中。提交标识一次已接受的原生接纳请求，队列 ID 在待处理或被投影时标识一个单元，而工作流运行 ID 标识已接纳的执行。本地行身份不是替代句柄。
 
-direct workflow submission 不确定时，另一次调用前检查匹配的近期实时 run。native queued submission 不确定时，在再次提交前检查原始 `submissionId`、其不可变 units、submission-filtered tasks，以及本地 watched 的 admitted runs。mutation 或维护 operation 结果不确定时，查询其持久 receipt 和实时目标。Agent apply-back 结果不确定时，委托给 Generic 并检查 apply status；不得把 `agentRunId` 注册为 watched 工作流 run。
+对于不确定的直接工作流提交，请在另一次调用前检视匹配的实时近期运行。对于不确定的原生排队提交，请在再次提交前检视原始 `submissionId`、其不可变单元、按提交过滤的任务以及任何本地关注的已接纳运行。对于不确定的变更或维护操作，请查询其持久回执与实时目标。对于不确定的智能体回写，请委托给通用并检视应用状态；切勿把 `agentRunId` 注册为被关注的工作流运行。
 
-状态变化或 handle 消费情况未知时，不得复用 handle。远程调用后本地更新成功，只证明服务记录了返回结果；外部 effect 必须由实时 Zotero 或领域 receipt 证明。
+当状态变化或句柄消耗未知时，请勿复用该句柄。当远端调用后本地更新成功时，本地提交仅证明服务记录了返回结果；实时 Zotero 或域回执证明外部效果。
 
-对 partially admitted native submission，保留 submission handle、pending unit projections、admitted task/run handles、terminal units、failed units 与 canceled units。这些状态归插件所有；常驻状态既不能删除也不能重建。pending units 继续受已 accepted submission 管理；独立的后续 submission 需要新的当前操作员指令。
+对于部分接纳的原生提交，请保留提交句柄、待处理单元投影、已接纳的任务/运行句柄、终态单元、失败单元以及已取消单元。插件拥有这些状态；常驻状态既不得删除也不得重建它们。待处理单元继续留在已接受的提交下，而一次独立的较晚提交需要新的当前操作员指令。
 
-## 安装与 profile 恢复
+## 安装与配置恢复
 
-profile 初始化期间运行 `scripts/install_zotero_bridge_cli.py`。它安装随附可执行文件并链接 well-known 连接 profile，且不更改 `HOME`。`ZOTERO_BRIDGE_HOST_PROFILE` 或 `ZOTERO_BRIDGE_HOST_HOME` 仅用于定位 Zotero 端 profile。
+在配置初始化期间运行 `scripts/install_zotero_bridge_cli.py`。它会安装打包的可执行文件并链接熟知的连接配置，且不改动 `HOME`。仅在定位 Zotero 侧配置时使用 `ZOTERO_BRIDGE_HOST_PROFILE` 或 `ZOTERO_BRIDGE_HOST_HOME`。
 
-常驻工作前，运行随附 CLI 身份检查，将 protocol、CLI schema、version、build fingerprint 和 command-catalog checksum 与 profile release identity 比较。仅版本匹配不足以证明一致。按服务、profile、已认证 manifest、backend 就绪状态的顺序诊断。
+在常驻工作之前，请运行随附的 CLI 身份检查，并将协议、CLI 模式、版本、构建指纹与命令目录校验和与配置发布身份进行比较。仅版本匹配并不充分。请按服务、配置、经认证的清单与后端就绪的顺序进行诊断。
 
-凭据始终留在连接环境中。绝不能把 bearer token 写入 `state.sqlite`、cron YAML、receipt、日志、命令证据或 profile 文档。可执行文件/profile 身份不一致时，应选择匹配的随附集合，不得组合不同 release 的 asset。
+凭据保留在连接环境中。切勿将 bearer 令牌写入 `state.sqlite`、cron YAML、回执、日志、命令证据或配置文档。如果可执行文件/配置身份不一致，请选择一份匹配的打包集合，而不是把来自不同发布的资产组合在一起。
 
 ## 当前状态模型
 
-该数据库仅拥有常驻簿记。将每个表用于一个目的。
+数据库仅拥有常驻簿记。每个表用于一个目的。
 
 ### `meta`
 
-商店：
+存储：
 
-- 活动状态Schema标记；
-- 最后一次成功的索引刷新；
-- 用于让常驻读取保持 fail closed 的本地服务元数据。
+- 活跃状态模式标记；
+- 最近一次成功的索引刷新；
+- 保持常驻读取失败关闭所需的本地服务元数据。
 
-它不存储用户权限、当前 Zotero 连接真相、workflow 批准或任务结论。
+它不存储用户授权、当前 Zotero 连接事实、工作流审批或任务结论。
 
 ### `library_index_generations`
 
-商店：
+存储：
 
-- generation 与 Host snapshot identity；
-- 已解析 library identity；
-- `staging` 或 `current` status；
-- Host content digest、item 与 batch 总数；
-- 创建与 promotion 时间。
+- 代次与宿主快照标识；
+- 解析后的文献库身份；
+- `staging` 或 `current` 状态；
+- 宿主内容摘要、总条目与批计数；
+- 创建与提升时间。
 
-staging generation 是可恢复的本地工作，并非 current index，也不能证明缺失行已被删除。Promotion 需要当前 Host 的准确 completion evidence；旧 receipt 或本地重建 evidence 不能把 generation 设为 current。
+暂存代次是可恢复的本地工作，不是当前索引，也不证明缺失行已被删除。提升要求完全匹配的当前宿主完成证据；旧的回执或本地重建的证据都不能让一个代次成为当前。
 
 ### `library_generation_items`
 
-商店：
+存储：
 
-- 所属 generation identity；
-- 文献库 ID 和单册密钥；
-- 数字项目 ID；
-- 项目类型和标题；
+- 所属代次身份；
+- 文献库 ID 与条目键；
+- 数字条目 ID；
+- 条目类型与标题；
 - 序列化快照负载；
-- 内容摘要和本地更新时间。
+- 内容摘要与本地更新时间。
 
-只有 `meta.current_library_generation` 指定 generation 的行支持发现与变化比较。Staging row 不会出现在 resident search、item read、stats 或 hygiene candidate 中。current 与 staging row 都不能证明当前 item state、attachment access、selection 或 permission。
+只有归属于 `meta.current_library_generation` 所命名代次的行才支持发现与变更对比。暂存行不出现在常驻搜索、条目读取、统计或整洁度候选中。当前行或暂存行都不能证明当前条目状态、附件访问、选择或权限。
 
 ### `workflow_catalog`
 
-商店：
+存储：
 
-- workflow ID；
+- 工作流 ID；
 - 缓存的描述负载；
-- 发现摘要和本地更新时间。
+- 发现摘要与本地更新时间。
 
-它有助于识别候选项。实时列表/描述/验证在执行之前仍然具有权威性。
+它有助于识别候选。在执行前，实时 list/describe/validate 仍具权威性。
 
 ### `watched_runs`
 
-商店：
+存储：
 
-- 真实`workflowRunId`；
-- workflow ID；
-- 最后已知的状态；
-- 接受的实时有效负载；
+- 真实的 `workflowRunId`；
+- 工作流 ID；
+- 最近已知状态；
+- 已接受的实时负载；
 - 更新时间。
 
-它是一个一次性手表缓存。它不拥有成绩单、权限、Products、artifacts 或自有的 agent 运行。
+它是一次性监控缓存。它不拥有转录、权限、产物、制品或自有智能体运行。
 
 ### `notifications`
 
-商店：
+存储：
 
-- 事件ID；
-- 关联的 workflow 运行ID；
+- 事件 ID；
+- 关联的工作流运行 ID；
 - 事件类型；
 - 本地确认投影；
-- 有效负载和更新时间。
+- 负载与更新时间。
 
-事件是生命周期提示。它不是回复目标、许可或其隐含操作发生的证据。
+事件是生命周期提示。它不是回复目标、权限或其暗示动作已发生的证明。
 
-### Native submission observation boundary
+### 原生提交观察边界
 
-常驻 SQLite 不存储 workflow submission、pending queue unit、reservation、approval 或 replay state。这些事实归实时 Zotero 插件所有，并通过 Zotero Bridge surface 读取。
+常驻 SQLite 不存储工作流提交、待处理队列单元、预留、审批或重放状态。这些事实归实时 Zotero 插件所有，并通过 Zotero Bridge 接口读取。
 
-常驻 profile 可以观察：
+常驻配置可观察：
 
-- 当前交互式 CLI 调用返回的 `submissionId`；
-- 不可变的 per-unit `queueId`；
-- aggregate submission counts 与 links；
-- admitted task identities；
-- admission 后的真实 `workflowRunId`；
-- terminal unit outcome 与结构化 failure；
-- 分别检查的 Product、artifact、operation 或 live-object evidence。
+- 由当前交互式 CLI 调用返回的 `submissionId`；
+- 不可变的每单元 `queueId`；
+- 聚合提交计数与链接；
+- 已接纳的任务标识；
+- 接纳后的真实 `workflowRunId`；
+- 终态单元结果与结构化失败；
+- 单独检视的产物、制品、操作或实时对象证据。
 
-只有真实 admitted run 需要 one-pass supervision 时，常驻 profile 才可将其持久化到 `watched_runs`。注册该 run 不会把其 submission、queue position、selection、provider profile、options 或 approval 复制到常驻所有权中。
+常驻配置仅在一次性监督有用时，把一条真实的已接纳运行持久化到 `watched_runs`。注册该运行不会把其提交、队列位置、选择、提供方配置、选项或审批复制到常驻所有权。
 
-常驻 profile 绝不存储：
+常驻配置永不存储：
 
-- 可复用 workflow approval；
-- agent-generated workflow queue；
-- pending-unit reservations；
-- next-entry cursor；
-- replay eligibility bit；
-- background worker lease；
-- 本地重建的 Host unit；
-- 替代性的 aggregate submission state。
+- 可复用的工作流审批；
+- 智能体生成的工作流队列；
+- 待处理单元预留；
+- 下一条目游标；
+- 重放资格位；
+- 后台工作者租约；
+- 本地重建的宿主单元；
+- 替代的聚合提交状态。
 
-### Native handle ownership
+### 原生句柄所有权
 
-| Handle | Owner | 含义 | 有效 control plane |
+| 句柄 | 所有者 | 含义 | 有效的控制平面 |
 | --- | --- | --- | --- |
-| `submissionId` | Zotero native queue | 一个已 accepted host-queue submission 及其不可变 units | `workflow submission get`；submission-filtered task discovery |
-| `queueId` | Zotero native queue | 一个 projected unit，仅在 pending 时可取消 | `workflow queue list`；pending queue cancel |
-| task identity | Host task runtime | 一个 admitted unit 的 task lineage | 按 submission 过滤的 Host task read |
-| `workflowRunId` | Zotero-managed execution | 一个 admitted workflow run | Run status、cancellation、interaction、history 与 events |
-| `skillRunId` | Skill execution | 一个 interactive skill target | Skill reply/connect |
-| `agentRunId` | Agent 自主 handoff | 一个 Agent 自主 request set | Agent handoff/apply contract，绝不进入 watched runs |
+| `submissionId` | Zotero 原生队列 | 一次已接受的宿主队列提交及其不可变单元 | `workflow submission get`；按提交过滤的任务发现 |
+| `queueId` | Zotero 原生队列 | 一个被投影的单元，仅在待处理时可取消 | `workflow queue list`；待处理队列取消 |
+| task identity | 宿主任务运行时 | 一个已接纳单元的任务谱系 | 按提交过滤的宿主任务读取 |
+| `workflowRunId` | Zotero 托管执行 | 一次已接纳的工作流运行 | 运行状态、取消、交互、历史与事件 |
+| `skillRunId` | Skill 执行 | 一个交互式 skill 目标 | Skill 回复/连接 |
+| `agentRunId` | 自有交接 | 一组智能体自有请求 | 智能体交接/应用契约，绝不通过被关注的运行 |
 
-不得从一种 handle 推导另一种 handle。queued submit response 中缺少 `workflowRunId` 是 units 尚处于 pending 时的预期行为；这不是无效 handle，也不能证明 admission 失败。
+不要从一个句柄派生出另一个。在已排队提交响应中缺失 `workflowRunId` 是预期的，前提是单元仍处于待处理；它不是无效句柄，也不证明接纳失败。
 
-## Native submission identity
+## 原生提交身份
 
-queued submit result 提供后续观察所需的 native identity：
+已排队的提交结果提供了后续观察所需的原生身份：
 
 - `admission: host-queue`；
 - `submissionId`；
-- 声明的 total、pending、admitted/running、terminal、failed 与 canceled counts；
-- queue 与 submission links；
-- 包含 `queueId` 与 source correlation 的不可变 unit projections；
-- 可用时的 admitted task 或 run identities。
+- 声明的总数、待处理、已接纳/运行中、终态、失败与已取消计数；
+- 队列与提交链接；
+- 包含 `queueId` 与来源关联的不可变单元投影；
+- 可用时的已接纳任务或运行标识。
 
-将 `submissionId` 视为 opaque。按返回值精确保留，并且只用于 descriptor 接受该 handle kind 的命令。
+把 `submissionId` 视为不透明。按返回原样保留它，并仅与描述符接受该类句柄的命令一同使用。
 
-将每个 `queueId` 视为 opaque。admission 后它仍可用于 unit correlation，但其状态变更 cancellation action 只在 unit 处于 pending 时有效。
+把每个 `queueId` 视为不透明。它在接纳后仍可用于单元关联，但其状态变更式的取消动作仅在单元处于待处理时有效。
 
-将每个 admitted task/run identity 视为 execution 的独立权威。aggregate submission state 不取代 run transcript、interaction、permission、terminal detail 或 result verification。
+把每个已接纳的任务/运行标识视为对执行的独立权威。聚合提交状态不能替代运行转录、交互、权限、终态细节或结果核实。
 
-初始 submission response 可以在时间上尚未完整，但在 contract 上仍然完整。pending units 有意不包含 fabricated run identity。重新读取同一个 native submission，不得用本地推断填补空缺。
+初始提交响应可能在时间上不完整，但未必在契约上不完整。待处理单元刻意没有捏造的运行标识。请重新读取同一原生提交，而不是用本地推断填补空缺。
 
-## Native submission state transitions
+## 原生提交状态转换
 
-正常 pending unit：
+正常待处理单元：
 
 ```text
 pending
@@ -201,14 +201,14 @@ pending
   -> terminal success or terminal failure
 ```
 
-Pending cancellation：
+待处理取消：
 
 ```text
 pending
   -> canceled
 ```
 
-Admission race：
+接纳竞态：
 
 ```text
 pending
@@ -217,7 +217,7 @@ pending
   -> run control owns later cancellation
 ```
 
-Aggregate submission：
+聚合提交：
 
 ```text
 accepted
@@ -225,7 +225,7 @@ accepted
   -> all units terminal or canceled
 ```
 
-Apply-back slot lifetime：
+回写槽位生命期：
 
 ```text
 admitted
@@ -234,228 +234,228 @@ admitted
   -> native slot released
 ```
 
-native queue 拥有每项 transition。常驻 supervision 只观察 projection，不推进状态、不预留容量，也不启动下一 unit。
+原生队列拥有每一次转换。常驻监督观察投影，但不推进它、不预留容量，也不启动下一单元。
 
-### Direct admission
+### 直接接纳
 
-submit result 声明 direct admission 时：
+当提交结果声明直接接纳时：
 
-1. 保留返回的真实 task 与 `workflowRunId`。
-2. 立即使用普通 run plane。
-3. 只有 one-pass resident watching 有用时，才在本地注册 run。
-4. 分别验证预期 Products、artifacts、operations 与 Zotero changes。
-5. transport 状态不确定时，在再次 submit 前检查匹配的 current/recent runs。
+1. 保留返回的真实任务与 `workflowRunId`；
+2. 立即使用普通运行平面；
+3. 仅在常驻一次性关注有用时把运行注册到本地；
+4. 单独核实期望的产物、制品、操作与 Zotero 变更；
+5. 在传输不确定时，在另一次提交前检视当前/近期匹配的运行。
 
-不得为 direct run 创建 synthetic `submissionId` 或 queue unit。
+切勿为直接运行创建合成的 `submissionId` 或队列单元。
 
-### Host-queue admission
+### 宿主队列接纳
 
-submit result 声明 host-queue admission 时：
+当提交结果声明宿主队列接纳时：
 
-1. 保留返回的 `submissionId`。
-2. 保留每个不可变 unit 与 `queueId`。
-3. 检查 submission projection 的 aggregate 与 per-unit state。
-4. queue list 仅用于观察 active units。
-5. 只取消仍处于 pending 的 queue unit。
-6. 按 submission lineage 发现 admitted tasks。
-7. 真实 run handle 存在后，将 execution supervision 转交 run plane。
-8. execution 与 apply-back 后，分别验证每个预期输出。
+1. 保留返回的 `submissionId`；
+2. 保留每个不可变单元与 `queueId`；
+3. 检视提交投影的聚合与每单元状态；
+4. 仅用队列列表观察活跃单元；
+5. 仅对仍处待处理的队列单元执行取消；
+6. 通过提交谱系发现已接纳任务；
+7. 一旦运行句柄出现，把执行监督转移至真实运行平面；
+8. 在执行与回写之后，独立核实每个期望的产出。
 
-不得因为某些 units 仍为 pending 就创建另一 submission。它们已经是受原 concurrency bound 管理的 accepted work。
+切勿因为仍有单元待处理而创建另一次提交。它们已是按原始并发上限接受的工作。
 
-### Uncertain observation
+### 不确定的观察
 
-submit response 或后续读取不确定时：
+当提交响应或后续读取不确定时：
 
-- 保留所有返回的 native handles 与结构化 error；
-- 已知 `submissionId` 时重新读取原始 submission；
-- 查询 submission-filtered tasks 以寻找 admitted work；
-- direct admission 可能已经发生时检查实时 recent runs；
-- 关联 task 前比较 source refs 与 workflow identity；
-- 将时间接近但无关的 runs 保持分离；
-- 不得从初始 run handle 缺失推断失败；
-- 不得从 aggregate terminal state 推断成功；
-- 只有较早 effect 已解决后，才能取得新授权。
+- 保留任何返回的原生句柄与结构化错误；
+- 在 `submissionId` 已知时重新读取原始提交；
+- 查询按提交过滤的任务以获取已接纳工作；
+- 在直接接纳可能发生时检视实时近期运行；
+- 在关联任务前比较来源引用与工作流身份；
+- 把无关的、时序接近的运行分开；
+- 切勿因缺失初始运行句柄而推断失败；
+- 切勿因聚合终态而推断成功；
+- 仅在先前效果被解析后才能取得新授权。
 
-常驻 rows 不存在不能证明 native work 不存在。常驻状态被有意设计为不是 submission SSOT。
+常驻行的缺失并不证明原生工作不存在。常驻状态刻意不是提交的 SSOT。
 
-Active submission 与 queue projections 是 process-local。Host restart 使先前 `submissionId` 不再可用时，检查 submission-filtered task lineage 与真实 runs，恢复 restart 前已 admitted units。未 admitted 的 pending units 不再可作为 active queue work 观察；在 interactive task evidence 中保留 reviewed source scope，报告 unresolved remainder，并在 replacement submission 前取得当前授权。绝不能在 `state.sqlite` 中重建 pending units。
+活跃的提交与队列投影是进程本地的。当宿主重启导致先前的 `submissionId` 不可用时，请通过按提交过滤的任务谱系与真实运行来恢复在重启前已被接纳的单元。永远未被接纳的待处理单元不再作为活跃队列工作被观察；把已审阅的来源范围保留在交互式任务证据中，汇报未解决部分，并在替换提交前取得当前授权。切勿在 `state.sqlite` 中重建待处理单元。
 
-## 故障分类矩阵
+## 失败分类矩阵
 
-|失败|可能的远程影响|状态|安全下一步行动|
+| 失败 | 可能的远端效果 | 状态 | 安全下一步动作 |
 | --- | --- | --- | --- |
-| 缺少当前 submission authority | 调用前无 effect | 无 native submission | 取得当前 exact-scope authority |
-| 无效 selection/options JSON | 调用前无 effect | 无 native submission | 修正声明输入并重新校验 |
-| workflow contract 已变化 | 本次调用无 effect | validation stale | 重新 describe 与 validate |
-| selection revalidation 失败 | 本次调用无 effect | validation rejected | 解析实时 selection 并重新校验 |
-| provider profile validation 失败 | 本次调用无 effect | provider rejected | 独立修正 provider input |
-| concurrency 小于一 | 调用前无 effect | 无 native submission | 选择正的有界值 |
-| direct submit 返回有效 run ID | known admission | real run exists | 监控返回的 run |
-| queue submit 返回 `submissionId` | known accepted submission | native units exist | 检查 submission projection |
-| pending cancel 成功 | known cancellation | unit canceled | 保留 receipt 与 remaining units |
-| pending cancel 在 admission 后 conflict | known ownership transition | task/run owns unit | 重读 submission 并使用 run control |
-| remote submit transport 失败且无 handle | unknown | native effect uncertain | 重试前检查 matching live tasks/runs |
-| remote submit 返回 submission handle 后 transport 失败 | identity known，later state uncertain | submission remains authoritative | 重读该 `submissionId` |
-| admitted task 失败 | 其他 units 仍独立有效 | unit terminal failed | 保留 failure；继续 bounded supervision |
-| apply-back 仍 active | slot remains occupied | unit not fully terminal | 按声明 observation path 等待；不得 oversubscribe |
-| 无 pending units | queue cancel 无 effect | 保留现有 native state | 检查 admitted/terminal units；不得 resubmit |
+| 缺少当前提交授权 | 调用前无 | 无原生提交 | 取得当前精确范围的授权 |
+| 选择/选项 JSON 无效 | 调用前无 | 无原生提交 | 更正声明的输入并再次校验 |
+| 工作流契约已变更 | 本次调用无 | 校验过期 | 重新描述并重新校验 |
+| 选择重新校验失败 | 本次调用无 | 校验被拒 | 解析实时选择并重新校验 |
+| 提供方配置校验失败 | 本次调用无 | 提供方被拒 | 独立更正提供方输入 |
+| 并发低于 1 | 调用前无 | 无原生提交 | 选择一个正的有界值 |
+| 直接提交返回有效运行 ID | 已知接纳 | 真实运行存在 | 监控返回的运行 |
+| 队列提交返回 `submissionId` | 已知已接受提交 | 原生单元存在 | 检视提交投影 |
+| 待处理取消成功 | 已知取消 | 单元已取消 | 保留回执与剩余单元 |
+| 接纳后待处理取消冲突 | 已知所有权转移 | 任务/运行拥有该单元 | 重新读取提交并使用运行控制 |
+| 远端提交传输失败且无句柄 | 未知 | 原生效果不确定 | 在重试前检视匹配的实时任务/运行 |
+| 远端提交返回提交句柄后传输失败 | 已知身份，后续状态不确定 | 提交仍具权威 | 重新读取该 `submissionId` |
+| 已接纳任务失败 | 其他单元仍独立有效 | 单元终态失败 | 保留失败；继续有界监督 |
+| 回写仍活跃 | 槽位仍被占用 | 单元未完全终态 | 通过声明的观察路径等待；不要过度订阅 |
+| 无待处理单元 | 队列取消无效果 | 既有的原生状态被保留 | 检视已接纳/终态单元；不要重新提交 |
 
-## 按域恢复顺序
+## 按域的恢复序列
 
 ### 文献库投影
 
-1. 保留失败的刷新receipt和最后可用的数据库。
-2. 如存在 staging generation identity，保留它，但保持非 authoritative。
-3. 确认是否收到匹配的 Host completion evidence，且 promotion 已提交。
-4. 任一条件缺失时，保留先前 current generation 与刷新时间戳。
-5. 通过 service 运行新的有界完整 refresh；中断、过期或 Host 重启后不得 resume 旧的进程内 snapshot。
-6. 比较 promoted count、generation identity 与 snapshot identity。
-7. 使用 live item read 得出当前结论。
+1. 保留失败的刷新回执与最近可用的数据库；
+2. 在存在时保留暂存代次身份，但保持其非权威；
+3. 判断是否收到了匹配的宿主完成证据，且提升已提交；
+4. 在任一条件缺失时，保留先前当前代次与刷新时间戳；
+5. 通过服务运行一次新的有界全量刷新；在中断、过期或宿主重启后不要恢复旧的进程本地快照；
+6. 对比提升后的计数、代次身份与快照身份；
+7. 对当前结论使用实时条目读取。
 
-切勿手动修补缺失的行。
+切勿手动修补缺失行。
 
-### workflow 目录
+### 工作流目录
 
-1. 保留缓存的定义和刷新失败。
-2. 使用实时 workflow 列表/描述来立即做出决定。
-3. 稍后重试一次目录刷新。
-4. 不要声称缓存的 provider/就绪事实是最新的。
+1. 保留缓存定义与刷新失败；
+2. 把实时工作流 list/describe 用于即时决策；
+3. 稍后再跑一次目录刷新扫描；
+4. 切勿把缓存的提供方/就绪事实当作当前事实。
 
-### Watched run
+### 被关注的运行
 
-1. 保留运行 ID、workflow ID、上次状态和更新时间。
-2. 阅读当前实时状态。
-3. 记录有效的返回转换。
-4. 检查提示、权限、Products、artifacts，并通过自己的合约进行写入。
-5. 不要从本地终端状态推断完成。
+1. 保留运行 ID、工作流 ID、最近状态与更新时间；
+2. 读取实时运行；
+3. 记录一次有效的返回转换；
+4. 通过各自的契约检视提示、权限、产物、制品与写入；
+5. 切勿从本地终态推断完成。
 
 ### 通知
 
-1. 保留事件 ID 和拥有的运行身份。
-2. 检查实时拥有状态。
-3. 根据其授权合同执行所需的操作。
-4. 确认指定的事件。
-5. 当实时确认失败时，保持未确认状态。
+1. 保留事件 ID 与所属运行身份；
+2. 检视实时所属状态；
+3. 在其授权契约下执行所需动作；
+4. 确认命名事件；
+5. 在实时确认失败时保持未确认。
 
-### Native workflow submission
+### 原生工作流提交
 
-1. 保留 workflow ID、`submissionId`、unit `queueId`、source refs 与结构化 failure。
-2. 判断 failure 发生于 submit call 前、admission 期间、native handle 返回后、execution 期间还是 apply-back 期间。
-3. 本地 validation 失败时，修正实时 selection/options/provider input，并在请求 authority 前重新校验。
-4. queued effect 未知时，检查原始 submission projection 与 submission-filtered tasks。
-5. direct effect 未知时，使用 workflow 与 source identity 检查 active/recent matching runs。
-6. 只能通过 `run register` 注册已证明的真实 run；不得手工编辑 SQLite 或制造 lineage。
-7. 不得仅因初始响应缺少 run handle 就重播 accepted 或 uncertain submission。
-8. accepted submission 内的 pending units 继续由 native owner 管理，不需要常驻重启。
-9. 任何独立 replacement submission 都必须重新取得当前 authority。
+1. 保留工作流 ID、`submissionId`、单元 `queueId`、源引用与结构化失败；
+2. 判断失败发生在提交调用前、接纳期间、原生句柄返回后、执行期间还是回写期间；
+3. 对于本地校验失败，先更正实时选择/选项/提供方输入并再次校验，再寻求授权；
+4. 对于未知的排队效果，检视原始提交投影与按提交过滤的任务；
+5. 对于未知的直接效果，使用工作流与源身份检视活跃/近期匹配运行；
+6. 仅通过 `run register` 注册已证实的真实运行；不要手编 SQLite 或捏造谱系；
+7. 切勿仅仅因为初始响应缺少运行句柄就重放已接受或不确定的提交；
+8. 已接受提交内的待处理单元继续归原生所有权，无需常驻重新启动；
+9. 在任何独立的替换提交前取得当前授权。
 
-### 维护候选项
+### 维护候选
 
-1. 保留候选项理由和refs。
-2. 读取活动对象/模型。
-3. 将语义诊断委托给Generic。
-4. 提出可审查的提案。
-5. 获得当前授权。
-6. 单独验证任何批准的效果。
+1. 保留候选原因与引用；
+2. 读取实时对象/模型；
+3. 把语义诊断委托给通用；
+4. 产出可审阅的提案；
+5. 取得当前授权；
+6. 单独核实任何已批准的效果。
 
-候选项失踪是一个有效的、不变的结果。它不需要补偿性维护。
+候选消失是有效的无变化结果。它不需要补偿性维护。
 
-## 未知效果恢复
+## 不确定效果的恢复
 
-transport 或 structured submit failure 的 state 为 unknown 时，远程状态可能与本地确定性不同。
+具有未知状态的传输或结构化提交失败意味着远端状态可能与本地确定性不同。
 
-保存：
+保留：
 
 - 返回时的 `submissionId`；
-- 每个返回的 unit `queueId`；
-- unit ordinal 与 source refs；
-- workflow ID；
+- 每个返回的单元 `queueId`；
+- 单元序号与源引用；
+- 工作流 ID；
 - 时间戳；
-- 桥接错误；
-- 所有 admitted task 与 run ID；
-- aggregate counts 与 queue links；
-- reviewed selection/options/provider/concurrency scope。
+- bridge 错误；
+- 所有已接纳任务与运行 ID；
+- 聚合计数与队列链接；
+- 已审阅的选择/选项/提供方/并发范围。
 
-检查：
+检视：
 
-- 原始 native submission projection；
-- submission-filtered admitted tasks；
-- direct 或 admitted execution 的 current/recent workflow runs；
-- 选择/来源标识；
-- workflow-特定的去重或提交证据；
-- 监视运行缓存；
-- 仅在找到运行后才预期下游Product/artifact。
+- 原始原生提交投影；
+- 按提交过滤的已接纳任务；
+- 当前/近期工作流运行以了解直接或已接纳执行；
+- 选择/源身份；
+- 工作流特有的去重或提交证据；
+- 被关注的运行缓存；
+- 仅在定位运行后核实期望的下游产物/制品。
 
-不要：
+切勿：
 
-- 再次提交相同 reviewed scope；
-- 重建 unit 或将其重置为 pending；
-- 删除 resident rows 以强制打开 submission path；
-- 在 reconciliation 前为同一 source 创建 replacement submission；
-- 从缺少本地运行 ID 推断失败；
-- 从类似时间的不相关运行推断成功。
+- 再次提交相同的已审阅范围；
+- 重建或重置单元为待处理；
+- 删除常驻行以强制开启提交路径；
+- 在调和前为相同来源创建替换提交；
+- 因缺失本地运行 ID 而推断失败；
+- 因时序接近的无关运行而推断成功。
 
-如果无法建立可靠匹配，保持 submission effect 为 unknown，并报告需要操作员审阅。
+若无法建立可靠的匹配，请保持提交效果未知，并汇报需要操作员审阅。
 
-## Receipt 重试清单
+## 回执到重试检查单
 
-在重试之前，请回答：
+在任何重试前，回答：
 
-- 先前的通话是否可能产生远程影响？
-- 它的状态变化是已知的、未改变的、已改变的还是未知的？
-- 输入handle是否被消耗？
-- 耐用的receipt是否命名了安全的下一步行动？
+- 先前的调用是否可能产生远端效果？
+- 其状态变化是已知、未变化、已变化还是未知？
+- 输入句柄是否已被消耗？
+- 持久的回执是否指明了安全下一步动作？
 - 当前目标是否已被实时读取？
-- 重试是否会重复已接受的页面、上传、提交、更改、确认或申请返回？
-- 当前的请求是否仍然授权确切的效果？
+- 重试是否会重复一次已接受的页面、上传、提交、变更、确认或回写？
+- 当前请求是否仍授权该精确效果？
 
-仅当所有相关答案都无法重复时才重试。
+仅当所有相关答案都不可能造成重复时才重试。
 
 ## 状态重建边界
 
 可重建：
 
 - 文献库投影；
-- workflow 目录缓存；
-- 当实际运行 ID 可用时监视运行行；
+- 工作流目录缓存；
+- 在拥有真实运行 ID 时的被关注运行行；
 - 通知投影。
 
-无法根据猜测重建：
+无法从猜测中重建：
 
-- 用户权限；
-- 远程 workflow 提交效果；
-- 消耗handles；
-- Products 或 artifacts 未由其所有者归还；
-- 之前的 Zotero 写入变更；
-- 自有申请返还receipts；
-- 未解决的 native submission effects。
+- 用户授权；
+- 远端工作流提交效果；
+- 已消耗的句柄；
+- 未由其所有者返回的产物或制品；
+- 先前的 Zotero 变更；
+- 自有应用回执；
+- 未解决的原生提交效果。
 
-新的数据库可以改善未来的观察。它无法擦除或证明遥远的历史。
+一份新数据库只能改善未来的观察。它不能抹除或证明远端历史。
 
-## 恢复报告模板
+## 恢复汇报模式
 
-用途：
+使用：
 
-> 在接受完整快照之前索引刷新失败。之前的预测仍然可用，但我将使用当前声明的实时读数。
+> 索引刷新在完整快照被接受前失败。先前投影仍可用，但我将对当前主张使用实时读取。
 
-用途：
+使用：
 
-> native handle 返回后，queued submission response 变得不确定。我已保留 submission 与 unit identities，并关联所有 admitted runs；在原始 projection 对齐之前不会发出 replacement submission。
+> 在原生句柄返回后，排队提交响应变得不确定。我已保留提交与单元身份，关联了任何已接纳运行，并将在原始投影调和前不再发出替换提交。
 
-用途：
+使用：
 
-> 缓存的 workflow 定义可供发现，但实时 describe 已变化，因此必须重新审阅并校验 selection、options、provider profile 和 requested concurrency，才能提交。
+> 缓存的工作流定义可用于发现，但实时描述已变更，因此选择、选项、提供方配置与请求的并发必须在提交前再次审阅并校验。
 
-用途：
+使用：
 
-> 该通知仍未确认，因为其关联操作未成功处理。
+> 由于其关联动作未被成功处理，通知保持未确认状态。
 
 不要使用：
 
-- 丢失提交响应后“什么也没发生”；
-- “安全重试”，无需 receipt 和实时状态检查；
-- 即席 SQL 后“数据库已修复”；
-- 仅从观看的终端状态“workflow 完成”；
-- 对 cached validation 或 resident state 使用“approved submission”；
-- 当仅运行一个通道时，“计划已恢复”。
+- 在丢失的提交响应之后说"什么都没发生"；
+- 没有回执与实时状态检查就说"可安全重试"；
+- 在临时 SQL 之后说"数据库已修复"；
+- 仅从被关注的终态推断说"工作流已完成"；
+- 对缓存校验或常驻状态说"已批准的提交"；
+- 在只跑了一次扫描时说"时刻表已恢复"。

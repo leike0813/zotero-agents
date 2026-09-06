@@ -6,11 +6,9 @@ import type {
   MutationAttemptReport,
   MutationAttemptStatus,
   MutationChangeDto,
-  MutationEntityObservationDto,
   MutationEntityRef,
   MutationExecutionResult,
   MutationPhase,
-  MutationPreviewOperation,
   MutationReceipt,
   MutationRecovery,
   WorkflowCallControl,
@@ -20,12 +18,20 @@ import type {
   WorkflowHostErrorCode,
   WorkflowHostErrorDetailsByCode,
 } from "../workflows/workflowHostErrorContract";
-import { assertWorkflowHostStrictJsonValue } from "../workflows/workflowHostErrorContract";
+import {
+  assertWorkflowHostErrorDetails,
+  assertWorkflowHostStrictJsonValue,
+} from "../workflows/workflowHostErrorContract";
+import {
+  claimPluginMutationAuthorityEntry,
+  clearPluginMutationAuthorityEntriesForTests,
+  expirePluginMutationAuthorityEntryEvidence,
+  getPluginMutationAuthorityEntry,
+  settlePluginMutationAuthorityEntry,
+  type PluginMutationAuthorityEntry,
+} from "./pluginStateStore";
 
-const TERMINAL_RETENTION_MS = 10 * 60 * 1000;
-const PREVIEW_TOKEN_TTL_MS = 15 * 60 * 1000;
-const TERMINAL_RECORD_LIMIT = 4096;
-const TERMINAL_EVIDENCE_BYTES_LIMIT = 256 * 1024 * 1024;
+const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type ZoteroHostMutationCallerScope = Readonly<{
   ownerId: string;
@@ -34,8 +40,6 @@ export type ZoteroHostMutationCallerScope = Readonly<{
 type MutationRuntimeConfiguration = {
   now: () => number;
   randomId: () => string;
-  terminalRecordLimit: number;
-  terminalEvidenceBytesLimit: number;
 };
 
 type MutationTerminalRecord = {
@@ -57,15 +61,6 @@ type MutationRunningRecord = {
 
 type MutationRecord = MutationRunningRecord | MutationTerminalRecord;
 
-type PreviewTokenRecord = {
-  scope: string;
-  operation: MutationPreviewOperation;
-  semanticDigest: string;
-  planDigest: string;
-  observationDigest: string;
-  expiresAt: number;
-};
-
 type ConfirmedMutation<TResult extends object> = {
   outcome: "committed" | "unchanged";
   result: TResult;
@@ -73,6 +68,30 @@ type ConfirmedMutation<TResult extends object> = {
 };
 
 export type MutationExecutionContext = WorkflowCallControl;
+
+export type MutationOperationObservation =
+  | Readonly<{ state: "running" }>
+  | Readonly<{ state: "settled"; result: MutationExecutionResult<object> }>
+  | Readonly<{ state: "unavailable" }>;
+
+export type MutationReplayLookup<TResult extends object> =
+  | Readonly<{ state: "missing" }>
+  | Readonly<{ state: "settled"; result: MutationExecutionResult<TResult> }>
+  | Readonly<{ state: "unavailable" }>;
+
+/**
+ * Private adapter lookup for stored-file writes before the adapter resolves a
+ * local path or resource. This is deliberately separate from the public
+ * operation observation: the content manifest is trusted in-process evidence,
+ * never a Bridge, Workflow, or transport DTO.
+ */
+export type TrustedStoredAttachmentMutationLookup<TResult extends object> =
+  | Readonly<{ state: "missing" }>
+  | Readonly<{ state: "settled"; result: MutationExecutionResult<TResult> }>
+  | Readonly<{
+      state: "tombstone";
+      result: MutationExecutionResult<TResult>;
+    }>;
 
 export class MutationAuthorityAdmissionError<
   Code extends WorkflowHostErrorCode = WorkflowHostErrorCode,
@@ -112,13 +131,10 @@ const defaultRuntimeConfiguration = (): MutationRuntimeConfiguration => ({
       .crypto;
     return crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
   },
-  terminalRecordLimit: TERMINAL_RECORD_LIMIT,
-  terminalEvidenceBytesLimit: TERMINAL_EVIDENCE_BYTES_LIMIT,
 });
 
 let runtimeConfiguration = defaultRuntimeConfiguration();
 const mutationRecords = new Map<string, MutationRecord>();
-const previewTokens = new Map<string, PreviewTokenRecord>();
 const pinnedMutationReceipts = new Map<string, number>();
 
 function requireScope(scope: ZoteroHostMutationCallerScope) {
@@ -145,8 +161,29 @@ function requireOperationId(operationId: unknown) {
   return normalized;
 }
 
-function canonicalDigest(value: JsonValue) {
+function assertAuthorityStrictJsonValue(
+  value: unknown,
+): asserts value is JsonValue {
   assertWorkflowHostStrictJsonValue(value);
+  const visit = (candidate: JsonValue) => {
+    if (Array.isArray(candidate)) {
+      candidate.forEach(visit);
+      return;
+    }
+    if (candidate && typeof candidate === "object") {
+      if (!isPlainObject(candidate)) {
+        throw new TypeError(
+          "Mutation authority evidence must not contain class instances",
+        );
+      }
+      Object.values(candidate).forEach(visit);
+    }
+  };
+  visit(value);
+}
+
+function canonicalDigest(value: JsonValue) {
+  assertAuthorityStrictJsonValue(value);
   return hashSynthesisContractCanonicalJson(value);
 }
 
@@ -157,13 +194,13 @@ function canonicalSemanticValue(value: JsonValue): JsonValue {
   if (!value || typeof value !== "object") return value;
   const normalized: Record<string, JsonValue> = {};
   for (const key of Object.keys(value).sort()) {
-    if (key === "previewToken") continue;
     normalized[key] = canonicalSemanticValue(value[key]);
   }
   return normalized;
 }
 
 export function canonicalMutationDigest(value: JsonValue) {
+  assertAuthorityStrictJsonValue(value);
   return canonicalDigest(canonicalSemanticValue(value));
 }
 
@@ -171,10 +208,113 @@ function recordKey(scope: string, operationId: string) {
   return `${scope}\n${operationId}`;
 }
 
-function pruneExpiredPreviewTokens(now: number) {
-  for (const [token, record] of previewTokens) {
-    if (record.expiresAt <= now) previewTokens.delete(token);
+function idempotencyConflict() {
+  return new MutationAuthorityAdmissionError(
+    "conflict",
+    { reason: "idempotency_conflict" },
+    "operationId is already bound to different semantic input",
+  );
+}
+
+function assertEntryBinding(args: {
+  entry: PluginMutationAuthorityEntry;
+  operation: WorkflowHostMutationReceiptOperation;
+  digest: string;
+}) {
+  if (
+    args.entry.operation !== args.operation ||
+    args.entry.semanticDigest !== args.digest
+  ) {
+    throw idempotencyConflict();
   }
+}
+
+function parseStoredResult(
+  entry: PluginMutationAuthorityEntry,
+): MutationExecutionResult<object> {
+  if (!entry.result) {
+    throw new Error("plugin_mutation_authority_terminal_evidence_missing");
+  }
+  const result = JSON.parse(entry.result) as MutationExecutionResult<object>;
+  assertAuthorityStrictJsonValue(result);
+  return result;
+}
+
+function parseStoredSemanticInput(entry: PluginMutationAuthorityEntry) {
+  let semanticInput: unknown;
+  try {
+    semanticInput = JSON.parse(entry.semanticInput);
+  } catch {
+    throw new Error("plugin_mutation_authority_semantic_input_invalid");
+  }
+  assertAuthorityStrictJsonValue(semanticInput);
+  return semanticInput;
+}
+
+function assertStoredAttachmentContentIdentity(semanticInput: JsonValue) {
+  if (!isPlainObject(semanticInput)) throw idempotencyConflict();
+  const source = semanticInput.source;
+  if (!isPlainObject(source) || source.kind !== "stored_file") {
+    throw idempotencyConflict();
+  }
+  const content = source.content;
+  if (!isPlainObject(content)) throw idempotencyConflict();
+  if (
+    content.schema !== "zotero-agents.attachment-content.v1" ||
+    typeof content.identity !== "string" ||
+    !content.identity ||
+    !isStoredAttachmentContentEntry(content.main) ||
+    !Array.isArray(content.companions) ||
+    !content.companions.every(isStoredAttachmentContentEntry)
+  ) {
+    throw idempotencyConflict();
+  }
+}
+
+function isStoredAttachmentContentEntry(value: unknown) {
+  return (
+    isPlainObject(value) &&
+    hasExactKeys(value, ["relativePath", "sizeBytes", "sha256"]) &&
+    typeof value.relativePath === "string" &&
+    value.relativePath.length > 0 &&
+    typeof value.sizeBytes === "number" &&
+    Number.isSafeInteger(value.sizeBytes) &&
+    value.sizeBytes >= 0 &&
+    typeof value.sha256 === "string" &&
+    value.sha256.length > 0
+  );
+}
+
+function storedAttachmentNonResourceSemanticInput(value: JsonValue): JsonValue {
+  if (!isPlainObject(value)) throw idempotencyConflict();
+  const source = value.source;
+  if (!isPlainObject(source) || source.kind !== "stored_file") {
+    throw idempotencyConflict();
+  }
+  const normalizedSource: Record<string, JsonValue> = {};
+  for (const key of Object.keys(source).sort()) {
+    if (key === "content") continue;
+    normalizedSource[key] = canonicalSemanticValue(source[key] as JsonValue);
+  }
+  const normalized: Record<string, JsonValue> = {};
+  for (const key of Object.keys(value).sort()) {
+    normalized[key] =
+      key === "source"
+        ? normalizedSource
+        : canonicalSemanticValue(value[key] as JsonValue);
+  }
+  return normalized;
+}
+
+function isExpirableTerminal(result: MutationExecutionResult<object>) {
+  return result.outcome !== "unknown" && result.outcome !== "repair_required";
+}
+
+function terminalExpired(entry: PluginMutationAuthorityEntry, now: number) {
+  const terminalAt = Date.parse(entry.terminalAt);
+  return (
+    Number.isFinite(terminalAt) && now - terminalAt >= TERMINAL_RETENTION_MS
+  );
 }
 
 function terminalRecords() {
@@ -200,35 +340,10 @@ function pruneTerminalRecords(now: number) {
   }
 }
 
-function ensureReservationCapacity(now: number) {
-  pruneTerminalRecords(now);
-  const terminals = terminalRecords();
-  const protectedTerminals = terminals.filter(
-    ([, record]) => now - record.terminalAt < TERMINAL_RETENTION_MS,
-  );
-  const protectedBytes = protectedTerminals.reduce(
-    (sum, [, record]) => sum + record.serializedBytes,
-    0,
-  );
-  if (
-    protectedTerminals.length >= runtimeConfiguration.terminalRecordLimit ||
-    protectedBytes >= runtimeConfiguration.terminalEvidenceBytesLimit
-  ) {
-    throw new MutationAuthorityAdmissionError(
-      "resource_limited",
-      {
-        resource: "entries",
-        limit: runtimeConfiguration.terminalRecordLimit,
-        observed: protectedTerminals.length,
-      },
-      "The process-local mutation replay registry is full",
-    );
-  }
-}
-
 function asAttemptError(
   error: MutationAuthorityExecutionError,
 ): MutationAttemptError {
+  assertWorkflowHostErrorDetails(error.code, error.details);
   return {
     code: error.code,
     phase: error.phase,
@@ -238,36 +353,117 @@ function asAttemptError(
   } as MutationAttemptError;
 }
 
-function attemptFromError(
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: string[]) {
+  return (
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+  );
+}
+
+function isPortableMutationRef(value: unknown) {
+  if (!isPlainObject(value) || !hasExactKeys(value, ["libraryId", "key"])) {
+    return false;
+  }
+  const libraryId = value.libraryId;
+  const key = value.key;
+  return (
+    typeof libraryId === "number" &&
+    Number.isSafeInteger(libraryId) &&
+    libraryId > 0 &&
+    typeof key === "string" &&
+    key.length > 0 &&
+    key.length <= 128
+  );
+}
+
+function hasSafeMutationEntityRefs(
+  value: unknown,
+): value is MutationEntityRef[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        isPlainObject(entry) &&
+        hasExactKeys(entry, ["kind", "ref"]) &&
+        (entry.kind === "item" || entry.kind === "collection") &&
+        isPortableMutationRef(entry.ref),
+    )
+  );
+}
+
+function isSafeMutationAttemptError(
+  error: unknown,
+): error is MutationAuthorityExecutionError {
+  if (!(error instanceof MutationAuthorityExecutionError)) return false;
+  try {
+    assertWorkflowHostErrorDetails(error.code, error.details);
+    return (
+      isPlainObject(error.details) &&
+      hasSafeMutationEntityRefs(error.affectedRefs) &&
+      hasSafeMutationEntityRefs(error.residualRefs)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function publicMutationAttemptMessage(message: string) {
+  const normalized = Array.from(String(message || ""), (character) => {
+    const codePoint = character.codePointAt(0) || 0;
+    return codePoint <= 0x1f || codePoint === 0x7f ? " " : character;
+  })
+    .join("")
+    .trim();
+  if (
+    /(?:\b(?:native|ns_error|moz_storage|sqlite|component returned|errno)\b|0x[0-9a-f]{4,}|(?:[a-z]:[\\/]|file:|\/)[^\s]+)/i.test(
+      normalized,
+    )
+  ) {
+    return "Mutation execution failed";
+  }
+  return normalized.slice(0, 512) || "Mutation execution failed";
+}
+
+function attemptFromError<TResult extends object = JsonObject>(
   error: unknown,
   operationId: string,
   operation: WorkflowHostMutationReceiptOperation,
-): MutationExecutionResult<JsonObject> {
-  const normalized =
-    error instanceof MutationAuthorityExecutionError
-      ? error
-      : new MutationAuthorityExecutionError(
-          "failed",
-          "execution_failed",
-          "commit",
-          "retry_same_operation",
-          {
-            phase: "commit",
-            recovery: "retry_same_operation",
-          },
-          error instanceof Error ? error.message : "Mutation execution failed",
-        );
+): MutationExecutionResult<TResult> {
+  const normalized = isSafeMutationAttemptError(error)
+    ? error
+    : new MutationAuthorityExecutionError(
+        "failed",
+        "execution_failed",
+        "commit",
+        "refresh_and_retry_new_operation",
+        {
+          phase: "commit",
+          recovery: "refresh_and_retry_new_operation",
+        },
+        "Mutation execution failed",
+      );
   const attempt: MutationAttemptReport = {
     schema: "zotero-agents.mutation-attempt.v1",
     attemptId: runtimeConfiguration.randomId(),
     operationId,
     operation,
     status: normalized.status,
-    error: asAttemptError(normalized),
+    error: {
+      ...asAttemptError(normalized),
+      message: publicMutationAttemptMessage(normalized.message),
+    },
     affectedRefs: normalized.affectedRefs,
     residualRefs: normalized.residualRefs,
   };
-  assertWorkflowHostStrictJsonValue(attempt as unknown as JsonValue);
+  assertAuthorityStrictJsonValue(attempt);
   return { outcome: normalized.status, attempt };
 }
 
@@ -299,13 +495,244 @@ function confirmedResult<TResult extends object>(
     receipt,
     result: confirmed.result,
   };
-  assertWorkflowHostStrictJsonValue(result as unknown as JsonValue);
+  assertAuthorityStrictJsonValue(result);
   return result;
 }
 
-function isRetriableFailedTerminal(result: MutationExecutionResult<object>) {
-  if (result.outcome !== "failed" || !("attempt" in result)) return false;
-  return result.attempt.error.recovery === "retry_same_operation";
+type DurableMutationResolution =
+  | { state: "missing" }
+  | { state: "running"; promise: Promise<MutationExecutionResult<object>> }
+  | { state: "settled"; result: MutationExecutionResult<object> }
+  | { state: "unavailable" };
+
+function interruptedResult(entry: PluginMutationAuthorityEntry) {
+  return attemptFromError(
+    new MutationAuthorityExecutionError(
+      "unknown",
+      "execution_failed",
+      "verification",
+      "reconcile",
+      { phase: "verification", recovery: "reconcile" },
+      "Mutation execution was interrupted before terminal evidence was stored",
+    ),
+    entry.operationId,
+    entry.operation as WorkflowHostMutationReceiptOperation,
+  );
+}
+
+function resolveDurableMutation(args: {
+  scope: string;
+  operationId: string;
+  operation?: WorkflowHostMutationReceiptOperation;
+  digest?: string;
+}): DurableMutationResolution {
+  const entry = getPluginMutationAuthorityEntry(args.scope, args.operationId);
+  if (!entry) return { state: "missing" };
+  if (args.operation && args.digest) {
+    assertEntryBinding({
+      entry,
+      operation: args.operation,
+      digest: args.digest,
+    });
+  }
+  if (entry.state === "identity_only") return { state: "unavailable" };
+  if (entry.state === "started") {
+    const live = mutationRecords.get(recordKey(args.scope, args.operationId));
+    if (live?.state === "running") {
+      return { state: "running", promise: live.promise };
+    }
+    const result = interruptedResult(entry);
+    settlePluginMutationAuthorityEntry({
+      scope: args.scope,
+      operationId: args.operationId,
+      result: JSON.stringify(result),
+      terminalAt: new Date(runtimeConfiguration.now()).toISOString(),
+      lastAccessedAt: new Date(runtimeConfiguration.now()).toISOString(),
+    });
+    return {
+      state: "settled",
+      result,
+    };
+  }
+  const result = parseStoredResult(entry);
+  if (
+    isExpirableTerminal(result) &&
+    terminalExpired(entry, runtimeConfiguration.now())
+  ) {
+    expirePluginMutationAuthorityEntryEvidence({
+      scope: args.scope,
+      operationId: args.operationId,
+      lastAccessedAt: new Date(runtimeConfiguration.now()).toISOString(),
+    });
+    return { state: "unavailable" };
+  }
+  return { state: "settled", result };
+}
+
+export function getMutationOperation(args: {
+  scope: ZoteroHostMutationCallerScope;
+  operationId: string;
+}): MutationOperationObservation {
+  const scope = requireScope(args.scope);
+  const operationId = requireOperationId(args.operationId);
+  const resolved = resolveDurableMutation({ scope, operationId });
+  if (resolved.state === "running") return { state: "running" };
+  if (resolved.state === "settled") {
+    return { state: "settled", result: resolved.result };
+  }
+  return { state: "unavailable" };
+}
+
+/**
+ * Use this before resolving a local path or resource. When the caller already
+ * has a canonical content manifest, completeSemanticInput makes this lookup
+ * validate the complete durable binding before returning a result.
+ */
+export async function lookupTrustedStoredAttachmentMutation<
+  TResult extends object,
+>(args: {
+  scope: ZoteroHostMutationCallerScope;
+  operationId: string;
+  operation: WorkflowHostMutationReceiptOperation;
+  nonResourceSemanticInput: JsonValue;
+  completeSemanticInput?: JsonValue;
+}): Promise<TrustedStoredAttachmentMutationLookup<TResult>> {
+  const scope = requireScope(args.scope);
+  const operationId = requireOperationId(args.operationId);
+  const entry = getPluginMutationAuthorityEntry(scope, operationId);
+  if (!entry) return { state: "missing" };
+  if (entry.operation !== args.operation) throw idempotencyConflict();
+
+  const storedSemanticInput = parseStoredSemanticInput(entry);
+  assertStoredAttachmentContentIdentity(storedSemanticInput);
+  const storedNonResource =
+    storedAttachmentNonResourceSemanticInput(storedSemanticInput);
+  const requestedNonResource = storedAttachmentNonResourceSemanticInput(
+    args.nonResourceSemanticInput,
+  );
+  if (
+    canonicalMutationDigest(storedNonResource) !==
+    canonicalMutationDigest(requestedNonResource)
+  ) {
+    throw idempotencyConflict();
+  }
+  if (args.completeSemanticInput !== undefined) {
+    const completeNonResource = storedAttachmentNonResourceSemanticInput(
+      args.completeSemanticInput,
+    );
+    if (
+      canonicalMutationDigest(completeNonResource) !==
+      canonicalMutationDigest(requestedNonResource)
+    ) {
+      throw idempotencyConflict();
+    }
+    assertEntryBinding({
+      entry,
+      operation: args.operation,
+      digest: canonicalMutationDigest(args.completeSemanticInput),
+    });
+  }
+
+  const resolved = resolveDurableMutation({ scope, operationId });
+  if (resolved.state === "running") {
+    return {
+      state: "settled",
+      result: (await resolved.promise) as MutationExecutionResult<TResult>,
+    };
+  }
+  if (resolved.state === "settled") {
+    return {
+      state: "settled",
+      result: resolved.result as MutationExecutionResult<TResult>,
+    };
+  }
+  return {
+    state: "tombstone",
+    result: outcomeUnavailableResult<TResult>(operationId, args.operation),
+  };
+}
+
+export async function lookupReservedMutation<TResult extends object>(args: {
+  scope: ZoteroHostMutationCallerScope;
+  operationId: string;
+  operation: WorkflowHostMutationReceiptOperation;
+  semanticInput: JsonValue;
+}): Promise<MutationReplayLookup<TResult>> {
+  const scope = requireScope(args.scope);
+  const operationId = requireOperationId(args.operationId);
+  const resolved = resolveDurableMutation({
+    scope,
+    operationId,
+    operation: args.operation,
+    digest: canonicalMutationDigest(args.semanticInput),
+  });
+  if (resolved.state === "running") {
+    return {
+      state: "settled",
+      result: (await resolved.promise) as MutationExecutionResult<TResult>,
+    };
+  }
+  if (resolved.state === "settled") {
+    return {
+      state: "settled",
+      result: resolved.result as MutationExecutionResult<TResult>,
+    };
+  }
+  return resolved;
+}
+
+function evidencePersistenceUnknown(
+  operationId: string,
+  operation: WorkflowHostMutationReceiptOperation,
+) {
+  return attemptFromError(
+    new MutationAuthorityExecutionError(
+      "unknown",
+      "execution_failed",
+      "verification",
+      "reconcile",
+      { phase: "verification", recovery: "reconcile" },
+      "Mutation terminal evidence could not be persisted",
+    ),
+    operationId,
+    operation,
+  );
+}
+
+function confirmedResultUnknown(
+  operationId: string,
+  operation: WorkflowHostMutationReceiptOperation,
+) {
+  return attemptFromError(
+    new MutationAuthorityExecutionError(
+      "unknown",
+      "execution_failed",
+      "verification",
+      "reconcile",
+      { phase: "verification", recovery: "reconcile" },
+      "Mutation effect completed but its result evidence is invalid",
+    ),
+    operationId,
+    operation,
+  );
+}
+
+function outcomeUnavailableResult<TResult extends object>(
+  operationId: string,
+  operation: WorkflowHostMutationReceiptOperation,
+): MutationExecutionResult<TResult> {
+  return attemptFromError<TResult>(
+    new MutationAuthorityExecutionError(
+      "failed",
+      "unavailable",
+      "reservation",
+      "none",
+      { reason: "outcome_unavailable" },
+      "Mutation outcome evidence is no longer available",
+    ),
+    operationId,
+    operation,
+  );
 }
 
 export async function executeReservedMutation<TResult extends object>(args: {
@@ -314,36 +741,44 @@ export async function executeReservedMutation<TResult extends object>(args: {
   operation: WorkflowHostMutationReceiptOperation;
   semanticInput: JsonValue;
   control?: MutationExecutionContext;
+  preflight?: () => Promise<void>;
   execute: () => Promise<ConfirmedMutation<TResult>>;
 }): Promise<MutationExecutionResult<TResult>> {
   const scope = requireScope(args.scope);
   const operationId = requireOperationId(args.operationId);
   const digest = canonicalMutationDigest(args.semanticInput);
   const key = recordKey(scope, operationId);
-  const now = runtimeConfiguration.now();
-  const existing = mutationRecords.get(key);
-  if (existing) {
-    if (existing.digest !== digest) {
-      throw new MutationAuthorityAdmissionError(
-        "conflict",
-        { reason: "idempotency_conflict" },
-        "operationId is already bound to different semantic input",
-      );
-    }
-    if (existing.state === "running") {
-      return existing.promise as Promise<MutationExecutionResult<TResult>>;
-    }
-    // A confirmed failure whose recovery contract is retry_same_operation is
-    // not replayed: the retried call forms a successor attempt under the same
-    // operation identity instead of returning the stale failure snapshot.
-    if (isRetriableFailedTerminal(existing.result)) {
-      mutationRecords.delete(key);
-    } else {
-      existing.lastAccessedAt = now;
-      return existing.result as MutationExecutionResult<TResult>;
-    }
+  const replay = await lookupReservedMutation<TResult>(args);
+  if (replay.state === "settled") return replay.result;
+  if (replay.state === "unavailable") {
+    return outcomeUnavailableResult<TResult>(operationId, args.operation);
   }
-  ensureReservationCapacity(now);
+  await args.preflight?.();
+
+  const now = runtimeConfiguration.now();
+  const admitted = claimPluginMutationAuthorityEntry({
+    scope,
+    operationId,
+    operation: args.operation,
+    semanticDigest: digest,
+    semanticInput: JSON.stringify(canonicalSemanticValue(args.semanticInput)),
+    state: "started",
+    result: "",
+    createdAt: new Date(now).toISOString(),
+    terminalAt: "",
+    lastAccessedAt: new Date(now).toISOString(),
+  });
+  if (!admitted.claimed) {
+    assertEntryBinding({
+      entry: admitted.entry,
+      operation: args.operation,
+      digest,
+    });
+    const winner = await lookupReservedMutation<TResult>(args);
+    if (winner.state === "settled") return winner.result;
+    return outcomeUnavailableResult<TResult>(operationId, args.operation);
+  }
+
   let resolveResult!: (result: MutationExecutionResult<object>) => void;
   const promise = new Promise<MutationExecutionResult<object>>((resolve) => {
     resolveResult = resolve;
@@ -379,26 +814,54 @@ export async function executeReservedMutation<TResult extends object>(args: {
         confirmed.changes.map((change) => change.entity),
       );
     }
-    terminal = confirmedResult(
-      operationId,
-      args.operation,
-      args.semanticInput,
-      confirmed,
-    ) as MutationExecutionResult<object>;
+    try {
+      terminal = confirmedResult(
+        operationId,
+        args.operation,
+        args.semanticInput,
+        confirmed,
+      ) as MutationExecutionResult<object>;
+    } catch {
+      terminal = confirmedResultUnknown(operationId, args.operation);
+    }
   } catch (error) {
     terminal = attemptFromError(error, operationId, args.operation);
   }
+
   const terminalAt = runtimeConfiguration.now();
-  const serializedBytes = JSON.stringify(terminal).length;
+  try {
+    settlePluginMutationAuthorityEntry({
+      scope,
+      operationId,
+      result: JSON.stringify(terminal),
+      terminalAt: new Date(terminalAt).toISOString(),
+      lastAccessedAt: new Date(terminalAt).toISOString(),
+    });
+  } catch {
+    terminal = evidencePersistenceUnknown(operationId, args.operation);
+    try {
+      settlePluginMutationAuthorityEntry({
+        scope,
+        operationId,
+        result: JSON.stringify(terminal),
+        terminalAt: new Date(terminalAt).toISOString(),
+        lastAccessedAt: new Date(terminalAt).toISOString(),
+        overwriteTerminal: true,
+      });
+    } catch {
+      // The durable started record reconciles to unknown after restart.
+    }
+  }
   mutationRecords.set(key, {
     state: "terminal",
     digest,
     result: terminal,
     terminalAt,
     lastAccessedAt: terminalAt,
-    serializedBytes,
+    serializedBytes: JSON.stringify(terminal).length,
     semanticInput: canonicalSemanticValue(args.semanticInput),
   });
+  pruneTerminalRecords(terminalAt);
   resolveResult(terminal);
   return terminal as MutationExecutionResult<TResult>;
 }
@@ -412,7 +875,7 @@ export type PinnedMutationReceiptEvidence = Readonly<{
 export function pinVerifiedMutationReceipt(
   receipt: MutationReceipt,
 ): PinnedMutationReceiptEvidence | null {
-  assertWorkflowHostStrictJsonValue(receipt as unknown as JsonValue);
+  assertAuthorityStrictJsonValue(receipt);
   for (const [, record] of terminalRecords()) {
     if (
       record.result.outcome !== "committed" &&
@@ -448,99 +911,19 @@ export function pinVerifiedMutationReceipt(
   return null;
 }
 
-export function issueMutationPreviewToken(args: {
-  scope: ZoteroHostMutationCallerScope;
-  operation: MutationPreviewOperation;
-  semanticInput: JsonValue;
-  plan: JsonObject;
-  observations: MutationEntityObservationDto[];
-}) {
-  const scope = requireScope(args.scope);
-  const now = runtimeConfiguration.now();
-  pruneExpiredPreviewTokens(now);
-  const token = runtimeConfiguration.randomId();
-  const expiresAt = now + PREVIEW_TOKEN_TTL_MS;
-  previewTokens.set(token, {
-    scope,
-    operation: args.operation,
-    semanticDigest: canonicalMutationDigest(args.semanticInput),
-    planDigest: canonicalDigest(args.plan),
-    observationDigest: canonicalDigest(
-      args.observations as unknown as JsonValue,
-    ),
-    expiresAt,
-  });
-  return { value: token, expiresAt: new Date(expiresAt).toISOString() };
-}
-
-export function validateMutationPreviewToken(args: {
-  scope: ZoteroHostMutationCallerScope;
-  token: string;
-  operation: MutationPreviewOperation;
-  semanticInput: JsonValue;
-  plan: JsonObject;
-  observations: MutationEntityObservationDto[];
-}) {
-  const scope = requireScope(args.scope);
-  const now = runtimeConfiguration.now();
-  const record = previewTokens.get(String(args.token || ""));
-  if (!record) {
-    throw new MutationAuthorityExecutionError(
-      "failed",
-      "invalid_ref",
-      "read",
-      "refresh_and_retry_new_operation",
-      { kind: "item", reason: "forged" },
-      "The mutation preview token is invalid",
-    );
-  }
-  if (record.expiresAt <= now) {
-    previewTokens.delete(args.token);
-    throw new MutationAuthorityExecutionError(
-      "failed",
-      "invalid_ref",
-      "read",
-      "refresh_and_retry_new_operation",
-      { kind: "item", reason: "expired" },
-      "The mutation preview token has expired",
-    );
-  }
-  const semanticDigest = canonicalMutationDigest(args.semanticInput);
-  const planDigest = canonicalDigest(args.plan);
-  const observationDigest = canonicalDigest(
-    args.observations as unknown as JsonValue,
-  );
-  if (
-    record.scope !== scope ||
-    record.operation !== args.operation ||
-    record.semanticDigest !== semanticDigest ||
-    record.planDigest !== planDigest ||
-    record.observationDigest !== observationDigest
-  ) {
-    throw new MutationAuthorityExecutionError(
-      "failed",
-      "conflict",
-      "read",
-      "refresh_and_retry_new_operation",
-      { reason: "revision_mismatch" },
-      "The current mutation plan no longer matches the preview evidence",
-    );
-  }
-}
-
-export function discardMutationPreviewToken(token: string) {
-  previewTokens.delete(String(token || ""));
-}
-
 export function configureMutationAuthorityRuntimeForTests(
   configuration: Partial<MutationRuntimeConfiguration>,
 ) {
   runtimeConfiguration = { ...runtimeConfiguration, ...configuration };
 }
 
-export function resetMutationAuthorityRuntimeForTests() {
+export function resetMutationAuthorityLiveStateForTests() {
   mutationRecords.clear();
-  previewTokens.clear();
   pinnedMutationReceipts.clear();
+}
+
+export function resetMutationAuthorityRuntimeForTests() {
+  resetMutationAuthorityLiveStateForTests();
+  clearPluginMutationAuthorityEntriesForTests();
   runtimeConfiguration = defaultRuntimeConfiguration();
 }

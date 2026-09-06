@@ -130,6 +130,46 @@ function cloneSchema<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function pruneSchemaDefinitions(schema: Record<string, any>) {
+  const definitions = schema.$defs;
+  if (!definitions || typeof definitions !== "object") return schema;
+  const kept = new Set<string>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    for (const [key, entry] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      if (key === "$defs") continue;
+      if (
+        key === "$ref" &&
+        typeof entry === "string" &&
+        entry.startsWith("#/$defs/")
+      ) {
+        const name = entry
+          .slice(8)
+          .split("/")[0]
+          .replaceAll("~1", "/")
+          .replaceAll("~0", "~");
+        if (!kept.has(name)) {
+          kept.add(name);
+          visit(definitions[name]);
+        }
+      } else {
+        visit(entry);
+      }
+    }
+  };
+  visit(schema);
+  schema.$defs = Object.fromEntries(
+    [...kept].map((name) => [name, definitions[name]]),
+  );
+  return schema;
+}
+
 function schemaAcceptsConstant(
   property: Record<string, any>,
   constant: unknown,
@@ -147,16 +187,19 @@ function specializePayloadSchema(
 ) {
   const operation = entry.composition?.constants.operation;
   if (operation === undefined || !Array.isArray(source.oneOf)) {
-    return cloneSchema(source);
+    return pruneSchemaDefinitions(cloneSchema(source));
   }
   const selected = source.oneOf.find((branch: Record<string, any>) =>
     schemaAcceptsConstant(branch.properties?.operation || {}, operation),
   );
-  if (!selected) return cloneSchema(source);
+  if (!selected) return pruneSchemaDefinitions(cloneSchema(source));
   const specialized = cloneSchema(selected);
   specialized.properties.operation = { const: operation };
   if (source.$defs) specialized.$defs = cloneSchema(source.$defs);
-  return specialized;
+  if (source.unevaluatedProperties === false) {
+    specialized.unevaluatedProperties = false;
+  }
+  return pruneSchemaDefinitions(specialized);
 }
 
 function stripComposedFields(schema: Record<string, any>, fields: Set<string>) {
@@ -190,12 +233,14 @@ function compositionInputSchema(
     throw new Error(`${command}:${argumentId} has no executable composition`);
   }
   if (composition.base?.argument === argumentId) {
-    return stripComposedFields(
-      cloneSchema(payloadSchema),
-      new Set([
-        ...Object.keys(composition.constants),
-        ...composition.mappings.map((mapping) => mapping.field),
-      ]),
+    return pruneSchemaDefinitions(
+      stripComposedFields(
+        cloneSchema(payloadSchema),
+        new Set([
+          ...Object.keys(composition.constants),
+          ...composition.mappings.map((mapping) => mapping.field),
+        ]),
+      ),
     );
   }
   const mapping = composition.mappings.find(
@@ -213,7 +258,7 @@ function compositionInputSchema(
   }
   const resolved = cloneSchema(fieldSchema);
   if (payloadSchema.$defs) resolved.$defs = cloneSchema(payloadSchema.$defs);
-  return resolved;
+  return pruneSchemaDefinitions(resolved);
 }
 
 function loadValidatedContract<T>(

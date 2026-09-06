@@ -1,6 +1,6 @@
 ---
 name: zotero-literature-analysis
-description: Analyze bounded Zotero literature and attachments with traceable source evidence. Use when a user needs a paper digest, comparison, extraction, or structured interpretation from current library material.
+description: 分析有限范围的 Zotero 文献与附件，提供可追溯的源证据。当用户需要从当前文献库材料获取论文摘要、对比、抽取或结构化解读时使用。
 ---
 
 # Zotero Literature Analysis
@@ -167,7 +167,7 @@ The LLM owns the analytical lens, comparison model, evidence sufficiency, source
 
 Return one business JSON object matching `assets/output.schema.json`.
 
-必填：
+Required:
 
 - `schema`: `zotero-library-task.result.v1`.
 - `status`: `completed`, `canceled`, or `failed`.

@@ -121,7 +121,13 @@ export type WorkflowHostErrorDetailsByCode = {
     kind?: WorkflowHostTargetKind;
   };
   unavailable: {
-    reason: "runtime" | "capability" | "filesystem" | "navigation" | "adapter";
+    reason:
+      | "runtime"
+      | "capability"
+      | "filesystem"
+      | "navigation"
+      | "adapter"
+      | "outcome_unavailable";
     kind?: WorkflowHostTargetKind;
   };
   canceled: {
@@ -275,6 +281,7 @@ const ENUMS = {
     "filesystem",
     "navigation",
     "adapter",
+    "outcome_unavailable",
   ]),
   canceledReason: new Set(["caller_signal", "host_shutdown"]),
   phase: new Set([

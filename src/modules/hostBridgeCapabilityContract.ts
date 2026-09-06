@@ -4,6 +4,14 @@ import Ajv2020, {
 } from "ajv/dist/2020";
 import capabilityContractJson from "../../host-bridge/contracts/capabilities.v2.json";
 import capabilityContractSchema from "../../schemas/host-bridge-capabilities.v2.schema.json";
+import {
+  MUTATION_EXECUTE_INPUT_SCHEMA,
+  MUTATION_EXECUTE_OUTPUT_SCHEMA,
+  MUTATION_GET_OPERATION_INPUT_SCHEMA,
+  MUTATION_GET_OPERATION_OUTPUT_SCHEMA,
+  MUTATION_PREVIEW_INPUT_SCHEMA,
+  MUTATION_PREVIEW_OUTPUT_SCHEMA,
+} from "../schemas/zoteroHostMutationSchemas";
 import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityCategory,
@@ -77,6 +85,25 @@ for (const [name, entry] of Object.entries(contract.capabilities)) {
   inputValidators.set(name, ajv.compile(entry.inputSchema));
   outputValidators.set(name, ajv.compile(entry.outputSchema));
 }
+
+const mutationExecuteInputValidator = ajv.compile(
+  MUTATION_EXECUTE_INPUT_SCHEMA,
+);
+const mutationExecuteOutputValidator = ajv.compile(
+  MUTATION_EXECUTE_OUTPUT_SCHEMA,
+);
+const mutationPreviewInputValidator = ajv.compile(
+  MUTATION_PREVIEW_INPUT_SCHEMA,
+);
+const mutationPreviewOutputValidator = ajv.compile(
+  MUTATION_PREVIEW_OUTPUT_SCHEMA,
+);
+const mutationGetOperationInputValidator = ajv.compile(
+  MUTATION_GET_OPERATION_INPUT_SCHEMA,
+);
+const mutationGetOperationOutputValidator = ajv.compile(
+  MUTATION_GET_OPERATION_OUTPUT_SCHEMA,
+);
 
 function valueType(value: unknown) {
   if (value === null) return "null";
@@ -195,6 +222,54 @@ export function validateHostBridgeCapabilityOutput(
   return entry
     ? validate(outputValidators.get(name), value ?? null, entry.outputSchema)
     : [{ reason: "capability_not_registered" }];
+}
+
+export function validateHostBridgeMutationExecuteInput(value: unknown) {
+  return validate(
+    mutationExecuteInputValidator,
+    value ?? {},
+    MUTATION_EXECUTE_INPUT_SCHEMA,
+  );
+}
+
+export function validateHostBridgeMutationExecuteOutput(value: unknown) {
+  return validate(
+    mutationExecuteOutputValidator,
+    value ?? null,
+    MUTATION_EXECUTE_OUTPUT_SCHEMA,
+  );
+}
+
+export function validateHostBridgeMutationPreviewInput(value: unknown) {
+  return validate(
+    mutationPreviewInputValidator,
+    value ?? {},
+    MUTATION_PREVIEW_INPUT_SCHEMA,
+  );
+}
+
+export function validateHostBridgeMutationPreviewOutput(value: unknown) {
+  return validate(
+    mutationPreviewOutputValidator,
+    value ?? null,
+    MUTATION_PREVIEW_OUTPUT_SCHEMA,
+  );
+}
+
+export function validateHostBridgeMutationGetOperationInput(value: unknown) {
+  return validate(
+    mutationGetOperationInputValidator,
+    value ?? {},
+    MUTATION_GET_OPERATION_INPUT_SCHEMA,
+  );
+}
+
+export function validateHostBridgeMutationGetOperationOutput(value: unknown) {
+  return validate(
+    mutationGetOperationOutputValidator,
+    value ?? null,
+    MUTATION_GET_OPERATION_OUTPUT_SCHEMA,
+  );
 }
 
 export const HOST_BRIDGE_CAPABILITY_CONTRACT_SCHEMA = contract.schema;

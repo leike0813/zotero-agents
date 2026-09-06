@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import { getSelectedImportCandidateForKind } from "../../workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   buildSelectionContext,

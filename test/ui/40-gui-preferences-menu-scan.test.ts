@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { readFile } from "fs/promises";
 import { config } from "../../package.json";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { registerPrefsScripts } from "../../src/modules/preferenceScript";
 import {
   emitManagedLocalRuntimeStateChangedForTests,

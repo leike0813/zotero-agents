@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import {
   buildSelectionContext,
   itemRef,
@@ -79,10 +79,11 @@ async function listAttachmentPaths(parent: Zotero.Item) {
 }
 
 async function countAttachmentsByPath(parent: Zotero.Item, targetPath: string) {
-  const normalizedTarget = normalizePathForCompare(targetPath);
+  const normalizedTarget = normalizePathForCompare(targetPath).split("/").pop();
   const paths = await listAttachmentPaths(parent);
   return paths.filter(
-    (entry) => normalizePathForCompare(entry) === normalizedTarget,
+    (entry) =>
+      normalizePathForCompare(entry).split("/").pop() === normalizedTarget,
   ).length;
 }
 
@@ -425,6 +426,15 @@ describe("workflow: literature-translator", function () {
     );
     assert.equal(await countAttachmentsByPath(parent, targetPath), 1);
     assert.equal(await countAttachmentsByPath(parent, targetAlignmentPath), 0);
+    const storedMarkdown = (await listAttachmentPaths(parent)).find((path) =>
+      normalizePathForCompare(path).endsWith("/paper_fr-fr.md"),
+    )!;
+    assert.notEqual(storedMarkdown, targetPath);
+    assert.equal(await readUtf8(storedMarkdown), "# Traduction\n");
+    assert.include(
+      await readUtf8(storedMarkdown.replace(/\.md$/i, ".json")),
+      '"target_language":"fr-FR"',
+    );
   });
 
   it("materializes translated artifacts when status is a diagnostic non-success value", async function () {

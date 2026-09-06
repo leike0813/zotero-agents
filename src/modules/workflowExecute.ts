@@ -98,7 +98,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
   >;
   try {
     selectionContextSnapshot = await readSelectionContext(
-      createZoteroHostCapabilityBroker({}, () => args.win),
+      createZoteroHostCapabilityBroker(() => args.win),
     );
   } catch (error) {
     const reason =

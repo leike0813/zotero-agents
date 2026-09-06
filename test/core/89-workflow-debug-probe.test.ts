@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import {
   __workflowDebugProbeTestOnly,
   collectWorkflowDebugProbeChecks,

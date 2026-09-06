@@ -153,6 +153,13 @@ describe("Synthesis Host Tag effect port", function () {
       parent.getTags().map((entry) => entry.tag),
       ["topic:host-effect"],
     );
+    parent.removeTag("topic:host-effect");
+    await parent.saveTx();
+    const replay = await port.applyBatch({
+      effects: [effect("tag:apply", parent.key)],
+    });
+    assert.equal(replay.receipts[0]?.status, "applied");
+    assert.deepEqual(parent.getTags(), []);
   });
 
   it("validates complete effect batches before Zotero access", async function () {

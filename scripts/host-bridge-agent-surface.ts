@@ -157,6 +157,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
     {
       cwd: root,
       encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
     },
   );

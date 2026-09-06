@@ -5,7 +5,7 @@ Preview a Zotero mutation
 ## Usage
 
 ```console
-zotero-bridge mutation preview [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--input <JSON_OR_FILE>]
+zotero-bridge mutation preview [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --input <JSON_OR_FILE>
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -23,7 +23,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --input | input | option | no | — | JSON_OR_FILE | no | — | — | Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}. |
+| --input | input | option | yes | — | JSON_OR_FILE | no | — | — | Canonical mutation input is required. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. |
 
 ## Invocation schema
 
@@ -32,11 +32,13 @@ The global options may appear before or after the leaf command. Use `--schema` t
   "additionalProperties": false,
   "properties": {
     "input": {
-      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "description": "Canonical mutation input as inline JSON, a file path, @file, or '-' for stdin",
       "type": "string"
     }
   },
-  "required": [],
+  "required": [
+    "input"
+  ],
   "type": "object"
 }
 ```
@@ -45,13 +47,1183 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ### `--input` (input)
 
-Required: `false`.
+Required: `true`.
 
 ```json
 {
-  "additionalProperties": true,
+  "$defs": {
+    "attachmentContentManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "companions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "relativePath": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "sha256": {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "sizeBytes": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "relativePath",
+              "sizeBytes",
+              "sha256"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "identity": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "main": {
+          "additionalProperties": false,
+          "properties": {
+            "relativePath": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "sizeBytes": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "relativePath",
+            "sizeBytes",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "schema": {
+          "const": "zotero-agents.attachment-content.v1"
+        }
+      },
+      "required": [
+        "schema",
+        "identity",
+        "main",
+        "companions"
+      ],
+      "type": "object"
+    },
+    "attachmentSource": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/bridgeUploadSource"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "linked_url"
+            },
+            "url": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "stored_url"
+            },
+            "url": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "bridgeUploadSource": {
+      "additionalProperties": false,
+      "properties": {
+        "companions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "targetRelativePath": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "targetRelativePath"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "fileId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "stored_file"
+        },
+        "targetFilename": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "fileId"
+      ],
+      "type": "object"
+    },
+    "collectionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "libraryId",
+        "key"
+      ],
+      "type": "object"
+    },
+    "collectionRefArray": {
+      "items": {
+        "$ref": "#/$defs/collectionRef"
+      },
+      "type": "array"
+    },
+    "creator": {
+      "additionalProperties": false,
+      "properties": {
+        "creatorType": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "itemRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "libraryId",
+        "key"
+      ],
+      "type": "object"
+    },
+    "itemRefArray": {
+      "items": {
+        "$ref": "#/$defs/itemRef"
+      },
+      "type": "array"
+    },
+    "jsonValue": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "noteContent": {
+      "additionalProperties": false,
+      "properties": {
+        "embeddedImages": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "altText": {
+                "type": "string"
+              },
+              "preparedImage": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "prepared_note_image"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "type": "object"
+              },
+              "slot": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "slot",
+              "preparedImage"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "format": {
+          "enum": [
+            "html",
+            "text"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "value"
+      ],
+      "type": "object"
+    },
+    "storedAttachmentSource": {
+      "additionalProperties": false,
+      "properties": {
+        "companions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "targetRelativePath": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "targetRelativePath"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "content": {
+          "$ref": "#/$defs/attachmentContentManifest"
+        },
+        "kind": {
+          "const": "stored_file"
+        },
+        "targetFilename": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "content"
+      ],
+      "type": "object"
+    },
+    "stringArray": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "collectionRefs": {
+          "$ref": "#/$defs/collectionRefArray"
+        },
+        "creators": {
+          "items": {
+            "$ref": "#/$defs/creator"
+          },
+          "type": "array"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "initialRelatedRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "initialTags": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "itemType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "operation": {
+          "const": "item.create"
+        }
+      },
+      "required": [
+        "operation",
+        "itemType",
+        "fields"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "item.updateMetadata"
+        },
+        "patch": {
+          "additionalProperties": false,
+          "properties": {
+            "creators": {
+              "items": {
+                "$ref": "#/$defs/creator"
+              },
+              "type": "array"
+            },
+            "fields": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef",
+        "patch"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "incompatibleData": {
+          "enum": [
+            "reject",
+            "move_to_extra",
+            "drop"
+          ]
+        },
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "item.changeType"
+        },
+        "targetItemType": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef",
+        "targetItemType",
+        "incompatibleData"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "childPolicy": {
+          "enum": [
+            "reject_if_present",
+            "cascade"
+          ]
+        },
+        "disposition": {
+          "const": "permanent"
+        },
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "item.remove"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef",
+        "disposition",
+        "childPolicy"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "add": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "item.updateTags"
+        },
+        "remove": {
+          "$ref": "#/$defs/stringArray"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef",
+        "add",
+        "remove"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "item.addRelated"
+        },
+        "relatedRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "sourceRef": {
+          "$ref": "#/$defs/itemRef"
+        }
+      },
+      "required": [
+        "operation",
+        "sourceRef",
+        "relatedRefs"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "item.removeRelated"
+        },
+        "relatedRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "sourceRef": {
+          "$ref": "#/$defs/itemRef"
+        }
+      },
+      "required": [
+        "operation",
+        "sourceRef",
+        "relatedRefs"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "initialMemberRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "const": "collection.create"
+        },
+        "placement": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "root"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "child"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/collectionRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "name",
+        "placement"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "collectionRef": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "collection.update"
+        },
+        "patch": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "parentRef": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/collectionRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "collectionRef",
+        "patch"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "add": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "collectionRef": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "collection.updateMembership"
+        },
+        "remove": {
+          "$ref": "#/$defs/itemRefArray"
+        }
+      },
+      "required": [
+        "operation",
+        "collectionRef",
+        "add",
+        "remove"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "childPolicy": {
+          "enum": [
+            "reject_if_present",
+            "cascade"
+          ]
+        },
+        "collectionRef": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "collection.remove"
+        }
+      },
+      "required": [
+        "operation",
+        "collectionRef",
+        "childPolicy"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/noteContent"
+        },
+        "initialTags": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "operation": {
+          "const": "notes.create"
+        },
+        "placement": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "collectionRefs": {
+                  "$ref": "#/$defs/collectionRefArray"
+                },
+                "kind": {
+                  "const": "top_level"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "child"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "placement",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/noteContent"
+        },
+        "noteRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "notes.updateContent"
+        }
+      },
+      "required": [
+        "operation",
+        "noteRef",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "disposition": {
+          "const": "permanent"
+        },
+        "noteRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "notes.remove"
+        }
+      },
+      "required": [
+        "operation",
+        "noteRef",
+        "disposition"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "noteRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "notes.upsertPayload"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "enum": [
+                "json",
+                "markdown",
+                "text"
+              ]
+            },
+            "noteKind": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "payloadType": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "schemaVersion": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/jsonValue"
+            }
+          },
+          "required": [
+            "payloadType",
+            "noteKind",
+            "schemaVersion",
+            "format",
+            "value"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "noteRef",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "metadata": {
+          "additionalProperties": false,
+          "properties": {
+            "charset": {
+              "type": "string"
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "originalUrl": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "operation": {
+          "const": "attachments.create"
+        },
+        "placement": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "collectionRefs": {
+                  "$ref": "#/$defs/collectionRefArray"
+                },
+                "kind": {
+                  "const": "top_level"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "child"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/attachmentSource"
+        }
+      },
+      "required": [
+        "operation",
+        "placement",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attachmentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "attachments.updateMetadata"
+        },
+        "patch": {
+          "additionalProperties": false,
+          "properties": {
+            "charset": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "contentType": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "attachmentRef",
+        "patch"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attachmentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "attachments.replaceFile"
+        },
+        "source": {
+          "$ref": "#/$defs/bridgeUploadSource"
+        }
+      },
+      "required": [
+        "operation",
+        "attachmentRef",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attachmentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "attachments.move"
+        },
+        "placement": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "collectionRefs": {
+                  "$ref": "#/$defs/collectionRefArray"
+                },
+                "kind": {
+                  "const": "top_level"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "child"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "attachmentRef",
+        "placement"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attachmentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "disposition": {
+          "const": "permanent"
+        },
+        "operation": {
+          "const": "attachments.remove"
+        }
+      },
+      "required": [
+        "operation",
+        "attachmentRef",
+        "disposition"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "add": {
+          "items": {
+            "enum": [
+              "need-metadata-curation",
+              "need-fulltext",
+              "need-markdown",
+              "need-analysis",
+              "need-deep-reading"
+            ]
+          },
+          "type": "array"
+        },
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "statusTags.transition"
+        },
+        "remove": {
+          "items": {
+            "enum": [
+              "need-metadata-curation",
+              "need-fulltext",
+              "need-markdown",
+              "need-analysis",
+              "need-deep-reading"
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "itemRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "operation": {
+          "const": "trash.setItemsState"
+        },
+        "state": {
+          "enum": [
+            "trashed",
+            "active"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "itemRefs",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "collectionRef": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "literature.ingest"
+        },
+        "paper": {
+          "additionalProperties": false,
+          "properties": {
+            "attachLandingUrlOnMissingPdf": {
+              "type": "boolean"
+            },
+            "creators": {
+              "items": {
+                "$ref": "#/$defs/creator"
+              },
+              "type": "array"
+            },
+            "fields": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "type": "object"
+            },
+            "identifiers": {
+              "additionalProperties": false,
+              "properties": {
+                "arxiv": {
+                  "type": "string"
+                },
+                "doi": {
+                  "type": "string"
+                },
+                "isbn": {
+                  "type": "string"
+                },
+                "pmid": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "itemType": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "landingUrl": {
+              "type": "string"
+            },
+            "pdfUrl": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "itemType",
+            "fields",
+            "creators",
+            "identifiers"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "collectionRef",
+        "paper"
+      ],
+      "type": "object"
+    }
+  ],
   "type": "object",
-  "x-openPropertiesReason": "Mutation operation fields are discriminated and validated by the mutation broker after the capability boundary."
+  "unevaluatedProperties": false
 }
 ```
 
@@ -59,9 +1231,1075 @@ Required: `false`.
 
 ```json
 {
-  "additionalProperties": true,
+  "$defs": {
+    "attachmentSource": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/bridgeUploadSource"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "linked_url"
+            },
+            "url": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "stored_url"
+            },
+            "url": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "bridgeUploadSource": {
+      "additionalProperties": false,
+      "properties": {
+        "companions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "targetRelativePath": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "targetRelativePath"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "fileId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "stored_file"
+        },
+        "targetFilename": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "fileId"
+      ],
+      "type": "object"
+    },
+    "collectionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "libraryId",
+        "key"
+      ],
+      "type": "object"
+    },
+    "collectionRefArray": {
+      "items": {
+        "$ref": "#/$defs/collectionRef"
+      },
+      "type": "array"
+    },
+    "creator": {
+      "additionalProperties": false,
+      "properties": {
+        "creatorType": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "itemRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "libraryId",
+        "key"
+      ],
+      "type": "object"
+    },
+    "itemRefArray": {
+      "items": {
+        "$ref": "#/$defs/itemRef"
+      },
+      "type": "array"
+    },
+    "jsonValue": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "noteContent": {
+      "additionalProperties": false,
+      "properties": {
+        "embeddedImages": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "altText": {
+                "type": "string"
+              },
+              "preparedImage": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "prepared_note_image"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "type": "object"
+              },
+              "slot": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "slot",
+              "preparedImage"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "format": {
+          "enum": [
+            "html",
+            "text"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "value"
+      ],
+      "type": "object"
+    },
+    "stringArray": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "collectionRefs": {
+          "$ref": "#/$defs/collectionRefArray"
+        },
+        "creators": {
+          "items": {
+            "$ref": "#/$defs/creator"
+          },
+          "type": "array"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "initialRelatedRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "initialTags": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "itemType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "operation": {
+          "const": "item.create"
+        }
+      },
+      "required": [
+        "operation",
+        "itemType",
+        "fields"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "item.updateMetadata"
+        },
+        "patch": {
+          "additionalProperties": false,
+          "properties": {
+            "creators": {
+              "items": {
+                "$ref": "#/$defs/creator"
+              },
+              "type": "array"
+            },
+            "fields": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef",
+        "patch"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "incompatibleData": {
+          "enum": [
+            "reject",
+            "move_to_extra",
+            "drop"
+          ]
+        },
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "item.changeType"
+        },
+        "targetItemType": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef",
+        "targetItemType",
+        "incompatibleData"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "childPolicy": {
+          "enum": [
+            "reject_if_present",
+            "cascade"
+          ]
+        },
+        "disposition": {
+          "const": "permanent"
+        },
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "item.remove"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef",
+        "disposition",
+        "childPolicy"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "add": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "item.updateTags"
+        },
+        "remove": {
+          "$ref": "#/$defs/stringArray"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef",
+        "add",
+        "remove"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "item.addRelated"
+        },
+        "relatedRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "sourceRef": {
+          "$ref": "#/$defs/itemRef"
+        }
+      },
+      "required": [
+        "operation",
+        "sourceRef",
+        "relatedRefs"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "item.removeRelated"
+        },
+        "relatedRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "sourceRef": {
+          "$ref": "#/$defs/itemRef"
+        }
+      },
+      "required": [
+        "operation",
+        "sourceRef",
+        "relatedRefs"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "initialMemberRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "const": "collection.create"
+        },
+        "placement": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "root"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "child"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/collectionRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "name",
+        "placement"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "collectionRef": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "collection.update"
+        },
+        "patch": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "parentRef": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/collectionRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "collectionRef",
+        "patch"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "add": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "collectionRef": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "collection.updateMembership"
+        },
+        "remove": {
+          "$ref": "#/$defs/itemRefArray"
+        }
+      },
+      "required": [
+        "operation",
+        "collectionRef",
+        "add",
+        "remove"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "childPolicy": {
+          "enum": [
+            "reject_if_present",
+            "cascade"
+          ]
+        },
+        "collectionRef": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "collection.remove"
+        }
+      },
+      "required": [
+        "operation",
+        "collectionRef",
+        "childPolicy"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/noteContent"
+        },
+        "initialTags": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "operation": {
+          "const": "notes.create"
+        },
+        "placement": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "collectionRefs": {
+                  "$ref": "#/$defs/collectionRefArray"
+                },
+                "kind": {
+                  "const": "top_level"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "child"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "placement",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/noteContent"
+        },
+        "noteRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "notes.updateContent"
+        }
+      },
+      "required": [
+        "operation",
+        "noteRef",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "disposition": {
+          "const": "permanent"
+        },
+        "noteRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "notes.remove"
+        }
+      },
+      "required": [
+        "operation",
+        "noteRef",
+        "disposition"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "noteRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "notes.upsertPayload"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "enum": [
+                "json",
+                "markdown",
+                "text"
+              ]
+            },
+            "noteKind": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "payloadType": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "schemaVersion": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/jsonValue"
+            }
+          },
+          "required": [
+            "payloadType",
+            "noteKind",
+            "schemaVersion",
+            "format",
+            "value"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "noteRef",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "metadata": {
+          "additionalProperties": false,
+          "properties": {
+            "charset": {
+              "type": "string"
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "originalUrl": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "operation": {
+          "const": "attachments.create"
+        },
+        "placement": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "collectionRefs": {
+                  "$ref": "#/$defs/collectionRefArray"
+                },
+                "kind": {
+                  "const": "top_level"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "child"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/attachmentSource"
+        }
+      },
+      "required": [
+        "operation",
+        "placement",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attachmentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "attachments.updateMetadata"
+        },
+        "patch": {
+          "additionalProperties": false,
+          "properties": {
+            "charset": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "contentType": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "attachmentRef",
+        "patch"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attachmentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "attachments.replaceFile"
+        },
+        "source": {
+          "$ref": "#/$defs/bridgeUploadSource"
+        }
+      },
+      "required": [
+        "operation",
+        "attachmentRef",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attachmentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "attachments.move"
+        },
+        "placement": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "collectionRefs": {
+                  "$ref": "#/$defs/collectionRefArray"
+                },
+                "kind": {
+                  "const": "top_level"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "child"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "attachmentRef",
+        "placement"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attachmentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "disposition": {
+          "const": "permanent"
+        },
+        "operation": {
+          "const": "attachments.remove"
+        }
+      },
+      "required": [
+        "operation",
+        "attachmentRef",
+        "disposition"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "add": {
+          "items": {
+            "enum": [
+              "need-metadata-curation",
+              "need-fulltext",
+              "need-markdown",
+              "need-analysis",
+              "need-deep-reading"
+            ]
+          },
+          "type": "array"
+        },
+        "itemRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "operation": {
+          "const": "statusTags.transition"
+        },
+        "remove": {
+          "items": {
+            "enum": [
+              "need-metadata-curation",
+              "need-fulltext",
+              "need-markdown",
+              "need-analysis",
+              "need-deep-reading"
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "operation",
+        "itemRef"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "itemRefs": {
+          "$ref": "#/$defs/itemRefArray"
+        },
+        "operation": {
+          "const": "trash.setItemsState"
+        },
+        "state": {
+          "enum": [
+            "trashed",
+            "active"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "itemRefs",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "collectionRef": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "literature.ingest"
+        },
+        "paper": {
+          "additionalProperties": false,
+          "properties": {
+            "attachLandingUrlOnMissingPdf": {
+              "type": "boolean"
+            },
+            "creators": {
+              "items": {
+                "$ref": "#/$defs/creator"
+              },
+              "type": "array"
+            },
+            "fields": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "type": "object"
+            },
+            "identifiers": {
+              "additionalProperties": false,
+              "properties": {
+                "arxiv": {
+                  "type": "string"
+                },
+                "doi": {
+                  "type": "string"
+                },
+                "isbn": {
+                  "type": "string"
+                },
+                "pmid": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "itemType": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "landingUrl": {
+              "type": "string"
+            },
+            "pdfUrl": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "itemType",
+            "fields",
+            "creators",
+            "identifiers"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "collectionRef",
+        "paper"
+      ],
+      "type": "object"
+    }
+  ],
   "type": "object",
-  "x-openPropertiesReason": "Mutation operation fields are discriminated and validated by the mutation broker after the capability boundary."
+  "unevaluatedProperties": false
 }
 ```
 
@@ -85,10 +2323,66 @@ This command has no separate field-mapping program. Its binding mode is executab
       "const": "mutation.preview"
     },
     "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by mutation.preview.",
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "additionalProperties": false,
+      "properties": {
+        "domainPlanDigest": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "observedAt": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "item.create",
+            "item.updateMetadata",
+            "item.changeType",
+            "item.remove",
+            "item.updateTags",
+            "item.addRelated",
+            "item.removeRelated",
+            "collection.create",
+            "collection.update",
+            "collection.updateMembership",
+            "collection.remove",
+            "notes.create",
+            "notes.updateContent",
+            "notes.remove",
+            "notes.upsertPayload",
+            "attachments.create",
+            "attachments.updateMetadata",
+            "attachments.replaceFile",
+            "attachments.move",
+            "attachments.remove",
+            "statusTags.transition",
+            "trash.setItemsState",
+            "literature.ingest"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "would_change",
+            "unchanged"
+          ]
+        },
+        "plan": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "schema": {
+          "const": "zotero-agents.mutation-preview.v1"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "outcome",
+        "observedAt",
+        "domainPlanDigest",
+        "plan"
+      ],
+      "type": "object"
     }
   },
   "required": [
@@ -107,7 +2401,7 @@ This command has no separate field-mapping program. Its binding mode is executab
 Minimal JSON shape for --input.
 
 ```console
-zotero-bridge mutation preview --input '{}'
+zotero-bridge mutation preview --input '{"add":["topic:example"],"itemRef":{"key":"ABC123","libraryId":1},"operation":"item.updateTags","remove":[]}'
 ```
 
 Prerequisites:
@@ -131,13 +2425,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "conflictsWith": [],
       "defaultValues": [],
       "global": false,
-      "help": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "help": "Canonical mutation input as inline JSON, a file path, @file, or '-' for stdin",
       "id": "input",
       "kind": "option",
-      "longHelp": "Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
+      "longHelp": "Canonical mutation input is required. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin.",
       "possibleValues": [],
       "repeatable": false,
-      "required": false,
+      "required": true,
       "takesValue": true,
       "token": "--input",
       "valueNames": [
@@ -153,7 +2447,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
     {
       "kind": "option",
       "property": "input",
-      "required": false,
+      "required": true,
       "takesValue": true,
       "token": "--input",
       "valueNames": [
@@ -184,15 +2478,1195 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "prerequisites": [
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
-          "value": {}
+          "value": {
+            "add": [
+              "topic:example"
+            ],
+            "itemRef": {
+              "key": "ABC123",
+              "libraryId": 1
+            },
+            "operation": "item.updateTags",
+            "remove": []
+          }
         }
       ],
-      "required": false,
+      "required": true,
       "requiredWhen": [],
       "schema": {
-        "additionalProperties": true,
+        "$defs": {
+          "attachmentContentManifest": {
+            "additionalProperties": false,
+            "properties": {
+              "companions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "relativePath": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "relativePath",
+                    "sizeBytes",
+                    "sha256"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "identity": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "main": {
+                "additionalProperties": false,
+                "properties": {
+                  "relativePath": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "relativePath",
+                  "sizeBytes",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "schema": {
+                "const": "zotero-agents.attachment-content.v1"
+              }
+            },
+            "required": [
+              "schema",
+              "identity",
+              "main",
+              "companions"
+            ],
+            "type": "object"
+          },
+          "attachmentSource": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/bridgeUploadSource"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "linked_url"
+                  },
+                  "url": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "stored_url"
+                  },
+                  "url": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "bridgeUploadSource": {
+            "additionalProperties": false,
+            "properties": {
+              "companions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "targetRelativePath": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "targetRelativePath"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "fileId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "const": "stored_file"
+              },
+              "targetFilename": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "fileId"
+            ],
+            "type": "object"
+          },
+          "collectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
+          },
+          "collectionRefArray": {
+            "items": {
+              "$ref": "#/$defs/collectionRef"
+            },
+            "type": "array"
+          },
+          "creator": {
+            "additionalProperties": false,
+            "properties": {
+              "creatorType": {
+                "type": "string"
+              },
+              "firstName": {
+                "type": "string"
+              },
+              "lastName": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "itemRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
+          },
+          "itemRefArray": {
+            "items": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "type": "array"
+          },
+          "jsonValue": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/jsonValue"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/jsonValue"
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "noteContent": {
+            "additionalProperties": false,
+            "properties": {
+              "embeddedImages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "altText": {
+                      "type": "string"
+                    },
+                    "preparedImage": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "prepared_note_image"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "slot": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "slot",
+                    "preparedImage"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "format": {
+                "enum": [
+                  "html",
+                  "text"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "format",
+              "value"
+            ],
+            "type": "object"
+          },
+          "storedAttachmentSource": {
+            "additionalProperties": false,
+            "properties": {
+              "companions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "targetRelativePath": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "targetRelativePath"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "content": {
+                "$ref": "#/$defs/attachmentContentManifest"
+              },
+              "kind": {
+                "const": "stored_file"
+              },
+              "targetFilename": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "content"
+            ],
+            "type": "object"
+          },
+          "stringArray": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "properties": {
+              "collectionRefs": {
+                "$ref": "#/$defs/collectionRefArray"
+              },
+              "creators": {
+                "items": {
+                  "$ref": "#/$defs/creator"
+                },
+                "type": "array"
+              },
+              "fields": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "initialRelatedRefs": {
+                "$ref": "#/$defs/itemRefArray"
+              },
+              "initialTags": {
+                "$ref": "#/$defs/stringArray"
+              },
+              "itemType": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "operation": {
+                "const": "item.create"
+              }
+            },
+            "required": [
+              "operation",
+              "itemType",
+              "fields"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "itemRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "item.updateMetadata"
+              },
+              "patch": {
+                "additionalProperties": false,
+                "properties": {
+                  "creators": {
+                    "items": {
+                      "$ref": "#/$defs/creator"
+                    },
+                    "type": "array"
+                  },
+                  "fields": {
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "operation",
+              "itemRef",
+              "patch"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "incompatibleData": {
+                "enum": [
+                  "reject",
+                  "move_to_extra",
+                  "drop"
+                ]
+              },
+              "itemRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "item.changeType"
+              },
+              "targetItemType": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "itemRef",
+              "targetItemType",
+              "incompatibleData"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "childPolicy": {
+                "enum": [
+                  "reject_if_present",
+                  "cascade"
+                ]
+              },
+              "disposition": {
+                "const": "permanent"
+              },
+              "itemRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "item.remove"
+              }
+            },
+            "required": [
+              "operation",
+              "itemRef",
+              "disposition",
+              "childPolicy"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "add": {
+                "$ref": "#/$defs/stringArray"
+              },
+              "itemRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "item.updateTags"
+              },
+              "remove": {
+                "$ref": "#/$defs/stringArray"
+              }
+            },
+            "required": [
+              "operation",
+              "itemRef",
+              "add",
+              "remove"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "item.addRelated"
+              },
+              "relatedRefs": {
+                "$ref": "#/$defs/itemRefArray"
+              },
+              "sourceRef": {
+                "$ref": "#/$defs/itemRef"
+              }
+            },
+            "required": [
+              "operation",
+              "sourceRef",
+              "relatedRefs"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "item.removeRelated"
+              },
+              "relatedRefs": {
+                "$ref": "#/$defs/itemRefArray"
+              },
+              "sourceRef": {
+                "$ref": "#/$defs/itemRef"
+              }
+            },
+            "required": [
+              "operation",
+              "sourceRef",
+              "relatedRefs"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "initialMemberRefs": {
+                "$ref": "#/$defs/itemRefArray"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "operation": {
+                "const": "collection.create"
+              },
+              "placement": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "root"
+                      },
+                      "libraryId": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "child"
+                      },
+                      "parentRef": {
+                        "$ref": "#/$defs/collectionRef"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "parentRef"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "name",
+              "placement"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "collectionRef": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "operation": {
+                "const": "collection.update"
+              },
+              "patch": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "parentRef": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/collectionRef"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "operation",
+              "collectionRef",
+              "patch"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "add": {
+                "$ref": "#/$defs/itemRefArray"
+              },
+              "collectionRef": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "operation": {
+                "const": "collection.updateMembership"
+              },
+              "remove": {
+                "$ref": "#/$defs/itemRefArray"
+              }
+            },
+            "required": [
+              "operation",
+              "collectionRef",
+              "add",
+              "remove"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "childPolicy": {
+                "enum": [
+                  "reject_if_present",
+                  "cascade"
+                ]
+              },
+              "collectionRef": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "operation": {
+                "const": "collection.remove"
+              }
+            },
+            "required": [
+              "operation",
+              "collectionRef",
+              "childPolicy"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "content": {
+                "$ref": "#/$defs/noteContent"
+              },
+              "initialTags": {
+                "$ref": "#/$defs/stringArray"
+              },
+              "operation": {
+                "const": "notes.create"
+              },
+              "placement": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "collectionRefs": {
+                        "$ref": "#/$defs/collectionRefArray"
+                      },
+                      "kind": {
+                        "const": "top_level"
+                      },
+                      "libraryId": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "child"
+                      },
+                      "parentRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "parentRef"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "placement",
+              "content"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "content": {
+                "$ref": "#/$defs/noteContent"
+              },
+              "noteRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "notes.updateContent"
+              }
+            },
+            "required": [
+              "operation",
+              "noteRef",
+              "content"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "disposition": {
+                "const": "permanent"
+              },
+              "noteRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "notes.remove"
+              }
+            },
+            "required": [
+              "operation",
+              "noteRef",
+              "disposition"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "noteRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "notes.upsertPayload"
+              },
+              "payload": {
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "enum": [
+                      "json",
+                      "markdown",
+                      "text"
+                    ]
+                  },
+                  "noteKind": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "payloadType": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "schemaVersion": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "value": {
+                    "$ref": "#/$defs/jsonValue"
+                  }
+                },
+                "required": [
+                  "payloadType",
+                  "noteKind",
+                  "schemaVersion",
+                  "format",
+                  "value"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "operation",
+              "noteRef",
+              "payload"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "metadata": {
+                "additionalProperties": false,
+                "properties": {
+                  "charset": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "originalUrl": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "operation": {
+                "const": "attachments.create"
+              },
+              "placement": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "collectionRefs": {
+                        "$ref": "#/$defs/collectionRefArray"
+                      },
+                      "kind": {
+                        "const": "top_level"
+                      },
+                      "libraryId": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "child"
+                      },
+                      "parentRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "parentRef"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "source": {
+                "$ref": "#/$defs/attachmentSource"
+              }
+            },
+            "required": [
+              "operation",
+              "placement",
+              "source"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "attachmentRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "attachments.updateMetadata"
+              },
+              "patch": {
+                "additionalProperties": false,
+                "properties": {
+                  "charset": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "contentType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "operation",
+              "attachmentRef",
+              "patch"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "attachmentRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "attachments.replaceFile"
+              },
+              "source": {
+                "$ref": "#/$defs/bridgeUploadSource"
+              }
+            },
+            "required": [
+              "operation",
+              "attachmentRef",
+              "source"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "attachmentRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "attachments.move"
+              },
+              "placement": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "collectionRefs": {
+                        "$ref": "#/$defs/collectionRefArray"
+                      },
+                      "kind": {
+                        "const": "top_level"
+                      },
+                      "libraryId": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "child"
+                      },
+                      "parentRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "parentRef"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "attachmentRef",
+              "placement"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "attachmentRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "disposition": {
+                "const": "permanent"
+              },
+              "operation": {
+                "const": "attachments.remove"
+              }
+            },
+            "required": [
+              "operation",
+              "attachmentRef",
+              "disposition"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "add": {
+                "items": {
+                  "enum": [
+                    "need-metadata-curation",
+                    "need-fulltext",
+                    "need-markdown",
+                    "need-analysis",
+                    "need-deep-reading"
+                  ]
+                },
+                "type": "array"
+              },
+              "itemRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "operation": {
+                "const": "statusTags.transition"
+              },
+              "remove": {
+                "items": {
+                  "enum": [
+                    "need-metadata-curation",
+                    "need-fulltext",
+                    "need-markdown",
+                    "need-analysis",
+                    "need-deep-reading"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "operation",
+              "itemRef"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "itemRefs": {
+                "$ref": "#/$defs/itemRefArray"
+              },
+              "operation": {
+                "const": "trash.setItemsState"
+              },
+              "state": {
+                "enum": [
+                  "trashed",
+                  "active"
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "itemRefs",
+              "state"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "collectionRef": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "operation": {
+                "const": "literature.ingest"
+              },
+              "paper": {
+                "additionalProperties": false,
+                "properties": {
+                  "attachLandingUrlOnMissingPdf": {
+                    "type": "boolean"
+                  },
+                  "creators": {
+                    "items": {
+                      "$ref": "#/$defs/creator"
+                    },
+                    "type": "array"
+                  },
+                  "fields": {
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "identifiers": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "arxiv": {
+                        "type": "string"
+                      },
+                      "doi": {
+                        "type": "string"
+                      },
+                      "isbn": {
+                        "type": "string"
+                      },
+                      "pmid": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "itemType": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "landingUrl": {
+                    "type": "string"
+                  },
+                  "pdfUrl": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "itemType",
+                  "fields",
+                  "creators",
+                  "identifiers"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "operation",
+              "collectionRef",
+              "paper"
+            ],
+            "type": "object"
+          }
+        ],
         "type": "object",
-        "x-openPropertiesReason": "Mutation operation fields are discriminated and validated by the mutation broker after the capability boundary."
+        "unevaluatedProperties": false
       },
       "schemaSource": "target-capability",
       "token": "--input"
@@ -202,11 +3676,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "additionalProperties": false,
     "properties": {
       "input": {
-        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+        "description": "Canonical mutation input as inline JSON, a file path, @file, or '-' for stdin",
         "type": "string"
       }
     },
-    "required": [],
+    "required": [
+      "input"
+    ],
     "type": "object"
   },
   "operationalAliases": [
@@ -221,9 +3697,1075 @@ This closed descriptor is the machine-readable command contract returned by `sur
   },
   "pagination": "none",
   "payloadSchema": {
-    "additionalProperties": true,
+    "$defs": {
+      "attachmentSource": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/bridgeUploadSource"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "linked_url"
+              },
+              "url": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "url"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "stored_url"
+              },
+              "url": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "url"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "bridgeUploadSource": {
+        "additionalProperties": false,
+        "properties": {
+          "companions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "targetRelativePath": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "targetRelativePath"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "fileId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "const": "stored_file"
+          },
+          "targetFilename": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "fileId"
+        ],
+        "type": "object"
+      },
+      "collectionRef": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "libraryId",
+          "key"
+        ],
+        "type": "object"
+      },
+      "collectionRefArray": {
+        "items": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "type": "array"
+      },
+      "creator": {
+        "additionalProperties": false,
+        "properties": {
+          "creatorType": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "itemRef": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "libraryId",
+          "key"
+        ],
+        "type": "object"
+      },
+      "itemRefArray": {
+        "items": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "type": "array"
+      },
+      "jsonValue": {
+        "anyOf": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "noteContent": {
+        "additionalProperties": false,
+        "properties": {
+          "embeddedImages": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "altText": {
+                  "type": "string"
+                },
+                "preparedImage": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "kind": {
+                      "const": "prepared_note_image"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id"
+                  ],
+                  "type": "object"
+                },
+                "slot": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "slot",
+                "preparedImage"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "format": {
+            "enum": [
+              "html",
+              "text"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "format",
+          "value"
+        ],
+        "type": "object"
+      },
+      "stringArray": {
+        "items": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "properties": {
+          "collectionRefs": {
+            "$ref": "#/$defs/collectionRefArray"
+          },
+          "creators": {
+            "items": {
+              "$ref": "#/$defs/creator"
+            },
+            "type": "array"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "initialRelatedRefs": {
+            "$ref": "#/$defs/itemRefArray"
+          },
+          "initialTags": {
+            "$ref": "#/$defs/stringArray"
+          },
+          "itemType": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "operation": {
+            "const": "item.create"
+          }
+        },
+        "required": [
+          "operation",
+          "itemType",
+          "fields"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "itemRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "item.updateMetadata"
+          },
+          "patch": {
+            "additionalProperties": false,
+            "properties": {
+              "creators": {
+                "items": {
+                  "$ref": "#/$defs/creator"
+                },
+                "type": "array"
+              },
+              "fields": {
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "operation",
+          "itemRef",
+          "patch"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "incompatibleData": {
+            "enum": [
+              "reject",
+              "move_to_extra",
+              "drop"
+            ]
+          },
+          "itemRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "item.changeType"
+          },
+          "targetItemType": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "itemRef",
+          "targetItemType",
+          "incompatibleData"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "childPolicy": {
+            "enum": [
+              "reject_if_present",
+              "cascade"
+            ]
+          },
+          "disposition": {
+            "const": "permanent"
+          },
+          "itemRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "item.remove"
+          }
+        },
+        "required": [
+          "operation",
+          "itemRef",
+          "disposition",
+          "childPolicy"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "add": {
+            "$ref": "#/$defs/stringArray"
+          },
+          "itemRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "item.updateTags"
+          },
+          "remove": {
+            "$ref": "#/$defs/stringArray"
+          }
+        },
+        "required": [
+          "operation",
+          "itemRef",
+          "add",
+          "remove"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "operation": {
+            "const": "item.addRelated"
+          },
+          "relatedRefs": {
+            "$ref": "#/$defs/itemRefArray"
+          },
+          "sourceRef": {
+            "$ref": "#/$defs/itemRef"
+          }
+        },
+        "required": [
+          "operation",
+          "sourceRef",
+          "relatedRefs"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "operation": {
+            "const": "item.removeRelated"
+          },
+          "relatedRefs": {
+            "$ref": "#/$defs/itemRefArray"
+          },
+          "sourceRef": {
+            "$ref": "#/$defs/itemRef"
+          }
+        },
+        "required": [
+          "operation",
+          "sourceRef",
+          "relatedRefs"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "initialMemberRefs": {
+            "$ref": "#/$defs/itemRefArray"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation": {
+            "const": "collection.create"
+          },
+          "placement": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "root"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "child"
+                  },
+                  "parentRef": {
+                    "$ref": "#/$defs/collectionRef"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "parentRef"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "name",
+          "placement"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "collectionRef": {
+            "$ref": "#/$defs/collectionRef"
+          },
+          "operation": {
+            "const": "collection.update"
+          },
+          "patch": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "parentRef": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/collectionRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "operation",
+          "collectionRef",
+          "patch"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "add": {
+            "$ref": "#/$defs/itemRefArray"
+          },
+          "collectionRef": {
+            "$ref": "#/$defs/collectionRef"
+          },
+          "operation": {
+            "const": "collection.updateMembership"
+          },
+          "remove": {
+            "$ref": "#/$defs/itemRefArray"
+          }
+        },
+        "required": [
+          "operation",
+          "collectionRef",
+          "add",
+          "remove"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "childPolicy": {
+            "enum": [
+              "reject_if_present",
+              "cascade"
+            ]
+          },
+          "collectionRef": {
+            "$ref": "#/$defs/collectionRef"
+          },
+          "operation": {
+            "const": "collection.remove"
+          }
+        },
+        "required": [
+          "operation",
+          "collectionRef",
+          "childPolicy"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "content": {
+            "$ref": "#/$defs/noteContent"
+          },
+          "initialTags": {
+            "$ref": "#/$defs/stringArray"
+          },
+          "operation": {
+            "const": "notes.create"
+          },
+          "placement": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "collectionRefs": {
+                    "$ref": "#/$defs/collectionRefArray"
+                  },
+                  "kind": {
+                    "const": "top_level"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "child"
+                  },
+                  "parentRef": {
+                    "$ref": "#/$defs/itemRef"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "parentRef"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "placement",
+          "content"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "content": {
+            "$ref": "#/$defs/noteContent"
+          },
+          "noteRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "notes.updateContent"
+          }
+        },
+        "required": [
+          "operation",
+          "noteRef",
+          "content"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "disposition": {
+            "const": "permanent"
+          },
+          "noteRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "notes.remove"
+          }
+        },
+        "required": [
+          "operation",
+          "noteRef",
+          "disposition"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "noteRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "notes.upsertPayload"
+          },
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "enum": [
+                  "json",
+                  "markdown",
+                  "text"
+                ]
+              },
+              "noteKind": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "payloadType": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "schemaVersion": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "value": {
+                "$ref": "#/$defs/jsonValue"
+              }
+            },
+            "required": [
+              "payloadType",
+              "noteKind",
+              "schemaVersion",
+              "format",
+              "value"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "operation",
+          "noteRef",
+          "payload"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "metadata": {
+            "additionalProperties": false,
+            "properties": {
+              "charset": {
+                "type": "string"
+              },
+              "contentType": {
+                "type": "string"
+              },
+              "originalUrl": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "operation": {
+            "const": "attachments.create"
+          },
+          "placement": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "collectionRefs": {
+                    "$ref": "#/$defs/collectionRefArray"
+                  },
+                  "kind": {
+                    "const": "top_level"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "child"
+                  },
+                  "parentRef": {
+                    "$ref": "#/$defs/itemRef"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "parentRef"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/$defs/attachmentSource"
+          }
+        },
+        "required": [
+          "operation",
+          "placement",
+          "source"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "attachmentRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "attachments.updateMetadata"
+          },
+          "patch": {
+            "additionalProperties": false,
+            "properties": {
+              "charset": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "contentType": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "operation",
+          "attachmentRef",
+          "patch"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "attachmentRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "attachments.replaceFile"
+          },
+          "source": {
+            "$ref": "#/$defs/bridgeUploadSource"
+          }
+        },
+        "required": [
+          "operation",
+          "attachmentRef",
+          "source"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "attachmentRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "attachments.move"
+          },
+          "placement": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "collectionRefs": {
+                    "$ref": "#/$defs/collectionRefArray"
+                  },
+                  "kind": {
+                    "const": "top_level"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "child"
+                  },
+                  "parentRef": {
+                    "$ref": "#/$defs/itemRef"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "parentRef"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "attachmentRef",
+          "placement"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "attachmentRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "disposition": {
+            "const": "permanent"
+          },
+          "operation": {
+            "const": "attachments.remove"
+          }
+        },
+        "required": [
+          "operation",
+          "attachmentRef",
+          "disposition"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "add": {
+            "items": {
+              "enum": [
+                "need-metadata-curation",
+                "need-fulltext",
+                "need-markdown",
+                "need-analysis",
+                "need-deep-reading"
+              ]
+            },
+            "type": "array"
+          },
+          "itemRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "operation": {
+            "const": "statusTags.transition"
+          },
+          "remove": {
+            "items": {
+              "enum": [
+                "need-metadata-curation",
+                "need-fulltext",
+                "need-markdown",
+                "need-analysis",
+                "need-deep-reading"
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "operation",
+          "itemRef"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "itemRefs": {
+            "$ref": "#/$defs/itemRefArray"
+          },
+          "operation": {
+            "const": "trash.setItemsState"
+          },
+          "state": {
+            "enum": [
+              "trashed",
+              "active"
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "itemRefs",
+          "state"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "collectionRef": {
+            "$ref": "#/$defs/collectionRef"
+          },
+          "operation": {
+            "const": "literature.ingest"
+          },
+          "paper": {
+            "additionalProperties": false,
+            "properties": {
+              "attachLandingUrlOnMissingPdf": {
+                "type": "boolean"
+              },
+              "creators": {
+                "items": {
+                  "$ref": "#/$defs/creator"
+                },
+                "type": "array"
+              },
+              "fields": {
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "type": "object"
+              },
+              "identifiers": {
+                "additionalProperties": false,
+                "properties": {
+                  "arxiv": {
+                    "type": "string"
+                  },
+                  "doi": {
+                    "type": "string"
+                  },
+                  "isbn": {
+                    "type": "string"
+                  },
+                  "pmid": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "itemType": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "landingUrl": {
+                "type": "string"
+              },
+              "pdfUrl": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "itemType",
+              "fields",
+              "creators",
+              "identifiers"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "operation",
+          "collectionRef",
+          "paper"
+        ],
+        "type": "object"
+      }
+    ],
     "type": "object",
-    "x-openPropertiesReason": "Mutation operation fields are discriminated and validated by the mutation broker after the capability boundary."
+    "unevaluatedProperties": false
   },
   "recovery": [
     {
@@ -245,10 +4787,66 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "const": "mutation.preview"
       },
       "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by mutation.preview.",
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "additionalProperties": false,
+        "properties": {
+          "domainPlanDigest": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "observedAt": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "item.create",
+              "item.updateMetadata",
+              "item.changeType",
+              "item.remove",
+              "item.updateTags",
+              "item.addRelated",
+              "item.removeRelated",
+              "collection.create",
+              "collection.update",
+              "collection.updateMembership",
+              "collection.remove",
+              "notes.create",
+              "notes.updateContent",
+              "notes.remove",
+              "notes.upsertPayload",
+              "attachments.create",
+              "attachments.updateMetadata",
+              "attachments.replaceFile",
+              "attachments.move",
+              "attachments.remove",
+              "statusTags.transition",
+              "trash.setItemsState",
+              "literature.ingest"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "would_change",
+              "unchanged"
+            ]
+          },
+          "plan": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "schema": {
+            "const": "zotero-agents.mutation-preview.v1"
+          }
+        },
+        "required": [
+          "schema",
+          "operation",
+          "outcome",
+          "observedAt",
+          "domainPlanDigest",
+          "plan"
+        ],
+        "type": "object"
       }
     },
     "required": [

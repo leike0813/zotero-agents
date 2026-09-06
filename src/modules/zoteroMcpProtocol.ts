@@ -9,6 +9,7 @@ import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContrac
 import { HostBridgeCursorError } from "./hostBridgePagination";
 import {
   ZoteroHostCapabilityError,
+  type ZoteroHostCanonicalMutationControl,
   type ZoteroHostCapabilityBroker,
 } from "./zoteroHostCapabilityBroker";
 import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
@@ -17,15 +18,18 @@ import type {
   HostBridgeCapabilityManifestEntry,
   HostBridgeStatusSnapshot,
 } from "./hostBridgeProtocol";
-import type { CurrentViewDto } from "../workflows/types";
+import type {
+  CurrentViewDto,
+  JsonObject,
+  MutationExecuteRequest,
+  MutationPreviewResult,
+} from "../workflows/types";
 import type {
   ZoteroHostAttachmentDto,
   ZoteroHostCollectionRefInput,
   ZoteroHostItemRefInput,
   ZoteroHostItemSummaryDto,
   ZoteroHostLibraryListArgs,
-  ZoteroHostMutationPreviewResponse,
-  ZoteroHostMutationRequest,
   ZoteroHostNoteDto,
   ZoteroHostNotePayloadDetailDto,
   ZoteroHostNotePayloadSummaryDto,
@@ -146,14 +150,15 @@ export type ZoteroMcpToolPermissionDecision =
 
 export type ZoteroMcpToolPermissionRequest = {
   toolName: string;
-  mutation: ZoteroHostMutationRequest;
-  preview: ZoteroHostMutationPreviewResponse;
+  mutation: Record<string, unknown>;
+  preview: Record<string, unknown>;
   summary: string;
   requestedAt: string;
 };
 
 export type ZoteroMcpHandlerOptions = {
   control?: WorkflowCallControl;
+  canonicalMutationControl?: ZoteroHostCanonicalMutationControl;
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
   resolveDirectResearchBundleApplication?: () =>
@@ -643,7 +648,6 @@ function formatAttachmentLine(
   },
 ) {
   const access = attachment.access || {};
-  const path = compactText(access.path || attachment.path, 260);
   const fields = [
     formatItemRef(attachment),
     attachment.filename || attachment.title
@@ -662,7 +666,6 @@ function formatAttachmentLine(
     attachment.rank !== undefined ? `rank=${attachment.rank}` : "",
     access.mode ? `access.mode=${compactText(access.mode)}` : "",
     access.locality ? `locality=${compactText(access.locality)}` : "",
-    path ? `path="${path}"` : "path=unavailable",
     attachment.recommendationReason
       ? `reason="${compactText(attachment.recommendationReason, 160)}"`
       : "",
@@ -1139,53 +1142,19 @@ async function requestCapabilityApprovalForMcp(args: {
   if (!args.context.options.requestToolPermission) {
     return "unavailable";
   }
-  const previewCapability = getHostBridgeCapability("mutation.preview");
-  const preview =
-    args.capability.name === "mutation.execute" && previewCapability
-      ? ((await executeHostBridgeCapability(
-          previewCapability.name,
-          args.input,
-          {
-            control: args.context.options.control,
-            getStatus:
-              args.context.options.resolveHostBridgeStatus ||
-              (() =>
-                (args.context.options.resolveMcpStatus?.() ||
-                  {}) as HostBridgeStatusSnapshot),
-            connectionMode: "local",
-            resolveZoteroHostCapabilityBroker:
-              args.context.options.resolveZoteroHostCapabilityBroker,
-            resolveSynthesisClient: args.context.options.resolveSynthesisClient,
-            resolveDirectResearchBundleApplication:
-              args.context.options.resolveDirectResearchBundleApplication,
-          },
-        )) as ZoteroHostMutationPreviewResponse)
-      : ({
-          ok: true,
-          operation: args.capability.name,
-          summary: args.capability.summary,
-          targetRefs: [],
-        } as unknown as ZoteroHostMutationPreviewResponse);
-  if (preview && preview.ok === false) {
-    const previewError = preview as {
-      summary?: unknown;
-      error?: { message?: unknown };
-    };
-    throw new ZoteroMcpToolInputError(
-      String(
-        previewError.summary ||
-          previewError.error?.message ||
-          "Host Bridge mutation preview failed",
-      ),
-      preview,
-    );
+  if (args.capability.name === "mutation.execute") {
+    return args.capability.approval;
   }
+  const preview = {
+    operation: args.capability.name,
+    summary: args.capability.summary,
+  };
   const decision = normalizePermissionDecision(
     await args.context.options.requestToolPermission({
       toolName: args.capability.name,
-      mutation: args.input as ZoteroHostMutationRequest,
-      preview,
-      summary: preview.summary || args.capability.summary,
+      mutation: args.input,
+      preview: preview as Record<string, unknown>,
+      summary: String(preview.summary || args.capability.summary),
       requestedAt: new Date().toISOString(),
     }),
   );
@@ -1249,6 +1218,27 @@ async function callHostBridgeCapabilityAsMcpTool(
   }
   let data: unknown;
   try {
+    const approveMutation =
+      capability.name === "mutation.execute" &&
+      context.options.requestToolPermission
+        ? async (preview: MutationPreviewResult<JsonObject>) => {
+            const decision = normalizePermissionDecision(
+              await context.options.requestToolPermission!({
+                toolName: capability.name,
+                mutation: normalizedInput as MutationExecuteRequest,
+                preview,
+                summary: capability.summary,
+                requestedAt: new Date().toISOString(),
+              }),
+            );
+            if (decision.outcome !== "approved") {
+              throw new ZoteroMcpToolInputError(
+                "Zotero-side approval was denied for this MCP capability.",
+                { capability: capability.name, approval: decision.outcome },
+              );
+            }
+          }
+        : undefined;
     data = await executeHostBridgeCapability(capability.name, normalizedInput, {
       control: context.options.control,
       getStatus:
@@ -1262,6 +1252,10 @@ async function callHostBridgeCapabilityAsMcpTool(
       resolveSynthesisClient: context.options.resolveSynthesisClient,
       resolveDirectResearchBundleApplication:
         context.options.resolveDirectResearchBundleApplication,
+      ...(approveMutation ? { approveMutation } : {}),
+      ...(context.options.canonicalMutationControl
+        ? { canonicalMutationControl: context.options.canonicalMutationControl }
+        : {}),
     });
   } catch (error) {
     if (error instanceof HostBridgeCursorError) {

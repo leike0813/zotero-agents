@@ -1,8 +1,8 @@
 import "../test/setup/zotero-mock.ts";
 import path from "path";
 import { fileURLToPath } from "url";
-import { handlers } from "../src/handlers";
-import { createHookHelpers } from "../src/workflows/helpers";
+import { createWorkflowHostApi } from "../src/workflows/hostApi";
+import { WORKFLOW_HOST_API_VERSION } from "../src/workflows/workflowHostContract";
 import { loadWorkflowManifests } from "../src/workflows/loader";
 import { executeBuildRequests } from "../src/workflows/runtime";
 import { LITERATURE_ANALYSIS_FIXTURE_CASES } from "../test/workflow-literature-analysis/literature-analysis-fixture-cases";
@@ -242,9 +242,8 @@ async function main() {
   }
 
   const runtime: WorkflowRuntimeContext = {
-    handlers,
-    zotero: Zotero,
-    helpers: createHookHelpers(Zotero),
+    hostApi: createWorkflowHostApi(),
+    hostApiVersion: WORKFLOW_HOST_API_VERSION,
   };
 
   for (const fixtureCase of LITERATURE_ANALYSIS_FIXTURE_CASES) {

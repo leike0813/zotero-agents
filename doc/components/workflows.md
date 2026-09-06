@@ -655,7 +655,7 @@ Hook 接收的 `runtime` 对象包含：
 
 `runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
 `src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：23 个顶层
-key、21 个模块、88 个 callable。Hook 只通过以下命名模块访问宿主能力：
+key、21 个模块、89 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
 - `addon`、`environment`、`context`、`navigation`
 - `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`

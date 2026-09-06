@@ -11,6 +11,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use crate::args::MutationGetOperationArgs;
 use crate::{
     args::{
         AnnotationArgs, AnnotationCommand, AnnotationExportArgs, AnnotationItemArgs, BridgeArgs,
@@ -285,21 +286,35 @@ fn synthesis_cache(config: &BridgeConfig, args: SynthesisCacheArgs) -> Result<Va
 
 pub fn mutation(config: &BridgeConfig, args: MutationArgs) -> Result<Value, CliError> {
     match args.command {
-        MutationCommand::Preview(input) | MutationCommand::Apply(input) => {
-            call_structured(config, "input", bridge_input(input)?)
-        }
+        MutationCommand::Preview(input) | MutationCommand::Apply(input) => call_structured(
+            config,
+            "input",
+            read_contract_json_arg("input", Some(&input.input))?,
+        ),
+        MutationCommand::GetOperation(args) => mutation_get_operation(config, args),
         MutationCommand::LiteratureIngest(args) => call_structured(
             config,
             "input",
             read_contract_json_arg("input", Some(&args.input))?,
         ),
-        MutationCommand::Tag(args) => client::call_current(config, mutation_tag_arguments(args)),
+        MutationCommand::Tag(args) => client::call_current(config, mutation_tag_arguments(args)?),
         MutationCommand::Collection(args) => {
             client::call_current(config, mutation_collection_arguments(args)?)
         }
         MutationCommand::Item(args) => client::call_current(config, mutation_item_arguments(args)?),
         MutationCommand::Note(args) => client::call_current(config, mutation_note_arguments(args)?),
     }
+}
+
+fn mutation_get_operation(
+    config: &BridgeConfig,
+    args: MutationGetOperationArgs,
+) -> Result<Value, CliError> {
+    call_declared_capability(
+        config,
+        "mutation.get_operation",
+        json!({ "operationId": args.operation_id }),
+    )
 }
 
 pub fn product(config: &BridgeConfig, args: ProductArgs) -> Result<Value, CliError> {
@@ -1433,14 +1448,61 @@ fn synthesis_cache_invalidate_input(args: SynthesisCacheInvalidateArgs) -> Value
     input
 }
 
-fn mutation_tag_arguments(args: MutationTagArgs) -> Map<String, Value> {
+fn portable_ref_value(raw: &str) -> Result<Value, CliError> {
+    let trimmed = raw.trim();
+    if let Some((library_id, key)) = trimmed.split_once(':') {
+        let library_id = library_id.parse::<u64>().ok().filter(|value| *value > 0);
+        if let (Some(library_id), false) = (library_id, key.trim().is_empty()) {
+            return Ok(json!({ "libraryId": library_id, "key": key.trim() }));
+        }
+    }
+    if trimmed.starts_with('{') {
+        let value = serde_json::from_str::<Value>(trimmed)
+            .map_err(|error| CliError::validation("invalid_portable_ref", error.to_string()))?;
+        let object = value.as_object().ok_or_else(|| {
+            CliError::validation("invalid_portable_ref", "Portable ref must be a JSON object")
+        })?;
+        let library_id = object
+            .get("libraryId")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0);
+        let key = object
+            .get("key")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let (Some(library_id), Some(key)) = (library_id, key) {
+            return Ok(json!({ "libraryId": library_id, "key": key }));
+        }
+    }
+    Err(CliError::validation(
+        "invalid_portable_ref",
+        "Canonical mutations require a portable ref as libraryId:key or {libraryId,key}",
+    ))
+}
+
+fn portable_ref_array(values: Vec<String>) -> Result<Value, CliError> {
+    values
+        .iter()
+        .map(|value| portable_ref_value(value))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Value::Array)
+}
+
+fn mutation_tag_arguments(args: MutationTagArgs) -> Result<Map<String, Value>, CliError> {
     let input = match args.command {
         MutationTagCommand::Add(input) | MutationTagCommand::Remove(input) => input,
     };
-    Map::from_iter([
-        ("items".to_string(), json!(input.items)),
+    if input.items.len() != 1 {
+        return Err(CliError::validation(
+            "canonical_mutation_target_count",
+            "mutation tag commands require exactly one --items target",
+        ));
+    }
+    Ok(Map::from_iter([
+        ("items".to_string(), portable_ref_value(&input.items[0])?),
         ("tags".to_string(), json!(input.tags)),
-    ])
+    ]))
 }
 
 fn mutation_collection_arguments(
@@ -1449,12 +1511,15 @@ fn mutation_collection_arguments(
     match args.command {
         MutationCollectionCommand::Create(args) => Ok(Map::from_iter([(
             "input".to_string(),
-            read_contract_json_arg("input", Some(&args.input))?,
+            canonical_collection_create_input(read_json_arg(Some(&args.input))?)?,
         )])),
         MutationCollectionCommand::AddItems(args)
         | MutationCollectionCommand::RemoveItems(args) => Ok(Map::from_iter([
-            ("collection".to_string(), Value::String(args.collection)),
-            ("items".to_string(), json!(args.items)),
+            (
+                "collection".to_string(),
+                portable_ref_value(&args.collection)?,
+            ),
+            ("items".to_string(), portable_ref_array(args.items)?),
         ])),
     }
 }
@@ -1462,27 +1527,33 @@ fn mutation_collection_arguments(
 fn mutation_item_arguments(args: MutationItemArgs) -> Result<Map<String, Value>, CliError> {
     match args.command {
         MutationItemCommand::Update(args) => Ok(Map::from_iter([
-            ("item".to_string(), Value::String(args.item)),
+            ("item".to_string(), portable_ref_value(&args.item)?),
             (
                 "patch".to_string(),
-                read_contract_json_arg("patch", Some(&args.patch))?,
+                json!({ "fields": read_json_arg(Some(&args.patch))? }),
             ),
         ])),
         MutationItemCommand::AttachFile(args) => {
             let mut arguments = Map::from_iter([
-                ("item".to_string(), Value::String(args.item)),
-                ("file_id".to_string(), Value::String(args.file_id)),
+                (
+                    "item".to_string(),
+                    json!({ "kind": "child", "parentRef": portable_ref_value(&args.item)? }),
+                ),
+                (
+                    "file_id".to_string(),
+                    json!({ "kind": "stored_file", "fileId": crate::contract::normalize_file_id(&args.file_id)? }),
+                ),
             ]);
+            let mut metadata = Map::new();
+            insert_argument(&mut metadata, "title", args.display_name.map(Value::String));
             insert_argument(
-                &mut arguments,
-                "display_name",
-                args.display_name.map(Value::String),
-            );
-            insert_argument(
-                &mut arguments,
-                "content_type",
+                &mut metadata,
+                "contentType",
                 args.content_type.map(Value::String),
             );
+            if !metadata.is_empty() {
+                arguments.insert("display_name".to_string(), Value::Object(metadata));
+            }
             Ok(arguments)
         }
     }
@@ -1491,27 +1562,56 @@ fn mutation_item_arguments(args: MutationItemArgs) -> Result<Map<String, Value>,
 fn mutation_note_arguments(args: MutationNoteArgs) -> Result<Map<String, Value>, CliError> {
     match args.command {
         MutationNoteCommand::Create(args) => Ok(Map::from_iter([
-            ("item".to_string(), Value::String(args.item)),
+            (
+                "item".to_string(),
+                json!({ "kind": "child", "parentRef": portable_ref_value(&args.item)? }),
+            ),
             (
                 "input".to_string(),
-                read_contract_json_arg("input", Some(&args.input))?,
+                canonical_note_content_input(read_json_arg(Some(&args.input))?)?,
             ),
         ])),
         MutationNoteCommand::Update(args) => Ok(Map::from_iter([
-            ("note".to_string(), Value::String(args.note)),
+            ("note".to_string(), portable_ref_value(&args.note)?),
             (
                 "input".to_string(),
-                read_contract_json_arg("input", Some(&args.input))?,
+                canonical_note_content_input(read_json_arg(Some(&args.input))?)?,
             ),
         ])),
         MutationNoteCommand::UpsertPayload(args) => Ok(Map::from_iter([
-            ("note".to_string(), Value::String(args.note)),
-            (
-                "input".to_string(),
-                read_contract_json_arg("input", Some(&args.input))?,
-            ),
+            ("note".to_string(), portable_ref_value(&args.note)?),
+            ("input".to_string(), read_json_arg(Some(&args.input))?),
         ])),
     }
+}
+
+fn canonical_note_content_input(input: Value) -> Result<Value, CliError> {
+    let object = input.as_object().ok_or_else(|| {
+        CliError::validation("invalid_note_input", "Note input must be a JSON object")
+    })?;
+    if object.get("content").is_some_and(Value::is_object) {
+        return Ok(input);
+    }
+    let content = object
+        .get("content")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            CliError::validation("invalid_note_input", "Note input must contain content")
+        })?;
+    Ok(json!({ "content": { "format": "html", "value": content } }))
+}
+
+fn canonical_collection_create_input(input: Value) -> Result<Value, CliError> {
+    let mut object = input.as_object().cloned().ok_or_else(|| {
+        CliError::validation(
+            "invalid_collection_input",
+            "Collection input must be a JSON object",
+        )
+    })?;
+    object
+        .entry("placement".to_string())
+        .or_insert_with(|| json!({ "kind": "root" }));
+    Ok(Value::Object(object))
 }
 
 fn json_object_arg(
@@ -1661,17 +1761,13 @@ fn workflow_selection_from(
         let Some(object) = value.as_object() else {
             return Err(CliError::validation(
                 "invalid_workflow_items",
-                format!(
-                    "Workflow --selection item {index} must contain only libraryId and key"
-                ),
+                format!("Workflow --selection item {index} must contain only libraryId and key"),
             ));
         };
         if object.len() != 2 || !object.contains_key("libraryId") || !object.contains_key("key") {
             return Err(CliError::validation(
                 "invalid_workflow_items",
-                format!(
-                    "Workflow --selection item {index} requires complete libraryId/key ref"
-                ),
+                format!("Workflow --selection item {index} requires complete libraryId/key ref"),
             ));
         }
         let library_id = object
@@ -1681,7 +1777,9 @@ fn workflow_selection_from(
             .ok_or_else(|| {
                 CliError::validation(
                     "invalid_workflow_items",
-                    format!("Workflow --selection item {index}.libraryId must be a positive integer"),
+                    format!(
+                        "Workflow --selection item {index}.libraryId must be a positive integer"
+                    ),
                 )
             })?;
         let key = object
@@ -2783,39 +2881,48 @@ mod tests {
             MutationTagCommand::Add(_) => "mutation tag add",
             MutationTagCommand::Remove(_) => "mutation tag remove",
         };
-        contract::compose_command_payload(command, &mutation_tag_arguments(args))
+        contract::compose_command_payload(command, &mutation_tag_arguments(args)?)
     }
 
     fn mutation_collection_items_input(
-        operation: &str,
-        args: MutationCollectionItemsArgs,
+        mutation: MutationCollectionCommand,
     ) -> Result<Value, CliError> {
-        let command = match operation {
-            "collection.addItems" => "mutation collection add-items",
-            "collection.removeItems" => "mutation collection remove-items",
-            _ => panic!("unexpected collection mutation"),
+        let (command, args) = match mutation {
+            MutationCollectionCommand::AddItems(args) => ("mutation collection add-items", args),
+            MutationCollectionCommand::RemoveItems(args) => {
+                ("mutation collection remove-items", args)
+            }
+            MutationCollectionCommand::Create(_) => {
+                panic!("expected collection membership mutation")
+            }
         };
         contract::compose_command_payload(
             command,
             &Map::from_iter([
-                ("collection".to_string(), Value::String(args.collection)),
-                ("items".to_string(), json!(args.items)),
+                (
+                    "collection".to_string(),
+                    portable_ref_value(&args.collection)?,
+                ),
+                ("items".to_string(), portable_ref_array(args.items)?),
             ]),
         )
     }
 
     fn mutation_item_update_input(args: MutationItemUpdateArgs) -> Result<Value, CliError> {
-        let patch = read_contract_json_arg("patch", Some(&args.patch))?;
+        let patch = json!({ "fields": read_json_arg(Some(&args.patch))? });
         compose_current(Map::from_iter([
-            ("item".to_string(), Value::String(args.item)),
+            ("item".to_string(), portable_ref_value(&args.item)?),
             ("patch".to_string(), patch),
         ]))
     }
 
     fn mutation_note_create_input(args: MutationNoteCreateArgs) -> Result<Value, CliError> {
-        let input = read_contract_json_arg("input", Some(&args.input))?;
+        let input = canonical_note_content_input(read_json_arg(Some(&args.input))?)?;
         compose_current(Map::from_iter([
-            ("item".to_string(), Value::String(args.item)),
+            (
+                "item".to_string(),
+                json!({ "kind": "child", "parentRef": portable_ref_value(&args.item)? }),
+            ),
             ("input".to_string(), input),
         ]))
     }
@@ -2824,18 +2931,25 @@ mod tests {
         args: MutationItemAttachFileArgs,
     ) -> Result<Value, CliError> {
         let mut arguments = Map::from_iter([
-            ("item".to_string(), Value::String(args.item)),
-            ("file_id".to_string(), Value::String(args.file_id)),
+            (
+                "item".to_string(),
+                json!({ "kind": "child", "parentRef": portable_ref_value(&args.item)? }),
+            ),
+            (
+                "file_id".to_string(),
+                json!({ "kind": "stored_file", "fileId": crate::contract::normalize_file_id(&args.file_id)? }),
+            ),
         ]);
         insert_argument(
             &mut arguments,
             "display_name",
-            args.display_name.map(Value::String),
-        );
-        insert_argument(
-            &mut arguments,
-            "content_type",
-            args.content_type.map(Value::String),
+            match (args.display_name, args.content_type) {
+                (None, None) => None,
+                (title, content_type) => Some(json!({
+                    "title": title,
+                    "contentType": content_type,
+                })),
+            },
         );
         contract::compose_command_payload("mutation item attach-file", &arguments)
     }
@@ -3052,21 +3166,21 @@ mod tests {
     fn reads_bridge_inline_and_file_inputs() {
         contract::set_current_command("mutation preview");
         let inline = bridge_input(BridgeInputArgs {
-            input: Some("{\"cursor\":1}".to_string()),
+            input: Some("{\"operation\":\"trash.setItemsState\",\"itemRefs\":[{\"libraryId\":1,\"key\":\"ABC123\"}],\"state\":\"trashed\"}".to_string()),
         })
         .unwrap();
-        assert_eq!(inline, json!({ "cursor": 1 }));
+        assert_eq!(inline["operation"], "trash.setItemsState");
 
         let path = std::env::temp_dir().join(format!(
             "zotero-bridge-domain-input-{}.json",
             std::process::id()
         ));
-        fs::write(&path, "{\"paperRefs\":[\"p1\"]}").unwrap();
+        fs::write(&path, "{\"operation\":\"trash.setItemsState\",\"itemRefs\":[{\"libraryId\":1,\"key\":\"ABC123\"}],\"state\":\"active\"}").unwrap();
         let file = bridge_input(BridgeInputArgs {
             input: Some(format!("@{}", path.display())),
         })
         .unwrap();
-        assert_eq!(file, json!({ "paperRefs": ["p1"] }));
+        assert_eq!(file["state"], "active");
         let _ = fs::remove_file(path);
     }
 
@@ -3100,7 +3214,7 @@ mod tests {
     fn builds_literature_ingest_mutation_input() {
         contract::set_current_command("mutation literature-ingest");
         let input = literature_ingest_input(LiteratureIngestArgs {
-            input: "{\"paper\":{\"itemType\":\"thesis\",\"fields\":{\"title\":\"Bridge Paper\",\"university\":\"Example University\"},\"creators\":[{\"name\":\"欧阳明\",\"creatorType\":\"author\"}],\"identifiers\":{},\"attachLandingUrlOnMissingPdf\":true},\"collection\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
+            input: "{\"paper\":{\"itemType\":\"thesis\",\"fields\":{\"title\":\"Bridge Paper\",\"university\":\"Example University\"},\"creators\":[{\"name\":\"欧阳明\",\"creatorType\":\"author\"}],\"identifiers\":{},\"attachLandingUrlOnMissingPdf\":true},\"collectionRef\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
         })
         .unwrap();
         assert_eq!(
@@ -3120,7 +3234,7 @@ mod tests {
                     "identifiers": {},
                     "attachLandingUrlOnMissingPdf": true
                 },
-                "collection": {
+                "collectionRef": {
                     "key": "COLL",
                     "libraryId": 1
                 }
@@ -3135,7 +3249,7 @@ mod tests {
             "zotero-bridge-literature-ingest-input-{}.json",
             std::process::id()
         ));
-        fs::write(&path, "{\"paper\":{\"itemType\":\"journalArticle\",\"fields\":{\"title\":\"Example\",\"DOI\":\"10.1000/example\"},\"creators\":[],\"identifiers\":{\"doi\":\"10.1000/example\"}}}").unwrap();
+        fs::write(&path, "{\"collectionRef\":{\"libraryId\":1,\"key\":\"COLL\"},\"paper\":{\"itemType\":\"journalArticle\",\"fields\":{\"title\":\"Example\",\"DOI\":\"10.1000/example\"},\"creators\":[],\"identifiers\":{\"doi\":\"10.1000/example\"}}}").unwrap();
         let input = literature_ingest_input(LiteratureIngestArgs {
             input: format!("@{}", path.display()),
         })
@@ -3144,6 +3258,7 @@ mod tests {
             input,
             json!({
                 "operation": "literature.ingest",
+                "collectionRef": { "libraryId": 1, "key": "COLL" },
                 "paper": {
                     "itemType": "journalArticle",
                     "fields": {
@@ -3175,72 +3290,72 @@ mod tests {
         assert_eq!(
             mutation_tag_input(MutationTagArgs {
                 command: MutationTagCommand::Add(MutationTagsArgs {
-                    items: vec!["1:ABC123".to_string(), "{\"id\":2}".to_string()],
+                    items: vec!["1:ABC123".to_string()],
                     tags: vec!["status:read".to_string()],
                 }),
             })
             .unwrap(),
             json!({
-                "operation": "item.addTags",
-                "items": ["1:ABC123", { "id": 2 }],
-                "tags": ["status:read"]
+                "operation": "item.updateTags",
+                "itemRef": { "libraryId": 1, "key": "ABC123" },
+                "add": ["status:read"],
+                "remove": []
             })
         );
         assert_eq!(
-            mutation_collection_items_input(
-                "collection.addItems",
+            mutation_collection_items_input(MutationCollectionCommand::AddItems(
                 MutationCollectionItemsArgs {
                     collection: "1:COLL123".to_string(),
-                    items: vec!["ABC123".to_string()],
-                },
-            )
+                    items: vec!["1:ABC123".to_string()],
+                }
+            ),)
             .unwrap(),
             json!({
-                "operation": "collection.addItems",
-                "collection": "1:COLL123",
-                "items": ["ABC123"]
+                "operation": "collection.updateMembership",
+                "collectionRef": { "libraryId": 1, "key": "COLL123" },
+                "add": [{ "libraryId": 1, "key": "ABC123" }],
+                "remove": []
             })
         );
         contract::set_current_command("mutation item update");
         assert_eq!(
             mutation_item_update_input(MutationItemUpdateArgs {
-                item: "ABC123".to_string(),
+                item: "1:ABC123".to_string(),
                 patch: "{\"title\":\"Updated\"}".to_string(),
             })
             .unwrap(),
             json!({
-                "operation": "item.updateFields",
-                "item": "ABC123",
-                "fields": { "title": "Updated" }
+                "operation": "item.updateMetadata",
+                "itemRef": { "libraryId": 1, "key": "ABC123" },
+                "patch": { "fields": { "title": "Updated" } }
             })
         );
         contract::set_current_command("mutation note create");
         assert_eq!(
             mutation_note_create_input(MutationNoteCreateArgs {
-                item: "ABC123".to_string(),
+                item: "1:ABC123".to_string(),
                 input: "{\"content\":\"<p>Note</p>\"}".to_string(),
             })
             .unwrap(),
             json!({
-                "operation": "note.createChild",
-                "parent": "ABC123",
-                "content": "<p>Note</p>"
+                "operation": "notes.create",
+                "placement": { "kind": "child", "parentRef": { "libraryId": 1, "key": "ABC123" } },
+                "content": { "format": "html", "value": "<p>Note</p>" }
             })
         );
         assert_eq!(
             mutation_item_attach_file_input(MutationItemAttachFileArgs {
-                item: "ABC123".to_string(),
+                item: "1:ABC123".to_string(),
                 file_id: "file-abc".to_string(),
                 display_name: Some("artifact.md".to_string()),
                 content_type: Some("text/markdown".to_string()),
             })
             .unwrap(),
             json!({
-                "operation": "item.attachFile",
-                "item": "ABC123",
-                "fileId": "file-abc",
-                "displayName": "artifact.md",
-                "contentType": "text/markdown"
+                "operation": "attachments.create",
+                "placement": { "kind": "child", "parentRef": { "libraryId": 1, "key": "ABC123" } },
+                "source": { "kind": "stored_file", "fileId": "file-abc" },
+                "metadata": { "title": "artifact.md", "contentType": "text/markdown" }
             })
         );
     }
@@ -3270,26 +3385,26 @@ mod tests {
         );
 
         let attach_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
-            item: "ABC123".to_string(),
+            item: "1:ABC123".to_string(),
             file_id: "../artifact.md".to_string(),
             display_name: None,
             content_type: None,
         })
         .unwrap_err();
-        assert_eq!(attach_error.code, "command_payload_composition_failed");
+        assert_eq!(attach_error.code, "invalid_file_id");
         assert_eq!(
-            attach_error.details.as_ref().unwrap()["argumentId"],
-            "file_id"
+            attach_error.category,
+            crate::error::ErrorCategory::Validation
         );
 
         let non_handle_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
-            item: "ABC123".to_string(),
+            item: "1:ABC123".to_string(),
             file_id: "artifact-md".to_string(),
             display_name: None,
             content_type: None,
         })
         .unwrap_err();
-        assert_eq!(non_handle_error.code, "command_payload_composition_failed");
+        assert_eq!(non_handle_error.code, "invalid_file_id");
     }
 
     #[test]

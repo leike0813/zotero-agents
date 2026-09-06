@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { lockSelection } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";

@@ -73,6 +73,8 @@ There is no safe default for target library/collection, duplicate survivor, meta
 9. Execute the current approved scope once. Re-read each acquired item, collection membership, duplicate outcome, or attachment state and keep successful, failed, and unattempted candidates separate.
 10. Return `zotero-library-task.result.v1` with candidate provenance or the durable operation/workflow receipt plus live verification.
 
+For a single-paper ingest, treat the bibliographic item and explicitly requested collection membership as required completion evidence. A matched item keeps its curated metadata; check its identity and membership rather than assuming incoming provider fields replaced it. If required collection membership fails after this invocation creates an item, roll back only objects and membership changes created by this invocation, never deleting a reused item or pre-existing membership. Return a failed/compensated core outcome rather than reporting successful ingest. Report PDF and landing-URL enrichment separately from that core result. A clean attachment failure may leave a successful core ingest, but residual or uncertain writes require the returned repair or reconciliation outcome. Preserve the original operation identity while investigating that outcome, and obtain new authority before attempting any residual acquisition.
+
 ### Present candidate and write decisions
 
 For candidate-only work, report:

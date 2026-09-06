@@ -235,7 +235,7 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
   let itemTypeChanged = false;
   if (normalized.itemType && normalized.itemType !== originalItemType) {
     try {
-      const preview = await host.mutations.preview({
+      await host.mutations.preview({
         operation: "item.changeType",
         itemRef,
         targetItemType: normalized.itemType,
@@ -246,10 +246,8 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
           operation: "item.changeType",
           operationId: operationId("change-type", itemRef),
           itemRef,
-          expectedRevision: preview.plan.sourceRevision,
           targetItemType: normalized.itemType,
           incompatibleData: "move_to_extra",
-          previewToken: preview.token.value,
         }),
       );
       itemTypeChanged = true;

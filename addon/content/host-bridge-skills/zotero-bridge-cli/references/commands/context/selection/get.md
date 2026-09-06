@@ -208,7 +208,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "direction": "produce",
       "handle": "itemRef",
       "lifetime": "response",
-      "required": false
+      "required": true
     }
   ],
   "hiddenFromIntentSearch": false,
@@ -370,7 +370,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
     "direction": "produce",
     "handle": "itemRef",
     "lifetime": "response",
-    "required": false
+    "required": true
   }
 ]
 ```

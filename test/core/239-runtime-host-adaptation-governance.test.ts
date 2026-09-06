@@ -33,11 +33,6 @@ const NATIVE_WORKLOAD_ALLOWLIST: ReadonlyArray<{
     selectors: ["node-fs"],
     evidence: "test/core/184-runtime-file-transfer-governance.test.ts",
   },
-  {
-    owner: "src/handlers/index.ts",
-    selectors: ["zotero-temp-directory"],
-    evidence: "test/core/90-workflow-stored-attachment-import.test.ts",
-  },
 ];
 
 function listTypeScriptFiles(root: string): string[] {

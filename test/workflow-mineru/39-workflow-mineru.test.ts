@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import {
   buildSelectionContext,
   itemRef,
@@ -90,7 +90,7 @@ async function listAttachmentPaths(parent: Zotero.Item) {
 }
 
 async function countAttachmentsByPath(parent: Zotero.Item, targetPath: string) {
-  const normalizedTarget = normalizePathForCompare(targetPath);
+  const normalizedTarget = normalizePathForCompare(targetPath).split("/").pop();
   let count = 0;
   for (const id of parent.getAttachments()) {
     const item = Zotero.Items.get(id);
@@ -101,7 +101,9 @@ async function countAttachmentsByPath(parent: Zotero.Item, targetPath: string) {
     if (!filePath) {
       continue;
     }
-    if (normalizePathForCompare(filePath) === normalizedTarget) {
+    if (
+      normalizePathForCompare(filePath).split("/").pop() === normalizedTarget
+    ) {
       count += 1;
     }
   }
@@ -693,7 +695,21 @@ describe("workflow: mineru", function () {
       attachmentPaths.some((entry) =>
         compareNormalizedPath(entry, targetMdPath),
       ),
-      `expected linked markdown attachment=${targetMdPath}, got=${attachmentPaths.join(",")}`,
+      `expected stored markdown attachment for ${targetMdPath}`,
+    );
+    const storedMarkdown = attachmentPaths.find((entry) =>
+      compareNormalizedPath(entry, targetMdPath),
+    )!;
+    assert.notEqual(storedMarkdown, targetMdPath);
+    assert.equal(await readUtf8(storedMarkdown), markdown);
+    assert.isTrue(
+      await pathExists(
+        joinPath(
+          storedMarkdown.replace(/[\\/][^\\/]+$/, ""),
+          `Images_${source.attachment.key}`,
+          "figure-1.png",
+        ),
+      ),
     );
     assert.lengthOf(statusTransitions, 1);
     assert.deepInclude(statusTransitions[0], {
@@ -987,7 +1003,10 @@ describe("workflow: mineru", function () {
 });
 
 function compareNormalizedPath(a: string, b: string) {
-  return normalizePathForCompare(a) === normalizePathForCompare(b);
+  return (
+    normalizePathForCompare(a).split("/").pop() ===
+    normalizePathForCompare(b).split("/").pop()
+  );
 }
 
 function normalizePathForCompare(value: string) {

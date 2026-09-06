@@ -54,6 +54,7 @@ import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibrar
 import { runtimeHttpResponseInternalsForTests } from "../../src/modules/runtimeHttpResponse";
 import { createProductStorageApi } from "../../src/modules/workflowProductStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import { resolveHostBridgeUploadedFile } from "../../src/modules/hostBridgeFileRegistry";
 
 const CONTRACT_HASH = `sha256:${"a".repeat(64)}`;
 
@@ -309,6 +310,17 @@ async function callBridgeCapability(args: {
   if (args.connectionMode) {
     headers["x-zotero-bridge-connection-mode"] = args.connectionMode;
   }
+  if (
+    args.capability === "mutation.execute" &&
+    args.input &&
+    typeof args.input === "object" &&
+    !Array.isArray(args.input) &&
+    typeof (args.input as Record<string, unknown>).operationId === "string"
+  ) {
+    headers["x-zotero-bridge-operation-id"] = (
+      args.input as Record<string, string>
+    ).operationId;
+  }
   return parseRawHttpResponse(
     await handleHostBridgeHttpRequestForTests({
       method: "POST",
@@ -365,6 +377,19 @@ async function createParentItem(title: string) {
   }
   await item.saveTx();
   return item;
+}
+
+function portableItemRef(item: Zotero.Item) {
+  return { libraryId: item.libraryID, key: item.key };
+}
+
+async function createCollection(name: string) {
+  const collection = new Zotero.Collection();
+  (collection as any).version = 1;
+  collection.name = name;
+  (collection as any).libraryID = Zotero.Libraries.userLibraryID;
+  await collection.saveTx();
+  return collection;
 }
 
 async function createAttachment(
@@ -1589,28 +1614,31 @@ describe("host bridge capability calls", function () {
       token,
       capability: "mutation.preview",
       input: {
-        operation: "item.updateFields",
-        target: item.id,
-        fields: {
-          title: "Bridge Preview After",
-        },
+        operation: "item.updateMetadata",
+        itemRef: portableItemRef(item),
+        patch: { fields: { title: "Bridge Preview After" } },
       },
     });
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.result.approval, "none");
-    assert.isTrue(parsed.json.result.data.ok);
+    assert.deepInclude(parsed.json.result.data, {
+      operation: "item.updateMetadata",
+      outcome: "would_change",
+    });
     assert.strictEqual(item.getField("title"), "Bridge Preview Before");
   });
 
   it("previews single-paper literature ingest mutation", async function () {
     const token = configureHostBridgeServerForTests({ token: "ingest-token" });
+    const collection = await createCollection("Bridge Literature Ingest");
 
     const canonical = await callBridgeCapability({
       token,
       capability: "mutation.preview",
       input: {
         operation: "literature.ingest",
+        collectionRef: { libraryId: collection.libraryID, key: collection.key },
         paper: {
           itemType: "document",
           fields: { title: "Bridge Literature Ingest" },
@@ -1622,34 +1650,28 @@ describe("host bridge capability calls", function () {
       },
     });
     assert.strictEqual(canonical.status, 200);
-    assert.isTrue(canonical.json.result.data.ok);
-    assert.strictEqual(
-      canonical.json.result.data.operation,
-      "literature.ingest",
-    );
-    assert.include(canonical.json.result.data.summary, "one paper");
-    assert.include(canonical.json.result.data.summary, "landing link");
+    assert.deepInclude(canonical.json.result.data, {
+      operation: "literature.ingest",
+      outcome: "would_change",
+    });
   });
 
-  it("rejects legacy and batch literature ingest mutation inputs", async function () {
+  it("rejects malformed canonical literature ingest inputs", async function () {
     const token = configureHostBridgeServerForTests({ token: "ingest-token" });
 
-    const legacy = await callBridgeCapability({
+    const malformed = await callBridgeCapability({
       token,
       capability: "mutation.preview",
       input: {
-        operation: "paper.ingest",
+        operation: "literature.ingest",
+        collectionRef: { libraryId: 1, key: "COLLECT1" },
         paper: {
           title: "Bridge Legacy Paper Ingest",
         },
       },
     });
-    assert.strictEqual(legacy.status, 200);
-    assert.isFalse(legacy.json.result.data.ok);
-    assert.match(
-      legacy.json.result.data.error.message,
-      /Unsupported mutation operation/,
-    );
+    assert.strictEqual(malformed.status, 400);
+    assert.strictEqual(malformed.json.error.code, "invalid_capability_input");
 
     const batch = await callBridgeCapability({
       token,
@@ -1666,9 +1688,8 @@ describe("host bridge capability calls", function () {
         ],
       },
     });
-    assert.strictEqual(batch.status, 200);
-    assert.isFalse(batch.json.result.data.ok);
-    assert.match(batch.json.result.data.error.message, /single paper field/);
+    assert.strictEqual(batch.status, 400);
+    assert.strictEqual(batch.json.error.code, "invalid_capability_input");
   });
 
   it("requires approval before executing mutation capabilities", async function () {
@@ -1689,24 +1710,21 @@ describe("host bridge capability calls", function () {
       token,
       capability: "mutation.execute",
       input: {
-        operation: "item.updateFields",
-        target: item.id,
-        fields: {
-          title: "Bridge Execute After",
-        },
+        operation: "item.updateMetadata",
+        operationId: "bridge-execute-update",
+        itemRef: portableItemRef(item),
+        patch: { fields: { title: "Bridge Execute After" } },
       },
     });
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.result.approval, "zotero-ui-required");
-    assert.isTrue(parsed.json.result.data.ok);
+    assert.strictEqual(parsed.json.result.data.outcome, "committed");
     assert.strictEqual(item.getField("title"), "Bridge Execute After");
-    assert.include(approvalRequest.title, "Zotero item update");
-    assert.include(approvalRequest.summary, "Update");
-    assert.include(approvalRequest.summary, "field");
-    assert.include(approvalRequest.detail, "Fields: title");
-    assert.notInclude(approvalRequest.detail, '"operation"');
-    assert.notInclude(approvalRequest.detail, "{");
+    assert.strictEqual(approvalRequest.title, "Approve Zotero mutation?");
+    assert.include(approvalRequest.summary, "item.updateMetadata");
+    assert.include(approvalRequest.detail, "Planned outcome: would_change");
+    assert.notInclude(approvalRequest.detail, item.key);
   });
 
   it("rejects invalid approved-capability input before requesting approval", async function () {
@@ -1768,17 +1786,16 @@ describe("host bridge capability calls", function () {
       token,
       capability: "mutation.execute",
       input: {
-        operation: "item.updateFields",
-        target: item.id,
-        fields: {
-          title: "Bridge No Approval After",
-        },
+        operation: "item.updateMetadata",
+        operationId: `bridge-no-approval-update-${Date.now()}`,
+        itemRef: portableItemRef(item),
+        patch: { fields: { title: "Bridge No Approval After" } },
       },
     });
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.result.approval, "none");
-    assert.isTrue(parsed.json.result.data.ok);
+    assert.strictEqual(parsed.json.result.data.outcome, "committed");
     assert.isNull(approvalRequest);
     assert.strictEqual(item.getField("title"), "Bridge No Approval After");
   });
@@ -1820,11 +1837,10 @@ describe("host bridge capability calls", function () {
       scope,
       capability: "mutation.execute",
       input: {
-        operation: "item.updateFields",
-        target: item.id,
-        fields: {
-          title: "Bridge Auto Approve After",
-        },
+        operation: "item.updateMetadata",
+        operationId: "bridge-auto-approve-update",
+        itemRef: portableItemRef(item),
+        patch: { fields: { title: "Bridge Auto Approve After" } },
       },
     });
 
@@ -1858,11 +1874,10 @@ describe("host bridge capability calls", function () {
       },
       capability: "mutation.execute",
       input: {
-        operation: "item.updateFields",
-        target: item.id,
-        fields: {
-          title: "Bridge Forged Scope After",
-        },
+        operation: "item.updateMetadata",
+        operationId: "bridge-forged-scope-update",
+        itemRef: portableItemRef(item),
+        patch: { fields: { title: "Bridge Forged Scope After" } },
       },
     });
 
@@ -1878,8 +1893,9 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(item.getField("title"), "Bridge Forged Scope After");
   });
 
-  it("uses human literature ingest approval text", async function () {
+  it("uses canonical mutation approval text without exposing request details", async function () {
     const token = configureHostBridgeServerForTests({ token: "execute-token" });
+    const item = await createParentItem("Bridge Canonical Approval");
     let approvalRequest: any = null;
     configureHostBridgeGlobalApprovalHandlerForTests((request) => {
       approvalRequest = request;
@@ -1894,36 +1910,22 @@ describe("host bridge capability calls", function () {
       token,
       capability: "mutation.execute",
       input: {
-        operation: "literature.ingest",
-        paper: {
-          itemType: "journalArticle",
-          fields: {
-            title: "Bridge Ingest Approval",
-            DOI: "10.5555/bridge.approval",
-          },
-          creators: [],
-          identifiers: { doi: "10.5555/bridge.approval" },
-          landingUrl: "https://example.test/bridge-approval",
-          pdfUrl: "https://example.test/bridge.pdf",
-          attachLandingUrlOnMissingPdf: true,
-        },
+        operation: "item.updateTags",
+        operationId: "bridge-canonical-approval",
+        itemRef: portableItemRef(item),
+        add: ["approval-readable"],
+        remove: [],
       },
     });
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.result.approval, "zotero-ui-required");
-    assert.isTrue(parsed.json.result.data.ok);
-    assert.strictEqual(parsed.json.result.data.operation, "literature.ingest");
-    assert.include(approvalRequest.title, "Zotero literature ingest");
-    assert.include(approvalRequest.summary, "Ingest one literature paper");
-    assert.include(approvalRequest.detail, "Paper: Bridge Ingest Approval");
-    assert.include(approvalRequest.detail, "DOI: 10.5555/bridge.approval");
-    assert.include(approvalRequest.detail, "PDF: best-effort");
-    assert.include(approvalRequest.detail, "Landing link:");
-    assert.include(approvalRequest.detail, "missing-PDF landing link");
-    assert.notInclude(approvalRequest.detail, "Papers:");
-    assert.notInclude(approvalRequest.summary, "paper(s)");
-    assert.notInclude(approvalRequest.detail, '"operation"');
+    assert.strictEqual(parsed.json.result.data.outcome, "committed");
+    assert.strictEqual(approvalRequest.title, "Approve Zotero mutation?");
+    assert.include(approvalRequest.summary, "item.updateTags");
+    assert.include(approvalRequest.detail, "revalidate this plan");
+    assert.notInclude(approvalRequest.detail, "approval-readable");
+    assert.notInclude(approvalRequest.detail, item.key);
   });
 
   it("does not request approval for batch literature ingest execute input", async function () {
@@ -1957,7 +1959,7 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.json.error.details.phase, "capability_input");
   });
 
-  it("summarizes tag mutation approvals for people instead of dumping JSON", async function () {
+  it("keeps canonical tag mutation approval free of item and tag details", async function () {
     const token = configureHostBridgeServerForTests({ token: "execute-token" });
     const item = await createParentItem("Bridge Tag Approval");
     let approvalRequest: any = null;
@@ -1974,21 +1976,19 @@ describe("host bridge capability calls", function () {
       token,
       capability: "mutation.execute",
       input: {
-        operation: "item.addTags",
-        target: item.id,
-        tags: ["approval-readable"],
+        operation: "item.updateTags",
+        operationId: "bridge-tag-approval",
+        itemRef: portableItemRef(item),
+        add: ["approval-readable"],
+        remove: [],
       },
     });
 
     assert.strictEqual(parsed.status, 200);
-    assert.isTrue(parsed.json.result.data.ok);
-    assert.include(approvalRequest.title, "Zotero tag change");
-    assert.include(approvalRequest.summary, "Add");
-    assert.include(approvalRequest.summary, "tag");
-    assert.include(approvalRequest.summary, "Zotero item");
-    assert.include(approvalRequest.detail, "Tags: approval-readable");
-    assert.notInclude(approvalRequest.detail, '"operation"');
-    assert.notInclude(approvalRequest.detail, "{");
+    assert.strictEqual(parsed.json.result.data.outcome, "committed");
+    assert.include(approvalRequest.summary, "item.updateTags");
+    assert.notInclude(approvalRequest.detail, "approval-readable");
+    assert.notInclude(approvalRequest.detail, item.key);
   });
 
   it("executes collection create, membership, note, and annotation writeback operations", async function () {
@@ -2001,58 +2001,73 @@ describe("host bridge capability calls", function () {
       requestId: request.requestId,
       channel: "global",
     }));
+    const operationId = `bridge-writeback-${Date.now()}`;
 
     const createdCollection = await callBridgeCapability({
       token,
       capability: "mutation.execute",
       input: {
         operation: "collection.create",
+        operationId: `${operationId}-collection`,
         name: "Bridge Writeback Collection",
+        placement: { kind: "root", libraryId: item.libraryID },
       },
     });
     assert.strictEqual(createdCollection.status, 200);
-    const collection = createdCollection.json.result.data.result.collections[0];
+    const collection = createdCollection.json.result.data.result.collection;
     assert.strictEqual(collection.name, "Bridge Writeback Collection");
 
     const added = await callBridgeCapability({
       token,
       capability: "mutation.execute",
       input: {
-        operation: "collection.addItems",
-        collection: { id: collection.id },
-        items: [item.id],
+        operation: "collection.updateMembership",
+        operationId: `${operationId}-membership`,
+        collectionRef: collection.ref,
+        add: [portableItemRef(item)],
+        remove: [],
       },
     });
     assert.strictEqual(added.status, 200);
-    assert.include(item.getCollections(), collection.id);
+    const nativeCollection = Zotero.Collections.getByLibraryAndKey(
+      collection.ref.libraryId,
+      collection.ref.key,
+    )!;
+    assert.include(item.getCollections(), nativeCollection.id);
 
     const noteCreated = await callBridgeCapability({
       token,
       capability: "mutation.execute",
       input: {
-        operation: "note.createChild",
-        parent: item.id,
-        content: "<p>Bridge writeback note</p>",
+        operation: "notes.create",
+        operationId: `${operationId}-note-create`,
+        placement: { kind: "child", parentRef: portableItemRef(item) },
+        content: { format: "html", value: "<p>Bridge writeback note</p>" },
       },
     });
     assert.strictEqual(noteCreated.status, 200);
-    const note = noteCreated.json.result.data.result.notes[0];
-    assert.strictEqual(note.parent.id, item.id);
+    const note = noteCreated.json.result.data.result.note;
+    const nativeNote = Zotero.Items.getByLibraryAndKey(
+      note.ref.libraryId,
+      note.ref.key,
+    )!;
+    assert.strictEqual(nativeNote.parentItemID, item.id);
 
     const noteUpdated = await callBridgeCapability({
       token,
       capability: "mutation.execute",
       input: {
-        operation: "note.update",
-        note: note.id,
-        content: "<p>Bridge writeback note updated</p>",
+        operation: "notes.updateContent",
+        operationId: `${operationId}-note-update`,
+        noteRef: note.ref,
+        content: {
+          format: "html",
+          value: "<p>Bridge writeback note updated</p>",
+        },
       },
     });
     assert.strictEqual(noteUpdated.status, 200);
-    assert.include(
-      noteUpdated.json.result.data.result.notes[0].html,
-      "updated",
-    );
+    assert.include(nativeNote.getNote(), "updated");
 
     const attachment = new Zotero.Item("attachment");
     (attachment as any).parentItemID = item.id;
@@ -2132,7 +2147,57 @@ describe("host bridge capability calls", function () {
     }
   });
 
-  it("attaches uploaded Host Bridge files by opaque handle only once", async function () {
+  it("previews canonical uploaded attachments without consuming their handles", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "upload-preview-token",
+    });
+    const item = await createParentItem("Bridge Upload Preview Parent");
+    const uploaded = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v2/files/upload",
+        rawRequestBytes: rawHttpRequestBytes({
+          method: "POST",
+          path: "/bridge/v2/files/upload",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "text/plain",
+            "X-Zotero-Bridge-Display-Name": "preview.txt",
+          },
+          bodyBytes: Buffer.from("preview artifact", "utf8"),
+        }),
+      }),
+    );
+    const fileId = uploaded.json.result.file.fileId;
+
+    const preview = await callBridgeCapability({
+      token,
+      capability: "mutation.preview",
+      input: {
+        operation: "attachments.create",
+        placement: { kind: "child", parentRef: portableItemRef(item) },
+        source: {
+          kind: "stored_file",
+          fileId,
+          targetFilename: "preview.txt",
+        },
+        metadata: { title: "Bridge upload preview", contentType: "text/plain" },
+      },
+    });
+
+    assert.strictEqual(preview.status, 200);
+    assert.deepInclude(preview.json.result.data, {
+      operation: "attachments.create",
+      outcome: "would_change",
+    });
+    assert.strictEqual(
+      (await resolveHostBridgeUploadedFile(fileId)).descriptor.fileId,
+      fileId,
+    );
+    assert.lengthOf(item.getAttachments(), 0);
+  });
+
+  it("executes canonical uploaded attachment mutations once and replays without reading the upload", async function () {
     const token = configureHostBridgeServerForTests({ token: "upload-token" });
     const item = await createParentItem("Bridge Upload Attach Parent");
     configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
@@ -2159,31 +2224,59 @@ describe("host bridge capability calls", function () {
     );
     const fileId = uploaded.json.result.file.fileId;
 
+    const input = {
+      operation: "attachments.create",
+      operationId: `bridge-upload-attachment-replay-${Date.now()}`,
+      placement: {
+        kind: "child",
+        parentRef: portableItemRef(item),
+      },
+      source: {
+        kind: "stored_file",
+        fileId,
+        targetFilename: "writeback.txt",
+      },
+      metadata: {
+        title: "Bridge upload",
+        contentType: "text/plain",
+      },
+    };
     const attached = await callBridgeCapability({
       token,
       capability: "mutation.execute",
-      input: {
-        operation: "item.attachFile",
-        item: item.id,
-        fileId,
-      },
+      input,
     });
     assert.strictEqual(attached.status, 200);
-    assert.lengthOf(attached.json.result.data.result.attachments, 1);
+    assert.strictEqual(attached.json.result.data.outcome, "committed");
+    assert.strictEqual(
+      attached.json.result.data.result.attachment.title,
+      "Bridge upload",
+    );
+    assert.notProperty(
+      attached.json.result.data.result.attachment.file,
+      "path",
+    );
     assert.lengthOf(item.getAttachments(), 1);
+    try {
+      await resolveHostBridgeUploadedFile(fileId);
+      assert.fail("expected the consumed upload handle to be unavailable");
+    } catch (error) {
+      assert.strictEqual((error as { code?: string }).code, "file_not_found");
+    }
 
-    const reused = await callBridgeCapability({
+    const replay = await callBridgeCapability({
       token,
-      capability: "mutation.preview",
-      input: {
-        operation: "item.attachFile",
-        item: item.id,
-        fileId,
-      },
+      capability: "mutation.execute",
+      input,
     });
-    assert.strictEqual(reused.status, 200);
-    assert.isFalse(reused.json.result.data.ok);
-    assert.strictEqual(reused.json.result.data.error.code, "file_not_found");
+    assert.strictEqual(replay.status, 200);
+    assert.strictEqual(replay.json.result.data.outcome, "committed");
+    assert.deepEqual(
+      replay.json.result.data.result.attachment.ref,
+      attached.json.result.data.result.attachment.ref,
+    );
+    assert.notProperty(replay.json.result.data.result.attachment.file, "path");
+    assert.lengthOf(item.getAttachments(), 1);
   });
 
   it("mirrors Host Bridge capability names through MCP tools", async function () {

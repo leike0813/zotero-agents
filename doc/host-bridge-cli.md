@@ -80,7 +80,8 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `paper_artifacts.read` | paper_artifacts | `none` | `object` | `synthesis artifact read` | response:selector-bounded, mcp-mirror |
 | `paper_artifacts.resolve_topic_digest` | paper_artifacts | `none` | `object` | `synthesis artifact resolve-topic-digest` | response:selector-bounded, mcp-mirror |
 | `insights.get_attention_queue` | insights | `none` | `object` | `synthesis insight attention-queue` | response:limit-bounded, mcp-mirror |
-| `mutation.execute` | mutation | `zotero-ui-required` | `object` | `mutation apply`, `mutation collection add-items`, `mutation collection create`, `mutation collection remove-items`, `mutation item attach-file`, `mutation item update`, `mutation literature-ingest`, `mutation note create`, `mutation note update`, `mutation note upsert-payload`, `mutation tag add`, `mutation tag remove` | mcp-mirror |
+| `mutation.execute` | mutation | `zotero-ui-required` | `object required` | `mutation apply`, `mutation collection add-items`, `mutation collection create`, `mutation collection remove-items`, `mutation item attach-file`, `mutation item update`, `mutation literature-ingest`, `mutation note create`, `mutation note update`, `mutation note upsert-payload`, `mutation tag add`, `mutation tag remove` | mcp-mirror |
+| `mutation.get_operation` | mutation | `none` | `object required` | `mutation get-operation` | mcp-mirror |
 | `mutation.preview` | mutation | `none` | `object` | `mutation preview` | mcp-mirror |
 | `workflow_products.remove` | mutation | `zotero-ui-required` | `object required` | `product remove` | mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `object` | `raw call only` | raw-only, mcp-mirror |
@@ -182,6 +183,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `mutation collection add-items` | `mutation.execute` | capability | - |
 | `mutation collection create` | `mutation.execute` | capability | - |
 | `mutation collection remove-items` | `mutation.execute` | capability | - |
+| `mutation get-operation` | `mutation.get_operation` | capability | - |
 | `mutation item attach-file` | `mutation.execute` | capability | - |
 | `mutation item update` | `mutation.execute` | capability | - |
 | `mutation literature-ingest` | `mutation.execute` | capability | - |

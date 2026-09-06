@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { buildSelectionContext } from "../helpers/workflowSelectionContext";
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflowExecute";
 import { loadWorkflowManifests } from "../../src/workflows/loader";

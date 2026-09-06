@@ -279,20 +279,22 @@ describe("Host Bridge agent surface contract", function () {
         missingOnly: true,
       },
       "mutation collection add-items": {
-        operation: "collection.addItems",
+        operation: "collection.updateMembership",
+        remove: [],
       },
       "mutation collection create": { operation: "collection.create" },
       "mutation collection remove-items": {
-        operation: "collection.removeItems",
+        operation: "collection.updateMembership",
+        add: [],
       },
-      "mutation item attach-file": { operation: "item.attachFile" },
-      "mutation item update": { operation: "item.updateFields" },
+      "mutation item attach-file": { operation: "attachments.create" },
+      "mutation item update": { operation: "item.updateMetadata" },
       "mutation literature-ingest": { operation: "literature.ingest" },
-      "mutation note create": { operation: "note.createChild" },
-      "mutation note update": { operation: "note.update" },
-      "mutation note upsert-payload": { operation: "note.upsertPayload" },
-      "mutation tag add": { operation: "item.addTags" },
-      "mutation tag remove": { operation: "item.removeTags" },
+      "mutation note create": { operation: "notes.create" },
+      "mutation note update": { operation: "notes.updateContent" },
+      "mutation note upsert-payload": { operation: "notes.upsertPayload" },
+      "mutation tag add": { operation: "item.updateTags", remove: [] },
+      "mutation tag remove": { operation: "item.updateTags", add: [] },
     };
     for (const [command, constants] of Object.entries(
       expectedSpecializations,
@@ -303,6 +305,35 @@ describe("Host Bridge agent surface contract", function () {
         command,
       );
     }
+  });
+
+  it("keeps leaf mutation schemas limited to their reachable definitions", function () {
+    const registry = loadHostBridgeCommandContracts();
+    const leafSchemas = [
+      ["mutation item update", "itemRef"],
+      ["mutation collection create", "collectionRef"],
+      ["mutation note create", "noteContent"],
+      ["mutation tag add", "itemRef"],
+    ] as const;
+
+    for (const [command, expectedDefinition] of leafSchemas) {
+      const schema = registry.commands[command].payloadSchema;
+      const definitions = Object.keys(schema.$defs || {});
+      assert.include(definitions, expectedDefinition, command);
+      assert.notInclude(definitions, "attachmentContentManifest", command);
+      assert.notInclude(definitions, "storedAttachmentSource", command);
+      assert.notInclude(definitions, "bridgeUploadSource", command);
+      assert.notProperty(schema, "oneOf", command);
+    }
+
+    assert.lengthOf(
+      registry.commands["mutation apply"].payloadSchema.oneOf,
+      23,
+    );
+    assert.lengthOf(
+      registry.commands["mutation preview"].payloadSchema.oneOf,
+      23,
+    );
   });
 
   it("keeps all output boundaries executable and continuation-complete", function () {
@@ -693,6 +724,7 @@ describe("Host Bridge agent surface contract", function () {
       assert.deepEqual(command.invocationSchema.additionalProperties, false);
       assert.isTrue(
         command.payloadSchema.additionalProperties === false ||
+          command.payloadSchema.unevaluatedProperties === false ||
           (command.payloadSchema.additionalProperties === true &&
             typeof command.payloadSchema["x-openPropertiesReason"] ===
               "string") ||

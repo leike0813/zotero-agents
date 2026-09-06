@@ -1,14 +1,18 @@
 import {
   rebuildSynthesisHostStagedTagBindingResolutionRequest,
   rebuildSynthesisHostTagEffectBatchRequest,
+  hashSynthesisContractCanonicalJson,
   type SynthesisHostStagedTagBindingMigrationPort,
   type SynthesisHostTagEffect,
   type SynthesisHostTagEffectPort,
   type SynthesisHostTagEffectReceipt,
 } from "../../../packages/synthesis-contracts/src/index";
-import { handlers } from "../../handlers";
 import {
-  findZoteroItemByRef,
+  createZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
+  type ZoteroHostCapabilityBroker,
+} from "../zoteroHostCapabilityBroker";
+import {
   requireZoteroItems,
   stableRefFromZoteroItem,
 } from "./zoteroItemRefAdapter";
@@ -39,57 +43,63 @@ export function createZoteroSynthesisStagedTagBindingMigrationPort(): SynthesisH
   };
 }
 
-function hasTag(item: any, tag: string) {
-  const target = tag.toLowerCase();
-  const tags = Array.isArray(item?.getTags?.()) ? item.getTags() : [];
-  return tags.some(
-    (entry: any) =>
-      String(entry?.tag || "")
-        .trim()
-        .toLowerCase() === target,
-  );
-}
-
 async function applyEffect(
-  zotero: any,
+  broker: ZoteroHostCapabilityBroker,
   effect: SynthesisHostTagEffect,
   now: () => string,
 ): Promise<SynthesisHostTagEffectReceipt> {
   try {
-    const item = await findZoteroItemByRef(zotero, effect.target);
-    if (!item) {
+    const result = await broker.mutations.execute(
+      {
+        operation: "item.updateTags",
+        operationId: `tag-effect:${hashSynthesisContractCanonicalJson(effect.effectId)}`,
+        itemRef: {
+          libraryId: effect.target.libraryId,
+          key: effect.target.itemKey,
+        },
+        add: [effect.tag],
+        remove: [],
+      },
+      { ownerId: "synthesis.tags" },
+    );
+    if ("attempt" in result) {
+      const missing = result.attempt.error.code === "not_found";
       return {
         effectId: effect.effectId,
         action: effect.action,
-        status: "not_found",
+        status: missing ? "not_found" : "failed",
         occurredAt: now(),
-        diagnostics: [diagnostic("staged_tag_target_not_found")],
+        diagnostics: [
+          diagnostic(
+            missing
+              ? "staged_tag_target_not_found"
+              : "staged_tag_mutation_failed",
+          ),
+        ],
       };
     }
-    if (hasTag(item, effect.tag)) {
-      return {
-        effectId: effect.effectId,
-        action: effect.action,
-        status: "already_satisfied",
-        occurredAt: now(),
-        diagnostics: [],
-      };
-    }
-    await handlers.tag.add(item, [effect.tag]);
     return {
       effectId: effect.effectId,
       action: effect.action,
-      status: "applied",
+      status: result.outcome === "unchanged" ? "already_satisfied" : "applied",
       occurredAt: now(),
       diagnostics: [],
     };
-  } catch {
+  } catch (error) {
+    const missing =
+      error instanceof ZoteroHostCapabilityError && error.code === "not_found";
     return {
       effectId: effect.effectId,
       action: effect.action,
-      status: "failed",
+      status: missing ? "not_found" : "failed",
       occurredAt: now(),
-      diagnostics: [diagnostic("staged_tag_mutation_failed")],
+      diagnostics: [
+        diagnostic(
+          missing
+            ? "staged_tag_target_not_found"
+            : "staged_tag_mutation_failed",
+        ),
+      ],
     };
   }
 }
@@ -98,13 +108,13 @@ export function createZoteroSynthesisTagEffectPort(
   args: { now?: () => string } = {},
 ): SynthesisHostTagEffectPort {
   const now = args.now || (() => new Date().toISOString());
+  const broker = createZoteroHostCapabilityBroker();
   return {
     async applyBatch(request) {
       const canonical = rebuildSynthesisHostTagEffectBatchRequest(request);
-      const zotero = requireZoteroItems("Zotero staged Tag effect");
       const receipts: SynthesisHostTagEffectReceipt[] = [];
       for (const effect of canonical.effects) {
-        receipts.push(await applyEffect(zotero, effect, now));
+        receipts.push(await applyEffect(broker, effect, now));
       }
       return { receipts };
     },

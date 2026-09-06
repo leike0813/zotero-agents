@@ -981,7 +981,7 @@
         {
           "handle": "itemRef",
           "direction": "produce",
-          "required": false,
+          "required": true,
           "condition": "Returned when the corresponding operation succeeds.",
           "lifetime": "response"
         }
@@ -1155,7 +1155,16 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": {},
+              "value": {
+                "operation": "item.updateTags",
+                "operationId": "caller-operation-id",
+                "itemRef": {
+                  "libraryId": 1,
+                  "key": "ABC123"
+                },
+                "add": ["topic:example"],
+                "remove": []
+              },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
@@ -3765,15 +3774,20 @@
       "inputs": {
         "input": {
           "token": "--input",
-          "required": false,
+          "required": true,
           "requiredWhen": [],
           "examples": [
             {
               "kind": "shape-only",
               "value": {
-                "operation": "item.addTags",
-                "items": ["ABC123"],
-                "tags": ["topic:example"]
+                "operation": "item.updateTags",
+                "operationId": "caller-operation-id",
+                "itemRef": {
+                  "libraryId": 1,
+                  "key": "ABC123"
+                },
+                "add": ["topic:example"],
+                "remove": []
               },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
@@ -3831,6 +3845,91 @@
       "pagination": "none",
       "payloadSchemaSource": "target-capability"
     },
+    "mutation get-operation": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "operation_id": {
+          "token": "operation_id",
+          "required": true,
+          "requiredWhen": [],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": "mutation-001",
+              "prerequisites": [
+                "Use the operation id selected for the canonical mutation intent."
+              ]
+            }
+          ],
+          "schemaSource": "composition"
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "mutation.get_operation",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "object",
+      "composition": {
+        "constants": {},
+        "mappings": [
+          {
+            "argument": "operation_id",
+            "field": "operationId",
+            "transform": "trim-string",
+            "required": true
+          }
+        ]
+      },
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads canonical mutation evidence without changing Zotero-managed data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [
+        {
+          "handle": "operationId",
+          "direction": "consume",
+          "required": true,
+          "condition": "Required by the command invocation.",
+          "lifetime": "caller-owned"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "The observation fails or is unavailable.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect the typed response before submitting a new caller intent.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "operationalAliases": [
+        "mutation get-operation",
+        "mutation",
+        "get-operation",
+        "operation_id",
+        "OPERATION_ID"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
     "mutation collection add-items": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {},
@@ -3846,19 +3945,20 @@
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "collection.addItems"
+          "operation": "collection.updateMembership",
+          "remove": []
         },
         "mappings": [
           {
             "argument": "collection",
-            "field": "collection",
-            "transform": "context-ref",
+            "field": "collectionRef",
+            "transform": "identity",
             "required": true
           },
           {
             "argument": "items",
-            "field": "items",
-            "transform": "context-ref-array",
+            "field": "add",
+            "transform": "identity",
             "required": true
           }
         ]
@@ -3913,7 +4013,10 @@
             {
               "kind": "shape-only",
               "value": {
-                "name": "Example collection"
+                "name": "Example collection",
+                "placement": {
+                  "kind": "root"
+                }
               },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
@@ -3996,19 +4099,20 @@
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "collection.removeItems"
+          "operation": "collection.updateMembership",
+          "add": []
         },
         "mappings": [
           {
             "argument": "collection",
-            "field": "collection",
-            "transform": "context-ref",
+            "field": "collectionRef",
+            "transform": "identity",
             "required": true
           },
           {
             "argument": "items",
-            "field": "items",
-            "transform": "context-ref-array",
+            "field": "remove",
+            "transform": "identity",
             "required": true
           }
         ]
@@ -4067,30 +4171,24 @@
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "item.attachFile"
+          "operation": "attachments.create"
         },
         "mappings": [
           {
             "argument": "item",
-            "field": "item",
-            "transform": "context-ref",
+            "field": "placement",
+            "transform": "identity",
             "required": true
           },
           {
             "argument": "file_id",
-            "field": "fileId",
-            "transform": "file-id",
+            "field": "source",
+            "transform": "identity",
             "required": true
           },
           {
             "argument": "display_name",
-            "field": "displayName",
-            "transform": "identity",
-            "required": false
-          },
-          {
-            "argument": "content_type",
-            "field": "contentType",
+            "field": "metadata",
             "transform": "identity",
             "required": false
           }
@@ -4168,7 +4266,9 @@
             {
               "kind": "shape-only",
               "value": {
-                "title": "Updated title"
+                "fields": {
+                  "title": "Updated title"
+                }
               },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
@@ -4191,18 +4291,18 @@
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "item.updateFields"
+          "operation": "item.updateMetadata"
         },
         "mappings": [
           {
             "argument": "item",
-            "field": "item",
-            "transform": "context-ref",
+            "field": "itemRef",
+            "transform": "identity",
             "required": true
           },
           {
             "argument": "patch",
-            "field": "fields",
+            "field": "patch",
             "transform": "identity",
             "required": true
           }
@@ -4258,6 +4358,10 @@
             {
               "kind": "shape-only",
               "value": {
+                "collectionRef": {
+                  "libraryId": 1,
+                  "key": "COLL123"
+                },
                 "paper": {
                   "itemType": "journalArticle",
                   "fields": {
@@ -4343,7 +4447,10 @@
             {
               "kind": "shape-only",
               "value": {
-                "content": "Example note"
+                "content": {
+                  "format": "text",
+                  "value": "Example note"
+                }
               },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
@@ -4369,13 +4476,13 @@
           "argument": "input"
         },
         "constants": {
-          "operation": "note.createChild"
+          "operation": "notes.create"
         },
         "mappings": [
           {
             "argument": "item",
-            "field": "parent",
-            "transform": "context-ref",
+            "field": "placement",
+            "transform": "identity",
             "required": true
           }
         ]
@@ -4431,7 +4538,10 @@
             {
               "kind": "shape-only",
               "value": {
-                "content": "Updated note"
+                "content": {
+                  "format": "text",
+                  "value": "Updated note"
+                }
               },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
@@ -4457,13 +4567,13 @@
           "argument": "input"
         },
         "constants": {
-          "operation": "note.update"
+          "operation": "notes.updateContent"
         },
         "mappings": [
           {
             "argument": "note",
-            "field": "note",
-            "transform": "context-ref",
+            "field": "noteRef",
+            "transform": "identity",
             "required": true
           }
         ]
@@ -4518,8 +4628,13 @@
             {
               "kind": "shape-only",
               "value": {
-                "payloadType": "example",
-                "payload": {}
+                "payload": {
+                  "payloadType": "example",
+                  "noteKind": "example",
+                  "schemaVersion": "v1",
+                  "format": "json",
+                  "value": {}
+                }
               },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
@@ -4545,13 +4660,13 @@
           "argument": "input"
         },
         "constants": {
-          "operation": "note.upsertPayload"
+          "operation": "notes.upsertPayload"
         },
         "mappings": [
           {
             "argument": "note",
-            "field": "note",
-            "transform": "context-ref",
+            "field": "noteRef",
+            "transform": "identity",
             "required": true
           }
         ]
@@ -4600,12 +4715,17 @@
       "inputs": {
         "input": {
           "token": "--input",
-          "required": false,
+          "required": true,
           "requiredWhen": [],
           "examples": [
             {
               "kind": "shape-only",
-              "value": {},
+              "value": {
+                "operation": "item.updateTags",
+                "itemRef": { "libraryId": 1, "key": "ABC123" },
+                "add": ["topic:example"],
+                "remove": []
+              },
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
@@ -4677,18 +4797,19 @@
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "item.addTags"
+          "operation": "item.updateTags",
+          "remove": []
         },
         "mappings": [
           {
             "argument": "items",
-            "field": "items",
-            "transform": "context-ref-array",
+            "field": "itemRef",
+            "transform": "identity",
             "required": true
           },
           {
             "argument": "tags",
-            "field": "tags",
+            "field": "add",
             "transform": "identity",
             "required": true
           }
@@ -4749,18 +4870,19 @@
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "item.removeTags"
+          "operation": "item.updateTags",
+          "add": []
         },
         "mappings": [
           {
             "argument": "items",
-            "field": "items",
-            "transform": "context-ref-array",
+            "field": "itemRef",
+            "transform": "identity",
             "required": true
           },
           {
             "argument": "tags",
-            "field": "tags",
+            "field": "remove",
             "transform": "identity",
             "required": true
           }

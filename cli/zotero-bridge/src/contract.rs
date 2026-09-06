@@ -410,11 +410,65 @@ fn schema_accepts_constant(property: &Value, constant: &Value) -> bool {
             .is_some_and(|values| values.contains(constant))
 }
 
+fn prune_schema_definitions(schema: &mut Value) {
+    let Some(definitions) = schema.get("$defs").cloned() else {
+        return;
+    };
+    let mut kept = std::collections::BTreeSet::new();
+    fn visit(value: &Value, defs: &Value, kept: &mut std::collections::BTreeSet<String>) {
+        match value {
+            Value::Array(values) => values.iter().for_each(|v| visit(v, defs, kept)),
+            Value::Object(object) => {
+                for (key, value) in object {
+                    if key == "$defs" {
+                        continue;
+                    }
+                    if key == "$ref" {
+                        if let Some(reference) =
+                            value.as_str().filter(|v| v.starts_with("#/$defs/"))
+                        {
+                            let name = reference[8..]
+                                .split('/')
+                                .next()
+                                .unwrap_or("")
+                                .replace("~1", "/")
+                                .replace("~0", "~");
+                            if kept.insert(name.clone()) {
+                                if let Some(definition) = defs.get(&name) {
+                                    visit(definition, defs, kept);
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    visit(value, defs, kept);
+                }
+            }
+            _ => {}
+        }
+    }
+    visit(schema, &definitions, &mut kept);
+    if let Some(object) = schema.as_object_mut() {
+        object.insert(
+            "$defs".into(),
+            Value::Object(
+                kept.into_iter()
+                    .filter_map(|name| definitions.get(&name).cloned().map(|v| (name, v)))
+                    .collect(),
+            ),
+        );
+    }
+}
+
 fn specialized_payload_schema(entry: &Value, schema: Value) -> Value {
     let Some(operation) = composition_constant(entry, "operation") else {
+        let mut schema = schema;
+        prune_schema_definitions(&mut schema);
         return schema;
     };
     let Some(branches) = schema.get("oneOf").and_then(Value::as_array) else {
+        let mut schema = schema;
+        prune_schema_definitions(&mut schema);
         return schema;
     };
     let Some(mut selected) = branches
@@ -426,6 +480,8 @@ fn specialized_payload_schema(entry: &Value, schema: Value) -> Value {
         })
         .cloned()
     else {
+        let mut schema = schema;
+        prune_schema_definitions(&mut schema);
         return schema;
     };
     if let Some(properties) = selected
@@ -440,6 +496,13 @@ fn specialized_payload_schema(entry: &Value, schema: Value) -> Value {
             .expect("selected payload schema branch is an object")
             .insert("$defs".to_string(), definitions.clone());
     }
+    if schema.get("unevaluatedProperties") == Some(&Value::Bool(false)) {
+        selected
+            .as_object_mut()
+            .expect("selected payload schema branch is an object")
+            .insert("unevaluatedProperties".to_string(), Value::Bool(false));
+    }
+    prune_schema_definitions(&mut selected);
     selected
 }
 
@@ -556,6 +619,7 @@ fn resolved_composition_input_schema(entry: &Value, argument_id: &str) -> Result
             object.insert("$defs".to_string(), definitions.clone());
         }
     }
+    prune_schema_definitions(&mut field_schema);
     Ok(field_schema)
 }
 
@@ -1308,46 +1372,54 @@ mod tests {
                 "mutation literature-ingest",
                 arguments(&[(
                     "input",
-                    json!({ "paper": { "itemType": "journalArticle" } }),
+                    json!({
+                        "collectionRef": { "libraryId": 1, "key": "COLL123" },
+                        "paper": { "itemType": "journalArticle" }
+                    }),
                 )]),
                 json!({
                     "operation": "literature.ingest",
+                    "collectionRef": { "libraryId": 1, "key": "COLL123" },
                     "paper": { "itemType": "journalArticle" }
                 }),
             ),
             (
                 "mutation item update",
                 arguments(&[
-                    ("item", json!("1:ABC123")),
-                    ("patch", json!({ "title": "Revised" })),
+                    ("item", json!({ "libraryId": 1, "key": "ABC123" })),
+                    ("patch", json!({ "fields": { "title": "Revised" } })),
                 ]),
                 json!({
-                    "operation": "item.updateFields",
-                    "item": "1:ABC123",
-                    "fields": { "title": "Revised" }
+                    "operation": "item.updateMetadata",
+                    "itemRef": { "libraryId": 1, "key": "ABC123" },
+                    "patch": { "fields": { "title": "Revised" } }
                 }),
             ),
             (
                 "mutation tag add",
                 arguments(&[
-                    ("items", json!(["ABC123", "{\"key\":\"DEF456\"}"])),
+                    ("items", json!({ "libraryId": 1, "key": "ABC123" })),
                     ("tags", json!(["topic:graph"])),
                 ]),
                 json!({
-                    "operation": "item.addTags",
-                    "items": ["ABC123", { "key": "DEF456" }],
-                    "tags": ["topic:graph"]
+                    "operation": "item.updateTags",
+                    "itemRef": { "libraryId": 1, "key": "ABC123" },
+                    "add": ["topic:graph"],
+                    "remove": []
                 }),
             ),
             (
                 "mutation note create",
                 arguments(&[
-                    ("item", json!("ABC123")),
+                    (
+                        "item",
+                        json!({ "kind": "child", "parentRef": { "libraryId": 1, "key": "ABC123" } }),
+                    ),
                     ("input", json!({ "content": "note" })),
                 ]),
                 json!({
-                    "operation": "note.createChild",
-                    "parent": "ABC123",
+                    "operation": "notes.create",
+                    "placement": { "kind": "child", "parentRef": { "libraryId": 1, "key": "ABC123" } },
                     "content": "note"
                 }),
             ),

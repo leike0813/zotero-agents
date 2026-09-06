@@ -86,10 +86,10 @@ function comparePath(a, b) {
   return normalizePath(a).toLowerCase() === normalizePath(b).toLowerCase();
 }
 
-async function hasLinkedAttachmentForPath(host, parentRef, targetPath) {
+async function findOutputAttachmentForPath(host, parentRef, targetPath) {
   const normalizedTargetPath = normalizePath(targetPath).toLowerCase();
   if (!normalizedTargetPath) {
-    return false;
+    return null;
   }
   const attachments = await readHostPages({
     readPage: (page) => host.library.getItemAttachments(parentRef, page),
@@ -102,11 +102,13 @@ async function hasLinkedAttachmentForPath(host, parentRef, targetPath) {
     if (!attachmentPath) {
       continue;
     }
-    if (normalizePath(attachmentPath).toLowerCase() === normalizedTargetPath) {
-      return true;
+    if (normalizePath(attachmentPath).toLowerCase() === normalizedTargetPath ||
+        (attachment.linkMode === "stored_file" &&
+         attachment.filename === basenamePath(targetPath))) {
+      return attachment;
     }
   }
-  return false;
+  return null;
 }
 
 function resolveRequestSource(request) {
@@ -423,18 +425,33 @@ async function materializeParts(args) {
     await removePath(file, stagingDir);
   }
 
-  if (
-    !(await hasLinkedAttachmentForPath(
-      args.runtime.hostApi,
-      args.source.parentRef,
-      mdPath,
-    ))
-  ) {
+  const existingAttachment = await findOutputAttachmentForPath(
+    args.runtime.hostApi, args.source.parentRef, mdPath,
+  );
+  if (!existingAttachment || existingAttachment.linkMode === "stored_file") {
+    const companions = hasImages
+      ? (await file.list({ path: imagesTargetDir, recursive: true })).entries
+          .filter((entry) => entry.kind === "file")
+          .map((entry) => ({
+            source: { kind: "local_path", path: joinPath(imagesTargetDir, entry.relativePath) },
+            targetRelativePath: `${imagesDirName}/${entry.relativePath}`,
+          }))
+      : [];
+    const preparedSource = {
+      kind: "stored_file",
+      main: { source: { kind: "local_path", path: mdPath }, targetFilename: mdName },
+      companions,
+    };
     const targetIdentity = encodeURIComponent(normalizePath(mdPath)).slice(-64);
-    const created = await args.runtime.hostApi.attachments.create({
-      operationId: `mineru:attachment:${args.source.parentRef.libraryId}:${args.source.parentRef.key}:${targetIdentity}`,
+    const operationId = `mineru:attachment:${args.source.parentRef.libraryId}:${args.source.parentRef.key}:${targetIdentity}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+    const created = existingAttachment
+      ? await args.runtime.hostApi.attachments.replaceFile({
+          operationId, attachmentRef: existingAttachment.ref, source: preparedSource,
+        })
+      : await args.runtime.hostApi.attachments.create({
+      operationId,
       placement: { kind: "child", parentRef: args.source.parentRef },
-      source: { kind: "linked_file", path: mdPath },
+      source: preparedSource,
       metadata: { title: mdName, contentType: "text/markdown" },
     });
     if (created.outcome !== "committed" && created.outcome !== "unchanged") {

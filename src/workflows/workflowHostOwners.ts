@@ -9,6 +9,7 @@ import {
 } from "../modules/runtimeLogManager";
 import {
   createZoteroHostCapabilityBroker,
+  getZoteroHostCanonicalMutationControl,
   ZoteroHostCapabilityError,
   type ZoteroHostLibrarySyncSnapshotRequest,
 } from "../modules/zoteroHostCapabilityBroker";
@@ -17,14 +18,16 @@ import {
   copyRuntimeFile,
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
-  moveRuntimePath,
   readRuntimeBytes,
   removeRuntimePath,
-  scanRuntimeTree,
   statRuntimePathStrict,
 } from "../modules/runtimePersistence";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
-import { handlers } from "../handlers";
+import {
+  createZoteroHostPreparedFiles,
+  type PreparedStoredAttachment,
+  type ZoteroHostPreparedFiles,
+} from "../modules/zoteroHostPreparedFiles";
 import {
   resolveRuntimeAddon,
   resolveRuntimeZotero,
@@ -33,18 +36,22 @@ import {
   canonicalizeLocale,
   resolveRuntimeLocale,
 } from "../utils/localizationGovernance";
-import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { joinPath } from "../utils/path";
-import {
-  getBaseName,
-  getParentPath,
-  normalizeNativeLocalPath,
-} from "../platform/path";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import type {
   WorkflowHostApiV12,
   WorkflowHostLiveReadAdapters,
   WorkflowResearchBundleApi,
   WorkflowCallControl,
+  AttachmentContentManifestDto,
+  AttachmentMetadataDto,
+  AttachmentCreateRequestDto,
+  AttachmentDetailDto,
+  CanonicalStoredAttachmentSourceDto,
+  JsonObject,
+  MutationExecutionResult,
+  MutationRequestByOperation,
+  MutationResultByOperation,
   ImportPapersRequestDto,
   ImportPapersResultDto,
   MaterializePapersRequestDto,
@@ -65,7 +72,6 @@ import {
 import { createWorkflowBibliographyOwner } from "./bibliography";
 import { createWorkflowClipboardOwner } from "./clipboard";
 import {
-  createWorkflowStoredAttachmentImport,
   createWorkflowStoredAttachmentStager,
   WorkflowStoredAttachmentInputError,
 } from "./workflowStoredAttachmentImport";
@@ -74,7 +80,11 @@ import {
   createResearchBundleImporter,
   createCanonicalResearchBundleMaterializer,
 } from "../modules/researchBundleService";
-import { MutationAuthorityExecutionError } from "../modules/zoteroHostMutationAuthority";
+import {
+  lookupTrustedStoredAttachmentMutation,
+  MutationAuthorityExecutionError,
+  type ZoteroHostMutationCallerScope,
+} from "../modules/zoteroHostMutationAuthority";
 import { sha256Hex } from "../utils/sha256";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 import {
@@ -99,16 +109,206 @@ export type WorkflowHostLeafScope = Readonly<{
   dispose(): void;
 }>;
 
+export type WorkflowStoredAttachmentSource =
+  | Readonly<{ kind: "local_path"; path: string }>
+  | Readonly<{ kind: "resource"; resourceRef: ResourceRef }>;
+
+export type WorkflowStoredAttachmentPreparationRequest = Readonly<{
+  main: Readonly<{
+    source: WorkflowStoredAttachmentSource;
+    targetFilename?: string;
+  }>;
+  companions?: readonly Readonly<{
+    source: WorkflowStoredAttachmentSource;
+    targetRelativePath: string;
+  }>[];
+}>;
+
+export type WorkflowPreparedStoredFiles = Readonly<{
+  prepareStoredAttachment(
+    request: WorkflowStoredAttachmentPreparationRequest,
+  ): Promise<PreparedStoredAttachment>;
+  preparedFiles: ZoteroHostPreparedFiles;
+}>;
+
+function canonicalAttachmentSha256(value: string) {
+  return value.startsWith("sha256:") ? value : `sha256:${value}`;
+}
+
+type NullableAttachmentMetadataDto = {
+  [K in keyof AttachmentMetadataDto]?: AttachmentMetadataDto[K] | null;
+};
+
+function canonicalAttachmentMetadata(
+  metadata: NullableAttachmentMetadataDto | undefined,
+): AttachmentMetadataDto | undefined {
+  if (!metadata) return undefined;
+  const result: AttachmentMetadataDto = {};
+  for (const key of [
+    "title",
+    "contentType",
+    "charset",
+    "originalUrl",
+  ] as const) {
+    const value = metadata[key];
+    if (value !== undefined && value !== null) result[key] = value;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+export function createCanonicalStoredAttachmentSource(
+  source: WorkflowStoredAttachmentPreparationRequest,
+  snapshot: PreparedStoredAttachment["snapshot"],
+): CanonicalStoredAttachmentSourceDto {
+  const content: AttachmentContentManifestDto = {
+    schema: "zotero-agents.attachment-content.v1",
+    identity: snapshot.identity,
+    main: {
+      ...snapshot.main,
+      sha256: canonicalAttachmentSha256(snapshot.main.sha256),
+    },
+    companions: snapshot.companions.map((companion) => ({
+      ...companion,
+      sha256: canonicalAttachmentSha256(companion.sha256),
+    })),
+  };
+  return {
+    kind: "stored_file",
+    content,
+    ...(source.main.targetFilename
+      ? { targetFilename: source.main.targetFilename }
+      : {}),
+    ...(source.companions?.length
+      ? {
+          companions: source.companions.map(({ targetRelativePath }) => ({
+            targetRelativePath,
+          })),
+        }
+      : {}),
+  };
+}
+
+export function createStoredAttachmentNonResourceSemanticInput<
+  K extends "attachments.create" | "attachments.replaceFile",
+>(
+  input: Omit<MutationRequestByOperation[K], "source">,
+  source: WorkflowStoredAttachmentPreparationRequest,
+): JsonObject {
+  return {
+    ...input,
+    source: {
+      kind: "stored_file",
+      ...(source.main.targetFilename
+        ? { targetFilename: source.main.targetFilename }
+        : {}),
+      ...(source.companions?.length
+        ? {
+            companions: source.companions.map(({ targetRelativePath }) => ({
+              targetRelativePath,
+            })),
+          }
+        : {}),
+    },
+  };
+}
+
+export function createStoredAttachmentCompleteSemanticInput<
+  K extends "attachments.create" | "attachments.replaceFile",
+>(
+  input: Omit<MutationRequestByOperation[K], "source">,
+  source: CanonicalStoredAttachmentSourceDto,
+): JsonObject {
+  return {
+    ...input,
+    source: {
+      kind: "stored_file",
+      content: {
+        schema: source.content.schema,
+        identity: source.content.identity,
+        main: { ...source.content.main },
+        companions: source.content.companions.map((companion) => ({
+          ...companion,
+        })),
+      },
+      ...(source.targetFilename
+        ? { targetFilename: source.targetFilename }
+        : {}),
+      ...(source.companions?.length
+        ? {
+            companions: source.companions.map(({ targetRelativePath }) => ({
+              targetRelativePath,
+            })),
+          }
+        : {}),
+    },
+  };
+}
+
+export function lookupWorkflowStoredAttachmentMutation<
+  K extends "attachments.create" | "attachments.replaceFile",
+>(args: Readonly<{
+  scope: ZoteroHostMutationCallerScope;
+  input: Omit<MutationRequestByOperation[K], "source">;
+  source: WorkflowStoredAttachmentPreparationRequest;
+  completeSemanticInput?: JsonObject;
+}>) {
+  return lookupTrustedStoredAttachmentMutation<MutationResultByOperation[K]>({
+    scope: args.scope,
+    operationId: args.input.operationId,
+    operation: args.input.operation,
+    nonResourceSemanticInput: createStoredAttachmentNonResourceSemanticInput(
+      args.input,
+      args.source,
+    ),
+    ...(args.completeSemanticInput
+      ? { completeSemanticInput: args.completeSemanticInput }
+      : {}),
+  });
+}
+
+function isAttachmentDetail(
+  value: JsonObject["attachment"],
+): value is AttachmentDetailDto {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return (
+    !!value.ref &&
+    typeof value.ref === "object" &&
+    !Array.isArray(value.ref) &&
+    typeof value.title === "string"
+  );
+}
+
+export function isAttachmentCreateMutationResult(
+  value: JsonObject,
+): value is JsonObject & { attachment: AttachmentDetailDto } {
+  return isAttachmentDetail(value.attachment);
+}
+
+export function isAttachmentReplaceMutationResult(
+  value: JsonObject,
+): value is JsonObject & {
+  attachment: AttachmentDetailDto;
+  outcome: "replaced" | "unchanged";
+} {
+  return (
+    isAttachmentDetail(value.attachment) &&
+    (value.outcome === "replaced" || value.outcome === "unchanged")
+  );
+}
+
 export function createWorkflowHostCapabilityBroker(
-  resources?: Pick<WorkflowResourceApi, "get">,
+  _resources?: Pick<WorkflowResourceApi, "get">,
 ) {
+  return createZoteroHostCapabilityBroker();
+}
+
+export function createWorkflowPreparedStoredFiles(
+  resources?: Pick<WorkflowResourceApi, "get">,
+): WorkflowPreparedStoredFiles {
   const validateStoredSource = async (path: string) => {
-    let stat;
-    try {
-      stat = await statRuntimePathStrict(path);
-    } catch {
-      stat = null;
-    }
+    const stat = await statRuntimePathStrict(path).catch(() => null);
     if (!stat?.exists || stat.isDir) {
       throw new WorkflowStoredAttachmentInputError(
         "Stored attachment source must be a regular file",
@@ -116,373 +316,43 @@ export function createWorkflowHostCapabilityBroker(
     }
     return { sizeBytes: stat.size };
   };
-  const importStoredFile = createWorkflowStoredAttachmentImport({
+  const stager = createWorkflowStoredAttachmentStager({
     getStagingRoot: () =>
       joinPath(
         getRuntimePersistencePaths().tmpDir,
         "workflow-attachment-import",
       ),
+    validateSource: validateStoredSource,
     ensureDirectory: ensureRuntimeDirectory,
     copyFile: (sourcePath, targetPath) =>
       copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
     removePath: removeRuntimePath,
-    validateSource: validateStoredSource,
-    importStoredFromPath: (request) =>
-      handlers.attachment.importStoredFromPath(request),
-    removeAttachment: (attachment) => handlers.attachment.remove(attachment),
   });
-  const resolveSourcePath = async (
-    source:
-      | { kind: "local_path"; path: string }
-      | { kind: "resource"; resourceRef: object },
-  ) => {
+  const preparedFiles = createZoteroHostPreparedFiles({
+    stageStoredAttachmentSources: stager,
+    readBytes: readRuntimeBytes,
+  });
+  const resolveSource = async (source: WorkflowStoredAttachmentSource) => {
     if (source.kind === "local_path") return source.path;
-    if (!resources)
+    if (!resources) {
       throw new Error("workflow resource resolver is unavailable");
-    return (await resources.get(source.resourceRef as ResourceRef)).path;
-  };
-  const fileSetDigest = async (root: string) => {
-    const manifest = await scanRuntimeTree(root);
-    if (manifest.issues.length) {
-      throw new Error("Managed attachment content could not be inspected");
     }
-    const entries = [];
-    for (const entry of manifest.entries) {
-      if (entry.kind !== "file") continue;
-      entries.push([
-        entry.relativePath.replace(/\\/g, "/"),
-        await sha256Hex(await readRuntimeBytes(entry.absolutePath)),
-      ]);
-    }
-    return sha256Hex(new TextEncoder().encode(JSON.stringify(entries)));
+    return (await resources.get(source.resourceRef)).path;
   };
-  const derivedMimeType = (filename: string) => {
-    const extension = filename.split(".").at(-1)?.toLowerCase();
-    return (
-      {
-        pdf: "application/pdf",
-        html: "text/html",
-        htm: "text/html",
-        json: "application/json",
-        md: "text/markdown",
-        txt: "text/plain",
-      }[extension || ""] || "application/octet-stream"
-    );
-  };
-  const replaceFailure = (
-    message: string,
-    recovery:
-      | "retry_same_operation"
-      | "refresh_and_retry_new_operation"
-      | "reconcile"
-      | "manual_repair",
-    outcome: "failed" | "unknown" | "repair_required" = "failed",
-    ref?: PortableItemRef,
-  ) =>
-    new MutationAuthorityExecutionError(
-      outcome,
-      "execution_failed",
-      outcome === "repair_required" ? "compensation" : "commit",
-      recovery,
-      {
-        phase: outcome === "repair_required" ? "cleanup" : "commit",
-        recovery,
-        ...(ref ? { affectedCount: 1 } : {}),
-        ...(outcome === "repair_required" && ref ? { residualCount: 1 } : {}),
-      },
-      message,
-      ref ? [{ kind: "item", ref }] : [],
-      outcome === "repair_required" && ref ? [{ kind: "item", ref }] : [],
-    );
-  return createZoteroHostCapabilityBroker({
-    async createStoredFile(request, parent) {
-      if (request.source.kind !== "stored_file") {
-        throw new Error("stored attachment source is required");
-      }
-      return importStoredFile({
-        parent,
-        path: await resolveSourcePath(request.source.main.source),
-        targetFilename: request.source.main.targetFilename,
-        title: request.metadata?.title,
-        mimeType: request.metadata?.contentType,
-        charset: request.metadata?.charset,
-        url: request.metadata?.originalUrl,
+  return Object.freeze({
+    async prepareStoredAttachment(request) {
+      return preparedFiles.prepareStoredAttachment({
+        path: await resolveSource(request.main.source),
+        targetFilename: request.main.targetFilename,
         companionFiles: await Promise.all(
-          (request.source.companions || []).map(async (companion) => ({
-            sourcePath: await resolveSourcePath(companion.source),
+          (request.companions || []).map(async (companion) => ({
+            sourcePath: await resolveSource(companion.source),
             relativePath: companion.targetRelativePath,
           })),
         ),
       });
     },
-    async replaceFile(request, attachment) {
-      const ref = {
-        libraryId: Number(attachment.libraryID),
-        key: String(attachment.key),
-      };
-      const linkMode = Number(
-        (attachment as any).attachmentLinkMode ??
-          (attachment as any).getAttachmentLinkMode?.(),
-      );
-      const storedTarget = linkMode === 0 || linkMode === 1;
-      const linkedTarget = linkMode === 2;
-      if (
-        (!storedTarget && !linkedTarget) ||
-        (storedTarget && request.source.kind !== "stored_file") ||
-        (linkedTarget && request.source.kind !== "linked_file")
-      ) {
-        throw new MutationAuthorityExecutionError(
-          "failed",
-          "invalid_request",
-          "validation",
-          "refresh_and_retry_new_operation",
-          {
-            reason: "invalid_combination",
-            operation: "attachments.replaceFile",
-          },
-          "attachment source does not match its link mode",
-          [{ kind: "item", ref }],
-        );
-      }
-
-      const oldPath = String(
-        (await attachment.getFilePathAsync?.()) || "",
-      ).trim();
-      if (!oldPath) {
-        throw replaceFailure(
-          "attachment file path is unavailable",
-          "refresh_and_retry_new_operation",
-          "failed",
-          ref,
-        );
-      }
-      if (request.source.kind === "linked_file") {
-        const path = normalizeNativeLocalPath(request.source.path);
-        if (!path) {
-          throw new MutationAuthorityExecutionError(
-            "failed",
-            "invalid_request",
-            "validation",
-            "refresh_and_retry_new_operation",
-            {
-              reason: "invalid_value",
-              field: "source.path",
-              operation: "attachments.replaceFile",
-            },
-            "linked attachment path is invalid",
-            [{ kind: "item", ref }],
-          );
-        }
-        let stat;
-        try {
-          stat = await statRuntimePathStrict(path);
-        } catch {
-          stat = null;
-        }
-        if (!stat?.exists || stat.isDir) {
-          throw new MutationAuthorityExecutionError(
-            "failed",
-            "invalid_request",
-            "validation",
-            "refresh_and_retry_new_operation",
-            {
-              reason: "invalid_value",
-              field: "source.path",
-              operation: "attachments.replaceFile",
-            },
-            "linked attachment path must be a readable regular file",
-            [{ kind: "item", ref }],
-          );
-        }
-        if (normalizeNativeLocalPath(oldPath) === path) return attachment;
-        const oldFilename = String(
-          (attachment as any).attachmentFilename || "",
-        );
-        const oldContentType = String(
-          (attachment as any).attachmentContentType || "",
-        );
-        try {
-          (attachment as any).setFilePath(path);
-          (attachment as any).attachmentFilename = getBaseName(path);
-          (attachment as any).attachmentContentType = derivedMimeType(path);
-          await attachment.saveTx();
-          return attachment;
-        } catch {
-          (attachment as any).setFilePath(oldPath);
-          (attachment as any).attachmentFilename = oldFilename;
-          (attachment as any).attachmentContentType = oldContentType;
-          throw replaceFailure(
-            "linked attachment relocation could not be confirmed",
-            "reconcile",
-            "unknown",
-            ref,
-          );
-        }
-      }
-
-      const sourceMain = await resolveSourcePath(request.source.main.source);
-      const storageRoot = getParentPath(oldPath);
-      if (!storageRoot) {
-        throw replaceFailure(
-          "managed attachment storage is unavailable",
-          "reconcile",
-          "unknown",
-          ref,
-        );
-      }
-      const stager = createWorkflowStoredAttachmentStager({
-        getStagingRoot: () => getParentPath(storageRoot),
-        validateSource: validateStoredSource,
-        ensureDirectory: ensureRuntimeDirectory,
-        copyFile: (sourcePath, targetPath) =>
-          copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
-        removePath: removeRuntimePath,
-      });
-      let staged;
-      try {
-        staged = await stager({
-          path: sourceMain,
-          targetFilename: request.source.main.targetFilename,
-          companionFiles: await Promise.all(
-            (request.source.companions || []).map(async (companion) => ({
-              sourcePath: await resolveSourcePath(companion.source),
-              relativePath: companion.targetRelativePath,
-            })),
-          ),
-        });
-      } catch (error) {
-        if (error instanceof WorkflowStoredAttachmentInputError) {
-          throw new MutationAuthorityExecutionError(
-            "failed",
-            error.resource ? "resource_limited" : "invalid_request",
-            "validation",
-            "refresh_and_retry_new_operation",
-            error.resource || {
-              reason: "invalid_value",
-              field: "source",
-              operation: "attachments.replaceFile",
-            },
-            error.message,
-            [{ kind: "item", ref }],
-          );
-        }
-        throw replaceFailure(
-          error instanceof Error ? error.message : "attachment staging failed",
-          "retry_same_operation",
-          "failed",
-          ref,
-        );
-      }
-      if (
-        (await fileSetDigest(staged.stagingDirectory)) ===
-        (await fileSetDigest(storageRoot))
-      ) {
-        await staged.cleanup();
-        return attachment;
-      }
-      const backupRoot = `${storageRoot}.replace-backup-${Date.now().toString(36)}`;
-      let oldMoved = false;
-      let newMoved = false;
-      try {
-        await moveRuntimePath({
-          sourcePath: storageRoot,
-          targetPath: backupRoot,
-        });
-        oldMoved = true;
-        await moveRuntimePath({
-          sourcePath: staged.stagingDirectory,
-          targetPath: storageRoot,
-        });
-        newMoved = true;
-      } catch (primary) {
-        if (!oldMoved) {
-          try {
-            await staged.cleanup();
-          } catch {
-            // The original managed content is still authoritative.
-          }
-        }
-        if (oldMoved && !newMoved) {
-          try {
-            await moveRuntimePath({
-              sourcePath: backupRoot,
-              targetPath: storageRoot,
-            });
-            await staged.cleanup();
-          } catch {
-            throw replaceFailure(
-              "managed attachment switch could not be reconciled",
-              "reconcile",
-              "unknown",
-              ref,
-            );
-          }
-        }
-        throw replaceFailure(
-          primary instanceof Error
-            ? primary.message
-            : "attachment switch failed",
-          "retry_same_operation",
-          "failed",
-          ref,
-        );
-      }
-
-      const nextPath = joinPath(storageRoot, staged.mainFilename);
-      const oldFilename = String((attachment as any).attachmentFilename || "");
-      const oldContentType = String(
-        (attachment as any).attachmentContentType || "",
-      );
-      try {
-        (attachment as any).setFilePath(nextPath);
-        (attachment as any).attachmentFilename = staged.mainFilename;
-        (attachment as any).attachmentContentType = derivedMimeType(
-          staged.mainFilename,
-        );
-        await attachment.saveTx();
-      } catch {
-        try {
-          await moveRuntimePath({
-            sourcePath: storageRoot,
-            targetPath: staged.stagingDirectory,
-          });
-          await moveRuntimePath({
-            sourcePath: backupRoot,
-            targetPath: storageRoot,
-          });
-          await staged.cleanup();
-          (attachment as any).setFilePath(oldPath);
-          (attachment as any).attachmentFilename = oldFilename;
-          (attachment as any).attachmentContentType = oldContentType;
-        } catch {
-          throw replaceFailure(
-            "managed attachment commit could not be reconciled",
-            "reconcile",
-            "unknown",
-            ref,
-          );
-        }
-        throw replaceFailure(
-          "managed attachment commit failed",
-          "retry_same_operation",
-          "failed",
-          ref,
-        );
-      }
-      try {
-        const removed = await removeRuntimePath(backupRoot);
-        if (removed === false)
-          throw new Error("backup cleanup was not confirmed");
-      } catch {
-        throw replaceFailure(
-          "old managed attachment content remains",
-          "manual_repair",
-          "repair_required",
-          ref,
-        );
-      }
-      return attachment;
-    },
+    preparedFiles,
   });
 }
 
@@ -699,9 +569,73 @@ export function createWorkflowResearchBundleImportApi(args: {
   };
 }): WorkflowResearchBundleApi["importPapers"] {
   const broker = createWorkflowHostCapabilityBroker(args.resources);
+  const trusted = getZoteroHostCanonicalMutationControl(broker);
   const callerScope = {
     ownerId: args.ownerId,
     preparedImages: args.preparedImages,
+  };
+  const executePreparedAttachmentCreate = async (
+    input: Omit<
+      MutationRequestByOperation["attachments.create"],
+      "source"
+    >,
+    source: Parameters<
+      ReturnType<
+        typeof createWorkflowPreparedStoredFiles
+      >["prepareStoredAttachment"]
+    >[0],
+    control?: WorkflowCallControl,
+  ): Promise<
+    MutationExecutionResult<MutationResultByOperation["attachments.create"]>
+  > => {
+    const existing = await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
+      scope: callerScope,
+      input,
+      source,
+    });
+    if (existing.state !== "missing") return existing.result;
+    const files = createWorkflowPreparedStoredFiles(args.resources);
+    try {
+      const preparedFile = await files.prepareStoredAttachment(source);
+      const canonicalSource = createCanonicalStoredAttachmentSource(
+        source,
+        preparedFile.snapshot,
+      );
+      const canonicalInput: MutationRequestByOperation["attachments.create"] = {
+        ...input,
+        source: canonicalSource,
+      };
+      const replay = await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
+        scope: callerScope,
+        input,
+        source,
+        completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
+          input,
+          canonicalSource,
+        ),
+      });
+      if (replay.state !== "missing") return replay.result;
+      const prepared = await trusted.prepare<"attachments.create">({
+        input: canonicalInput,
+        scope: callerScope,
+        control,
+        resources: {
+          deferredStoredAttachment: {
+            prepare: async () => preparedFile,
+          },
+          preparedFiles: files.preparedFiles,
+        },
+      });
+      if (prepared.state === "settled") return prepared.result;
+      return await trusted.execute<"attachments.create">({
+        input: canonicalInput,
+        scope: callerScope,
+        prepared: prepared.prepared,
+        control,
+      });
+    } finally {
+      await files.preparedFiles.dispose();
+    }
   };
   const mutationResult = async (
     request: Parameters<typeof broker.mutations.execute>[0],
@@ -910,23 +844,17 @@ export function createWorkflowResearchBundleImportApi(args: {
           const residualRefs: Array<{ libraryId: number; key: string }> = [];
           for (const itemRef of [...affectedRefs].reverse()) {
             try {
-              const detail = await broker.library.getItemDetail(
-                itemRef,
-                control,
-              );
-              if (!detail) continue;
               await mutationResult(
                 {
-                  operation: "item.remove",
+                  operation: "trash.setItemsState",
                   operationId: await researchImportEffectOperationId(
                     operationId,
                     consistencyGroupId,
-                    "item.remove",
+                    "trash.setItemsState",
                     `${itemRef.libraryId}:${itemRef.key}`,
                   ),
-                  itemRef,
-                  disposition: "trash",
-                  expectedRevision: detail.item.revision,
+                  itemRefs: [itemRef],
+                  state: "trashed",
                 },
                 control,
               );
@@ -964,51 +892,57 @@ export function createWorkflowResearchBundleImportApi(args: {
         materializedSource,
         control,
       }) {
-        const result = requireConfirmedMutationResult(
-          await broker.attachments.create(
-            {
-              operationId: await researchImportEffectOperationId(
-                operationId,
-                consistencyGroupId,
-                "attachments.create",
-                `${graphId}:${attachment.attachmentId}`,
-              ),
-              placement: { kind: "child", parentRef },
-              source:
-                materializedSource.kind === "stored_file"
-                  ? {
-                      kind: "stored_file",
-                      main: {
-                        source: {
-                          kind: "local_path",
-                          path: materializedSource.main.path,
-                        },
-                        ...(materializedSource.main.targetFilename
-                          ? {
-                              targetFilename:
-                                materializedSource.main.targetFilename,
-                            }
-                          : {}),
-                      },
-                      companions: materializedSource.companions.map(
-                        (companion) => ({
-                          source: {
-                            kind: "local_path" as const,
-                            path: companion.path,
-                          },
-                          targetRelativePath: companion.targetRelativePath,
-                        }),
-                      ),
-                    }
-                  : {
-                      kind: materializedSource.kind,
-                      url: materializedSource.url,
-                    },
-              metadata: attachment.metadata,
-            },
-            callerScope,
-            control,
+        const metadata = canonicalAttachmentMetadata(attachment.metadata);
+        const input = {
+          operationId: await researchImportEffectOperationId(
+            operationId,
+            consistencyGroupId,
+            "attachments.create",
+            `${graphId}:${attachment.attachmentId}`,
           ),
+          placement: { kind: "child" as const, parentRef },
+          ...(metadata ? { metadata } : {}),
+        };
+        const result = requireConfirmedMutationResult(
+          materializedSource.kind === "stored_file"
+            ? await executePreparedAttachmentCreate(
+                { ...input, operation: "attachments.create" },
+                {
+                  main: {
+                    source: {
+                      kind: "local_path",
+                      path: materializedSource.main.path,
+                    },
+                    ...(materializedSource.main.targetFilename
+                      ? {
+                          targetFilename:
+                            materializedSource.main.targetFilename,
+                        }
+                      : {}),
+                  },
+                  companions: materializedSource.companions.map(
+                    (companion) => ({
+                      source: {
+                        kind: "local_path" as const,
+                        path: companion.path,
+                      },
+                      targetRelativePath: companion.targetRelativePath,
+                    }),
+                  ),
+                },
+                control,
+              )
+            : await broker.attachments.create(
+                {
+                  ...input,
+                  source: {
+                    kind: materializedSource.kind,
+                    url: materializedSource.url,
+                  },
+                },
+                callerScope,
+                control,
+              ),
         );
         return requireMutationItemRef(result.attachment);
       },
@@ -1030,7 +964,7 @@ export function createWorkflowResearchBundleImportApi(args: {
               `${sourceGraphId}:${targetRef.libraryId}:${targetRef.key}`,
             ),
             sourceRef,
-            relatedRef: targetRef,
+            relatedRefs: [targetRef],
           },
           control,
         );
@@ -1043,22 +977,17 @@ export function createWorkflowResearchBundleImportApi(args: {
         return detail.item.revision;
       },
       async removeItem({ operationId, consistencyGroupId, itemRef, control }) {
-        const detail = await broker.library.getItemDetail(itemRef, control);
-        if (!detail) {
-          throw new Error("Research import compensation target is missing");
-        }
         await mutationResult(
           {
-            operation: "item.remove",
+            operation: "trash.setItemsState",
             operationId: await researchImportEffectOperationId(
               operationId,
               consistencyGroupId,
-              "item.remove",
+              "trash.setItemsState",
               `${itemRef.libraryId}:${itemRef.key}`,
             ),
-            itemRef,
-            disposition: "trash",
-            expectedRevision: detail.item.revision,
+            itemRefs: [itemRef],
+            state: "trashed",
           },
           control,
         );

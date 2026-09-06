@@ -148,10 +148,44 @@ export type PluginRunEventStoreEntry = {
   payload: string;
 };
 
+export type PluginMutationAuthorityState =
+  | "started"
+  | "terminal"
+  | "identity_only";
+
+export type PluginMutationAuthorityStorageFaultForTests =
+  | "read"
+  | "admission"
+  | "terminal";
+
+export type PluginMutationAuthorityEntry = {
+  scope: string;
+  operationId: string;
+  operation: string;
+  semanticDigest: string;
+  semanticInput: string;
+  state: PluginMutationAuthorityState;
+  result: string;
+  createdAt: string;
+  terminalAt: string;
+  lastAccessedAt: string;
+};
+
 const SQLITE_MIGRATION_META_KEY = "migration_task_state_v1";
 
 let adapter: SqlAdapter | null = null;
 let initialized = false;
+let mutationAuthorityStorageFaultForTests:
+  | PluginMutationAuthorityStorageFaultForTests
+  | undefined;
+
+function throwMutationAuthorityStorageFault(
+  fault: PluginMutationAuthorityStorageFaultForTests,
+) {
+  if (mutationAuthorityStorageFaultForTests === fault) {
+    throw new Error(`plugin_mutation_authority_test_${fault}_failure`);
+  }
+}
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -439,6 +473,21 @@ type MemoryTables = {
       payload_json: string;
     }
   >;
+  mutationAuthorities: Map<
+    string,
+    {
+      scope: string;
+      operation_id: string;
+      operation: string;
+      semantic_digest: string;
+      semantic_input_json: string;
+      state: PluginMutationAuthorityState;
+      result_json: string;
+      created_at: string;
+      terminal_at: string;
+      last_accessed_at: string;
+    }
+  >;
 };
 
 const memoryTables: MemoryTables = {
@@ -451,6 +500,7 @@ const memoryTables: MemoryTables = {
   skillRunnerRuns: new Map(),
   skillRunnerRunEvents: new Map(),
   workflowSequenceRuns: new Map(),
+  mutationAuthorities: new Map(),
 };
 
 function requestKey(domain: string, requestId: string) {
@@ -463,6 +513,10 @@ function contextKey(domain: string, contextId: string) {
 
 function rowKey(domain: string, scope: string, taskId: string) {
   return `${domain}::${scope}::${taskId}`;
+}
+
+function mutationAuthorityKey(scope: string, operationId: string) {
+  return `${scope}::${operationId}`;
 }
 
 function memoryRunTablesFromSql(normalizedSql: string) {
@@ -494,9 +548,11 @@ function byUpdatedDesc<T extends { updated_at: string }>(rows: T[]) {
 }
 
 function buildMemoryAdapter(): SqlAdapter {
+  let lastChanges = 0;
   return {
     run(sql, params = {}) {
       const normalizedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      lastChanges = 0;
       if (
         normalizedSql.startsWith("create table") ||
         normalizedSql.startsWith("create index") ||
@@ -521,6 +577,77 @@ function buildMemoryAdapter(): SqlAdapter {
           return;
         }
         memoryTables.meta.clear();
+        return;
+      }
+      if (
+        normalizedSql.startsWith(
+          "insert or ignore into plugin_mutation_authority",
+        )
+      ) {
+        const scope = normalizeString(params.scope);
+        const operationId = normalizeString(params.operation_id);
+        if (!scope || !operationId) {
+          return;
+        }
+        const key = mutationAuthorityKey(scope, operationId);
+        if (memoryTables.mutationAuthorities.has(key)) {
+          return;
+        }
+        memoryTables.mutationAuthorities.set(key, {
+          scope,
+          operation_id: operationId,
+          operation: normalizeString(params.operation),
+          semantic_digest: normalizeString(params.semantic_digest),
+          semantic_input_json: normalizeString(params.semantic_input_json),
+          state: "started",
+          result_json: "",
+          created_at: normalizeString(params.created_at),
+          terminal_at: "",
+          last_accessed_at: normalizeString(params.last_accessed_at),
+        });
+        lastChanges = 1;
+        return;
+      }
+      if (normalizedSql.startsWith("update plugin_mutation_authority")) {
+        const scope = normalizeString(params.scope);
+        const operationId = normalizeString(params.operation_id);
+        const row = memoryTables.mutationAuthorities.get(
+          mutationAuthorityKey(scope, operationId),
+        );
+        if (!row) {
+          return;
+        }
+        if (
+          normalizedSql.includes("state='started'") &&
+          row.state !== "started"
+        ) {
+          return;
+        }
+        if (normalizedSql.includes("set state='terminal'")) {
+          row.state = "terminal";
+          row.result_json = normalizeString(params.result_json);
+          row.terminal_at = normalizeString(params.terminal_at);
+        } else if (normalizedSql.includes("set state='identity_only'")) {
+          row.state = "identity_only";
+          row.result_json = "";
+        }
+        row.last_accessed_at = normalizeString(params.last_accessed_at);
+        lastChanges = 1;
+        return;
+      }
+      if (normalizedSql.startsWith("delete from plugin_mutation_authority")) {
+        const scope = normalizeString(params.scope);
+        const operationId = normalizeString(params.operation_id);
+        if (!scope && !operationId) {
+          memoryTables.mutationAuthorities.clear();
+          return;
+        }
+        if (scope && operationId) {
+          memoryTables.mutationAuthorities.delete(
+            mutationAuthorityKey(scope, operationId),
+          );
+          lastChanges = 1;
+        }
         return;
       }
       const runTables = memoryRunTablesFromSql(normalizedSql);
@@ -769,6 +896,20 @@ function buildMemoryAdapter(): SqlAdapter {
     },
     all(sql, params = {}) {
       const normalizedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      if (normalizedSql === "select changes() as value") {
+        return [{ value: lastChanges }];
+      }
+      if (normalizedSql.includes("from plugin_mutation_authority")) {
+        const scope = normalizeString(params.scope);
+        const operationId = normalizeString(params.operation_id);
+        return Array.from(memoryTables.mutationAuthorities.values())
+          .filter(
+            (row) =>
+              (!scope || row.scope === scope) &&
+              (!operationId || row.operation_id === operationId),
+          )
+          .map((row) => ({ ...row }));
+      }
       const runTables = memoryRunTablesFromSql(normalizedSql);
       if (runTables && normalizedSql.includes("_run_events")) {
         const runKey = normalizeString(params.run_key);
@@ -1410,6 +1551,21 @@ function ensureSchema(db: SqlAdapter) {
     );
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS plugin_mutation_authority (
+      scope TEXT NOT NULL,
+      operation_id TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      semantic_digest TEXT NOT NULL,
+      semantic_input_json TEXT NOT NULL,
+      state TEXT NOT NULL,
+      result_json TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      terminal_at TEXT NOT NULL DEFAULT '',
+      last_accessed_at TEXT NOT NULL,
+      PRIMARY KEY (scope, operation_id)
+    );
+  `);
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_task_requests_backend_request
       ON plugin_task_requests(domain, backend_id, request_id);
   `);
@@ -1452,6 +1608,10 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_skillrunner_runs_state_updated
       ON plugin_skillrunner_runs(state, updated_at DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_mutation_authority_state_terminal
+      ON plugin_mutation_authority(state, terminal_at);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_skillrunner_run_events_run_created
@@ -3195,6 +3355,184 @@ export function estimatePluginTaskScopeBytes(
   return sumPluginTaskRowBytesForScopes(domain, { scope });
 }
 
+function normalizePluginMutationAuthorityEntry(
+  row: Record<string, unknown>,
+): PluginMutationAuthorityEntry {
+  const state = normalizeString(row.state);
+  if (
+    state !== "started" &&
+    state !== "terminal" &&
+    state !== "identity_only"
+  ) {
+    throw new Error("plugin_mutation_authority_state_invalid");
+  }
+  return {
+    scope: normalizeString(row.scope),
+    operationId: normalizeString(row.operation_id),
+    operation: normalizeString(row.operation),
+    semanticDigest: normalizeString(row.semantic_digest),
+    semanticInput: normalizeString(row.semantic_input_json),
+    state,
+    result: normalizeString(row.result_json),
+    createdAt: normalizeString(row.created_at),
+    terminalAt: normalizeString(row.terminal_at),
+    lastAccessedAt: normalizeString(row.last_accessed_at),
+  };
+}
+
+export function getPluginMutationAuthorityEntry(
+  scopeRaw: string,
+  operationIdRaw: string,
+): PluginMutationAuthorityEntry | null {
+  const scope = normalizeString(scopeRaw);
+  const operationId = normalizeString(operationIdRaw);
+  if (!scope || !operationId) {
+    return null;
+  }
+  throwMutationAuthorityStorageFault("read");
+  const row = getAdapter().get(
+    `
+      SELECT scope, operation_id, operation, semantic_digest,
+        semantic_input_json, state, result_json, created_at, terminal_at,
+        last_accessed_at
+      FROM plugin_mutation_authority
+      WHERE scope=@scope AND operation_id=@operation_id
+      LIMIT 1
+    `,
+    { scope, operation_id: operationId },
+  );
+  return row ? normalizePluginMutationAuthorityEntry(row) : null;
+}
+
+export function claimPluginMutationAuthorityEntry(
+  entry: PluginMutationAuthorityEntry,
+): { claimed: boolean; entry: PluginMutationAuthorityEntry } {
+  const scope = normalizeString(entry.scope);
+  const operationId = normalizeString(entry.operationId);
+  const operation = normalizeString(entry.operation);
+  const semanticDigest = normalizeString(entry.semanticDigest);
+  const semanticInput = normalizeString(entry.semanticInput);
+  const createdAt = normalizeString(entry.createdAt);
+  const lastAccessedAt = normalizeString(entry.lastAccessedAt);
+  if (
+    !scope ||
+    !operationId ||
+    !operation ||
+    !semanticDigest ||
+    !semanticInput ||
+    !createdAt ||
+    !lastAccessedAt
+  ) {
+    throw new Error("plugin_mutation_authority_entry_invalid");
+  }
+  throwMutationAuthorityStorageFault("admission");
+  const db = getAdapter();
+  return db.transaction(() => {
+    db.run(
+      `
+        INSERT OR IGNORE INTO plugin_mutation_authority
+        (scope, operation_id, operation, semantic_digest, semantic_input_json,
+          state, result_json, created_at, terminal_at, last_accessed_at)
+        VALUES (@scope, @operation_id, @operation, @semantic_digest,
+          @semantic_input_json, 'started', '', @created_at, '', @last_accessed_at)
+      `,
+      {
+        scope,
+        operation_id: operationId,
+        operation,
+        semantic_digest: semanticDigest,
+        semantic_input_json: semanticInput,
+        created_at: createdAt,
+        last_accessed_at: lastAccessedAt,
+      },
+    );
+    const changes = Number(db.get("SELECT changes() AS value")?.value);
+    if (changes !== 0 && changes !== 1) {
+      throw new Error("plugin_mutation_authority_admission_changes_invalid");
+    }
+    const persisted = getPluginMutationAuthorityEntry(scope, operationId);
+    if (!persisted) {
+      throw new Error("plugin_mutation_authority_admission_missing");
+    }
+    return { claimed: changes === 1, entry: persisted };
+  });
+}
+
+export function settlePluginMutationAuthorityEntry(args: {
+  scope: string;
+  operationId: string;
+  result: string;
+  terminalAt: string;
+  lastAccessedAt: string;
+  overwriteTerminal?: boolean;
+}) {
+  const scope = normalizeString(args.scope);
+  const operationId = normalizeString(args.operationId);
+  const result = normalizeString(args.result);
+  const terminalAt = normalizeString(args.terminalAt);
+  const lastAccessedAt = normalizeString(args.lastAccessedAt);
+  if (!scope || !operationId || !result || !terminalAt || !lastAccessedAt) {
+    throw new Error("plugin_mutation_authority_terminal_invalid");
+  }
+  throwMutationAuthorityStorageFault("terminal");
+  const db = getAdapter();
+  db.run(
+    `
+      UPDATE plugin_mutation_authority
+      SET state='terminal', result_json=@result_json, terminal_at=@terminal_at,
+        last_accessed_at=@last_accessed_at
+      WHERE scope=@scope AND operation_id=@operation_id
+        ${args.overwriteTerminal ? "" : "AND state='started'"}
+    `,
+    {
+      scope,
+      operation_id: operationId,
+      result_json: result,
+      terminal_at: terminalAt,
+      last_accessed_at: lastAccessedAt,
+    },
+  );
+  const changes = Number(db.get("SELECT changes() AS value")?.value);
+  if (changes !== 1) {
+    throw new Error("plugin_mutation_authority_terminal_update_missing");
+  }
+}
+
+export function expirePluginMutationAuthorityEntryEvidence(args: {
+  scope: string;
+  operationId: string;
+  lastAccessedAt: string;
+}) {
+  const scope = normalizeString(args.scope);
+  const operationId = normalizeString(args.operationId);
+  const lastAccessedAt = normalizeString(args.lastAccessedAt);
+  if (!scope || !operationId || !lastAccessedAt) {
+    throw new Error("plugin_mutation_authority_expiry_invalid");
+  }
+  const db = getAdapter();
+  db.run(
+    `
+      UPDATE plugin_mutation_authority
+      SET state='identity_only', result_json='', last_accessed_at=@last_accessed_at
+      WHERE scope=@scope AND operation_id=@operation_id AND state='terminal'
+    `,
+    { scope, operation_id: operationId, last_accessed_at: lastAccessedAt },
+  );
+  return getPluginMutationAuthorityEntry(scope, operationId);
+}
+
+export function clearPluginMutationAuthorityEntriesForTests() {
+  const db = getAdapter();
+  db.run("DELETE FROM plugin_mutation_authority");
+  memoryTables.mutationAuthorities.clear();
+}
+
+export function configurePluginMutationAuthorityStorageFaultForTests(
+  fault?: PluginMutationAuthorityStorageFaultForTests,
+) {
+  mutationAuthorityStorageFaultForTests = fault;
+}
+
 export function resetPluginStateStoreForTests() {
   resetGuardedSqliteForTests();
   if (adapter) {
@@ -3207,6 +3545,7 @@ export function resetPluginStateStoreForTests() {
     db.run("DELETE FROM plugin_skillrunner_run_events");
     db.run("DELETE FROM plugin_skillrunner_runs");
     db.run("DELETE FROM plugin_workflow_sequence_runs");
+    db.run("DELETE FROM plugin_mutation_authority");
     db.run("DELETE FROM plugin_meta");
   }
   memoryTables.requests.clear();
@@ -3217,7 +3556,9 @@ export function resetPluginStateStoreForTests() {
   memoryTables.skillRunnerRunEvents.clear();
   memoryTables.skillRunnerRuns.clear();
   memoryTables.workflowSequenceRuns.clear();
+  memoryTables.mutationAuthorities.clear();
   memoryTables.meta.clear();
+  mutationAuthorityStorageFaultForTests = undefined;
   adapter = null;
   initialized = false;
 }

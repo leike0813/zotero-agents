@@ -1,73 +1,73 @@
-# 研究综合操作手册
+# Research Synthesis Playbook
 
-## 综合模型选择
+## Synthesis model selection
 
-根据问题选择派生模型：
+Choose the derived model according to the question:
 
-| 模型 | 用途 | 不得推断 |
+| Model | Use for | Do not infer |
 | --- | --- | --- |
-| Topic list/membership | Topic 发现与论文 membership | membership 证明一致意见或与每个子问题相关 |
-| Topic context/report/review input | 已识别 topic 的不同读取视图 | 一个视图包含完整来源记录 |
-| Graph overview/slice | 全局摘要或有界邻域 | 由连通性推断因果 |
-| Layout/metrics/query cluster | 坐标、计算 metric 或 topic scope cluster | 由排序或邻近推断学术认可 |
-| External-reference/library-paper ranking | 候选优先级 | 文献搜索的完整性 |
-| Library/reference index | 派生索引记录 | 当前书目写入状态 |
-| Resolver | 根据标签、分类、ref 与 combine rule 得到论文 scope | 超出返回有界集合的身份 |
-| Artifact manifest/read/export | 发现、内容访问与文件交付 | 从本地文件存在推断已持久化到 Zotero |
-| 直接论文研究包 | 一个或多个稳定 Zotero 条目引用的可移植交付 | 缺失的来源或分析工件已经生成或修复 |
-| 直接 Topic 研究包 | 当前 Topic 报告及全局去重的关联 digest | Topic membership、报告新鲜度或缺失 digest 已经重新计算 |
-| Attention queue | 排序后的审阅候选项 | 修复它们的权限 |
-| Concept/schema | 类型化语义定义 | 原始 Zotero 元数据搜索 |
+| Topic list/membership | Topic discovery and paper membership | That membership proves agreement or relevance to every subquestion |
+| Topic context/report/review input | Different read views for one identified topic | That one view contains the complete source record |
+| Graph overview/slice | Global summary or a bounded neighborhood | Causality from connectivity |
+| Layout/metrics/query cluster | Coordinates, computed metrics, or topic-scoped clustering | Scholarly endorsement from rank or proximity |
+| External-reference/library-paper ranking | Candidate prioritization | Completeness of literature search |
+| Library/reference index | Derived indexed records | Current bibliographic write state |
+| Resolver | Paper scope from tags, collections, refs, and combine rules | Identity beyond the returned bounded set |
+| Artifact manifest/read/export | Discovery, content access, and file delivery | Persistence in Zotero from local file existence |
+| Direct paper research bundle | Portable delivery for one or more stable Zotero item refs | That absent sources or analysis artifacts were generated or repaired |
+| Direct Topic research bundle | Current Topic reports plus globally deduplicated associated digests | That Topic membership, report freshness, or missing digests were recomputed |
+| Attention queue | Ranked review candidates | Authority to remediate them |
+| Concept/schema | Typed semantic definitions | Raw Zotero metadata search |
 
-解释前解析所选 topic、paper ref、graph scope、resolver selector、artifact 身份或 schema。记录模型身份与分页完成状态，使其他任务能够复现来源边界。
+Resolve the selected topic, paper refs, graph scope, resolver selectors, artifact identity, or schema before interpretation. Record model identity and paging completion so another task can reproduce the source boundary.
 
-## 来源与新鲜度纪律
+## Source and freshness discipline
 
-关联来源前陈述研究问题与纳入规则。对每项结论区分：
+State the research question and inclusion rule before relating sources. For each conclusion, distinguish:
 
-- 直接书目或来源事实；
-- 已记录笔记或批注；
-- 插件派生的 topic、graph、index、resolver 或 artifact 事实；
-- 工作流生成解释；
-- 自身比较或推断；
-- 分歧与缺失证据。
+- direct bibliographic or source facts;
+- recorded notes or annotations;
+- plugin-derived topic, graph, index, resolver, or artifact facts;
+- workflow-produced interpretation;
+- your own comparison or inference;
+- disagreement and missing evidence.
 
-答案依赖新鲜度时检查当前 cache 与 index 状态。过期派生视图仍可证明其记录状态，但不能证明最新文献库。通过各自实时所属命令确认当前 selection、附件、permission、Product 和任何请求写入。
+Inspect current cache and index status when the answer depends on freshness. A stale derived view can still be evidence of its recorded state but not of the newest library. Confirm current selections, attachments, permissions, Products, and any requested write through their live owning commands.
 
-保留冲突来源，不得将其平均成虚假共识。说明 gap 是“在声明来源边界内未找到”“未在派生 index 中表示”，还是“来源材料不可用”。
+Preserve conflicting sources rather than averaging them into a false consensus. Explain whether a gap means “not found within the declared source boundary”, “not represented in the derived index”, or “source material was unavailable”.
 
-## 工作流与维护边界
+## Workflow and maintenance boundaries
 
-期望综合需要工作流声明的可复用行为、provider 执行或多 artifact 输出时使用工作流。描述 requirements，校验来源 selection 和工作流选项，单独校验 provider profile，并仅以支持模式提交。保留 `workflowRunId`、相关 `skillRunId`、交互、终态与预期输出身份。
+Use a workflow when the desired synthesis requires its declared reusable behavior, provider execution, or multi-artifact output. Describe requirements, validate the source selection and workflow options, validate provider profile independently, and submit only in a supported mode. Retain `workflowRunId`, relevant `skillRunId`, interactions, terminal state, and expected output identities.
 
-Topic 创建与更新有不同身份要求：从明确新 seed 创建；只更新已识别当前 topic。在请求的 topic report、topic ID、artifact 或 Product 检查前，工作流终态只是中间证据。
+Topic creation and update have different identity requirements: create from an explicit new seed; update only an identified current topic. A workflow terminal state is intermediate evidence until the requested topic report, topic ID, artifact, or Product is inspected.
 
-维护 operation 是独立合同：
+Maintenance operations are separate contracts:
 
-- reference-sidecar refresh 更新其自身来源 basis 并返回 operation receipt；
-- citation-graph update 消费已提交 scope 与预期 reference basis；
-- graph metric refresh 修复已持久化复杂 metric；
-- cache invalidation 只影响其声明支持 scope；
-- 本地常驻 index refresh 不是 Synthesis index operation。
+- reference-sidecar refresh updates its own source basis and returns an operation receipt;
+- citation-graph update consumes a committed scope and expected reference basis;
+- graph metric refresh repairs persisted complex metrics;
+- cache invalidation affects only its declared supported scope;
+- local resident index refresh is not a Synthesis index operation.
 
-维护前运行诊断。保留每项 operation ID、approval、pre-state、post-state、成功/失败 ref、retryability 与 basis hash。若 `stateChange` 或 handle 消费情况不确定，再次尝试前查询该 operation 的持久 receipt。
+Run diagnostics before maintenance. Preserve each operation ID, approval, pre-state, post-state, successful/failed refs, retryability, and basis hash. If `stateChange` or handle consumption is uncertain, query that operation's durable receipt before another attempt.
 
-## 有序综合生命周期
+## Ordered synthesis lifecycle
 
-对完整有界研究 bundle，维护独立阶段证据：
+For a complete bounded research bundle, maintain independent stage evidence:
 
-1. 获取预期文献 scope，并保留成功实时 item ref 与 provenance。
-2. 为成功或明确选择的父条目生成文献分析 artifact；保持逐篇失败可见。
-3. 为已提交论文 scope 刷新 reference sidecar，并保留 `reference_basis_hash` 与结果 partition。
-4. 使用预期 basis hash 更新 citation graph。不匹配时检查 sidecar 状态，并决定是否应重新 refresh。
-5. 通过匹配工作流创建或更新 topic synthesis，并验证 topic 身份与 report。
-6. export 研究 bundle，识别预期 Product 或 artifact asset，下载并验证文件元数据或 digest。
+1. Acquire the intended literature scope and retain successful live item refs plus provenance.
+2. Produce literature-analysis artifacts for the successful or explicitly selected parent items; keep per-paper failures visible.
+3. Refresh the reference sidecar for the committed paper scope and retain its `reference_basis_hash` and result partition.
+4. Update the citation graph with that expected basis hash. On mismatch, inspect sidecar status and decide whether a new refresh is warranted.
+5. Create or update topic synthesis through the matching workflow and verify its topic identity and report.
+6. Export the research bundle, identify the intended Product or artifact asset, download it, and verify file metadata or digest.
 
-只有当前证据已满足前置条件时，才能跳过某阶段。从首个缺失稳定 receipt 或 artifact 处恢复；绝不能仅因后续 export 失败而重跑更早 mutation 或 maintenance。
+Each stage may be skipped only when current evidence already satisfies its precondition. Resume from the first missing stable receipt or artifact; never rerun earlier mutation or maintenance merely because a later export failed.
 
-## 派生模型决策记录
+## Derived-model decision records
 
-当多个 Synthesis 模型都可能回答问题时，使用决策记录：
+Use a decision record when more than one Synthesis model could answer the question:
 
 ```text
 research_question:
@@ -82,114 +82,114 @@ excluded_interpretations:
 follow_on_read:
 ```
 
-可用于判别的典型选择：
+Examples of discriminating choices:
 
-- 选择 topic membership 建立 paper set，再选择 topic report 进行叙述性综合；
-- 选择 graph slice 获取有界 neighborhood，选择 metrics 获取计算结构属性，选择 source read 进行学术解释；
-- 当 paper set 由 tag、collection 与 ref 组合定义，而非来自现有 topic 时，选择 resolver；
-- 在 artifact read 前选择 artifact manifest；内容选择会影响结果时，在 export 前先 read；
-- 仅使用 attention queue 排定 review candidate 优先级，提出 maintenance 前先诊断所属模型。
+- choose topic membership to establish the paper set, then topic report for narrative synthesis;
+- choose graph slice for a bounded neighborhood, metrics for computed structural properties, and source reads for scholarly interpretation;
+- choose resolver when the paper set is defined by combined tags, collections, and refs rather than an existing topic;
+- choose artifact manifest before artifact read, and read before export when content selection matters;
+- choose attention queue only to prioritize review candidates, then diagnose the owning model before proposing maintenance.
 
-对论文工件，manifest 边界是四项集合 `digest + references + citation_analysis + literature_score`。保留每行的 `available`、`missing` 或 `error` 状态。`literature_score` 解码/schema 失败属于不可用证据，必须通过 invalid snapshot 和诊断与缺失区分。请求 manifest 或 filtered export 时如果省略 `artifact_types`，应得到全部四项；过滤时记录明确子集，防止将 partial read 误认为完整论文覆盖。
+For paper artifacts, the manifest boundary is the four-item set `digest + references + citation_analysis + literature_score`. Preserve every row's `available`, `missing`, or `error` state. A `literature_score` decode/schema failure is unavailable evidence and must remain distinguishable from absence through the invalid snapshot and diagnostics. When a manifest or filtered export is requested without `artifact_types`, expect all four items; when filtering, record the explicit subset so a partial read is not mistaken for complete paper coverage.
 
-紧凑的 `literature_quality` 快照足以用于 selection 和 evidence-role calibration。评分缺失或无效时，其中性先验为 `0.5`；评分可用时，使用 Host 计算的 confidence-adjusted prior。在下游工作中保留快照和 payload hash，不要重新评判论文内在质量。继续独立评估相关性和证据契合度：高评分不能将 external、unknown 或 irrelevant 论文移入 Topic 核心上下文，不能绕过 Research Bundle 相关性阈值，也不能在没有 evidence-role 决策时成为排除已确认 manuscript source 的理由。
+The compact `literature_quality` snapshot is sufficient for selection and evidence-role calibration. Its neutral prior is `0.5` when the score is missing or invalid; an available score uses the host-computed confidence-adjusted prior. Preserve the snapshot and payload hash through downstream work instead of reassessing intrinsic paper quality. Continue to evaluate relevance and evidentiary fit independently: a strong score cannot move an external, unknown, or irrelevant paper into a topic's core context, cannot bypass a Research Bundle relevance threshold, and cannot justify excluding a confirmed manuscript source without an evidence-role decision.
 
-只有备选方案确实合理且会改变解释时才记录被拒方案。这样既能审计决策，也不会把每次简单读取都变成 planning artifact。
+Record rejected alternatives only when they were plausible and would have changed the interpretation. This keeps the decision auditable without turning every simple read into a planning artifact.
 
-## Maintenance 前置条件与 receipt
+## Maintenance preconditions and receipts
 
-| Maintenance operation | 所需前置证据 | 需保留的 receipt field | 需检查的 postcondition |
+| Maintenance operation | Required precondition evidence | Receipt fields to retain | Postcondition to inspect |
 | --- | --- | --- | --- |
-| Reference-sidecar refresh | 明确 paper scope 与当前 sidecar 诊断 | Operation ID、successful/failed ref、retryability、basis hash | Sidecar status 与逐论文结果 |
-| Citation-graph update | 已提交 scope 与兼容的预期 reference basis | Operation ID、scope、basis comparison、result partition | Graph status 与请求的 slice/overview |
-| Graph metric refresh | 现有 graph state 与缺失/过期 metric 诊断 | Operation ID、metric scope、approval、failure | 请求的持久 metrics |
-| 受支持的 cache invalidation | 已命名 cache scope，以及无法安全读取过期状态的原因 | Operation ID、invalidated scope、state change | 对所属模型进行 fresh read |
-| Topic create/update workflow | Create 使用 new seed；update 使用现有 topic identity | Workflow run、interaction、terminal state | Topic identity、membership、report |
+| Reference-sidecar refresh | Explicit paper scope and current sidecar diagnosis | Operation ID, successful/failed refs, retryability, basis hash | Sidecar status and per-paper result |
+| Citation-graph update | Committed scope and compatible expected reference basis | Operation ID, scope, basis comparison, result partition | Graph status and requested slice/overview |
+| Graph metric refresh | Existing graph state and missing/stale metric diagnosis | Operation ID, metric scope, approval, failures | Requested persisted metrics |
+| Supported cache invalidation | Named cache scope and reason stale state cannot be read safely | Operation ID, invalidated scope, state change | Fresh read of the owning model |
+| Topic create/update workflow | New seed for create or existing topic identity for update | Workflow run, interactions, terminal state | Topic identity, membership, report |
 
-保守解释 receipt：
+Interpret receipts conservatively:
 
-- `stateChange: applied` 表示已声明 operation 改变了状态，不表示每个下游 model 或 export 都已完成；
-- partial success 只确立成功 partition，失败 ref 不得进入依赖 freshness 的主张；
-- handle consumption 不确定时，重试前必须查询 receipt；
-- terminal workflow receipt 仍需检查承诺的 topic、Product、report 或 artifact；
-- basis mismatch 是诊断边界，不是省略 expected basis 的许可。
+- `stateChange: applied` means the declared operation changed state, not that every downstream model or export is now complete;
+- partial success establishes only the successful partition and leaves failed refs outside freshness-sensitive claims;
+- uncertain handle consumption requires receipt lookup before retry;
+- a terminal workflow receipt still needs the promised topic, Product, report, or artifact inspection;
+- a basis mismatch is a diagnostic boundary, not permission to omit the expected basis.
 
-如果 operation 报告没有变更，应区分“已经最新”“scope 为空”与“请求被拒”。只有第一种可以在不采取其他操作的情况下满足 freshness 前置条件。
+If the operation reports no change, distinguish “already current” from “scope empty” and “request rejected”. Only the first can satisfy a freshness precondition without another action.
 
-## Export 证据矩阵
+## Export evidence matrix
 
-| Export 路径 | 传输前身份 | 字节级证据 | 允许的持久性主张 |
+| Export path | Identity before transfer | Byte-level evidence | Persistence claim allowed |
 | --- | --- | --- | --- |
-| Product asset download | Product ID 与所选 asset | 返回的 filename/media type、size，以及提供时的 checksum | 该 Product asset 的已验证本地副本 |
-| Synthesis artifact export | Artifact manifest entry 与请求的 format/filter | Export handle 加已验证字节 | 已命名 artifact 的本地 export |
-| Workflow output file | Workflow run 与 output/artifact mapping | Output schema 加 file checksum/size | 已生成 workflow artifact |
-| Zotero attachment delivery | 实时 parent 与 attachment ref | 签发的 file handle 加已验证字节 | 现有 attachment 的读取副本 |
-| 将 export 结果附加到 Zotero | Source Product/artifact、uploaded file handle、target parent | Source 与 upload checksum 加实时 child ref | 仅在实时确认后的持久 Zotero attachment |
-| 直接论文研究包 | 有序且已解析的 Zotero 条目引用及聚合 scope | 本地 manifest/清单，或远程 file handle 后续的已验证下载 | 包含可用来源、元数据和分析工件的可移植本地副本 |
-| 直接 Topic 研究包 | 有序的稳定 Topic ID、当前报告及规范关联论文引用 | 本地 manifest 与去重 digest 路由，或远程 file handle 后续的已验证下载 | 当前报告和可用 digest 的可移植本地副本 |
+| Product asset download | Product ID and selected asset | Returned filename/media type, size, checksum when supplied | Local verified copy of that Product asset |
+| Synthesis artifact export | Artifact manifest entry and requested format/filter | Export handle plus verified bytes | Local export of the named artifact |
+| Workflow output file | Workflow run and output/artifact mapping | Output schema plus file checksum/size | Produced workflow artifact |
+| Zotero attachment delivery | Live parent and attachment ref | Issued file handle plus verified bytes | Read copy of the existing attachment |
+| Attach exported result to Zotero | Source Product/artifact, uploaded file handle, target parent | Source and upload checksums plus live child ref | Persisted Zotero attachment only after live confirmation |
+| Direct paper bundle | Ordered resolved Zotero item refs and aggregation scope | Local manifest/inventory, or remote file handle followed by verified download | Portable local copy containing available source, metadata, and analysis artifacts |
+| Direct Topic bundle | Ordered stable Topic IDs, current reports, and canonical associated paper refs | Local manifest plus deduplicated digest routes, or remote file handle followed by verified download | Portable local copy of current reports and available digests |
 
-Export manifest 或 file path 证明已经发现，不证明交付成功。已验证本地文件证明交付，不证明 Zotero attachment。如果最终 bundle 包含多个 asset，逐一清点 role 与 checksum，并说明哪些 asset 被有意排除。
+An export manifest or file path proves discovery, not successful delivery. A verified local file proves delivery, not Zotero attachment. If the final bundle contains several assets, inventory each role and checksum and state which assets were intentionally excluded.
 
-### 直接研究包流程
+### Direct research-bundle procedure
 
-论文 scope 可选择一至 100 个明确条目选择器，Topic scope 可选择一至 20 个稳定 Topic ID。Host 最多解析 500 篇不同论文，最多物化 5000 个文件或 2 GiB。边界拒绝代表需要重新决定 scope：缩小请求或明确拆分；不得静默截断、遗漏 Topic，或创建多个研究包却声称得到一个聚合结果。
+Choose paper scope from one to 100 explicit item selectors and Topic scope from one to 20 stable Topic IDs. The Host may resolve at most 500 distinct papers and materialize at most 5000 files or 2 GiB. Treat a bound rejection as a scope decision: narrow the request or split it explicitly; do not silently truncate, omit a Topic, or create several bundles while claiming one aggregate result.
 
-交付论文时，检查 manifest 路由 `papers/<libraryId>/<itemKey>/`。预期包含 `metadata.json`、可用时的 Markdown 正文及保留的树内图片（否则为 `source.pdf`），并记录 digest、references、citation analysis 和 literature score 状态。Markdown 优先表示该论文目录中存在 Markdown 来源时不再复制 PDF。来源或分析工件缺失时，保留带论文引用的警告；不得替换成其他论文或启动分析。
+For paper delivery, inspect the manifest route `papers/<libraryId>/<itemKey>/`. Expect `metadata.json`, Markdown source plus preserved in-tree images when available, otherwise `source.pdf`, and status for digest, references, citation analysis, and literature score. Markdown preference means a present Markdown source suppresses the PDF copy in that paper directory. A missing source or analysis artifact remains a warning with its paper ref; do not substitute a different paper or start analysis.
 
-交付 Topic 时，验证每份请求报告都位于其 Topic 目录中，并检查 `papers_by_ref`。即使多个 Topic 引用同一篇论文，关联 digest 在规范 Zotero 引用路由下也只保存一次。只有导出的报告副本中参考文献标记结构与记录的来源论文顺序匹配时才增加导航。校验失败时，保持报告不变，使用生成的来源索引，并报告导航回退警告。不得改写已存储的 Topic 工件。
+For Topic delivery, verify every requested report under its Topic directory and inspect `papers_by_ref`. Associated digests are stored once under the canonical Zotero ref route even when several Topics cite the same paper. Navigation is added only to an exported report copy whose bibliography marker structure matches its recorded source-paper order. If validation fails, preserve the report unchanged, use the generated source index, and report the navigation fallback warning. Never rewrite the stored Topic artifact.
 
-本地交付要求目标不存在或为空；`manifest.json`、`index.md`、选择器清单和声明文件均可读后才算完成。远程交付返回短期 `fileId`；运行提供的下载命令，验证大小及可用的 checksum，然后解压 ZIP 并检查同一份 manifest。不得暴露内部临时路径。物化失败时，任何局部目标都不是有效结果。handle 过期时，针对未变化的已验证选择器集合重新导出；若选择器或 Topic 状态已变，重试前重新建立 scope。
+Local delivery requires an absent or empty destination and is complete after `manifest.json`, `index.md`, selector inventory, and declared files are readable. Remote delivery returns a short-lived `fileId`; run the supplied download command, verify size and checksum when present, then unpack the ZIP and inspect the same manifest. Do not expose internal staging paths. If materialization fails, no partial destination is a valid result. If a handle expires, repeat the export against the unchanged verified selector set; if selectors or Topic state changed, re-establish scope before retrying.
 
-## 恢复与易错边界
+## Recovery and near misses
 
-- graph edge、cluster 或 ranking 都只是计算关系，除非来源证据支持更强主张。
-- 空 topic/index/resolver 结果本身不能证明需要维护；先检查 scope 与状态。
-- 部分 sidecar receipt 要求从依赖已刷新 references 的 graph 主张中排除失败 ref。
-- basis 不匹配需要新的状态决策，不能绕过比较。
-- 论文 scope graph update 可能要求已有 graph；有意选择的 library scope 具有不同 effect 与 approval 边界。
-- 工作流需要用户交互时，保留其确切 run/skill handle 并请求决策，不得更换工作流。
-- 终态 run 缺少 report、topic、Product 或 artifact 时，返回带 run 证据的 missing-output 失败。
-- 用户要求把解释持久化到 Zotero 时，呈现建议笔记、标签、关系或文件，并以新权限路由给 curation。
-- 持续 topic refresh 或 queue 监控属于托管 facet，不属于此有界任务。
-## 端到端决策轨迹
+- A graph edge, cluster, or ranking is a computed relationship until source evidence supports a stronger claim.
+- An empty topic/index/resolver result does not by itself justify maintenance; check scope and status first.
+- A partial sidecar receipt excludes failed refs from graph claims that depend on refreshed references.
+- A basis mismatch requires a new status decision, not bypassing the comparison.
+- A paper-scoped graph update may require an existing graph; a deliberate library scope has a different effect and approval boundary.
+- If a workflow needs user interaction, preserve its exact run/skill handle and request the decision rather than changing workflows.
+- If a terminal run lacks its report, topic, Product, or artifact, return the missing-output failure with the run evidence.
+- If the user asks to persist an interpretation in Zotero, present the proposed note, tag, relation, or file and route it to curation with new authority.
+- Continuous topic refresh or queue monitoring belongs to the hosted facet, not this bounded task.
+## End-to-end decision traces
 
-这些痕迹演示了如何选择综合基础、将计算结构与学术证据分开以及独立验证维护和导出阶段。
+These traces demonstrate how to select a synthesis basis, separate computed structure from scholarly evidence, and verify maintenance and export stages independently.
 
-### Trace 1：解释 citation graph 而不夸大结论
+### Trace 1: Interpret a citation graph without overstating it
 
-用户话语：
+User utterance:
 
-> 该图显示了这两个研究方向之间的什么关系？
+> What does the graph show about the relationship between these two research directions?
 
-释义：
+Interpretation:
 
-- 用户参考派生的引文图。
-- 图的边和簇可以支持结构观察。
-- 学术共识、影响力、因果关系和概念相似性需要图拓扑之外的源证据。
+- The user refers to a derived citation graph.
+- Graph edges and clusters can support structural observations.
+- Scholarly agreement, influence, causality, and conceptual similarity require source evidence beyond graph topology.
 
-准备工作：
+Preparation:
 
-1. 解决确切的图表或主题范围。
-2. 记录图表新鲜度和分页完成情况。
-3. 解决相关源项目。
-4. 检查边类型、方向、来源和任何度量定义。
-5. 当要求的解释超出结构时，请阅读来源声明。
+1. Resolve the exact graph or topic scope.
+2. Record graph freshness and paging completion.
+3. Resolve the relevant source items.
+4. Inspect edge types, direction, provenance, and any metric definition.
+5. Read source claims when the requested interpretation goes beyond structure.
 
-支持的答案层：
+Supported answer layers:
 
-- 直接图事实：存在哪些节点和边。
-- 计算观察：声明算法下的聚类、中心性或路径。
-- 基于来源的解释：所引用论文的主张。
-- Agent 推论：将它们联系在一起的合格解释。
+- Direct graph fact: which nodes and edges are present.
+- Computed observation: clustering, centrality, or path under the declared algorithm.
+- Source-grounded interpretation: what the cited papers claim.
+- Agent inference: a qualified explanation tying them together.
 
-不要：
+Do not:
 
-- 称为共被引因果影响；
-- 调用集群成员学术协议；
-- 将缺失的边缘视为不存在智力关系；
-- 隐藏过时的图表状态。
+- call co-citation causal influence;
+- call cluster membership scholarly agreement;
+- treat a missing edge as no intellectual relationship;
+- hide stale graph status.
 
-完成结果：
+Completed result:
 
 ```json
 {
@@ -209,53 +209,53 @@ Export manifest 或 file path 证明已经发现，不证明交付成功。已�
 }
 ```
 
-### Trace 2：诊断、刷新并综合过期 topic
+### Trace 2: Diagnose, refresh, and synthesize a stale topic
 
-用户话语：
+User utterance:
 
-> 这个话题已经过时了。刷新它并告诉我发生了什么变化。
+> This topic is stale. Refresh it and tell me what changed.
 
-所需边界：
+Required boundaries:
 
-- 准确的主题标识；
-- 来源范围；
-- 哪个模型是过时的；
-- 维护操作；
-- 综合比较；
-- 当前的维护权限。
+- exact topic identity;
+- source scope;
+- which model is stale;
+- maintenance operation;
+- synthesis comparison;
+- current maintenance authority.
 
-诊断：
+Diagnosis:
 
-1. 阅读主题状态和来源范围。
-2. 检查相关索引/图表/sidecar状态。
-3. 确定确切的过时模型和基础。
-4. 解释刷新是否可以更改主题内容、图形状态或仅更改索引。
+1. Read topic status and source scope.
+2. Inspect relevant index/graph/sidecar status.
+3. Identify the exact stale model and basis.
+4. Explain whether refresh can change topic content, graph state, or only an index.
 
-权威机构：
+Authority:
 
-- 显示诊断后的维护建议。
-- 仅获取该操作的当前授权。
-- 不要将用户的观察“过时”视为每个维护命令的权限。
+- Show the diagnosed maintenance proposal.
+- Obtain current authority for that operation only.
+- Do not treat the user's observation “stale” as permission for every maintenance command.
 
 Execution:
 
-1. 开始批准的维护操作。
-2. 保留操作 ID 和预状态。
-3. 检查终端receipt并承诺基础。
-4. 重新读取受影响的模型。
-5. 重新运行有界综合读取。
-6. 比较支持的前后事实。
+1. Start the approved maintenance operation.
+2. Preserve operation ID and pre-state.
+3. Inspect the terminal receipt and committed basis.
+4. Re-read the affected model.
+5. Re-run the bounded synthesis read.
+6. Compare supported pre/post facts.
 
-失败分支：
+Failure branch:
 
-- 维护receipt报告边车刷新成功。
-- 主题报告尚未重新计算。
+- Maintenance receipt reports success for sidecar refresh.
+- Topic report has not been recomputed.
 
-结果决定：
+Result decision:
 
-- 不要声称该主题已刷新。
-- 保留边车receipt。
-- 返回 `failed` 以获得总体请求的主题刷新并解释缺少的阶段。
+- Do not claim the topic is refreshed.
+- Preserve the sidecar receipt.
+- Return `failed` for the overall requested topic refresh and explain the missing stage.
 
 ```json
 {
@@ -280,43 +280,43 @@ Execution:
 }
 ```
 
-### Trace 3：综合并导出 research bundle
+### Trace 3: Synthesize and export a research bundle
 
-用户话语：
+User utterance:
 
-> 将这些论文合成为间隙图并导出捆绑包。
+> Synthesize these papers into a gap map and export the bundle.
 
-可见阶段：
+Visible stages:
 
-1. 解决并验证来源。
-2. 建立差距综合。
-3. 验证间隙图artifact。
-4. 生产或找到声明的Product/出口。
-5. 下载并验证所选资产。
+1. Resolve and verify sources.
+2. Build the gap synthesis.
+3. Verify the gap-map artifact.
+4. Produce or locate the declared Product/export.
+5. Download and verify the selected asset.
 
-Synthesis 决定：
+Synthesis decisions:
 
-- 修复研究问题和语料库。
-- 区分缺乏的证据和有支持的差距。
-- 保留矛盾的发现。
-- 状态来源深度不对称。
+- Fix the research question and corpus.
+- Distinguish absent evidence from a supported gap.
+- Preserve contradictory findings.
+- State source-depth asymmetry.
 
-出口决策：
+Export decisions:
 
-- 确定请求的格式。
-- 检查预期的 Product 身份。
-- 按角色和媒体类型选择资产。
-- 获取当前交货handle。
-- 验证本地校验和和字节计数。
+- Identify requested format.
+- Inspect expected Product identity.
+- Select asset by role and media type.
+- Obtain current delivery handle.
+- Verify local checksum and byte count.
 
 Near misses:
 
-- 本地间隙图artifact不是导出的包。
-- Product 记录不是下载的资产。
-- 终端导出 workflow 不是校验和验证。
-- 缺失的论文不能默默地转化为研究空白。
+- A local gap-map artifact is not the exported bundle.
+- A Product record is not a downloaded asset.
+- A terminal export workflow is not checksum verification.
+- Missing papers cannot be silently converted into research gaps.
 
-完成结果：
+Completed result:
 
 ```json
 {
@@ -343,45 +343,45 @@ Near misses:
 }
 ```
 
-恢复：
+Recovery:
 
-- 如果综合后导出失败，请保留综合artifact。
-- 从Product/资产检查继续。
-- 不要重新运行维护或综合，除非他们的证据无效。
+- If export fails after synthesis, preserve the synthesis artifact.
+- Resume from Product/asset inspection.
+- Do not rerun maintenance or synthesis unless their evidence is invalid.
 
-## Synthesis 对话与决策模板
+## Synthesis conversation and decision patterns
 
-模型选择问题：
+Model-choice question:
 
-> 主题报告回答了出现的主题和主张；引文图回答了结构关系。哪个问题应该驱动这个综合？
+> A topic report answers what themes and claims occur; the citation graph answers structural relationships. Which question should drive this synthesis?
 
-新鲜度披露：
+Freshness disclosure:
 
-> 源项目是最新的，但图表报告的是较旧的基础。我现在可以从源文本中回答或准备一个单独的图形维护提案。
+> The source items are current, but the graph reports an older basis. I can answer from source text now or prepare a separate graph-maintenance proposal.
 
-差距披露：
+Gap disclosure:
 
-> 该源集不报告有关 X 的证据。由于无法获得两个相关的全文，因此我将其标记为覆盖差距而不是研究差距。
+> This source set does not report evidence on X. Because two relevant full texts are unavailable, I am labeling this a coverage gap rather than a research gap.
 
-维护披露：
+Maintenance disclosure:
 
-> 刷新 sidecar 和更新引用图是单独的操作，具有单独的receipts。我不会将其中一个视为另一个的完成。
+> Refreshing the sidecar and updating the citation graph are separate operations with separate receipts. I will not treat one as completion of the other.
 
-出口披露：
+Export disclosure:
 
-> artifact合成完成。导出仍然是一个单独的Product/资产交付步骤，并且只有在验证所选字节后才会完成。
+> The synthesis artifact is complete. Export remains a separate Product/asset delivery step and will be complete only after the selected bytes are verified.
 
-综合决策记录应保留：
+A synthesis decision record should preserve:
 
-- 研究问题；
-- 包含和排除来源refs；
-- 来源证据深度；
-- 模特身份和地位；
-- 索赔和locator地图；
-- 分歧；
-- 缺少覆盖范围；
-- workflow 和维护阶段；
-- Products 和 artifacts；
-- 结果状态和诊断。
+- research question;
+- included and excluded source refs;
+- source evidence depth;
+- model identity and status;
+- claim and locator map;
+- disagreement;
+- missing coverage;
+- workflow and maintenance stages;
+- Products and artifacts;
+- result status and diagnostics.
 
-请勿使用决策记录作为提交、维护、保留、附加或应用结果的授权。
+Do not use the decision record as authority to submit, maintain, persist, attach, or apply results.

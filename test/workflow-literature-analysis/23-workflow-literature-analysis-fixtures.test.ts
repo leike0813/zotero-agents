@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { WORKFLOW_HOST_API_VERSION } from "../../src/workflows/workflowHostContract";
 import { loadWorkflowManifests } from "../../src/workflows/loader";

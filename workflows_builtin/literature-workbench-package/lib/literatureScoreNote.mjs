@@ -220,10 +220,11 @@ export async function upsertLiteratureScoreNote(args) {
     payload,
   });
   for (const duplicate of (args.existingNotes || []).slice(1)) {
-    requireCommittedMutation(await hostApi.notes.remove({
+    requireCommittedMutation(await hostApi.mutations.execute({
+      operation: "trash.setItemsState",
       operationId: `literature-score:remove:${Date.now().toString(36)}`,
-      noteRef: portableItemRef(duplicate),
-      disposition: "trash",
+      itemRefs: [portableItemRef(duplicate)],
+      state: "trashed",
     }));
   }
   return { note, radar };

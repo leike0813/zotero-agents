@@ -1,4 +1,3 @@
-import { handlers } from "../handlers";
 import { selectionTargetRef } from "../modules/selectionContext";
 import { createHookHelpers } from "./helpers";
 import { compileDeclarativeRequest } from "./declarativeRequestCompiler";
@@ -436,7 +435,6 @@ function createRuntimeContext(
       ? "non-interactive"
       : "interactive";
   return {
-    handlers: override?.handlers || handlers,
     zotero,
     helpers: override?.helpers || createHookHelpers(zotero),
     hostApi,

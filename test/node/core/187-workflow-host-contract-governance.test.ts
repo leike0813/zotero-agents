@@ -50,6 +50,7 @@ const V12_CALLABLE_PATHS = [
   "metadata.translateIdentifier",
   "mutations.preview",
   "mutations.execute",
+  "mutations.getOperation",
   "notes.create",
   "notes.updateContent",
   "notes.remove",
@@ -142,7 +143,7 @@ describe("Workflow Host contract governance", function () {
       21,
     );
     const callablePaths = collectCallablePaths(WORKFLOW_HOST_API_MANIFEST);
-    assert.lengthOf(callablePaths, 88);
+    assert.lengthOf(callablePaths, 89);
     assert.sameMembers(callablePaths, V12_CALLABLE_PATHS);
   });
 

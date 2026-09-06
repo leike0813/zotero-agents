@@ -2862,447 +2862,1760 @@
       "category": "mutation",
       "summary": "Execute a supported Zotero mutation after Zotero-side approval.",
       "inputSchema": {
-        "$defs": {
-          "objectRef": {
-            "oneOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "object",
-                "minProperties": 1,
-                "additionalProperties": true,
-                "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
-              }
-            ]
-          },
-          "objectRefs": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "$ref": "#/$defs/objectRef"
-            }
-          },
-          "collectionRef": {
-            "oneOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "object",
-                "minProperties": 1,
-                "additionalProperties": true,
-                "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
-              }
-            ]
-          },
-          "fieldPatch": {
-            "type": "object",
-            "minProperties": 1,
-            "additionalProperties": {
-              "type": ["string", "number", "boolean", "null"]
-            }
-          },
-          "tags": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "creator": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "firstName": {
-                "type": "string"
-              },
-              "lastName": {
-                "type": "string"
-              },
-              "creatorType": {
-                "type": "string"
-              }
-            },
-            "anyOf": [
-              {
-                "required": ["name"]
-              },
-              {
-                "required": ["firstName"]
-              },
-              {
-                "required": ["lastName"]
-              }
-            ],
-            "additionalProperties": false
-          },
-          "paper": {
-            "type": "object",
-            "properties": {
-              "itemType": {
-                "type": "string",
-                "minLength": 1
-              },
-              "fields": {
-                "type": "object",
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": ["title"],
-                "additionalProperties": {
-                  "type": ["string", "number", "boolean", "null"]
-                }
-              },
-              "creators": {
-                "type": "array",
-                "maxItems": 50,
-                "items": {
-                  "$ref": "#/$defs/creator"
-                }
-              },
-              "identifiers": {
-                "type": "object",
-                "properties": {
-                  "doi": {
-                    "type": "string"
-                  },
-                  "arxiv": {
-                    "type": "string"
-                  },
-                  "pmid": {
-                    "type": "string"
-                  },
-                  "isbn": {
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              },
-              "landingUrl": {
-                "type": "string"
-              },
-              "pdfUrl": {
-                "type": "string"
-              },
-              "attachLandingUrlOnMissingPdf": {
-                "type": "boolean"
-              }
-            },
-            "required": ["itemType", "fields", "creators", "identifiers"],
-            "additionalProperties": false
-          }
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": { "type": "string", "minLength": 1, "maxLength": 128 }
         },
+        "required": ["operationId"],
         "oneOf": [
           {
             "type": "object",
             "properties": {
-              "operation": {
-                "const": "item.updateFields"
-              },
-              "target": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "item": {
-                "$ref": "#/$defs/objectRef"
-              },
+              "operation": { "const": "item.create" },
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "itemType": { "type": "string", "minLength": 1 },
               "fields": {
-                "$ref": "#/$defs/fieldPatch"
-              }
-            },
-            "required": ["operation", "fields"],
-            "anyOf": [
-              {
-                "required": ["target"]
+                "type": "object",
+                "additionalProperties": { "type": "string" }
               },
-              {
-                "required": ["item"]
-              }
-            ],
-            "additionalProperties": false
+              "creators": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/creator" }
+              },
+              "initialTags": { "$ref": "#/$defs/stringArray" },
+              "collectionRefs": { "$ref": "#/$defs/collectionRefArray" },
+              "initialRelatedRefs": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "itemType", "fields"]
           },
           {
             "type": "object",
             "properties": {
-              "operation": {
-                "enum": ["item.addTags", "item.removeTags"]
-              },
-              "targets": {
-                "$ref": "#/$defs/objectRefs"
-              },
-              "items": {
-                "$ref": "#/$defs/objectRefs"
-              },
-              "target": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "item": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "tags": {
-                "$ref": "#/$defs/tags"
+              "operation": { "const": "item.updateMetadata" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "patch": {
+                "type": "object",
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": { "type": ["string", "null"] }
+                  },
+                  "creators": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/creator" }
+                  }
+                },
+                "additionalProperties": false
               }
             },
-            "required": ["operation", "tags"],
-            "anyOf": [
-              {
-                "required": ["targets"]
-              },
-              {
-                "required": ["items"]
-              },
-              {
-                "required": ["target"]
-              },
-              {
-                "required": ["item"]
-              }
-            ],
-            "additionalProperties": false
+            "required": ["operation", "itemRef", "patch"]
           },
           {
             "type": "object",
             "properties": {
-              "operation": {
-                "const": "item.attachFile"
-              },
-              "target": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "item": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "fileId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "displayName": {
-                "type": "string"
-              },
-              "contentType": {
-                "type": "string"
+              "operation": { "const": "item.changeType" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "targetItemType": { "type": "string", "minLength": 1 },
+              "incompatibleData": {
+                "enum": ["reject", "move_to_extra", "drop"]
               }
             },
-            "required": ["operation", "fileId"],
-            "anyOf": [
-              {
-                "required": ["target"]
-              },
-              {
-                "required": ["item"]
-              }
-            ],
-            "additionalProperties": false
+            "required": [
+              "operation",
+              "itemRef",
+              "targetItemType",
+              "incompatibleData"
+            ]
           },
           {
             "type": "object",
             "properties": {
-              "operation": {
-                "const": "note.createChild"
-              },
-              "parent": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "target": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "content": {
-                "type": "string"
-              },
-              "noteKind": {
-                "type": "string"
-              }
+              "operation": { "const": "item.remove" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "disposition": { "const": "permanent" },
+              "childPolicy": { "enum": ["reject_if_present", "cascade"] }
             },
-            "required": ["operation", "content"],
-            "anyOf": [
-              {
-                "required": ["parent"]
-              },
-              {
-                "required": ["target"]
-              }
-            ],
-            "additionalProperties": false
+            "required": ["operation", "itemRef", "disposition", "childPolicy"]
           },
           {
             "type": "object",
             "properties": {
-              "operation": {
-                "const": "note.update"
-              },
-              "note": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "target": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "content": {
-                "type": "string"
-              }
+              "operation": { "const": "item.updateTags" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "add": { "$ref": "#/$defs/stringArray" },
+              "remove": { "$ref": "#/$defs/stringArray" }
             },
-            "required": ["operation", "content"],
-            "anyOf": [
-              {
-                "required": ["note"]
-              },
-              {
-                "required": ["target"]
-              }
-            ],
-            "additionalProperties": false
+            "required": ["operation", "itemRef", "add", "remove"]
           },
           {
             "type": "object",
             "properties": {
-              "operation": {
-                "const": "note.upsertPayload"
-              },
-              "note": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "target": {
-                "$ref": "#/$defs/objectRef"
-              },
-              "payloadType": {
-                "type": "string",
-                "minLength": 1
-              },
-              "payload": {},
-              "payloadFormat": {
-                "type": "string"
-              },
-              "content": {
-                "type": "string"
-              },
-              "noteKind": {
-                "type": "string"
-              }
+              "operation": { "const": "item.addRelated" },
+              "sourceRef": { "$ref": "#/$defs/itemRef" },
+              "relatedRefs": { "$ref": "#/$defs/itemRefArray" }
             },
-            "required": ["operation", "payloadType"],
-            "anyOf": [
-              {
-                "required": ["note"]
-              },
-              {
-                "required": ["target"]
-              }
-            ],
-            "additionalProperties": false
+            "required": ["operation", "sourceRef", "relatedRefs"]
           },
           {
             "type": "object",
             "properties": {
-              "operation": {
-                "const": "literature.ingest"
+              "operation": { "const": "item.removeRelated" },
+              "sourceRef": { "$ref": "#/$defs/itemRef" },
+              "relatedRefs": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "sourceRef", "relatedRefs"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collection.create" },
+              "name": { "type": "string", "minLength": 1 },
+              "placement": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "root" },
+                      "libraryId": { "type": "integer", "minimum": 1 }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "child" },
+                      "parentRef": { "$ref": "#/$defs/collectionRef" }
+                    },
+                    "required": ["kind", "parentRef"],
+                    "additionalProperties": false
+                  }
+                ]
               },
+              "initialMemberRefs": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "name", "placement"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collection.update" },
+              "collectionRef": { "$ref": "#/$defs/collectionRef" },
+              "patch": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "parentRef": {
+                    "anyOf": [
+                      { "$ref": "#/$defs/collectionRef" },
+                      { "type": "null" }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "collectionRef", "patch"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collection.updateMembership" },
+              "collectionRef": { "$ref": "#/$defs/collectionRef" },
+              "add": { "$ref": "#/$defs/itemRefArray" },
+              "remove": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "collectionRef", "add", "remove"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collection.remove" },
+              "collectionRef": { "$ref": "#/$defs/collectionRef" },
+              "childPolicy": { "enum": ["reject_if_present", "cascade"] }
+            },
+            "required": ["operation", "collectionRef", "childPolicy"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "notes.create" },
+              "placement": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "top_level" },
+                      "libraryId": { "type": "integer", "minimum": 1 },
+                      "collectionRefs": { "$ref": "#/$defs/collectionRefArray" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "child" },
+                      "parentRef": { "$ref": "#/$defs/itemRef" }
+                    },
+                    "required": ["kind", "parentRef"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "content": { "$ref": "#/$defs/noteContent" },
+              "initialTags": { "$ref": "#/$defs/stringArray" }
+            },
+            "required": ["operation", "placement", "content"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "notes.updateContent" },
+              "noteRef": { "$ref": "#/$defs/itemRef" },
+              "content": { "$ref": "#/$defs/noteContent" }
+            },
+            "required": ["operation", "noteRef", "content"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "notes.remove" },
+              "noteRef": { "$ref": "#/$defs/itemRef" },
+              "disposition": { "const": "permanent" }
+            },
+            "required": ["operation", "noteRef", "disposition"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "notes.upsertPayload" },
+              "noteRef": { "$ref": "#/$defs/itemRef" },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "payloadType": { "type": "string", "minLength": 1 },
+                  "noteKind": { "type": "string", "minLength": 1 },
+                  "schemaVersion": { "type": "string", "minLength": 1 },
+                  "format": { "enum": ["json", "markdown", "text"] },
+                  "value": { "$ref": "#/$defs/jsonValue" }
+                },
+                "required": [
+                  "payloadType",
+                  "noteKind",
+                  "schemaVersion",
+                  "format",
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "noteRef", "payload"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.create" },
+              "placement": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "top_level" },
+                      "libraryId": { "type": "integer", "minimum": 1 },
+                      "collectionRefs": { "$ref": "#/$defs/collectionRefArray" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "child" },
+                      "parentRef": { "$ref": "#/$defs/itemRef" }
+                    },
+                    "required": ["kind", "parentRef"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "source": { "$ref": "#/$defs/attachmentSource" },
+              "metadata": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "contentType": { "type": "string" },
+                  "charset": { "type": "string" },
+                  "originalUrl": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "placement", "source"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.updateMetadata" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" },
+              "patch": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": ["string", "null"] },
+                  "url": { "type": ["string", "null"] },
+                  "contentType": { "type": ["string", "null"] },
+                  "charset": { "type": ["string", "null"] }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "attachmentRef", "patch"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.replaceFile" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" },
+              "source": { "$ref": "#/$defs/bridgeUploadSource" }
+            },
+            "required": ["operation", "attachmentRef", "source"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.move" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" },
+              "placement": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "top_level" },
+                      "libraryId": { "type": "integer", "minimum": 1 },
+                      "collectionRefs": { "$ref": "#/$defs/collectionRefArray" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "child" },
+                      "parentRef": { "$ref": "#/$defs/itemRef" }
+                    },
+                    "required": ["kind", "parentRef"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": ["operation", "attachmentRef", "placement"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.remove" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" },
+              "disposition": { "const": "permanent" }
+            },
+            "required": ["operation", "attachmentRef", "disposition"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "statusTags.transition" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "add": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "need-metadata-curation",
+                    "need-fulltext",
+                    "need-markdown",
+                    "need-analysis",
+                    "need-deep-reading"
+                  ]
+                }
+              },
+              "remove": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "need-metadata-curation",
+                    "need-fulltext",
+                    "need-markdown",
+                    "need-analysis",
+                    "need-deep-reading"
+                  ]
+                }
+              }
+            },
+            "required": ["operation", "itemRef"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "trash.setItemsState" },
+              "itemRefs": { "$ref": "#/$defs/itemRefArray" },
+              "state": { "enum": ["trashed", "active"] }
+            },
+            "required": ["operation", "itemRefs", "state"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "literature.ingest" },
+              "collectionRef": { "$ref": "#/$defs/collectionRef" },
               "paper": {
-                "$ref": "#/$defs/paper"
-              },
-              "collection": {
-                "$ref": "#/$defs/collectionRef"
+                "type": "object",
+                "properties": {
+                  "itemType": { "type": "string", "minLength": 1 },
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": ["string", "number", "boolean", "null"]
+                    }
+                  },
+                  "creators": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/creator" }
+                  },
+                  "identifiers": {
+                    "type": "object",
+                    "properties": {
+                      "doi": { "type": "string" },
+                      "arxiv": { "type": "string" },
+                      "pmid": { "type": "string" },
+                      "isbn": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                  },
+                  "landingUrl": { "type": "string" },
+                  "pdfUrl": { "type": "string" },
+                  "attachLandingUrlOnMissingPdf": { "type": "boolean" }
+                },
+                "required": ["itemType", "fields", "creators", "identifiers"],
+                "additionalProperties": false
               }
             },
-            "required": ["operation", "paper"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "operation": {
-                "const": "collection.create"
-              },
-              "name": {
-                "type": "string",
-                "minLength": 1
-              },
-              "collectionName": {
-                "type": "string",
-                "minLength": 1
-              },
-              "libraryId": {
-                "type": ["number", "string"]
-              },
-              "libraryID": {
-                "type": ["number", "string"]
-              }
-            },
-            "required": ["operation"],
-            "anyOf": [
-              {
-                "required": ["name"]
-              },
-              {
-                "required": ["collectionName"]
-              }
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "operation": {
-                "enum": ["collection.addItems", "collection.removeItems"]
-              },
-              "collection": {
-                "$ref": "#/$defs/collectionRef"
-              },
-              "targets": {
-                "$ref": "#/$defs/objectRefs"
-              },
-              "items": {
-                "$ref": "#/$defs/objectRefs"
-              }
-            },
-            "required": ["operation", "collection"],
-            "anyOf": [
-              {
-                "required": ["targets"]
-              },
-              {
-                "required": ["items"]
-              }
-            ],
-            "additionalProperties": false
+            "required": ["operation", "collectionRef", "paper"]
           }
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "description": "Result data owned by mutation.execute.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "result": {
+        ],
+        "unevaluatedProperties": false,
+        "$defs": {
+          "itemRef": {
             "type": "object",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "Mutation operations own result fields, while attachment file access is exposed through issued transfer descriptors.",
             "properties": {
-              "attachments": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "collectionRef": {
+            "type": "object",
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "itemRefArray": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/itemRef" }
+          },
+          "collectionRefArray": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/collectionRef" }
+          },
+          "stringArray": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "creator": {
+            "type": "object",
+            "properties": {
+              "firstName": { "type": "string" },
+              "lastName": { "type": "string" },
+              "name": { "type": "string" },
+              "creatorType": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "jsonValue": {
+            "anyOf": [
+              { "type": "null" },
+              { "type": "boolean" },
+              { "type": "number" },
+              { "type": "string" },
+              { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+              {
+                "type": "object",
+                "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+              }
+            ]
+          },
+          "noteContent": {
+            "type": "object",
+            "properties": {
+              "format": { "enum": ["html", "text"] },
+              "value": { "type": "string" },
+              "embeddedImages": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "not": {
-                    "required": ["path"]
+                  "properties": {
+                    "slot": { "type": "string", "minLength": 1 },
+                    "preparedImage": {
+                      "type": "object",
+                      "properties": {
+                        "kind": { "const": "prepared_note_image" },
+                        "id": { "type": "string", "minLength": 1 }
+                      },
+                      "required": ["kind", "id"],
+                      "additionalProperties": false
+                    },
+                    "altText": { "type": "string" }
                   },
-                  "additionalProperties": true,
-                  "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+                  "required": ["slot", "preparedImage"],
+                  "additionalProperties": false
                 }
               }
-            }
+            },
+            "required": ["format", "value"],
+            "additionalProperties": false
+          },
+          "attachmentContentManifest": {
+            "type": "object",
+            "properties": {
+              "schema": { "const": "zotero-agents.attachment-content.v1" },
+              "identity": { "type": "string", "minLength": 1 },
+              "main": {
+                "type": "object",
+                "properties": {
+                  "relativePath": { "type": "string", "minLength": 1 },
+                  "sizeBytes": { "type": "integer", "minimum": 0 },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["relativePath", "sizeBytes", "sha256"],
+                "additionalProperties": false
+              },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string", "minLength": 1 },
+                    "sizeBytes": { "type": "integer", "minimum": 0 },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": ["relativePath", "sizeBytes", "sha256"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["schema", "identity", "main", "companions"],
+            "additionalProperties": false
+          },
+          "storedAttachmentSource": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "stored_file" },
+              "content": { "$ref": "#/$defs/attachmentContentManifest" },
+              "targetFilename": { "type": "string", "minLength": 1 },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "targetRelativePath": { "type": "string", "minLength": 1 }
+                  },
+                  "required": ["targetRelativePath"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["kind", "content"],
+            "additionalProperties": false
+          },
+          "attachmentSource": {
+            "oneOf": [
+              { "$ref": "#/$defs/bridgeUploadSource" },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "linked_url" },
+                  "url": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "stored_url" },
+                  "url": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "bridgeUploadSource": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "stored_file" },
+              "targetFilename": { "type": "string", "minLength": 1 },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "targetRelativePath": { "type": "string", "minLength": 1 }
+                  },
+                  "required": ["targetRelativePath"],
+                  "additionalProperties": false
+                }
+              },
+              "fileId": { "type": "string", "minLength": 1 }
+            },
+            "required": ["kind", "fileId"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": { "operation": { "const": "item.create" } },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "item": { "type": "object", "additionalProperties": true }
+                },
+                "required": ["item"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "item.updateMetadata" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "item": { "type": "object", "additionalProperties": true }
+                },
+                "required": ["item"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "item.changeType" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "item": { "type": "object", "additionalProperties": true }
+                },
+                "required": ["item"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": { "operation": { "const": "item.remove" } },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "itemRef": { "$ref": "#/$defs/itemRef" },
+                  "outcome": {
+                    "enum": [
+                      "trashed",
+                      "permanently_deleted",
+                      "already_trashed",
+                      "already_absent"
+                    ]
+                  }
+                },
+                "required": ["itemRef", "outcome"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "item.updateTags" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "item": { "type": "object", "additionalProperties": true }
+                },
+                "required": ["item"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "item.addRelated" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "sourceRef": { "$ref": "#/$defs/itemRef" },
+                  "relatedRefs": { "$ref": "#/$defs/itemRefArray" },
+                  "relations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "relatedRef": { "$ref": "#/$defs/itemRef" },
+                        "outcome": {
+                          "enum": [
+                            "added",
+                            "removed",
+                            "already_present",
+                            "already_absent"
+                          ]
+                        }
+                      },
+                      "required": ["relatedRef", "outcome"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sourceRevision": { "type": "string", "minLength": 1 }
+                },
+                "required": [
+                  "sourceRef",
+                  "relatedRefs",
+                  "relations",
+                  "sourceRevision"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "item.removeRelated" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "sourceRef": { "$ref": "#/$defs/itemRef" },
+                  "relatedRefs": { "$ref": "#/$defs/itemRefArray" },
+                  "relations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "relatedRef": { "$ref": "#/$defs/itemRef" },
+                        "outcome": {
+                          "enum": [
+                            "added",
+                            "removed",
+                            "already_present",
+                            "already_absent"
+                          ]
+                        }
+                      },
+                      "required": ["relatedRef", "outcome"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sourceRevision": { "type": "string", "minLength": 1 }
+                },
+                "required": [
+                  "sourceRef",
+                  "relatedRefs",
+                  "relations",
+                  "sourceRevision"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "collection.create" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "collection": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": ["collection"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "collection.update" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "collection": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": ["collection"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "collection.updateMembership" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "collection": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "addedRefs": { "$ref": "#/$defs/itemRefArray" },
+                  "removedRefs": { "$ref": "#/$defs/itemRefArray" }
+                },
+                "required": ["collection", "addedRefs", "removedRefs"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "collection.remove" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "removedRef": { "$ref": "#/$defs/collectionRef" }
+                },
+                "required": ["removedRef"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": { "operation": { "const": "notes.create" } },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "note": { "type": "object", "additionalProperties": true }
+                },
+                "required": ["note"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "notes.updateContent" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "note": { "type": "object", "additionalProperties": true }
+                },
+                "required": ["note"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": { "operation": { "const": "notes.remove" } },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "noteRef": { "$ref": "#/$defs/itemRef" },
+                  "outcome": {
+                    "enum": [
+                      "trashed",
+                      "permanently_deleted",
+                      "already_trashed",
+                      "already_absent"
+                    ]
+                  }
+                },
+                "required": ["noteRef", "outcome"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "notes.upsertPayload" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "note": { "type": "object", "additionalProperties": true },
+                  "payload": { "type": "object", "additionalProperties": true },
+                  "outcome": { "enum": ["created", "replaced", "unchanged"] }
+                },
+                "required": ["note", "payload", "outcome"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "attachments.create" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "attachment": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": ["attachment"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "attachments.updateMetadata" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "attachment": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": ["attachment"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "attachments.replaceFile" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "attachment": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "outcome": { "enum": ["replaced", "unchanged"] }
+                },
+                "required": ["attachment", "outcome"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "attachments.move" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "attachment": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "outcome": { "enum": ["moved", "unchanged"] }
+                },
+                "required": ["attachment", "outcome"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "attachments.remove" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "attachmentRef": { "$ref": "#/$defs/itemRef" },
+                  "outcome": {
+                    "enum": [
+                      "trashed",
+                      "permanently_deleted",
+                      "already_trashed",
+                      "already_absent"
+                    ]
+                  }
+                },
+                "required": ["attachmentRef", "outcome"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "statusTags.transition" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "itemRef": { "$ref": "#/$defs/itemRef" },
+                  "added": { "$ref": "#/$defs/stringArray" },
+                  "removed": { "$ref": "#/$defs/stringArray" },
+                  "unchanged": { "$ref": "#/$defs/stringArray" },
+                  "revision": { "type": "string", "minLength": 1 }
+                },
+                "required": [
+                  "itemRef",
+                  "added",
+                  "removed",
+                  "unchanged",
+                  "revision"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "trash.setItemsState" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "state": { "enum": ["trashed", "active"] },
+                  "explicitRefs": { "$ref": "#/$defs/itemRefArray" },
+                  "expandedRefs": { "$ref": "#/$defs/itemRefArray" }
+                },
+                "required": ["state", "explicitRefs", "expandedRefs"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "receipt": {
+                "allOf": [
+                  { "$ref": "#/$defs/receipt" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "operation": { "const": "literature.ingest" }
+                    },
+                    "required": ["operation"]
+                  }
+                ]
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "item": { "type": "object", "additionalProperties": true },
+                  "collectionRef": { "$ref": "#/$defs/collectionRef" },
+                  "itemOutcome": { "enum": ["created", "existing"] },
+                  "collectionOutcome": { "enum": ["added", "already_present"] },
+                  "enrichment": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "enum": ["pdf", "landing"] },
+                            "outcome": { "const": "attached" }
+                          },
+                          "required": ["kind", "outcome"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "enum": ["pdf", "landing"] },
+                            "outcome": { "const": "skipped" }
+                          },
+                          "required": ["kind", "outcome"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "enum": ["pdf", "landing"] },
+                            "outcome": { "const": "failed" },
+                            "code": { "type": "string", "minLength": 1 }
+                          },
+                          "required": ["kind", "outcome", "code"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "item",
+                  "collectionRef",
+                  "itemOutcome",
+                  "collectionOutcome",
+                  "enrichment"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["outcome", "receipt", "result"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "enum": ["failed", "canceled", "unknown", "repair_required"]
+              },
+              "attempt": { "$ref": "#/$defs/mutationAttempt" }
+            },
+            "required": ["outcome", "attempt"],
+            "additionalProperties": false
+          }
+        ],
+        "$defs": {
+          "itemRef": {
+            "type": "object",
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "collectionRef": {
+            "type": "object",
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "itemRefArray": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/itemRef" }
+          },
+          "collectionRefArray": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/collectionRef" }
+          },
+          "stringArray": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "creator": {
+            "type": "object",
+            "properties": {
+              "firstName": { "type": "string" },
+              "lastName": { "type": "string" },
+              "name": { "type": "string" },
+              "creatorType": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "jsonValue": {
+            "anyOf": [
+              { "type": "null" },
+              { "type": "boolean" },
+              { "type": "number" },
+              { "type": "string" },
+              { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+              {
+                "type": "object",
+                "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+              }
+            ]
+          },
+          "noteContent": {
+            "type": "object",
+            "properties": {
+              "format": { "enum": ["html", "text"] },
+              "value": { "type": "string" },
+              "embeddedImages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slot": { "type": "string", "minLength": 1 },
+                    "preparedImage": {
+                      "type": "object",
+                      "properties": {
+                        "kind": { "const": "prepared_note_image" },
+                        "id": { "type": "string", "minLength": 1 }
+                      },
+                      "required": ["kind", "id"],
+                      "additionalProperties": false
+                    },
+                    "altText": { "type": "string" }
+                  },
+                  "required": ["slot", "preparedImage"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["format", "value"],
+            "additionalProperties": false
+          },
+          "attachmentContentManifest": {
+            "type": "object",
+            "properties": {
+              "schema": { "const": "zotero-agents.attachment-content.v1" },
+              "identity": { "type": "string", "minLength": 1 },
+              "main": {
+                "type": "object",
+                "properties": {
+                  "relativePath": { "type": "string", "minLength": 1 },
+                  "sizeBytes": { "type": "integer", "minimum": 0 },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["relativePath", "sizeBytes", "sha256"],
+                "additionalProperties": false
+              },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string", "minLength": 1 },
+                    "sizeBytes": { "type": "integer", "minimum": 0 },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": ["relativePath", "sizeBytes", "sha256"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["schema", "identity", "main", "companions"],
+            "additionalProperties": false
+          },
+          "storedAttachmentSource": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "stored_file" },
+              "content": { "$ref": "#/$defs/attachmentContentManifest" },
+              "targetFilename": { "type": "string", "minLength": 1 },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "targetRelativePath": { "type": "string", "minLength": 1 }
+                  },
+                  "required": ["targetRelativePath"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["kind", "content"],
+            "additionalProperties": false
+          },
+          "attachmentSource": {
+            "oneOf": [
+              { "$ref": "#/$defs/storedAttachmentSource" },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "linked_url" },
+                  "url": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "stored_url" },
+                  "url": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "schema": { "const": "zotero-agents.mutation-receipt.v1" },
+              "receiptId": { "type": "string", "minLength": 1 },
+              "operationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "operation": {
+                "enum": [
+                  "item.create",
+                  "item.updateMetadata",
+                  "item.changeType",
+                  "item.remove",
+                  "item.updateTags",
+                  "item.addRelated",
+                  "item.removeRelated",
+                  "collection.create",
+                  "collection.update",
+                  "collection.updateMembership",
+                  "collection.remove",
+                  "notes.create",
+                  "notes.updateContent",
+                  "notes.remove",
+                  "notes.upsertPayload",
+                  "attachments.create",
+                  "attachments.updateMetadata",
+                  "attachments.replaceFile",
+                  "attachments.move",
+                  "attachments.remove",
+                  "statusTags.transition",
+                  "trash.setItemsState",
+                  "literature.ingest"
+                ]
+              },
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "committedAt": { "type": "string", "minLength": 1 },
+              "effectDigest": { "type": "string", "minLength": 1 },
+              "changes": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": true }
+              }
+            },
+            "required": [
+              "schema",
+              "receiptId",
+              "operationId",
+              "operation",
+              "outcome",
+              "committedAt",
+              "effectDigest",
+              "changes"
+            ],
+            "additionalProperties": false
+          },
+          "mutationAttempt": {
+            "type": "object",
+            "properties": {
+              "schema": { "const": "zotero-agents.mutation-attempt.v1" },
+              "attemptId": { "type": "string", "minLength": 1 },
+              "operationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "operation": {
+                "enum": [
+                  "item.create",
+                  "item.updateMetadata",
+                  "item.changeType",
+                  "item.remove",
+                  "item.updateTags",
+                  "item.addRelated",
+                  "item.removeRelated",
+                  "collection.create",
+                  "collection.update",
+                  "collection.updateMembership",
+                  "collection.remove",
+                  "notes.create",
+                  "notes.updateContent",
+                  "notes.remove",
+                  "notes.upsertPayload",
+                  "attachments.create",
+                  "attachments.updateMetadata",
+                  "attachments.replaceFile",
+                  "attachments.move",
+                  "attachments.remove",
+                  "statusTags.transition",
+                  "trash.setItemsState",
+                  "literature.ingest"
+                ]
+              },
+              "status": {
+                "enum": ["failed", "canceled", "unknown", "repair_required"]
+              },
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": { "type": "string", "minLength": 1 },
+                  "phase": {
+                    "enum": [
+                      "validation",
+                      "reservation",
+                      "read",
+                      "staging",
+                      "commit",
+                      "verification",
+                      "compensation",
+                      "cleanup"
+                    ]
+                  },
+                  "recovery": {
+                    "enum": [
+                      "none",
+                      "retry_same_operation",
+                      "refresh_and_retry_new_operation",
+                      "reconcile",
+                      "manual_repair"
+                    ]
+                  },
+                  "message": { "type": "string" },
+                  "details": { "$ref": "#/$defs/jsonValue" }
+                },
+                "required": ["code", "phase", "recovery", "details"],
+                "additionalProperties": false
+              },
+              "affectedRefs": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": false }
+              },
+              "residualRefs": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": false }
+              }
+            },
+            "required": [
+              "schema",
+              "attemptId",
+              "operationId",
+              "operation",
+              "status",
+              "error",
+              "affectedRefs",
+              "residualRefs"
+            ],
+            "additionalProperties": false
           }
         }
       },
@@ -3318,19 +4631,1904 @@
         "responseSizing": "unclassified"
       }
     },
+    "mutation.get_operation": {
+      "category": "mutation",
+      "summary": "Read canonical mutation evidence without executing or retrying a mutation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operationId": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "required": ["operationId"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": { "state": { "const": "running" } },
+            "required": ["state"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": { "state": { "const": "unavailable" } },
+            "required": ["state"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "state": { "const": "settled" },
+              "result": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "item.create" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["item"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "item.updateMetadata" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["item"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "item.changeType" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["item"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "item.remove" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "itemRef": { "$ref": "#/$defs/itemRef" },
+                          "outcome": {
+                            "enum": [
+                              "trashed",
+                              "permanently_deleted",
+                              "already_trashed",
+                              "already_absent"
+                            ]
+                          }
+                        },
+                        "required": ["itemRef", "outcome"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "item.updateTags" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["item"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "item.addRelated" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "sourceRef": { "$ref": "#/$defs/itemRef" },
+                          "relatedRefs": { "$ref": "#/$defs/itemRefArray" },
+                          "relations": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "relatedRef": { "$ref": "#/$defs/itemRef" },
+                                "outcome": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "already_present",
+                                    "already_absent"
+                                  ]
+                                }
+                              },
+                              "required": ["relatedRef", "outcome"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "sourceRevision": { "type": "string", "minLength": 1 }
+                        },
+                        "required": [
+                          "sourceRef",
+                          "relatedRefs",
+                          "relations",
+                          "sourceRevision"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "item.removeRelated" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "sourceRef": { "$ref": "#/$defs/itemRef" },
+                          "relatedRefs": { "$ref": "#/$defs/itemRefArray" },
+                          "relations": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "relatedRef": { "$ref": "#/$defs/itemRef" },
+                                "outcome": {
+                                  "enum": [
+                                    "added",
+                                    "removed",
+                                    "already_present",
+                                    "already_absent"
+                                  ]
+                                }
+                              },
+                              "required": ["relatedRef", "outcome"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "sourceRevision": { "type": "string", "minLength": 1 }
+                        },
+                        "required": [
+                          "sourceRef",
+                          "relatedRefs",
+                          "relations",
+                          "sourceRevision"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "collection.create" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "collection": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["collection"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "collection.update" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "collection": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["collection"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": {
+                                "const": "collection.updateMembership"
+                              }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "collection": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "addedRefs": { "$ref": "#/$defs/itemRefArray" },
+                          "removedRefs": { "$ref": "#/$defs/itemRefArray" }
+                        },
+                        "required": ["collection", "addedRefs", "removedRefs"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "collection.remove" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "removedRef": { "$ref": "#/$defs/collectionRef" }
+                        },
+                        "required": ["removedRef"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "notes.create" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "note": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["note"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "notes.updateContent" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "note": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["note"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "notes.remove" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "noteRef": { "$ref": "#/$defs/itemRef" },
+                          "outcome": {
+                            "enum": [
+                              "trashed",
+                              "permanently_deleted",
+                              "already_trashed",
+                              "already_absent"
+                            ]
+                          }
+                        },
+                        "required": ["noteRef", "outcome"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "notes.upsertPayload" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "note": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "payload": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "outcome": {
+                            "enum": ["created", "replaced", "unchanged"]
+                          }
+                        },
+                        "required": ["note", "payload", "outcome"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "attachments.create" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "attachment": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["attachment"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": {
+                                "const": "attachments.updateMetadata"
+                              }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "attachment": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "required": ["attachment"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": {
+                                "const": "attachments.replaceFile"
+                              }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "attachment": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "outcome": { "enum": ["replaced", "unchanged"] }
+                        },
+                        "required": ["attachment", "outcome"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "attachments.move" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "attachment": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "outcome": { "enum": ["moved", "unchanged"] }
+                        },
+                        "required": ["attachment", "outcome"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "attachments.remove" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "attachmentRef": { "$ref": "#/$defs/itemRef" },
+                          "outcome": {
+                            "enum": [
+                              "trashed",
+                              "permanently_deleted",
+                              "already_trashed",
+                              "already_absent"
+                            ]
+                          }
+                        },
+                        "required": ["attachmentRef", "outcome"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "statusTags.transition" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "itemRef": { "$ref": "#/$defs/itemRef" },
+                          "added": { "$ref": "#/$defs/stringArray" },
+                          "removed": { "$ref": "#/$defs/stringArray" },
+                          "unchanged": { "$ref": "#/$defs/stringArray" },
+                          "revision": { "type": "string", "minLength": 1 }
+                        },
+                        "required": [
+                          "itemRef",
+                          "added",
+                          "removed",
+                          "unchanged",
+                          "revision"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "trash.setItemsState" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "state": { "enum": ["trashed", "active"] },
+                          "explicitRefs": { "$ref": "#/$defs/itemRefArray" },
+                          "expandedRefs": { "$ref": "#/$defs/itemRefArray" }
+                        },
+                        "required": ["state", "explicitRefs", "expandedRefs"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": { "enum": ["committed", "unchanged"] },
+                      "receipt": {
+                        "allOf": [
+                          { "$ref": "#/$defs/receipt" },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "operation": { "const": "literature.ingest" }
+                            },
+                            "required": ["operation"]
+                          }
+                        ]
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "collectionRef": { "$ref": "#/$defs/collectionRef" },
+                          "itemOutcome": { "enum": ["created", "existing"] },
+                          "collectionOutcome": {
+                            "enum": ["added", "already_present"]
+                          },
+                          "enrichment": {
+                            "type": "array",
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": { "enum": ["pdf", "landing"] },
+                                    "outcome": { "const": "attached" }
+                                  },
+                                  "required": ["kind", "outcome"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": { "enum": ["pdf", "landing"] },
+                                    "outcome": { "const": "skipped" }
+                                  },
+                                  "required": ["kind", "outcome"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": { "enum": ["pdf", "landing"] },
+                                    "outcome": { "const": "failed" },
+                                    "code": { "type": "string", "minLength": 1 }
+                                  },
+                                  "required": ["kind", "outcome", "code"],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "item",
+                          "collectionRef",
+                          "itemOutcome",
+                          "collectionOutcome",
+                          "enrichment"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["outcome", "receipt", "result"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "outcome": {
+                        "enum": [
+                          "failed",
+                          "canceled",
+                          "unknown",
+                          "repair_required"
+                        ]
+                      },
+                      "attempt": { "$ref": "#/$defs/mutationAttempt" }
+                    },
+                    "required": ["outcome", "attempt"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": ["state", "result"],
+            "additionalProperties": false
+          }
+        ],
+        "$defs": {
+          "itemRef": {
+            "type": "object",
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "collectionRef": {
+            "type": "object",
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "itemRefArray": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/itemRef" }
+          },
+          "collectionRefArray": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/collectionRef" }
+          },
+          "stringArray": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "creator": {
+            "type": "object",
+            "properties": {
+              "firstName": { "type": "string" },
+              "lastName": { "type": "string" },
+              "name": { "type": "string" },
+              "creatorType": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "jsonValue": {
+            "anyOf": [
+              { "type": "null" },
+              { "type": "boolean" },
+              { "type": "number" },
+              { "type": "string" },
+              { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+              {
+                "type": "object",
+                "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+              }
+            ]
+          },
+          "noteContent": {
+            "type": "object",
+            "properties": {
+              "format": { "enum": ["html", "text"] },
+              "value": { "type": "string" },
+              "embeddedImages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slot": { "type": "string", "minLength": 1 },
+                    "preparedImage": {
+                      "type": "object",
+                      "properties": {
+                        "kind": { "const": "prepared_note_image" },
+                        "id": { "type": "string", "minLength": 1 }
+                      },
+                      "required": ["kind", "id"],
+                      "additionalProperties": false
+                    },
+                    "altText": { "type": "string" }
+                  },
+                  "required": ["slot", "preparedImage"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["format", "value"],
+            "additionalProperties": false
+          },
+          "attachmentContentManifest": {
+            "type": "object",
+            "properties": {
+              "schema": { "const": "zotero-agents.attachment-content.v1" },
+              "identity": { "type": "string", "minLength": 1 },
+              "main": {
+                "type": "object",
+                "properties": {
+                  "relativePath": { "type": "string", "minLength": 1 },
+                  "sizeBytes": { "type": "integer", "minimum": 0 },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["relativePath", "sizeBytes", "sha256"],
+                "additionalProperties": false
+              },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string", "minLength": 1 },
+                    "sizeBytes": { "type": "integer", "minimum": 0 },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": ["relativePath", "sizeBytes", "sha256"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["schema", "identity", "main", "companions"],
+            "additionalProperties": false
+          },
+          "storedAttachmentSource": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "stored_file" },
+              "content": { "$ref": "#/$defs/attachmentContentManifest" },
+              "targetFilename": { "type": "string", "minLength": 1 },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "targetRelativePath": { "type": "string", "minLength": 1 }
+                  },
+                  "required": ["targetRelativePath"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["kind", "content"],
+            "additionalProperties": false
+          },
+          "attachmentSource": {
+            "oneOf": [
+              { "$ref": "#/$defs/storedAttachmentSource" },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "linked_url" },
+                  "url": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "stored_url" },
+                  "url": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "schema": { "const": "zotero-agents.mutation-receipt.v1" },
+              "receiptId": { "type": "string", "minLength": 1 },
+              "operationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "operation": {
+                "enum": [
+                  "item.create",
+                  "item.updateMetadata",
+                  "item.changeType",
+                  "item.remove",
+                  "item.updateTags",
+                  "item.addRelated",
+                  "item.removeRelated",
+                  "collection.create",
+                  "collection.update",
+                  "collection.updateMembership",
+                  "collection.remove",
+                  "notes.create",
+                  "notes.updateContent",
+                  "notes.remove",
+                  "notes.upsertPayload",
+                  "attachments.create",
+                  "attachments.updateMetadata",
+                  "attachments.replaceFile",
+                  "attachments.move",
+                  "attachments.remove",
+                  "statusTags.transition",
+                  "trash.setItemsState",
+                  "literature.ingest"
+                ]
+              },
+              "outcome": { "enum": ["committed", "unchanged"] },
+              "committedAt": { "type": "string", "minLength": 1 },
+              "effectDigest": { "type": "string", "minLength": 1 },
+              "changes": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": true }
+              }
+            },
+            "required": [
+              "schema",
+              "receiptId",
+              "operationId",
+              "operation",
+              "outcome",
+              "committedAt",
+              "effectDigest",
+              "changes"
+            ],
+            "additionalProperties": false
+          },
+          "mutationAttempt": {
+            "type": "object",
+            "properties": {
+              "schema": { "const": "zotero-agents.mutation-attempt.v1" },
+              "attemptId": { "type": "string", "minLength": 1 },
+              "operationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "operation": {
+                "enum": [
+                  "item.create",
+                  "item.updateMetadata",
+                  "item.changeType",
+                  "item.remove",
+                  "item.updateTags",
+                  "item.addRelated",
+                  "item.removeRelated",
+                  "collection.create",
+                  "collection.update",
+                  "collection.updateMembership",
+                  "collection.remove",
+                  "notes.create",
+                  "notes.updateContent",
+                  "notes.remove",
+                  "notes.upsertPayload",
+                  "attachments.create",
+                  "attachments.updateMetadata",
+                  "attachments.replaceFile",
+                  "attachments.move",
+                  "attachments.remove",
+                  "statusTags.transition",
+                  "trash.setItemsState",
+                  "literature.ingest"
+                ]
+              },
+              "status": {
+                "enum": ["failed", "canceled", "unknown", "repair_required"]
+              },
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": { "type": "string", "minLength": 1 },
+                  "phase": {
+                    "enum": [
+                      "validation",
+                      "reservation",
+                      "read",
+                      "staging",
+                      "commit",
+                      "verification",
+                      "compensation",
+                      "cleanup"
+                    ]
+                  },
+                  "recovery": {
+                    "enum": [
+                      "none",
+                      "retry_same_operation",
+                      "refresh_and_retry_new_operation",
+                      "reconcile",
+                      "manual_repair"
+                    ]
+                  },
+                  "message": { "type": "string" },
+                  "details": { "$ref": "#/$defs/jsonValue" }
+                },
+                "required": ["code", "phase", "recovery", "details"],
+                "additionalProperties": false
+              },
+              "affectedRefs": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": false }
+              },
+              "residualRefs": {
+                "type": "array",
+                "items": { "type": "object", "additionalProperties": false }
+              }
+            },
+            "required": [
+              "schema",
+              "attemptId",
+              "operationId",
+              "operation",
+              "status",
+              "error",
+              "affectedRefs",
+              "residualRefs"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
     "mutation.preview": {
       "category": "mutation",
       "summary": "Preview a supported Zotero mutation without executing it.",
       "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "Mutation operation fields are discriminated and validated by the mutation broker after the capability boundary."
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "item.create" },
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "itemType": { "type": "string", "minLength": 1 },
+              "fields": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              },
+              "creators": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/creator" }
+              },
+              "initialTags": { "$ref": "#/$defs/stringArray" },
+              "collectionRefs": { "$ref": "#/$defs/collectionRefArray" },
+              "initialRelatedRefs": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "itemType", "fields"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "item.updateMetadata" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "patch": {
+                "type": "object",
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": { "type": ["string", "null"] }
+                  },
+                  "creators": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/creator" }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "itemRef", "patch"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "item.changeType" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "targetItemType": { "type": "string", "minLength": 1 },
+              "incompatibleData": {
+                "enum": ["reject", "move_to_extra", "drop"]
+              }
+            },
+            "required": [
+              "operation",
+              "itemRef",
+              "targetItemType",
+              "incompatibleData"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "item.remove" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "disposition": { "const": "permanent" },
+              "childPolicy": { "enum": ["reject_if_present", "cascade"] }
+            },
+            "required": ["operation", "itemRef", "disposition", "childPolicy"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "item.updateTags" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "add": { "$ref": "#/$defs/stringArray" },
+              "remove": { "$ref": "#/$defs/stringArray" }
+            },
+            "required": ["operation", "itemRef", "add", "remove"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "item.addRelated" },
+              "sourceRef": { "$ref": "#/$defs/itemRef" },
+              "relatedRefs": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "sourceRef", "relatedRefs"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "item.removeRelated" },
+              "sourceRef": { "$ref": "#/$defs/itemRef" },
+              "relatedRefs": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "sourceRef", "relatedRefs"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collection.create" },
+              "name": { "type": "string", "minLength": 1 },
+              "placement": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "root" },
+                      "libraryId": { "type": "integer", "minimum": 1 }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "child" },
+                      "parentRef": { "$ref": "#/$defs/collectionRef" }
+                    },
+                    "required": ["kind", "parentRef"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "initialMemberRefs": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "name", "placement"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collection.update" },
+              "collectionRef": { "$ref": "#/$defs/collectionRef" },
+              "patch": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "parentRef": {
+                    "anyOf": [
+                      { "$ref": "#/$defs/collectionRef" },
+                      { "type": "null" }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "collectionRef", "patch"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collection.updateMembership" },
+              "collectionRef": { "$ref": "#/$defs/collectionRef" },
+              "add": { "$ref": "#/$defs/itemRefArray" },
+              "remove": { "$ref": "#/$defs/itemRefArray" }
+            },
+            "required": ["operation", "collectionRef", "add", "remove"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collection.remove" },
+              "collectionRef": { "$ref": "#/$defs/collectionRef" },
+              "childPolicy": { "enum": ["reject_if_present", "cascade"] }
+            },
+            "required": ["operation", "collectionRef", "childPolicy"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "notes.create" },
+              "placement": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "top_level" },
+                      "libraryId": { "type": "integer", "minimum": 1 },
+                      "collectionRefs": { "$ref": "#/$defs/collectionRefArray" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "child" },
+                      "parentRef": { "$ref": "#/$defs/itemRef" }
+                    },
+                    "required": ["kind", "parentRef"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "content": { "$ref": "#/$defs/noteContent" },
+              "initialTags": { "$ref": "#/$defs/stringArray" }
+            },
+            "required": ["operation", "placement", "content"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "notes.updateContent" },
+              "noteRef": { "$ref": "#/$defs/itemRef" },
+              "content": { "$ref": "#/$defs/noteContent" }
+            },
+            "required": ["operation", "noteRef", "content"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "notes.remove" },
+              "noteRef": { "$ref": "#/$defs/itemRef" },
+              "disposition": { "const": "permanent" }
+            },
+            "required": ["operation", "noteRef", "disposition"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "notes.upsertPayload" },
+              "noteRef": { "$ref": "#/$defs/itemRef" },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "payloadType": { "type": "string", "minLength": 1 },
+                  "noteKind": { "type": "string", "minLength": 1 },
+                  "schemaVersion": { "type": "string", "minLength": 1 },
+                  "format": { "enum": ["json", "markdown", "text"] },
+                  "value": { "$ref": "#/$defs/jsonValue" }
+                },
+                "required": [
+                  "payloadType",
+                  "noteKind",
+                  "schemaVersion",
+                  "format",
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "noteRef", "payload"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.create" },
+              "placement": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "top_level" },
+                      "libraryId": { "type": "integer", "minimum": 1 },
+                      "collectionRefs": { "$ref": "#/$defs/collectionRefArray" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "child" },
+                      "parentRef": { "$ref": "#/$defs/itemRef" }
+                    },
+                    "required": ["kind", "parentRef"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "source": { "$ref": "#/$defs/attachmentSource" },
+              "metadata": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "contentType": { "type": "string" },
+                  "charset": { "type": "string" },
+                  "originalUrl": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "placement", "source"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.updateMetadata" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" },
+              "patch": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": ["string", "null"] },
+                  "url": { "type": ["string", "null"] },
+                  "contentType": { "type": ["string", "null"] },
+                  "charset": { "type": ["string", "null"] }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "attachmentRef", "patch"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.replaceFile" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" },
+              "source": { "$ref": "#/$defs/bridgeUploadSource" }
+            },
+            "required": ["operation", "attachmentRef", "source"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.move" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" },
+              "placement": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "top_level" },
+                      "libraryId": { "type": "integer", "minimum": 1 },
+                      "collectionRefs": { "$ref": "#/$defs/collectionRefArray" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "const": "child" },
+                      "parentRef": { "$ref": "#/$defs/itemRef" }
+                    },
+                    "required": ["kind", "parentRef"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": ["operation", "attachmentRef", "placement"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "attachments.remove" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" },
+              "disposition": { "const": "permanent" }
+            },
+            "required": ["operation", "attachmentRef", "disposition"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "statusTags.transition" },
+              "itemRef": { "$ref": "#/$defs/itemRef" },
+              "add": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "need-metadata-curation",
+                    "need-fulltext",
+                    "need-markdown",
+                    "need-analysis",
+                    "need-deep-reading"
+                  ]
+                }
+              },
+              "remove": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "need-metadata-curation",
+                    "need-fulltext",
+                    "need-markdown",
+                    "need-analysis",
+                    "need-deep-reading"
+                  ]
+                }
+              }
+            },
+            "required": ["operation", "itemRef"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "trash.setItemsState" },
+              "itemRefs": { "$ref": "#/$defs/itemRefArray" },
+              "state": { "enum": ["trashed", "active"] }
+            },
+            "required": ["operation", "itemRefs", "state"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "literature.ingest" },
+              "collectionRef": { "$ref": "#/$defs/collectionRef" },
+              "paper": {
+                "type": "object",
+                "properties": {
+                  "itemType": { "type": "string", "minLength": 1 },
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": ["string", "number", "boolean", "null"]
+                    }
+                  },
+                  "creators": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/creator" }
+                  },
+                  "identifiers": {
+                    "type": "object",
+                    "properties": {
+                      "doi": { "type": "string" },
+                      "arxiv": { "type": "string" },
+                      "pmid": { "type": "string" },
+                      "isbn": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                  },
+                  "landingUrl": { "type": "string" },
+                  "pdfUrl": { "type": "string" },
+                  "attachLandingUrlOnMissingPdf": { "type": "boolean" }
+                },
+                "required": ["itemType", "fields", "creators", "identifiers"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["operation", "collectionRef", "paper"]
+          }
+        ],
+        "unevaluatedProperties": false,
+        "$defs": {
+          "itemRef": {
+            "type": "object",
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "collectionRef": {
+            "type": "object",
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "itemRefArray": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/itemRef" }
+          },
+          "collectionRefArray": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/collectionRef" }
+          },
+          "stringArray": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "creator": {
+            "type": "object",
+            "properties": {
+              "firstName": { "type": "string" },
+              "lastName": { "type": "string" },
+              "name": { "type": "string" },
+              "creatorType": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "jsonValue": {
+            "anyOf": [
+              { "type": "null" },
+              { "type": "boolean" },
+              { "type": "number" },
+              { "type": "string" },
+              { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+              {
+                "type": "object",
+                "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+              }
+            ]
+          },
+          "noteContent": {
+            "type": "object",
+            "properties": {
+              "format": { "enum": ["html", "text"] },
+              "value": { "type": "string" },
+              "embeddedImages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slot": { "type": "string", "minLength": 1 },
+                    "preparedImage": {
+                      "type": "object",
+                      "properties": {
+                        "kind": { "const": "prepared_note_image" },
+                        "id": { "type": "string", "minLength": 1 }
+                      },
+                      "required": ["kind", "id"],
+                      "additionalProperties": false
+                    },
+                    "altText": { "type": "string" }
+                  },
+                  "required": ["slot", "preparedImage"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["format", "value"],
+            "additionalProperties": false
+          },
+          "attachmentContentManifest": {
+            "type": "object",
+            "properties": {
+              "schema": { "const": "zotero-agents.attachment-content.v1" },
+              "identity": { "type": "string", "minLength": 1 },
+              "main": {
+                "type": "object",
+                "properties": {
+                  "relativePath": { "type": "string", "minLength": 1 },
+                  "sizeBytes": { "type": "integer", "minimum": 0 },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["relativePath", "sizeBytes", "sha256"],
+                "additionalProperties": false
+              },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string", "minLength": 1 },
+                    "sizeBytes": { "type": "integer", "minimum": 0 },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": ["relativePath", "sizeBytes", "sha256"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["schema", "identity", "main", "companions"],
+            "additionalProperties": false
+          },
+          "storedAttachmentSource": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "stored_file" },
+              "content": { "$ref": "#/$defs/attachmentContentManifest" },
+              "targetFilename": { "type": "string", "minLength": 1 },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "targetRelativePath": { "type": "string", "minLength": 1 }
+                  },
+                  "required": ["targetRelativePath"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["kind", "content"],
+            "additionalProperties": false
+          },
+          "attachmentSource": {
+            "oneOf": [
+              { "$ref": "#/$defs/bridgeUploadSource" },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "linked_url" },
+                  "url": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "stored_url" },
+                  "url": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "bridgeUploadSource": {
+            "type": "object",
+            "properties": {
+              "kind": { "const": "stored_file" },
+              "targetFilename": { "type": "string", "minLength": 1 },
+              "companions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "targetRelativePath": { "type": "string", "minLength": 1 }
+                  },
+                  "required": ["targetRelativePath"],
+                  "additionalProperties": false
+                }
+              },
+              "fileId": { "type": "string", "minLength": 1 }
+            },
+            "required": ["kind", "fileId"],
+            "additionalProperties": false
+          }
+        }
       },
       "outputSchema": {
         "type": "object",
-        "description": "Result data owned by mutation.preview.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "properties": {
+          "schema": { "const": "zotero-agents.mutation-preview.v1" },
+          "operation": {
+            "enum": [
+              "item.create",
+              "item.updateMetadata",
+              "item.changeType",
+              "item.remove",
+              "item.updateTags",
+              "item.addRelated",
+              "item.removeRelated",
+              "collection.create",
+              "collection.update",
+              "collection.updateMembership",
+              "collection.remove",
+              "notes.create",
+              "notes.updateContent",
+              "notes.remove",
+              "notes.upsertPayload",
+              "attachments.create",
+              "attachments.updateMetadata",
+              "attachments.replaceFile",
+              "attachments.move",
+              "attachments.remove",
+              "statusTags.transition",
+              "trash.setItemsState",
+              "literature.ingest"
+            ]
+          },
+          "outcome": { "enum": ["would_change", "unchanged"] },
+          "observedAt": { "type": "string", "minLength": 1 },
+          "domainPlanDigest": { "type": "string", "minLength": 1 },
+          "plan": { "type": "object", "additionalProperties": true }
+        },
+        "required": [
+          "schema",
+          "operation",
+          "outcome",
+          "observedAt",
+          "domainPlanDigest",
+          "plan"
+        ],
+        "additionalProperties": false
       },
       "effect": "read",
       "approval": "none",

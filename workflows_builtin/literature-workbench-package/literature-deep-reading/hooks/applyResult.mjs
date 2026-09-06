@@ -15,7 +15,7 @@ import {
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
-import { findLinkedAttachmentForPath } from "../../lib/translatorArtifacts.mjs";
+import { findOutputAttachmentForPath } from "../../lib/translatorArtifacts.mjs";
 import { requireCommittedMutation } from "../../lib/runtime.mjs";
 
 function normalizeString(value) {
@@ -180,17 +180,27 @@ async function applyResultImpl({
   await hostApi.file.writeText(htmlPath, htmlResolved.text);
 
   const attachmentTitle = sanitizeFileNameSegment(basenamePath(htmlPath));
-  let attachment = await findLinkedAttachmentForPath(
+  let attachment = await findOutputAttachmentForPath(
     parentItem,
     htmlPath,
     runtime,
   );
-  if (!attachment) {
+  const source = {
+    kind: "stored_file",
+    main: { source: { kind: "local_path", path: htmlPath } },
+  };
+  if (attachment?.linkMode === "stored_file") {
+    attachment = requireCommittedMutation(await hostApi.attachments.replaceFile({
+      operationId: `deep-reading:replace:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
+      attachmentRef: attachment.ref,
+      source,
+    })).attachment;
+  } else if (!attachment) {
     attachment = requireCommittedMutation(
       await hostApi.attachments.create({
         operationId: `deep-reading:attachment:${Date.now().toString(36)}`,
         placement: { kind: "child", parentRef },
-        source: { kind: "linked_file", path: htmlPath },
+        source,
         metadata: { title: attachmentTitle, contentType: "text/html" },
       }),
     ).attachment;

@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import { config } from "../../package.json";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { installWorkflowEditorSessionOverrideForTests } from "../../src/modules/workflowEditorHost";
 import {
   buildSelectionContext,

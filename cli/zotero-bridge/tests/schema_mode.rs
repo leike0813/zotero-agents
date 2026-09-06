@@ -134,16 +134,7 @@ fn semantic_composition_failure_names_the_argument_and_phase() {
     ]);
     assert_eq!(code, 7);
     assert_eq!(stdout.lines().count(), 1);
-    assert_eq!(
-        output["error"]["code"],
-        "command_payload_composition_failed"
-    );
-    assert_eq!(output["error"]["details"]["phase"], "payload_composition");
-    assert_eq!(
-        output["error"]["details"]["command"],
-        "mutation item attach-file"
-    );
-    assert_eq!(output["error"]["details"]["argumentId"], "file_id");
+    assert_eq!(output["error"]["code"], "invalid_portable_ref");
     assert_eq!(output["error"]["stateChange"], "unchanged");
     assert_eq!(output["error"]["handleConsumption"], "unconsumed");
 }
@@ -168,6 +159,45 @@ fn semantic_input_failure_reports_the_derived_command_schema() {
     assert!(output["error"]["details"]["violations"]
         .as_array()
         .is_some_and(|violations| !violations.is_empty()));
+}
+
+#[test]
+fn raw_mutation_execute_rejects_conflicting_operation_identity_before_connection() {
+    let (code, output, stdout) = run_executable(&[
+        "--operation-id",
+        "from-flag",
+        "call",
+        "mutation.execute",
+        "--input",
+        r#"{"operation":"item.create","operationId":"from-input"}"#,
+    ]);
+    assert_eq!(code, 7);
+    assert_eq!(stdout.lines().count(), 1);
+    assert_eq!(output["error"]["code"], "operation_id_conflict");
+    assert_eq!(output["error"]["details"]["inputOperationId"], "from-input");
+    assert_eq!(output["error"]["details"]["flagOperationId"], "from-flag");
+}
+
+#[test]
+fn raw_mutation_observation_rejects_authority_invalid_operation_id_before_connection() {
+    let input = format!(r#"{{"operationId":"{}"}}"#, "a".repeat(129));
+    let (code, output, stdout) =
+        run_executable(&["call", "mutation.get_operation", "--input", input.as_str()]);
+    assert_eq!(code, 7);
+    assert_eq!(stdout.lines().count(), 1);
+    assert_eq!(output["error"]["code"], "invalid_operation_id");
+}
+
+#[test]
+fn mutation_get_operation_schema_uses_canonical_observation_input() {
+    let (code, output, stdout) = run(&["mutation", "get-operation", "--schema"]);
+    assert_eq!(code, 0);
+    assert_eq!(stdout.lines().count(), 1);
+    assert_eq!(output["data"]["command"], "mutation get-operation");
+    let schema = &output["data"]["inputs"]["operation_id"]["schema"];
+    assert_eq!(schema["type"], "string");
+    assert_eq!(schema["minLength"], 1);
+    assert_eq!(schema["maxLength"], 128);
 }
 
 #[test]

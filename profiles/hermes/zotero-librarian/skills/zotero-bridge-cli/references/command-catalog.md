@@ -155,6 +155,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge mutation collection add-items` | Add Zotero items to a collection | [Open card](commands/mutation/collection/add-items.md) |
 | `zotero-bridge mutation collection create` | Create a Zotero collection | [Open card](commands/mutation/collection/create.md) |
 | `zotero-bridge mutation collection remove-items` | Remove Zotero items from a collection | [Open card](commands/mutation/collection/remove-items.md) |
+| `zotero-bridge mutation get-operation` | Read canonical mutation evidence | [Open card](commands/mutation/get-operation.md) |
 | `zotero-bridge mutation item attach-file` | Attach a file uploaded through Zotero Bridge to a Zotero item | [Open card](commands/mutation/item/attach-file.md) |
 | `zotero-bridge mutation item update` | Update Zotero item fields | [Open card](commands/mutation/item/update.md) |
 | `zotero-bridge mutation literature-ingest` | Ingest searched literature into Zotero | [Open card](commands/mutation/literature-ingest.md) |

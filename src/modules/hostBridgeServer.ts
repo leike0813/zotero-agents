@@ -21,6 +21,7 @@ import {
   type SynthesisClient,
 } from "../../packages/synthesis-contracts/src/index";
 import type { DirectResearchBundleApplication } from "./researchBundleService";
+import type { JsonObject, MutationPreviewResult } from "../workflows/types";
 import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
 import {
   describeHostBridgeWorkflow,
@@ -768,6 +769,16 @@ function isStateChangingHostBridgeRequest(request: HttpRequest) {
   );
 }
 
+function isCanonicalMutationExecuteRequest(request: HttpRequest) {
+  if (request.path !== "/bridge/v2/call") return false;
+  try {
+    const payload = parseJsonBody(request.body) as HostBridgeCallRequest;
+    return String(payload.capability || "").trim() === "mutation.execute";
+  } catch {
+    return false;
+  }
+}
+
 function operationResponseFromRaw(
   raw: RawHttpResponse,
 ): HostBridgeOperationResponse | null {
@@ -969,247 +980,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function cleanPromptText(value: unknown) {
-  return String(value || "").trim();
-}
-
-function plural(count: number, singular: string, pluralValue = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : pluralValue}`;
-}
-
-function countMutationTargets(input: Record<string, unknown>) {
-  for (const key of ["targets", "items"]) {
-    const value = input[key];
-    if (Array.isArray(value)) {
-      return value.length;
-    }
-  }
-  for (const key of ["target", "item", "parent", "note"]) {
-    if (typeof input[key] !== "undefined" && input[key] !== null) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
-function previewStringList(values: unknown, label: string) {
-  if (!Array.isArray(values)) {
-    return "";
-  }
-  const entries = values.map((entry) => cleanPromptText(entry)).filter(Boolean);
-  if (!entries.length) {
-    return "";
-  }
-  const preview = entries.slice(0, 4).join(", ");
-  const rest = entries.length > 4 ? `, and ${entries.length - 4} more` : "";
-  return `${label}: ${preview}${rest}.`;
-}
-
-function previewObjectKeys(value: unknown, label: string) {
-  if (!isRecord(value)) {
-    return "";
-  }
-  const keys = Object.keys(value).filter(Boolean);
-  if (!keys.length) {
-    return "";
-  }
-  const preview = keys.slice(0, 4).join(", ");
-  const rest = keys.length > 4 ? `, and ${keys.length - 4} more` : "";
-  return `${label}: ${preview}${rest}.`;
-}
-
-function targetSummary(targetCount: number) {
-  return targetCount > 0
-    ? plural(targetCount, "Zotero item")
-    : "the requested Zotero target";
-}
-
-function buildMutationApprovalPrompt(input: unknown) {
-  const request = isRecord(input) ? input : {};
-  const rawOperation = cleanPromptText(request.operation);
-  const operation = rawOperation || "unknown mutation";
-  const targets = countMutationTargets(request);
-  const targetsText = targetSummary(targets);
-  const sourceLine = "Source: zotero-bridge CLI.";
-
-  if (operation === "item.addTags" || operation === "item.removeTags") {
-    const tags = Array.isArray(request.tags) ? request.tags.length : 0;
-    const verb = operation === "item.addTags" ? "Add" : "Remove";
-    const direction = operation === "item.addTags" ? "to" : "from";
-    return {
-      title: "Approve Zotero tag change?",
-      summary: `${verb} ${plural(tags, "tag")} ${direction} ${targetsText}.`,
-      detail: [
-        `Action: ${verb.toLowerCase()} Zotero tags.`,
-        `Targets: ${targetsText}.`,
-        previewStringList(request.tags, "Tags"),
-        sourceLine,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    };
-  }
-
-  if (operation === "item.updateFields") {
-    const fields = isRecord(request.fields) ? Object.keys(request.fields) : [];
-    return {
-      title: "Approve Zotero item update?",
-      summary: `Update ${plural(fields.length, "field")} on ${targetsText}.`,
-      detail: [
-        "Action: update Zotero item fields.",
-        `Targets: ${targetsText}.`,
-        previewObjectKeys(request.fields, "Fields"),
-        sourceLine,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    };
-  }
-
-  if (operation === "item.attachFile") {
-    const fileId = cleanPromptText(request.fileId) || "uploaded file";
-    return {
-      title: "Approve Zotero file attachment?",
-      summary: `Attach ${fileId} to ${targetsText}.`,
-      detail: [
-        "Action: attach uploaded Host Bridge file to Zotero item.",
-        `Targets: ${targetsText}.`,
-        `File handle: ${fileId}.`,
-        sourceLine,
-      ].join("\n"),
-    };
-  }
-
-  if (operation === "note.createChild") {
-    return {
-      title: "Approve Zotero note creation?",
-      summary: `Create a child note under ${targetsText}.`,
-      detail: [
-        "Action: create Zotero child note.",
-        `Parent: ${targetsText}.`,
-        sourceLine,
-      ].join("\n"),
-    };
-  }
-
-  if (operation === "note.update") {
-    return {
-      title: "Approve Zotero note update?",
-      summary: `Update ${targetsText}.`,
-      detail: [
-        "Action: update Zotero note content.",
-        `Targets: ${targetsText}.`,
-        sourceLine,
-      ].join("\n"),
-    };
-  }
-
-  if (operation === "note.upsertPayload") {
-    const payloadType = cleanPromptText(request.payloadType) || "note payload";
-    return {
-      title: "Approve Zotero note payload update?",
-      summary: `Upsert embedded payload "${payloadType}" on ${targetsText}.`,
-      detail: [
-        "Action: upsert Zotero note embedded workflow payload.",
-        `Payload: ${payloadType}.`,
-        `Targets: ${targetsText}.`,
-        sourceLine,
-      ].join("\n"),
-    };
-  }
-
-  if (
-    operation === "collection.addItems" ||
-    operation === "collection.removeItems"
-  ) {
-    const verb = operation === "collection.addItems" ? "Add" : "Remove";
-    const direction = operation === "collection.addItems" ? "to" : "from";
-    return {
-      title: "Approve Zotero collection change?",
-      summary: `${verb} ${targetsText} ${direction} a Zotero collection.`,
-      detail: [
-        `Action: ${verb.toLowerCase()} Zotero collection membership.`,
-        `Targets: ${targetsText}.`,
-        sourceLine,
-      ].join("\n"),
-    };
-  }
-
-  if (operation === "collection.create") {
-    const name =
-      cleanPromptText(request.name) ||
-      cleanPromptText(request.collectionName) ||
-      "new collection";
-    return {
-      title: "Approve Zotero collection creation?",
-      summary: `Create Zotero collection "${name}".`,
-      detail: [
-        "Action: create Zotero collection.",
-        `Collection: ${name}.`,
-        sourceLine,
-      ].join("\n"),
-    };
-  }
-
-  if (operation === "literature.ingest") {
-    if ("papers" in request) {
-      throw new Error(
-        "literature ingest accepts a single paper payload; papers is not supported",
-      );
-    }
-    const paper = isRecord(request.paper) ? request.paper : {};
-    const fields = isRecord(paper.fields) ? paper.fields : {};
-    const identifiersObject = isRecord(paper.identifiers)
-      ? paper.identifiers
-      : {};
-    const title = cleanPromptText(fields.title) || "one literature paper";
-    const identifiers = [
-      cleanPromptText(identifiersObject.doi || fields.DOI)
-        ? `DOI: ${cleanPromptText(identifiersObject.doi || fields.DOI)}`
-        : "",
-      cleanPromptText(identifiersObject.arxiv)
-        ? `arXiv: ${cleanPromptText(identifiersObject.arxiv)}`
-        : "",
-      cleanPromptText(identifiersObject.pmid)
-        ? `PMID: ${cleanPromptText(identifiersObject.pmid)}`
-        : "",
-      cleanPromptText(identifiersObject.isbn || fields.ISBN)
-        ? `ISBN: ${cleanPromptText(identifiersObject.isbn || fields.ISBN)}`
-        : "",
-    ].filter(Boolean);
-    const pdfLine = cleanPromptText(paper.pdfUrl)
-      ? "PDF: best-effort attachment requested."
-      : "PDF: no public PDF URL provided.";
-    const landingLinkLine =
-      paper.attachLandingUrlOnMissingPdf === true
-        ? "Landing link: missing-PDF landing link attachment requested."
-        : "";
-    return {
-      title: "Approve Zotero literature ingest?",
-      summary: "Ingest one literature paper into Zotero.",
-      detail: [
-        "Action: create or update one Zotero literature record.",
-        `Paper: ${title}.`,
-        cleanPromptText(paper.itemType)
-          ? `Item type: ${cleanPromptText(paper.itemType)}.`
-          : "",
-        identifiers.length ? `Identifier: ${identifiers.join("; ")}.` : "",
-        pdfLine,
-        landingLinkLine,
-        sourceLine,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    };
-  }
-
+function buildCanonicalMutationApprovalPrompt(
+  preview: MutationPreviewResult<JsonObject>,
+) {
+  const effect = preview.outcome === "would_change" ? "change" : "verification";
   return {
-    title: "Approve Zotero write action?",
-    summary: `Run Zotero mutation "${operation}" from zotero-bridge.`,
+    title: "Approve Zotero mutation?",
+    summary: `Apply the planned Zotero ${effect} for "${preview.operation}"?`,
     detail: [
-      `Action: ${operation}.`,
-      `Targets: ${targetsText}.`,
-      sourceLine,
+      `Operation: ${preview.operation}.`,
+      `Planned outcome: ${preview.outcome}.`,
+      "Zotero will revalidate this plan immediately before execution.",
+      "Source: zotero-bridge CLI.",
     ].join("\n"),
   };
 }
@@ -1242,9 +1024,6 @@ function buildCapabilityApprovalPrompt(
   capability: NonNullable<ReturnType<typeof getHostBridgeCapability>>,
   input: unknown,
 ) {
-  if (capability.name === "mutation.execute") {
-    return buildMutationApprovalPrompt(input);
-  }
   if (capability.name === "debug.zotero.eval") {
     return buildDebugZoteroEvalApprovalPrompt(input);
   }
@@ -1626,22 +1405,53 @@ async function callCapability(
     );
   }
 
+  if (capabilityName === "mutation.execute") {
+    const inputOperationId = String(
+      (normalizedInput as Record<string, unknown>).operationId || "",
+    ).trim();
+    const headerOperationId = operationIdFromRequest(request);
+    if (headerOperationId && headerOperationId !== inputOperationId) {
+      return response(
+        400,
+        "Bad Request",
+        hostBridgeError(
+          "invalid_operation_id",
+          "X-Zotero-Bridge-Operation-Id must match mutation.execute operationId",
+          "validation",
+          { headerOperationId, inputOperationId },
+        ),
+        "invalid_operation_id",
+      );
+    }
+  }
+
   try {
     const permissionScope = parsePermissionScopeHeader(request);
     const autoApprovedWrite =
       capability.category === "mutation" &&
       isHostBridgeWriteAutoApprovalScope(permissionScope);
-    if (capability.approval !== "none" && !autoApprovedWrite) {
-      const approvalPrompt = buildCapabilityApprovalPrompt(
-        capability,
-        normalizedInput,
-      );
+    const canonicalMutationExecute = capabilityName === "mutation.execute";
+    const requestApproval = async (
+      preview?: MutationPreviewResult<JsonObject>,
+    ) => {
+      const approvalPrompt = canonicalMutationExecute
+        ? buildCanonicalMutationApprovalPrompt(
+            preview as MutationPreviewResult<JsonObject>,
+          )
+        : buildCapabilityApprovalPrompt(capability, normalizedInput);
       await requestHostBridgePermission({
         action: capability.name,
         ...approvalPrompt,
         source: "host-bridge-cli",
         scope: permissionScope,
       });
+    };
+    if (
+      capability.approval !== "none" &&
+      !autoApprovedWrite &&
+      !canonicalMutationExecute
+    ) {
+      await requestApproval();
     }
     const data = await executeHostBridgeCapability(
       capability.name,
@@ -1650,6 +1460,11 @@ async function callCapability(
         getStatus: getHostBridgeServerStatus,
         connectionMode: parseConnectionModeHeader(request, transportContext),
         control: requestWorkflowCallControl(request),
+        ...(canonicalMutationExecute &&
+        capability.approval !== "none" &&
+        !autoApprovedWrite
+          ? { approveMutation: requestApproval }
+          : {}),
         ...(synthesisClientResolverForTests
           ? { resolveSynthesisClient: synthesisClientResolverForTests }
           : {}),
@@ -4235,7 +4050,8 @@ async function handleHttpRequestImpl(
   const operationId = operationIdFromRequest(request);
   let operationReserved = false;
   const stateChangingRequest = isStateChangingHostBridgeRequest(request);
-  if (stateChangingRequest && !operationId) {
+  const canonicalMutationExecution = isCanonicalMutationExecuteRequest(request);
+  if (stateChangingRequest && !canonicalMutationExecution && !operationId) {
     return response(
       428,
       "Precondition Required",
@@ -4247,7 +4063,7 @@ async function handleHttpRequestImpl(
       "operation_id_required",
     );
   }
-  if (stateChangingRequest || operationId) {
+  if (!canonicalMutationExecution && (stateChangingRequest || operationId)) {
     if (operationId.length > 200 || !/^[A-Za-z0-9._:-]+$/.test(operationId)) {
       return response(
         400,

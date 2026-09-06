@@ -82,7 +82,7 @@ export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
     exportPortableItems: "function",
   },
   metadata: { translateIdentifier: "function" },
-  mutations: { preview: "function", execute: "function" },
+  mutations: { preview: "function", execute: "function", getOperation: "function" },
   notes: {
     create: "function",
     updateContent: "function",

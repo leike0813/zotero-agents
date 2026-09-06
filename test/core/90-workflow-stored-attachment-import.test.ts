@@ -1,336 +1,376 @@
 import { assert } from "chai";
-import { createWorkflowStoredAttachmentImport } from "../../src/workflows/workflowStoredAttachmentImport";
+import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import { createZoteroHostPreparedFiles } from "../../src/modules/zoteroHostPreparedFiles";
+import {
+  configureMutationAuthorityRuntimeForTests,
+  executeReservedMutation,
+  MutationAuthorityAdmissionError,
+  resetMutationAuthorityRuntimeForTests,
+} from "../../src/modules/zoteroHostMutationAuthority";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import type {
+  MutationRequestByOperation,
+  WorkflowAttachmentCreateRequestDto,
+  WorkflowFileRef,
+} from "../../src/workflows/types";
+import { createCanonicalStoredAttachmentSource } from "../../src/workflows/workflowHostOwners";
+import {
+  createWorkflowStoredAttachmentStager,
+  WorkflowStoredAttachmentInputError,
+} from "../../src/workflows/workflowStoredAttachmentImport";
 
-function createAttachment(path = "/zotero/storage/KEY/main.pdf") {
+function storedAttachmentCreateInput(
+  operationId: string,
+  title = "Original",
+): MutationRequestByOperation["attachments.create"] {
   return {
-    async getFilePathAsync() {
-      return path;
+    operation: "attachments.create",
+    operationId,
+    placement: { kind: "top_level", libraryId: 1 },
+    metadata: { title },
+    source: {
+      kind: "stored_file",
+      content: {
+        schema: "zotero-agents.attachment-content.v1",
+        identity: "sha256:content-a",
+        main: {
+          relativePath: "paper.pdf",
+          sizeBytes: 17,
+          sha256: "sha256:main-a",
+        },
+        companions: [],
+      },
     },
-  } as Zotero.Item;
+  };
 }
 
-describe("Workflow Stored Attachment Import", function () {
-  it("validates and stages the main file before creating a Zotero attachment", async function () {
+function storedAttachmentCreateRequest(
+  operationId: string,
+  source: WorkflowFileRef,
+  title = "Original",
+): WorkflowAttachmentCreateRequestDto {
+  return {
+    operationId,
+    placement: { kind: "top_level" as const, libraryId: 1 },
+    metadata: { title },
+    source: {
+      kind: "stored_file",
+      main: { source },
+    },
+  };
+}
+
+describe("Workflow Stored Attachment Preparation", function () {
+  beforeEach(function () {
+    resetPluginStateStoreForTests();
+    resetMutationAuthorityRuntimeForTests();
+  });
+
+  afterEach(function () {
+    resetPluginStateStoreForTests();
+    resetMutationAuthorityRuntimeForTests();
+  });
+
+  it("keeps staged paths private while revalidating an immutable source snapshot", async function () {
+    const files = new Map<string, Uint8Array>([
+      ["/stage/main.pdf", new TextEncoder().encode("main")],
+      ["/stage/assets/data.bin", new TextEncoder().encode("data")],
+    ]);
+    let cleaned = 0;
+    const preparedFiles = createZoteroHostPreparedFiles({
+      async stageStoredAttachmentSources() {
+        return {
+          stagingDirectory: "/stage",
+          mainFilename: "main.pdf",
+          stagedMainPath: "/stage/main.pdf",
+          entries: [
+            {
+              relativePath: "assets/data.bin",
+              stagedPath: "/stage/assets/data.bin",
+            },
+          ],
+          async cleanup() {
+            cleaned += 1;
+          },
+        };
+      },
+      async readBytes(path) {
+        const bytes = files.get(path);
+        if (!bytes) throw new Error("missing staged file");
+        return bytes;
+      },
+    });
+
+    const prepared = await preparedFiles.prepareStoredAttachment({
+      path: "/source/main.pdf",
+    });
+    assert.isTrue(Object.isFrozen(prepared.snapshot));
+    assert.equal(prepared.snapshot.main.relativePath, "main.pdf");
+    assert.equal(prepared.snapshot.main.sizeBytes, 4);
+    assert.match(prepared.snapshot.main.sha256, /^[a-f0-9]{64}$/);
+    assert.notProperty(prepared.snapshot.main, "path");
+    const canonical = createCanonicalStoredAttachmentSource(
+      {
+        main: {
+          source: { kind: "local_path", path: "/source/main.pdf" },
+        },
+      },
+      prepared.snapshot,
+    );
+    assert.match(canonical.content.main.sha256, /^sha256:[a-f0-9]{64}$/);
+    assert.match(
+      canonical.content.companions[0].sha256,
+      /^sha256:[a-f0-9]{64}$/,
+    );
+
+    const resolved = await preparedFiles.resolveStoredAttachment(prepared);
+    assert.equal(resolved.mainPath, "/stage/main.pdf");
+    files.set("/stage/main.pdf", new TextEncoder().encode("changed"));
+    try {
+      await preparedFiles.resolveStoredAttachment(prepared);
+      assert.fail("expected source revalidation to fail");
+    } catch (error) {
+      assert.match(String(error), /source changed/);
+    }
+    await resolved.cleanup();
+    assert.equal(cleaned, 1);
+  });
+
+  it("validates all sources before exposing staged files", async function () {
     const events: string[] = [];
-    const importStoredFile = createWorkflowStoredAttachmentImport({
+    const stage = createWorkflowStoredAttachmentStager({
       getStagingRoot: () => "/managed/tmp/attachment-import",
       async validateSource(path) {
-        events.push(`validate:${path}`);
+        events.push("validate:" + path);
       },
       async ensureDirectory() {},
       async copyFile(sourcePath, targetPath) {
-        events.push(`copy:${sourcePath}->${targetPath}`);
+        events.push("copy:" + sourcePath + "->" + targetPath);
       },
       async removePath() {},
-      async importStoredFromPath(args) {
-        events.push(`import:${args.path}`);
-        assert.match(args.path, /^\/managed\/tmp\/attachment-import\//);
-        return createAttachment();
-      },
-      async removeAttachment() {},
     });
 
-    await importStoredFile({ path: "/source/main.pdf" });
-
+    const staged = await stage({
+      path: "/source/main.pdf",
+      companionFiles: [
+        {
+          sourcePath: "/source/assets/image.png",
+          relativePath: "assets/image.png",
+        },
+      ],
+    });
     assert.deepEqual(events.slice(0, 2), [
       "validate:/source/main.pdf",
-      "copy:/source/main.pdf->" + events[1].split("->")[1],
+      "validate:/source/assets/image.png",
     ]);
-    assert.match(events[2], /^import:\/managed\/tmp\/attachment-import\//);
+    assert.match(staged.stagedMainPath, /^\/managed\/tmp\/attachment-import\//);
+    assert.deepEqual(
+      staged.entries.map((entry) => entry.relativePath),
+      ["assets/image.png"],
+    );
+    assert.isTrue(
+      events.slice(2).every((entry) => entry.includes("/managed/tmp/")),
+    );
   });
 
-  it("rejects normalized and case-folded target collisions before staging", async function () {
-    let imported = false;
+  it("rejects unsafe or colliding companion targets before staging", async function () {
     let copied = false;
-    const importStoredFile = createWorkflowStoredAttachmentImport({
+    const stage = createWorkflowStoredAttachmentStager({
       getStagingRoot: () => "/managed/tmp/attachment-import",
       async ensureDirectory() {},
       async copyFile() {
         copied = true;
       },
       async removePath() {},
-      async importStoredFromPath() {
-        imported = true;
-        return createAttachment();
-      },
-      async removeAttachment() {},
     });
-
-    try {
-      await importStoredFile({
-        path: "/source/main.pdf",
-        companionFiles: [
-          { sourcePath: "/source/A.bin", relativePath: "assets/Data.bin" },
-          { sourcePath: "/source/B.bin", relativePath: "assets/data.bin" },
-        ],
-      });
-      assert.fail("expected a normalized target collision");
-    } catch (error) {
-      assert.include(String(error), "collide");
-    }
-
-    assert.isFalse(copied);
-    assert.isFalse(imported);
-  });
-
-  it("rejects unsafe companion paths before staging or attachment creation", async function () {
-    let imported = false;
-    const copiedTargets: string[] = [];
-    const importStoredFile = createWorkflowStoredAttachmentImport({
-      getStagingRoot: () => "/managed/tmp/attachment-import",
-      async ensureDirectory() {},
-      async copyFile(_sourcePath, targetPath) {
-        copiedTargets.push(targetPath);
-      },
-      async removePath() {},
-      async importStoredFromPath() {
-        imported = true;
-        return createAttachment();
-      },
-      async removeAttachment() {},
-    });
-
-    try {
-      await importStoredFile({
-        path: "/source/main.pdf",
-        companionFiles: [
-          { sourcePath: "/source/data.bin", relativePath: "../data.bin" },
-        ],
-      });
-      assert.fail("expected the unsafe path to fail");
-    } catch (error) {
-      assert.include(String(error), "Unsafe companion file path");
-    }
-
-    assert.isFalse(imported);
-    assert.deepEqual(copiedTargets, []);
-  });
-
-  it("rejects entry and byte budget overflow before staging", async function () {
-    for (const request of [
-      {
-        path: "/source/main.pdf",
-        companionFiles: Array.from({ length: 10_000 }, (_, index) => ({
-          sourcePath: `/source/${index}.bin`,
-          relativePath: `assets/${index}.bin`,
-        })),
-      },
-      { path: "/source/main.pdf" },
-    ]) {
-      let copied = false;
-      const importStoredFile = createWorkflowStoredAttachmentImport({
-        getStagingRoot: () => "/managed/tmp/attachment-import",
-        async validateSource() {
-          return { sizeBytes: 4 * 1024 * 1024 * 1024 + 1 };
-        },
-        async ensureDirectory() {},
-        async copyFile() {
-          copied = true;
-        },
-        async removePath() {},
-        async importStoredFromPath() {
-          return createAttachment();
-        },
-        async removeAttachment() {},
-      });
-      try {
-        await importStoredFile(request);
-        assert.fail("expected stored attachment budget overflow");
-      } catch (error) {
-        assert.match(String(error), /entry limit|byte limit/);
-      }
-      assert.isFalse(copied);
-    }
-  });
-
-  it("stages all sources before mutation and copies nested companions into attachment storage", async function () {
-    let imported = false;
-    const copiedTargets: string[] = [];
-    const importStoredFile = createWorkflowStoredAttachmentImport({
-      getStagingRoot: () => "/managed/tmp/attachment-import",
-      async ensureDirectory() {},
-      async copyFile(_sourcePath, targetPath) {
-        if (targetPath.startsWith("/managed/tmp/")) {
-          assert.isFalse(imported, "all stage copies must precede mutation");
-        } else {
-          assert.isTrue(imported, "storage copies must follow mutation");
-        }
-        copiedTargets.push(targetPath);
-      },
-      async removePath() {},
-      async importStoredFromPath() {
-        imported = true;
-        return createAttachment();
-      },
-      async removeAttachment() {},
-    });
-
-    const attachment = await importStoredFile({
-      path: "/source/main.pdf",
-      title: "Main",
-      companionFiles: [
-        {
-          sourcePath: "/source/assets/image.png",
-          relativePath: "assets/image.png",
-        },
-        {
-          sourcePath: "/source/styles/main.css",
-          relativePath: "styles/main.css",
-        },
+    for (const companionFiles of [
+      [{ sourcePath: "/source/data.bin", relativePath: "../data.bin" }],
+      [
+        { sourcePath: "/source/A.bin", relativePath: "assets/Data.bin" },
+        { sourcePath: "/source/B.bin", relativePath: "assets/data.bin" },
       ],
-    });
-
-    assert.strictEqual(
-      await attachment.getFilePathAsync?.(),
-      "/zotero/storage/KEY/main.pdf",
-    );
-    assert.include(copiedTargets, "/zotero/storage/KEY/assets/image.png");
-    assert.include(copiedTargets, "/zotero/storage/KEY/styles/main.css");
+    ]) {
+      try {
+        await stage({ path: "/source/main.pdf", companionFiles });
+        assert.fail("expected invalid companion targets");
+      } catch (error) {
+        assert.instanceOf(error, WorkflowStoredAttachmentInputError);
+      }
+    }
+    assert.isFalse(copied);
   });
 
-  it("does not create an attachment when companion source staging fails", async function () {
-    let imported = false;
-    let stagingCleanupAttempted = false;
-    const importStoredFile = createWorkflowStoredAttachmentImport({
+  it("cleans staging after a source copy failure", async function () {
+    let cleaned = false;
+    const stage = createWorkflowStoredAttachmentStager({
       getStagingRoot: () => "/managed/tmp/attachment-import",
       async ensureDirectory() {},
       async copyFile() {
-        throw new Error("companion source is unreadable");
+        throw new Error("source is unreadable");
       },
       async removePath() {
-        stagingCleanupAttempted = true;
+        cleaned = true;
       },
-      async importStoredFromPath() {
-        imported = true;
-        return createAttachment();
-      },
-      async removeAttachment() {},
     });
-
     try {
-      await importStoredFile({
-        path: "/source/main.pdf",
-        companionFiles: [
-          { sourcePath: "/source/data.bin", relativePath: "data.bin" },
-        ],
-      });
-      assert.fail("expected source staging to fail");
+      await stage({ path: "/source/main.pdf" });
+      assert.fail("expected staging to fail");
     } catch (error) {
       assert.include(String(error), "source is unreadable");
     }
-
-    assert.isFalse(imported);
-    assert.isTrue(stagingCleanupAttempted);
+    assert.isTrue(cleaned);
   });
 
-  it("rolls back a created attachment when a storage copy fails", async function () {
-    const attachment = createAttachment();
-    let removedAttachment: Zotero.Item | null = null;
-    let stagingCleanupAttempted = false;
-    const importStoredFile = createWorkflowStoredAttachmentImport({
-      getStagingRoot: () => "/managed/tmp/attachment-import",
-      async ensureDirectory() {},
-      async copyFile(_sourcePath, targetPath) {
-        if (targetPath.startsWith("/zotero/storage/")) {
-          throw new Error("storage copy failed");
-        }
-      },
-      async removePath() {
-        stagingCleanupAttempted = true;
-      },
-      async importStoredFromPath() {
-        return attachment;
-      },
-      async removeAttachment(item) {
-        removedAttachment = item;
+  it("waits for a running stored-file operation without acquiring its source", async function () {
+    const ownerId = "workflow-stored-running";
+    const operationId = "stored-file-running";
+    const semanticInput = storedAttachmentCreateInput(operationId);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const enteredEffect = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const active = executeReservedMutation({
+      scope: { ownerId },
+      operationId,
+      operation: "attachments.create",
+      semanticInput,
+      execute: async () => {
+        entered();
+        await gate;
+        return {
+          outcome: "unchanged" as const,
+          result: {
+            attachment: {
+              ref: { libraryId: 1, key: "ABC12345" },
+              title: "Existing",
+            },
+          },
+          changes: [],
+        };
       },
     });
+    await enteredEffect;
 
-    try {
-      await importStoredFile({
-        path: "/source/main.pdf",
-        companionFiles: [
-          { sourcePath: "/source/data.bin", relativePath: "data.bin" },
-        ],
+    const hostApi = createWorkflowHostApi({ ownerId });
+    let settled = false;
+    const replay = hostApi.attachments
+      .create(
+        storedAttachmentCreateRequest(operationId, {
+          kind: "local_path",
+          path: "/must-not-read.pdf",
+        }),
+      )
+      .then((result) => {
+        settled = true;
+        return result;
       });
-      assert.fail("expected the storage copy to fail");
-    } catch (error) {
-      assert.include(String(error), "storage copy failed");
-    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assert.isFalse(settled);
 
-    assert.strictEqual(removedAttachment, attachment);
-    assert.isTrue(stagingCleanupAttempted);
-  });
-
-  it("preserves the publish failure while attaching rollback and cleanup failures as secondary evidence", async function () {
-    const attachment = createAttachment();
-    const importStoredFile = createWorkflowStoredAttachmentImport({
-      getStagingRoot: () => "/managed/tmp/attachment-import",
-      async ensureDirectory() {},
-      async copyFile(_sourcePath, targetPath) {
-        if (targetPath.startsWith("/zotero/storage/")) {
-          throw new Error("primary publish failure");
-        }
-      },
-      async removePath() {
-        throw new Error("staging cleanup failure");
-      },
-      async importStoredFromPath() {
-        return attachment;
-      },
-      async removeAttachment() {
-        throw new Error("attachment rollback failure");
-      },
-    });
-
-    try {
-      await importStoredFile({
-        path: "/source/main.pdf",
-        companionFiles: [
-          { sourcePath: "/source/data.bin", relativePath: "data.bin" },
-        ],
-      });
-      assert.fail("expected publish failure");
-    } catch (error) {
-      assert.include(String(error), "primary publish failure");
-      const cleanupErrors = (error as Error & { cleanupErrors?: unknown[] })
-        .cleanupErrors;
-      assert.lengthOf(cleanupErrors || [], 2);
-      assert.include(String(cleanupErrors?.[0]), "rollback failure");
-      assert.include(String(cleanupErrors?.[1]), "cleanup failure");
+    release();
+    await active;
+    const result = await replay;
+    assert.equal(result.outcome, "unchanged");
+    if (result.outcome === "unchanged") {
+      assert.equal(result.result.attachment.title, "Existing");
     }
   });
 
-  it("rolls back when managed staging reports that cleanup did not complete", async function () {
-    const attachment = createAttachment();
-    let removedAttachment: Zotero.Item | null = null;
-    const importStoredFile = createWorkflowStoredAttachmentImport({
-      getStagingRoot: () => "/managed/tmp/attachment-import",
-      async ensureDirectory() {},
-      async copyFile() {},
-      async removePath() {
-        return false;
-      },
-      async importStoredFromPath() {
-        return attachment;
-      },
-      async removeAttachment(item) {
-        removedAttachment = item;
-      },
+  it("replays settled stored-file operations before local or resource acquisition", async function () {
+    const ownerId = "workflow-stored-settled";
+    const operationId = "stored-file-settled";
+    const semanticInput = storedAttachmentCreateInput(operationId);
+    await executeReservedMutation({
+      scope: { ownerId },
+      operationId,
+      operation: "attachments.create",
+      semanticInput,
+      execute: async () => ({
+        outcome: "unchanged" as const,
+        result: {
+          attachment: {
+            ref: { libraryId: 1, key: "ABC12345" },
+            title: "Existing",
+          },
+        },
+        changes: [],
+      }),
     });
 
-    try {
-      await importStoredFile({
-        path: "/source/main.pdf",
-        companionFiles: [
-          { sourcePath: "/source/data.bin", relativePath: "data.bin" },
-        ],
-      });
-      assert.fail("expected incomplete staging cleanup to fail");
-    } catch (error) {
-      assert.include(String(error), "staging cleanup did not complete");
+    const hostApi = createWorkflowHostApi({ ownerId });
+    for (const source of [
+      { kind: "local_path" as const, path: "/must-not-read.pdf" },
+      {
+        kind: "resource" as const,
+        resourceRef: {
+          kind: "workflow_resource" as const,
+          id: "must-not-read",
+        },
+      },
+    ]) {
+      const result = await hostApi.attachments.create(
+        storedAttachmentCreateRequest(operationId, source),
+      );
+      assert.equal(result.outcome, "unchanged");
+    }
+  });
+
+  it("returns a tombstone result and rejects changed non-resource semantics before reading the source", async function () {
+    const day = 24 * 60 * 60 * 1000;
+    let now = 0;
+    configureMutationAuthorityRuntimeForTests({ now: () => now });
+    const ownerId = "workflow-stored-tombstone";
+    const operationId = "stored-file-tombstone";
+    const semanticInput = storedAttachmentCreateInput(operationId);
+    await executeReservedMutation({
+      scope: { ownerId },
+      operationId,
+      operation: "attachments.create",
+      semanticInput,
+      execute: async () => ({
+        outcome: "unchanged" as const,
+        result: {
+          attachment: {
+            ref: { libraryId: 1, key: "ABC12345" },
+            title: "Existing",
+          },
+        },
+        changes: [],
+      }),
+    });
+    now = 30 * day + 1;
+
+    const hostApi = createWorkflowHostApi({ ownerId });
+    const tombstone = await hostApi.attachments.create(
+      storedAttachmentCreateRequest(operationId, {
+        kind: "local_path",
+        path: "/must-not-read.pdf",
+      }),
+    );
+    assert.equal(tombstone.outcome, "failed");
+    if (tombstone.outcome === "failed") {
+      assert.equal(tombstone.attempt.error.code, "unavailable");
     }
 
-    assert.strictEqual(removedAttachment, attachment);
+    try {
+      await hostApi.attachments.create(
+        storedAttachmentCreateRequest(
+          operationId,
+          { kind: "local_path", path: "/must-not-read.pdf" },
+          "Changed",
+        ),
+      );
+      assert.fail("expected idempotency conflict");
+    } catch (error) {
+      assert.instanceOf(error, MutationAuthorityAdmissionError);
+      if (error instanceof MutationAuthorityAdmissionError) {
+        assert.equal(error.code, "conflict");
+        assert.equal(error.details.reason, "idempotency_conflict");
+      }
+    }
   });
 });

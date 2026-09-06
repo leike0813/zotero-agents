@@ -1,6 +1,6 @@
 # Zotero Host Capability Broker SSOT
 
-This document is the human-facing SSOT for how Zotero host capabilities are exposed inside Zotero Agents. It defines the relationship between native Zotero APIs, the canonical broker, workflow projection, Host Bridge, MCP, and internal handlers.
+This document is the human-facing SSOT for how Zotero host capabilities are exposed inside Zotero Agents. It defines the relationship between native Zotero APIs, the canonical broker, workflow projection, Host Bridge, MCP, and private native mutation primitives.
 
 ## Core Model
 
@@ -11,7 +11,7 @@ The stable layering is:
 3. `WorkflowHostApi` v12 is the closed workflow surface. It explicitly projects selected broker members and adds trusted local workflow services.
 4. Host Bridge v2 is the remote locality, exposure, permission, and file-handle adapter over the canonical broker.
 5. MCP is an exact public projection of the Host Bridge registry and reuses its handlers.
-6. `handlers` remain internal mutation primitives used behind trusted workflow and broker seams.
+6. Broker-private native mutation primitives perform the admitted Zotero effects; Workflow supplies trusted local resources through its adapter.
 
 The architecture has one fact source and deliberately separate public surfaces. Adding a broker member does not implicitly expose it to workflows, Host Bridge, or MCP.
 
@@ -24,36 +24,26 @@ separate policies owned by their respective adapters.
 
 ## Current Facts
 
-`handlers` covers a finite write-oriented DSL:
-
-- item creation, parent assignment, and removal
-- parent note/attachment/related-item operations
-- note create/update/remove
-- attachment create/update/remove
-- tag list/add/remove/replace
-- collection create/delete/add/remove/replace
-- a placeholder command runner
-
-`handlers` is not a complete Zotero API facade. It does not cover search, reader state, annotations, PDF content, full-text, import/export, sync, group/library administration, citation APIs, or broader Zotero UI surfaces.
+Canonical mutations cover item metadata/type/tag/related changes, collections and membership, notes, attachments, status tags, Trash state and single-paper ingest. Request/result mappings are closed; Workflow, Bridge and MCP select explicit members from this contract.
 
 `WorkflowHostApi` explicitly projects a subset of the broker for workflow packages:
 
 - `context`: small current Zotero view and exact selected-item pages as DTOs; selection preserves order and child refs, defaults to 25 and permits at most 100 entries per page. The opaque cursor binds the ordered selection ref digest and after-index; a changed basis fails with `conflict.details.reason = basis_mismatch`. Selection has no TTL, persistence, aggregate snapshot cap, promotion or deduplication.
 - `library`: bounded item search, item detail, notes, and attachments as DTOs
 - `metadata`: controlled read-only metadata translation facade as DTOs
-- `mutations`: preview/execute command API for controlled Zotero writes
+- `mutations`: preview/execute command API and durable getOperation observation
 
 It projects navigation, bounded library reads, canonical mutations, notes,
 attachments, status tags, and the other members declared by the single runtime
 manifest. Broker-only members remain private unless named by that manifest.
 
-The canonical broker has five domains:
+The main read, navigation and mutation entry points are:
 
 - `context`: current view and selection queries
 - `navigation`: item, note, collection, and selection opening effects
 - `library`: bounded library, note, payload, annotation, and attachment reads
 - `metadata`: identifier translation
-- `mutations`: preview and execute
+- `mutations`: preview, execute and getOperation
 
 Workflow hooks receive `runtime.hostApi`; raw handlers and Zotero runtime
 objects are not hook capabilities. Interactive and non-interactive variants
@@ -62,8 +52,7 @@ fail with `interaction_required` when invoked non-interactively.
 
 ## Ownership Rules
 
-`handlers` remains an internal primitive behind trusted owners. It must not grow
-into an unbounded mirror of Zotero native APIs or enter workflow hook scope.
+Native mutation primitives remain private to the Broker implementation. Synthesis tag effects use canonical item.updateTags with their stable effect identity; hooks receive only the explicit Workflow projection.
 
 `ZoteroHostCapabilityBroker` owns JSON-safe capability semantics and effects. `createZoteroHostCapabilityBroker()` creates an implementation and `resolveZoteroHostCapabilityBroker()` resolves the default implementation; all instances share process-level FIFO admission for native Host slices. Public refs are portable JSON refs; raw `Zotero.Item` and `Zotero.Collection` inputs are rejected. Trusted call control carries cancellation outside semantic JSON.
 
@@ -158,7 +147,15 @@ Read/context capabilities include current view, selected items, item search, ite
 
 `broker.metadata` is the broker-owned Zotero Translate facade for deterministic metadata lookup. `metadata.translateIdentifier()` may call Zotero `Translate.Search` for DOI, ISBN, arXiv, and PMID identifiers, but it must return only JSON-compatible DTOs: translated item fields, creator data, translator summaries, item counts, and diagnostics. It must not return raw `Zotero.Item`, window, `nsIFile`, translator runtime, or other host objects.
 
-Mutation capabilities include note creation, tag changes, collection membership changes, item field updates, and the single-paper `literature.ingest` import path used by interactive literature search workflows. They may reuse `handlers` internally, but remote exposure must go through canonical broker `mutations.preview()` and `mutations.execute()` with the adapter's explicit permission gate before execute. ACP workflows may opt into a per-run write auto-approval control; when the workflow declares support, the user enables it, and the Host Bridge CLI profile scope is registered for that run, mutation execute may skip the UI approval. This per-run bypass never applies to workflow submit; workflow submit is skipped only by Zotero's global `hostBridgeDisableWriteApproval` debug preference. Deletion and other higher-risk writes require a separate change before MCP exposure. `literature.ingest` may create PDF attachments from an explicit public `pdfUrl` value on a best-effort basis, and may create a linked URL attachment from `landingUrl` when `attachLandingUrlOnMissingPdf` is true and no PDF attachment exists. Attachment failure must not roll back a successfully created or reused bibliographic item. Batch ingest payloads and legacy `paper.ingest` inputs are not supported.
+Mutation capabilities include note creation, tag changes, collection membership changes, item field updates, and single-paper `literature.ingest`. Remote writes use canonical `mutations.preview()` and `mutations.execute()` with the adapter's explicit permission gate. ACP workflows may opt into a per-run write auto-approval control; when the workflow declares support, the user enables it, and the Host Bridge CLI profile scope is registered for that run, mutation execute may skip UI approval. This bypass does not cover workflow submit, whose bypass remains the global `hostBridgeDisableWriteApproval` debug preference. Permanent deletion retains its explicit exposure restrictions.
+
+`literature.ingest` requires bibliographic item creation/reuse and requested collection membership to complete. Existing matches preserve curated metadata. Required-effect failure rolls back only changes made by this invocation. PDF acquisition and conditional landing-URL attachment are optional enrichment: clean failure is reported separately, while uncertain or residual writes produce unknown or repair_required evidence. Landing creation requires `attachLandingUrlOnMissingPdf` and no PDF. Identity lookup is bounded and does not materialize the complete library.
+
+Every write has effect-free preparation with private revision/state and file evidence. Public preview exposes safe plan facts and `domainPlanDigest`. Approval wait triggers preparation again; changed digests require renewed approval. Execute revalidates inside the admitted native slice before effects, without silently refreshing a stale plan.
+
+`zoteroHostMutationAuthority.ts` owns durable admission through pluginStateStore SQLite. Caller scope plus operationId binds operation kind and normalized semantic digest; only the insert winner executes. Replay checks stored identity before resource acquisition or preflight. Success is returned only after terminal evidence is durable. Interrupted started records and post-effect evidence failures become unknown. Known terminal evidence remains for 30 days; unknown/repair_required is retained. Expiry removes evidence but retains an identity tombstone permanently. Observation returns running, settled or unavailable and propagates storage failure.
+
+Bridge/MCP/CLI use the stable profile-local host-bridge caller namespace and `mutation.get_operation`; generic HTTP operation history remains separate. Workflow explicitly projects mutations.getOperation with its caller scope. Neither observation nor replay reconstructs a historical outcome from current item state.
 
 Host services include file operations, preferences, editor sessions, notifications, and logging. These belong to `WorkflowHostApi`; MCP should expose them only when a user-facing tool contract requires them.
 
@@ -227,9 +224,10 @@ embedding concrete workflow semantics in core modules:
   paths or transferring file bytes across the package boundary.
 - `researchBundles.materializePapers` and `researchBundles.importPapers`
   transfer the complete portable paper graph through the canonical owner.
-- `attachments.create` accepts canonical stored-file, linked-file, linked-URL,
-  and stored-URL source DTOs; companion staging and rollback remain private to
-  the attachment owner.
+- Local attachment import uses trusted managed staging and native importFromFile.
+  Stored-file and stored-URL replacement preserves attachment identity, placement
+  and link mode; linked-file, linked-URL and embedded-image replacement is unsupported.
+  Companion validation, file authority and compensation remain private to the owner.
 - `context.getCurrentView()` includes `currentCollection` only when the active
   library-tree row is a real Zotero collection.
 
@@ -244,9 +242,9 @@ warning projection remain separate adapters.
 Update this SSOT in the same change when:
 
 - `WorkflowHostApi` public surface changes.
-- `handlers` public behavior changes.
+- Canonical mutation ownership or durable result behavior changes.
 - Zotero MCP tool names, inputs, or outputs change.
 - MCP-exposed mutation permission policy changes.
 - Workflow package runtime capability boundaries change.
 
-This document complements `doc/components/handlers.md` and `doc/components/workflow-hook-helpers.md`. Those documents describe current APIs; this document defines the governance boundary across APIs.
+This document complements `doc/components/workflow-hook-helpers.md` and defines the governance boundary across host APIs.

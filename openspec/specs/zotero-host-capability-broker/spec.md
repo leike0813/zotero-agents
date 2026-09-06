@@ -2,16 +2,8 @@
 
 ## Purpose
 TBD - created by archiving change define-zotero-host-capability-broker. Update Purpose after archive.
+
 ## Requirements
-### Requirement: Handlers are internal mutation primitives
-
-The system SHALL treat `handlers` as an internal library for common Zotero mutation operations, not as a complete facade over the Zotero native API.
-
-#### Scenario: Handler scope is described
-
-- **WHEN** developer documentation or future capability specs describe `handlers`
-- **THEN** they MUST state that handlers cover a finite write-oriented DSL
-- **AND** they MUST NOT imply that handlers cover all Zotero native API capabilities.
 
 ### Requirement: Host API is the broker SSOT
 
@@ -420,19 +412,21 @@ The Broker SHALL enumerate live library pages, apply fixed criteria and budgets,
 #### Scenario: Traversal stops at a budget
 - **WHEN** max items, pages, or duration is reached before exhaustion
 - **THEN** the result is `resource_limited`, includes a criteria-bound resume cursor, and contains no completion evidence
+
 ### Requirement: Broker SHALL own canonical mutation admission and evidence
 
-The Broker SHALL reserve accepted mutation operations by caller scope and `operationId`, bind each reservation to a canonical request digest, serialize competing replays, verify final Host state, and retain bounded process-local outcomes. It MUST NOT persist a mutation ledger or expose registry records.
+The Broker SHALL durably bind caller scope and operationId to the operation kind and normalized semantic digest before any Host effect. It SHALL retain terminal receipts and attempts across restart, resolve identical identities without another effect, and retain permanent identity protection after ordinary evidence expires. Current-process promises SHALL coordinate live execution only; public observation SHALL expose only running, settled with result, or unavailable and SHALL NOT expose storage records.
 
 #### Scenario: Same operation is replayed with the same request
 
-- **WHEN** a caller repeats an accepted `operationId` with the same canonical request in the same Host process
+- **WHEN** a caller repeats an accepted operationId with the same canonical request, including after restart
 - **THEN** the Broker returns or waits for the original outcome without executing a second write
+- **AND** expired ordinary evidence returns outcome_unavailable while the identity remains protected.
 
 #### Scenario: Same operation identity carries different input
 
-- **WHEN** a caller reuses an accepted `operationId` with a different canonical request digest
-- **THEN** the Broker returns a conflict with reason `idempotency_conflict` before another write begins
+- **WHEN** a caller reuses an accepted operationId with a different canonical request digest
+- **THEN** the Broker returns a conflict with reason idempotency_conflict before another write begins.
 
 ### Requirement: Broker SHALL distinguish pre-admission errors from accepted attempts
 
@@ -461,3 +455,26 @@ The Broker SHALL provide one bibliography deep-module owner for format availabil
 - **WHEN** Research Bundle generation requests bibliography content
 - **THEN** it consumes the bibliography owner result
 - **AND** it retains ownership only of artifact naming and bundle layout
+
+### Requirement: Canonical Broker owns private mutation effects
+
+The system SHALL not expose, document, or retain handlers as a public write-oriented DSL. The Broker SHALL own canonical mutation semantics and may use narrowly scoped private native-effect helpers internally. Private helpers SHALL not define public operation names, request/result DTOs, Workflow Host members, Bridge capabilities, MCP tools, or result-apply contracts.
+
+#### Scenario: A canonical mutation needs native work
+- **WHEN** the Broker performs a canonical mutation
+- **THEN** it MAY call private native-effect helpers within the Broker implementation
+- **AND** callers SHALL enter only through the named canonical Broker operation.
+
+#### Scenario: A former handler-shaped entry point is requested
+- **WHEN** a workflow, Bridge, MCP, CLI, or result-apply consumer requests a former handlers operation
+- **THEN** the public boundary SHALL reject it as unsupported
+- **AND** it SHALL not adapt the request to a private helper.
+
+### Requirement: Broker owns mutation authority and observation
+
+The system SHALL treat ZoteroHostCapabilityBroker as the canonical owner of JSON-safe Zotero context, navigation, library, metadata, controlled mutation, durable mutation evidence, and read-only mutation observation. WorkflowHostApi SHALL expose broker capabilities only through explicit projection. Host Bridge SHALL consume the canonical broker directly, and MCP SHALL consume the Host Bridge capability mirror.
+
+#### Scenario: A caller observes a mutation
+- **WHEN** a trusted adapter needs the state of a canonical operation identity
+- **THEN** it SHALL call the Broker read-only mutation observation
+- **AND** it SHALL not use generic HTTP operation history or re-execute a mutation.

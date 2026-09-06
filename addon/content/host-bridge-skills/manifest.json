@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.5",
     "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-    "commandCatalogChecksum": "6d03e1e0cc423ebadfc6f8af726240fb6fedee14ad99f83abcf01b8abf727f00"
+    "commandCatalogChecksum": "960cb12a1bc3862f1690bd26c75ba6832e49cf48d7b845fbf4e626a22857d072"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 946258,
-      "sha256": "3f379ea369850bb496f6c99441692c09be8ad6aee4ff1c15a22cc5670c6bf908"
+      "bytes": 1799628,
+      "sha256": "55d7cf9c13f880ca41f909d9d7925ea40e04429e2a912d0ab38414dbc66ee105"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -77,8 +77,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
-      "bytes": 34839,
-      "sha256": "dc3eedfcfd8560fceee97857743cbc782bd61eb07c010cffd9f60867195e4c34"
+      "bytes": 34967,
+      "sha256": "2fff836a100d6f3285f49e7385932538013bb5925c2aa008aee0040e28508e94"
     },
     {
       "path": "zotero-bridge-cli/references/commands/bridge/backend/list.md",
@@ -137,8 +137,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/context/selection/get.md",
-      "bytes": 11673,
-      "sha256": "1a8da7d90e4e282930d7a07816e19366281a60257bd854aea853d052f4516738"
+      "bytes": 11671,
+      "sha256": "09d7dc2b904409556cb7b3b6fb02ba5cfabe6ea65a5d02dbc4b53ecfcf8561c8"
     },
     {
       "path": "zotero-bridge-cli/references/commands/context/selection/open.md",
@@ -147,8 +147,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md",
-      "bytes": 10955,
-      "sha256": "2e659996d8b8ebd4be3a3ce42b7c9cebdc20900ee58936b49d386e62be4bffd6"
+      "bytes": 11393,
+      "sha256": "e11623c6d805aa0c8d800bc262a613a4c5c057d3cb5f01b6e65f7098200dbc75"
     },
     {
       "path": "zotero-bridge-cli/references/commands/debug/persistence.md",
@@ -302,68 +302,73 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/apply.md",
-      "bytes": 55611,
-      "sha256": "0de990ff5c40ca134c7b33f6b1d22d0e6e26341d8c3ba8591f60c321c195e7a2"
+      "bytes": 220678,
+      "sha256": "52afff49033c0c275938696745fb84ba5c21a61617808db5aed8eb755bb81972"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/collection/add-items.md",
-      "bytes": 20884,
-      "sha256": "8dd979bfc8f8680d24bbc555132275f1187b41b8c45f3938338c01c34989e779"
+      "bytes": 115866,
+      "sha256": "8bb67be4fbbf606300e19fbd590a26bda5118b4c0b57cb9a88a73931d4fb6c2e"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/collection/create.md",
-      "bytes": 29609,
-      "sha256": "371e441839b0865a780271f5845dfadf006e24b22362eb31c86dc376ed9223e5"
+      "bytes": 120850,
+      "sha256": "c997c8ee085e57fc71218fe89a1607570744fe81c18b4952f1f754864930b61e"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/collection/remove-items.md",
-      "bytes": 20933,
-      "sha256": "78aef764ca76b961cadeb1e42a68674a7f11ab2d4fc3932568f1b60c1f3e43c1"
+      "bytes": 115903,
+      "sha256": "91607f226a0724de32704fb4bdf3e4832255cf27497e2a6f15e086437c9b334e"
+    },
+    {
+      "path": "zotero-bridge-cli/references/commands/mutation/get-operation.md",
+      "bytes": 137121,
+      "sha256": "ce9f258ab030dd70862f5811a5bb50e164eb87f14d572af96d178d4d6ea7878b"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/item/attach-file.md",
-      "bytes": 24335,
-      "sha256": "524132315b7bb959cbff8031f53a769e00c219ad3c4711cbd197aeac1bde41a0"
+      "bytes": 124647,
+      "sha256": "a5dba4a9592fac56c23fcbc846ec6f7f50eeceb8eb5e33e29a62df2e4e57244e"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/item/update.md",
-      "bytes": 29298,
-      "sha256": "0d4ff1139dfb9c7fdd3275f17ece31cb527106007905f0e86b4b07ce819465b4"
+      "bytes": 118299,
+      "sha256": "ba3d1b0a51e0f2cece6114b15b6c7c9df1de981288e9cb0c3b6eb0ad34f2e553"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/literature-ingest.md",
-      "bytes": 29022,
-      "sha256": "397480c033e5264e8609940c02b6590d8d6d053b5ba6fa7132e4b3840cdadb7a"
+      "bytes": 123337,
+      "sha256": "6f43f04ca8ff7d3aac605940f3d04b684fe2c04812961677573d2a02d02e0776"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/note/create.md",
-      "bytes": 29836,
-      "sha256": "1bae8d537b48c256ffb387b0f3b3ebd84795080f1c0a71377145714f6b080aa5"
+      "bytes": 126675,
+      "sha256": "6e0bedde19d3cdb7bdabdb255f2037d84d09eba691f7fd5e18e744e2566461fc"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/note/update.md",
-      "bytes": 29530,
-      "sha256": "185465d505beddec39c21d7f575d84ad404ffbe0741c7e1c8cdf629f33b98789"
+      "bytes": 122027,
+      "sha256": "35ec998cab6ae0118123a9795dec4c30d7993dd9ef4d3c40c4a8b572546c36d9"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/note/upsert-payload.md",
-      "bytes": 30552,
-      "sha256": "8a952f6355e53b30f26e27663fcd83709df0ff5d0f2b303db0a328f4f09bacdb"
+      "bytes": 121563,
+      "sha256": "cdbb08305f806a56b81c5f28a9dd5734f0df0606326029c02843347cef4094b0"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/preview.md",
-      "bytes": 10748,
-      "sha256": "17371cd86c130cce44d07cfb0880d699920e1ed6a9cb50cc0350d2edeca9990d"
+      "bytes": 120222,
+      "sha256": "5ab60d4c353192a40872c8d0a144d5fb4526e684e49b0f670e1dde19667d886a"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/tag/add.md",
-      "bytes": 21159,
-      "sha256": "177dbe1b6f4e6e29f6235db980839bebe403e8d186e7ee166074eef1da5b4252"
+      "bytes": 114937,
+      "sha256": "571e40affc7fa2bb59b388b8693bdf1b96ec200ba21a9735a6566765ca38eb2c"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/tag/remove.md",
-      "bytes": 21208,
-      "sha256": "c35dbac9d092a287bdfb16368bb8675d2cce76dc27991f1dc3302c53f86799bc"
+      "bytes": 114974,
+      "sha256": "bb536584907f32c860cc33d341ec6ddd7c5ab34711ef57abcab5f324e45ac278"
     },
     {
       "path": "zotero-bridge-cli/references/commands/operation/index.md",
@@ -737,8 +742,8 @@
     },
     {
       "path": "zotero-bridge-cli/SKILL.md",
-      "bytes": 40022,
-      "sha256": "f03b0a443a13e438e862163866a30f2cde6e6b9e469e767dfb0fdca5454c28b1"
+      "bytes": 41597,
+      "sha256": "e4d10b7e8259d42fd2c6abaa3d4e892f2b6583df9bf2b6d64cd8de2e6ba16b3b"
     },
     {
       "path": "zotero-library-agent/agents/openai.yaml",
@@ -827,8 +832,8 @@
     },
     {
       "path": "zotero-literature-acquisition/SKILL.md",
-      "bytes": 12806,
-      "sha256": "a581467ea0e71f2d40ee3c4cdb6998d376dcc35fdd61a593a0afbccde820bd1b"
+      "bytes": 13738,
+      "sha256": "05c34b2eb34fe8e65ae0afcf0cbfa50a54c192dbae59bd61b1e21a854075c5ed"
     },
     {
       "path": "zotero-literature-analysis/assets/output.schema.json",
@@ -871,5 +876,5 @@
       "sha256": "48d26f5b33fa8b53f29a67f7c5104917bf4c4d0bbad0e3b6b383c89852956a0b"
     }
   ],
-  "aggregateSha256": "d2176c4aeb5ac6e49f234ebd453397f65d6d27850f886e8e0f61ad0c422c16c2"
+  "aggregateSha256": "7120f00f540b5fd978098ca64bc93174578f60f9eb0cee47b2748e6d593fb6b0"
 }

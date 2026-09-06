@@ -306,7 +306,7 @@ export async function rebuildWorkflowActionPopup(
   }
 
   const selectionContext = await readSelectionContext(
-    createZoteroHostCapabilityBroker({}, () => win),
+    createZoteroHostCapabilityBroker(() => win),
   );
   const selectedItemCount = selectionContext.items.length;
   const shouldPreflightWorkflowInputs = selectedItemCount <= 1;

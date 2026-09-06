@@ -1,6 +1,6 @@
 ---
 name: zotero-library-curation
-description: Plan and apply approved, bounded Zotero library maintenance. Use when a user asks to correct metadata, tags, collections, notes, links, readiness, or other explicit library state.
+description: 规划并应用经过批准的、有限范围的 Zotero 文献库维护。当用户要求修正元数据、标签、收藏、笔记、链接、就绪状态或其他显式文献库状态时使用。
 ---
 
 # Zotero Library Curation
@@ -124,14 +124,14 @@ Desired state:
 - Destructive effects and affected children are explicit.
 - Heterogeneous changes are split into independent batches.
 
-权威机构：
+Authority:
 
 - The exact current proposal was shown at the correct approval boundary.
 - A prior preview, approval, or workflow does not authorize this new effect.
 - Uploaded bytes are not consumed outside their declared next step.
 - Apply-back uses the complete typed request-to-result mapping.
 
-验证：
+Verification:
 
 - Every affected live object was re-read.
 - Actual and approved states were compared per target.
@@ -169,7 +169,7 @@ The LLM owns target interpretation, desired-state reasoning, correction evidence
 
 Return one business JSON object matching `assets/output.schema.json`.
 
-必填：
+Required:
 
 - `schema`: `zotero-library-task.result.v1`.
 - `status`: `completed`, `canceled`, or `failed`.

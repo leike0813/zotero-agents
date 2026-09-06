@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
 import {
   buildSelectionContext,
@@ -963,7 +963,10 @@ async function countAttachmentsByPath(parent: Zotero.Item, targetPath: string) {
 }
 
 function compareNormalizedPath(a: string, b: string) {
-  return normalizePathForCompare(a) === normalizePathForCompare(b);
+  return (
+    normalizePathForCompare(a).split("/").pop() ===
+    normalizePathForCompare(b).split("/").pop()
+  );
 }
 
 function normalizePathForCompare(value: string) {

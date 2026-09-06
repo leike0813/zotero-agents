@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { buildSelectionContext as buildSelectionContextFromRefs } from "../../src/modules/selectionContext";
 import dualParent from "../fixtures/selection-context/selection-context-dual-parent.json";
 import mixAll from "../fixtures/selection-context/selection-context-mix-all.json";

@@ -1,6 +1,6 @@
 ---
 name: zotero-library-query
-description: Retrieve current Zotero library content and answer bounded, source-grounded questions. Use when a user needs current items, collections, notes, attachments, context, or a library answer.
+description: 检索当前 Zotero 文献库内容并回答有界、源支撑的问题。当用户需要当前条目、收藏、笔记、附件、上下文或文献库答案时使用。
 ---
 
 # Zotero Library Query
@@ -28,7 +28,7 @@ Translate conversational wording into a bounded live read before choosing comman
 | “What is missing analysis?” | Readiness query | Define the readiness category and requested scope; do not remediate |
 | “What does the graph say about X?” | Derived Synthesis read | Select the exact model, scope, and freshness before interpretation |
 | “Has workflow Y finished?” | Run query | Require the typed run identity; terminal state does not prove output delivery |
-| 身份不明确时的“把这些论文/Topic 打包” | 选择器解析查询 | 解析确切 Zotero 条目引用或稳定 Topic ID，再把已验证的选择器交给 Synthesis 直接交付 |
+| “Bundle these papers/topics” when identities are unclear | Selector-resolution query | Resolve exact Zotero item refs or stable Topic IDs, then hand the verified selectors to Synthesis direct delivery |
 
 Clarify when:
 
@@ -57,7 +57,7 @@ There is no safe default for an absent current selection, ambiguous item identit
 2. Resolve deictic context first. For a known ref, read the live object; for a title, citation, or description, search candidates and choose only after stable identity evidence; for an inventory, preserve the complete filter and paging boundary.
 3. Keep note, attachment, parent item, collection, topic, Product, artifact, run, and operation identities distinct. Derive a top-level parent only when the selected read contract requires it.
 
-当 Query 位于直接研究包交付之前时，其输出边界是身份，不是文件创建。返回用户实际选择的、有序且去重的稳定选择器：每个条目引用必须只解析到一个实时 Zotero 条目，Topic 选择器必须是当前 Topic ID，不能使用标题或报告标题。明确保留被拒绝的候选项和未解析措辞。材料身份仍含糊时，不得获取缺失文献、运行分析、刷新 Synthesis 模型或调用研究包交付。
+When Query precedes direct research-bundle delivery, its output boundary is identity, not file creation. Return the ordered, deduplicated stable selectors that the user actually chose: item refs must resolve to one live Zotero item each, and Topic selectors must be current Topic IDs rather than titles or report headings. Keep rejected candidates and unresolved phrases visible. Do not fetch missing literature, run analysis, refresh Synthesis models, or invoke bundle delivery while material identity is still ambiguous.
 
 ### Collect live evidence
 
@@ -134,7 +134,7 @@ If one of these checks fails, repair the read boundary or return the exact limit
 - Hand a resolved external-literature need to acquisition, not to a library mutation.
 - Hand a question requiring sustained interpretation of source text to analysis with exact source refs and evidence depth.
 - Hand a cross-source claim, gap, graph, or topic question to synthesis with the verified source boundary.
-- 将论文/Topic 研究包直接交付给 synthesis，并附上已验证的有序选择器、用户的聚合意图和声明的本地/远程交付要求。Query 完成只能证明选择器身份，不能证明研究包内容或交付。
+- Hand direct paper/Topic bundle delivery to synthesis with the verified ordered selectors, the user's aggregation intent, and any declared local-versus-remote delivery requirement. Query completion proves selector identity only; it does not prove bundle content or delivery.
 - Hand a requested note, tag, collection, metadata, or attachment change to curation with the read evidence but no implied authority.
 - Hand persistent monitoring to the hosted facet only after returning the finite query result.
 
@@ -160,7 +160,7 @@ The LLM owns query scope, candidate selection, evidence sufficiency, source comp
 
 Return one business JSON object matching `assets/output.schema.json`.
 
-必填：
+Required:
 
 - `schema`: `zotero-library-task.result.v1`.
 - `status`: `completed`, `canceled`, or `failed`.

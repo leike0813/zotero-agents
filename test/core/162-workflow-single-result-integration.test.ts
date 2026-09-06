@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import type { BackendInstance } from "../../src/backends/types";
 import type { ProviderExecutionResult } from "../../src/providers/contracts";

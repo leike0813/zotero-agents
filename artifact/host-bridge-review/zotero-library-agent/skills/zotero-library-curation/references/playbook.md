@@ -1,71 +1,71 @@
-# 文献库整理操作手册
+# Library Curation Playbook
 
-## 变更分类与 proposal
+## Change classification and proposal
 
-从当前 Zotero 状态解析目标，并对请求 effect 分类：
+Resolve targets from current Zotero state and classify the requested effect:
 
-| 变更 | 先读证据 | Proposal 必须公开 |
+| Change | Read-first evidence | Proposal must expose |
 | --- | --- | --- |
-| 条目元数据 | 当前字段值、条目类型、修正来源 | 逐字段变更前/后值及冲突 |
-| 标签 | 当前标签与确切 item ref | add/remove 集合，以及已知时自动/手工影响 |
-| 分类 | 当前 membership 与 collection 身份 | 条目、目标 collection、add/remove effect |
-| 笔记与 payload | 当前笔记正文/payload 身份 | create/update/upsert 内容与父关系 |
-| 文件与附件 | 父条目、本地 artifact 或已签发文件、当前附件 | upload/attach 序列、显示名称、media type、checksum |
-| Duplicate/merge/relink | 完整候选记录与相关状态 | survivor、removed/relinked 状态及更广后果 |
-| Readiness 或生成 artifact | 当前缺失输入/分析状态 | 指定工作流或具体修复与预期输出 |
-| Product removal | Product 记录与所选 asset 事实 | 记录 removal effect，不暗示立即删除托管文件 |
+| Item metadata | Current field values, item type, correction source | Per-field before/after values and conflicts |
+| Tags | Current tags and exact item refs | Add/remove set, automatic/manual implications when known |
+| Collections | Current membership and collection identity | Items, target collection, add/remove effect |
+| Notes and payloads | Current note body/payload identity | Create/update/upsert content and parent relationship |
+| Files and attachments | Parent item, local artifact or issued file, current attachments | Upload/attach sequence, display name, media type, checksum |
+| Duplicate/merge/relink | Complete candidate records and related state | Survivor, removed/relinked state, wider consequences |
+| Readiness or generated artifacts | Current missing-input/analysis state | Named workflow or concrete repair and expected output |
+| Product removal | Product record and selected asset facts | Record removal effect without implying immediate managed-file deletion |
 
-使用可靠修正证据。外部元数据与已整理字段冲突时，呈现来源与选择，不得自动选取最新或最完整值。宽泛请求按共同 effect 和风险分批；破坏性或异构变更采用更小审阅组。
+Use reliable correction evidence. When external metadata conflicts with a curated field, present the sources and choice instead of selecting the newest or most complete value automatically. A broad request is divided into batches by common effect and risk; destructive or heterogeneous changes receive smaller review groups.
 
-只有不再需要语义推断后才选择直接 mutation。操作仍需分类、内容生成、多步协调、provider 执行或可复用合同时，使用已描述工作流。导航可帮助用户查看目标，但绝不能替代写路径。
+Choose direct mutation only after no semantic inference remains. If the operation still requires classification, content generation, multi-step coordination, provider execution, or a reusable contract, use a described workflow. Navigation can help the user view a target but never substitutes for the write path.
 
-## Mutation 与文件工作流
+## Mutation and file workflows
 
-通用 mutation 使用受支持 preview 构建并检查 payload。简单已知操作使用语义 item、tag、collection、note 或 attachment 命令。呈现目标 ref 与声明 effect，再由 Zotero 端 approval 步骤决定执行。
+For a generic mutation, build and inspect the payload with the supported preview. For simple known operations, use the semantic item, tag, collection, note, or attachment command. Present target refs and declared effects, then allow the Zotero-side approval step to decide execution.
 
-对于文件回写：
+For file writeback:
 
-1. 验证本地 artifact、role、content type、checksum 与预期父条目；
-2. 上传并保留短期 `fileId` 与返回元数据；
-3. 通过已批准 mutation 将签发 handle 附加到当前父条目；
-4. 刷新父条目附件并识别新持久化记录。
+1. verify the local artifact, role, content type, checksum, and intended parent;
+2. upload it and preserve the short-lived `fileId` plus returned metadata;
+3. attach that issued handle to the current parent item through the approved mutation;
+4. refresh the parent's attachments and identify the newly persisted record.
 
-本地路径不能用作 Zotero 附件目标。`fileId` 不能替代 Product 或附件 ID。attach 前访问过期时，先确认未创建附件，再只重复传输步骤。
+A local path cannot be used as a Zotero attachment target. A `fileId` cannot substitute for a Product or attachment ID. If access expires before attach, repeat only the transfer step after confirming no attachment was created.
 
-笔记操作应区分子笔记创建、笔记正文更新与嵌入 payload upsert。先检查笔记与 payload descriptor；不得从渲染 HTML 派生 payload 结构。除非当前命令合同明确公开写入，否则此发布面的 annotation 操作仍仅为 read/export。
+For note operations, distinguish child-note creation, note-body update, and embedded payload upsert. Inspect the note and payload descriptors first; do not derive payload structure from rendered HTML. Annotation operations on this surface remain reads/exports unless a current command contract explicitly exposes a write.
 
-## Product 与持久 artifact
+## Products and durable artifacts
 
-Product、工作流 artifact、文件与附件具有不同所有权：
+Products, workflow artifacts, files, and attachments have different ownership:
 
-- Product list/get 识别 Dashboard 输出记录；
-- Product download 传输所选 asset；
-- Product removal 经 approval 作用于 Product 记录；
-- 工作流 artifact 属于其 run 或条目合同；
-- 已上传文件是临时传输输入；
-- Zotero 附件是条目下的实时子对象。
+- Product list/get identifies Dashboard output records;
+- Product download transfers a selected asset;
+- Product removal acts on the Product record through approval;
+- workflow artifacts belong to their run or item contract;
+- uploaded files are ephemeral transfer inputs;
+- Zotero attachments are live child objects under an item.
 
-工作流完成后检查预期 Product，并显式选择预期 asset。验证已下载字节。用户请求把 export Product 或工作流 artifact 附加到 Zotero 时，将 download、本地 verification、upload、附件 mutation 与实时 confirmation 视为具有不同证据的独立阶段。
+Inspect expected Products after workflow completion and choose the intended asset explicitly. Verify downloaded bytes. If the user requests attaching an exported Product or workflow artifact to Zotero, treat download, local verification, upload, attachment mutation, and live confirmation as distinct stages with distinct evidence.
 
-artifact 报告可记录 proposal 或结果，但只有实时对象读取或持久 operation/apply receipt 能确定 Zotero 状态。保留 origin、Product/artifact 身份、checksum、本地路径、已上传 handle 与最终附件身份，不得混淆。
+An artifact report may document a proposal or outcome, but only a live object read or durable operation/apply receipt establishes Zotero state. Preserve origin, Product/artifact identity, checksum, local path, uploaded handle, and final attachment identity without conflating them.
 
-## 验证与部分结果
+## Verification and partial outcomes
 
-执行后重新读取确切目标，将相关字段、membership、笔记内容、附件或 Product 与已批准 proposal 比较。记录：
+After execution, re-read the exact targets and compare relevant fields, memberships, note content, attachments, or Products with the approved proposal. Record:
 
-- applied 与 unchanged 目标；
-- denied、conflicted、failed 或 unattempted 目标；
-- operation 或 workflow receipt 与 approval 结果；
-- 无法验证的状态；
-- 存在时的剩余 delta。
+- applied and unchanged targets;
+- denied, conflicted, failed, or unattempted targets;
+- operation or workflow receipt and approval outcome;
+- state that could not be verified;
+- the remaining delta, if any.
 
-已接受请求或终态工作流不能证明期望字段变更。响应不确定时，检查 `operationId`、`stateChange` 与 `handleConsumption`，随后在重试前读取目标。mutation 已应用但无法验证时，将结果报告为 unverified，而非 completed。
+An accepted request or terminal workflow does not prove the desired field changes. When the response is uncertain, inspect `operationId`, `stateChange`, and `handleConsumption`, then read the target before retrying. If the mutation applied but verification is unavailable, report the outcome as unverified rather than completed.
 
-部分结果绝不能重放原始批次。从剩余 proposal 中移除经实时验证的成功项；若残余 effect 与已审阅 scope 存在实质差异，则请求新权限。
+For partial results, never replay the original batch. Remove live-verified successes from the remaining proposal and request new authority if the residual effect differs materially from the reviewed scope.
 
-## 批次 proposal 记录
+## Batch proposal records
 
-只有变更的 target type、evidence basis、operation 与风险相同时，才将其分组。每个批次表示为：
+Group changes only when they share target type, evidence basis, operation, and risk. Represent each batch as:
 
 ```text
 batch_id:
@@ -80,123 +80,123 @@ verification_read:
 risk_class: additive | corrective | destructive
 ```
 
-对于 field correction，当当前值不同时，`proposed_delta` 应是逐 item field map，而不是共享 patch。对于 tag 与 collection，分别表示 add 和 remove。对于 file，包含 source artifact identity、checksum、target parent、预期 attachment name，以及是否可能与现有 attachment 冲突。
+For field correction, `proposed_delta` is a per-item field map rather than a shared patch when current values differ. For tags and collections, separate additions from removals. For files, include source artifact identity, checksum, target parents, expected attachment names, and whether an existing attachment might conflict.
 
-以下情况应拆分 proposal：
+Split a proposal when:
 
-- 某个 target 的修正证据更弱；
-- 某个 item 需要不同的 survivor、collection 或 parent；
-- additive 与 destructive effect 混在一起；
-- 一部分可由 direct mutation 表达，另一部分需要 workflow 语义；
-- verification 差异过大，一份 receipt 无法解释结果。
+- one target has weaker correction evidence;
+- one item requires a different survivor, collection, or parent;
+- additive and destructive effects are mixed;
+- a subset can be expressed by a direct mutation while another needs workflow semantics;
+- verification differs enough that one receipt cannot explain the result.
 
-审阅摘要可以聚合数量，但 approval 与 outcome record 必须保留确切 target ref 与 delta。
+The review summary can aggregate counts, but approval and outcome records retain exact target refs and deltas.
 
-## 破坏性变更审阅
+## Destructive-change review
 
-在 merge、delete、remove、replace 或 relink 前，回答：
+Before merge, deletion, removal, replacement, or relinking, answer:
 
-1. 每个实时 target 是否都独立于显示文本完成身份确认？
-2. 哪些 child attachment、note、annotation、collection、tag、relation、Product 或 workflow artifact 可能变得不可达或改变所有权？
-3. 哪个 record 将存续，预期哪些 field 或 link 胜出？
-4. Effect 能否通过已公开 operation 撤销，还是只能依据外部证据恢复？
-5. 当前状态是否仍与 proposal preflight 一致？
-6. 更窄的 additive 或 corrective operation 能否满足请求？
-7. 哪项确切实时读取能够证明破坏性 effect？
+1. Is every live target identified independently of display text?
+2. Which child attachments, notes, annotations, collections, tags, relations, Products, or workflow artifacts may become unreachable or change ownership?
+3. What record survives, and which fields or links are expected to win?
+4. Is the effect reversible through an exposed operation, or only recoverable from external evidence?
+5. Does current state still match the proposal preflight?
+6. Can a narrower additive or corrective operation satisfy the request?
+7. What exact live read will prove the destructive effect?
 
-使用以下审阅模式：
+Use these review patterns:
 
-| Operation | 必需比较 |
+| Operation | Required comparison |
 | --- | --- |
-| Duplicate merge | Survivor 与每个 candidate、冲突 metadata、child-state 去向 |
-| Item 或 note deletion | Target identity、parent/child 可达性、请求 scope |
-| Tag 或 collection removal | 确切 membership delta，以及 removal 是全局还是 item-scoped |
-| Attachment replacement/removal | 现有 child identity、source file evidence、下游 reference |
-| Product removal | Product record 与所选 asset 事实；managed-file 生命周期仍然独立 |
-| Relinking | 旧、新 parent/target identity 及所有受影响关系 |
+| Duplicate merge | Survivor and every candidate, conflicting metadata, child-state disposition |
+| Item or note deletion | Target identity, parent/child reachability, requested scope |
+| Tag or collection removal | Exact membership delta and whether the removal is global or item-scoped |
+| Attachment replacement/removal | Existing child identity, source file evidence, downstream references |
+| Product removal | Product record and selected asset facts; managed-file lifecycle remains separate |
+| Relinking | Old and new parent/target identities plus all affected relationships |
 
-如果任何后果无法确立，应收窄 proposal 或交回人工审阅。不得用 workflow 绕过缺失的破坏性 operation 证据。
+If any consequence cannot be established, narrow the proposal or return it for human review. Do not use a workflow as a way around missing destructive-operation evidence.
 
-## 剩余 delta 恢复
+## Residual-delta recovery
 
-发生部分或不确定结果后，从实时状态推导下一份 proposal：
+After a partial or uncertain outcome, derive the next proposal from live state:
 
-1. 读取前一份 receipt 命名的每个 target；
-2. 比较当前状态与获批期望状态；
-3. 删除已满足 delta 与不改变状态的 no-op；
-4. 分别分类 conflict、denied target 与 unverifiable target；
-5. 确认已消费 file handle 或 workflow input 是否需要重新生成；
-6. 仅为剩余 effect 创建新的 residual proposal。
+1. read every target named by the prior receipt;
+2. compare current state with the approved desired state;
+3. remove satisfied deltas and unchanged no-ops;
+4. classify conflicts, denied targets, and unverifiable targets separately;
+5. verify whether consumed file handles or workflow inputs need regeneration;
+6. create a new residual proposal only for remaining effects.
 
-| 剩余类别 | 含义 | 恢复方式 |
+| Residual class | Meaning | Recovery |
 | --- | --- | --- |
-| Verified success | 期望状态已实时存在 | 保留证据；从 retry 排除 |
-| Verified no-op | 执行前或执行中状态已经匹配 | 报告 unchanged；从 retry 排除 |
-| Denied/canceled | Approval 不允许该 effect | 停止；不得换一种说法重试同一写入 |
-| Conflict | 实时状态偏离已审阅 preflight | 重新读取证据并请求新决策 |
-| Failed, retryable | 未观察到期望状态，且 receipt 允许 retry | 重建最小有效请求 |
-| Failed, non-retryable | 合同指出再次尝试不安全或不受支持 | 返回诊断与备选路径 |
-| Applied, unverified | Receipt 表明可能变更，但实时读取不可用 | 不得 retry；先恢复 verification |
-| Handle consumed, state uncertain | Transfer/apply handle 可能不能复用 | 获取新 handle 前检查持久 receipt 与 target |
+| Verified success | Desired state is live | Preserve evidence; exclude from retry |
+| Verified no-op | State already matched before or during execution | Report unchanged; exclude from retry |
+| Denied/canceled | Approval did not permit the effect | Stop; do not reframe the same write |
+| Conflict | Live state diverged from reviewed preflight | Re-read evidence and request a new decision |
+| Failed, retryable | No desired state observed and receipt permits retry | Rebuild the smallest valid request |
+| Failed, non-retryable | Contract says another attempt is unsafe or unsupported | Return diagnostics and alternative path |
+| Applied, unverified | Receipt suggests change but live read is unavailable | Do not retry; recover verification first |
+| Handle consumed, state uncertain | Transfer/apply handle may no longer be reusable | Inspect durable receipt and target before obtaining a new handle |
 
-如果 metadata 已应用，但后续 report 或 attachment 阶段失败，只恢复后续阶段。Remaining delta 由当前 Zotero 状态定义，而不是由原始 request payload 定义。
+If a later reporting or attachment stage fails after metadata was applied, recover only that later stage. The remaining delta is defined by current Zotero state, not by the original request payload.
 
-## 恢复与易错边界
+## Recovery and near misses
 
-- 标题匹配或生成报告不足以证明目标身份；先解析实时对象。
-- Denial 表示不写入。不得选择其他 mutation 或工作流获得同一 effect。
-- Merge、deletion、Product removal 与 relinking 比添加 tag 或 collection 变更后果更广，需要显式目标级审阅。
-- 修正来源有歧义时，返回备选项与当前状态，不得覆盖字段。
-- 工作流完成但缺少承诺条目变更时，保留 run 输出并报告验证失败。
-- 写入成功但后续报告 artifact 失败时，不得重复写入；只恢复缺失报告阶段。
-- 定时 hygiene 或 attention 结果识别候选项时，将其保留为 proposal。周期性维护属于托管 facet。
-## 端到端决策轨迹
+- A title match or generated report is insufficient target identity; resolve the live object first.
+- Denial means no write. Do not choose another mutation or workflow to obtain the same effect.
+- Merge, deletion, Product removal, and relinking have broader consequences than additive tag or collection changes and require explicit target-level review.
+- If a correction source is ambiguous, return the alternatives and current state rather than overwriting a field.
+- If a workflow completes without the promised item changes, preserve run output and report the failed verification.
+- If a write succeeded but a later report artifact failed, do not repeat the write; recover only the missing report stage.
+- If a scheduled hygiene or attention result identifies candidates, keep it as a proposal. Recurring maintenance belongs to the hosted facet.
+## End-to-end decision traces
 
-这些痕迹展示了模糊的清理语言如何成为可审查的提案，以及部分或不确定的写入如何产生残留增量而不是重放。
+These traces demonstrate how vague cleanup language becomes a reviewable proposal and how partial or uncertain writes produce a residual delta rather than replay.
 
-### Trace 1：“清理这些标签”
+### Trace 1: “Clean up these tags”
 
-用户话语：
+User utterance:
 
-> 清理这些论文张上的标签。
+> Clean up the tags on these papers.
 
-歧义之处：
+Ambiguities:
 
-- 目标集可能取决于当前的选择；
-- “清理”可能意味着拼写规范化、受控词汇映射、重复数据删除、删除或推断添加；
-- 删除可能会放弃用户含义；
-- 异构标签可能需要不同的证据。
+- target set may depend on current selection;
+- “clean up” may mean spelling normalization, controlled vocabulary mapping, deduplication, removal, or inferred additions;
+- removal can discard user meaning;
+- heterogeneous tags may need different evidence.
 
-第一个行动：
+First actions:
 
-1. 解决选定的项目。
-2. 实时读取当前标签。
-3. 询问或识别受控词汇和允许的转换。
-4. 将确定性归一化与语义标签推断分开。
-5. 制定每个项目的提案。
+1. Resolve the selected items.
+2. Read current tags live.
+3. Ask for or identify the controlled vocabulary and allowed transformations.
+4. Separate deterministic normalization from semantic tag inference.
+5. Build a per-item proposal.
 
-提案行：
+Proposal row:
 
-- 项目ref；
-- 当前标签；
-- 提议添加、替换和删除标签；
-- 变换规则或证据；
-- 明确保留的标签；
-- 预期的副作用；
+- item ref;
+- current tags;
+- proposed added, replaced, and removed tags;
+- transformation rule or evidence;
+- tags explicitly preserved;
+- expected side effect;
 - approval scope;
-- 验证读取。
+- verification read.
 
-安全默认值：
+Safe default:
 
-- 无需书面即可提出提案。
-- 保留未知的用户标签。
-- 除非有要求，否则不要推断新的语义标签。
+- Produce the proposal without writing.
+- Preserve unknown user tags.
+- Do not infer new semantic tags unless requested.
 
-面向用户的建议：
+User-facing proposal:
 
-> 我发现了拼写/大小写重复、到所提供词汇的映射以及六个含义不明确的标签。前两组可作为一批进行评审；不明确的标签将保持不变，直到您做出决定。
+> I found spelling/case duplicates, mappings to the supplied vocabulary, and six tags whose meaning is ambiguous. The first two groups can be reviewed as one batch; the ambiguous tags will remain unchanged until you decide.
 
-权威前取消的结果：
+Canceled result before authority:
 
 ```json
 {
@@ -219,56 +219,56 @@ risk_class: additive | corrective | destructive
 }
 ```
 
-有惊无险：
+Near miss:
 
-- 标签调节分析结果并不批准写入变更活体项目。
+- A tag-regulation analysis result is not approval to mutate live items.
 
-### Trace 2：合并重复项及其受影响子项
+### Trace 2: Merge duplicates with affected children
 
-用户话语：
+User utterance:
 
-> 合并这些重复项并保留更好的记录。
+> Merge these duplicates and keep the better record.
 
-所需检查：
+Required inspection:
 
-- 稳定的refs和强大的标识符；
-- 版本/版本关系；
-- 元数据冲突；
-- 收藏品；
-- 标签；
-- 注释和注释；
-- 附件；
-- 关系并链接Products；
-- 破坏性的后果。
+- stable refs and strong identifiers;
+- version/edition relationship;
+- metadata conflicts;
+- collections;
+- tags;
+- notes and annotations;
+- attachments;
+- relations and linked Products;
+- destructive consequences.
 
-重大决定：
+Material decision:
 
-- “更好”并不能识别幸存者。
-- 相关预印本和出版版本不得重复。
-- 子内容可能不会自动合并。
+- “better” does not identify a survivor.
+- Related preprint and published versions may not be duplicates.
+- Child content may not merge automatically.
 
-建议：
+Proposal:
 
-1. 目前的候选幸存者及其理由。
-2. 列出每条记录中保留的字段。
-3. 列出受影响的儿童和亲属。
-4. 识别是否有任何删除。
-5. 状态预计在状态后进行。
-6. 将合并与合并不需要的元数据更正分开。
+1. Present candidate survivor and reasons.
+2. List fields retained from each record.
+3. List children and relations affected.
+4. Identify any removal.
+5. State expected live post-state.
+6. Separate merge from metadata corrections not required by the merge.
 
-权威机构：
+Authority:
 
-- 为确切的配对和幸存者获得当前的破坏性批准。
-- 请勿将批准范围扩大到其他类似记录。
+- Obtain current destructive approval for the exact pair and survivor.
+- Do not extend approval to other similar records.
 
-执行与验证：
+Execution and verification:
 
-- 申请一次。
-- 保留操作receipt。
-- 重新读取幸存者，删除身份状态、子项、集合、标签和关系。
-- 报告任何不完整的传输。
+- Apply once.
+- Preserve operation receipt.
+- Re-read survivor, removed identity status, children, collections, tags, and relations.
+- Report any incomplete transfer.
 
-不完整的子传输失败结果：
+Failed result for incomplete child transfer:
 
 ```json
 {
@@ -293,46 +293,46 @@ risk_class: additive | corrective | destructive
 }
 ```
 
-恢复：
+Recovery:
 
-- 不要重复合并。
-- 检查当前幸存者和附件状态。
-- 仅准备剩余的附件更改。
+- Do not repeat the merge.
+- Inspect current survivor and attachment state.
+- Prepare only the residual attachment change.
 
-### Trace 3：附加分析 artifact 时出现未知状态
+### Trace 3: Unknown state while attaching an analysis artifact
 
-用户话语：
+User utterance:
 
-> 将此分析附在论文中。
+> Attach this analysis to the paper.
 
-准备工作：
+Preparation:
 
-1. 验证本地 artifact 路径、字节、媒体类型和预期角色。
-2. 解析确切的父项 Zotero 项。
-3. 阅读当前附件。
-4. 上传文件。
-5. 保留返回的`fileId`、校验和、大小和消耗事实。
-6. 预览附件写入变更。
-7. 获得当前授权。
+1. Verify the local artifact path, bytes, media type, and intended role.
+2. Resolve the exact parent Zotero item.
+3. Read current attachments.
+4. Upload the file.
+5. Preserve the returned `fileId`, checksum, size, and consumption facts.
+6. Preview the attachment mutation.
+7. Obtain current authority.
 
-失败：
+Failure:
 
-- 附着写入变更调用在提交后失去传输。
-- 远程影响未知。
+- The attachment mutation call loses transport after submission.
+- Remote effect is unknown.
 
-所需回应：
+Required response:
 
-- 保留上传事实和操作handle。
-- 请勿再次上传。
-- 不要重复附着写入变更。
-- 检查耐用的receipt。
-- 重新阅读家长附件。
+- Preserve upload facts and operation handle.
+- Do not upload again.
+- Do not repeat the attachment mutation.
+- Inspect the durable receipt.
+- Re-read parent attachments.
 
-可能的结果：
+Possible outcomes:
 
-- 附件存在并匹配校验和：将目标标记为完成。
-- 收据证明未更改：如果允许，使用有效 handle准备安全残留写入变更。
-- 状态仍然未知：返回`failed`并需要手动/当前状态解析。
+- Attachment exists and matches checksum: mark the target complete.
+- Receipt proves unchanged: prepare a safe residual mutation using a valid handle if permitted.
+- State remains unknown: return `failed` and require manual/current-state resolution.
 
 ```json
 {
@@ -358,44 +358,44 @@ risk_class: additive | corrective | destructive
 }
 ```
 
-不安全的替代方案：
+Unsafe alternatives:
 
-- 由于未收到成功响应而重试；
-- 再次上传相同的字节；
-- 假设本地 artifact 路径是 Zotero 附件；
-- 附加到标题匹配。
+- retrying because no success response was received;
+- uploading the same bytes again;
+- assuming the local artifact path is a Zotero attachment;
+- attaching to a title match.
 
-## 整理对话与记录模板
+## Curation conversation and record patterns
 
-模糊的要求：
+Vague request:
 
-> “清理”可能意味着几种不同的改变。我将首先在提案之前/之后生成每个目标，并保持实时 Zotero 状态不变。
+> “Clean up” could mean several different changes. I will first produce a per-target before/after proposal and leave live Zotero state unchanged.
 
-破坏性请求：
+Destructive request:
 
-> 此合并将删除一条记录并影响其注释和附件。请确认确切的幸存者和列出的儿童处理方式。
+> This merge would remove one record and affect its notes and attachments. Please confirm the exact survivor and listed child handling.
 
-部分结果：
+Partial result:
 
-> 六项变更已得到实时验证，一项被拒绝，一项仍未知。剩余提案不包括六项已验证的成功。
+> Six changes are live-verified, one was denied, and one remains unknown. The residual proposal excludes the six verified successes.
 
-未知结果：
+Unknown result:
 
-> 呼叫可能已到达 Zotero。在考虑重试之前，我将检查持久的receipt和当前目标。
+> The call may have reached Zotero. I will inspect the durable receipt and current target before considering any retry.
 
-每个整理决策记录都应保存：
+Every curation decision record should preserve:
 
-- 目标ref；
-- 状态之前；
-- 期望的状态；
-- 更正证据；
-- 语义变化类型；
-- 破坏性后果；
-- 批次标识；
-- 预览;
-- 现任权力机构；
-- 操作/应用receipt；
-- 生活在状态之后；
-- 剩余增量。
+- target ref;
+- before state;
+- desired state;
+- correction evidence;
+- semantic change type;
+- destructive consequences;
+- batch identity;
+- preview;
+- current authority;
+- operation/apply receipt;
+- live after state;
+- residual delta.
 
-保持提案artifact、业务结果和当前 Zotero 状态不同。提案描述了意图，结果描述了经过验证的执行，只有实时读取才能证明当前状态。
+Keep the proposal artifact, business result, and live Zotero state distinct. The proposal describes intent, the result describes verified execution, and only the live read proves current state.

@@ -51,19 +51,16 @@ pub struct Cli {
     pub command: Command,
 }
 
-fn parse_operation_id(value: &str) -> Result<String, String> {
+pub(crate) fn normalize_operation_id(value: &str) -> Result<String, String> {
     let trimmed = value.trim();
-    if trimmed.is_empty()
-        || trimmed.len() > 200
-        || !trimmed
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ':' | '-'))
-    {
-        return Err(
-            "operation id must be 1-200 ASCII letters, digits, '.', '_', ':', or '-'".to_string(),
-        );
+    if trimmed.is_empty() || trimmed.encode_utf16().count() > 128 {
+        return Err("operation id must contain between 1 and 128 characters".to_string());
     }
     Ok(trimmed.to_string())
+}
+
+fn parse_operation_id(value: &str) -> Result<String, String> {
+    normalize_operation_id(value)
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -1065,6 +1062,18 @@ pub struct BridgeInputArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub struct MutationInputArgs {
+    #[arg(
+        long,
+        required = true,
+        value_name = "JSON_OR_FILE",
+        help = "Canonical mutation input as inline JSON, a file path, @file, or '-' for stdin",
+        long_help = "Canonical mutation input is required. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin."
+    )]
+    pub input: String,
+}
+
+#[derive(Debug, Clone, Args)]
 pub struct BridgeQueryArgs {
     #[arg(
         long,
@@ -1088,13 +1097,20 @@ pub enum MutationCommand {
         about = "Preview a Zotero mutation",
         long_about = "Call Zotero capability mutation.preview. Use --input with the mutation preview payload."
     )]
-    Preview(BridgeInputArgs),
+    Preview(MutationInputArgs),
 
     #[command(
         about = "Apply a Zotero mutation",
         long_about = "Call Zotero capability mutation.execute. Use --input with the mutation execution payload."
     )]
-    Apply(BridgeInputArgs),
+    Apply(MutationInputArgs),
+
+    #[command(
+        name = "get-operation",
+        about = "Read canonical mutation evidence",
+        long_about = "Call Zotero capability mutation.get_operation. This only observes canonical mutation evidence and never executes or retries a mutation."
+    )]
+    GetOperation(MutationGetOperationArgs),
 
     #[command(
         name = "literature-ingest",
@@ -1114,6 +1130,15 @@ pub enum MutationCommand {
 
     #[command(about = "Build and apply Zotero note mutations")]
     Note(MutationNoteArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct MutationGetOperationArgs {
+    #[arg(
+        value_parser = parse_operation_id,
+        help = "Canonical mutation operation id returned by or supplied to mutation.execute"
+    )]
+    pub operation_id: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2645,6 +2670,30 @@ mod tests {
             },
             _ => panic!("expected mutation command"),
         }
+    }
+
+    #[test]
+    fn parses_canonical_mutation_observation() {
+        let cli = Cli::parse_from(["zotero-bridge", "mutation", "get-operation", "mutation-1"]);
+
+        match cli.command {
+            Command::Mutation(args) => match args.command {
+                MutationCommand::GetOperation(args) => {
+                    assert_eq!(args.operation_id, "mutation-1");
+                }
+                _ => panic!("expected mutation get-operation"),
+            },
+            _ => panic!("expected mutation command"),
+        }
+    }
+
+    #[test]
+    fn normalizes_operation_ids_like_the_mutation_authority() {
+        assert_eq!(
+            super::normalize_operation_id("  操作-1  "),
+            Ok("操作-1".to_string())
+        );
+        assert!(super::normalize_operation_id(&"a".repeat(129)).is_err());
     }
 
     #[test]

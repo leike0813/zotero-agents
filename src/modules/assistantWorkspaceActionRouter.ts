@@ -699,7 +699,7 @@ const ASSISTANT_WORKSPACE_HOST_ACTION_TABLE: {
       const selectionContext =
         target === "library"
           ? await readSelectionContext(
-              createZoteroHostCapabilityBroker({}, () => host.win),
+              createZoteroHostCapabilityBroker(() => host.win),
             )
           : undefined;
       await sendAcpConversationPrompt({

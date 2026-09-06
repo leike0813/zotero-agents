@@ -23,10 +23,13 @@ import {
   resolveHostBridgeUploadedFile,
 } from "../../src/modules/hostBridgeFileRegistry";
 import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridgeWorkflowResources";
+import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
 import {
   configureHostBridgeGlobalApprovalHandlerForTests,
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
+import type { HostBridgeStatusSnapshot } from "../../src/modules/hostBridgeProtocol";
+import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
 import { setPref } from "../../src/utils/prefs";
 import {
   resetZoteroLibrarySourcePageQueryAdapterForTests,
@@ -380,6 +383,92 @@ describe("host bridge file downloads", function () {
         "file_handle_expired",
       );
     }
+  });
+
+  it("stages preview uploads as canonical sources without consuming their handles", async function () {
+    const bytes = new TextEncoder().encode("preview input");
+    const upload = await registerHostBridgeUploadedFile({
+      bytes,
+      displayName: "preview.txt",
+      contentType: "text/plain",
+    });
+    const observedInputs: Record<string, unknown>[] = [];
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      mutations: {
+        async preview(input, scope) {
+          assert.deepEqual(scope, { ownerId: "host-bridge" });
+          observedInputs.push(input as Record<string, unknown>);
+          return {
+            schema: "zotero-agents.mutation-preview.v1" as const,
+            operation: input.operation,
+            outcome: "would_change" as const,
+            observedAt: "2026-09-06T00:00:00.000Z",
+            domainPlanDigest: `preview-upload:${input.operation}`,
+            plan: { operation: input.operation },
+          };
+        },
+      },
+    });
+
+    for (const input of [
+      {
+        operation: "attachments.create",
+        placement: { kind: "top_level", libraryId: 1 },
+        source: {
+          kind: "stored_file",
+          fileId: upload.fileId,
+          targetFilename: "preview.txt",
+        },
+        metadata: { title: "Preview upload", contentType: "text/plain" },
+      },
+      {
+        operation: "attachments.replaceFile",
+        attachmentRef: { libraryId: 1, key: "ATTACHMENT" },
+        source: {
+          kind: "stored_file",
+          fileId: upload.fileId,
+          targetFilename: "preview.txt",
+        },
+      },
+    ]) {
+      const result = await executeHostBridgeCapability(
+        "mutation.preview",
+        input,
+        {
+          connectionMode: "local",
+          getStatus: () => ({}) as HostBridgeStatusSnapshot,
+          resolveZoteroHostCapabilityBroker: () => broker,
+        },
+      );
+      assert.deepInclude(result as Record<string, unknown>, {
+        operation: input.operation,
+      });
+    }
+
+    assert.lengthOf(observedInputs, 2);
+    for (const observedInput of observedInputs) {
+      const source = observedInput.source as Record<string, unknown>;
+      assert.deepInclude(source, {
+        kind: "stored_file",
+        targetFilename: "preview.txt",
+      });
+      assert.notProperty(source, "fileId");
+      assert.notProperty(source, "copyFile");
+      assert.notProperty(source, "removePath");
+      assert.match(
+        (source.content as { main: { sha256: string } }).main.sha256,
+        /^sha256:[a-f0-9]{64}$/i,
+      );
+      assert.strictEqual(
+        (source.content as { main: { sizeBytes: number } }).main.sizeBytes,
+        bytes.byteLength,
+      );
+    }
+    assert.isFalse(hasHostBridgeUploadedFileLease(upload.fileId));
+    assert.strictEqual(
+      (await resolveHostBridgeUploadedFile(upload.fileId)).descriptor.fileId,
+      upload.fileId,
+    );
   });
 
   it("invalidates process-scoped resource handles and leases after a registry restart", async function () {

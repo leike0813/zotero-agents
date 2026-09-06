@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change humanize-host-bridge-approval-prompts. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Host Bridge workflow approvals are human-readable
 The system SHALL present workflow submission approvals using concise
 user-facing text rather than raw machine payloads.
@@ -15,21 +17,18 @@ user-facing text rather than raw machine payloads.
   dumps.
 
 ### Requirement: Host Bridge capability approvals are human-readable
-The system SHALL present capability approvals using concise user-facing text
-that describes the requested action.
+
+Capability approvals SHALL describe the canonical prepared action using a short target and effect summary. The approval SHALL omit raw JSON, prepared-plan tokens, file leases, caller revisions, local paths, and storage details. mutation.preview and mutation.get_operation SHALL not create approval requests.
 
 #### Scenario: Mutation execute requires approval
-- **WHEN** a Host Bridge `mutation.execute` request requires Zotero approval
-- **THEN** the approval request SHALL describe the mutation action in
-  user-facing terms such as adding tags, removing tags, or updating fields
-- **AND** it SHALL include a short target summary
-- **AND** it SHALL NOT include raw JSON request dumps.
+- **WHEN** a Host Bridge mutation.execute request requires Zotero approval
+- **THEN** the approval request SHALL describe the canonical mutation action and a short prepared target summary
+- **AND** it SHALL not include raw JSON request dumps or private prepared evidence.
 
 #### Scenario: Unknown approved capability requires approval
 - **WHEN** a future or generic Host Bridge capability requires Zotero approval
-- **THEN** the approval request SHALL still use a generic human-readable Host
-  Bridge action summary
-- **AND** it SHALL NOT include raw JSON request dumps by default.
+- **THEN** the approval request SHALL use a human-readable Host Bridge action summary
+- **AND** it SHALL not include raw JSON request dumps by default.
 
 ### Requirement: Permission details affordance is user-facing
 The dashboard permission UI SHALL label the expandable approval detail area as
@@ -132,3 +131,12 @@ Host Bridge SHALL validate capability input structurally before evaluating appro
 - **WHEN** capability input contains a field not declared in the capability input Schema
 - **THEN** Host Bridge SHALL return a structured invalid input error listing the undeclared field
 - **AND** SHALL NOT invoke the handler.
+
+### Requirement: Approved mutation plans SHALL be reevaluated before effect
+
+After approval wait, Host Bridge SHALL request fresh private preflight before the first Host effect. It MAY retain approval only when the operation plan digest is unchanged; a changed digest SHALL result in a new user-visible approval.
+
+#### Scenario: Prepared scope changes
+- **WHEN** reevaluation yields a different domain plan digest after approval
+- **THEN** the previous approval SHALL not authorize the mutation
+- **AND** Host Bridge SHALL show a new approval for the changed scope.

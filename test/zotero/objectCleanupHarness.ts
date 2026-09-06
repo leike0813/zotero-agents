@@ -1,4 +1,3 @@
-import { handlers } from "../../src/handlers";
 import { appendRuntimeLog } from "../../src/modules/runtimeLogManager";
 import {
   measureAsyncTestPerformanceSpan,
@@ -6,10 +5,7 @@ import {
 } from "../../src/modules/testPerformanceProbeBridge";
 import { shouldKeepZoteroTestObjects } from "./testObjectKeepFlag";
 
-const INSTALL_FLAG = "__zs_zotero_test_object_cleanup_installed__";
-
 type RuntimeWithCleanupInstallFlag = typeof globalThis & {
-  [INSTALL_FLAG]?: boolean;
   IOUtils?: unknown;
   PathUtils?: unknown;
 };
@@ -93,34 +89,6 @@ function untrackCollectionId(id: number | null | undefined) {
     return;
   }
   trackedCollectionIds.delete(id);
-}
-
-function resolveItemId(ref: number | string | ItemLike) {
-  if (typeof ref === "number") {
-    return ref;
-  }
-  if (typeof ref === "string") {
-    const item = Zotero.Items.getByLibraryAndKey?.(
-      Zotero.Libraries.userLibraryID,
-      ref,
-    );
-    return item?.id;
-  }
-  return ref?.id ?? undefined;
-}
-
-function resolveCollectionId(ref: number | string | CollectionLike) {
-  if (typeof ref === "number") {
-    return ref;
-  }
-  if (typeof ref === "string") {
-    const collection = Zotero.Collections.getByLibraryAndKey?.(
-      Zotero.Libraries.userLibraryID,
-      ref,
-    );
-    return collection?.id;
-  }
-  return ref?.id ?? undefined;
 }
 
 function isCollectionLike(value: unknown): value is CollectionLike {
@@ -214,235 +182,6 @@ async function eraseBestEffort(
   }
 }
 
-function wrapHandlerMethod<T extends (...args: any[]) => any>(
-  target: Record<string, unknown>,
-  key: string,
-  wrapper: (original: T) => T,
-) {
-  const current = target[key];
-  if (typeof current !== "function") {
-    return;
-  }
-  target[key] = wrapper(current as T);
-}
-
-function installHandlerWrappers() {
-  wrapHandlerMethod(
-    handlers.item,
-    "create",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const startedAt = Date.now();
-        try {
-          const item = await original(...args);
-          trackItemId((item as ItemLike)?.id);
-          return item;
-        } finally {
-          recordTestPerformanceSpan({
-            name: "handlers.item.create",
-            startedAt,
-            durationMs: Date.now() - startedAt,
-            labels: {
-              itemType: String(
-                (args[0] as { itemType?: string })?.itemType || "",
-              ),
-            },
-          });
-        }
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.parent,
-    "addNote",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const startedAt = Date.now();
-        try {
-          const note = await original(...args);
-          trackItemId((note as ItemLike)?.id);
-          return note;
-        } finally {
-          recordTestPerformanceSpan({
-            name: "handlers.parent.addNote",
-            startedAt,
-            durationMs: Date.now() - startedAt,
-            labels: {
-              parentId:
-                resolveItemId(args[0] as number | string | ItemLike) ?? null,
-            },
-          });
-        }
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.parent,
-    "addAttachment",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const attachment = await original(...args);
-        trackItemId((attachment as ItemLike)?.id);
-        return attachment;
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.note,
-    "create",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const note = await original(...args);
-        trackItemId((note as ItemLike)?.id);
-        return note;
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.attachment,
-    "create",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const attachment = await original(...args);
-        trackItemId((attachment as ItemLike)?.id);
-        return attachment;
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.attachment,
-    "createFromPath",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const startedAt = Date.now();
-        try {
-          const attachment = await original(...args);
-          trackItemId((attachment as ItemLike)?.id);
-          return attachment;
-        } finally {
-          recordTestPerformanceSpan({
-            name: "handlers.attachment.createFromPath",
-            startedAt,
-            durationMs: Date.now() - startedAt,
-            labels: {
-              hasParent: !!(args[0] as { parent?: unknown })?.parent,
-              hasPath: !!String(
-                (args[0] as { path?: string })?.path || "",
-              ).trim(),
-              hasDataPath: !!String(
-                (args[0] as { dataPath?: string })?.dataPath || "",
-              ).trim(),
-            },
-          });
-        }
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.collection,
-    "create",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const collection = await original(...args);
-        trackCollectionId((collection as CollectionLike)?.id);
-        return collection;
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.item,
-    "remove",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const startedAt = Date.now();
-        const id = resolveItemId(args[0] as number | string | ItemLike);
-        try {
-          return await original(...args);
-        } finally {
-          untrackItemId(id);
-          recordTestPerformanceSpan({
-            name: "handlers.item.remove",
-            startedAt,
-            durationMs: Date.now() - startedAt,
-            labels: {
-              kind: "item",
-            },
-          });
-        }
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.note,
-    "remove",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const startedAt = Date.now();
-        const id = resolveItemId(args[0] as number | string | ItemLike);
-        try {
-          return await original(...args);
-        } finally {
-          untrackItemId(id);
-          recordTestPerformanceSpan({
-            name: "handlers.note.remove",
-            startedAt,
-            durationMs: Date.now() - startedAt,
-            labels: {
-              kind: "note",
-            },
-          });
-        }
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.attachment,
-    "remove",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const startedAt = Date.now();
-        const id = resolveItemId(args[0] as number | string | ItemLike);
-        try {
-          return await original(...args);
-        } finally {
-          untrackItemId(id);
-          recordTestPerformanceSpan({
-            name: "handlers.attachment.remove",
-            startedAt,
-            durationMs: Date.now() - startedAt,
-            labels: {
-              kind: "attachment",
-            },
-          });
-        }
-      }) as typeof original,
-  );
-  wrapHandlerMethod(
-    handlers.collection,
-    "delete",
-    (original) =>
-      (async (...args: Parameters<typeof original>) => {
-        const startedAt = Date.now();
-        const id = resolveCollectionId(
-          args[0] as number | string | CollectionLike,
-        );
-        try {
-          return await original(...args);
-        } finally {
-          untrackCollectionId(id);
-          recordTestPerformanceSpan({
-            name: "handlers.collection.delete",
-            startedAt,
-            durationMs: Date.now() - startedAt,
-            labels: {
-              kind: "collection",
-            },
-          });
-        }
-      }) as typeof original,
-  );
-}
-
-export function installZoteroTestObjectCleanupHarness() {
-  const runtime = getRuntime();
-  if (runtime[INSTALL_FLAG]) {
-    return;
-  }
-  runtime[INSTALL_FLAG] = true;
-  installHandlerWrappers();
-}
-
 export function registerZoteroTestObjectForCleanup(
   target: ItemLike | CollectionLike | number | null | undefined,
 ) {
@@ -471,6 +210,25 @@ export function registerZoteroTestObjectsForCleanup(
 ) {
   for (const target of targets) {
     registerZoteroTestObjectForCleanup(target);
+  }
+}
+
+export function unregisterZoteroTestObjectForCleanup(
+  target: ItemLike | CollectionLike | number | null | undefined,
+) {
+  if (target === null || typeof target === "undefined") {
+    return;
+  }
+  if (typeof target === "number") {
+    untrackItemId(target);
+    return;
+  }
+  if (isCollectionLike(target)) {
+    untrackCollectionId(target.id);
+    return;
+  }
+  if (isItemLike(target)) {
+    untrackItemId(target.id);
   }
 }
 

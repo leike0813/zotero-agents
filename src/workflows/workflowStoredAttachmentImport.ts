@@ -6,25 +6,15 @@ import {
 import { joinPath } from "../utils/path";
 
 export type WorkflowStoredAttachmentImportRequest = {
-  parent?: Zotero.Item | number | string | null;
   path: string;
   targetFilename?: string | null;
-  title?: string | null;
-  mimeType?: string | null;
-  charset?: string | null;
-  url?: string | null;
   companionFiles?: Array<{
     sourcePath: string;
     relativePath: string;
   }>;
 };
 
-type StoredAttachmentImportArgs = Omit<
-  WorkflowStoredAttachmentImportRequest,
-  "companionFiles"
->;
-
-export type WorkflowStoredAttachmentImportDependencies = {
+export type WorkflowStoredAttachmentStagerDependencies = {
   getStagingRoot: () => string;
   validateSource?: (
     path: string,
@@ -32,10 +22,6 @@ export type WorkflowStoredAttachmentImportDependencies = {
   ensureDirectory: (path: string) => Promise<void>;
   copyFile: (sourcePath: string, targetPath: string) => Promise<void>;
   removePath: (path: string) => Promise<unknown>;
-  importStoredFromPath: (
-    args: StoredAttachmentImportArgs,
-  ) => Promise<Zotero.Item>;
-  removeAttachment: (attachment: Zotero.Item) => Promise<void>;
 };
 
 type ValidatedCompanion = {
@@ -105,7 +91,7 @@ function createStagingDirectory(root: string) {
 }
 
 async function removeStagingDirectory(
-  dependencies: Pick<WorkflowStoredAttachmentImportDependencies, "removePath">,
+  dependencies: Pick<WorkflowStoredAttachmentStagerDependencies, "removePath">,
   stagingDirectory: string,
 ) {
   const removed = await dependencies.removePath(stagingDirectory);
@@ -124,7 +110,7 @@ export type WorkflowStagedAttachmentSources = {
 
 export function createWorkflowStoredAttachmentStager(
   dependencies: Pick<
-    WorkflowStoredAttachmentImportDependencies,
+    WorkflowStoredAttachmentStagerDependencies,
     | "getStagingRoot"
     | "validateSource"
     | "ensureDirectory"
@@ -231,62 +217,6 @@ export function createWorkflowStoredAttachmentStager(
     } catch (primaryError) {
       try {
         await removeStagingDirectory(dependencies, stagingDirectory);
-      } catch (cleanupError) {
-        attachCleanupFailure(primaryError, cleanupError);
-      }
-      throw primaryError;
-    }
-  };
-}
-
-export function createWorkflowStoredAttachmentImport(
-  dependencies: WorkflowStoredAttachmentImportDependencies,
-) {
-  const stageStoredAttachmentSources =
-    createWorkflowStoredAttachmentStager(dependencies);
-  return async function importStoredFile(
-    request: WorkflowStoredAttachmentImportRequest,
-  ) {
-    const path = requireNativePath(request?.path, "Stored attachment path");
-    const importArgs: StoredAttachmentImportArgs = {
-      parent: request?.parent,
-      path,
-      title: request?.title,
-      mimeType: request?.mimeType,
-      charset: request?.charset,
-      url: request?.url,
-    };
-    const staged = await stageStoredAttachmentSources(request);
-    let attachment: Zotero.Item | null = null;
-    try {
-      attachment = await dependencies.importStoredFromPath({
-        ...importArgs,
-        path: staged.stagedMainPath,
-      });
-      const storedPath = String(
-        (await attachment.getFilePathAsync?.()) || "",
-      ).trim();
-      const storageRoot = getParentPath(storedPath);
-      if (!storageRoot) {
-        throw new Error("Stored attachment storage directory is unavailable");
-      }
-      for (const companion of staged.entries) {
-        const targetPath = joinPath(storageRoot, companion.relativePath);
-        await dependencies.ensureDirectory(getParentPath(targetPath));
-        await dependencies.copyFile(companion.stagedPath, targetPath);
-      }
-      await staged.cleanup();
-      return attachment;
-    } catch (primaryError) {
-      if (attachment) {
-        try {
-          await dependencies.removeAttachment(attachment);
-        } catch (cleanupError) {
-          attachCleanupFailure(primaryError, cleanupError);
-        }
-      }
-      try {
-        await staged.cleanup();
       } catch (cleanupError) {
         attachCleanupFailure(primaryError, cleanupError);
       }

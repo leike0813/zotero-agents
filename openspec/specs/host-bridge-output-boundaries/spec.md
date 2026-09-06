@@ -2,6 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change harden-host-bridge-cli-output-boundaries. Update Purpose after archive.
+
 ## Requirements
 
 ### Requirement: Host Bridge workflow outputs redact host-local paths
@@ -173,20 +174,22 @@ A bridge-download descriptor SHALL prove only that the requested archive was pre
 
 ### Requirement: Host Bridge attachment outputs omit host-local paths
 
-Host Bridge capability and MCP results SHALL NOT expose host-local attachment paths. Attachment reads and mutation results SHALL use the same remote projection and SHALL return an opaque broker-issued file descriptor when download access is available.
+Host Bridge capability and MCP results SHALL not expose host-local attachment paths. Attachment reads and canonical mutation receipts or attempts SHALL use the same remote projection and return an opaque broker-issued file descriptor when available. They SHALL not expose prepared-file paths, upload handles, leases, public tokens, caller revisions, or raw Host objects.
+
+#### Scenario: Canonical mutation creates or changes an attachment
+- **WHEN** mutation.execute returns attachment facts in a receipt or attempt
+- **THEN** every attachment summary SHALL omit host-local and prepared-file paths
+- **AND** available content SHALL be represented only through remote-safe descriptors.
 
 #### Scenario: Caller reads item attachments
-
 - **WHEN** a Host Bridge or MCP caller reads item attachment metadata
 - **THEN** each attachment result SHALL omit its host-local path
-- **AND** available content SHALL be represented by an opaque file descriptor
-- **AND** unavailable content SHALL use a structured unavailable state.
+- **AND** available content SHALL be represented by an opaque file descriptor or structured unavailable state.
 
 #### Scenario: Mutation creates an attachment
-
-- **WHEN** `mutation.execute` successfully performs `item.attachFile`
-- **THEN** every attachment summary in the result SHALL omit its host-local path
-- **AND** the uploaded file and created Zotero attachment SHALL be represented only through remote-safe descriptors.
+- **WHEN** mutation.execute successfully creates an attachment
+- **THEN** every attachment summary in the canonical evidence SHALL omit host-local paths
+- **AND** it SHALL use the same remote-safe descriptor projection.
 
 ### Requirement: Host Bridge snapshot output SHALL expose only opaque remote state
 The Host Bridge snapshot projection SHALL expose bounded portable item pages, opaque snapshot and cursor identities, normalized terminal status, and completion evidence suitable for the remote contract. It MUST NOT expose local paths, native handles, process objects, repository records, or internal session storage.
@@ -208,3 +211,12 @@ A payload page SHALL distinguish source scan progress from returned matches. Emp
 #### Scenario: Empty candidate page is followed by a matching page
 - **WHEN** the first bounded candidate page has no payload and a later page has one
 - **THEN** the consumer continues and includes the later payload without claiming premature absence.
+
+### Requirement: Canonical mutation evidence SHALL have its own output boundary
+
+Bridge, MCP, and CLI projections of canonical mutation execute and observation SHALL expose operation identity, operation kind, receipt or attempt state, bounded affected and residual portable refs, and typed recovery data. They SHALL not use the generic HTTP operation envelope or claim partial success. committed and unchanged are receipts; failed, canceled, unknown, and repair_required are attempts.
+
+#### Scenario: Evidence is incomplete
+- **WHEN** a canonical mutation cannot establish complete success evidence or leaves residual work
+- **THEN** the output contains the corresponding typed attempt
+- **AND** it SHALL not present a partial mutation result as a success receipt.

@@ -7,7 +7,7 @@ import {
   workflowsPath,
   writeUtf8,
 } from "../zotero/workflow-test-utils";
-import { handlers } from "../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { lockSelection } from "../../src/modules/selectionContext";
 import {
   createBoundWorkflowResearchBundleApi,
@@ -1504,7 +1504,6 @@ describe("literature portable bundle workflows", function () {
     const noteUpdate = await host.notes.updateContent({
       operationId: `literature-bundle-test:seed-note-image:${Date.now()}:${Math.random()}`,
       noteRef,
-      expectedRevision: noteDetail.revision,
       content: {
         format: "html",
         value: noteDetail.content.replace(

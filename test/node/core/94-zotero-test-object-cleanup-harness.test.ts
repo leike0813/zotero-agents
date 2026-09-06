@@ -1,11 +1,10 @@
 import { assert } from "chai";
-import { handlers } from "../../../src/handlers";
+import { nativeFixtureMutations as handlers } from "../../helpers/nativeFixtureMutations";
 import { setBackgroundRuntimeCleanupDepsForTests } from "../../../src/modules/testRuntimeCleanup";
 import { runZoteroSharedTeardownForTests } from "../../zotero/diagnosticBridge";
 import {
   cleanupTrackedZoteroTestObjects,
   getTrackedZoteroTestObjectIdsForTests,
-  installZoteroTestObjectCleanupHarness,
   registerZoteroTestObjectForCleanup,
   resetTrackedZoteroTestObjectsForTests,
 } from "../../zotero/objectCleanupHarness";
@@ -22,7 +21,6 @@ describe("zotero test real object cleanup harness", function () {
   let hadIOUtils = false;
 
   beforeEach(function () {
-    installZoteroTestObjectCleanupHarness();
     hadIOUtils = "IOUtils" in globalThis;
     previousIOUtils = (globalThis as { IOUtils?: unknown }).IOUtils;
     (globalThis as { IOUtils?: unknown }).IOUtils = {};
@@ -45,7 +43,7 @@ describe("zotero test real object cleanup harness", function () {
     }
   });
 
-  it("tracks handlers-created real Zotero items and collections", async function () {
+  it("tracks fixture-created real Zotero items and collections", async function () {
     const parent = await handlers.item.create({
       itemType: "journalArticle",
       fields: { title: "Cleanup Harness Parent" },
@@ -78,7 +76,7 @@ describe("zotero test real object cleanup harness", function () {
     });
   });
 
-  it("untracks items and collections when handlers remove or delete them explicitly", async function () {
+  it("untracks items and collections when fixtures remove or delete them explicitly", async function () {
     const parent = await handlers.item.create({
       itemType: "journalArticle",
       fields: { title: "Cleanup Harness Remove Parent" },

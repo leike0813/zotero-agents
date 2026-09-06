@@ -1,80 +1,80 @@
-# 文献分析操作手册
+# Literature Analysis Playbook
 
-## 来源可用性与证据层级
+## Source availability and evidence levels
 
-选择分析主张前，先确定每个条目的最强当前来源层级：
+Establish the strongest current source level for every item before choosing analytical claims:
 
-| 可用来源 | 适用主张 | 必须说明的限制 |
+| Available source | Suitable claims | Required limitations |
 | --- | --- | --- |
-| 书目元数据 | 身份、出版事实、已索引字段 | 不得主张未公开的方法或结果 |
-| 摘要 | 摘要明示的目的、概括方法/结果 | 标注基于摘要；不得重构完整论证 |
-| 笔记或批注 | 已记录摘录和读者观察 | 保留笔记/批注身份，并区分作者文本与评论 |
-| OCR 或部分内容视图 | 可用 chunk 中可见的主张 | 标明缺失页面、识别不确定性与不连续处 |
-| 已交付全文 | 已检查章节支持的问题 | 保留 page/section/chunk locator 与文件验证事实 |
-| 生成的 digest 或分析 artifact | 既往解释及声明来源基础 | 除非当前任务明确分析该 artifact，否则视为次级来源 |
+| Bibliographic metadata | Identity, publication facts, indexed fields | No claims about unexposed methods or results |
+| Abstract | Stated purpose, high-level methods/results in the abstract | Label as abstract-based; no full argument reconstruction |
+| Notes or annotations | Recorded excerpts and reader observations | Preserve note/annotation identity and distinguish author text from commentary |
+| OCR or partial content view | Claims visible in available chunks | Mark missing pages, recognition uncertainty, and discontinuities |
+| Delivered full text | Questions supported by inspected sections | Preserve page/section/chunk locators and file verification facts |
+| Generated digest or analysis artifact | Prior interpretation and declared source basis | Treat as secondary unless the current task explicitly analyzes that artifact |
 
-组合来源前解析版次、译本、版本和附件身份。条目有多个附件时，识别由哪一个提供证据。按文件合同验证交付字节，并避免暴露超出问题所需的私有内容。
+Resolve edition, translation, version, and attachment identity before combining sources. When an item has several attachments, identify which one supplied the evidence. Verify delivered bytes according to the file contract and avoid exposing broader private content than the question requires.
 
-## 分析流程
+## Analysis procedure
 
-1. 将请求转化为明确分析问题；对于比较，定义适用于每个来源的稳定维度。
-2. 解析条目集合及每个条目的可用证据层级。
-3. 提取带 locator 的相关段落、字段、批注或观察。
-4. 区分来源陈述与自身解释、方法评估、比较及不确定性。
-5. 使用矛盾段落和缺失数据检验结论，不得依据预期填补空白。
-6. 生成请求交付物，并为实质主张附加内联来源证据。
+1. Convert the request into explicit analytical questions and, for comparison, stable dimensions applied to every source.
+2. Resolve the item set and available evidence level per item.
+3. Extract relevant passages, fields, annotations, or observations with locators.
+4. Separate what the source states from your interpretation, methodological assessment, comparison, and uncertainty.
+5. Test conclusions against contradictory passages and missing data rather than filling gaps from expectation.
+6. Produce the requested deliverable and attach inline source evidence to material claims.
 
-论文 digest 应按请求目的组织；用户提出聚焦问题时，不使用通用模板。比较矩阵使用对等标准，以 `not available` 显示缺失，不得静默改变维度。citation 或 reference analysis 区分被引记录元数据、引文上下文及自身对影响的推断。
+A paper digest should be shaped by the requested purpose, not by a generic template when the user asked a focused question. A comparison matrix uses equivalent criteria and shows `not available` rather than silently changing dimensions. Citation or reference analysis distinguishes cited-record metadata, citation context, and your inference about influence.
 
-审阅批注时，保留返回的 quote、comment、color/category、page 或 position 及父条目。读者批注可证明标记或记录了什么，但不一定代表论文作者主张。
+For annotation review, retain quote, comment, color/category, page or position, and parent item where returned. Reader annotations can provide evidence of what was marked or noted; they do not necessarily state the paper author's claim.
 
-## 工作流生成分析
+## Workflow-produced analysis
 
-已声明文献分析工作流提供稳定多 artifact 合同、后台 provider 执行或重复逐篇处理时使用它。提交前描述并校验当前输入。多篇论文默认串行或显式有界并发，使 provider 限额和逐条目 receipt 可归因。
+Use a declared literature-analysis workflow when it provides a stable multi-artifact contract, background provider execution, or repeated per-paper processing. Describe and validate current inputs before submission. For multiple papers, default to serial or explicitly bounded concurrency so provider limits and per-item receipts remain attributable.
 
-host 直接准入工作时，使用各自 `workflowRunId` 监控每个已提交 Zotero 托管 run。host 通过原生队列准入请求时，保留单一 `submissionId`，检查每个不可变 unit 及其 source parent ref，并且只有该 unit 暴露真实 task 或 run handle 后才开始 run-plane monitoring。不得构造逐篇论文的 Agent 侧 queue，也不得重新提交仍处于 pending 的 unit。
+When the host admits work directly, monitor each submitted Zotero-managed run by its `workflowRunId`. When it admits the request through the native queue, retain the single `submissionId`, inspect each immutable unit and its source parent ref, and begin run-plane monitoring only after that unit exposes a real task or run handle. Do not build a per-paper agent-side queue or resubmit units that remain pending.
 
-分别记录 successful、failed 与 pending-or-canceled parent ref。所选 bounded concurrency 控制的是原生准入，而不是分析完整性，也不构成后续 submission 的权限。工作流承诺 digest、结构化 references 与 citation analysis 时，必须检查每个预期 artifact，不得把 aggregate submission state 或 terminal run status 当作充分证据。
+Record successful, failed, and pending-or-canceled parent refs independently. The chosen bounded concurrency controls native admission, not analytical completeness or permission for a later submission. Where the workflow promises a digest, structured references, and citation analysis, inspect each expected artifact rather than accepting aggregate submission state or terminal run status as sufficient.
 
-Agent 自主执行遵循协调器 handoff 合同：检查每个请求、按各请求 schema 生成输出、在本地校验，并且仅通过已审阅映射 apply。即使结构校验成功，分析质量决策仍由 Agent 负责。
+For self-owned execution, follow the coordinator's handoff contract: inspect every request, produce outputs against each request's schema, validate them locally, and apply only through the reviewed mapping. The analytical quality decision remains with the agent even after structural validation succeeds.
 
-## 交付物与完成证据
+## Deliverables and completion evidence
 
-常见交付物包括：
+Common deliverables include:
 
-- 带来源身份与证据层级的聚焦 digest；
-- 带 locator 与不确定性的提取表；
-- 使用稳定维度的跨论文比较；
-- 方法/结果/局限分析；
-- 批注派生的主张图；
-- 报告 artifact 及其实质结论的内联证据；
-- 每篇成功论文的已校验工作流 artifact。
+- a focused digest with source identity and evidence level;
+- an extraction table with locators and uncertainty;
+- a cross-paper comparison using stable dimensions;
+- a method/result/limitation analysis;
+- an annotation-derived claim map;
+- a report artifact plus inline evidence for its material conclusions;
+- validated workflow artifacts for each successful paper.
 
-声明文件 artifact 的 path、role 与 media type。机制提供 checksum 或字节数时，将其放入面向来源的 evidence。本地报告证明分析已生成，但不证明 Zotero 包含它。用户请求 Zotero 笔记、附件、标签或元数据更新时，先完成分析 artifact，再把单独写入路由给 curation。
+Declare file artifacts with path, role, and media type. When the mechanism supplies checksum or byte count, carry it in source-oriented evidence. A local report is evidence that analysis was produced, not that Zotero contains it. If the user requests a Zotero note, attachment, tag, or metadata update, finish the analysis artifact first and route the separate write to curation.
 
-完成需要覆盖请求分析维度，明确不可用证据，保证结论可追溯，并清楚区分 extraction 与 inference。宁可给出较小但真实的答案，也不要给出暗示阅读了未读内容的宽泛报告。
+Completion requires the requested analytical dimensions, explicit unavailable evidence, traceable conclusions, and a clear distinction between extraction and inference. A smaller truthful answer is preferable to a broad report that implies unread content.
 
-## 分析交付物类型
+## Analytical deliverable patterns
 
-依据用户需要做出的决策选择模式：
+Select a pattern by the decision the user needs:
 
-| 交付物 | 内部结构 | 证据重点 |
+| Deliverable | Internal structure | Evidence emphasis |
 | --- | --- | --- |
-| 聚焦论文摘要 | 问题、答案、支持段落、局限 | 最强可用来源层级与精确 locator |
-| 方法提取 | Population/data、design、variable、procedure、analysis、validity limit | 平行 field；缺失处填写 `not available` |
-| 结果提取 | Outcome、estimate/direction、condition、uncertainty、author interpretation | Table/figure/section 与分析单位 |
-| 跨论文比较 | 稳定维度、逐论文条目、一致点、矛盾点 | 等价来源层级，或显式的不对称 |
-| 主张—证据图 | Claim、source statement、evidence type、support/challenge relation | 区分作者主张与 Agent inference |
-| 批注综合 | Reader theme、引用/标记段落、comment、开放问题 | Annotation identity、position 与 parent source |
-| Workflow artifact 审计 | Expected output、schema validity、source basis、content adequacy | Run identity 加每个已检查 artifact |
+| Focused paper digest | Question, answer, supporting passages, limitations | Strongest available source level and exact locators |
+| Method extraction | Population/data, design, variables, procedure, analysis, validity limits | Parallel fields; `not available` where absent |
+| Result extraction | Outcome, estimate/direction, conditions, uncertainty, author interpretation | Tables/figures/sections and unit of analysis |
+| Cross-paper comparison | Stable dimensions, per-paper entries, convergences, contradictions | Equivalent source levels or visible asymmetry |
+| Claim-evidence map | Claim, source statement, evidence type, support/challenge relation | Separate author claims from agent inference |
+| Annotation synthesis | Reader theme, quoted/marked passages, comments, open questions | Annotation identity, position, and parent source |
+| Workflow artifact audit | Expected output, schema validity, source basis, content adequacy | Run identity plus each inspected artifact |
 
-一份交付物可以组合多种模式，但每个 section 应保持一种证据语法。例如，比较可以包含短摘要，但结论仍须指向共享比较维度，而不能仅依赖叙述摘要。
+A deliverable can combine patterns, but each section should retain one evidence grammar. For example, a comparison may contain short digests, yet its conclusions must still point to the shared comparison dimensions rather than the prose summaries alone.
 
-对于结构化输出，在提取前选择稳定 field name。对于叙述输出，当答案跨越多篇论文或多个来源层级时，应先构建内部证据表，避免流畅文字掩盖支持缺失。
+For structured outputs, choose stable field names before extraction. For narrative outputs, create an internal evidence table first when the answer spans multiple papers or source levels; this prevents polished prose from hiding missing support.
 
-## 比较与矛盾处理
+## Comparison and contradiction handling
 
-解释结果前先建立比较框架：
+Build a comparison frame before interpreting results:
 
 ```text
 comparison question:
@@ -86,85 +86,85 @@ missing-value policy:
 contradiction test:
 ```
 
-在认定矛盾之前，先对表面分歧分类：
+Classify apparent disagreement before calling it a contradiction:
 
-| 差异 | 诊断问题 | 报告方式 |
+| Difference | Diagnostic question | Reporting treatment |
 | --- | --- | --- |
-| Population 或 corpus | 研究对象、dataset 或 period 是否不同？ | 条件性差异，而非直接矛盾 |
-| Construct 或 measure | 相似 label 是否代表不同 variable？ | 保留 definition，避免数值比较 |
-| Method 或 model | Design choice 能否解释结果？ | 比较 assumption 与 sensitivity |
-| Outcome direction | Estimate 是否针对相同 outcome 与 scale？ | 对齐后才可认定直接矛盾 |
-| Interpretation | 作者是否从兼容 finding 推导出不同 mechanism？ | 区分实证一致与解释分歧 |
-| Version 或 edition | 来源是否在版本之间变化？ | 把主张归于确切版本 |
-| Evidence level | 某项结论是否仅基于 abstract 或 annotation？ | 标出不对称；不得拉平置信度 |
+| Population or corpus | Were different subjects, datasets, or periods studied? | Conditional difference, not direct contradiction |
+| Construct or measure | Do similar labels represent different variables? | Preserve definitions and avoid numeric comparison |
+| Method or model | Could design choices explain the result? | Compare assumptions and sensitivity |
+| Outcome direction | Are estimates about the same outcome and scale? | Direct contradiction only after alignment |
+| Interpretation | Do authors infer different mechanisms from compatible findings? | Separate empirical agreement from interpretive disagreement |
+| Version or edition | Did the source change between versions? | Attribute claims to the exact version |
+| Evidence level | Is one conclusion abstract-only or annotation-derived? | Mark asymmetry; do not equalize confidence |
 
-完成对齐后矛盾仍存在时，呈现各方最强支持、相关方法差异，以及能够判别它们的额外证据。除非任务明确定义系统聚合方法，否则不得以票数解决分歧。
+When contradictions remain after alignment, present the strongest support for each side, relevant methodological differences, and what additional evidence could discriminate them. Do not resolve disagreement by vote count unless the task explicitly defines a systematic aggregation method.
 
-## 证据缺口矩阵
+## Evidence-gap matrix
 
-| 缺口 | 仍可支持的内容 | 不可支持的内容 | 下一项有用证据 |
+| Gap | What remains supportable | What is not supportable | Next useful evidence |
 | --- | --- | --- | --- |
-| 仅书目记录 | Identity 与已索引出版事实 | Method、finding、argument | Abstract 或 full text |
-| 仅 abstract | Abstract 陈述的目的与概括性结果 | 详细 procedure、robustness、细致 limitation | Full text 或已验证 analysis artifact |
-| Page/chunk 缺失 | 已检查部分中的主张 | 跨缺口的连续性 | 完整交付或特定页面来源 |
-| OCR 不确定 | 带置信说明的近似可见内容 | 对损坏文本的精确引用 | Native PDF/text 或人工检查 |
-| Note 缺少 source locator | Reader interpretation | 归因于论文 | 已定位 passage 或 annotation |
-| 混合版本 | 特定版本主张 | 统一的论文级结论 | 版本解析与比较 |
-| Workflow artifact 缺少 source basis | 把 artifact 内容作为分析对象 | 声称其忠实代表论文 | Manifest/source mapping 或直接读取 |
-| 比较中一个 item 失败 | 对成功 item 的结论 | 完整集合比较 | 恢复该 item 或收窄已声明 scope |
+| Bibliographic record only | Identity and indexed publication facts | Methods, findings, argument | Abstract or full text |
+| Abstract only | Abstract-stated purpose and headline result | Detailed procedure, robustness, nuanced limits | Full text or verified analysis artifact |
+| Missing pages/chunks | Claims in inspected portions | Continuity across the gap | Complete delivery or page-specific source |
+| OCR uncertainty | Approximate visible content with confidence note | Exact quotation of corrupted text | Native PDF/text or manual check |
+| Notes without source locator | Reader interpretation | Attribution to the paper | Located passage or annotation |
+| Mixed versions | Version-specific claims | Unified paper-level conclusion | Version resolution and comparison |
+| Workflow artifact lacks source basis | Artifact contents as an object of analysis | Claims that it faithfully represents papers | Manifest/source mapping or direct reads |
+| One failed item in a comparison | Conclusions about successful items | Complete-set comparison | Recover that item or narrow declared scope |
 
-缺口处理属于交付物本身，而非仅是失败附录。说明答案是被收窄、主张被削弱，还是任务受阻。如果缺失证据只影响一个维度，应保留其余分析并隔离该维度。
+Gap handling is part of the deliverable, not merely a failure appendix. State whether the answer was narrowed, the claim was weakened, or the task is blocked. If the missing evidence changes only one dimension, preserve the rest of the analysis and isolate that dimension.
 
-## 恢复与易错边界
+## Recovery and near misses
 
-- 仅有摘要的来源不能回答全文方法或结果问题；应请求缺失来源，或返回有界摘要分析。
-- OCR 缺口需要 locator 与置信度说明；不得把重构的缺失句子当作引文。
-- 过期附件 handle 应从所属附件恢复，绝不能使用猜测的本地路径。
-- 混合来源层级的比较只有在每项受影响结论都显示这种不对称时才能继续。
-- 批次中一篇论文失败时，保留成功 artifact，并从需要其证据的结论中排除失败论文。
-- 工作流输出为空或格式错误时，保留 run 和校验诊断；不得制造预期 digest 或 references。
-- 请求回写缺少权限时，将分析作为已完成工作返回，并把写入阶段标记为 canceled，不得修改 Zotero。
-## 端到端决策轨迹
+- An abstract-only source cannot answer a full-text method or result question; request the missing source or return a bounded abstract analysis.
+- OCR gaps require locators and confidence notes; do not reconstruct missing sentences as quotations.
+- An expired attachment handle is recovered from the owning attachment, never a guessed local path.
+- A comparison with mixed source levels can proceed only when the asymmetry is visible in every affected conclusion.
+- If one paper in a batch fails, preserve successful artifacts and exclude the failed paper from conclusions that require its evidence.
+- If workflow output is empty or malformed, retain the run and validation diagnostics; do not manufacture the expected digest or references.
+- If the requested writeback lacks authority, return the analysis as completed work and mark the write stage canceled rather than modifying Zotero.
+## End-to-end decision traces
 
-这些痕迹展示了证据深度决策、稳定的分析维度、workflow 输出检查和诚实的部分结果。
+These traces demonstrate evidence-depth decisions, stable analytical dimensions, workflow output inspection, and honest partial results.
 
-### Trace 1：比较三篇来源深度不等的论文
+### Trace 1: Compare three papers with unequal source depth
 
-用户话语：
+User utterance:
 
-> 比较这三篇论文的方法和实验结果。
+> Compare the methods and experimental results of these three papers.
 
-已解决的源集：
+Resolved source set:
 
-- 论文 A 有经过验证的 PDF。
-- 论文 B 有经过验证的 PDF。
-- 论文 C 仅包含元数据和摘要。
+- Paper A has a verified PDF.
+- Paper B has a verified PDF.
+- Paper C has metadata and abstract only.
 
-实质性问题：
+Material issue:
 
-- 方法细节和实验数据需要的不仅仅是元数据。
-- 采用不同的隐藏标准会使比较产生误导。
+- Method details and experimental numbers require more than metadata.
+- Applying different hidden standards would make the comparison misleading.
 
-澄清：
+Clarification:
 
-> 两篇论文有全文，而第三篇论文只有摘要。我应该进行有限的比较来标记纸 C 不可用的尺寸，还是停止直到全文可用？
+> Two papers have full text, while the third has only an abstract. Should I produce a limited comparison that marks Paper C's unavailable dimensions, or stop until full text is available?
 
-接受的有限路径：
+Accepted limited path:
 
-1. 在提取之前修复方法和结果维度。
-2. 从A和B中提取第locators页的全文证据。
-3. 仅从 C 中提取抽象支持的声明。
-4. 标记不可用的单元格而不是推断。
-5. 解释证据基础是不对称的。
+1. Fix method and result dimensions before extraction.
+2. Extract full-text evidence with page locators from A and B.
+3. Extract only abstract-supported claims from C.
+4. Mark unavailable cells rather than inferring.
+5. Explain that the evidence basis is asymmetric.
 
-不要：
+Do not:
 
-- 从标题推断 C 的架构；
-- 使用实验编号的引用记录；
-- 默默地排除C；
-- 短语缺少细节作为 C 缺乏该功能的证据。
+- infer C's architecture from its title;
+- use a citation record for experimental numbers;
+- silently exclude C;
+- phrase missing details as evidence that C lacks the feature.
 
-当用户接受有限基础时完成的结果：
+Completed result when the user accepts the limited basis:
 
 ```json
 {
@@ -191,35 +191,35 @@ contradiction test:
 }
 ```
 
-### Trace 2：深读 workflow 返回混合结果
+### Trace 2: Deep-reading workflow with mixed outcomes
 
-用户话语：
+User utterance:
 
-> 深入阅读这些论文并向我提供报告。
+> Run deep reading on these papers and give me the reports.
 
-准备工作：
+Preparation:
 
-1. 解析每个选定的书目项目和附件。
-2. 阅读实时 ​​workflow 描述。
-3. 确认 workflow 输入单元和接受的媒体。
-4. 验证每个选择。
-5. 分别验证选项和 provider profile。
-6. 目前提交范围和当前授权。
+1. Resolve each selected bibliographic item and attachment.
+2. Read the live workflow description.
+3. Confirm the workflow member kind, grouping mode, and accepted media.
+4. Validate each selection.
+5. Validate options and provider profile separately.
+6. Present submission scope and current authority.
 
 Execution:
 
-- 四个附件作为单独的单元提交。
-- 三跑成功。
-- 一次运行在没有所需报告artifact的情况下终止。
+- Four attachments are submitted as separate units.
+- Three runs succeed.
+- One run terminates without its required report artifact.
 
-验证：
+Verification:
 
-- 检查三份报告。
-- 验证 artifact 路径和角色。
-- 保留失败的运行 handle 和预期的 artifact 合约。
-- 不要将第四个来源称为已分析。
+- Inspect the three reports.
+- Verify artifact paths and roles.
+- Preserve the failed run handle and expected artifact contract.
+- Do not call the fourth source analyzed.
 
-结果：
+Result:
 
 ```json
 {
@@ -242,43 +242,43 @@ Execution:
 }
 ```
 
-恢复：
+Recovery:
 
-- 检查第四次运行和 workflow 结果。
-- 仅遵循该源声明的重试路径。
-- 不要重新提交三个经过验证的来源。
-- 如果提出provider或选项变更，请获得新的决定。
+- Inspect the fourth run and workflow result.
+- Follow the declared retry path only for that source.
+- Do not resubmit the three verified sources.
+- If a provider or option change is proposed, obtain a new decision.
 
-### Trace 3：带来源 locator 的提取过程中 OCR 中断
+### Trace 3: OCR interruption during a source-located extraction
 
-用户话语：
+User utterance:
 
-> 从这张扫描的论文中提取报告的样本量和置信区间。
+> Extract the reported sample sizes and confidence intervals from this scanned paper.
 
-证据要求：
+Evidence requirement:
 
-- 精确的数字提取需要可检查的内容和页面locators。
-- OCR 的不确定性必须保持可见。
+- Exact numerical extraction requires inspectable content and page locators.
+- OCR uncertainty must remain visible.
 
 Execution:
 
-1. 解析精确的扫描附件。
-2. 传送并验证字节。
-3. 检查 OCR 可用性和页面映射。
-4. 用页和表locators提取候选号码。
-5. 如果支持的话，对照图像交叉检查不明确的 OCR 字符。
+1. Resolve the exact scanned attachment.
+2. Deliver and verify the bytes.
+3. Inspect OCR availability and page mapping.
+4. Extract candidate numbers with page and table locators.
+5. Cross-check ambiguous OCR characters against the image where supported.
 
-失败：
+Failure:
 
-- OCR 提供第 1-6 页，然后处理失败。
-- 请求的结果表位于后面几页。
+- OCR provides pages 1–6, then processing fails.
+- The requested results tables are on later pages.
 
-决定：
+Decision:
 
-- 保留已验证的部分内容。
-- 不要从摘要中推断样本量。
-- 不要将部分数字字段报告为请求的已完成提取。
-- 返回准确的恢复位置和源身份。
+- Preserve the verified partial content.
+- Do not extrapolate sample sizes from the abstract.
+- Do not report partial numerical fields as the requested completed extraction.
+- Return the exact recovery position and source identity.
 
 ```json
 {
@@ -305,52 +305,52 @@ Execution:
 }
 ```
 
-有惊无险：
+Near miss:
 
-- 先前生成的提及“大样本”的摘要不是源定位数字。
+- A prior generated digest mentioning “large sample” is not a source-located number.
 
-## 分析对话模板
+## Analytical conversation patterns
 
-证据深度披露：
+Evidence-depth disclosure:
 
-> 我有两个来源的全文和一个来源的摘要。我只能根据摘要支持的主张来比较这三个内容，或者对两个全文进行更深入的比较。
+> I have full text for two sources and abstracts for one. I can compare all three only on abstract-supported claims, or provide a deeper comparison for the two full texts.
 
-版本披露：
+Version disclosure:
 
-> 所选 Zotero 条目包含预印本附件，引用结果为期刊版本。在确认预期来源之前，我会将版本分开。
+> The selected Zotero item contains a preprint attachment, while the cited result refers to the journal version. I will keep the versions separate until the intended source is confirmed.
 
-workflow 披露：
+Workflow disclosure:
 
-> workflow 可以为每个附件生成摘要和结构化参考。提交是一个单独的权限步骤，运行后我会检查每个承诺的artifact。
+> The workflow can produce a digest and structured references for each attachment. Submission is a separate authority step, and I will inspect each promised artifact after the run.
 
-故障披露：
+Failure disclosure:
 
-> 该报告共三篇论文。第四次运行是终端，但缺少声明的报告，因此我保留了三个 artifacts 并将该批次报告为不完整。
+> The report exists for three papers. The fourth run is terminal but lacks the declared report, so I am preserving the three artifacts and reporting the batch as incomplete.
 
-使用分析记录：
+Use an analysis record with:
 
-- 来源及附件refs；
-- 版本/版本；
-- 证据深度；
-- 分析维度；
-- 检查locators；
-- 提取的观察结果；
-- 矛盾；
-- 不可用的尺寸；
-- workflow 和artifact证据；
-- 状态和诊断。
+- source and attachment refs;
+- edition/version;
+- evidence depth;
+- analytical dimensions;
+- inspected locators;
+- extracted observations;
+- contradictions;
+- unavailable dimensions;
+- workflow and artifact evidence;
+- status and diagnostics.
 
-记录支持一致的推理；它不会取代最终的业务结果或允许 Zotero 写入。
+The record supports consistent reasoning; it does not replace the final business result or permit a Zotero write.
 
-在将分析进行综合之前，保留确切的源集、每个项目的来源深度、声明 locators、矛盾、缺失维度和 artifact 角色。在将 artifact 交给管理之前，请验证 artifact 路径并识别预期的 Zotero 目标，而无需暗示写入权限。
+Before handing analysis to synthesis, preserve the exact source set, source depth per item, claim locators, contradictions, missing dimensions, and artifact roles. Before handing an artifact to curation, verify the artifact path and identify the intended Zotero target without implying write authority.
 
-不要手递手：
+Do not hand off:
 
-- 标题而不是 Zotero ref；
-- workflow 终端状态而不是检查的 artifacts；
-- 没有 locator 的报价；
-- OCR 猜测作为已验证的数字；
-- 生成的摘要作为实时笔记状态的证明；
-- 成功的子集，就像请求的完整比较已完成一样。
+- a title instead of a Zotero ref;
+- a workflow terminal state instead of inspected artifacts;
+- a quotation without its locator;
+- an OCR guess as a verified number;
+- a generated digest as proof of live note state;
+- a successful subset as if the requested full comparison completed.
 
-下游任务可能会缩小到有效受试者，但它必须在诊断中保持排除和失败的受试者可见。
+The downstream task may narrow to valid subjects, but it must keep excluded and failed subjects visible in diagnostics.
