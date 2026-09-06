@@ -1,6 +1,7 @@
 import { config } from "../../package.json";
 import { getString } from "../utils/locale";
-import { buildSelectionContext } from "./selectionContext";
+import { readSelectionContext } from "./selectionContext";
+import { createZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import {
   getLoadedWorkflowSourceById,
@@ -304,9 +305,11 @@ export async function rebuildWorkflowActionPopup(
     return;
   }
 
-  const selectedItems = win.ZoteroPane?.getSelectedItems?.() || [];
-  const selectionContext = await buildSelectionContext(selectedItems);
-  const shouldPreflightWorkflowInputs = selectedItems.length <= 1;
+  const selectionContext = await readSelectionContext(
+    createZoteroHostCapabilityBroker({}, () => win),
+  );
+  const selectedItemCount = selectionContext.items.length;
+  const shouldPreflightWorkflowInputs = selectedItemCount <= 1;
   let previousWasCore = false;
   for (const workflow of workflows) {
     const currentIsCore = isCoreWorkflow(workflow);
@@ -316,7 +319,7 @@ export async function rebuildWorkflowActionPopup(
     const menuItem = win.document.createXULElement("menuitem");
     let disabledReason = "";
     if (
-      selectedItems.length === 0 &&
+      selectedItemCount === 0 &&
       !canWorkflowRunWithoutSelection(workflow.manifest)
     ) {
       disabledReason = getMenuLabel(

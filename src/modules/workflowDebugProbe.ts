@@ -1,7 +1,4 @@
-import {
-  buildSelectionContext,
-  type SelectionContext,
-} from "./selectionContext";
+import { selectionCounts, type SelectionContext } from "./selectionContext";
 import { isDebugModeEnabled } from "./debugMode";
 import {
   openWorkflowEditorSession,
@@ -31,6 +28,7 @@ import { resolveProvider } from "../providers/registry";
 import { summarizeWorkflowExecutionError } from "../workflows/errorMeta";
 import { summarizeWorkflowRuntimeCapabilities } from "./workflowPackageDiagnostics";
 import type { LoadedWorkflow } from "../workflows/types";
+import type { PortableItemRef } from "../workflows/types";
 import { evaluateWorkflowSelection } from "../workflows/workflowInputPlanning";
 
 export type WorkflowDebugProbeCheck = {
@@ -61,7 +59,7 @@ export type WorkflowDebugProbeResult = {
   debugMode: boolean;
   selectionSummary: {
     selectionType: string;
-    selectedItemIds: number[];
+    selectedRefs: PortableItemRef[];
     summary: Record<string, unknown>;
     warnings: string[];
   };
@@ -131,42 +129,26 @@ function resolveFailureStage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function extractSelectionItemIds(selectionContext: unknown) {
-  const context = (selectionContext || {}) as {
-    items?: {
-      parents?: Array<{ item?: { id?: number } }>;
-      children?: Array<{ item?: { id?: number } }>;
-      attachments?: Array<{ item?: { id?: number } }>;
-      notes?: Array<{ item?: { id?: number } }>;
-    };
-  };
-  const ids = new Set<number>();
-  const groups = context.items || {};
-  const collect = (entries?: Array<{ item?: { id?: number } }>) => {
-    for (const entry of entries || []) {
-      const id = Number(entry?.item?.id || 0);
-      if (Number.isFinite(id) && id > 0) {
-        ids.add(Math.floor(id));
-      }
-    }
-  };
-  collect(groups.parents);
-  collect(groups.children);
-  collect(groups.attachments);
-  collect(groups.notes);
-  return Array.from(ids.values());
+function resolveSelectionType(selectionContext: SelectionContext) {
+  const kinds = new Set(selectionContext.items.map((item) => item.kind));
+  if (kinds.size === 0) return "none";
+  if (kinds.size > 1) return "mixed";
+  return [...kinds][0];
 }
 
-function resolveSelectedItemsFromSelectionContext(selectionContext: unknown) {
-  const ids = extractSelectionItemIds(selectionContext);
-  const items: Zotero.Item[] = [];
-  for (const id of ids) {
-    const item = Zotero.Items.get(id);
-    if (item) {
-      items.push(item);
-    }
+function extractSelectionRefs(selectionContext: SelectionContext) {
+  return selectionContext.items.map(({ ref }) => ({ ...ref }));
+}
+
+function requireSelectionContext(value: unknown): SelectionContext {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !Array.isArray((value as { items?: unknown }).items)
+  ) {
+    throw new Error("canonical selection context is required");
   }
-  return items;
+  return value as SelectionContext;
 }
 
 function createRuntimeCapabilitySummary() {
@@ -361,7 +343,7 @@ function buildProbeRenderer(
       summary.style.lineHeight = "1.5";
       summary.innerHTML = [
         `<div><strong>Debug Mode:</strong> ${result.debugMode ? "on" : "off"}</div>`,
-        `<div><strong>Selection:</strong> ${result.selectionSummary.selectionType} / ids=${result.selectionSummary.selectedItemIds.join(",") || "-"}</div>`,
+        `<div><strong>Selection:</strong> ${result.selectionSummary.selectionType} / refs=${result.selectionSummary.selectedRefs.map((ref) => `${ref.libraryId}:${escapeHtml(ref.key)}`).join(",") || "-"}</div>`,
         `<div><strong>Workflows Root:</strong> ${result.runtimeSummary.workflowsDir || "-"}</div>`,
         `<div><strong>Official Root:</strong> ${result.runtimeSummary.officialWorkflowsDir || result.runtimeSummary.builtinWorkflowsDir || "-"}</div>`,
         `<div><strong>Loaded Workflows:</strong> ${String(result.runtimeSummary.loadedWorkflowCount || 0)}</div>`,
@@ -477,12 +459,9 @@ export async function runWorkflowDebugProbe(args: {
   selectionContext: unknown;
   workflowId?: string;
 }) {
-  const selectedItems = resolveSelectedItemsFromSelectionContext(
-    args.selectionContext,
-  );
-  const rebuiltSelectionContext = await buildSelectionContext(selectedItems);
+  const selectionContext = requireSelectionContext(args.selectionContext);
   const workflowChecks = await collectWorkflowDebugProbeChecks({
-    selectionContext: rebuiltSelectionContext,
+    selectionContext,
     excludeWorkflowIds: [String(args.workflowId || "").trim()],
   });
   const registryState = getWorkflowRegistryState();
@@ -490,10 +469,10 @@ export async function runWorkflowDebugProbe(args: {
     generatedAt: new Date().toISOString(),
     debugMode: isDebugModeEnabled(),
     selectionSummary: {
-      selectionType: rebuiltSelectionContext.selectionType,
-      selectedItemIds: extractSelectionItemIds(rebuiltSelectionContext),
-      summary: { ...rebuiltSelectionContext.summary },
-      warnings: [...rebuiltSelectionContext.warnings],
+      selectionType: resolveSelectionType(selectionContext),
+      selectedRefs: extractSelectionRefs(selectionContext),
+      summary: { ...selectionCounts(selectionContext) },
+      warnings: [],
     },
     runtimeSummary: {
       builtinWorkflowsDir: registryState.builtinWorkflowsDir,
@@ -551,6 +530,5 @@ export function installWorkflowDebugProbeBridge() {
 
 export const __workflowDebugProbeTestOnly = {
   buildProbeRenderer,
-  extractSelectionItemIds,
-  resolveSelectedItemsFromSelectionContext,
+  extractSelectionRefs,
 };

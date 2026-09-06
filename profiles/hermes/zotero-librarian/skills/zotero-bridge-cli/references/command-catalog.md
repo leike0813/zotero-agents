@@ -85,7 +85,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge context current` | Read current Zotero UI context | [Open card](commands/context/current.md) |
 | `zotero-bridge context item open` | Open one Zotero item | [Open card](commands/context/item/open.md) |
 | `zotero-bridge context note open` | Open one Zotero note | [Open card](commands/context/note/open.md) |
-| `zotero-bridge context selection get` | Read selected Zotero item summaries | [Open card](commands/context/selection/get.md) |
+| `zotero-bridge context selection get` | Read one exact page of selected Zotero items | [Open card](commands/context/selection/get.md) |
 | `zotero-bridge context selection open` | Open one or more Zotero items as the active selection | [Open card](commands/context/selection/open.md) |
 | `zotero-bridge surface describe` | Describe one canonical command | [Open card](commands/surface/describe.md) |
 | `zotero-bridge surface identity` | Print exact CLI build and command-catalog identity | [Open card](commands/surface/identity.md) |

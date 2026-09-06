@@ -34,6 +34,12 @@ import {
   resetContentPackageInstallProgressForTests,
   setContentPackageInstallProgress,
 } from "../../src/modules/contentPackageSubscription";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import { isZoteroRuntime } from "../core/workflow-test-utils";
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -3656,6 +3662,11 @@ describe("gui: workflow context menu", function () {
 
   beforeEach(function () {
     restorePrefs = installMutablePrefsForTest();
+    if (!isZoteroRuntime()) {
+      setZoteroLibrarySourcePageQueryAdapterForTests(
+        createMockZoteroLibrarySourcePageQueryAdapter(),
+      );
+    }
     const runtime = globalThis as { addon?: unknown };
     prevAddon = runtime.addon;
     runtime.addon = {
@@ -3678,6 +3689,7 @@ describe("gui: workflow context menu", function () {
   });
 
   afterEach(function () {
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
     const runtime = globalThis as { addon?: unknown };
     runtime.addon = prevAddon;
     restorePrefs?.();

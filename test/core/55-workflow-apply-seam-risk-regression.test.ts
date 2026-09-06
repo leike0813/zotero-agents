@@ -107,7 +107,12 @@ describe("workflow apply seam risk regression", function () {
     const summary = await runWorkflowApplySeam(
       {
         runState: createRunState({
-          requests: [{ taskName: "missing-record.md", targetParentID: 1 }],
+          requests: [
+            {
+              taskName: "missing-record.md",
+              targetParentRef: { libraryId: 1, key: "PARENT1" },
+            },
+          ],
           jobIds: ["job-1"],
           jobsById: {},
         }),
@@ -173,14 +178,19 @@ describe("workflow apply seam risk regression", function () {
     const summary = await runWorkflowApplySeam(
       {
         runState: createRunState({
-          requests: [{ taskName: "missing-request-id.md", targetParentID: 9 }],
+          requests: [
+            {
+              taskName: "missing-request-id.md",
+              targetParentRef: { libraryId: 1, key: "PARENT9" },
+            },
+          ],
           jobIds: ["job-3"],
           jobsById: {
             "job-3": {
               id: "job-3",
               state: "succeeded",
               meta: {
-                targetParentID: 9,
+                targetParentRef: { libraryId: 1, key: "PARENT9" },
               },
               result: {},
             },
@@ -218,7 +228,12 @@ describe("workflow apply seam risk regression", function () {
     const summary = await runWorkflowApplySeam(
       {
         runState: createRunState({
-          requests: [{ taskName: "interactive.md", targetParentID: 3 }],
+          requests: [
+            {
+              taskName: "interactive.md",
+              targetParentRef: { libraryId: 1, key: "PARENT3" },
+            },
+          ],
           jobIds: ["job-4"],
           jobsById: {
             "job-4": {
@@ -226,7 +241,7 @@ describe("workflow apply seam risk regression", function () {
               state: "waiting_user",
               meta: {
                 requestId: "req-deferred-4",
-                targetParentID: 3,
+                targetParentRef: { libraryId: 1, key: "PARENT3" },
               },
               result: {
                 status: "deferred",
@@ -316,7 +331,7 @@ describe("workflow apply seam risk regression", function () {
           requests: [
             {
               kind: "skillrunner.job.v1",
-              targetParentID: 3,
+              targetParentRef: { libraryId: 1, key: "PARENT3" },
               runtime_options: {
                 execution_mode: "auto",
               },
@@ -333,7 +348,7 @@ describe("workflow apply seam risk regression", function () {
                 backendId: "backend-apply-1",
                 backendType: "skillrunner",
                 backendBaseUrl: "http://127.0.0.1:8030",
-                targetParentID: 3,
+                targetParentRef: { libraryId: 1, key: "PARENT3" },
               },
               result: {
                 status: "succeeded",
@@ -394,7 +409,7 @@ describe("workflow apply seam risk regression", function () {
           requests: [
             {
               kind: "skillrunner.job.v1",
-              targetParentID: 3,
+              targetParentRef: { libraryId: 1, key: "PARENT3" },
               runtime_options: {
                 execution_mode: "auto",
               },
@@ -411,7 +426,7 @@ describe("workflow apply seam risk regression", function () {
                 backendId: "backend-apply-1",
                 backendType: "skillrunner",
                 backendBaseUrl: "http://127.0.0.1:8030",
-                targetParentID: 3,
+                targetParentRef: { libraryId: 1, key: "PARENT3" },
               },
               result: {
                 status: "succeeded",
@@ -462,7 +477,7 @@ describe("workflow apply seam risk regression", function () {
           requests: [
             {
               kind: "skillrunner.job.v1",
-              targetParentID: 3,
+              targetParentRef: { libraryId: 1, key: "PARENT3" },
               runtime_options: {
                 execution_mode: "auto",
               },
@@ -475,7 +490,7 @@ describe("workflow apply seam risk regression", function () {
               state: "succeeded",
               meta: {
                 requestId: "acp-auto-1",
-                targetParentID: 3,
+                targetParentRef: { libraryId: 1, key: "PARENT3" },
                 providerId: "acp",
                 backendType: "acp",
               },
@@ -531,7 +546,7 @@ describe("workflow apply seam risk regression", function () {
           requests: [
             {
               kind: "acp.skill.run.v1",
-              targetParentID: 3,
+              targetParentRef: { libraryId: 1, key: "PARENT3" },
               skill_id: "demo-skill",
             },
           ],
@@ -542,7 +557,7 @@ describe("workflow apply seam risk regression", function () {
               state: "succeeded",
               meta: {
                 requestId: "acp-disconnected-1",
-                targetParentID: 3,
+                targetParentRef: { libraryId: 1, key: "PARENT3" },
                 providerId: "acp",
                 backendType: "acp",
               },
@@ -597,7 +612,7 @@ describe("workflow apply seam risk regression", function () {
           requests: [
             {
               kind: "skillrunner.job.v1",
-              targetParentID: 3,
+              targetParentRef: { libraryId: 1, key: "PARENT3" },
               runtime_options: {
                 execution_mode: "auto",
               },
@@ -612,7 +627,7 @@ describe("workflow apply seam risk regression", function () {
               meta: {
                 requestId: "req-auto-recoverable-1",
                 providerId: "skillrunner",
-                targetParentID: 3,
+                targetParentRef: { libraryId: 1, key: "PARENT3" },
               },
             },
           },
@@ -655,7 +670,7 @@ describe("workflow apply seam risk regression", function () {
           requests: [
             {
               kind: "skillrunner.job.v1",
-              targetParentID: 3,
+              targetParentRef: { libraryId: 1, key: "PARENT3" },
               runtime_options: {
                 execution_mode: "auto",
               },
@@ -670,7 +685,7 @@ describe("workflow apply seam risk regression", function () {
               meta: {
                 requestId: "req-auto-recoverable-ready-1",
                 providerId: "skillrunner",
-                targetParentID: 3,
+                targetParentRef: { libraryId: 1, key: "PARENT3" },
                 skillRunnerRequestReady: true,
               },
             },
@@ -708,7 +723,7 @@ describe("workflow apply seam risk regression", function () {
           requests: [
             {
               kind: "skillrunner.job.v1",
-              targetParentID: 3,
+              targetParentRef: { libraryId: 1, key: "PARENT3" },
               runtime_options: {
                 execution_mode: "auto",
               },
@@ -723,7 +738,7 @@ describe("workflow apply seam risk regression", function () {
               meta: {
                 requestId: "req-auto-terminal-1",
                 providerId: "skillrunner",
-                targetParentID: 3,
+                targetParentRef: { libraryId: 1, key: "PARENT3" },
                 skillRunnerTerminalRunError: true,
               },
             },
@@ -757,14 +772,19 @@ describe("workflow apply seam risk regression", function () {
     const summary = await runWorkflowApplySeam(
       {
         runState: createRunState({
-          requests: [{ taskName: "path-resolution.md", targetParentID: 7 }],
+          requests: [
+            {
+              taskName: "path-resolution.md",
+              targetParentRef: { libraryId: 1, key: "PARENT7" },
+            },
+          ],
           jobIds: ["job-path-1"],
           jobsById: {
             "job-path-1": {
               id: "job-path-1",
               state: "succeeded",
               meta: {
-                targetParentID: 7,
+                targetParentRef: { libraryId: 1, key: "PARENT7" },
               },
               result: {
                 requestId: "req-path-1",

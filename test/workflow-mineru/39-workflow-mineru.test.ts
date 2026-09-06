@@ -1,6 +1,9 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
@@ -55,15 +58,11 @@ async function createPdfAttachment(args: {
 
 async function buildMineruRequest(attachment: Zotero.Item, pdfPath: string) {
   return {
-    sourceAttachmentPaths: [pdfPath],
+    sourceAttachmentRefs: [itemRef(attachment)],
     context: {
       source_attachment_path: pdfPath,
-      source_attachment_item_id: attachment.id,
-      source_attachment_item_key: attachment.key,
-      source_attachment_ref: {
-        libraryId: attachment.libraryID,
-        key: attachment.key,
-      },
+      source_attachment_name: attachment.getField("title"),
+      source_attachment_ref: itemRef(attachment),
     },
   };
 }
@@ -156,7 +155,7 @@ describe("workflow: mineru", function () {
       selectionContext: selection,
     })) as Array<{
       kind: string;
-      sourceAttachmentPaths?: string[];
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
       context?: Record<string, unknown>;
     }>;
 
@@ -164,7 +163,7 @@ describe("workflow: mineru", function () {
     assert.equal(requests[0].kind, "generic-http.steps.v1");
     assert.equal(requests[1].kind, "generic-http.steps.v1");
     const sourcePaths = requests
-      .map((entry) => String(entry.sourceAttachmentPaths?.[0] || ""))
+      .map((entry) => String(entry.context?.source_attachment_path || ""))
       .sort();
     assert.deepEqual(sourcePaths, [a.pdfPath, b.pdfPath].sort());
     const names = requests
@@ -177,24 +176,43 @@ describe("workflow: mineru", function () {
     const workflow = await getMineruWorkflow();
     const malformedPath =
       "Harnessing Vision Models for Time Series Analysis: A Survey PDF";
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU malformed path parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: await mkTempDir("zotero-skills-mineru-malformed"),
+      name: "malformed.pdf",
+    });
+    const selection = await buildSelectionContext([source.attachment]);
+    const hostApi = createWorkflowHostApi();
+    const originalGetItemDetail = hostApi.library.getItemDetail;
+    hostApi.library.getItemDetail = async (ref: any) => {
+      const detail = await originalGetItemDetail(ref);
+      if (ref.key === source.attachment.key) {
+        return {
+          ...detail,
+          item: {
+            ...detail.item,
+            file: {
+              ...detail.item.file,
+              path: malformedPath,
+            },
+          },
+        } as any;
+      }
+      return detail;
+    };
     const result = await evaluateWorkflowSelection({
       workflow,
       mode: "execute",
-      selectionContext: {
-        items: {
-          attachments: [
-            {
-              filePath: malformedPath,
-              mimeType: "application/pdf",
-              item: { title: malformedPath },
-            },
-          ],
-        },
-        summary: { attachmentCount: 1 },
-      },
+      selectionContext: selection,
       runtime: {
         hostApi: {
+          ...hostApi,
           file: {
+            ...hostApi.file,
             exists: async () => {
               throw new Error(
                 "could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)",
@@ -317,11 +335,14 @@ describe("workflow: mineru", function () {
       const requests = (await executeBuildRequests({
         workflow,
         selectionContext: selection,
-      })) as Array<{ sourceAttachmentPaths?: string[] }>;
+      })) as Array<{
+        sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+        context?: Record<string, unknown>;
+      }>;
 
       assert.lengthOf(requests, 2);
       const sourcePaths = requests
-        .map((entry) => String(entry.sourceAttachmentPaths?.[0] || ""))
+        .map((entry) => String(entry.context?.source_attachment_path || ""))
         .sort();
       assert.deepEqual(sourcePaths, [a.pdfPath, b.pdfPath].sort());
     },
@@ -350,7 +371,8 @@ describe("workflow: mineru", function () {
       workflow,
       selectionContext: selection,
     })) as Array<{
-      sourceAttachmentPaths?: string[];
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+      context?: Record<string, unknown>;
     }> & {
       __stats?: {
         totalUnits?: number;
@@ -360,12 +382,12 @@ describe("workflow: mineru", function () {
     };
 
     assert.lengthOf(requests, 1);
-    assert.equal(requests[0].sourceAttachmentPaths?.[0], keep.pdfPath);
+    assert.equal(requests[0].context?.source_attachment_path, keep.pdfPath);
     assert.equal(requests.__stats?.totalUnits, 1);
     assert.equal(requests.__stats?.skippedUnits, 0);
     assert.equal(requests.__stats?.candidateStats?.total, 2);
     assert.equal(requests.__stats?.candidateStats?.skipped, 1);
-    assert.notEqual(requests[0].sourceAttachmentPaths?.[0], skip.pdfPath);
+    assert.notEqual(requests[0].context?.source_attachment_path, skip.pdfPath);
   });
 
   itNodeOnly(
@@ -438,11 +460,12 @@ describe("workflow: mineru", function () {
         workflow,
         selectionContext: selection,
       })) as Array<{
-        sourceAttachmentPaths?: string[];
+        sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+        context?: Record<string, unknown>;
       }>;
 
       assert.lengthOf(requests, 1);
-      assert.equal(requests[0].sourceAttachmentPaths?.[0], source.pdfPath);
+      assert.equal(requests[0].context?.source_attachment_path, source.pdfPath);
     },
   );
 
@@ -466,18 +489,10 @@ describe("workflow: mineru", function () {
       await writeUtf8(joinPath(sourceDir, "paper.md"), "already-exists");
 
       const selection = await buildSelectionContext([source.attachment]);
-      const attachmentEntry = selection.items.attachments[0] as {
-        filePath?: string | null;
-        item?: { data?: { path?: string } };
-      };
-      attachmentEntry.filePath = null;
-      if (!attachmentEntry.item) {
-        attachmentEntry.item = {};
-      }
-      if (!attachmentEntry.item.data) {
-        attachmentEntry.item.data = {};
-      }
-      attachmentEntry.item.data.path = "attachments:2026/paper-a/paper.pdf";
+      const attachmentEntry = selection.items.find(
+        (item: any) => item.kind === "attachment",
+      ) as any;
+      assert.equal(attachmentEntry.filename, "paper.pdf");
 
       const originalResolveRelativePath =
         Zotero.Attachments.resolveRelativePath;
@@ -532,18 +547,10 @@ describe("workflow: mineru", function () {
       await writeUtf8(joinPath(sourceDir, "paper.md"), "already-exists");
 
       const selection = await buildSelectionContext([source.attachment]);
-      const attachmentEntry = selection.items.attachments[0] as {
-        filePath?: string | null;
-        item?: { data?: { path?: string } };
-      };
-      attachmentEntry.filePath = null;
-      if (!attachmentEntry.item) {
-        attachmentEntry.item = {};
-      }
-      if (!attachmentEntry.item.data) {
-        attachmentEntry.item.data = {};
-      }
-      attachmentEntry.item.data.path = "attachment:2026/paper-b/paper.pdf";
+      const attachmentEntry = selection.items.find(
+        (item: any) => item.kind === "attachment",
+      ) as any;
+      assert.equal(attachmentEntry.filename, "paper.pdf");
 
       const originalResolveRelativePath =
         Zotero.Attachments.resolveRelativePath;
@@ -649,7 +656,7 @@ describe("workflow: mineru", function () {
     const statusTransitions: unknown[] = [];
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         readText: async () => "",
         getExtractedDir: async () => bundleDir,
@@ -726,7 +733,7 @@ describe("workflow: mineru", function () {
 
     await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: bundleReaderForDir(bundleA),
       request: { kind: "workflow.preflight.aggregate.v1" },
       runResult: {},
@@ -799,7 +806,7 @@ describe("workflow: mineru", function () {
       try {
         await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader: bundleReaderForDir(bundleA),
           request: { kind: "workflow.preflight.aggregate.v1" },
           runResult: {},
@@ -868,7 +875,7 @@ describe("workflow: mineru", function () {
 
       await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           readText: async () => "",
           getExtractedDir: async () => bundleDir,
@@ -908,7 +915,7 @@ describe("workflow: mineru", function () {
       try {
         await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader: {
             readText: async () => "",
             getExtractedDir: async () => bundleDir,
@@ -952,7 +959,7 @@ describe("workflow: mineru", function () {
       );
       await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           readText: async () => "",
           getExtractedDir: async () => bundleDir,
@@ -963,7 +970,7 @@ describe("workflow: mineru", function () {
 
       await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           readText: async () => "",
           getExtractedDir: async () => bundleDir,

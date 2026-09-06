@@ -3,202 +3,91 @@
   "$id": "selection-context.schema.json",
   "title": "SelectionContext",
   "type": "object",
-  "required": [
-    "selectionType",
-    "items",
-    "summary",
-    "warnings",
-    "sampledAt"
-  ],
+  "required": ["items", "sampledAt"],
   "properties": {
-    "selectionType": {
-      "type": "string",
-      "enum": ["parent", "child", "attachment", "note", "mixed", "none"]
-    },
     "items": {
-      "type": "object",
-      "required": ["parents", "children", "attachments", "notes"],
-      "properties": {
-        "parents": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/ParentContext" }
-        },
-        "children": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/ChildContext" }
-        },
-        "attachments": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/AttachmentContext" }
-        },
-        "notes": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/NoteContext" }
-        }
-      },
-      "additionalProperties": false
-    },
-    "summary": {
-      "type": "object",
-      "required": [
-        "parentCount",
-        "childCount",
-        "attachmentCount",
-        "noteCount"
-      ],
-      "properties": {
-        "parentCount": { "type": "integer", "minimum": 0 },
-        "childCount": { "type": "integer", "minimum": 0 },
-        "attachmentCount": { "type": "integer", "minimum": 0 },
-        "noteCount": { "type": "integer", "minimum": 0 }
-      },
-      "additionalProperties": false
-    },
-    "warnings": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "object",
+        "required": ["kind", "ref", "itemType"],
+        "properties": {
+          "kind": {
+            "enum": ["parent", "child", "attachment", "note"]
+          },
+          "ref": {
+            "$ref": "#/$defs/PortableItemRef"
+          },
+          "parentRef": {
+            "$ref": "#/$defs/PortableItemRef"
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "filename": {
+            "type": ["string", "null"]
+          },
+          "contentType": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "fileState": {
+            "enum": ["available", "missing", "not_applicable"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "sampledAt": {
       "type": "string",
       "format": "date-time"
+    },
+    "exportCandidates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GeneratedNoteCandidate"
+      }
+    },
+    "digestRepresentativeImageTarget": {
+      "$ref": "#/$defs/GeneratedNoteCandidate"
     }
   },
   "additionalProperties": false,
   "$defs": {
-    "ItemBase": {
+    "PortableItemRef": {
       "type": "object",
-      "required": [
-        "id",
-        "key",
-        "itemType",
-        "title",
-        "libraryID",
-        "parentItemID",
-        "data"
-      ],
+      "required": ["libraryId", "key"],
       "properties": {
-        "id": { "type": "integer" },
-        "key": { "type": "string" },
-        "itemType": { "type": "string" },
-        "title": { "type": "string" },
-        "libraryID": { "type": "integer" },
-        "parentItemID": { "type": ["integer", "null"] },
-        "data": { "type": ["object", "null"] }
-      },
-      "additionalProperties": true
-    },
-    "NoteLite": {
-      "allOf": [
-        { "$ref": "#/$defs/ItemBase" },
-        {
-          "type": "object",
-          "required": ["note"],
-          "properties": {
-            "note": { "type": "string" }
-          }
-        }
-      ]
-    },
-    "Tag": {
-      "type": "object",
-      "required": ["tag"],
-      "properties": {
-        "tag": { "type": "string" },
-        "type": { "type": "integer" }
-      },
-      "additionalProperties": false
-    },
-    "ParentContext": {
-      "type": "object",
-      "required": [
-        "item",
-        "attachments",
-        "notes",
-        "tags",
-        "collections",
-        "children"
-      ],
-      "properties": {
-        "item": { "$ref": "#/$defs/ItemBase" },
-        "attachments": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/AttachmentContext" }
+        "libraryId": {
+          "type": "integer",
+          "minimum": 1
         },
-        "notes": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/NoteLite" }
-        },
-        "tags": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Tag" }
-        },
-        "collections": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "children": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/ItemBase" }
+        "key": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false
     },
-    "ChildContext": {
+    "GeneratedNoteCandidate": {
       "type": "object",
-      "required": [
-        "item",
-        "parent",
-        "attachments",
-        "notes",
-        "tags",
-        "collections"
-      ],
+      "required": ["ref", "noteKind"],
       "properties": {
-        "item": { "$ref": "#/$defs/ItemBase" },
-        "parent": { "anyOf": [{ "$ref": "#/$defs/ItemBase" }, { "type": "null" }] },
-        "attachments": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/AttachmentContext" }
+        "ref": {
+          "$ref": "#/$defs/PortableItemRef"
         },
-        "notes": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/NoteLite" }
+        "parentRef": {
+          "$ref": "#/$defs/PortableItemRef"
         },
-        "tags": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Tag" }
+        "noteKind": {
+          "type": "string"
         },
-        "collections": {
-          "type": "array",
-          "items": { "type": "string" }
-        }
-      },
-      "additionalProperties": false
-    },
-    "AttachmentContext": {
-      "type": "object",
-      "required": ["item", "parent", "filePath", "mimeType"],
-      "properties": {
-        "item": { "$ref": "#/$defs/ItemBase" },
-        "parent": { "anyOf": [{ "$ref": "#/$defs/ItemBase" }, { "type": "null" }] },
-        "filePath": { "type": ["string", "null"] },
-        "mimeType": { "type": ["string", "null"] }
-      },
-      "additionalProperties": false
-    },
-    "NoteContext": {
-      "type": "object",
-      "required": ["item", "parent", "tags", "collections"],
-      "properties": {
-        "item": { "$ref": "#/$defs/ItemBase" },
-        "parent": { "anyOf": [{ "$ref": "#/$defs/ItemBase" }, { "type": "null" }] },
-        "tags": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Tag" }
-        },
-        "collections": {
-          "type": "array",
-          "items": { "type": "string" }
+        "parentTitle": {
+          "type": "string"
         }
       },
       "additionalProperties": false

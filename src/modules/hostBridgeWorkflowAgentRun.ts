@@ -1,5 +1,18 @@
 import { getBaseName, joinPath } from "../utils/path";
-import type { LoadedWorkflow, WorkflowManifest } from "../workflows/types";
+import type {
+  LoadedWorkflow,
+  PortableItemRef,
+  WorkflowManifest,
+} from "../workflows/types";
+import {
+  assertSelectionRef,
+  itemRefIdentity,
+  type SelectionContext,
+} from "./selectionContext";
+import {
+  createZoteroHostCapabilityBroker,
+  ZoteroHostCapabilityError,
+} from "./zoteroHostCapabilityBroker";
 import {
   getRuntimePersistencePaths,
   readRuntimeBytes,
@@ -13,6 +26,11 @@ import { sha256PrefixedHex } from "../utils/sha256";
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import { createStoreZipBytes, type StoreZipEntry } from "./zipStore";
 import { localizeWorkflowLabel } from "../workflows/localization";
+import {
+  buildHostBridgeSelectionBundlePath,
+  buildSkillRunnerUploadMapping,
+  buildSkillRunnerUploadRelativePath,
+} from "../providers/skillrunner/uploadMapping";
 import type { HostBridgeAgentRunPreparedRequest } from "./hostBridgeWorkflowAgentRunStore";
 
 const OUTPUT_CONTRACT_TOOLKIT_ASSET_DIR = "assets/skillrunner-output-contract";
@@ -80,13 +98,36 @@ export type HostBridgeWorkflowAgentRunApplyStatus = {
   message: string;
 };
 
-type SelectedFile = {
+export type HostBridgeWorkflowAgentRunSelectedFile = {
+  ref: PortableItemRef;
   sourcePath: string;
   bundlePath: string;
 };
 
+type SelectedFile = HostBridgeWorkflowAgentRunSelectedFile;
+
+export type HostBridgeWorkflowAgentRunBundleFile = {
+  sourcePath: string;
+  bundlePath: string;
+};
+
+export type HostBridgeWorkflowAgentRunPreparedHandoff = {
+  preparedRequests: HostBridgeAgentRunPreparedRequest[];
+  selectedFiles: SelectedFile[];
+  bundleFiles: HostBridgeWorkflowAgentRunBundleFile[];
+};
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeLocalPathKey(value: string) {
+  return normalizeString(value).replace(/\\/g, "/");
+}
+
+function isAbsoluteLocalPath(value: string) {
+  const normalized = normalizeLocalPathKey(value);
+  return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/");
 }
 
 function safeSegment(value: unknown, fallback: string) {
@@ -95,16 +136,6 @@ function safeSegment(value: unknown, fallback: string) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
   return text || fallback;
-}
-
-function isPathLike(value: string) {
-  return (
-    /^[A-Za-z]:[\\/]/.test(value) ||
-    /^[/\\]/.test(value) ||
-    /^~[/\\]/.test(value) ||
-    value.includes("\\") ||
-    value.includes("/")
-  );
 }
 
 function isUnsafePackageEntry(relativePath: string) {
@@ -143,61 +174,171 @@ function collectWorkflowSkillIds(manifest: WorkflowManifest) {
   return Array.from(ids).sort((left, right) => left.localeCompare(right));
 }
 
-function collectSelectedFilesFromContext(selectionContext: unknown) {
+async function collectSelectedFilesFromContext(
+  selectionContext: SelectionContext,
+  preparedRequests: HostBridgeAgentRunPreparedRequest[],
+) {
+  const refs = selectionContext.items
+    .filter((item) => item.kind === "attachment")
+    .map((item) => item.ref);
+  for (const { request } of preparedRequests) {
+    const sources = (request as { sourceAttachmentRefs?: unknown })
+      ?.sourceAttachmentRefs;
+    if (Array.isArray(sources)) {
+      sources.forEach(assertSelectionRef);
+      refs.push(...sources);
+    }
+  }
+  const broker = createZoteroHostCapabilityBroker();
   const files = new Map<string, SelectedFile>();
-  let sequence = 0;
-  const visit = (value: unknown) => {
-    if (Array.isArray(value)) {
-      value.forEach(visit);
-      return;
+  for (const ref of refs) {
+    const identity = itemRefIdentity(ref);
+    if (files.has(identity)) continue;
+    const detail = await broker.library.getItemDetail(ref);
+    if (
+      detail.kind !== "attachment" ||
+      detail.item.file.state !== "available"
+    ) {
+      throw new ZoteroHostCapabilityError(
+        "unavailable",
+        "Selected attachment file is unavailable",
+        { reason: "filesystem" },
+      );
     }
-    if (!value || typeof value !== "object") {
-      return;
-    }
-    const record = value as Record<string, unknown>;
-    const filePath = normalizeString(record.filePath);
-    if (filePath && !files.has(filePath)) {
-      sequence += 1;
-      const name = safeSegment(getBaseName(filePath), `selected-${sequence}`);
-      files.set(filePath, {
-        sourcePath: filePath,
-        bundlePath: `selection/files/${sequence.toString().padStart(3, "0")}-${name}`,
-      });
-    }
-    Object.values(record).forEach(visit);
-  };
-  visit(selectionContext);
+    const sourcePath = detail.item.file.path;
+    files.set(identity, {
+      ref,
+      sourcePath,
+      bundlePath: buildHostBridgeSelectionBundlePath(ref, detail.item.filename),
+    });
+  }
   return Array.from(files.values());
 }
 
-function sanitizeContextValue(
-  value: unknown,
-  fileBySourcePath: Map<string, SelectedFile>,
-): unknown {
-  if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeContextValue(entry, fileBySourcePath));
+function buildGeneratedBundlePath(
+  request: HostBridgeAgentRunPreparedRequest,
+  path: string[],
+  sourcePath: string,
+) {
+  const key = [request.agentRequestId, ...path]
+    .map((segment) => safeSegment(segment, "file"))
+    .join("-");
+  return buildSkillRunnerUploadRelativePath(key, sourcePath);
+}
+
+async function projectAgentRunRequest(args: {
+  request: HostBridgeAgentRunPreparedRequest;
+  selectedFiles: SelectedFile[];
+}) {
+  const selectedByPath = new Map<string, SelectedFile>();
+  for (const file of args.selectedFiles) {
+    selectedByPath.set(normalizeLocalPathKey(file.sourcePath), file);
   }
-  if (!value || typeof value !== "object") {
-    if (typeof value === "string" && isPathLike(value)) {
-      const mapped = fileBySourcePath.get(value);
-      return mapped ? mapped.bundlePath : "[redacted-path]";
+  const generatedByPath = new Map<
+    string,
+    HostBridgeWorkflowAgentRunBundleFile
+  >();
+  const requestValue = args.request.request as {
+    kind?: string;
+    upload_files?: Array<{ path: string }>;
+    steps?: Array<{ input?: Record<string, unknown>; binary_from?: string }>;
+  };
+  const inputFiles = [...(requestValue.upload_files || [])];
+  for (const step of requestValue.steps || []) {
+    if (requestValue.kind === "skillrunner.sequence.v1") {
+      inputFiles.push(
+        ...buildSkillRunnerUploadMapping(step.input || {}).upload_files,
+      );
+    } else if (step.binary_from) {
+      inputFiles.push({ path: step.binary_from });
     }
-    return value;
   }
-  const output: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    const normalizedKey = key.toLowerCase();
-    if (
-      typeof entry === "string" &&
-      (normalizedKey.includes("path") || isPathLike(entry))
-    ) {
-      const mapped = fileBySourcePath.get(entry);
-      output[key] = mapped ? mapped.bundlePath : "[redacted-path]";
-      continue;
+  const inputPaths = new Set(
+    inputFiles.map((file) => normalizeLocalPathKey(file.path)),
+  );
+
+  const project = async (value: unknown, path: string[]): Promise<unknown> => {
+    if (Array.isArray(value)) {
+      return Promise.all(
+        value.map((entry, index) => project(entry, [...path, String(index)])),
+      );
     }
-    output[key] = sanitizeContextValue(entry, fileBySourcePath);
+    if (value && typeof value === "object") {
+      const output: Record<string, unknown> = {};
+      for (const [childKey, childValue] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        output[childKey] = await project(childValue, [...path, childKey]);
+      }
+      return output;
+    }
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const normalizedPath = normalizeLocalPathKey(value);
+    const selected = selectedByPath.get(normalizedPath);
+    if (selected) {
+      return selected.bundlePath;
+    }
+    if (!inputPaths.has(normalizedPath)) {
+      return value;
+    }
+    if (!isAbsoluteLocalPath(value)) {
+      return value;
+    }
+    const existing = generatedByPath.get(normalizedPath);
+    if (existing) {
+      return existing.bundlePath;
+    }
+    if (!(await runtimePathExists(value))) {
+      throw new Error(
+        `Workflow agent-run handoff file does not exist: ${getBaseName(value) || "unnamed file"}`,
+      );
+    }
+    const bundleFile: HostBridgeWorkflowAgentRunBundleFile = {
+      sourcePath: value,
+      bundlePath: buildGeneratedBundlePath(args.request, path, value),
+    };
+    generatedByPath.set(normalizedPath, bundleFile);
+    return bundleFile.bundlePath;
+  };
+
+  const request = await project(args.request.request, []);
+  return {
+    request: request,
+    generatedFiles: Array.from(generatedByPath.values()),
+  };
+}
+
+export async function prepareHostBridgeWorkflowAgentRunHandoff(args: {
+  selectionContext: SelectionContext;
+  preparedRequests: HostBridgeAgentRunPreparedRequest[];
+}): Promise<HostBridgeWorkflowAgentRunPreparedHandoff> {
+  const selectedFiles = await collectSelectedFilesFromContext(
+    args.selectionContext,
+    args.preparedRequests,
+  );
+  const projectedRequests: HostBridgeAgentRunPreparedRequest[] = [];
+  const bundleFiles: HostBridgeWorkflowAgentRunBundleFile[] = [
+    ...selectedFiles,
+  ];
+  for (const request of args.preparedRequests) {
+    const projected = await projectAgentRunRequest({
+      request,
+      selectedFiles,
+    });
+    projectedRequests.push({
+      ...request,
+      request: projected.request,
+    });
+    bundleFiles.push(...projected.generatedFiles);
   }
-  return output;
+  return {
+    preparedRequests: projectedRequests,
+    selectedFiles,
+    bundleFiles,
+  };
 }
 
 async function addDirectoryEntries(args: {
@@ -412,21 +553,16 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
   expiresAt: string;
   workflow: LoadedWorkflow;
   selection: unknown;
-  selectionContext: unknown;
+  selectionContext: SelectionContext;
   applyStatus: HostBridgeWorkflowAgentRunApplyStatus;
   preparedRequests: HostBridgeAgentRunPreparedRequest[];
+  selectedFiles: SelectedFile[];
+  bundleFiles: HostBridgeWorkflowAgentRunBundleFile[];
 }): Promise<HostBridgeWorkflowAgentRunResult> {
   const workflow = args.workflow;
   const generatedAt = new Date().toISOString();
   const skillIds = collectWorkflowSkillIds(workflow.manifest);
-  const selectedFiles = collectSelectedFilesFromContext(args.selectionContext);
-  const selectedFileBySourcePath = new Map(
-    selectedFiles.map((entry) => [entry.sourcePath, entry]),
-  );
-  const sanitizedSelectionContext = sanitizeContextValue(
-    args.selectionContext,
-    selectedFileBySourcePath,
-  );
+  const selectedFiles = args.selectedFiles;
   const instruction = buildInstructions(workflow, skillIds);
   const protocolGuide = buildProtocolGuide({
     agentRunId: args.agentRunId,
@@ -446,7 +582,11 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
       text: `${JSON.stringify(
         {
           selection: args.selection,
-          context: sanitizedSelectionContext,
+          context: args.selectionContext,
+          files: selectedFiles.map(({ ref, bundlePath }) => ({
+            ref,
+            bundlePath,
+          })),
           applyStatus: args.applyStatus,
         },
         null,
@@ -520,17 +660,11 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
     });
   }
 
-  for (const file of selectedFiles) {
-    try {
-      entries.push({
-        name: file.bundlePath,
-        bytes: await readRuntimeBytes(file.sourcePath),
-      });
-    } catch (error) {
-      notes.push(
-        `Selected file unavailable: ${getBaseName(file.sourcePath)} (${error instanceof Error ? error.message : String(error || "")})`,
-      );
-    }
+  for (const file of args.bundleFiles) {
+    entries.push({
+      name: file.bundlePath,
+      bytes: await readRuntimeBytes(file.sourcePath),
+    });
   }
 
   const zipBytes = createStoreZipBytes(entries);

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { lockSelection } from "../../src/modules/selectionContext";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   clearRuntimeLogs,
@@ -80,7 +81,7 @@ describe("workflow runtime scope diagnostics", function () {
         async buildRequest(args) {
           return {
             kind: "pass-through.run.v1",
-            parentItemId: 1,
+            targetParentRef: { libraryId: 1, key: "PARENT01" },
             selectionContext: args.selectionContext,
           };
         },
@@ -90,11 +91,14 @@ describe("workflow runtime scope diagnostics", function () {
 
     await executeBuildRequests({
       workflow,
-      selectionContext: {
-        items: {
-          parents: [{ item: { id: 1, title: "Parent" } }],
+      selectionContext: lockSelection([
+        {
+          kind: "parent",
+          ref: { libraryId: 1, key: "PARENT01" },
+          itemType: "journalArticle",
+          title: "Parent",
         },
-      },
+      ]),
     });
 
     const entry = listRuntimeLogs({

@@ -2777,6 +2777,7 @@ function createZoteroMock(): ZoteroMock {
         contentType?: string;
       }) => {
         const attachment = new MockItem("attachment");
+        (attachment as any).attachmentLinkMode = 2;
         attachment.parentItemID = parentItemID ?? null;
         if (title) {
           attachment.setField("title", title);

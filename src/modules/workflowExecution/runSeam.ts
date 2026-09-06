@@ -17,7 +17,7 @@ import type { BuiltPreparedWorkflowUnit, WorkflowRunState } from "./contracts";
 import {
   resolveInputUnitIdentityFromRequest,
   resolveTaskNameFromRequest,
-  resolveTargetParentIDFromRequest,
+  resolveTargetParentRefFromRequest,
 } from "./requestMeta";
 import { resolveWorkflowDispatchConcurrency } from "./runConcurrency";
 import {
@@ -558,8 +558,9 @@ export function runWorkflowExecutionSeam(
                   );
                 }
                 const parent =
-                  resolveTargetParentIDFromRequest(stepApply.sequenceRequest) ||
-                  null;
+                  resolveTargetParentRefFromRequest(
+                    stepApply.sequenceRequest,
+                  ) || null;
                 return resolved.executeSequenceStepApply({
                   workflow: applyWorkflow,
                   parent,
@@ -923,7 +924,6 @@ export function runWorkflowExecutionSeam(
         inputUnitLabel,
         inputMemberIdentities,
         inputMemberCount,
-        targetParentID: resolveTargetParentIDFromRequest(request) ?? undefined,
         providerId: args.prepared.executionContext.providerId,
         providerOptions: args.prepared.executionContext.providerOptions,
         executionMode: resolveSkillRunnerExecutionModeFromRequest(

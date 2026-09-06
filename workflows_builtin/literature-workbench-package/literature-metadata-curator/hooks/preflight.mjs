@@ -6,7 +6,11 @@ import {
   resolveParentItem,
   selectIdentifier,
 } from "../../lib/metadataCurator.mjs";
-import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 
 async function translateIdentifier({ runtime, identifier }) {
   const translateIdentifierHostApi =
@@ -87,11 +91,22 @@ async function translateIdentifier({ runtime, identifier }) {
 }
 
 async function preflightImpl({ selectionContext, executionOptions, runtime }) {
-  const parent = resolveParentItem(selectionContext, runtime);
+  const parentRef = portableItemRef(
+    resolveParentItem(selectionContext, runtime),
+  );
+  const parentDetail =
+    await requireHostApi(runtime).library.getItemDetail(parentRef);
+  if (parentDetail?.kind !== "regular") {
+    throw new Error(
+      "literature-metadata-curator requires one regular parent item",
+    );
+  }
+  const parent = parentDetail.item;
   const parentSnapshot = buildParentSnapshot(parent);
   const identifier = selectIdentifier(parentSnapshot);
   const baseContext = {
     parent: parentSnapshot,
+    parentRef,
     identifier,
   };
 
@@ -111,9 +126,7 @@ async function preflightImpl({ selectionContext, executionOptions, runtime }) {
     };
   }
 
-  if (
-    executionOptions?.workflowParams?.skip_identifier_fast_path === true
-  ) {
+  if (executionOptions?.workflowParams?.skip_identifier_fast_path === true) {
     return {
       kind: "continue",
       context: buildFallbackContext(baseContext),
@@ -125,7 +138,7 @@ async function preflightImpl({ selectionContext, executionOptions, runtime }) {
     return {
       kind: "short-circuit-apply",
       apply: {
-        parent: parentSnapshot.id || parent,
+        parent: parentRef,
         resultJson: canonicalResultFromMetadata({
           source: "zotero-translate-search",
           parent: parentSnapshot,
@@ -143,6 +156,7 @@ async function preflightImpl({ selectionContext, executionOptions, runtime }) {
         source: "zotero-translate-search",
         identifierType: identifier.type,
         identifier: identifier.value,
+        parentRef,
         parent: parentSnapshot,
       },
     };
@@ -158,7 +172,9 @@ async function preflightImpl({ selectionContext, executionOptions, runtime }) {
 }
 
 export async function preflight(args) {
-  return withPackageRuntimeScope(args?.runtime, () => preflightImpl(args || {}));
+  return withPackageRuntimeScope(args?.runtime, () =>
+    preflightImpl(args || {}),
+  );
 }
 
 export const __metadataCuratorPreflightTestOnly = {

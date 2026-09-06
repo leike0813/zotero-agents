@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import { buildSelectionContext } from "../helpers/workflowSelectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   executeApplyResult,
@@ -78,12 +78,12 @@ describeLiteratureDigestE2ESuite(
         });
 
         const selectionContext = await buildSelectionContext([attachment]);
-        assert.equal(selectionContext.selectionType, "attachment");
-        assert.equal(selectionContext.summary.attachmentCount, 1);
-        assert.equal(
-          selectionContext.items.attachments[0].item.parentItemID,
-          parent.id,
-        );
+        assert.lengthOf(selectionContext.items, 1);
+        assert.equal(selectionContext.items[0].kind, "attachment");
+        assert.deepEqual(selectionContext.items[0].parentRef, {
+          libraryId: parent.libraryID,
+          key: parent.key,
+        });
 
         const loaded = await loadWorkflowManifests(workflowsPath());
         const workflow = loaded.workflows.find(
@@ -101,8 +101,8 @@ describeLiteratureDigestE2ESuite(
           },
         })) as Array<{
           kind: string;
-          targetParentID: number;
-          sourceAttachmentPaths?: string[];
+          targetParentRef: { libraryId: number; key: string };
+          sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
           steps?: Array<{
             id?: string;
             skill_id?: string;
@@ -116,9 +116,12 @@ describeLiteratureDigestE2ESuite(
         }>;
         assert.lengthOf(requests, 1);
         assert.equal(requests[0].kind, "skillrunner.sequence.v1");
-        assert.equal(requests[0].targetParentID, parent.id);
-        assert.deepEqual(requests[0].sourceAttachmentPaths, [
-          attachmentAbsPath,
+        assert.deepEqual(requests[0].targetParentRef, {
+          libraryId: parent.libraryID,
+          key: parent.key,
+        });
+        assert.deepEqual(requests[0].sourceAttachmentRefs, [
+          { libraryId: attachment.libraryID, key: attachment.key },
         ]);
         assert.equal(requests[0].final_step_id, "digest");
         const digestStep = requests[0].steps?.find(
@@ -141,7 +144,7 @@ describeLiteratureDigestE2ESuite(
         );
         const applyResult = (await executeApplyResult({
           workflow: workflow!,
-          parent,
+          parent: { libraryId: parent.libraryID, key: parent.key },
           bundleReader,
           request: requests[0],
         })) as { notes: Zotero.Item[] };

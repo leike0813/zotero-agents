@@ -293,9 +293,9 @@ pub struct ContextArgs {
 pub enum ContextCommand {
     #[command(
         about = "Read current Zotero UI context",
-        long_about = "Call GET /bridge/v2/context/current. This read-only command returns the active Zotero target, library id, selection state, current item summary, and selected item summaries."
+        long_about = "Call GET /bridge/v2/context/current. This read-only command returns the active Zotero target, ordered library-tree sources, library ids, selection state, current item summary, and current collection when available."
     )]
-    Current(PageArgs),
+    Current,
 
     #[command(about = "Read or open the current Zotero selection")]
     Selection(ContextSelectionArgs),
@@ -319,8 +319,8 @@ pub struct ContextSelectionArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum ContextSelectionCommand {
     #[command(
-        about = "Read selected Zotero item summaries",
-        long_about = "Call GET /bridge/v2/context/selection."
+        about = "Read one exact page of selected Zotero items",
+        long_about = "Call GET /bridge/v2/context/selection. The page defaults to 25 items, accepts at most 100, and uses an opaque cursor bound to the current selection basis."
     )]
     Get(PageArgs),
 
@@ -1388,7 +1388,6 @@ pub struct WorkflowSubmitArgs {
 
     #[arg(
         long = "selection",
-        alias = "items",
         value_name = "JSON_OR_FILE",
         conflicts_with = "none",
         required_unless_present = "none",
@@ -1533,7 +1532,6 @@ pub struct WorkflowValidateArgs {
 
     #[arg(
         long = "selection",
-        alias = "items",
         value_name = "JSON_OR_FILE",
         conflicts_with = "none",
         required_unless_present = "none",
@@ -1659,7 +1657,6 @@ pub struct WorkflowAgentRunArgs {
 
     #[arg(
         long = "selection",
-        alias = "items",
         value_name = "JSON_OR_FILE",
         conflicts_with = "none",
         required_unless_present = "none",
@@ -3079,7 +3076,7 @@ mod tests {
         let cli = Cli::parse_from(["zotero-bridge", "context", "current"]);
         match cli.command {
             Command::Context(args) => match args.command {
-                ContextCommand::Current(_) => {}
+                ContextCommand::Current => {}
                 _ => panic!("expected context current"),
             },
             _ => panic!("expected context command"),

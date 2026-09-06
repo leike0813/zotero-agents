@@ -27,10 +27,18 @@ const item = hostApi.items.getByLibraryAndKey(1, "ABCD1234");
 
 ## Context (hostApi.context)
 
+The context API exposes a lightweight current view and exact, basis-bound
+pages for the current selection. It returns portable references and canonical
+facts; it does not expose Zotero objects, numeric item IDs, local paths, or a
+selected-item snapshot embedded in the current view.
+
 ```ts
 hostApi.context = {
-  getCurrentView: () => ZoteroHostCurrentViewDto,  // Current active view information
-  getSelectedItems: () => ZoteroHostItemSummaryDto[],  // Currently selected items list
+  getCurrentView: () => CurrentViewDto,  // Current view and library-tree facts
+  getSelectedItems: (request?: {
+    limit?: number | string;
+    cursor?: string;
+  }) => Promise<SelectedItemsPageDto>,  // Exact ordered selection page
 }
 ```
 
@@ -38,11 +46,19 @@ hostApi.context = {
 
 ```js
 const view = hostApi.context.getCurrentView();
-// { libraryID: 1, selectedItems: [...], ... }
+// { target: "library", libraryIds: [1], selectedSources: [...], selectionEmpty: false }
 
-const selected = hostApi.context.getSelectedItems();
-// [{ id, key, libraryID, title, ... }, ...]
+const firstPage = await hostApi.context.getSelectedItems({ limit: 25 });
+// { items: [{ ref: { libraryId: 1, key: "ABCD1234" }, itemType: "journalArticle" }],
+//   returned: 1, total: 1, hasMore: false, nextCursor: null }
 ```
+
+Pages use the current Zotero order and preserve every selected item, including
+children, attachments, and notes. They do not promote, deduplicate, sort, or
+hydrate items outside the returned page. The default page size is 25 and the
+maximum is 100. Pass `nextCursor` while `hasMore` is true; if the selection's
+membership or order changes, the continuation fails with `basis_mismatch` and
+the caller must discard the partial acquisition.
 
 ## Library Operations (hostApi.library)
 

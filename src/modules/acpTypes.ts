@@ -166,7 +166,6 @@ export type AcpHostContext = {
   libraryId?: string;
   selectionEmpty: boolean;
   currentItem?: {
-    id?: number;
     key?: string;
     title?: string;
   };

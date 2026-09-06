@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "c090483961bdade316a636e965bcd0d24c501372c2f1cfdfdc46e99761455722",
+  "commandCatalogChecksum": "6d03e1e0cc423ebadfc6f8af726240fb6fedee14ad99f83abcf01b8abf727f00",
   "commands": [
     {
       "approvalContract": {
@@ -998,68 +998,12 @@
         "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
         "timing": "none"
       },
-      "arguments": [
-        {
-          "aliases": [],
-          "conflictsWith": [],
-          "defaultValues": [],
-          "global": false,
-          "help": "Opaque continuation cursor",
-          "id": "cursor",
-          "kind": "option",
-          "possibleValues": [],
-          "repeatable": false,
-          "required": false,
-          "takesValue": true,
-          "token": "--cursor",
-          "valueNames": [
-            "CURSOR"
-          ]
-        },
-        {
-          "aliases": [],
-          "conflictsWith": [],
-          "defaultValues": [],
-          "global": false,
-          "help": "Maximum number of entries (1-100)",
-          "id": "limit",
-          "kind": "option",
-          "possibleValues": [],
-          "repeatable": false,
-          "required": false,
-          "takesValue": true,
-          "token": "--limit",
-          "valueNames": [
-            "LIMIT"
-          ]
-        }
-      ],
+      "arguments": [],
       "argv": [
         "context",
         "current"
       ],
-      "argvBindings": [
-        {
-          "kind": "option",
-          "property": "cursor",
-          "required": false,
-          "takesValue": true,
-          "token": "--cursor",
-          "valueNames": [
-            "CURSOR"
-          ]
-        },
-        {
-          "kind": "option",
-          "property": "limit",
-          "required": false,
-          "takesValue": true,
-          "token": "--limit",
-          "valueNames": [
-            "LIMIT"
-          ]
-        }
-      ],
+      "argvBindings": [],
       "binding": "none",
       "category": "read",
       "command": "context current",
@@ -1077,16 +1021,7 @@
       "inputSchemas": {},
       "invocationSchema": {
         "additionalProperties": false,
-        "properties": {
-          "cursor": {
-            "description": "Opaque continuation cursor",
-            "type": "string"
-          },
-          "limit": {
-            "description": "Maximum number of entries (1-100)",
-            "type": "string"
-          }
-        },
+        "properties": {},
         "required": [],
         "type": "object"
       },
@@ -1094,26 +1029,12 @@
         "context current",
         "context",
         "current",
-        "cursor",
-        "CURSOR",
-        "limit",
-        "LIMIT"
+        "current-view"
       ],
       "outputBoundary": {
-        "continuation": [
-          "data.nextCursor",
-          "data.hasMore",
-          "data.returned",
-          "data.total",
-          "data.limit"
-        ],
-        "cursorInput": "cursor",
-        "defaultLimit": 25,
-        "maxLimit": 100,
-        "section": "data.selectedItems",
-        "strategy": "cursor"
+        "strategy": "fixed"
       },
-      "pagination": "cursor",
+      "pagination": "none",
       "payloadSchema": {
         "additionalProperties": false,
         "properties": {},
@@ -1142,29 +1063,37 @@
             "additionalProperties": true,
             "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
             "properties": {
-              "hasMore": {
-                "type": "boolean"
-              },
-              "limit": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "nextCursor": {
+              "currentCollection": {
                 "type": [
-                  "string",
+                  "object",
                   "null"
                 ]
               },
-              "returned": {
-                "minimum": 0,
+              "currentItem": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "libraryId": {
+                "minimum": 1,
                 "type": "integer"
               },
-              "selectedItems": {
+              "libraryIds": {
                 "type": "array"
               },
-              "total": {
-                "minimum": 0,
-                "type": "integer"
+              "selectedSources": {
+                "type": "array"
+              },
+              "selectionEmpty": {
+                "type": "boolean"
+              },
+              "target": {
+                "enum": [
+                  "library",
+                  "reader"
+                ],
+                "type": "string"
               }
             },
             "type": "object",
@@ -1571,8 +1500,7 @@
           "data.nextCursor",
           "data.hasMore",
           "data.returned",
-          "data.total",
-          "data.limit"
+          "data.total"
         ],
         "cursorInput": "cursor",
         "defaultLimit": 25,
@@ -1615,10 +1543,6 @@
               "items": {
                 "type": "array"
               },
-              "limit": {
-                "minimum": 0,
-                "type": "integer"
-              },
               "nextCursor": {
                 "type": [
                   "string",
@@ -1640,7 +1564,7 @@
         },
         "type": "object"
       },
-      "summary": "Read selected Zotero item summaries",
+      "summary": "Read one exact page of selected Zotero items",
       "targets": [
         {
           "kind": "endpoint",
@@ -30921,9 +30845,7 @@
           ]
         },
         {
-          "aliases": [
-            "items"
-          ],
+          "aliases": [],
           "conflictsWith": [
             "none"
           ],
@@ -31080,7 +31002,10 @@
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
               "value": [
-                "example"
+                {
+                  "key": "ABC12345",
+                  "libraryId": 1
+                }
               ]
             }
           ],
@@ -31090,49 +31015,22 @@
           ],
           "schema": {
             "items": {
-              "oneOf": [
-                {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
                   "minLength": 1,
                   "type": "string"
                 },
-                {
+                "libraryId": {
+                  "minimum": 1,
                   "type": "integer"
-                },
-                {
-                  "additionalProperties": false,
-                  "anyOf": [
-                    {
-                      "required": [
-                        "key"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "id"
-                      ]
-                    }
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
-                    },
-                    "key": {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "libraryId": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
-                    }
-                  },
-                  "type": "object"
                 }
-              ]
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
+              "type": "object"
             },
             "minItems": 1,
             "type": "array"
@@ -33098,9 +32996,7 @@
           ]
         },
         {
-          "aliases": [
-            "items"
-          ],
+          "aliases": [],
           "conflictsWith": [
             "none"
           ],
@@ -33448,7 +33344,10 @@
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
               "value": [
-                "example"
+                {
+                  "key": "ABC12345",
+                  "libraryId": 1
+                }
               ]
             }
           ],
@@ -33458,49 +33357,22 @@
           ],
           "schema": {
             "items": {
-              "oneOf": [
-                {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
                   "minLength": 1,
                   "type": "string"
                 },
-                {
+                "libraryId": {
+                  "minimum": 1,
                   "type": "integer"
-                },
-                {
-                  "additionalProperties": false,
-                  "anyOf": [
-                    {
-                      "required": [
-                        "key"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "id"
-                      ]
-                    }
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
-                    },
-                    "key": {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "libraryId": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
-                    }
-                  },
-                  "type": "object"
                 }
-              ]
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
+              "type": "object"
             },
             "minItems": 1,
             "type": "array"
@@ -33865,9 +33737,7 @@
           ]
         },
         {
-          "aliases": [
-            "items"
-          ],
+          "aliases": [],
           "conflictsWith": [
             "none"
           ],
@@ -34089,7 +33959,10 @@
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
               "value": [
-                "example"
+                {
+                  "key": "ABC12345",
+                  "libraryId": 1
+                }
               ]
             }
           ],
@@ -34099,49 +33972,22 @@
           ],
           "schema": {
             "items": {
-              "oneOf": [
-                {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
                   "minLength": 1,
                   "type": "string"
                 },
-                {
+                "libraryId": {
+                  "minimum": 1,
                   "type": "integer"
-                },
-                {
-                  "additionalProperties": false,
-                  "anyOf": [
-                    {
-                      "required": [
-                        "key"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "id"
-                      ]
-                    }
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
-                    },
-                    "key": {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "libraryId": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
-                    }
-                  },
-                  "type": "object"
                 }
-              ]
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
+              "type": "object"
             },
             "minItems": 1,
             "type": "array"

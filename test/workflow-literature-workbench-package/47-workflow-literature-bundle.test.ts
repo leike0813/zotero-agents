@@ -8,6 +8,7 @@ import {
   writeUtf8,
 } from "../zotero/workflow-test-utils";
 import { handlers } from "../../src/handlers";
+import { lockSelection } from "../../src/modules/selectionContext";
 import {
   createBoundWorkflowResearchBundleApi,
   createWorkflowHostApi,
@@ -183,6 +184,16 @@ function bibliographyFixture(content: string) {
   };
 }
 
+function parentSelection(ref: { libraryId: number; key: string }) {
+  return lockSelection([
+    {
+      kind: "parent",
+      ref,
+      itemType: "journalArticle",
+    },
+  ]);
+}
+
 const portableLiteratureScore = {
   version: 1,
   entry: "artifacts/literature_score.json",
@@ -314,14 +325,18 @@ describe("literature portable bundle workflows", function () {
     const selected = await resolveLiteratureBundleParents({
       host,
       mode: "selection",
-      selectionContext: {
-        items: {
-          parents: [
-            { item: { ref: { libraryId: 1, key: "BBB" } } },
-            { item: { ref: { libraryId: 1, key: "AAA" } } },
-          ],
+      selectionContext: lockSelection([
+        {
+          kind: "parent",
+          ref: { libraryId: 1, key: "BBB" },
+          itemType: "journalArticle",
         },
-      },
+        {
+          kind: "parent",
+          ref: { libraryId: 1, key: "AAA" },
+          itemType: "journalArticle",
+        },
+      ]),
     });
     assert.deepEqual(
       selected.map((item: any) => item.ref.key),
@@ -380,7 +395,7 @@ describe("literature portable bundle workflows", function () {
     const result = await exportLiteratureBundle({
       host,
       runtime: { hostApi: host },
-      selectionContext: { items: { parents: [{ item: { ref } }] } },
+      selectionContext: parentSelection(ref),
     });
     assert.equal(result.schemaId, "literature_bundle.product");
     await archive.withExtractedZip(
@@ -461,7 +476,7 @@ describe("literature portable bundle workflows", function () {
     const result = await exportLiteratureBundle({
       host,
       runtime: { hostApi: host },
-      selectionContext: { items: { parents: [{ item: { ref } }] } },
+      selectionContext: parentSelection(ref),
     });
 
     assert.equal(pickerCalls, 0);
@@ -1473,7 +1488,7 @@ describe("literature portable bundle workflows", function () {
         TextDecoder,
         Buffer,
       },
-      note,
+      note: { ref: noteRef },
       noteKind: "conversation-note",
       payloadType: "conversation-note-markdown",
       payload: {
@@ -1532,7 +1547,12 @@ describe("literature portable bundle workflows", function () {
           TextDecoder,
           Buffer,
         },
-        note: generatedNote,
+        note: {
+          ref: {
+            libraryId: generatedNote.libraryID,
+            key: generatedNote.key,
+          },
+        },
         ...fixture,
       });
     }
@@ -1546,9 +1566,21 @@ describe("literature portable bundle workflows", function () {
     await handlers.parent.addRelated(parent, relatedParent);
     await handlers.parent.addRelated(relatedParent, parent);
 
+    const parentRef = {
+      libraryId: parent.libraryID,
+      key: parent.key,
+    };
+    const relatedParentRef = {
+      libraryId: relatedParent.libraryID,
+      key: relatedParent.key,
+    };
+    const parentDetail = await host.library.getItemDetail(parentRef);
+    const relatedParentDetail =
+      await host.library.getItemDetail(relatedParentRef);
+
     const built = await buildLiteratureProduct({
       host,
-      parents: [parent, relatedParent],
+      parents: [parentDetail.item, relatedParentDetail.item],
       runtime: {
         hostApi: host,
         hostApiVersion: 12,

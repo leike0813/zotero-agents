@@ -23,6 +23,7 @@ import {
 } from "../../src/modules/acpSkillRunnerWorkspace";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
 import { joinPath, normalizeNativeLocalPath } from "../../src/utils/path";
+import { buildHostBridgeSelectionBundlePath } from "../../src/providers/skillrunner/uploadMapping";
 import {
   getAcpSkillRunRecord,
   resetAcpSkillRunsForTests,
@@ -120,7 +121,7 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
   providerOptions?: Record<string, unknown>;
   engine?: string;
   inputUnitIdentity?: string;
-  targetParentID?: number;
+  targetParentRef?: { libraryId: number; key: string };
   executionMode?: "auto" | "interactive" | string;
 }) {
   const requestPayload =
@@ -132,8 +133,8 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
           ...(args.inputUnitIdentity
             ? { inputUnitIdentity: args.inputUnitIdentity }
             : {}),
-          ...(typeof args.targetParentID === "number"
-            ? { targetParentID: args.targetParentID }
+          ...(args.targetParentRef !== undefined
+            ? { targetParentRef: args.targetParentRef }
             : {}),
         }
       : args.request;
@@ -158,7 +159,7 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
       taskName: `Sequence Workflow / ${args.stepId}`,
       inputUnitIdentity: args.inputUnitIdentity,
       inputUnitLabel: `Sequence Workflow / ${args.stepId}`,
-      targetParentID: args.targetParentID,
+      targetParentID: args.targetParentRef,
       skillId: args.skillId,
       skillName: args.skillName,
       sequenceStepId: args.stepId,
@@ -521,7 +522,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     const sequenceJobId = "job-foreground-context";
     const sequenceRequest = {
       kind: "skillrunner.sequence.v1" as const,
-      targetParentID: 42,
+      targetParentRef: { libraryId: 1, key: "PARENT42" },
       taskName: "Sequence Task",
       runtime_options: {
         collect_skill_run_feedback: true,
@@ -590,7 +591,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
       providerOptions,
       engine: "context-engine",
       inputUnitIdentity: "zotero:item:42",
-      targetParentID: 42,
+      targetParentRef: { libraryId: 1, key: "PARENT42" },
       executionMode: "interactive",
     });
 
@@ -605,7 +606,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     const finalizeRequest = {
       kind: "skillrunner.job.v1" as const,
       skill_id: "finalize-skill",
-      targetParentID: 42,
+      targetParentRef: { libraryId: 1, key: "PARENT42" },
       taskName: "Sequence Task / finalize",
       runtime_options: {
         collect_skill_run_feedback: true,
@@ -641,7 +642,10 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(job!.meta.engine, "context-engine");
     assert.equal(job!.meta.executionMode, "auto");
     assert.equal(job!.meta.inputUnitIdentity, "zotero:item:42");
-    assert.equal(job!.meta.targetParentID, 42);
+    assert.deepEqual((job!.request as any).targetParentRef, {
+      libraryId: 1,
+      key: "PARENT42",
+    });
     assert.equal(job!.meta.skillName, "Finalize Skill");
 
     const task = buildWorkflowTaskRecordFromJob(job!);
@@ -678,7 +682,10 @@ describe("skillrunner.sequence.v1 runtime", function () {
       : null;
 
     assert.equal(runRecord?.executionMode, "auto");
-    assert.equal((runRecord?.requestPayload as any)?.targetParentID, 42);
+    assert.deepEqual((runRecord?.requestPayload as any)?.targetParentRef, {
+      libraryId: 1,
+      key: "PARENT42",
+    });
   });
 
   afterEach(function () {
@@ -751,7 +758,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.include(legacyHandoff.diagnostic?.reason || "", "bindings");
   });
 
-  it("accepts and compiles sequence step short-circuit rules", function () {
+  it("accepts and compiles sequence step short-circuit rules", async function () {
     const accepted = parseWorkflowManifestFromText({
       raw: JSON.stringify(
         sequenceManifest({
@@ -785,15 +792,20 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(accepted.diagnostic, null);
     assert.isOk(accepted.manifest);
 
-    const request = compileDeclarativeRequest({
+    const request = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
       selectionContext: {
-        items: {
-          parents: [{ item: { id: 1 } }],
-        },
+        sampledAt: "2026-09-06T00:00:00Z",
+        items: [
+          {
+            kind: "parent",
+            itemType: "journalArticle",
+            ref: { libraryId: 1, key: "PARENT01" },
+          },
+        ],
       },
       manifest: accepted.manifest!,
-    }) as any;
+    })) as any;
 
     assert.deepEqual(request.steps[0].short_circuit, {
       when: { path: "status", equals: "canceled" },
@@ -807,7 +819,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     );
   });
 
-  it("accepts and compiles sequence step apply_result declarations", function () {
+  it("accepts and compiles sequence step apply_result declarations", async function () {
     const accepted = parseWorkflowManifestFromText({
       raw: JSON.stringify(
         sequenceManifest({
@@ -840,15 +852,20 @@ describe("skillrunner.sequence.v1 runtime", function () {
     });
     assert.equal(accepted.diagnostic, null);
 
-    const request = compileDeclarativeRequest({
+    const request = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
       selectionContext: {
-        items: {
-          parents: [{ item: { id: 1 } }],
-        },
+        sampledAt: "2026-09-06T00:00:00Z",
+        items: [
+          {
+            kind: "parent",
+            itemType: "journalArticle",
+            ref: { libraryId: 1, key: "PARENT01" },
+          },
+        ],
       },
       manifest: accepted.manifest!,
-    }) as any;
+    })) as any;
 
     assert.deepEqual(request.steps[0].apply_result, {
       workflow_id: "prepare-workflow",
@@ -1525,7 +1542,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     const result = await executeSkillRunnerSequence({
       request: {
         kind: "skillrunner.sequence.v1",
-        targetParentID: 42,
+        targetParentRef: { libraryId: 1, key: "PARENT42" },
         steps: [
           {
             id: "prepare",
@@ -1582,7 +1599,10 @@ describe("skillrunner.sequence.v1 runtime", function () {
       },
       applySequenceStepResult: async (args) => {
         events.push(`apply:${args.applyWorkflowId}:${args.step.id}`);
-        assert.equal(args.stepRequest.targetParentID, 42);
+        assert.deepEqual(args.stepRequest.targetParentRef, {
+          libraryId: 1,
+          key: "PARENT42",
+        });
         return { applied: args.step.id };
       },
     });
@@ -2877,16 +2897,26 @@ describe("skillrunner.sequence.v1 runtime", function () {
       hostApiVersion: 12,
       hostApi: {
         library: {
-          getItemDetail: async () => ({
-            kind: "regular",
-            item: {
-              ...parentItem,
-              ref: { libraryId: 1, key: "PARENT42" },
-              title: "Sequence Paper",
-              creators: [{ firstName: "Ada", lastName: "Lovelace" }],
-              tags: ["legacy:tag"],
-            },
-          }),
+          getItemDetail: async (ref: { key: string }) =>
+            ref.key === "SOURCE01"
+              ? {
+                  kind: "attachment",
+                  item: {
+                    ref: { libraryId: 1, key: "SOURCE01" },
+                    filename: "sequence.md",
+                    file: { state: "available", path: "D:/papers/sequence.md" },
+                  },
+                }
+              : {
+                  kind: "regular",
+                  item: {
+                    ...parentItem,
+                    ref: { libraryId: 1, key: "PARENT42" },
+                    title: "Sequence Paper",
+                    creators: [{ firstName: "Ada", lastName: "Lovelace" }],
+                    tags: ["legacy:tag"],
+                  },
+                },
           getItemNotes: async (
             _ref: unknown,
             page: { limit?: number } = {},
@@ -2942,14 +2972,17 @@ describe("skillrunner.sequence.v1 runtime", function () {
       },
     };
     const selectionContext = {
-      items: {
-        attachments: [
-          {
-            filePath: "D:/papers/sequence.md",
-            parent: { id: 42, key: "PARENT42", libraryID: 1 },
-          },
-        ],
-      },
+      sampledAt: "2026-09-06T00:00:00Z",
+      items: [
+        {
+          kind: "attachment",
+          itemType: "attachment",
+          ref: { libraryId: 1, key: "SOURCE01" },
+          parentRef: { libraryId: 1, key: "PARENT42" },
+          filename: "sequence.md",
+          contentType: "text/markdown",
+        },
+      ],
     };
 
     const digestOnly = (await buildLiteratureDigestRequest({
@@ -3297,5 +3330,226 @@ describe("skillrunner.sequence.v1 runtime", function () {
         },
       ],
     );
+  });
+
+  it("projects source attachment paths out of durable sequence input and resolves them at dispatch", async function () {
+    const sourceRef = { libraryId: 1, key: "SOURCE01" };
+    const sourcePath = "/profile/storage/SOURCE01/sequence.md";
+    const generatedPath = "/profile/runtime/generated/source-bundle.zip";
+    const launched: Array<Record<string, any>> = [];
+    const hostApi = {
+      library: {
+        getItemDetail: async () => ({
+          kind: "attachment" as const,
+          item: {
+            ref: sourceRef,
+            parentRef: null,
+            revision: "1",
+            title: "sequence.md",
+            filename: "sequence.md",
+            contentType: "text/markdown",
+            charset: null,
+            url: null,
+            linkMode: "stored_file" as const,
+            role: "ordinary" as const,
+            createdAt: "2026-09-06T00:00:00.000Z",
+            file: {
+              state: "available" as const,
+              path: sourcePath,
+              sizeBytes: 10,
+              modifiedAt: null,
+            },
+          },
+        }),
+      },
+    };
+
+    await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        sourceAttachmentRefs: [sourceRef],
+        steps: [
+          {
+            id: "translate",
+            skill_id: "literature-translator",
+            mode: "auto",
+            input: {
+              source_path: sourcePath,
+              source_bundle_path: generatedPath,
+            },
+          },
+        ],
+        final_step_id: "translate",
+      },
+      hostApi: hostApi as any,
+      backend: {
+        id: "skillrunner-backend",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-durable-source",
+      jobId: "job-durable-source",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        launched.push(request as Record<string, any>);
+        return {
+          status: "succeeded",
+          requestId: "translate-request",
+          fetchType: "result",
+          resultJson: { ok: true },
+          responseJson: {},
+        };
+      },
+    });
+
+    const durableEntry = getWorkflowSequenceRunStoreEntry(
+      "workflow-run-durable-source",
+    );
+    const durableJson = JSON.stringify(durableEntry?.payload || "");
+    assert.notInclude(durableJson, sourcePath);
+    assert.equal(
+      getSequenceRunState("workflow-run-durable-source")?.request.steps[0]
+        ?.input?.source_path,
+      buildHostBridgeSelectionBundlePath(sourceRef),
+    );
+    assert.equal(
+      getSequenceRunState("workflow-run-durable-source")?.request.steps[0]
+        ?.input?.source_bundle_path,
+      generatedPath,
+    );
+    assert.equal(
+      launched[0].input.source_path,
+      "inputs/source_path/sequence.md",
+    );
+    assert.deepEqual(launched[0].upload_files, [
+      { key: "source_path", path: sourcePath },
+      { key: "source_bundle_path", path: generatedPath },
+    ]);
+  });
+
+  it("resolves durable source attachment tokens during sequence recovery", async function () {
+    const sourceRef = { libraryId: 1, key: "SOURCE02" };
+    const sourcePath = "/profile/storage/SOURCE02/sequence.md";
+    const launched: Array<Record<string, any>> = [];
+    const hostApi = {
+      library: {
+        getItemDetail: async () => ({
+          kind: "attachment" as const,
+          item: {
+            ref: sourceRef,
+            parentRef: null,
+            revision: "1",
+            title: "sequence.md",
+            filename: "sequence.md",
+            contentType: "text/markdown",
+            charset: null,
+            url: null,
+            linkMode: "stored_file" as const,
+            role: "ordinary" as const,
+            createdAt: "2026-09-06T00:00:00.000Z",
+            file: {
+              state: "available" as const,
+              path: sourcePath,
+              sizeBytes: 10,
+              modifiedAt: null,
+            },
+          },
+        }),
+      },
+    };
+
+    const deferred = await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        sourceAttachmentRefs: [sourceRef],
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            mode: "auto",
+            workspace: "new",
+          },
+          {
+            id: "translate",
+            skill_id: "literature-translator",
+            mode: "auto",
+            input: { source_path: sourcePath },
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "translate",
+      },
+      hostApi: hostApi as any,
+      backend: {
+        id: "skillrunner-backend",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-recover-source",
+      jobId: "job-recover-source",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        launched.push(request as Record<string, any>);
+        return {
+          status: "deferred",
+          requestId: "prepare-request",
+          fetchType: "result",
+          backendStatus: "running",
+          continuationOwner: "recovery",
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.equal(deferred.status, "deferred");
+    assert.notInclude(
+      JSON.stringify(
+        getWorkflowSequenceRunStoreEntry("workflow-run-recover-source")
+          ?.payload || "",
+      ),
+      sourcePath,
+    );
+
+    await acceptCompletedSequenceStep({
+      sequenceRunId: "workflow-run-recover-source",
+      stepIndex: 0,
+      stepResult: {
+        status: "succeeded",
+        requestId: "prepare-request",
+        fetchType: "result",
+        resultJson: { ok: true },
+        responseJson: {},
+      },
+      hostApi: hostApi as any,
+      backend: {
+        id: "skillrunner-backend",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        launched.push(request as Record<string, any>);
+        return {
+          status: "succeeded",
+          requestId: "translate-request",
+          fetchType: "result",
+          resultJson: { ok: true },
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.equal(
+      launched[1].input.source_path,
+      "inputs/source_path/sequence.md",
+    );
+    assert.deepEqual(launched[1].upload_files, [
+      { key: "source_path", path: sourcePath },
+    ]);
   });
 });

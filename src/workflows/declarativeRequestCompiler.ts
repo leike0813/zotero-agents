@@ -1,5 +1,8 @@
 import { getBaseName } from "../utils/path";
-import { buildSkillRunnerUploadRelativePath } from "../providers/skillrunner/uploadMapping";
+import {
+  buildHostBridgeSelectionBundlePath,
+  buildSkillRunnerUploadRelativePath,
+} from "../providers/skillrunner/uploadMapping";
 import type {
   GenericHttpRequestV1,
   GenericHttpStepsRequestV1,
@@ -13,28 +16,20 @@ import {
   assertRequestPayloadContract,
 } from "../providers/requestContracts";
 import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
-import type { WorkflowManifest, WorkflowRequestSpec } from "./types";
+import type {
+  WorkflowManifest,
+  WorkflowRequestSpec,
+  WorkflowHostApi,
+  PortableItemRef,
+} from "./types";
+import { createWorkflowHostApi } from "./hostApi";
+import {
+  type SelectionItemFact,
+  selectionTargetRef,
+} from "../modules/selectionContext";
 import type { WorkflowScopedSelectionContext } from "./workflowInputPlanning";
 
-type AttachmentLike = {
-  filePath?: string | null;
-  mimeType?: string | null;
-  parent?: {
-    id?: number | null;
-    title?: string;
-    data?: { title?: string };
-  } | null;
-  item?: {
-    id?: number;
-    key?: string;
-    title?: string;
-    parentItemID?: number | null;
-    data?: {
-      title?: string;
-      contentType?: string;
-    };
-  };
-};
+type AttachmentLike = SelectionItemFact;
 
 type SelectionLike = WorkflowScopedSelectionContext;
 
@@ -70,7 +65,7 @@ function resolveWorkflowParams(args: {
 }
 
 function getAttachmentMime(entry: AttachmentLike) {
-  return (entry.mimeType || entry.item?.data?.contentType || "").toLowerCase();
+  return (entry.contentType || "").toLowerCase();
 }
 
 function isMarkdownAttachment(entry: AttachmentLike) {
@@ -78,7 +73,7 @@ function isMarkdownAttachment(entry: AttachmentLike) {
   if (mime === "text/markdown" || mime === "text/x-markdown") {
     return true;
   }
-  const filePath = String(entry.filePath || "").toLowerCase();
+  const filePath = String(entry.filename || "").toLowerCase();
   return filePath.endsWith(".md");
 }
 
@@ -87,7 +82,7 @@ function isPdfAttachment(entry: AttachmentLike) {
   if (mime === "application/pdf") {
     return true;
   }
-  const filePath = String(entry.filePath || "").toLowerCase();
+  const filePath = String(entry.filename || "").toLowerCase();
   return filePath.endsWith(".pdf");
 }
 
@@ -109,72 +104,41 @@ function resolveAttachmentBySelector(
       `Selector ${selector} requires exactly 1 matched attachment, got ${matched.length}`,
     );
   }
-  const path = String(matched[0].filePath || "").trim();
-  if (!path) {
-    throw new Error(
-      `Selector ${selector} resolved attachment without filePath`,
-    );
-  }
-  return path;
+  return matched[0];
 }
 
-function resolveTargetParentID(selectionContext: unknown) {
-  const selection = selectionContext as SelectionLike;
-  const attachmentParentID = selection?.items?.attachments?.[0]?.parent?.id;
-  if (attachmentParentID) {
-    return attachmentParentID;
-  }
-  const selectedParentID = selection?.items?.parents?.[0]?.item?.id;
-  if (selectedParentID) {
-    return selectedParentID;
-  }
-  const childParentID = selection?.items?.children?.[0]?.parent?.id;
-  if (childParentID) {
-    return childParentID;
-  }
-  const childID = selection?.items?.children?.[0]?.item?.id;
-  if (childID) {
-    return childID;
-  }
-  const noteParentID = selection?.items?.notes?.[0]?.parent?.id;
-  if (noteParentID) {
-    return noteParentID;
-  }
-  const noteID = selection?.items?.notes?.[0]?.item?.id;
-  if (noteID) {
-    return noteID;
-  }
-  throw new Error("Cannot resolve target parent item from selection context");
+function resolveTargetParentRef(selectionContext: unknown) {
+  const ref = selectionTargetRef(selectionContext as SelectionLike);
+  if (!ref)
+    throw new Error("Cannot resolve target parent item from selection context");
+  return ref;
 }
 
-function resolveOptionalTargetParentID(selectionContext: unknown) {
+function resolveOptionalTargetParentRef(selectionContext: unknown) {
   try {
-    return resolveTargetParentID(selectionContext);
+    return resolveTargetParentRef(selectionContext);
   } catch {
     return null;
   }
 }
 
-function resolveDeclarativeTargetParentID(args: {
+function resolveDeclarativeTargetParentRef(args: {
   selectionContext: unknown;
   manifest: WorkflowManifest;
 }) {
   if (canWorkflowRunWithoutSelection(args.manifest)) {
-    return resolveOptionalTargetParentID(args.selectionContext);
+    return resolveOptionalTargetParentRef(args.selectionContext);
   }
-  return resolveTargetParentID(args.selectionContext);
+  return resolveTargetParentRef(args.selectionContext);
 }
 
 function resolveSelectionAttachments(selectionContext: unknown) {
   const selection = selectionContext as SelectionLike;
-  return (selection?.items?.attachments || []).filter(Boolean);
+  return selection.items.filter((item) => item.kind === "attachment");
 }
 
-function resolveSourceAttachmentPaths(attachments: AttachmentLike[]) {
-  const paths = attachments
-    .map((entry) => String(entry.filePath || "").trim())
-    .filter(Boolean);
-  return Array.from(new Set(paths));
+function resolveSourceAttachmentRefs(attachments: AttachmentLike[]) {
+  return attachments.map((item) => item.ref);
 }
 
 function getFileStem(filePath: string) {
@@ -203,25 +167,22 @@ function compactRenderedTaskName(value: string) {
 function renderTaskNameTemplate(args: {
   manifest: WorkflowManifest;
   workflowParams: Record<string, unknown>;
-  sourceAttachmentPaths: string[];
-  targetParentID: number | null;
+  sourceAttachmentRefs: PortableItemRef[];
+  targetParentRef: PortableItemRef | null;
+  selectionContext: unknown;
 }) {
   const template = String(args.manifest.taskNameTemplate || "").trim();
   if (!template) {
     return "";
   }
-  const sourceAttachmentPath = args.sourceAttachmentPaths[0] || "";
+  const sourceAttachmentName =
+    resolveSelectionAttachments(args.selectionContext)[0]?.filename || "";
   const values: Record<string, unknown> = {
     workflowId: args.manifest.id,
     workflowLabel: args.manifest.label,
-    targetParentID: args.targetParentID || "",
-    sourceAttachmentPath,
-    sourceAttachmentName: sourceAttachmentPath
-      ? getBaseName(sourceAttachmentPath)
-      : "",
-    sourceAttachmentStem: sourceAttachmentPath
-      ? getFileStem(sourceAttachmentPath)
-      : "",
+    targetParentKey: args.targetParentRef?.key || "",
+    sourceAttachmentName,
+    sourceAttachmentStem: getFileStem(sourceAttachmentName),
     ...args.workflowParams,
   };
   const normalizedValues = new Map<string, string>();
@@ -254,21 +215,14 @@ function renderTaskNameTemplate(args: {
   );
 }
 
-function resolveSingleSourceAttachment(
-  attachments: AttachmentLike[],
-  sourceAttachmentPaths: string[],
-) {
-  const targetPath = sourceAttachmentPaths[0] || "";
-  const matched = attachments.find(
-    (entry) => String(entry.filePath || "").trim() === targetPath,
-  );
-  return matched || attachments[0] || null;
+function resolveSingleSourceAttachment(attachments: AttachmentLike[]) {
+  return attachments[0] || null;
 }
 
 function resolveTaskName(args: {
-  sourceAttachmentPaths: string[];
+  sourceAttachmentRefs: PortableItemRef[];
   selectionContext: unknown;
-  targetParentID: number | null;
+  targetParentRef: PortableItemRef | null;
   manifest: WorkflowManifest;
   workflowParams: Record<string, unknown>;
 }) {
@@ -276,29 +230,14 @@ function resolveTaskName(args: {
   if (templated) {
     return templated;
   }
-  if (args.sourceAttachmentPaths.length > 0) {
-    return getBaseName(args.sourceAttachmentPaths[0]);
-  }
   const selection = args.selectionContext as SelectionLike;
   const parentTitle =
-    selection?.items?.attachments?.[0]?.parent?.title ||
-    selection?.items?.attachments?.[0]?.parent?.data?.title ||
-    selection?.items?.parents?.[0]?.item?.title ||
-    selection?.items?.parents?.[0]?.item?.data?.title ||
-    selection?.items?.children?.[0]?.parent?.title ||
-    selection?.items?.children?.[0]?.parent?.data?.title ||
-    selection?.items?.children?.[0]?.item?.title ||
-    selection?.items?.children?.[0]?.item?.data?.title ||
-    selection?.items?.notes?.[0]?.parent?.title ||
-    selection?.items?.notes?.[0]?.parent?.data?.title ||
-    selection?.items?.notes?.[0]?.item?.title ||
-    selection?.items?.notes?.[0]?.item?.data?.title ||
-    "";
+    selection.items[0]?.filename || selection.items[0]?.title || "";
   if (String(parentTitle || "").trim()) {
     return String(parentTitle).trim();
   }
-  if (args.targetParentID) {
-    return `item-${args.targetParentID}`;
+  if (args.targetParentRef) {
+    return `item-${args.targetParentRef.key}`;
   }
   if (args.manifest.label) {
     return `Workflow: ${args.manifest.label}`;
@@ -306,9 +245,11 @@ function resolveTaskName(args: {
   return "Task";
 }
 
-function buildSkillRunnerJobRequest(args: {
+async function buildSkillRunnerJobRequest(args: {
+  hostApi?: Pick<WorkflowHostApi, "library">;
   selectionContext: unknown;
   manifest: WorkflowManifest;
+  handoff?: boolean;
   executionOptions?: {
     workflowParams?: Record<string, unknown>;
   };
@@ -333,7 +274,7 @@ function buildSkillRunnerJobRequest(args: {
   const skillSource =
     declaredSkillSource === "installed" ? "installed" : "local-package";
   const attachments = resolveSelectionAttachments(args.selectionContext);
-  const targetParentID = resolveDeclarativeTargetParentID(args);
+  const targetParentRef = resolveDeclarativeTargetParentRef(args);
   const declaredFiles = request.input?.upload?.files || [];
   const declaredInput = isObject(request.input) ? request.input : null;
   const inlineInput = declaredInput
@@ -342,34 +283,58 @@ function buildSkillRunnerJobRequest(args: {
       )
     : {};
   const keys = new Set<string>();
-  const uploadFiles = declaredFiles.map((entry) => {
-    if (!entry?.key || typeof entry.key !== "string") {
-      throw new Error("request.input.upload.files[].key is required");
-    }
-    if (keys.has(entry.key)) {
-      throw new Error(`Duplicated upload file key: ${entry.key}`);
-    }
-    keys.add(entry.key);
-    if (Object.prototype.hasOwnProperty.call(inlineInput, entry.key)) {
-      throw new Error(
-        `request.input field conflict: ${entry.key} is declared by both inline input and upload selector`,
+  const uploadFiles = await Promise.all(
+    declaredFiles.map(async (entry) => {
+      if (!entry?.key || typeof entry.key !== "string") {
+        throw new Error("request.input.upload.files[].key is required");
+      }
+      if (keys.has(entry.key)) {
+        throw new Error(`Duplicated upload file key: ${entry.key}`);
+      }
+      keys.add(entry.key);
+      if (Object.prototype.hasOwnProperty.call(inlineInput, entry.key)) {
+        throw new Error(
+          `request.input field conflict: ${entry.key} is declared by both inline input and upload selector`,
+        );
+      }
+      const attachment = resolveAttachmentBySelector(
+        attachments,
+        entry.from as "selected.markdown" | "selected.pdf" | "selected.source",
       );
-    }
-    const localPath = resolveAttachmentBySelector(
-      attachments,
-      entry.from as "selected.markdown" | "selected.pdf" | "selected.source",
-    );
-    inlineInput[entry.key] = buildSkillRunnerUploadRelativePath(
-      entry.key,
-      localPath,
-    );
-    return {
-      key: entry.key,
-      path: localPath,
-    };
-  });
+      const ref = attachment.ref;
+      if (args.handoff) {
+        const bundlePath = buildHostBridgeSelectionBundlePath(
+          ref,
+          attachment.filename,
+        );
+        inlineInput[entry.key] = bundlePath;
+        return {
+          key: entry.key,
+          path: bundlePath,
+        };
+      }
+      const detail = await (
+        args.hostApi || createWorkflowHostApi()
+      ).library.getItemDetail(ref);
+      if (
+        detail.kind !== "attachment" ||
+        detail.item.file.state !== "available"
+      ) {
+        throw new Error("Source attachment file is unavailable");
+      }
+      const localPath = detail.item.file.path;
+      inlineInput[entry.key] = buildSkillRunnerUploadRelativePath(
+        entry.key,
+        localPath,
+      );
+      return {
+        key: entry.key,
+        path: localPath,
+      };
+    }),
+  );
 
-  const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
+  const sourceAttachmentRefs = resolveSourceAttachmentRefs(attachments);
   const workflowParams = resolveWorkflowParams({
     manifest: args.manifest,
     executionOptions: args.executionOptions,
@@ -377,15 +342,15 @@ function buildSkillRunnerJobRequest(args: {
   const taskName = resolveTaskName({
     manifest: args.manifest,
     workflowParams,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     selectionContext: args.selectionContext,
-    targetParentID,
+    targetParentRef,
   });
   const fetchType = args.manifest.result?.fetch?.type || "bundle";
   const requestPayload: SkillRunnerJobRequestV1 = {
     kind: "skillrunner.job.v1",
     taskName,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     skill_id: skillId,
     skill_source: skillSource,
     runtime_options: {
@@ -400,8 +365,8 @@ function buildSkillRunnerJobRequest(args: {
     },
     fetch_type: fetchType === "result" ? "result" : "bundle",
   };
-  if (targetParentID) {
-    requestPayload.targetParentID = targetParentID;
+  if (targetParentRef) {
+    requestPayload.targetParentRef = targetParentRef;
   }
   return requestPayload;
 }
@@ -442,20 +407,20 @@ function buildSkillRunnerSequenceRequest(args: {
     manifest: args.manifest,
     executionOptions: args.executionOptions,
   });
-  const targetParentID = resolveDeclarativeTargetParentID(args);
+  const targetParentRef = resolveDeclarativeTargetParentRef(args);
   const attachments = resolveSelectionAttachments(args.selectionContext);
-  const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
+  const sourceAttachmentRefs = resolveSourceAttachmentRefs(attachments);
   const taskName = resolveTaskName({
     manifest: args.manifest,
     workflowParams,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     selectionContext: args.selectionContext,
-    targetParentID,
+    targetParentRef,
   });
   const payload: SkillRunnerSequenceRequestV1 = {
     kind: "skillrunner.sequence.v1",
     taskName,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     steps: steps.map((step) => ({
       id: String(step.id || "").trim(),
       skill_id: String(step.skill_id || "").trim(),
@@ -479,8 +444,8 @@ function buildSkillRunnerSequenceRequest(args: {
         request?.poll?.interval_ms || args.manifest.execution?.poll_interval_ms,
     },
   };
-  if (targetParentID) {
-    payload.targetParentID = targetParentID;
+  if (targetParentRef) {
+    payload.targetParentRef = targetParentRef;
   }
   return payload;
 }
@@ -513,8 +478,8 @@ function buildGenericHttpRequest(args: {
   }
 
   const attachments = resolveSelectionAttachments(args.selectionContext);
-  const targetParentID = resolveDeclarativeTargetParentID(args);
-  const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
+  const targetParentRef = resolveDeclarativeTargetParentRef(args);
+  const sourceAttachmentRefs = resolveSourceAttachmentRefs(attachments);
   const workflowParams = resolveWorkflowParams({
     manifest: args.manifest,
     executionOptions: args.executionOptions,
@@ -522,18 +487,18 @@ function buildGenericHttpRequest(args: {
   const taskName = resolveTaskName({
     manifest: args.manifest,
     workflowParams,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     selectionContext: args.selectionContext,
-    targetParentID,
+    targetParentRef,
   });
   const sharedPayload = {
     workflow_id: args.manifest.id,
     workflow_label: args.manifest.label,
-    attachment_paths: sourceAttachmentPaths,
+    attachment_refs: sourceAttachmentRefs,
   };
-  const targetParentPayload = targetParentID
+  const targetParentPayload = targetParentRef
     ? {
-        target_parent_id: targetParentID,
+        target_parent_ref: targetParentRef,
       }
     : {};
   const payload = isObject(http.json)
@@ -556,7 +521,7 @@ function buildGenericHttpRequest(args: {
   const requestPayload: GenericHttpRequestV1 = {
     kind: "generic-http.request.v1",
     taskName,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     request: {
       method,
       path,
@@ -568,8 +533,8 @@ function buildGenericHttpRequest(args: {
         ? http.timeout_ms
         : args.manifest.execution?.timeout_ms,
   };
-  if (targetParentID) {
-    requestPayload.targetParentID = targetParentID;
+  if (targetParentRef) {
+    requestPayload.targetParentRef = targetParentRef;
   }
   return requestPayload;
 }
@@ -582,8 +547,8 @@ function buildPassThroughRequest(args: {
   };
 }) {
   const attachments = resolveSelectionAttachments(args.selectionContext);
-  const targetParentID = resolveOptionalTargetParentID(args.selectionContext);
-  const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
+  const targetParentRef = resolveOptionalTargetParentRef(args.selectionContext);
+  const sourceAttachmentRefs = resolveSourceAttachmentRefs(attachments);
   const workflowParams = resolveWorkflowParams({
     manifest: args.manifest,
     executionOptions: args.executionOptions,
@@ -591,20 +556,20 @@ function buildPassThroughRequest(args: {
   const taskName = resolveTaskName({
     manifest: args.manifest,
     workflowParams,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     selectionContext: args.selectionContext,
-    targetParentID,
+    targetParentRef,
   });
 
   const requestPayload: PassThroughRunRequestV1 = {
     kind: PASS_THROUGH_REQUEST_KIND,
     taskName,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     selectionContext: args.selectionContext,
     parameter: workflowParams,
   };
-  if (targetParentID) {
-    requestPayload.targetParentID = targetParentID;
+  if (targetParentRef) {
+    requestPayload.targetParentRef = targetParentRef;
   }
   return requestPayload;
 }
@@ -634,8 +599,8 @@ function buildGenericHttpStepsRequest(args: {
   }
 
   const attachments = resolveSelectionAttachments(args.selectionContext);
-  const targetParentID = resolveDeclarativeTargetParentID(args);
-  const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
+  const targetParentRef = resolveDeclarativeTargetParentRef(args);
+  const sourceAttachmentRefs = resolveSourceAttachmentRefs(attachments);
   const workflowParams = resolveWorkflowParams({
     manifest: args.manifest,
     executionOptions: args.executionOptions,
@@ -643,39 +608,30 @@ function buildGenericHttpStepsRequest(args: {
   const taskName = resolveTaskName({
     manifest: args.manifest,
     workflowParams,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     selectionContext: args.selectionContext,
-    targetParentID,
+    targetParentRef,
   });
-  const sourceAttachment = resolveSingleSourceAttachment(
-    attachments,
-    sourceAttachmentPaths,
-  );
-  const sourceAttachmentPath = sourceAttachmentPaths[0] || "";
+  const sourceAttachment = resolveSingleSourceAttachment(attachments);
+  const sourceAttachmentName = sourceAttachment?.filename || "";
 
   const context: Record<string, unknown> = {
     ...workflowParams,
     workflow_id: args.manifest.id,
     workflow_label: args.manifest.label,
-    source_attachment_path: sourceAttachmentPath,
-    source_attachment_name: sourceAttachmentPath
-      ? getBaseName(sourceAttachmentPath)
-      : "",
-    source_attachment_stem: sourceAttachmentPath
-      ? getFileStem(sourceAttachmentPath)
-      : "",
-    source_attachment_item_id: sourceAttachment?.item?.id || null,
-    source_attachment_item_key: sourceAttachment?.item?.key || "",
+    source_attachment_ref: sourceAttachment?.ref || null,
+    source_attachment_name: sourceAttachmentName,
+    source_attachment_stem: getFileStem(sourceAttachmentName),
     ...(isObject(requestSpec?.context) ? requestSpec?.context || {} : {}),
   };
-  if (targetParentID) {
-    context.target_parent_id = targetParentID;
+  if (targetParentRef) {
+    context.target_parent_ref = targetParentRef;
   }
 
   const requestPayload: GenericHttpStepsRequestV1 = {
     kind: "generic-http.steps.v1",
     taskName,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     context,
     steps: declaredSteps as GenericHttpStepsRequestV1["steps"],
     poll: {
@@ -686,16 +642,18 @@ function buildGenericHttpStepsRequest(args: {
         requestSpec?.poll?.timeout_ms || args.manifest.execution?.timeout_ms,
     },
   };
-  if (targetParentID) {
-    requestPayload.targetParentID = targetParentID;
+  if (targetParentRef) {
+    requestPayload.targetParentRef = targetParentRef;
   }
   return requestPayload;
 }
 
-export function compileDeclarativeRequest(args: {
+export async function compileDeclarativeRequest(args: {
+  hostApi?: Pick<WorkflowHostApi, "library">;
   kind: string;
   selectionContext: unknown;
   manifest: WorkflowManifest;
+  handoff?: boolean;
   executionOptions?: {
     workflowParams?: Record<string, unknown>;
     providerOptions?: Record<string, unknown>;
@@ -703,7 +661,7 @@ export function compileDeclarativeRequest(args: {
 }) {
   const resolvedKind = assertRequestKindSupported(args.kind).requestKind;
   if (resolvedKind === "skillrunner.job.v1") {
-    const request = buildSkillRunnerJobRequest(args);
+    const request = await buildSkillRunnerJobRequest(args);
     assertRequestPayloadContract({
       requestKind: resolvedKind,
       request,

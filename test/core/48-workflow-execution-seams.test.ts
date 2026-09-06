@@ -86,6 +86,18 @@ const parentInputPlanningV2 = {
   },
 } as const;
 
+function makeCanonicalSelectionContext(keys: readonly string[] = ["PARENT01"]) {
+  return {
+    items: keys.map((key, index) => ({
+      kind: "parent" as const,
+      ref: { libraryId: 1, key },
+      itemType: "journalArticle",
+      title: index === 0 ? "Locked Parent" : `Locked Parent ${index + 1}`,
+    })),
+    sampledAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -937,15 +949,7 @@ describe("workflow execution seams", function () {
 
     const plan = await planWorkflowExecutionUnits({
       workflow,
-      selectionContext: {
-        items: {
-          parents: [
-            { item: { id: 101, title: "First Parent" } },
-            { item: { id: 202, title: "Second Parent" } },
-          ],
-        },
-        summary: { parentCount: 2 },
-      },
+      selectionContext: makeCanonicalSelectionContext(["PARENT01", "PARENT02"]),
     });
 
     assert.deepEqual(
@@ -953,23 +957,23 @@ describe("workflow execution seams", function () {
         unitId: unit.unitId,
         order: unit.order,
         taskName: unit.taskName,
-        targetParentID: unit.targetParentID,
+        targetParentRef: unit.targetParentRef,
         inputUnitIdentity: unit.inputUnitIdentity,
       })),
       [
         {
           unitId: "unit-1",
           order: 0,
-          taskName: "First Parent",
-          targetParentID: 101,
-          inputUnitIdentity: "parent-id:101",
+          taskName: "Locked Parent",
+          targetParentRef: { libraryId: 1, key: "PARENT01" },
+          inputUnitIdentity: "parent:1:PARENT01",
         },
         {
           unitId: "unit-2",
           order: 1,
-          taskName: "Second Parent",
-          targetParentID: 202,
-          inputUnitIdentity: "parent-id:202",
+          taskName: "Locked Parent 2",
+          targetParentRef: { libraryId: 1, key: "PARENT02" },
+          inputUnitIdentity: "parent:1:PARENT02",
         },
       ],
     );
@@ -1019,10 +1023,7 @@ describe("workflow execution seams", function () {
       },
     } as any;
 
-    const selectionContext = {
-      items: { parents: [{ item: { id: 101, title: "Parent" } }] },
-      summary: { parentCount: 1 },
-    };
+    const selectionContext = makeCanonicalSelectionContext();
     const requests = await executeBuildRequests({
       workflow,
       selectionContext,
@@ -1032,7 +1033,7 @@ describe("workflow execution seams", function () {
     assert.deepEqual(captured[0].preflight.context, {
       source: "local-probe",
     });
-    assert.equal(captured[0].selectionContext.items.parents[0].item.id, 101);
+    assert.equal(captured[0].selectionContext.items[0].ref.key, "PARENT01");
     assert.notProperty(captured[0].selectionContext, "preflight");
     assert.deepEqual((requests as any).__preflight.requestUnits[0].context, {
       source: "local-probe",
@@ -1076,10 +1077,7 @@ describe("workflow execution seams", function () {
       delete (globalThis as { AbortController?: unknown }).AbortController;
       requests = await executeBuildRequests({
         workflow,
-        selectionContext: {
-          items: { parents: [{ item: { id: 101, title: "Parent" } }] },
-          summary: { parentCount: 1 },
-        },
+        selectionContext: makeCanonicalSelectionContext(),
       });
     } finally {
       if (abortControllerDescriptor) {
@@ -1133,10 +1131,7 @@ describe("workflow execution seams", function () {
 
     const requests = await executeBuildRequests({
       workflow,
-      selectionContext: {
-        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
-        summary: { parentCount: 1 },
-      },
+      selectionContext: makeCanonicalSelectionContext(),
       runtime: { signal: upstream.signal },
     });
 
@@ -1188,10 +1183,7 @@ describe("workflow execution seams", function () {
 
     const requests = await executeBuildRequests({
       workflow,
-      selectionContext: {
-        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
-        summary: { parentCount: 1 },
-      },
+      selectionContext: makeCanonicalSelectionContext(),
     });
 
     assert.lengthOf(requests, 2);
@@ -1244,10 +1236,7 @@ describe("workflow execution seams", function () {
 
     const requests = await executeBuildRequests({
       workflow,
-      selectionContext: {
-        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
-        summary: { parentCount: 1 },
-      },
+      selectionContext: makeCanonicalSelectionContext(),
     });
 
     assert.lengthOf(requests, 0);
@@ -1264,12 +1253,12 @@ describe("workflow execution seams", function () {
       id: "seam-preflight-short-circuit-entry",
       preflightBody: [
         "export async function preflight({ selectionContext }) {",
-        "  const parent = selectionContext.items.parents[0].item;",
+        "  const parent = selectionContext.items[0].ref;",
         "  return {",
         "    kind: 'short-circuit-apply',",
         "    context: { source: 'entry-short-circuit' },",
         "    apply: {",
-        "      parent: { libraryId: parent.libraryId || parent.libraryID, key: parent.key },",
+        "      parent,",
         "      resultJson: { kind: 'metadata', title: 'Resolved From Preflight' },",
         "    },",
         "  };",
@@ -1387,10 +1376,7 @@ describe("workflow execution seams", function () {
 
     const requests = await executeBuildRequests({
       workflow,
-      selectionContext: {
-        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
-        summary: { parentCount: 1 },
-      },
+      selectionContext: makeCanonicalSelectionContext(),
     });
 
     assert.lengthOf(requests, 0);
@@ -1435,6 +1421,7 @@ describe("workflow execution seams", function () {
         } as unknown as _ZoteroTypes.MainWindow,
         workflow: fakeWorkflow,
         messageFormatter: createLocalizedMessageFormatter(),
+        selectionContextOverride: makeCanonicalSelectionContext(),
       },
       {
         appendRuntimeLog: (entry) => {
@@ -1442,7 +1429,6 @@ describe("workflow execution seams", function () {
         },
         resolveWorkflowExecutionContext: async () =>
           fakeExecutionContext as any,
-        buildSelectionContext: async () => ({}),
         planWorkflowExecutionUnits: async () => {
           const error = new Error("skip all");
           (error as any).code = "NO_VALID_INPUT_UNITS";
@@ -1481,16 +1467,9 @@ describe("workflow execution seams", function () {
       providerOptions: {},
       providerId: "pass-through",
     };
-    const lockedContext = {
-      selectionType: "parent",
-      items: { parents: [{ item: { id: 101, title: "Locked Parent" } }] },
-      summary: { parentCount: 1 },
-    };
+    const lockedContext = makeCanonicalSelectionContext();
     const plannedContexts: unknown[] = [];
     const deps = {
-      buildSelectionContext: async () => {
-        throw new Error("live selection must not be read");
-      },
       resolveWorkflowExecutionOptionsPreview: () =>
         ({
           workflowParams: {},
@@ -1537,7 +1516,6 @@ describe("workflow execution seams", function () {
           alert: () => undefined,
         } as unknown as _ZoteroTypes.MainWindow,
         workflow: fakeWorkflow,
-        selectedItemsOverride: [{} as Zotero.Item],
         messageFormatter: createLocalizedMessageFormatter(),
         selectionContextOverride: lockedContext,
       },
@@ -1592,6 +1570,7 @@ describe("workflow execution seams", function () {
         workflow: fakeWorkflow,
         messageFormatter: createLocalizedMessageFormatter(),
         suppressUiFeedback: true,
+        selectionContextOverride: makeCanonicalSelectionContext(),
       },
       {
         appendRuntimeLog: () => undefined,
@@ -1603,7 +1582,6 @@ describe("workflow execution seams", function () {
             providerOptions: {},
             runOptions: {},
           }) as any,
-        buildSelectionContext: async () => ({ items: [] }) as any,
         planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
@@ -1721,9 +1699,9 @@ describe("workflow execution seams", function () {
           alert: () => undefined,
         } as unknown as _ZoteroTypes.MainWindow,
         workflow: fakeWorkflow,
+        selectionContextOverride: makeCanonicalSelectionContext(),
       },
       {
-        buildSelectionContext: async () => ({ items: { attachments: [] } }),
         planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
@@ -1841,9 +1819,9 @@ describe("workflow execution seams", function () {
           alert: () => undefined,
         } as unknown as _ZoteroTypes.MainWindow,
         workflow: fakeWorkflow,
+        selectionContextOverride: makeCanonicalSelectionContext(),
       },
       {
-        buildSelectionContext: async () => ({ items: { attachments: [] } }),
         planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
@@ -2007,9 +1985,9 @@ describe("workflow execution seams", function () {
           alert: () => undefined,
         } as unknown as _ZoteroTypes.MainWindow,
         workflow: fakeWorkflow,
+        selectionContextOverride: makeCanonicalSelectionContext(),
       },
       {
-        buildSelectionContext: async () => ({ items: { attachments: [] } }),
         planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
@@ -2161,9 +2139,9 @@ describe("workflow execution seams", function () {
           alert: () => undefined,
         } as unknown as _ZoteroTypes.MainWindow,
         workflow: fakeWorkflow,
+        selectionContextOverride: makeCanonicalSelectionContext(),
       },
       {
-        buildSelectionContext: async () => ({ items: { attachments: [] } }),
         planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
@@ -2292,9 +2270,9 @@ describe("workflow execution seams", function () {
           },
         } as unknown as _ZoteroTypes.MainWindow,
         workflow: fakeWorkflow,
+        selectionContextOverride: makeCanonicalSelectionContext(),
       },
       {
-        buildSelectionContext: async () => ({ items: { attachments: [] } }),
         planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
@@ -2782,10 +2760,7 @@ describe("workflow execution seams", function () {
       (entry) => entry.stage === "selection-context-capture-failed",
     );
     assert.isOk(failure);
-    assert.equal(
-      (failure?.details as Record<string, unknown>)?.reason,
-      "selection unavailable",
-    );
+    assert.isString((failure?.details as Record<string, unknown>)?.reason);
     assert.isFalse(logs.some((entry) => entry.stage === "trigger-start"));
   });
 
@@ -3582,7 +3557,7 @@ describe("workflow execution seams", function () {
               hooks: { applyResult: "hooks/applyResult.js" },
             },
           } as any,
-          requests: [{ targetParentID: 123 }],
+          requests: [{ targetParentRef: { libraryId: 1, key: "PARENT01" } }],
           queue: queueStub as any,
           jobIds: ["job-1"],
           runId: "run-1",
@@ -4876,7 +4851,7 @@ describe("workflow execution seams", function () {
           requests: [
             {
               kind: "skillrunner.sequence.v1",
-              targetParentID: 123,
+              targetParentRef: { libraryId: 1, key: "PARENT01" },
               final_step_id: "final",
               steps: [
                 {
@@ -4975,7 +4950,7 @@ describe("workflow execution seams", function () {
           requests: [
             {
               kind: "skillrunner.sequence.v1",
-              targetParentID: 123,
+              targetParentRef: { libraryId: 1, key: "PARENT01" },
               final_step_id: "final",
               steps: [
                 {

@@ -115,8 +115,6 @@ import {
   readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 import {
-  getLegacyZoteroCurrentView,
-  getLegacyZoteroSelectedItems,
   openLegacyZoteroCollection,
   openLegacyZoteroItem,
   openLegacyZoteroNote,
@@ -1534,6 +1532,17 @@ function methodNotAllowed(message: string, allow: string) {
 
 function requestWorkflowCallControl(request: HttpRequest) {
   return request.signal ? { signal: request.signal } : undefined;
+}
+
+function requestPageInput(request: HttpRequest) {
+  return {
+    ...(request.query.limit === undefined
+      ? {}
+      : { limit: Number(request.query.limit) }),
+    ...(request.query.cursor === undefined
+      ? {}
+      : { cursor: request.query.cursor }),
+  };
 }
 
 async function callCapability(
@@ -3446,29 +3455,19 @@ async function getCurrentContext(request: HttpRequest) {
     );
   }
   try {
-    const currentView = getLegacyZoteroCurrentView();
-    const page = paginateRequestRows(
-      request,
-      "context current",
-      currentView.selectedItems || [],
-    );
-    return response(
-      200,
-      "OK",
-      hostBridgeOk({
-        ...currentView,
-        selectedItems: page.page,
-        nextCursor: page.nextCursor,
-        hasMore: page.hasMore,
-        returned: page.returned,
-        total: page.total,
-        limit: page.limit,
-      }),
-    );
-  } catch (error) {
-    if (error instanceof HostBridgeCursorError) {
-      return paginationErrorResponse(error);
+    const broker = resolveZoteroHostCapabilityBroker();
+    if (
+      !broker?.context ||
+      typeof broker.context.getCurrentView !== "function"
+    ) {
+      throw new ZoteroHostCapabilityError(
+        "unavailable",
+        "Broker current-view capability is unavailable",
+        { reason: "capability" },
+      );
     }
+    return response(200, "OK", hostBridgeOk(broker.context.getCurrentView()));
+  } catch (error) {
     return navigationErrorResponse(error);
   }
 }
@@ -3481,27 +3480,23 @@ async function getCurrentSelection(request: HttpRequest) {
     );
   }
   try {
-    const page = paginateRequestRows(
-      request,
-      "context selection get",
-      getLegacyZoteroSelectedItems(),
-    );
-    return response(
-      200,
-      "OK",
-      hostBridgeOk({
-        items: page.page,
-        nextCursor: page.nextCursor,
-        hasMore: page.hasMore,
-        returned: page.returned,
-        total: page.total,
-        limit: page.limit,
-      }),
-    );
-  } catch (error) {
-    if (error instanceof HostBridgeCursorError) {
-      return paginationErrorResponse(error);
+    const broker = resolveZoteroHostCapabilityBroker();
+    if (
+      !broker?.context ||
+      typeof broker.context.getSelectedItems !== "function"
+    ) {
+      throw new ZoteroHostCapabilityError(
+        "unavailable",
+        "Broker selected-items capability is unavailable",
+        { reason: "capability" },
+      );
     }
+    const page = await broker.context.getSelectedItems(
+      requestPageInput(request),
+      requestWorkflowCallControl(request),
+    );
+    return response(200, "OK", hostBridgeOk(page));
+  } catch (error) {
     return navigationErrorResponse(error);
   }
 }
@@ -3631,17 +3626,24 @@ async function openContextSelection(request: HttpRequest) {
       targetItems,
       { items },
     );
-    const currentView = asRequestObject(result.currentView);
+    const broker = resolveZoteroHostCapabilityBroker();
+    if (
+      !broker?.context ||
+      typeof broker.context.getCurrentView !== "function"
+    ) {
+      throw new ZoteroHostCapabilityError(
+        "unavailable",
+        "Broker current-view capability is unavailable",
+        { reason: "capability" },
+      );
+    }
     return response(
       200,
       "OK",
       hostBridgeOk({
         ...result,
         target: { ...target, items: page.page },
-        currentView: {
-          ...currentView,
-          selectedItems: page.page,
-        },
+        currentView: broker.context.getCurrentView(),
         pagination: {
           items: {
             nextCursor: page.nextCursor,

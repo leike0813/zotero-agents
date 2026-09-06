@@ -11,18 +11,6 @@
       "x-input-source": "inline",
       "description": "Source bibliographic record snapshot. Named parent for workflow compatibility, but usable as a generic literature record.",
       "properties": {
-        "id": {
-          "type": ["number", "string", "null"],
-          "description": "Optional upstream record id."
-        },
-        "key": {
-          "type": "string",
-          "description": "Optional upstream record key."
-        },
-        "libraryID": {
-          "type": ["number", "string", "null"],
-          "description": "Optional upstream library id."
-        },
         "itemType": {
           "type": "string",
           "description": "Original record type. This is context only and must not be emitted as an update field."
@@ -53,7 +41,7 @@
           }
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "identifier": {
       "type": ["object", "null"],

@@ -120,6 +120,8 @@ The catalog is intentionally compact. It owns discovery by user intent, while th
 ### Translate common request shapes
 
 - “This paper,” “these items,” and “the current collection” first require `context` commands to resolve the live selection.
+- For selected items, consume the exact selection page and pass each opaque `nextCursor` unchanged until `hasMore` is false; default page size is 25 and the maximum is 100. Preserve object refs and order across pages, and keep current-view tree sources separate from item selection. A `basis_mismatch` failure invalidates the entire acquisition: discard its collected pages, stop that invocation, and obtain a fresh explicit scope before starting another acquisition. Never submit a partial page set as the user's complete selection.
+- Workflow `items` input requires complete `{libraryId,key}` refs; `none` represents explicit empty input. Carry the reviewed refs through validation, submission and agent-run apply. A stored record without complete refs cannot execute; preserve the record and report the invalid input rather than filling identities from the active pane or assuming a library.
 - “What is in my library?” and “do I have papers about X?” require `library` reads and a complete bounded paging decision.
 - “Change these tags” or “put this in a collection” requires a live identity read, a reviewed mutation, current authority, and post-write verification.
 - “Get the generated report” may require a Product or workflow artifact read followed by file delivery; it is not automatically an attachment read.

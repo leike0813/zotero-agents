@@ -2,7 +2,7 @@ import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager"
 import type {
   AttachmentDetailDto,
   LibraryListItemsRequestDto,
-  LibraryPageRequestDto,
+  SelectedItemsPageRequestDto,
   WorkflowCallControl,
 } from "../workflows/types";
 import {
@@ -50,8 +50,6 @@ import type {
 } from "./hostBridgeProtocol";
 import {
   resolveZoteroHostCapabilityBroker,
-  getLegacyZoteroCurrentView,
-  getLegacyZoteroSelectedItems,
   ZoteroHostCapabilityError,
   type ZoteroHostCapabilityBroker,
   type ZoteroHostCollectionRefInput,
@@ -491,32 +489,33 @@ function resolveCapabilityBroker(context: HostBridgeCapabilityContext) {
   return broker;
 }
 
-type LegacyHostBridgeContextProjection = {
-  context: {
-    getCurrentView: typeof getLegacyZoteroCurrentView;
-    getSelectedItems: typeof getLegacyZoteroSelectedItems;
-  };
-};
-
-function injectedLegacyContextProjection(
-  context: HostBridgeCapabilityContext,
-): LegacyHostBridgeContextProjection | null {
-  return context.resolveZoteroHostCapabilityBroker
-    ? (context.resolveZoteroHostCapabilityBroker() as unknown as LegacyHostBridgeContextProjection)
-    : null;
-}
-
 function bridgeCurrentView(context: HostBridgeCapabilityContext) {
-  return (
-    injectedLegacyContextProjection(context)?.context.getCurrentView() ||
-    getLegacyZoteroCurrentView()
-  );
+  const broker = resolveCapabilityBroker(context);
+  if (typeof broker.context?.getCurrentView !== "function") {
+    throw new ZoteroHostCapabilityError(
+      "unavailable",
+      "Broker current-view capability is unavailable",
+      { reason: "capability" },
+    );
+  }
+  return broker.context.getCurrentView();
 }
 
-function bridgeSelectedItems(context: HostBridgeCapabilityContext) {
-  return (
-    injectedLegacyContextProjection(context)?.context.getSelectedItems() ||
-    getLegacyZoteroSelectedItems()
+function bridgeSelectedItems(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const broker = resolveCapabilityBroker(context);
+  if (typeof broker.context?.getSelectedItems !== "function") {
+    throw new ZoteroHostCapabilityError(
+      "unavailable",
+      "Broker selected-items capability is unavailable",
+      { reason: "capability" },
+    );
+  }
+  return broker.context.getSelectedItems(
+    readPageRequest(input),
+    context.control,
   );
 }
 
@@ -566,7 +565,7 @@ function mapBrokerLibraryCursorError(error: unknown): Error {
   throw error;
 }
 
-function readPageRequest(input: unknown): LibraryPageRequestDto {
+function readPageRequest(input: unknown): SelectedItemsPageRequestDto {
   const object = asObject(input);
   return {
     ...(object.limit === undefined ? {} : { limit: Number(object.limit) }),
@@ -2015,17 +2014,9 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("context.get_current_view", (_input, context) =>
     bridgeCurrentView(context),
   ),
-  capability("context.get_selected_items", (_input, context) => {
-    const items = bridgeSelectedItems(context);
-    return {
-      items,
-      nextCursor: null,
-      hasMore: false,
-      returned: items.length,
-      total: items.length,
-      limit: items.length,
-    };
-  }),
+  capability("context.get_selected_items", (input, context) =>
+    bridgeSelectedItems(input, context),
+  ),
   capability("library.search_items", async (input, context) => {
     const page = await bridgeLibraryItems(
       context,

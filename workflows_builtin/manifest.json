@@ -35,7 +35,6 @@
     "literature-workbench-package/lib/representativeImage.mjs",
     "literature-workbench-package/lib/resultOutput.mjs",
     "literature-workbench-package/lib/runtime.mjs",
-    "literature-workbench-package/lib/sourceSelection.mjs",
     "literature-workbench-package/lib/literatureDeepReadingBundle.mjs",
     "literature-workbench-package/lib/literatureBundle.mjs",
     "literature-workbench-package/lib/bundleBibliography.mjs",

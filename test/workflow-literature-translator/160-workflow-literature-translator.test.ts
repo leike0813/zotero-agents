@@ -1,6 +1,9 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
@@ -160,8 +163,8 @@ describe("workflow: literature-translator", function () {
       kind: string;
       skill_id?: string;
       fetch_type?: string;
-      sourceAttachmentPaths?: string[];
-      targetParentID?: number;
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+      targetParentRef?: { libraryId: number; key: string };
       input?: { source_path?: string };
       parameter?: { target_language?: string; mode?: string };
       runtime_options?: { execution_mode?: string };
@@ -172,8 +175,16 @@ describe("workflow: literature-translator", function () {
     assert.equal(requests[0].skill_id, "literature-translator");
     assert.equal(requests[0].runtime_options?.execution_mode, "auto");
     assert.equal(requests[0].fetch_type, "bundle");
-    assert.equal(requests[0].targetParentID, parent.id);
-    assert.deepEqual(requests[0].sourceAttachmentPaths, [markdown.filePath]);
+    assert.deepEqual(requests[0].targetParentRef, {
+      libraryId: parent.libraryID,
+      key: parent.key,
+    });
+    assert.deepEqual(requests[0].sourceAttachmentRefs, [
+      {
+        libraryId: markdown.attachment.libraryID,
+        key: markdown.attachment.key,
+      },
+    ]);
     assert.equal(requests[0].input?.source_path, markdown.filePath);
     assert.equal(requests[0].parameter?.target_language, "fr-FR");
     assert.equal(requests[0].parameter?.mode, "high_quality");
@@ -273,7 +284,9 @@ describe("workflow: literature-translator", function () {
           target_language: "fr-FR",
         },
       },
-    })) as Array<{ sourceAttachmentPaths?: string[] }> & {
+    })) as Array<{
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+    }> & {
       __stats?: {
         totalUnits?: number;
         skippedUnits?: number;
@@ -282,8 +295,14 @@ describe("workflow: literature-translator", function () {
     };
 
     assert.lengthOf(requests, 1);
-    assert.equal(requests[0].sourceAttachmentPaths?.[0], keep.filePath);
-    assert.notEqual(requests[0].sourceAttachmentPaths?.[0], skip.filePath);
+    assert.deepEqual(requests[0].sourceAttachmentRefs?.[0], {
+      libraryId: keep.attachment.libraryID,
+      key: keep.attachment.key,
+    });
+    assert.notDeepEqual(requests[0].sourceAttachmentRefs?.[0], {
+      libraryId: skip.attachment.libraryID,
+      key: skip.attachment.key,
+    });
     assert.equal(requests.__stats?.totalUnits, 1);
     assert.equal(requests.__stats?.skippedUnits, 0);
     assert.equal(requests.__stats?.candidateStats?.total, 2);
@@ -350,7 +369,10 @@ describe("workflow: literature-translator", function () {
     );
     const request = {
       kind: "skillrunner.sequence.v1",
-      sourceAttachmentPaths: [source.filePath],
+      sourceAttachmentRefs: [
+        { libraryId: source.attachment.libraryID, key: source.attachment.key },
+      ],
+      targetParentRef: { libraryId: parent.libraryID, key: parent.key },
       steps: [
         {
           id: "translate",
@@ -375,7 +397,7 @@ describe("workflow: literature-translator", function () {
 
     await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         readText: async () => "",
       },
@@ -384,7 +406,7 @@ describe("workflow: literature-translator", function () {
     });
     await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         readText: async () => "",
       },
@@ -434,13 +456,19 @@ describe("workflow: literature-translator", function () {
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         readText: async () => "",
       },
       request: {
         kind: "skillrunner.sequence.v1",
-        sourceAttachmentPaths: [source.filePath],
+        sourceAttachmentRefs: [
+          {
+            libraryId: source.attachment.libraryID,
+            key: source.attachment.key,
+          },
+        ],
+        targetParentRef: { libraryId: parent.libraryID, key: parent.key },
         steps: [
           {
             id: "translate",
@@ -546,12 +574,18 @@ describe("workflow: literature-translator", function () {
     try {
       await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader,
         resultContext,
         request: {
           kind: "skillrunner.sequence.v1",
-          sourceAttachmentPaths: [source.filePath],
+          sourceAttachmentRefs: [
+            {
+              libraryId: source.attachment.libraryID,
+              key: source.attachment.key,
+            },
+          ],
+          targetParentRef: { libraryId: parent.libraryID, key: parent.key },
           steps: [
             {
               id: "translate",
@@ -623,12 +657,18 @@ describe("workflow: literature-translator", function () {
 
     await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader,
       resultContext,
       request: {
         kind: "skillrunner.sequence.v1",
-        sourceAttachmentPaths: [source.filePath],
+        sourceAttachmentRefs: [
+          {
+            libraryId: source.attachment.libraryID,
+            key: source.attachment.key,
+          },
+        ],
+        targetParentRef: { libraryId: parent.libraryID, key: parent.key },
         steps: [
           {
             id: "translate",

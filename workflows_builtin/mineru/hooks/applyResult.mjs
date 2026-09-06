@@ -1,11 +1,17 @@
-import { readHostPages } from "../../literature-workbench-package/lib/runtime.mjs";
+import {
+  portableItemRef,
+  readHostPages,
+  resolveAttachmentPath,
+} from "../lib/pdfSplitPlan.mjs";
 
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizePath(value) {
-  return String(value || "").replace(/[\\/]+/g, "/").trim();
+  return String(value || "")
+    .replace(/[\\/]+/g, "/")
+    .trim();
 }
 
 function toNativePath(value) {
@@ -20,7 +26,9 @@ function toNativePath(value) {
 }
 
 function basenamePath(filePath) {
-  const parts = String(filePath || "").split(/[\\/]+/).filter(Boolean);
+  const parts = String(filePath || "")
+    .split(/[\\/]+/)
+    .filter(Boolean);
   return parts.length > 0 ? parts[parts.length - 1] : "";
 }
 
@@ -89,9 +97,8 @@ async function hasLinkedAttachmentForPath(host, parentRef, targetPath) {
     operation: "MinerU attachment read",
   });
   for (const attachment of attachments) {
-    const attachmentPath = attachment.file?.state === "available"
-      ? attachment.file.path
-      : "";
+    const attachmentPath =
+      attachment.file?.state === "available" ? attachment.file.path : "";
     if (!attachmentPath) {
       continue;
     }
@@ -105,19 +112,12 @@ async function hasLinkedAttachmentForPath(host, parentRef, targetPath) {
 function resolveRequestSource(request) {
   const root = isObject(request) ? request : {};
   const context = isObject(root.context) ? root.context : {};
-  const sourceFromList = Array.isArray(root.sourceAttachmentPaths)
-    ? String(root.sourceAttachmentPaths[0] || "").trim()
-    : "";
-  const sourcePath = String(
-    context.source_attachment_path || sourceFromList || "",
-  ).trim();
-  const sourceItemKey = String(context.source_attachment_item_key || "").trim();
-  const sourceItemId = Number(context.source_attachment_item_id || 0);
+  const sourceAttachmentRef =
+    root.sourceAttachmentRefs?.[0] || context.source_attachment_ref || null;
   return {
-    sourcePath,
-    sourceItemKey,
-    sourceItemId: Number.isFinite(sourceItemId) ? sourceItemId : 0,
-    sourceItemRef: context.source_attachment_ref || null,
+    sourceAttachmentRef: sourceAttachmentRef
+      ? portableItemRef(sourceAttachmentRef)
+      : null,
   };
 }
 
@@ -274,33 +274,34 @@ function rewriteMarkdownImagePaths(markdown, imagesDirName) {
 
 async function resolveSourceAttachmentMetadata(args) {
   const source = resolveRequestSource(args.request);
-  if (!source.sourcePath) {
-    throw new Error("mineru applyResult requires request.source_attachment_path");
+  if (!source.sourceAttachmentRef) {
+    throw new Error("mineru applyResult requires one source attachment ref");
   }
   const host = args.runtime.hostApi;
-  const sourceDetail = source.sourceItemRef
-    ? await host.library.getItemDetail(source.sourceItemRef)
-    : null;
-  const parentRef = sourceDetail?.kind === "attachment"
-    ? sourceDetail.item.parentRef
-    : null;
-  if (!parentRef) throw new Error("mineru applyResult cannot resolve source parent ref");
-  const sourceItemKey = String(
-    source.sourceItemKey || source.sourceItemRef?.key || "",
-  ).trim();
-  if (!sourceItemKey) {
-    throw new Error("mineru applyResult cannot resolve source attachment item key");
-  }
+  const sourceDetail = await host.library.getItemDetail(
+    source.sourceAttachmentRef,
+  );
+  const parentRef =
+    sourceDetail?.kind === "attachment" ? sourceDetail.item.parentRef : null;
+  if (!parentRef)
+    throw new Error("mineru applyResult cannot resolve source parent ref");
+  const sourcePath = await resolveAttachmentPath(
+    source.sourceAttachmentRef,
+    args.runtime,
+  );
   return {
     parentRef,
-    sourcePath: source.sourcePath,
-    sourceItemKey,
+    sourcePath,
+    sourceItemKey: source.sourceAttachmentRef.key,
+    sourceAttachmentRef: source.sourceAttachmentRef,
   };
 }
 
 function resolveBundleExtractedDir(bundleReader) {
   if (typeof bundleReader?.getExtractedDir !== "function") {
-    throw new Error("mineru applyResult requires bundleReader.getExtractedDir()");
+    throw new Error(
+      "mineru applyResult requires bundleReader.getExtractedDir()",
+    );
   }
   return bundleReader.getExtractedDir();
 }
@@ -398,11 +399,7 @@ async function materializeParts(args) {
     await ensureDirectory(file, stagingDir);
     for (const part of args.parts) {
       if (
-        await copyImagesIntoStage(
-          file,
-          part.imagesSourceDir,
-          stagedImagesDir,
-        )
+        await copyImagesIntoStage(file, part.imagesSourceDir, stagedImagesDir)
       ) {
         hasImages = true;
       }
@@ -426,7 +423,13 @@ async function materializeParts(args) {
     await removePath(file, stagingDir);
   }
 
-  if (!(await hasLinkedAttachmentForPath(args.runtime.hostApi, args.source.parentRef, mdPath))) {
+  if (
+    !(await hasLinkedAttachmentForPath(
+      args.runtime.hostApi,
+      args.source.parentRef,
+      mdPath,
+    ))
+  ) {
     const targetIdentity = encodeURIComponent(normalizePath(mdPath)).slice(-64);
     const created = await args.runtime.hostApi.attachments.create({
       operationId: `mineru:attachment:${args.source.parentRef.libraryId}:${args.source.parentRef.key}:${targetIdentity}`,
@@ -435,7 +438,9 @@ async function materializeParts(args) {
       metadata: { title: mdName, contentType: "text/markdown" },
     });
     if (created.outcome !== "committed" && created.outcome !== "unchanged") {
-      throw new Error(created.attempt?.error?.message || "mineru attachment creation failed");
+      throw new Error(
+        created.attempt?.error?.message || "mineru attachment creation failed",
+      );
     }
   }
 

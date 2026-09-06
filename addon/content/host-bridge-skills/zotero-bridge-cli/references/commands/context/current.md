@@ -5,7 +5,7 @@ Read current Zotero UI context
 ## Usage
 
 ```console
-zotero-bridge context current [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--cursor <CURSOR>] [--limit <LIMIT>]
+zotero-bridge context current [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema]
 ```
 
 The global options may appear before or after the leaf command. This leaf has no structured JSON input. `--schema` returns `command_input_schema_unavailable`; use command help or `surface describe` to inspect the invocation contract.
@@ -21,26 +21,14 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ## Local options and positionals
 
-| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
-| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of entries (1-100) |
+This command has no local parameters.
 
 ## Invocation schema
 
 ```json
 {
   "additionalProperties": false,
-  "properties": {
-    "cursor": {
-      "description": "Opaque continuation cursor",
-      "type": "string"
-    },
-    "limit": {
-      "description": "Maximum number of entries (1-100)",
-      "type": "string"
-    }
-  },
+  "properties": {},
   "required": [],
   "type": "object"
 }
@@ -83,29 +71,37 @@ This command has no separate field-mapping program. Its binding mode is executab
       "additionalProperties": true,
       "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
       "properties": {
-        "hasMore": {
-          "type": "boolean"
-        },
-        "limit": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "nextCursor": {
+        "currentCollection": {
           "type": [
-            "string",
+            "object",
             "null"
           ]
         },
-        "returned": {
-          "minimum": 0,
+        "currentItem": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "libraryId": {
+          "minimum": 1,
           "type": "integer"
         },
-        "selectedItems": {
+        "libraryIds": {
           "type": "array"
         },
-        "total": {
-          "minimum": 0,
-          "type": "integer"
+        "selectedSources": {
+          "type": "array"
+        },
+        "selectionEmpty": {
+          "type": "boolean"
+        },
+        "target": {
+          "enum": [
+            "library",
+            "reader"
+          ],
+          "type": "string"
         }
       },
       "type": "object",
@@ -131,68 +127,12 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
     "timing": "none"
   },
-  "arguments": [
-    {
-      "aliases": [],
-      "conflictsWith": [],
-      "defaultValues": [],
-      "global": false,
-      "help": "Opaque continuation cursor",
-      "id": "cursor",
-      "kind": "option",
-      "possibleValues": [],
-      "repeatable": false,
-      "required": false,
-      "takesValue": true,
-      "token": "--cursor",
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "aliases": [],
-      "conflictsWith": [],
-      "defaultValues": [],
-      "global": false,
-      "help": "Maximum number of entries (1-100)",
-      "id": "limit",
-      "kind": "option",
-      "possibleValues": [],
-      "repeatable": false,
-      "required": false,
-      "takesValue": true,
-      "token": "--limit",
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
+  "arguments": [],
   "argv": [
     "context",
     "current"
   ],
-  "argvBindings": [
-    {
-      "kind": "option",
-      "property": "cursor",
-      "required": false,
-      "takesValue": true,
-      "token": "--cursor",
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "kind": "option",
-      "property": "limit",
-      "required": false,
-      "takesValue": true,
-      "token": "--limit",
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
+  "argvBindings": [],
   "binding": "none",
   "category": "read",
   "command": "context current",
@@ -210,16 +150,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "inputSchemas": {},
   "invocationSchema": {
     "additionalProperties": false,
-    "properties": {
-      "cursor": {
-        "description": "Opaque continuation cursor",
-        "type": "string"
-      },
-      "limit": {
-        "description": "Maximum number of entries (1-100)",
-        "type": "string"
-      }
-    },
+    "properties": {},
     "required": [],
     "type": "object"
   },
@@ -227,26 +158,12 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "context current",
     "context",
     "current",
-    "cursor",
-    "CURSOR",
-    "limit",
-    "LIMIT"
+    "current-view"
   ],
   "outputBoundary": {
-    "continuation": [
-      "data.nextCursor",
-      "data.hasMore",
-      "data.returned",
-      "data.total",
-      "data.limit"
-    ],
-    "cursorInput": "cursor",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "section": "data.selectedItems",
-    "strategy": "cursor"
+    "strategy": "fixed"
   },
-  "pagination": "cursor",
+  "pagination": "none",
   "payloadSchema": {
     "additionalProperties": false,
     "properties": {},
@@ -275,29 +192,37 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "additionalProperties": true,
         "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
         "properties": {
-          "hasMore": {
-            "type": "boolean"
-          },
-          "limit": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "nextCursor": {
+          "currentCollection": {
             "type": [
-              "string",
+              "object",
               "null"
             ]
           },
-          "returned": {
-            "minimum": 0,
+          "currentItem": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "libraryId": {
+            "minimum": 1,
             "type": "integer"
           },
-          "selectedItems": {
+          "libraryIds": {
             "type": "array"
           },
-          "total": {
-            "minimum": 0,
-            "type": "integer"
+          "selectedSources": {
+            "type": "array"
+          },
+          "selectionEmpty": {
+            "type": "boolean"
+          },
+          "target": {
+            "enum": [
+              "library",
+              "reader"
+            ],
+            "type": "string"
           }
         },
         "type": "object",
@@ -331,12 +256,12 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ## Operational contract
 
 - Canonical argv path: `context` `current`.
-- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.selectedItems","strategy":"cursor"}.
-- Pagination: `cursor`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
+- Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Structured binding mode: `none`.
 - Intent visibility: `visible`.
-- Operational aliases: `context current`, `context`, `current`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
+- Operational aliases: `context current`, `context`, `current`, `current-view`.
 
 ### Effects
 

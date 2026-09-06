@@ -202,7 +202,7 @@ For a handoff to Generic, include stable refs, freshness, resident receipt, and 
 
 On failure, preserve the operation name, receipt error, current submission/queue/run/event handles, and last usable local state. Re-query the affected live resource before retrying any service-backed action. Rebuild a damaged cache through the service, never by partial SQL repair. For an uncertain direct workflow submission, inspect current/recent workflow runs before another call. For an uncertain native queued submission, inspect the original `submissionId`, its immutable units, and submission-filtered tasks before any new submission. A local state failure never authorizes a Zotero mutation.
 
-If workflow selection or options validation fails, do not repair normalized payloads by assumption; re-read current live context and validate again. If the workflow contract changes, stop and return to Generic with the changed requirements. If a native unit becomes uncertain, preserve its `submissionId`, `queueId`, ordinal, source refs, and exposed task identity, then reconcile the submission and live run state before any new work.
+如果 workflow selection 或 options 校验失败，保留已审阅 refs 并报告失败；通过 Generic 取得明确更正的 scope 后，才能校验另一次调用。selection basis 失败会结束当前获取，不完整的已存储 ref 仍不可执行；两种失败都不授权用活动 pane 替换输入。如果 workflow contract 变化，停止并把变更后的要求交回 Generic。如果 native unit 状态不确定，保留其 `submissionId`、`queueId`、ordinal、source refs 和公开 task identity；开始新工作前先核对 submission 与实时 run 状态。
 
 If unexpected resident state prevents safe supervision, preserve the state database and continue read-only operations where safe. Resident state is never a prerequisite for native queue admission and must not be deleted or rewritten to force a submit path open.
 

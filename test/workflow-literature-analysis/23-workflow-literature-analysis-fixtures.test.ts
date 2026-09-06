@@ -3,6 +3,11 @@ import { handlers } from "../../src/handlers";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { WORKFLOW_HOST_API_VERSION } from "../../src/workflows/workflowHostContract";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import {
+  lockSelection,
+  type SelectionContext,
+  type SelectionItemFact,
+} from "../../src/modules/selectionContext";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import { LITERATURE_ANALYSIS_FIXTURE_CASES } from "./literature-analysis-fixture-cases";
@@ -21,14 +26,29 @@ type FixtureParent = {
   data?: Record<string, unknown>;
 };
 
+type FixtureItem = FixtureParent & {
+  data?: Record<string, unknown> & {
+    contentType?: string;
+    dateAdded?: string;
+    path?: string;
+  };
+};
+
+type FixtureAttachmentEntry = {
+  item?: FixtureItem;
+  parent?: FixtureParent | null;
+  filePath?: string;
+  mimeType?: string | null;
+};
+
 type FilteredSelection = {
-  items?: { attachments?: Array<{ filePath?: string }> };
+  items?: Array<{ kind?: string; filename?: string }>;
 };
 
 type BuiltRequest = {
   kind: string;
   targetParentRef: { libraryId: number; key: string };
-  sourceAttachmentPaths?: string[];
+  sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
   steps?: Array<{
     id?: string;
     skill_id?: string;
@@ -75,6 +95,154 @@ function collectParents(context: unknown) {
     }
   }
   return Array.from(parentsById.values());
+}
+
+function itemRef(item: FixtureItem | FixtureParent) {
+  return {
+    libraryId: Number(item.libraryID),
+    key: String(item.key || ""),
+  };
+}
+
+function itemFact(item: FixtureItem, parent?: FixtureParent | null) {
+  const ref = itemRef(item);
+  const parentRef = parent ? itemRef(parent) : undefined;
+  const createdAt = String(item.data?.dateAdded || "").trim();
+  return {
+    kind: parentRef ? (item.itemType === "note" ? "note" : "child") : "parent",
+    ref,
+    itemType: String(item.itemType || ""),
+    ...(item.title ? { title: item.title } : {}),
+    ...(parentRef ? { parentRef } : {}),
+    ...(createdAt ? { createdAt } : {}),
+  } satisfies SelectionItemFact;
+}
+
+function attachmentFact(entry: FixtureAttachmentEntry) {
+  const item = entry.item || {};
+  const parent = entry.parent || null;
+  const filePath = String(entry.filePath || item.data?.path || "");
+  const filename =
+    filePath
+      .split(/[\\/]+/)
+      .filter(Boolean)
+      .pop() || item.title;
+  const contentType = String(
+    entry.mimeType || item.data?.contentType || "",
+  ).trim();
+  const createdAt = String(item.data?.dateAdded || "").trim();
+  return {
+    kind: "attachment" as const,
+    ref: itemRef(item),
+    itemType: "attachment",
+    ...(item.title ? { title: item.title } : {}),
+    ...(parent ? { parentRef: itemRef(parent) } : {}),
+    ...(filename ? { filename } : {}),
+    ...(contentType ? { contentType } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    fileState: filePath ? ("available" as const) : ("missing" as const),
+  } satisfies SelectionItemFact;
+}
+
+function fixtureItems(context: unknown) {
+  const selection = context as {
+    items?: {
+      parents?: Array<{
+        item?: FixtureItem;
+        attachments?: FixtureAttachmentEntry[];
+      }>;
+      attachments?: FixtureAttachmentEntry[];
+      children?: Array<{ item?: FixtureItem; parent?: FixtureParent | null }>;
+      notes?: Array<{ item?: FixtureItem; parent?: FixtureParent | null }>;
+    };
+  };
+  return selection.items || {};
+}
+
+function canonicalFixtureSelection(context: unknown): SelectionContext {
+  const items = fixtureItems(context);
+  const facts: SelectionItemFact[] = [];
+  for (const entry of items.parents || []) {
+    if (entry.item) facts.push(itemFact(entry.item));
+  }
+  for (const entry of items.attachments || []) {
+    if (entry.item) facts.push(attachmentFact(entry));
+  }
+  for (const entry of items.children || []) {
+    if (entry.item) facts.push(itemFact(entry.item, entry.parent));
+  }
+  for (const entry of items.notes || []) {
+    if (entry.item) facts.push(itemFact(entry.item, entry.parent));
+  }
+  const sampledAt = String(
+    (context as { sampledAt?: string })?.sampledAt ||
+      "2026-01-01T00:00:00.000Z",
+  );
+  return lockSelection(facts, sampledAt);
+}
+
+function collectFixtureAttachments(context: unknown) {
+  const items = fixtureItems(context);
+  return [
+    ...(items.attachments || []),
+    ...(items.parents || []).flatMap((entry) => entry.attachments || []),
+  ];
+}
+
+function findFixtureAttachment(ref: { libraryId: number; key: string }) {
+  for (const fixtureCase of LITERATURE_ANALYSIS_FIXTURE_CASES) {
+    const entry = collectFixtureAttachments(fixtureCase.context).find(
+      (candidate) =>
+        Number(candidate.item?.libraryID) === ref.libraryId &&
+        String(candidate.item?.key || "") === ref.key,
+    );
+    if (entry?.item) return entry;
+  }
+  return null;
+}
+
+function findFixtureAttachmentsForParent(ref: {
+  libraryId: number;
+  key: string;
+}) {
+  return LITERATURE_ANALYSIS_FIXTURE_CASES.flatMap((fixtureCase) =>
+    collectFixtureAttachments(fixtureCase.context).filter((entry) => {
+      const parent = entry.parent;
+      return (
+        Number(parent?.libraryID) === ref.libraryId &&
+        String(parent?.key || "") === ref.key
+      );
+    }),
+  );
+}
+
+function descriptorForFixtureAttachment(entry: FixtureAttachmentEntry) {
+  const item = entry.item || {};
+  const parent = entry.parent || null;
+  const filePath = String(entry.filePath || item.data?.path || "");
+  return {
+    ref: itemRef(item),
+    parentRef: parent ? itemRef(parent) : null,
+    revision: "fixture",
+    title: String(item.title || ""),
+    filename:
+      filePath
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .pop() || String(item.title || ""),
+    contentType: String(entry.mimeType || item.data?.contentType || "") || null,
+    charset: null,
+    url: null,
+    linkMode: "linked_file",
+    role: "ordinary",
+    createdAt: String(item.data?.dateAdded || ""),
+    file: {
+      state: filePath ? "available" : "missing",
+      path: filePath || null,
+      sizeBytes: 0,
+      modifiedAt: null,
+    },
+  };
 }
 
 function findFixtureParent(ref: { libraryId: number; key: string }) {
@@ -140,6 +308,13 @@ describeFixtureMatrixSuite(
           library: {
             ...baseHostApi.library,
             async getItemDetail(ref: { libraryId: number; key: string }) {
+              const attachment = findFixtureAttachment(ref);
+              if (attachment) {
+                return {
+                  kind: "attachment" as const,
+                  item: descriptorForFixtureAttachment(attachment),
+                };
+              }
               const parent = findFixtureParent(ref);
               if (!parent) return baseHostApi.library.getItemDetail(ref);
               const fields = {
@@ -175,6 +350,23 @@ describeFixtureMatrixSuite(
                 };
               }
               return baseHostApi.library.getItemNotes(ref, page, control);
+            },
+            async getItemAttachments(
+              ref: { libraryId: number; key: string },
+              page: { limit?: number; cursor?: string } = {},
+            ) {
+              const attachments = findFixtureAttachmentsForParent(ref).map(
+                descriptorForFixtureAttachment,
+              );
+              const limit = page.limit || 25;
+              return {
+                attachments,
+                limit,
+                nextCursor: null,
+                hasMore: false,
+                returned: attachments.length,
+                total: attachments.length,
+              };
             },
           },
           synthesis: {
@@ -219,32 +411,43 @@ describeFixtureMatrixSuite(
       it(`keeps validateSelection output stable for ${fixtureCase.name}`, async function () {
         const validation = await evaluateWorkflowSelection({
           workflow,
-          selectionContext: fixtureCase.context,
-          runtime: hookRuntime,
+          selectionContext: canonicalFixtureSelection(fixtureCase.context),
+          runtime: createFixtureRequestRuntime(),
           mode: "execute",
         });
         const filtered = validation
           .scopedSelectionContexts[0] as FilteredSelection;
 
-        const actualPaths = (filtered.items?.attachments || [])
-          .map((entry) => entry.filePath || "")
+        const actualPaths = (filtered.items || [])
+          .filter((entry) => entry.kind === "attachment")
+          .map((entry) => entry.filename || "")
           .filter(Boolean);
-        assert.deepEqual(actualPaths, fixtureCase.expectedFilteredPaths);
+        assert.deepEqual(
+          actualPaths,
+          fixtureCase.expectedFilteredPaths.map((path) =>
+            path.split(/[\\/]/).pop(),
+          ),
+        );
       });
 
       it(`keeps request generation stable for ${fixtureCase.name}`, async function () {
         const validation = await evaluateWorkflowSelection({
           workflow,
-          selectionContext: fixtureCase.context,
-          runtime: hookRuntime,
+          selectionContext: canonicalFixtureSelection(fixtureCase.context),
+          runtime: createFixtureRequestRuntime(),
           mode: "execute",
         });
-        const expectedPathSet = new Set(fixtureCase.expectedFilteredPaths);
+        const expectedPathSet = new Set(
+          fixtureCase.expectedFilteredPaths.map((path) =>
+            path.split(/[\\/]/).pop(),
+          ),
+        );
         const requestSelectionContexts =
           validation.scopedSelectionContexts.filter((selectionContext) => {
             const firstPath = String(
-              (selectionContext as FilteredSelection).items?.attachments?.[0]
-                ?.filePath || "",
+              (selectionContext as FilteredSelection).items?.find(
+                (entry) => entry.kind === "attachment",
+              )?.filename || "",
             );
             return expectedPathSet.has(firstPath);
           });
@@ -275,15 +478,9 @@ describeFixtureMatrixSuite(
           );
 
           assert.equal(request.kind, "skillrunner.sequence.v1");
-          const expectedParent = collectParents(fixtureCase.context).find(
-            (parent) => parent.id === expected.targetParentID,
-          );
-          assert.deepEqual(request.targetParentRef, {
-            libraryId: expectedParent?.libraryID,
-            key: expectedParent?.key,
-          });
-          assert.deepEqual(request.sourceAttachmentPaths, [
-            expected.uploadPath,
+          assert.deepEqual(request.targetParentRef, expected.targetParentRef);
+          assert.deepEqual(request.sourceAttachmentRefs, [
+            expected.sourceAttachmentRef,
           ]);
           assert.equal(request.final_step_id, "digest");
           assert.isOk(digestStep, "digest sequence step should exist");

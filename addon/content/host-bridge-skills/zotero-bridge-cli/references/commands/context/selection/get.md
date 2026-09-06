@@ -1,6 +1,6 @@
 # `zotero-bridge context selection get`
 
-Read selected Zotero item summaries
+Read one exact page of selected Zotero items
 
 ## Usage
 
@@ -88,10 +88,6 @@ This command has no separate field-mapping program. Its binding mode is executab
         },
         "items": {
           "type": "array"
-        },
-        "limit": {
-          "minimum": 0,
-          "type": "integer"
         },
         "nextCursor": {
           "type": [
@@ -247,8 +243,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "data.nextCursor",
       "data.hasMore",
       "data.returned",
-      "data.total",
-      "data.limit"
+      "data.total"
     ],
     "cursorInput": "cursor",
     "defaultLimit": 25,
@@ -291,10 +286,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "items": {
             "type": "array"
           },
-          "limit": {
-            "minimum": 0,
-            "type": "integer"
-          },
           "nextCursor": {
             "type": [
               "string",
@@ -316,7 +307,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
     },
     "type": "object"
   },
-  "summary": "Read selected Zotero item summaries",
+  "summary": "Read one exact page of selected Zotero items",
   "targets": [
     {
       "kind": "endpoint",
@@ -341,7 +332,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ## Operational contract
 
 - Canonical argv path: `context` `selection` `get`.
-- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"cursor"}.
+- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Structured binding mode: `none`.

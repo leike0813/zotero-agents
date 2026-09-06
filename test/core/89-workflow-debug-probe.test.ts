@@ -17,7 +17,8 @@ import {
   resetWorkflowHostApiForTests,
   WORKFLOW_HOST_API_VERSION,
 } from "../../src/workflows/hostApi";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import { buildSelectionContext } from "../helpers/workflowSelectionContext";
+import { lockSelection } from "../../src/modules/selectionContext";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { executeApplyResult } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
@@ -247,8 +248,14 @@ describe("workflow debug probe", function () {
       debugMode: true,
       selectionSummary: {
         selectionType: "parent",
-        selectedItemIds: [1],
-        summary: { parentCount: 1 },
+        selectedRefs: [{ libraryId: 1, key: "PARENT01" }],
+        summary: {
+          parents: 1,
+          children: 0,
+          attachments: 0,
+          notes: 0,
+          total: 1,
+        },
         warnings: [],
       },
       runtimeSummary: {
@@ -458,10 +465,7 @@ describe("workflow debug probe", function () {
     );
     const requests = (await executeBuildRequests({
       workflow,
-      selectionContext: {
-        selectionType: "empty",
-        items: { parents: [], attachments: [] },
-      },
+      selectionContext: lockSelection([]),
     })) as Array<{
       kind: string;
       skill_id?: string;
@@ -478,10 +482,7 @@ describe("workflow debug probe", function () {
 
   it("debug apply buildRequest creates a unique parent and conditional sequence steps", async function () {
     this.timeout(10000);
-    const selectionContext = {
-      selectionType: "empty",
-      items: { parents: [], attachments: [] },
-    };
+    const selectionContext = lockSelection([]);
     const bundleThenResult = await getBuiltinDebugWorkflow(
       "debug-apply-bundle-then-result",
     );
@@ -691,15 +692,18 @@ describe("workflow debug probe", function () {
     })) as Array<{
       kind: string;
       skill_id?: string;
-      targetParentID?: number;
+      targetParentRef?: { libraryId: number; key: string };
       fetch_type?: string;
       parameter?: Record<string, unknown>;
     }>;
 
     assert.lengthOf(requests, 2);
     assert.deepEqual(
-      requests.map((request) => request.targetParentID),
-      [parentOne.id, parentTwo.id],
+      requests.map((request) => request.targetParentRef),
+      [parentOne, parentTwo].map((item) => ({
+        libraryId: item.libraryID,
+        key: item.key,
+      })),
     );
     for (const request of requests) {
       assert.equal(request.kind, "skillrunner.job.v1");

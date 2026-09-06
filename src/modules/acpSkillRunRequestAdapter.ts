@@ -107,11 +107,12 @@ export function adaptSkillRunnerJobToAcpSkillRun(
     kind: ACP_SKILL_RUN_REQUEST_KIND,
     skill_id: request.skill_id,
     ...(request.taskName ? { taskName: request.taskName } : {}),
-    ...(Array.isArray(request.sourceAttachmentPaths)
-      ? { sourceAttachmentPaths: [...request.sourceAttachmentPaths] }
-      : {}),
-    ...(typeof request.targetParentID !== "undefined"
-      ? { targetParentID: request.targetParentID }
+    ...(Array.isArray(request.sourceAttachmentRefs)
+      ? {
+          sourceAttachmentRefs: request.sourceAttachmentRefs.map((ref) => ({
+            ...ref,
+          })),
+        }
       : {}),
     ...(request.targetParentRef
       ? { targetParentRef: { ...request.targetParentRef } }

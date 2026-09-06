@@ -52,6 +52,7 @@ import {
 import {
   getHostBridgeSkillRun,
   getHostBridgeWorkflowRunStatus,
+  applyHostBridgeWorkflowAgentRun,
   parseHostBridgeWorkflowSubmitRequest,
   resetHostBridgeNotificationProjectionForTests,
 } from "../../src/modules/hostBridgeWorkflowControl";
@@ -87,6 +88,8 @@ import {
 } from "../../src/modules/hostBridgeOperationStore";
 import { registerAcpSkillRunController } from "../../src/modules/acpSkillRunControllerRegistry";
 import { resolveAcpSkillRunPermissionRequest } from "../../src/modules/acpSkillRunPermissionQueue";
+import { setZoteroLibrarySourcePageQueryAdapterForTests } from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -174,6 +177,10 @@ function workflow(id: string): LoadedWorkflow {
   };
 }
 
+function portableItemRef(item: Zotero.Item) {
+  return { libraryId: item.libraryID, key: item.key };
+}
+
 function debugWorkflow(id: string): LoadedWorkflow {
   const entry = workflow(id);
   return {
@@ -247,7 +254,13 @@ function agentRunRequests(handoff: any) {
 }
 
 describe("host bridge workflow control", function () {
+  beforeEach(function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+  });
   afterEach(function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests();
     resetHostBridgeServerForTests();
     resetHostBridgePermissionManagerForTests();
     resetWorkflowTasks();
@@ -470,12 +483,12 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "debug-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
 
-    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.status, 200, parsed.body);
     assert.strictEqual(parsed.json.status, "ok");
     assert.strictEqual(parsed.json.result.workflowId, "debug-workflow");
     assert.strictEqual(parsed.json.result.permission.channel, "global");
@@ -587,7 +600,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: attachment.id }],
+          items: [portableItemRef(attachment)],
         },
       },
     });
@@ -647,7 +660,9 @@ describe("host bridge workflow control", function () {
     );
     const contextJson = await reader.readText("selection/context.json");
     const protocolText = await reader.readText("workflow-protocol.md");
-    const selectedFile = await reader.readText("selection/files/001-paper.txt");
+    const selectionContext = JSON.parse(contextJson);
+    const selectedFilePath = selectionContext.files[0].bundlePath;
+    const selectedFile = await reader.readText(selectedFilePath);
     const extractedDir = await reader.getExtractedDir();
     assert.strictEqual(workflowJson.id, "bridge-workflow");
     assert.strictEqual(
@@ -666,7 +681,7 @@ describe("host bridge workflow control", function () {
       ),
       ["literature-digest", "tag-regulator"],
     );
-    assert.include(contextJson, "selection/files/001-paper.txt");
+    assert.include(contextJson, selectedFilePath);
     assert.include(contextJson, '"applyStatus"');
     assert.notInclude(contextJson, attachmentPath);
     assert.include(protocolText, "Reading workflow/workflow.json");
@@ -678,6 +693,200 @@ describe("host bridge workflow control", function () {
       ),
     );
     assert.strictEqual(selectedFile, "paper body");
+  });
+
+  it("keeps declarative upload paths portable in durable and bundle requests", async function () {
+    this.timeout(5000);
+    const entry = workflow("bridge-declarative-upload");
+    entry.manifest.provider = "skillrunner";
+    entry.manifest.inputs = {
+      member: { kind: "attachment" },
+      grouping: { mode: "each" },
+    };
+    entry.manifest.validateSelection = {
+      select: { policy: "input-member", source: "selected" },
+      filters: [],
+    };
+    entry.manifest.request = {
+      kind: "skillrunner.job.v1",
+      create: {
+        skill_id: "literature-digest",
+        mode: "auto",
+      },
+      input: {
+        upload: {
+          files: [{ key: "source_path", from: "selected.source" }],
+        },
+      },
+    };
+    const workflowRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zotero-agent-run-upload-workflow-"),
+    );
+    fs.writeFileSync(
+      path.join(workflowRoot, "workflow.json"),
+      JSON.stringify(entry.manifest),
+    );
+    entry.rootDir = workflowRoot;
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Declarative Upload Parent");
+    await parent.saveTx();
+    const attachmentPath = path.join(workflowRoot, "paper.txt");
+    fs.writeFileSync(attachmentPath, "paper body");
+    const attachment = await Zotero.Attachments.linkFromFile({
+      file: Zotero.File.pathToFile(attachmentPath),
+      parentItemID: parent.id,
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v2/workflows/agent-run",
+      body: {
+        workflowId: entry.manifest.id,
+        selection: { items: [portableItemRef(attachment)] },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200, parsed.body);
+    const preparedRequests = agentRunRequests(parsed);
+    assert.lengthOf(preparedRequests, 1);
+    const preparedRequest = preparedRequests[0].request as {
+      sourceAttachmentRefs: Array<{ libraryId: number; key: string }>;
+      input: Record<string, unknown>;
+      upload_files: Array<{ key: string; path: string }>;
+    };
+    const upload = preparedRequest.upload_files[0];
+    assert.deepEqual(preparedRequest.sourceAttachmentRefs, [
+      portableItemRef(attachment),
+    ]);
+    assert.match(upload.path, /^selection\/files\//);
+    assert.strictEqual(preparedRequest.input.source_path, upload.path);
+    assert.notInclude(JSON.stringify(preparedRequests), attachmentPath);
+
+    const download = await resolveHostBridgeFileDownload(
+      parsed.json.result.bundle.file.fileId,
+    );
+    const reader = new ZipBundleReader(download.source.path);
+    const requestEntry = `agent-run/requests/${preparedRequests[0].agentRequestId}/request.json`;
+    const requestText = await reader.readText(requestEntry);
+    const bundleRequest = JSON.parse(requestText);
+    assert.notInclude(requestText, attachmentPath);
+    assert.strictEqual(bundleRequest.upload_files[0].path, upload.path);
+    assert.strictEqual(bundleRequest.input.source_path, upload.path);
+    assert.strictEqual(await reader.readText(upload.path), "paper body");
+  });
+
+  it("projects hook sequence source and generated files into the handoff bundle", async function () {
+    this.timeout(5000);
+    const entry = workflow("bridge-hook-sequence");
+    entry.manifest.provider = "skillrunner";
+    entry.manifest.inputs = {
+      member: { kind: "attachment" },
+      grouping: { mode: "each" },
+    };
+    entry.manifest.validateSelection = {
+      select: { policy: "input-member", source: "selected" },
+      filters: [],
+    };
+    entry.manifest.request = {
+      kind: "skillrunner.sequence.v1",
+      sequence: {
+        steps: [
+          {
+            id: "translate",
+            skill_id: "hook-sequence",
+            mode: "auto",
+          },
+        ],
+      },
+      result: { final_step_id: "translate" },
+    };
+    const workflowRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zotero-agent-run-hook-sequence-workflow-"),
+    );
+    fs.writeFileSync(
+      path.join(workflowRoot, "workflow.json"),
+      JSON.stringify(entry.manifest),
+    );
+    entry.rootDir = workflowRoot;
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Hook Sequence Parent");
+    await parent.saveTx();
+    const attachmentPath = path.join(workflowRoot, "paper.txt");
+    const generatedPath = path.join(workflowRoot, "source-bundle.zip");
+    fs.writeFileSync(attachmentPath, "paper body");
+    fs.writeFileSync(generatedPath, "generated bundle");
+    const attachment = await Zotero.Attachments.linkFromFile({
+      file: Zotero.File.pathToFile(attachmentPath),
+      parentItemID: parent.id,
+    });
+    entry.hooks.buildRequest = async () => ({
+      kind: "skillrunner.sequence.v1",
+      sourceAttachmentRefs: [portableItemRef(attachment)],
+      steps: [
+        {
+          id: "translate",
+          skill_id: "hook-sequence",
+          mode: "auto",
+          input: {
+            source_path: attachmentPath,
+            source_bundle_path: generatedPath,
+            extra_document: generatedPath,
+          },
+        },
+      ],
+      final_step_id: "translate",
+    });
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v2/workflows/agent-run",
+      body: {
+        workflowId: entry.manifest.id,
+        selection: { items: [portableItemRef(attachment)] },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200, parsed.body);
+    const preparedRequests = agentRunRequests(parsed);
+    assert.lengthOf(preparedRequests, 1);
+    const preparedRequest = preparedRequests[0].request as {
+      steps: Array<{ input: Record<string, unknown> }>;
+    };
+    const input = preparedRequest.steps[0].input;
+    assert.match(String(input.source_path), /^selection\/files\//);
+    assert.match(String(input.source_bundle_path), /^inputs\//);
+    assert.equal(input.extra_document, input.source_bundle_path);
+    assert.notInclude(JSON.stringify(preparedRequests), attachmentPath);
+    assert.notInclude(JSON.stringify(preparedRequests), generatedPath);
+
+    const download = await resolveHostBridgeFileDownload(
+      parsed.json.result.bundle.file.fileId,
+    );
+    const reader = new ZipBundleReader(download.source.path);
+    const requestEntry = `agent-run/requests/${preparedRequests[0].agentRequestId}/request.json`;
+    const requestText = await reader.readText(requestEntry);
+    assert.notInclude(requestText, attachmentPath);
+    assert.notInclude(requestText, generatedPath);
+    const bundleRequest = JSON.parse(requestText) as typeof preparedRequest;
+    const bundleInput = bundleRequest.steps[0].input;
+    assert.strictEqual(
+      await reader.readText(String(bundleInput.source_path)),
+      "paper body",
+    );
+    assert.strictEqual(
+      await reader.readText(String(bundleInput.source_bundle_path)),
+      "generated bundle",
+    );
   });
 
   it("keeps workflow agent-run materialization free of workflow-id-specific branches", function () {
@@ -715,7 +924,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
@@ -770,7 +979,7 @@ describe("host bridge workflow control", function () {
       headers: { "x-zotero-bridge-operation-id": "prepare-operation-1" },
       body: {
         workflowId: "bridge-workflow",
-        selection: { items: [{ id: parent.id }] },
+        selection: { items: [portableItemRef(parent)] },
       },
     });
     const path = `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
@@ -848,6 +1057,41 @@ describe("host bridge workflow control", function () {
     );
   });
 
+  it("retains incomplete durable selection records and rejects apply before leasing", async function () {
+    const record = createHostBridgeAgentRunRecord({
+      workflowId: "bridge-workflow",
+      selection: {
+        kind: "items",
+        items: [{ id: 123 }],
+      } as any,
+      requests: [],
+    });
+
+    try {
+      await applyHostBridgeWorkflowAgentRun({
+        agentRunId: record.agentRunId,
+        payload: {
+          results: [
+            {
+              agentRequestId: "request-1",
+              bundle: { kind: "local_path", path: "unused" },
+            },
+          ],
+        },
+      });
+      assert.fail("expected incomplete durable selection failure");
+    } catch (error) {
+      assert.strictEqual(
+        (error as { code?: string }).code,
+        "agent_run_selection_incomplete",
+      );
+    }
+
+    const retained = getHostBridgeAgentRunRecord(record.agentRunId);
+    assert.strictEqual(retained?.state, "prepared");
+    assert.deepEqual(retained?.selection, record.selection);
+  });
+
   it("prevents a concurrent apply after the first apply seals the handle", async function () {
     const entry = workflow("bridge-workflow");
     let applyCalls = 0;
@@ -882,7 +1126,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
-        selection: { items: [{ id: parent.id }] },
+        selection: { items: [portableItemRef(parent)] },
       },
     });
     const path = `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
@@ -914,7 +1158,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
-        selection: { items: [{ id: parent.id }] },
+        selection: { items: [portableItemRef(parent)] },
       },
     });
     const agentRunId = handoff.json.result.agentRunId;
@@ -963,7 +1207,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
-        selection: { items: [{ id: parent.id }] },
+        selection: { items: [portableItemRef(parent)] },
       },
     });
     const request = agentRunRequests(handoff)[0];
@@ -1034,7 +1278,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
-        selection: { items: parents.map((item) => ({ id: item.id })) },
+        selection: { items: parents.map(portableItemRef) },
       },
     });
     const preparedRequests = agentRunRequests(handoff);
@@ -1106,7 +1350,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
-        selection: { items: [{ id: parent.id }] },
+        selection: { items: [portableItemRef(parent)] },
       },
     });
     const agentRunId = handoff.json.result.agentRunId;
@@ -1175,7 +1419,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
@@ -1229,7 +1473,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
@@ -1328,7 +1572,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
@@ -1422,7 +1666,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: attachment.id }],
+          items: [portableItemRef(attachment)],
         },
       },
     });
@@ -2246,7 +2490,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
@@ -2324,7 +2568,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "bridge-output-workflow",
-        selection: { items: [{ id: parent.id }] },
+        selection: { items: [portableItemRef(parent)] },
         resourceBindings: {
           schema: "zotero-bridge.workflow-resources.v1",
           outputs: { report: { delivery: "bridge-download" } },
@@ -2400,7 +2644,7 @@ describe("host bridge workflow control", function () {
         path: "/bridge/v2/workflows/submit",
         body: {
           workflowId: "queued-workflow",
-          selection: { items: [{ id: parent.id }] },
+          selection: { items: [portableItemRef(parent)] },
           providerProfile: { backendId: "skillrunner-queue" },
           hostOptions: { queue: { maxConcurrency: 1 } },
         },
@@ -2463,7 +2707,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
@@ -2610,7 +2854,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
@@ -2674,7 +2918,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });
@@ -2747,7 +2991,7 @@ describe("host bridge workflow control", function () {
       body: {
         workflowId: "bridge-workflow",
         selection: {
-          items: [{ id: parent.id }],
+          items: [portableItemRef(parent)],
         },
       },
     });

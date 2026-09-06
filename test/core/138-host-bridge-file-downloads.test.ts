@@ -623,6 +623,7 @@ describe("host bridge file downloads", function () {
       attachmentFilename: "attachment.txt",
       attachmentContentType: "text/plain",
       fileSize: 16,
+      dateAdded: "2026-09-06T00:00:00.000Z",
       isNote: () => false,
       isAttachment: () => true,
       isRegularItem: () => false,

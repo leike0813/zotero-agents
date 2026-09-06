@@ -5,7 +5,10 @@ import path from "path";
 import { handlers } from "../../src/handlers";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
 import { adaptSkillRunnerJobToAcpSkillRun } from "../../src/modules/acpSkillRunRequestAdapter";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import {
@@ -338,7 +341,6 @@ describe("workflow: literature-metadata-curator", function () {
 
     assertSchemaValid(inputSchema, {
       parent: {
-        id: 42,
         itemType: "journalArticle",
         title: "A Partial Metadata Record",
         DOI: "10.1000/example",
@@ -524,16 +526,28 @@ describe("workflow: literature-metadata-curator", function () {
     assert.equal(validation.stats.totalUnits, 2);
     assert.sameMembers(
       validation.scopedSelectionContexts.map(
-        (context: any) => context.items.parents[0].item.id,
+        (context: any) =>
+          context.items.find((item: any) => item.kind === "parent")?.ref.key,
       ),
-      [parentA.id, parentB.id],
+      [parentA.key, parentB.key],
     );
     for (const context of validation.scopedSelectionContexts as any[]) {
-      assert.equal(context.selectionType, "parent");
-      assert.lengthOf(context.items.parents, 1);
-      assert.lengthOf(context.items.attachments, 0);
-      assert.lengthOf(context.items.children, 0);
-      assert.lengthOf(context.items.notes, 0);
+      assert.lengthOf(
+        context.items.filter((item: any) => item.kind === "parent"),
+        1,
+      );
+      assert.lengthOf(
+        context.items.filter((item: any) => item.kind === "attachment"),
+        0,
+      );
+      assert.lengthOf(
+        context.items.filter((item: any) => item.kind === "child"),
+        0,
+      );
+      assert.lengthOf(
+        context.items.filter((item: any) => item.kind === "note"),
+        0,
+      );
     }
   });
 
@@ -556,8 +570,8 @@ describe("workflow: literature-metadata-curator", function () {
     })) as any[];
 
     assert.lengthOf(requests, 1);
-    assert.equal(requests[0].targetParentID, parent.id);
-    assert.equal(requests[0].input.parent.id, parent.id);
+    assert.deepEqual(requests[0].targetParentRef, itemRef(parent));
+    assert.notProperty(requests[0].input.parent, "id");
     assert.equal(requests[0].input.parent.title, "Attachment parent");
   });
 
@@ -588,7 +602,7 @@ describe("workflow: literature-metadata-curator", function () {
     } as any);
 
     assert.equal(outcome.kind, "short-circuit-apply");
-    assert.equal((outcome as any).apply.parent, parent.id);
+    assert.deepEqual((outcome as any).apply.parent, itemRef(parent));
     assert.equal(
       (outcome as any).apply.resultJson.kind,
       "literature_metadata_curation",
@@ -970,7 +984,7 @@ describe("workflow: literature-metadata-curator", function () {
     } as any);
 
     assert.equal(outcome.kind, "continue");
-    assert.equal((outcome as any).context.parent.id, parent.id);
+    assert.deepEqual((outcome as any).context.parentRef, itemRef(parent));
     assert.equal((outcome as any).context.diagnostics[0].code, "no_candidate");
   });
 
@@ -1057,8 +1071,8 @@ describe("workflow: literature-metadata-curator", function () {
       selectionContext,
       runtime: makeHostApiOnlyRuntime(parent),
     } as any)) as any;
-    assert.equal(request.targetParentID, parent.id);
-    assert.equal(request.input.parent.id, parent.id);
+    assert.deepEqual(request.targetParentRef, itemRef(parent));
+    assert.notProperty(request.input.parent, "id");
     assert.equal(request.input.parent.title, "Host API parent");
     assert.equal(request.input.identifier.type, "DOI");
   });
@@ -1101,9 +1115,6 @@ describe("workflow: literature-metadata-curator", function () {
         unitId: "main",
         context: {
           parent: {
-            id: parent.id,
-            key: parent.key,
-            libraryID: parent.libraryID,
             itemType: parent.itemType,
             title: "Fallback parent",
             DOI: "10.1000/fallback",
@@ -1122,8 +1133,8 @@ describe("workflow: literature-metadata-curator", function () {
     assert.equal(request.skill_id, "literature-metadata-search");
     assert.equal(request.runtime_options.execution_mode, "auto");
     assert.equal(request.fetch_type, "result");
-    assert.equal(request.targetParentID, parent.id);
-    assert.equal(request.input.parent.id, parent.id);
+    assert.deepEqual(request.targetParentRef, itemRef(parent));
+    assert.notProperty(request.input.parent, "id");
     assert.equal(request.input.diagnostics[0].code, "no_items");
     assertSchemaValid(await readSkillAsset("input.schema.json"), request.input);
 
@@ -1146,7 +1157,7 @@ describe("workflow: literature-metadata-curator", function () {
       doi: "10.1000/before",
     });
     const result = (await applyResult({
-      parent,
+      parent: itemRef(parent),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",
@@ -1188,7 +1199,7 @@ describe("workflow: literature-metadata-curator", function () {
     const parent = await createParent({ title: "Before tagged metadata" });
     const removed: Array<{ itemRef: unknown; tags: string[] }> = [];
     const result = (await applyResult({
-      parent,
+      parent: itemRef(parent),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",
@@ -1222,9 +1233,9 @@ describe("workflow: literature-metadata-curator", function () {
   });
 
   it("keeps the metadata-curation tag when curation is skipped", async function () {
-    let removals = 0;
+    const removals = 0;
     const result = (await applyResult({
-      parent: await createParent({ title: "Unresolved metadata" }),
+      parent: itemRef(await createParent({ title: "Unresolved metadata" })),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",
@@ -1233,18 +1244,7 @@ describe("workflow: literature-metadata-curator", function () {
           metadata: { fields: {} },
         },
       },
-      runtime: {
-        zotero: Zotero,
-        handlers: {
-          ...handlers,
-          tag: {
-            ...handlers.tag,
-            async remove() {
-              removals += 1;
-            },
-          },
-        },
-      },
+      runtime: makeApplyRuntime(),
     } as any)) as any;
 
     assert.isTrue(result.skipped);
@@ -1255,7 +1255,7 @@ describe("workflow: literature-metadata-curator", function () {
     const parent = await createParent({ title: "Already canonical" });
     const removals: unknown[] = [];
     const result = (await applyResult({
-      parent,
+      parent: itemRef(parent),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",
@@ -1292,7 +1292,7 @@ describe("workflow: literature-metadata-curator", function () {
   it("reports tag cleanup failure as a partial successful apply", async function () {
     const parent = await createParent({ title: "Cleanup failure" });
     const result = (await applyResult({
-      parent,
+      parent: itemRef(parent),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",
@@ -1328,7 +1328,7 @@ describe("workflow: literature-metadata-curator", function () {
     await parent.saveTx();
 
     const result = (await applyResult({
-      parent,
+      parent: itemRef(parent),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",
@@ -1364,7 +1364,7 @@ describe("workflow: literature-metadata-curator", function () {
     await parent.saveTx();
 
     const result = (await applyResult({
-      parent,
+      parent: itemRef(parent),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",
@@ -1398,7 +1398,7 @@ describe("workflow: literature-metadata-curator", function () {
       itemType: "journalArticle",
     });
     const result = (await applyResult({
-      parent,
+      parent: itemRef(parent),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",
@@ -1433,7 +1433,7 @@ describe("workflow: literature-metadata-curator", function () {
       itemType: "journalArticle",
     });
     const result = (await applyResult({
-      parent,
+      parent: itemRef(parent),
       runResult: {
         resultJson: {
           kind: "literature_metadata_curation",

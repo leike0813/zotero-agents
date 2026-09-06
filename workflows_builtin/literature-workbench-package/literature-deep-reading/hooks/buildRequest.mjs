@@ -1,15 +1,16 @@
 import { buildLiteratureDeepReadingSourceBundle } from "../../lib/literatureDeepReadingBundle.mjs";
-import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
-import { resolveParentItemFromSelection } from "../../lib/tagRegulatorRequest.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+  resolveAttachmentPath,
+  resolveSelectionParentRef,
+  selectionItems,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 import { findExistingTranslatorAlignment } from "../../lib/translatorArtifacts.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
-}
-
-function collectAttachments(selectionContext) {
-  const attachments = selectionContext?.items?.attachments;
-  return Array.isArray(attachments) ? attachments : [];
 }
 
 function resolveWorkflowParams(executionOptions) {
@@ -26,19 +27,26 @@ async function buildRequestImpl({
   manifest,
   runtime,
 }) {
-  const attachments = collectAttachments(selectionContext);
-  if (attachments.length === 0) {
+  const sourceEntry = selectionItems(selectionContext).find(
+    (item) => item?.kind === "attachment",
+  );
+  if (!sourceEntry?.ref) {
     throw new Error(
       "literature-deep-reading buildRequest requires one source attachment",
     );
   }
-  const sourceEntry = attachments[0];
-  const parentItem = resolveParentItemFromSelection(selectionContext, runtime);
+  const sourceAttachmentRef = portableItemRef(sourceEntry.ref);
+  const parentRef = portableItemRef(
+    resolveSelectionParentRef(selectionContext),
+  );
+  const parentDetail =
+    await requireHostApi(runtime).library.getItemDetail(parentRef);
+  if (parentDetail?.kind !== "regular") {
+    throw new Error("literature-deep-reading requires one regular parent item");
+  }
+  const parentItem = parentDetail.item;
   const workflowParams = resolveWorkflowParams(executionOptions);
-  const sourcePath =
-    sourceEntry?.filePath ||
-    sourceEntry?.path ||
-    sourceEntry?.item?.filePath;
+  const sourcePath = await resolveAttachmentPath(sourceAttachmentRef, runtime);
   const existingAlignment = await findExistingTranslatorAlignment({
     sourcePath,
     targetLanguage: workflowParams.target_language,
@@ -58,7 +66,8 @@ async function buildRequestImpl({
     id: "deep_reading",
     skill_id: "literature-deep-reading",
     mode: "auto",
-    workspace: existingAlignment.status === "available" ? "new" : "reuse-workflow",
+    workspace:
+      existingAlignment.status === "available" ? "new" : "reuse-workflow",
     fetch_type: "bundle",
     apply_result: {
       workflow_id: "literature-deep-reading",
@@ -126,8 +135,8 @@ async function buildRequestImpl({
 
   return {
     kind: "skillrunner.sequence.v1",
-    sourceAttachmentPaths: [sourceBundle.sourcePath],
-    targetParentID: parentItem.id,
+    sourceAttachmentRefs: [sourceAttachmentRef],
+    targetParentRef: parentRef,
     steps,
     final_step_id: "deep_reading",
     parameter: {

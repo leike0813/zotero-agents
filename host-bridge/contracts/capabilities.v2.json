@@ -614,7 +614,7 @@
     },
     "context.get_current_view": {
       "category": "context",
-      "summary": "Return the active Zotero target, library id, selection state, and current item metadata.",
+      "summary": "Return the active Zotero target, library-tree sources, library ids, selection state, and current item metadata.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -626,26 +626,32 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
         "properties": {
-          "selectedItems": {
+          "target": {
+            "type": "string",
+            "enum": ["library", "reader"]
+          },
+          "libraryIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "selectedSources": {
             "type": "array"
           },
-          "nextCursor": {
-            "type": ["string", "null"]
+          "libraryId": {
+            "type": "integer",
+            "minimum": 1
           },
-          "hasMore": {
+          "selectionEmpty": {
             "type": "boolean"
           },
-          "returned": {
-            "type": "integer",
-            "minimum": 0
+          "currentItem": {
+            "type": ["object", "null"]
           },
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 0
+          "currentCollection": {
+            "type": ["object", "null"]
           }
         }
       },
@@ -658,15 +664,25 @@
         "cacheView": false,
         "rawOnly": false,
         "mcpMirror": true,
-        "responseSizing": "unclassified"
+        "responseSizing": "limit-bounded"
       }
     },
     "context.get_selected_items": {
       "category": "context",
-      "summary": "Return JSON-safe summaries for the currently selected Zotero items.",
+      "summary": "Return one exact basis-bound page of the currently selected Zotero items.",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "additionalProperties": false
       },
       "outputSchema": {
@@ -691,10 +707,6 @@
           "total": {
             "type": "integer",
             "minimum": 0
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 0
           }
         }
       },
@@ -707,7 +719,7 @@
         "cacheView": false,
         "rawOnly": false,
         "mcpMirror": true,
-        "responseSizing": "unclassified"
+        "responseSizing": "paged"
       }
     },
     "debug.acpSkillRun.reapplyResult": {

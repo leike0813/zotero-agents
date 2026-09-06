@@ -98,7 +98,7 @@ export function applyResult({ parent, bundleReader, runtime }) {
 
 ```js
 hostApi.notifications.toast({
-  text: `buildRequest가 ${selectionContext.items.parents.length}개의 상위 항목을 수신했습니다`,
+  text: `buildRequest가 ${selectionContext.items.filter((item) => item.kind === "parent").length}개의 상위 항목을 수신했습니다`,
   type: "default",
 });
 ```

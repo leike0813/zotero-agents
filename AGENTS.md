@@ -214,6 +214,8 @@
 
 # Zotero Host Capability Broker硬约束
 
+- Selection 必须经 Broker 精确分页完成一次获取后锁定有序 canonical facts；分页 basis 变化使整次获取失败，不得混合页或自动重采样。Workflow settings/preparation/execute 共用锁定输入，显式与 durable 输入只接受完整 portable refs；promotion、去重和来源优先级仅属于命名 task selector。选择与任务 DTO 不携带 native ID 或路径，上传路径仅从最终 canonical attachment file descriptor 获取。
+
 - `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。
 - broker 公共输入只接受 portable JSON refs，公共 DTO 只允许 strict JSON 值；raw `Zotero.Item` / `Zotero.Collection` 仅可由 `src/workflows/hostApi.ts` 在 Workflow Host API v12 adapter 内归一化。
 - `WorkflowHostApi` 必须通过 member-level `Pick` 和显式对象字面量投影 broker；不得传播整个 broker domain，不得使用 spread、proxy、运行时 capability catalog 或隐式成员继承。

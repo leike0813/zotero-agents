@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import { buildSelectionContext } from "../helpers/workflowSelectionContext";
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflowExecute";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
@@ -47,7 +47,7 @@ async function createPassThroughWorkflowRoot() {
       "  await runtime.hostApi.notes.create({",
       "    operationId: `pass-through:${target.libraryId}:${target.key}`,",
       "    placement: { kind: 'child', parentRef: target },",
-      "    content: { format: 'html', value: `<p data-zs-pass-through='ok'>${String(selection?.selectionType || '')}</p>` },",
+      "    content: { format: 'html', value: `<p data-zs-pass-through='ok'>${String(selection?.items[0]?.kind || '')}</p>` },",
       "  });",
       "  return { ok: true };",
       "}",

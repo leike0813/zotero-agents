@@ -405,7 +405,6 @@ describe("Host Bridge agent surface contract", function () {
 
     const highCardinalityCommands = [
       "bridge manifest",
-      "context current",
       "context selection get",
       "library item notes",
       "library item attachments",

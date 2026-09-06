@@ -8,7 +8,7 @@ import { SkillRunnerManagementClient } from "../../src/providers/skillrunner/man
 import { resetSkillRunnerHandshakeCacheForTests } from "../../src/modules/skillRunnerHandshake";
 import { continueSkillRunnerForegroundRun } from "../../src/modules/skillRunnerForegroundContinuation";
 import { clearRuntimeLogs } from "../../src/modules/runtimeLogManager";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import { buildSelectionContext } from "../helpers/workflowSelectionContext";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
@@ -343,20 +343,19 @@ async function prepareDebugApplyWorkflow(args: {
     provider: args.provider,
     requestKind: args.requestKind,
   });
+  const lockedSelectionContext =
+    args.selectionContext ||
+    (await buildSelectionContext(args.selectedItems || []));
   const preparation = await runWorkflowPreparationSeam(
     {
       win: createFakeWindow(args.selectedItems),
       workflow,
       messageFormatter,
       suppressUiFeedback: true,
+      selectionContextOverride: lockedSelectionContext,
     },
     {
       resolveWorkflowExecutionContext: async () => executionContext,
-      buildSelectionContext: async () =>
-        args.selectionContext || {
-          selectionType: "empty",
-          items: { parents: [], attachments: [] },
-        },
       executeBuildRequests,
       alertWindow: () => undefined,
     },
@@ -748,7 +747,11 @@ describe("workflow single-result behavior integration", function () {
     });
 
     assert.equal(run.providerCalls[0]?.requestKind, "skillrunner.job.v1");
-    assert.equal(run.applySummary.succeeded, 1);
+    assert.equal(
+      run.applySummary.succeeded,
+      1,
+      JSON.stringify(run.applySummary),
+    );
     assert.equal(run.applySummary.failed, 0, JSON.stringify(run.applySummary));
     assertParentHasTag(run.request);
     assert.isOk(findRequestReadyUpdate(run, requestId));

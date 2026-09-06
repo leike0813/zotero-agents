@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { createHookHelpers } from "../../src/workflows/helpers";
+import { lockSelection } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import type { LoadedWorkflow } from "../../src/workflows/types";
@@ -19,24 +20,45 @@ async function getWorkflow() {
   return workflow!;
 }
 
-function makeSyntheticContext(entries: Array<Record<string, unknown>>) {
+function attachmentFact(entry: ReturnType<typeof attachmentEntry>) {
+  const item = entry.item;
+  const parent = entry.parent;
   return {
-    selectionType: "attachment",
-    items: {
-      parents: [],
-      children: [],
-      attachments: entries,
-      notes: [],
+    kind: "attachment" as const,
+    ref: { libraryId: Number(item.libraryID), key: String(item.key) },
+    itemType: "attachment",
+    title: String(item.title || ""),
+    parentRef: {
+      libraryId: Number(parent.libraryID),
+      key: String(parent.key),
     },
-    summary: {
-      parentCount: 0,
-      childCount: 0,
-      attachmentCount: entries.length,
-      noteCount: 0,
-    },
-    warnings: [],
-    sampledAt: "2026-03-12T00:00:00.000Z",
+    filename:
+      String(entry.filePath)
+        .split(/[\\/]+/)
+        .pop() || "",
+    contentType: String(entry.mimeType || item.data.contentType || ""),
+    createdAt: String(item.data.dateAdded || ""),
+    fileState: "available" as const,
   };
+}
+
+function parentFact(parentId: number, title: string) {
+  return {
+    kind: "parent" as const,
+    ref: { libraryId: 1, key: `P${parentId}` },
+    itemType: "journalArticle",
+    title,
+  };
+}
+
+function makeSyntheticContext(
+  entries: Array<ReturnType<typeof attachmentEntry>>,
+  parents: Array<ReturnType<typeof parentFact>> = [],
+) {
+  return lockSelection(
+    [...parents, ...entries.map(attachmentFact)],
+    "2026-03-12T00:00:00.000Z",
+  );
 }
 
 const hookRuntime = {
@@ -46,14 +68,61 @@ const hookRuntime = {
 };
 
 async function evaluateSelection(workflow: LoadedWorkflow, context: unknown) {
+  const selectedItems = (context as { items: readonly any[] }).items || [];
   const result = await evaluateWorkflowSelection({
     workflow,
     selectionContext: context,
-    runtime: hookRuntime,
+    runtime: {
+      ...hookRuntime,
+      hostApi: {
+        library: {
+          getItemAttachments: async (parentRef: {
+            libraryId: number;
+            key: string;
+          }) => ({
+            attachments: selectedItems
+              .filter(
+                (item) =>
+                  item.kind === "attachment" &&
+                  item.parentRef?.libraryId === parentRef.libraryId &&
+                  item.parentRef?.key === parentRef.key,
+              )
+              .map((item) => ({
+                ref: item.ref,
+                parentRef: item.parentRef,
+                revision: "test",
+                title: item.title || "",
+                filename: item.filename || null,
+                contentType: item.contentType || null,
+                charset: null,
+                url: null,
+                linkMode: "linked_file",
+                role: "ordinary",
+                createdAt: item.createdAt || "",
+                file: {
+                  state: "available",
+                  path: item.filename || "",
+                  sizeBytes: 0,
+                  modifiedAt: null,
+                },
+              })),
+            hasMore: false,
+            nextCursor: undefined,
+            returned: selectedItems.filter(
+              (item) =>
+                item.kind === "attachment" &&
+                item.parentRef?.libraryId === parentRef.libraryId &&
+                item.parentRef?.key === parentRef.key,
+            ).length,
+            total: null,
+          }),
+        },
+      } as any,
+    },
     mode: "execute",
   });
   return result.scopedSelectionContexts[0] as {
-    items: { attachments: Array<{ filePath?: string }> };
+    items: Array<{ filename?: string }>;
   };
 }
 
@@ -82,6 +151,8 @@ function attachmentEntry(args: {
     },
     parent: {
       id: args.parentId,
+      key: `P${args.parentId}`,
+      libraryID: 1,
       title: args.parentTitle,
     },
     filePath: args.filePath,
@@ -115,11 +186,8 @@ describe("literature-explainer validateSelection", function () {
 
     const filtered = await evaluateSelection(workflow, context);
 
-    assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(
-      filtered.items.attachments[0].filePath,
-      "attachments/A/paper.md",
-    );
+    assert.lengthOf(filtered.items, 1);
+    assert.equal(filtered.items[0].filename, "paper.md");
   });
 
   it("picks markdown matched by earliest pdf stem when multiple markdown files exist", async function () {
@@ -165,11 +233,8 @@ describe("literature-explainer validateSelection", function () {
 
     const filtered = await evaluateSelection(workflow, context);
 
-    assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(
-      filtered.items.attachments[0].filePath,
-      "attachments/B/paper.md",
-    );
+    assert.lengthOf(filtered.items, 1);
+    assert.equal(filtered.items[0].filename, "paper.md");
   });
 
   it("falls back to earliest markdown when no markdown matches earliest pdf stem", async function () {
@@ -206,11 +271,8 @@ describe("literature-explainer validateSelection", function () {
 
     const filtered = await evaluateSelection(workflow, context);
 
-    assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(
-      filtered.items.attachments[0].filePath,
-      "attachments/C/aaa.md",
-    );
+    assert.lengthOf(filtered.items, 1);
+    assert.equal(filtered.items[0].filename, "aaa.md");
   });
 
   it("falls back to earliest pdf when markdown is absent", async function () {
@@ -238,61 +300,30 @@ describe("literature-explainer validateSelection", function () {
 
     const filtered = await evaluateSelection(workflow, context);
 
-    assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(filtered.items.attachments[0].filePath, "attachments/D/a.pdf");
+    assert.lengthOf(filtered.items, 1);
+    assert.equal(filtered.items[0].filename, "a.pdf");
   });
 
   it("keeps one input per parent when parent and child attachment are both selected", async function () {
     const workflow = await getWorkflow();
-    const context = {
-      selectionType: "mixed",
-      items: {
-        parents: [
-          {
-            item: { id: 2001, title: "Parent E" },
-            attachments: [
-              attachmentEntry({
-                id: 41,
-                title: "paper.md",
-                filePath: "attachments/E/paper.md",
-                parentId: 2001,
-                parentTitle: "Parent E",
-                dateAdded: "2026-01-01T00:00:00Z",
-                mimeType: "text/markdown",
-              }),
-            ],
-          },
-        ],
-        children: [],
-        attachments: [
-          attachmentEntry({
-            id: 41,
-            title: "paper.md",
-            filePath: "attachments/E/paper.md",
-            parentId: 2001,
-            parentTitle: "Parent E",
-            dateAdded: "2026-01-01T00:00:00Z",
-            mimeType: "text/markdown",
-          }),
-        ],
-        notes: [],
-      },
-      summary: {
-        parentCount: 1,
-        childCount: 0,
-        attachmentCount: 1,
-        noteCount: 0,
-      },
-      warnings: [],
-      sampledAt: "2026-03-12T00:00:00.000Z",
-    };
+    const context = makeSyntheticContext(
+      [
+        attachmentEntry({
+          id: 41,
+          title: "paper.md",
+          filePath: "attachments/E/paper.md",
+          parentId: 2001,
+          parentTitle: "Parent E",
+          dateAdded: "2026-01-01T00:00:00Z",
+          mimeType: "text/markdown",
+        }),
+      ],
+      [parentFact(2001, "Parent E")],
+    );
 
     const filtered = await evaluateSelection(workflow, context);
 
-    assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(
-      filtered.items.attachments[0].filePath,
-      "attachments/E/paper.md",
-    );
+    assert.lengthOf(filtered.items, 1);
+    assert.equal(filtered.items[0].filename, "paper.md");
   });
 });

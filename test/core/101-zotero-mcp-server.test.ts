@@ -502,10 +502,9 @@ describe("embedded Zotero MCP server protocol", function () {
             context: {
               getCurrentView: () => ({
                 target: "library",
-                libraryId: "1",
-                libraryIds: ["1"],
+                libraryIds: [1],
                 selectionEmpty: true,
-                selectedItems: [],
+                selectedSources: [],
               }),
             },
           });
@@ -716,15 +715,14 @@ describe("embedded Zotero MCP server protocol", function () {
             context: {
               getCurrentView: () => ({
                 target: "library",
-                libraryId: "1",
-                libraryIds: ["1"],
+                libraryId: 1,
+                libraryIds: [1],
                 selectionEmpty: false,
                 currentItem: {
-                  id: 42,
-                  key: "ABCD1234",
+                  ref: { libraryId: 1, key: "ABCD1234" },
                   title: "A Zotero Paper",
                 },
-                selectedItems: [],
+                selectedSources: [],
               }),
             },
           }),
@@ -759,9 +757,8 @@ describe("embedded Zotero MCP server protocol", function () {
             context: {
               getCurrentView: () => ({
                 target: "library",
-                libraryIds: ["1", "2"],
+                libraryIds: [1, 2],
                 selectionEmpty: true,
-                selectedItems: [],
                 selectedSources: [
                   { kind: "library", libraryId: 1 },
                   { kind: "library", libraryId: 2 },
@@ -773,7 +770,7 @@ describe("embedded Zotero MCP server protocol", function () {
     );
 
     const result = (response as any).result;
-    assert.deepEqual(result.structuredContent.data.libraryIds, ["1", "2"]);
+    assert.deepEqual(result.structuredContent.data.libraryIds, [1, 2]);
     assert.notProperty(result.structuredContent.data, "libraryId");
     assert.include(result.content[0].text, "libraryIds=1,2");
   });
@@ -793,28 +790,26 @@ describe("embedded Zotero MCP server protocol", function () {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
             context: {
-              getSelectedItems: () => [
-                {
-                  id: 1,
-                  key: "READTOOL1",
-                  libraryId: 1,
-                  itemType: "journalArticle",
-                  title: "Read Tool Paper",
-                  creators: [],
-                  year: "",
-                  date: "",
-                  publicationTitle: "",
-                  tags: [],
-                  collections: [],
-                },
-              ],
+              getSelectedItems: async () => ({
+                items: [
+                  {
+                    ref: { libraryId: 1, key: "READTOOL1" },
+                    itemType: "journalArticle",
+                    title: "Read Tool Paper",
+                  },
+                ],
+                returned: 1,
+                total: 1,
+                hasMore: false,
+                nextCursor: null,
+              }),
             },
           }),
       },
     );
 
     assert.strictEqual(
-      (response as any).result.structuredContent.data.items[0].key,
+      (response as any).result.structuredContent.data.items[0].ref.key,
       "READTOOL1",
     );
     assert.deepInclude((response as any).result.structuredContent.data, {
@@ -822,7 +817,6 @@ describe("embedded Zotero MCP server protocol", function () {
       hasMore: false,
       returned: 1,
       total: 1,
-      limit: 1,
     });
     const text = toolText(response);
     assert.include(text, "READTOOL1");
@@ -2383,15 +2377,14 @@ describe("embedded Zotero MCP server protocol", function () {
           context: {
             getCurrentView: () => ({
               target: "library",
-              libraryId: "7",
-              libraryIds: ["7"],
+              libraryId: 7,
+              libraryIds: [7],
               selectionEmpty: false,
               currentItem: {
-                id: 99,
-                key: "SDKTEST1",
+                ref: { libraryId: 7, key: "SDKTEST1" },
                 title: "SDK Compatibility Paper",
               },
-              selectedItems: [],
+              selectedSources: [],
             }),
           },
         }),
@@ -2504,10 +2497,10 @@ describe("embedded Zotero MCP server protocol", function () {
           context: {
             getCurrentView: () => ({
               target: "library",
-              libraryId: "1",
-              libraryIds: ["1"],
+              libraryId: 1,
+              libraryIds: [1],
               selectionEmpty: true,
-              selectedItems: [],
+              selectedSources: [],
             }),
           },
         }),
@@ -2569,10 +2562,10 @@ describe("embedded Zotero MCP server protocol", function () {
           context: {
             getCurrentView: () => ({
               target: "library",
-              libraryId: "admission-policy",
-              libraryIds: ["admission-policy"],
+              libraryId: 1,
+              libraryIds: [1],
               selectionEmpty: true,
-              selectedItems: [],
+              selectedSources: [],
             }),
           },
         }),
@@ -2993,10 +2986,10 @@ describe("embedded Zotero MCP server protocol", function () {
           context: {
             getCurrentView: () => ({
               target: "library",
-              libraryId: "1",
-              libraryIds: ["1"],
+              libraryId: 1,
+              libraryIds: [1],
               selectionEmpty: true,
-              selectedItems: [],
+              selectedSources: [],
             }),
           },
         }),

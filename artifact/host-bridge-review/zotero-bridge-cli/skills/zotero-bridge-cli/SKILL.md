@@ -120,6 +120,8 @@ The catalog is intentionally compact. It owns discovery by user intent, while th
 ### Translate common request shapes
 
 - “This paper,” “these items,” and “the current collection” first require `context` commands to resolve the live selection.
+- 获取选中条目时，应读取精确选择页，并原样传递每个不透明 `nextCursor`，直到 `hasMore` 为 false；默认每页 25 条，上限 100 条。跨页保留对象 refs 和顺序，将 current-view 树来源与条目选择分开。`basis_mismatch` 使整次获取失效：丢弃已收集的页，停止本次调用，取得新的明确 scope 后才能开始下一次获取。不得把不完整的页集合当作用户的完整选择提交。
+- Workflow 的 `items` 输入要求完整 `{libraryId,key}` refs；`none` 表示明确的空输入。校验、提交和 agent-run apply 必须一直携带已审阅 refs。缺少完整 refs 的存储记录不能执行；应保留记录并报告无效输入，不得从活动 pane 补全身份或假定 library。
 - “What is in my library?” and “do I have papers about X?” require `library` reads and a complete bounded paging decision.
 - “Change these tags” or “put this in a collection” requires a live identity read, a reviewed mutation, current authority, and post-write verification.
 - “Get the generated report” may require a Product or workflow artifact read followed by file delivery; it is not automatically an attachment read.

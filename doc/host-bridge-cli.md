@@ -38,8 +38,8 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `workflow_products.get` | workflow_products | `none` | `object required` | `product get` | response:selector-bounded, mcp-mirror |
 | `workflow_products.list` | workflow_products | `none` | `object` | `product list` | response:paged, mcp-mirror |
 | `workflow_products.read_asset` | workflow_products | `none` | `object required` | `raw call only` | raw-only, response:file-output, mcp-mirror |
-| `context.get_current_view` | context | `none` | `object` |  | mcp-mirror |
-| `context.get_selected_items` | context | `none` | `object` |  | mcp-mirror |
+| `context.get_current_view` | context | `none` | `object` |  | response:limit-bounded, mcp-mirror |
+| `context.get_selected_items` | context | `none` | `object` |  | response:paged, mcp-mirror |
 | `library.export_annotations` | library | `none` | `object` | `library annotation export` | response:selector-bounded, mcp-mirror |
 | `library.get_item_attachments` | library | `none` | `object` | `library item attachments` | response:paged, mcp-mirror |
 | `library.get_item_detail` | library | `none` | `object` | `library item get` | response:selector-bounded, mcp-mirror |

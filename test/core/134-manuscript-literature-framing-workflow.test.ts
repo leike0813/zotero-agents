@@ -8,6 +8,7 @@ import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputVa
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { lockSelection } from "../../src/modules/selectionContext";
 
 describe("Manuscript Literature Framing workflow contract", function () {
   it("ships a SkillRunner interactive manuscript literature framing workflow", async function () {
@@ -55,7 +56,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
 
     const requests = (await executeBuildRequests({
       workflow: workflow!,
-      selectionContext: { items: { attachments: [] } },
+      selectionContext: lockSelection([]),
       executionOptions: {
         workflowParams: {
           paperTitle: "Efficient Detector Adaptation in Degraded Visual Scenes",

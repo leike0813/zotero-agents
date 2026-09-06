@@ -2,11 +2,17 @@ import { createHookHelpers } from "./helpers";
 import { createWorkflowHostApi } from "./hostApi";
 import { resolveWorkflowHostContractVersion } from "./workflowHostContract";
 import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
-import { resolveRuntimeAddon, resolveRuntimeZotero } from "../utils/runtimeBridge";
+import {
+  resolveRuntimeAddon,
+  resolveRuntimeZotero,
+} from "../utils/runtimeBridge";
 import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
 import { handlers } from "../handlers";
 import { resolveWorkflowDisplayLocale } from "./localization";
-import { evaluateGeneratedNoteReadiness } from "../modules/libraryArtifactReadiness";
+import {
+  evaluateGeneratedNoteFactsReadiness,
+  type LibraryArtifactGeneratedNoteFacts,
+} from "../modules/libraryArtifactReadiness";
 import type {
   LoadedWorkflow,
   WorkflowInputMemberKind,
@@ -17,92 +23,20 @@ import type {
   WorkflowValidateSelectionSpec,
 } from "./types";
 import type { WorkflowRunOptions } from "./zoteroHostAccessOptions";
-import { runtimePathExists } from "../modules/runtimePersistence";
+import {
+  attachmentSelectionFact,
+  buildSelectionContext,
+  itemRefIdentity,
+  lockSelection,
+  selectionCounts,
+  type SelectionContext,
+  type SelectionItemFact,
+  type GeneratedNoteCandidate,
+} from "../modules/selectionContext";
+import type { PortableItemRef } from "./types";
 
-type AttachmentLike = {
-  item?: {
-    id?: number;
-    key?: string;
-    title?: string;
-    libraryID?: number;
-    parentItemID?: number | null;
-    data?: { title?: string; contentType?: string; path?: string };
-  };
-  filePath?: string | null;
-  mimeType?: string | null;
-  parent?: {
-    id?: number | null;
-    title?: string;
-    data?: { title?: string };
-  } | null;
-};
-
-type ParentLike = {
-  item?: {
-    id?: number;
-    key?: string;
-    ref?: { libraryId: number; key: string };
-    title?: string;
-    libraryID?: number;
-    data?: { title?: string };
-  };
-  attachments?: AttachmentLike[];
-  notes?: Array<Record<string, unknown>>;
-};
-
-type ParentRefLike = {
-  id?: number | null;
-  key?: string;
-  ref?: { libraryId: number; key: string };
-  title?: string;
-  libraryID?: number;
-};
-
-type NoteLike = {
-  item?: {
-    id?: number;
-    key?: string;
-    title?: string;
-    data?: { title?: string };
-  };
-  note?: string;
-  parent?: {
-    id?: number | null;
-    title?: string;
-    data?: { title?: string };
-  } | null;
-};
-
-type SelectionLike = {
-  selectionType?: string;
-  items?: {
-    attachments?: AttachmentLike[];
-    parents?: ParentLike[];
-    children?: Array<{
-      item?: {
-        id?: number;
-        key?: string;
-        ref?: { libraryId: number; key: string };
-        title?: string;
-        data?: { title?: string };
-      };
-      parent?: {
-        id?: number | null;
-        title?: string;
-        data?: { title?: string };
-      } | null;
-      attachments?: AttachmentLike[];
-    }>;
-    notes?: NoteLike[];
-  };
-  summary?: {
-    parentCount?: number;
-    childCount?: number;
-    attachmentCount?: number;
-    noteCount?: number;
-  };
-  [key: string]: unknown;
-};
+type AttachmentLike = SelectionItemFact;
+type SelectionLike = SelectionContext;
 
 export type WorkflowScopedSelectionContext = SelectionLike;
 
@@ -172,7 +106,8 @@ function createSelectionRuntime(
     addon:
       typeof override?.addon !== "undefined"
         ? (override.addon ?? null)
-        : ((resolveRuntimeAddon() as WorkflowRuntimeInfrastructureContext["addon"]) ?? null),
+        : ((resolveRuntimeAddon() as WorkflowRuntimeInfrastructureContext["addon"]) ??
+          null),
     debugMode: override?.debugMode,
     workflowId: override?.workflowId,
     packageId: override?.packageId,
@@ -192,21 +127,18 @@ function createSelectionRuntime(
   };
 }
 
-function copySelection(selectionContext: unknown): SelectionLike {
-  if (!selectionContext || typeof selectionContext !== "object") {
-    return {};
+function copySelection(value: unknown): SelectionLike {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !Array.isArray((value as SelectionLike).items)
+  ) {
+    throw new Error("Canonical locked selection is required");
   }
-  return JSON.parse(JSON.stringify(selectionContext)) as SelectionLike;
+  return JSON.parse(JSON.stringify(value)) as SelectionLike;
 }
-
 function getSelectionItemCounts(selection: SelectionLike) {
-  const items = selection.items || {};
-  return {
-    attachments: Array.isArray(items.attachments) ? items.attachments.length : 0,
-    parents: Array.isArray(items.parents) ? items.parents.length : 0,
-    children: Array.isArray(items.children) ? items.children.length : 0,
-    notes: Array.isArray(items.notes) ? items.notes.length : 0,
-  };
+  return selectionCounts(selection);
 }
 
 function totalCount(counts: ReturnType<typeof getSelectionItemCounts>) {
@@ -268,285 +200,131 @@ function validateRequiredCounts(
   return "";
 }
 
-function getAttachmentParentId(entry: AttachmentLike, runtime: RuntimeLike) {
-  return runtime.helpers.getAttachmentParentId(entry) || null;
+function getAttachmentFileName(entry: AttachmentLike) {
+  return entry.filename || "";
 }
-
-function getAttachmentFileName(entry: AttachmentLike, runtime: RuntimeLike) {
-  return runtime.helpers.getAttachmentFileName(entry);
+function getAttachmentFileStem(entry: AttachmentLike) {
+  return getAttachmentFileName(entry)
+    .replace(/\.[^.]+$/, "")
+    .trim()
+    .toLowerCase();
 }
-
-function getAttachmentFileStem(entry: AttachmentLike, runtime: RuntimeLike) {
-  return runtime.helpers.getAttachmentFileStem(entry);
-}
-
-function getAttachmentDateAdded(entry: AttachmentLike, runtime: RuntimeLike) {
-  return runtime.helpers.getAttachmentDateAdded(entry);
-}
-
-function isMarkdownAttachment(entry: AttachmentLike, runtime: RuntimeLike) {
-  return runtime.helpers.isMarkdownAttachment(entry);
-}
-
-function isPdfAttachment(entry: AttachmentLike, runtime: RuntimeLike) {
-  return runtime.helpers.isPdfAttachment(entry);
-}
-
-function flattenAttachments(selection: SelectionLike) {
-  const items = selection.items || {};
-  const direct = Array.isArray(items.attachments) ? items.attachments : [];
-  const fromParents = (Array.isArray(items.parents) ? items.parents : [])
-    .flatMap((entry) => entry.attachments || [])
-    .filter(Boolean);
-  const fromChildren = (Array.isArray(items.children) ? items.children : [])
-    .flatMap((entry) => entry.attachments || [])
-    .filter(Boolean);
-  const merged = [...direct, ...fromParents, ...fromChildren];
-  const seen = new Set<string>();
-  const deduped: AttachmentLike[] = [];
-  for (const entry of merged) {
-    const key =
-      typeof entry.item?.id === "number"
-        ? `id:${entry.item.id}`
-        : `file:${entry.filePath || entry.item?.data?.path || ""}|parent:${
-            entry.parent?.id || entry.item?.parentItemID || ""
-          }`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    deduped.push(entry);
-  }
-  return deduped;
-}
-
-function getAttachmentMime(entry: AttachmentLike) {
-  return (entry.mimeType || entry.item?.data?.contentType || "").trim();
-}
-
-function applyAttachmentMimeFilter(
-  attachments: AttachmentLike[],
-  mimes: string[] | undefined,
-) {
-  if (!mimes || mimes.length === 0) {
-    return attachments;
-  }
-  return attachments.filter((entry) => {
-    const mime = getAttachmentMime(entry);
-    if (mime && mimes.includes(mime)) {
-      return true;
-    }
-    const filePath = String(entry.filePath || entry.item?.data?.path || "")
-      .toLowerCase();
-    if (
-      filePath.endsWith(".md") &&
-      (mimes.includes("text/markdown") ||
-        mimes.includes("text/x-markdown") ||
-        mimes.includes("text/plain"))
-    ) {
-      return true;
-    }
-    if (filePath.endsWith(".pdf") && mimes.includes("application/pdf")) {
-      return true;
-    }
-    return false;
-  });
-}
-
-function parentKeyFromEntry(entry: ParentLike | null | undefined) {
-  const item = entry?.item || {};
-  const id = Number(item.id || 0);
-  if (id) {
-    return `id:${id}`;
-  }
-  const key = String(item.key || "").trim();
-  if (key) {
-    return `key:${item.libraryID || ""}:${key}`;
-  }
-  return "";
-}
-
-function parentEntryFromRef(
-  ref: ParentLike | ParentRefLike | null | undefined,
-) {
-  if (!ref) {
-    return null;
-  }
-  if ((ref as ParentLike).item) {
-    return ref as ParentLike;
-  }
-  const raw = ref as ParentRefLike;
-  const id = Number(raw.id || 0);
-  const key = String(raw.key || "").trim();
-  if (!id && !key) {
-    return null;
-  }
-  return {
-    item: {
-      id: id || undefined,
-      key,
-      ...(key && Number(raw.ref?.libraryId || raw.libraryID)
-        ? {
-            ref: {
-              libraryId: Number(raw.ref?.libraryId || raw.libraryID),
-              key,
-            },
-          }
-        : {}),
-      title: String(raw.title || "").trim(),
-      libraryID: raw.ref?.libraryId || raw.libraryID,
-    },
-    attachments: [],
-    notes: [],
-  } satisfies ParentLike;
-}
-
-function addParentEntry(
-  entries: Map<string, ParentLike>,
-  entry: ParentLike | null | undefined,
-) {
-  const key = parentKeyFromEntry(entry);
-  if (!key || !entry || entries.has(key)) {
-    return;
-  }
-  entries.set(key, entry);
-}
-
-function collectLiteratureParentEntries(selection: SelectionLike) {
-  const entries = new Map<string, ParentLike>();
-  for (const parent of selection.items?.parents || []) {
-    addParentEntry(entries, parent);
-  }
-  for (const attachment of selection.items?.attachments || []) {
-    addParentEntry(entries, parentEntryFromRef(attachment.parent));
-    if (!attachment.parent) {
-      addParentEntry(
-        entries,
-        parentEntryFromRef({ id: attachment.item?.parentItemID || 0 }),
-      );
-    }
-  }
-  for (const note of selection.items?.notes || []) {
-    addParentEntry(entries, parentEntryFromRef(note.parent));
-  }
-  for (const child of selection.items?.children || []) {
-    addParentEntry(entries, parentEntryFromRef(child.parent));
-  }
-  return Array.from(entries.values());
-}
-
-function compareByDateAndName(
-  left: AttachmentLike,
-  right: AttachmentLike,
-  runtime: RuntimeLike,
-) {
-  const dateDelta =
-    getAttachmentDateAdded(left, runtime) - getAttachmentDateAdded(right, runtime);
-  if (dateDelta !== 0) {
-    return dateDelta;
-  }
-  return getAttachmentFileName(left, runtime).localeCompare(
-    getAttachmentFileName(right, runtime),
+function isMarkdownAttachment(entry: AttachmentLike) {
+  return (
+    ["text/markdown", "text/x-markdown"].includes(entry.contentType || "") ||
+    /\.md$/i.test(entry.filename || "")
   );
 }
-
-function chooseLiteratureSourceByPolicy(
-  mdEntries: AttachmentLike[],
-  pdfEntries: AttachmentLike[],
-  runtime: RuntimeLike,
+function isPdfAttachment(entry: AttachmentLike) {
+  return (
+    entry.contentType === "application/pdf" ||
+    /\.pdf$/i.test(entry.filename || "")
+  );
+}
+function applyAttachmentMimeFilter(
+  attachments: AttachmentLike[],
+  mimes?: string[],
 ) {
-  if (mdEntries.length > 0) {
-    if (mdEntries.length === 1) {
-      return mdEntries[0];
-    }
-    const earliestPdf = [...pdfEntries]
-      .filter((entry) => isPdfAttachment(entry, runtime))
-      .sort((a, b) => compareByDateAndName(a, b, runtime))[0];
-    if (earliestPdf) {
-      const stem = getAttachmentFileStem(earliestPdf, runtime);
-      const matched = mdEntries.find(
-        (entry) => getAttachmentFileStem(entry, runtime) === stem,
-      );
-      if (matched) {
-        return matched;
-      }
-    }
-    return [...mdEntries].sort((a, b) => compareByDateAndName(a, b, runtime))[0];
-  }
-  if (pdfEntries.length > 0) {
-    return [...pdfEntries].sort((a, b) => compareByDateAndName(a, b, runtime))[0];
+  if (!mimes?.length) return attachments;
+  return attachments.filter(
+    (entry) =>
+      mimes.includes(entry.contentType || "") ||
+      (/\.md$/i.test(entry.filename || "") &&
+        mimes.some((mime) =>
+          ["text/markdown", "text/x-markdown", "text/plain"].includes(mime),
+        )) ||
+      (/\.pdf$/i.test(entry.filename || "") &&
+        mimes.includes("application/pdf")),
+  );
+}
+async function readAttachments(ref: PortableItemRef, runtime: RuntimeLike) {
+  const result: AttachmentLike[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await runtime.hostApi.library.getItemAttachments(ref, {
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    });
+    result.push(...page.attachments.map(attachmentSelectionFact));
+    if (!page.hasMore) return result;
+    if (!page.nextCursor || cursor === page.nextCursor)
+      throw new Error("Invalid attachment continuation");
+    cursor = page.nextCursor;
+  } while (cursor);
+  return result;
+}
+async function hydrateSelected(item: SelectionItemFact, runtime: RuntimeLike) {
+  if (item.kind !== "attachment" || item.filename !== undefined) return item;
+  const detail = await runtime.hostApi.library.getItemDetail(item.ref);
+  if (detail.kind !== "attachment")
+    throw new Error("Selected attachment changed kind");
+  return attachmentSelectionFact(detail.item);
+}
+async function regularParent(
+  item: SelectionItemFact,
+  runtime: RuntimeLike,
+): Promise<SelectionItemFact | null> {
+  if (item.kind === "parent") return item;
+  let ref = item.parentRef;
+  const seen = new Set<string>();
+  while (ref && !seen.has(itemRefIdentity(ref))) {
+    seen.add(itemRefIdentity(ref));
+    const fact = (await buildSelectionContext([ref], runtime.hostApi)).items[0];
+    if (fact.kind === "parent") return fact;
+    ref = fact.parentRef;
   }
   return null;
 }
-
-function collectSelectedLiteratureSources(
+function compareByDateAndName(a: AttachmentLike, b: AttachmentLike) {
+  const delta =
+    (Date.parse(a.createdAt || "") || 0) - (Date.parse(b.createdAt || "") || 0);
+  return (
+    delta || getAttachmentFileName(a).localeCompare(getAttachmentFileName(b))
+  );
+}
+function chooseLiteratureSourceByPolicy(entries: AttachmentLike[]) {
+  const md = entries.filter(isMarkdownAttachment);
+  const pdf = entries.filter(isPdfAttachment).sort(compareByDateAndName);
+  if (md.length === 1) return md[0];
+  if (md.length > 1)
+    return (
+      (pdf[0] &&
+        md.find(
+          (item) =>
+            getAttachmentFileStem(item) === getAttachmentFileStem(pdf[0]),
+        )) ||
+      md.sort(compareByDateAndName)[0]
+    );
+  return pdf[0] || null;
+}
+async function collectSelectedLiteratureSources(
   selection: SelectionLike,
   runtime: RuntimeLike,
 ) {
-  const selectedParents = selection.items?.parents || [];
-  const selectedAttachments = selection.items?.attachments || [];
-  const selectedParentIds = new Set(
-    selectedParents.map((entry) => entry?.item?.id).filter(Boolean),
+  const parents = selection.items.filter((item) => item.kind === "parent");
+  const selectedParents = new Set(
+    parents.map((item) => itemRefIdentity(item.ref)),
   );
-  const byParent = new Map<number, AttachmentLike>();
-  for (const parent of selectedParents) {
-    const parentId = parent?.item?.id;
-    if (!parentId) {
-      continue;
-    }
-    const allAttachments = parent.attachments || [];
-    const mdEntries = allAttachments.filter((entry) =>
-      isMarkdownAttachment(entry, runtime),
+  const groups = new Map<string, AttachmentLike[]>();
+  for (const parent of parents)
+    groups.set(
+      itemRefIdentity(parent.ref),
+      await readAttachments(parent.ref, runtime),
     );
-    const pdfEntries = allAttachments.filter((entry) =>
-      isPdfAttachment(entry, runtime),
-    );
-    const resolved = chooseLiteratureSourceByPolicy(
-      mdEntries,
-      pdfEntries,
-      runtime,
-    );
-    if (resolved) {
-      byParent.set(parentId, resolved);
-    }
+  for (const fact of selection.items.filter(
+    (item) => item.kind === "attachment",
+  )) {
+    const entry = await hydrateSelected(fact, runtime);
+    if (!entry.parentRef) continue;
+    const key = itemRefIdentity(entry.parentRef);
+    if (selectedParents.has(key)) continue;
+    const group = groups.get(key) || [];
+    group.push(entry);
+    groups.set(key, group);
   }
-  const groupedByParent = new Map<
-    number,
-    { mdEntries: AttachmentLike[]; pdfEntries: AttachmentLike[] }
-  >();
-  for (const entry of selectedAttachments) {
-    const parentId = getAttachmentParentId(entry, runtime);
-    if (!parentId || selectedParentIds.has(parentId)) {
-      continue;
-    }
-    if (!isMarkdownAttachment(entry, runtime) && !isPdfAttachment(entry, runtime)) {
-      continue;
-    }
-    const bucket = groupedByParent.get(parentId) || {
-      mdEntries: [],
-      pdfEntries: [],
-    };
-    if (isMarkdownAttachment(entry, runtime)) {
-      bucket.mdEntries.push(entry);
-    } else {
-      bucket.pdfEntries.push(entry);
-    }
-    groupedByParent.set(parentId, bucket);
-  }
-  for (const [parentId, grouped] of groupedByParent.entries()) {
-    if (byParent.has(parentId)) {
-      continue;
-    }
-    const resolved = chooseLiteratureSourceByPolicy(
-      grouped.mdEntries,
-      grouped.pdfEntries,
-      runtime,
-    );
-    if (resolved) {
-      byParent.set(parentId, resolved);
-    }
-  }
-  return Array.from(byParent.values());
+  return [...groups.values()]
+    .map(chooseLiteratureSourceByPolicy)
+    .filter((entry): entry is AttachmentLike => !!entry);
 }
 
 function parseGeneratedNoteKind(noteContent: unknown) {
@@ -594,59 +372,88 @@ function parseGeneratedNoteKind(noteContent: unknown) {
   return "";
 }
 
-function resolveItem(runtime: RuntimeLike, ref: unknown) {
-  if (
-    typeof ref !== "string" &&
-    typeof ref !== "number" &&
-    (typeof ref !== "object" || ref === null)
-  ) {
-    return null;
-  }
-  try {
-    return runtime.helpers.resolveItemRef(ref as string | number | Zotero.Item);
-  } catch {
-    return null;
-  }
-}
-
-function isRegularItem(item: Zotero.Item | null): item is Zotero.Item {
-  try {
-    if (typeof item?.isRegularItem === "function") {
-      return item.isRegularItem();
-    }
-  } catch {
-    return false;
-  }
-  return !!item && typeof item.getNotes === "function";
-}
-
-async function collectParentGeneratedNoteKinds(
-  parentId: number,
+async function readNotes(
+  parentRef: PortableItemRef,
   runtime: RuntimeLike,
-) {
-  const kinds = new Set<string>();
-  const parentItem = resolveItem(runtime, parentId);
-  if (!isRegularItem(parentItem)) {
-    return kinds;
-  }
-  const noteIds = parentItem?.getNotes?.() || [];
-  for (const noteRef of noteIds) {
-    const noteItem = resolveItem(runtime, noteRef);
-    const kind = parseGeneratedNoteKind(noteItem?.getNote?.() || "");
-    if (kind) {
-      kinds.add(kind);
-    }
-  }
-  return kinds;
+): Promise<GeneratedNoteCandidate[]> {
+  return (await readGeneratedNoteFacts(parentRef, runtime)).map((note) => ({
+    ref: { libraryId: parentRef.libraryId, key: note.key },
+    parentRef,
+    noteKind:
+      parseGeneratedNoteKind(note.html) ||
+      note.payloadBlocks.find((block) => !block.errors?.length)?.noteKind ||
+      "custom",
+  }));
 }
-
 async function parentHasAllGeneratedNotes(
-  parentId: number,
-  noteKinds: string[],
+  parentRef: PortableItemRef,
+  kinds: string[],
   runtime: RuntimeLike,
 ) {
-  const kinds = await collectParentGeneratedNoteKinds(parentId, runtime);
-  return noteKinds.every((kind) => kinds.has(kind));
+  const notes = await readNotes(parentRef, runtime);
+  return kinds.every((kind) => notes.some((note) => note.noteKind === kind));
+}
+
+async function readGeneratedNoteFacts(
+  parentRef: PortableItemRef,
+  runtime: RuntimeLike,
+) {
+  const facts: LibraryArtifactGeneratedNoteFacts[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await runtime.hostApi.library.getItemNotes(parentRef, {
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    });
+    for (const note of page.notes) {
+      const detail = await runtime.hostApi.library.getNoteDetail(note.ref, {
+        format: "html",
+      });
+      const payloadBlocks: LibraryArtifactGeneratedNoteFacts["payloadBlocks"] =
+        [];
+      let payloadCursor: string | undefined;
+      do {
+        const payloadPage = await runtime.hostApi.library.listNotePayloads(
+          note.ref,
+          { limit: 100, ...(payloadCursor ? { cursor: payloadCursor } : {}) },
+        );
+        for (const summary of payloadPage.payloads) {
+          const value = summary.issues.length
+            ? undefined
+            : await runtime.hostApi.library.getNotePayload(note.ref, {
+                payloadType: summary.payloadType,
+              });
+          payloadBlocks.push({
+            payloadType: summary.payloadType,
+            noteKind: summary.noteKind,
+            version: summary.version,
+            encoding: summary.encoding,
+            encodedValue: "",
+            estimatedSize: summary.estimatedBytes,
+            format: summary.format,
+            payload: value?.value,
+            errors: summary.issues.map((issue) => issue.code),
+          });
+        }
+        if (!payloadPage.hasMore) break;
+        if (!payloadPage.nextCursor || payloadCursor === payloadPage.nextCursor)
+          throw new Error("Invalid payload continuation");
+        payloadCursor = payloadPage.nextCursor;
+      } while (payloadCursor);
+      facts.push({
+        key: note.ref.key,
+        title: detail.title,
+        html: detail.content,
+        updatedAt: detail.revision,
+        payloadBlocks,
+      });
+    }
+    if (!page.hasMore) return facts;
+    if (!page.nextCursor || cursor === page.nextCursor)
+      throw new Error("Invalid note continuation");
+    cursor = page.nextCursor;
+  } while (cursor);
+  return facts;
 }
 
 function normalizePath(value: unknown) {
@@ -702,21 +509,10 @@ async function resolveAttachmentSourcePath(
   entry: AttachmentLike,
   runtime: RuntimeLike,
 ) {
-  const candidates: string[] = [];
-  const itemId = Number(entry?.item?.id || 0);
-  if (itemId) {
-    const item = resolveItem(runtime, itemId);
-    const resolved = normalizePath(await item?.getFilePathAsync?.());
-    if (resolved) {
-      candidates.push(resolved);
-    }
-  }
-  candidates.push(
-    runtime.helpers.getAttachmentFilePath(entry),
-    String(entry.filePath || ""),
-    String(entry.item?.data?.path || ""),
-  );
-  return normalizePath(candidates.find((candidate) => normalizePath(candidate)));
+  const detail = await runtime.hostApi.library.getItemDetail(entry.ref);
+  return detail.kind === "attachment" && detail.item.file.state === "available"
+    ? detail.item.file.path
+    : "";
 }
 
 function sanitizeFileNameSegment(value: unknown) {
@@ -761,34 +557,10 @@ function resolveArtifactTargetPath(
 
 async function fileExists(path: string, runtime: RuntimeLike) {
   try {
-    const targetPath = toNativePath(path);
-    if (!targetPath) {
-      return false;
-    }
-    const hostFile = runtime.hostApi?.file;
-    if (typeof hostFile?.exists === "function") {
-      return Boolean(await hostFile.exists(targetPath));
-    }
-    return runtimePathExists(targetPath);
+    return !!path && (await runtime.hostApi.file.exists(toNativePath(path)));
   } catch {
     return false;
   }
-}
-
-async function filterMissingSourceFiles(
-  attachments: AttachmentLike[],
-  runtime: RuntimeLike,
-) {
-  if (!attachments.length) return attachments;
-  const result: AttachmentLike[] = [];
-  for (const entry of attachments) {
-    const sourcePath = await resolveAttachmentSourcePath(entry, runtime);
-    if (!sourcePath) continue;
-    if (await fileExists(sourcePath, runtime)) {
-      result.push(entry);
-    }
-  }
-  return result;
 }
 
 async function filterArtifactConflicts(
@@ -796,11 +568,12 @@ async function filterArtifactConflicts(
   args: EvaluateWorkflowSelectionArgs,
   runtime: RuntimeLike,
 ) {
-  const artifactRules = (args.manifest || args.workflow?.manifest)
-    ?.validateSelection?.filters?.filter(
-      (entry): entry is WorkflowArtifactAbsentRule =>
-        entry.kind === "artifact-absent",
-    );
+  const artifactRules = (
+    args.manifest || args.workflow?.manifest
+  )?.validateSelection?.filters?.filter(
+    (entry): entry is WorkflowArtifactAbsentRule =>
+      entry.kind === "artifact-absent",
+  );
   if (!artifactRules?.length) {
     return attachments;
   }
@@ -815,11 +588,7 @@ async function filterArtifactConflicts(
       if (args.mode === "menu" && rule.phase === "execute") {
         continue;
       }
-      const targetPath = resolveArtifactTargetPath(
-        rule,
-        args,
-        sourcePath,
-      );
+      const targetPath = resolveArtifactTargetPath(rule, args, sourcePath);
       if (!targetPath || (await fileExists(targetPath, runtime))) {
         conflict = true;
         break;
@@ -832,232 +601,50 @@ async function filterArtifactConflicts(
   return accepted;
 }
 
-async function filterGeneratedNoteExclusions(
-  attachments: AttachmentLike[],
-  spec: WorkflowValidateSelectionSpec | undefined,
-  runtime: RuntimeLike,
-) {
-  const rules = spec?.filters?.filter(
-    (entry) => entry.kind === "generated-note-kinds-absent",
-  ) as
-    | Array<{
-        kind: "generated-note-kinds-absent";
-        phase: "availability";
-        noteKinds: string[];
-      }>
-    | undefined;
-  if (!rules?.length) {
-    return attachments;
-  }
-  const cache = new Map<number, boolean>();
-  const accepted: AttachmentLike[] = [];
-  for (const entry of attachments) {
-    const parentId = getAttachmentParentId(entry, runtime);
-    if (!parentId) {
-      continue;
-    }
-    let excluded = cache.get(parentId);
-    if (typeof excluded !== "boolean") {
-      excluded = false;
-      for (const rule of rules) {
-        if (await parentHasAllGeneratedNotes(parentId, rule.noteKinds, runtime)) {
-          excluded = true;
-          break;
-        }
-      }
-      cache.set(parentId, excluded);
-    }
-    if (!excluded) {
-      accepted.push(entry);
-    }
-  }
-  return accepted;
-}
-
 async function selectGeneratedNoteCandidates(
   selection: SelectionLike,
   runtime: RuntimeLike,
 ) {
-  const candidates: Array<Record<string, unknown>> = [];
-  const seen = new Set<string>();
-  const addCandidate = (
-    candidate: Record<string, unknown> & { kind?: unknown; noteRef?: unknown },
-  ) => {
-    const key = `${candidate.kind || ""}:${JSON.stringify(candidate.noteRef || null)}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    candidates.push(candidate);
-  };
-  for (const parentEntry of selection.items?.parents || []) {
-    const parentId = parentEntry.item?.id;
-    if (!parentId) {
-      continue;
-    }
-    const parentItem = resolveItem(runtime, parentId);
-    if (!isRegularItem(parentItem)) {
-      continue;
-    }
-    for (const noteRef of parentItem?.getNotes?.() || []) {
-      const noteItem = resolveItem(runtime, noteRef);
-      if (!noteItem) {
-        continue;
-      }
-      addCandidate({
-        kind: parseGeneratedNoteKind(noteItem.getNote?.() || "") || "custom",
-        noteRef: { libraryId: noteItem.libraryID, key: noteItem.key },
-        parentRef: { libraryId: parentItem.libraryID, key: parentItem.key },
-        parentTitle: String(parentItem.getField?.("title") || "").trim(),
+  const notes = new Map<string, GeneratedNoteCandidate>();
+  for (const item of selection.items) {
+    if (item.kind === "parent") {
+      for (const note of await readNotes(item.ref, runtime))
+        notes.set(itemRefIdentity(note.ref), {
+          ...note,
+          parentTitle: item.title,
+        });
+    } else if (item.kind === "note") {
+      const detail = await runtime.hostApi.library.getNoteDetail(item.ref, {
+        format: "html",
+      });
+      notes.set(itemRefIdentity(item.ref), {
+        ref: item.ref,
+        ...(item.parentRef ? { parentRef: item.parentRef } : {}),
+        noteKind: parseGeneratedNoteKind(detail.content) || "custom",
       });
     }
   }
-  for (const noteEntry of selection.items?.notes || []) {
-    const noteRef = noteEntry.item?.id || noteEntry.item?.key;
-    const noteItem = resolveItem(runtime, noteRef);
-    if (!noteItem) {
-      continue;
-    }
-    const parentItem = resolveItem(runtime, noteItem.parentItemID);
-    if (!parentItem) {
-      continue;
-    }
-    addCandidate({
-      kind: parseGeneratedNoteKind(noteItem.getNote?.() || "") || "custom",
-      noteRef: { libraryId: noteItem.libraryID, key: noteItem.key },
-      parentRef: { libraryId: parentItem.libraryID, key: parentItem.key },
-      parentTitle: String(parentItem.getField?.("title") || "").trim(),
-    });
-  }
-  if (candidates.length === 0) {
-    return { contexts: [], totalUnits: 0 };
-  }
-  const cloned = copySelection(selection);
-  cloned.items = {
-    parents: [],
-    notes: [],
-    attachments: [],
-    children: [
-      {
-        item: {
-          ref: candidates[0].parentRef as { libraryId: number; key: string },
-          title: String(candidates[0].parentTitle || ""),
-        },
-        parent: null,
-        attachments: [],
-      },
-    ],
-  };
-  cloned.summary = {
-    ...(cloned.summary || {}),
-    parentCount: 0,
-    noteCount: 0,
-    attachmentCount: 0,
-    childCount: 1,
-  };
-  cloned.selectionType = "child";
-  cloned.exportCandidates = candidates;
-  return { contexts: [cloned], totalUnits: candidates.length };
+  return [...notes.values()];
 }
-
-function buildDigestRepresentativeTarget(args: {
-  noteItem: Zotero.Item;
-  parentItem: Zotero.Item;
-  kind: "digest-note" | "digest-parent";
-}) {
-  return {
-    kind: args.kind,
-    noteRef: {
-      libraryId: args.noteItem.libraryID,
-      key: String(args.noteItem.key || "").trim(),
-    },
-    parentRef: {
-      libraryId: args.parentItem.libraryID,
-      key: String(args.parentItem.key || "").trim(),
-    },
-    parentTitle: String(args.parentItem.getField?.("title") || "").trim(),
-  };
-}
-
 async function selectDigestRepresentativeImage(
   selection: SelectionLike,
   runtime: RuntimeLike,
 ) {
-  const parents = selection.items?.parents || [];
-  const notes = selection.items?.notes || [];
-  if (parents.length + notes.length !== 1) {
-    return { contexts: [], totalUnits: parents.length + notes.length };
+  if (selection.items.length !== 1) return null;
+  const item = selection.items[0];
+  if (item.kind === "parent") {
+    const notes = (await readNotes(item.ref, runtime)).filter(
+      (note) => note.noteKind === "digest",
+    );
+    return notes.length === 1 ? { ...notes[0], parentTitle: item.title } : null;
   }
-  const cloned = copySelection(selection);
-  if (parents.length === 1) {
-    const parentId = parents[0].item?.id;
-    const parentItem = parentId ? resolveItem(runtime, parentId) : null;
-    if (!isRegularItem(parentItem)) {
-      return { contexts: [], totalUnits: 1 };
-    }
-    const digestNotes: Zotero.Item[] = [];
-    for (const noteRef of parentItem.getNotes?.() || []) {
-      const noteItem = resolveItem(runtime, noteRef);
-      if (
-        noteItem &&
-        parseGeneratedNoteKind(noteItem.getNote?.() || "") === "digest"
-      ) {
-        digestNotes.push(noteItem);
-      }
-    }
-    if (digestNotes.length !== 1) {
-      return { contexts: [], totalUnits: 1 };
-    }
-    cloned.items = {
-      parents: [parents[0]],
-      notes: [],
-      attachments: [],
-      children: [],
-    };
-    cloned.summary = {
-      ...(cloned.summary || {}),
-      parentCount: 1,
-      noteCount: 0,
-      attachmentCount: 0,
-      childCount: 0,
-    };
-    cloned.selectionType = "parent";
-    cloned.digestRepresentativeImageTarget = buildDigestRepresentativeTarget({
-      noteItem: digestNotes[0],
-      parentItem,
-      kind: "digest-parent",
-    });
-    return { contexts: [cloned], totalUnits: 1 };
-  }
-  const noteRef = notes[0].item?.id || notes[0].item?.key;
-  const noteItem = resolveItem(runtime, noteRef);
-  if (!noteItem || parseGeneratedNoteKind(noteItem.getNote?.() || "") !== "digest") {
-    return { contexts: [], totalUnits: 1 };
-  }
-  const parentItem = resolveItem(runtime, noteItem.parentItemID);
-  if (!parentItem) {
-    return { contexts: [], totalUnits: 1 };
-  }
-  cloned.items = {
-    parents: [],
-    notes: [notes[0]],
-    attachments: [],
-    children: [],
-  };
-  cloned.summary = {
-    ...(cloned.summary || {}),
-    parentCount: 0,
-    noteCount: 1,
-    attachmentCount: 0,
-    childCount: 0,
-  };
-  cloned.selectionType = "note";
-  cloned.digestRepresentativeImageTarget = buildDigestRepresentativeTarget({
-    noteItem,
-    parentItem,
-    kind: "digest-note",
+  if (item.kind !== "note" || !item.parentRef) return null;
+  const detail = await runtime.hostApi.library.getNoteDetail(item.ref, {
+    format: "html",
   });
-  return { contexts: [cloned], totalUnits: 1 };
+  return parseGeneratedNoteKind(detail.content) === "digest"
+    ? { ref: item.ref, parentRef: item.parentRef, noteKind: "digest" }
+    : null;
 }
 
 export type WorkflowInputCandidate = Readonly<{
@@ -1065,7 +652,7 @@ export type WorkflowInputCandidate = Readonly<{
   identity: string;
   label: string;
   parentIdentity?: string;
-  targetParentID?: number;
+  targetParentRef?: PortableItemRef;
   scopedContext: WorkflowScopedSelectionContext;
   value: unknown;
 }>;
@@ -1079,7 +666,7 @@ export type PreparedWorkflowInputUnit = Readonly<{
   memberCount: number;
   members: ReadonlyArray<WorkflowInputCandidate>;
   targetParentIdentity?: string;
-  targetParentID?: number;
+  targetParentRef?: PortableItemRef;
   selectionContext: WorkflowScopedSelectionContext;
 }>;
 
@@ -1128,142 +715,23 @@ function itemIdentity(
   entry: unknown,
   fallback: number,
 ) {
-  const typed =
-    entry && typeof entry === "object"
-      ? (entry as {
-          item?: { id?: unknown; key?: unknown; libraryID?: unknown };
-          noteItemID?: unknown;
-          noteItemKey?: unknown;
-          libraryID?: unknown;
-        })
-      : {};
-  const key = String(
-    typed.item?.key || typed.noteItemKey || "",
-  ).trim();
-  if (key) {
-    const libraryID = String(
-      typed.item?.libraryID || typed.libraryID || "",
-    ).trim();
-    return `${kind}:${libraryID ? `${libraryID}:` : ""}${key}`;
-  }
-  const id = Number(typed.item?.id || typed.noteItemID || 0);
-  return id ? `${kind}-id:${id}` : `${kind}-index:${fallback}`;
+  if (kind === "selection") return "selection:context";
+  return `${kind}:${itemRefIdentity((entry as SelectionItemFact).ref)}`;
 }
-
-function parentIdentityFromEntry(entry: unknown, kind: WorkflowInputMemberKind) {
-  if (!entry || typeof entry !== "object") {
-    return {};
-  }
-  const typed = entry as {
-    item?: {
-      id?: unknown;
-      key?: unknown;
-      libraryID?: unknown;
-      parentItemID?: unknown;
-    };
-    parent?: { id?: unknown; key?: unknown; libraryID?: unknown };
-    parentItemID?: unknown;
-    parentItemKey?: unknown;
-    libraryID?: unknown;
-  };
-  const ownParent =
-    kind === "parent"
-      ? {
-          id: Number(typed.item?.id || 0),
-          key: String(typed.item?.key || "").trim(),
-          libraryID: typed.item?.libraryID,
-        }
-      : {
-          id: Number(
-            typed.parent?.id ||
-              typed.item?.parentItemID ||
-              typed.parentItemID ||
-              0,
-          ),
-          key: String(
-            typed.parent?.key || typed.parentItemKey || "",
-          ).trim(),
-          libraryID:
-            typed.parent?.libraryID ||
-            typed.item?.libraryID ||
-            typed.libraryID,
-        };
-  if (ownParent.key) {
-    const libraryID = String(ownParent.libraryID || "").trim();
-    return {
-      parentIdentity: `parent:${libraryID ? `${libraryID}:` : ""}${ownParent.key}`,
-      ...(ownParent.id ? { targetParentID: ownParent.id } : {}),
-    };
-  }
-  if (ownParent.id) {
-    return {
-      parentIdentity: `parent-id:${ownParent.id}`,
-      targetParentID: ownParent.id,
-    };
-  }
-  return {};
-}
-
-function entryLabel(
+function parentIdentityFromEntry(
   entry: unknown,
-  fallback: string,
-  runtime: RuntimeLike,
+  kind: WorkflowInputMemberKind,
 ) {
-  if (!entry || typeof entry !== "object") {
-    return fallback;
-  }
-  const typed = entry as {
-    item?: { title?: unknown; data?: { title?: unknown } };
-    parentTitle?: unknown;
-    filePath?: unknown;
-  };
-  return (
-    String(
-      typed.item?.title ||
-        typed.item?.data?.title ||
-        typed.parentTitle ||
-        "",
-    ).trim() ||
-    (typed.filePath ? getAttachmentFileName(entry as AttachmentLike, runtime) : "") ||
-    fallback
-  );
+  const fact = entry as SelectionItemFact;
+  const ref = kind === "parent" ? fact.ref : fact.parentRef;
+  return ref
+    ? { parentIdentity: `parent:${itemRefIdentity(ref)}`, targetParentRef: ref }
+    : {};
 }
-
-function scopeSingleEntry(args: {
-  kind: WorkflowInputMemberKind;
-  entry: unknown;
-  selection: SelectionLike;
-}) {
-  if (args.kind === "selection") {
-    return copySelection(args.selection);
-  }
-  const cloned = copySelection(args.selection);
-  cloned.items = {
-    parents: args.kind === "parent" ? [args.entry as ParentLike] : [],
-    children:
-      args.kind === "child"
-        ? [
-            args.entry as NonNullable<
-              NonNullable<SelectionLike["items"]>["children"]
-            >[number],
-          ]
-        : [],
-    notes: args.kind === "note" ? [args.entry as NoteLike] : [],
-    attachments:
-      args.kind === "attachment"
-        ? [args.entry as AttachmentLike]
-        : [],
-  };
-  cloned.summary = {
-    parentCount: args.kind === "parent" ? 1 : 0,
-    childCount: args.kind === "child" ? 1 : 0,
-    noteCount: args.kind === "note" ? 1 : 0,
-    attachmentCount: args.kind === "attachment" ? 1 : 0,
-  };
-  cloned.selectionType = args.kind;
-  return cloned;
+function entryLabel(entry: unknown, fallback: string) {
+  const fact = entry as SelectionItemFact & { parentTitle?: string };
+  return fact.title || fact.filename || fact.parentTitle || fallback;
 }
-
 function freezeCandidate(args: {
   kind: WorkflowInputMemberKind;
   entry: unknown;
@@ -1273,25 +741,22 @@ function freezeCandidate(args: {
   scopedContext?: SelectionLike;
   identity?: string;
   label?: string;
-}) {
-  const parent = parentIdentityFromEntry(args.entry, args.kind);
-  const scopedContext = deepFreeze(
+}): WorkflowInputCandidate {
+  const scopedContext =
     args.scopedContext ||
-      scopeSingleEntry({
-        kind: args.kind,
-        entry: args.entry,
-        selection: args.selection,
-      }),
-  );
+    (args.kind === "selection"
+      ? args.selection
+      : lockSelection(
+          [args.entry as SelectionItemFact],
+          args.selection.sampledAt,
+        ));
   return Object.freeze({
     kind: args.kind,
-    identity:
-      args.identity || itemIdentity(args.kind, args.entry, args.index),
+    identity: args.identity || itemIdentity(args.kind, args.entry, args.index),
     label:
-      args.label ||
-      entryLabel(args.entry, `${args.kind} ${args.index + 1}`, args.runtime),
-    ...parent,
-    scopedContext,
+      args.label || entryLabel(args.entry, `${args.kind} ${args.index + 1}`),
+    ...parentIdentityFromEntry(args.entry, args.kind),
+    scopedContext: deepFreeze(scopedContext),
     value: deepFreeze(args.entry),
   });
 }
@@ -1307,136 +772,105 @@ function dedupeCandidates(candidates: WorkflowInputCandidate[]) {
   });
 }
 
-function relatedEntries(
+async function relatedEntries(
   kind: WorkflowInputMemberKind,
   selection: SelectionLike,
+  runtime: RuntimeLike,
 ) {
-  if (kind === "attachment") {
-    return flattenAttachments(selection);
+  const entries: SelectionItemFact[] = [];
+  for (const item of selection.items) {
+    if (kind === "parent") {
+      const parent = await regularParent(item, runtime);
+      if (parent) entries.push(parent);
+    } else if (kind === "attachment") {
+      if (item.kind === "attachment")
+        entries.push(await hydrateSelected(item, runtime));
+      else if (item.kind === "parent")
+        entries.push(...(await readAttachments(item.ref, runtime)));
+    } else if (kind === "note") {
+      if (item.kind === "note") entries.push(item);
+      else if (item.kind === "parent") {
+        for (const note of await readNotes(item.ref, runtime))
+          entries.push({
+            kind: "note",
+            itemType: "note",
+            ref: note.ref,
+            parentRef: item.ref,
+          });
+      }
+    } else if (kind === item.kind) entries.push(item);
   }
-  if (kind === "parent") {
-    return collectLiteratureParentEntries(selection);
-  }
-  if (kind === "child") {
-    return selection.items?.children || [];
-  }
-  if (kind === "note") {
-    return [
-      ...(selection.items?.notes || []),
-      ...(selection.items?.parents || []).flatMap((entry) => entry.notes || []),
-    ];
-  }
-  return [];
+  return entries;
 }
-
-function selectedEntries(
-  kind: WorkflowInputMemberKind,
-  selection: SelectionLike,
-) {
-  if (kind === "parent") return selection.items?.parents || [];
-  if (kind === "child") return selection.items?.children || [];
-  if (kind === "attachment") return selection.items?.attachments || [];
-  if (kind === "note") return selection.items?.notes || [];
-  return [];
-}
-
 async function selectCandidates(args: {
   manifest: WorkflowManifest;
   selection: SelectionLike;
   runtime: RuntimeLike;
 }) {
   const selector = args.manifest.validateSelection.select;
-  const memberKind = args.manifest.inputs.member.kind;
-  if (selector.policy === "selection") {
-    return [
-      freezeCandidate({
-        kind: "selection",
-        entry: args.selection,
-        index: 0,
-        selection: args.selection,
-        runtime: args.runtime,
-        identity: "selection:context",
-        label: args.manifest.label,
-      }),
-    ];
-  }
-  if (selector.policy === "literature-source") {
-    return collectSelectedLiteratureSources(args.selection, args.runtime).map(
-      (entry, index) =>
-        freezeCandidate({
-          kind: "attachment",
-          entry,
-          index,
-          selection: args.selection,
-          runtime: args.runtime,
-        }),
-    );
-  }
-  if (selector.policy === "generated-note-candidates") {
-    const selected = await selectGeneratedNoteCandidates(
-      args.selection,
-      args.runtime,
-    );
-    const context = selected.contexts[0];
-    const entries = Array.isArray(context?.exportCandidates)
-      ? (context.exportCandidates as Array<Record<string, unknown>>)
-      : [];
-    return entries.map((entry, index) => {
-      const scopedContext = copySelection(context);
-      scopedContext.exportCandidates = [entry];
-      return freezeCandidate({
-        kind: "generated-note",
-        entry,
-        index,
-        selection: args.selection,
-        runtime: args.runtime,
-        scopedContext,
-        label: String(entry.parentTitle || `Generated note ${index + 1}`),
-      });
+  const kind = args.manifest.inputs.member.kind;
+  const freeze = (
+    entry: unknown,
+    index: number,
+    memberKind = kind,
+    scopedContext?: SelectionLike,
+  ) =>
+    freezeCandidate({
+      kind: memberKind,
+      entry,
+      index,
+      selection: args.selection,
+      runtime: args.runtime,
+      scopedContext,
     });
+  if (selector.policy === "selection") return [freeze(args.selection, 0)];
+  if (selector.policy === "literature-source")
+    return (
+      await collectSelectedLiteratureSources(args.selection, args.runtime)
+    ).map((entry, index) => freeze(entry, index, "attachment"));
+  if (selector.policy === "generated-note-candidates") {
+    return (
+      await selectGeneratedNoteCandidates(args.selection, args.runtime)
+    ).map((entry, index) =>
+      freeze(entry, index, "generated-note", {
+        ...lockSelection(
+          [
+            {
+              kind: "note",
+              itemType: "note",
+              ref: entry.ref,
+              ...(entry.parentRef ? { parentRef: entry.parentRef } : {}),
+            },
+          ],
+          args.selection.sampledAt,
+        ),
+        exportCandidates: [entry],
+      }),
+    );
   }
   if (selector.policy === "digest-representative-image") {
-    const selected = await selectDigestRepresentativeImage(
+    const entry = await selectDigestRepresentativeImage(
       args.selection,
       args.runtime,
     );
-    return selected.contexts.flatMap((context, index) => {
-      const entry = context.digestRepresentativeImageTarget;
-      if (!entry || typeof entry !== "object") {
-        return [];
-      }
-      return [
-        freezeCandidate({
-          kind: "digest-image-target",
-          entry,
-          index,
-          selection: args.selection,
-          runtime: args.runtime,
-          scopedContext: context,
-          label: entryLabel(
-            entry,
-            `Digest image target ${index + 1}`,
-            args.runtime,
-          ),
-        }),
-      ];
-    });
+    return entry
+      ? [
+          freeze(entry, 0, "digest-image-target", {
+            ...args.selection,
+            digestRepresentativeImageTarget: entry,
+          }),
+        ]
+      : [];
   }
   const entries =
     selector.source === "related"
-      ? relatedEntries(memberKind, args.selection)
-      : selectedEntries(memberKind, args.selection);
-  return dedupeCandidates(
-    entries.map((entry, index) =>
-      freezeCandidate({
-        kind: memberKind,
-        entry,
-        index,
-        selection: args.selection,
-        runtime: args.runtime,
-      }),
-    ),
-  );
+      ? await relatedEntries(kind, args.selection, args.runtime)
+      : await Promise.all(
+          args.selection.items
+            .filter((item) => item.kind === kind)
+            .map((item) => hydrateSelected(item, args.runtime)),
+        );
+  return dedupeCandidates(entries.map((entry, index) => freeze(entry, index)));
 }
 
 function recordSkip(
@@ -1449,8 +883,8 @@ function recordSkip(
   }
 }
 
-function candidateParentID(candidate: WorkflowInputCandidate) {
-  return candidate.targetParentID || 0;
+function candidateParentRef(candidate: WorkflowInputCandidate) {
+  return candidate.targetParentRef;
 }
 
 async function applyCandidateFilters(args: {
@@ -1504,21 +938,23 @@ async function applyCandidateFilters(args: {
         );
         keep = !!sourcePath && (await fileExists(sourcePath, args.runtime));
       } else if (filter.kind === "generated-note-kinds-absent") {
-        const parentID = candidateParentID(candidate);
+        const parentRef = candidateParentRef(candidate);
         keep =
-          !!parentID &&
+          !!parentRef &&
           !(await parentHasAllGeneratedNotes(
-            parentID,
+            parentRef,
             filter.noteKinds,
             args.runtime,
           ));
       } else if (filter.kind === "generated-note-readiness") {
-        const parentID = candidateParentID(candidate);
-        const parentItem = parentID ? resolveItem(args.runtime, parentID) : null;
+        const parentRef = candidateParentRef(candidate);
         keep =
-          !!parentItem &&
+          !!parentRef &&
           (
-            await evaluateGeneratedNoteReadiness(parentItem, filter)
+            await evaluateGeneratedNoteFactsReadiness(
+              await readGeneratedNoteFacts(parentRef, args.runtime),
+              filter,
+            )
           ).accepted;
       } else if (filter.kind === "artifact-absent") {
         keep =
@@ -1553,66 +989,32 @@ async function applyCandidateFilters(args: {
 function mergeScopedContexts(
   candidates: ReadonlyArray<WorkflowInputCandidate>,
 ) {
-  const merged = copySelection(candidates[0]?.scopedContext || {});
-  const arrays: Record<
-    "parents" | "children" | "attachments" | "notes",
-    unknown[]
-  > = {
-    parents: [],
-    children: [],
-    attachments: [],
-    notes: [],
-  };
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    const items = candidate.scopedContext.items || {};
-    for (const kind of Object.keys(arrays) as Array<keyof typeof arrays>) {
-      for (const entry of items[kind] || []) {
-        const identity = itemIdentity(
-          kind === "parents"
-            ? "parent"
-            : kind === "children"
-              ? "child"
-              : kind === "attachments"
-                ? "attachment"
-                : "note",
-          entry,
-          arrays[kind].length,
-        );
-        const key = `${kind}:${identity}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        arrays[kind].push(entry);
-      }
+  if (candidates.length === 1 && candidates[0].kind === "selection") {
+    return candidates[0].scopedContext;
+  }
+  const items = new Map<string, SelectionItemFact>();
+  for (const candidate of candidates)
+    for (const item of candidate.scopedContext.items) {
+      const key = itemRefIdentity(item.ref);
+      if (!items.has(key)) items.set(key, item);
     }
-  }
-  merged.items = {
-    parents: arrays.parents as ParentLike[],
-    children: arrays.children as NonNullable<
-      NonNullable<SelectionLike["items"]>["children"]
-    >,
-    attachments: arrays.attachments as AttachmentLike[],
-    notes: arrays.notes as NoteLike[],
-  };
-  merged.summary = {
-    parentCount: arrays.parents.length,
-    childCount: arrays.children.length,
-    attachmentCount: arrays.attachments.length,
-    noteCount: arrays.notes.length,
-  };
   const generated = candidates
-    .filter((candidate) => candidate.kind === "generated-note")
-    .map((candidate) => candidate.value);
-  if (generated.length > 0) {
-    merged.exportCandidates = generated;
-  }
-  const digest = candidates.find(
-    (candidate) => candidate.kind === "digest-image-target",
-  );
-  if (digest) {
-    merged.digestRepresentativeImageTarget = digest.value;
-  }
-  return deepFreeze(merged);
+    .filter((item) => item.kind === "generated-note")
+    .map((item) => item.value as GeneratedNoteCandidate);
+  const digest = candidates.find((item) => item.kind === "digest-image-target");
+  return deepFreeze({
+    ...lockSelection(
+      [...items.values()],
+      candidates[0]?.scopedContext.sampledAt,
+    ),
+    ...(generated.length ? { exportCandidates: generated } : {}),
+    ...(digest
+      ? {
+          digestRepresentativeImageTarget:
+            digest.value as GeneratedNoteCandidate,
+        }
+      : {}),
+  });
 }
 
 function freezeUnit(args: {
@@ -1620,7 +1022,7 @@ function freezeUnit(args: {
   order: number;
   taskName: string;
   targetParentIdentity?: string;
-  targetParentID?: number;
+  targetParentRef?: PortableItemRef;
 }) {
   const members = Object.freeze([...args.candidates]);
   const memberIdentities = Object.freeze(
@@ -1640,7 +1042,7 @@ function freezeUnit(args: {
     ...(args.targetParentIdentity
       ? { targetParentIdentity: args.targetParentIdentity }
       : {}),
-    ...(args.targetParentID ? { targetParentID: args.targetParentID } : {}),
+    ...(args.targetParentRef ? { targetParentRef: args.targetParentRef } : {}),
     selectionContext: mergeScopedContexts(members),
   });
 }
@@ -1658,7 +1060,7 @@ function groupCandidates(args: {
         order,
         taskName: candidate.label,
         targetParentIdentity: candidate.parentIdentity,
-        targetParentID: candidate.targetParentID,
+        targetParentRef: candidate.targetParentRef,
       }),
     );
   }
@@ -1671,13 +1073,16 @@ function groupCandidates(args: {
       parentIdentities.size === 1
         ? args.candidates[0].parentIdentity
         : undefined;
-    const targetParentID =
+    const targetParentRef =
       targetParentIdentity &&
       args.candidates.every(
         (candidate) =>
-          candidate.targetParentID === args.candidates[0].targetParentID,
+          candidate.targetParentRef &&
+          args.candidates[0].targetParentRef &&
+          itemRefIdentity(candidate.targetParentRef) ===
+            itemRefIdentity(args.candidates[0].targetParentRef),
       )
-        ? args.candidates[0].targetParentID
+        ? args.candidates[0].targetParentRef
         : undefined;
     return [
       freezeUnit({
@@ -1685,7 +1090,7 @@ function groupCandidates(args: {
         order: 0,
         taskName: args.manifest.label,
         targetParentIdentity,
-        targetParentID,
+        targetParentRef,
       }),
     ];
   }
@@ -1693,7 +1098,7 @@ function groupCandidates(args: {
     string,
     {
       members: WorkflowInputCandidate[];
-      targetParentID?: number;
+      targetParentRef?: PortableItemRef;
       label: string;
     }
   >();
@@ -1709,13 +1114,13 @@ function groupCandidates(args: {
     }
     groups.set(candidate.parentIdentity, {
       members: [candidate],
-      targetParentID: candidate.targetParentID,
+      targetParentRef: candidate.targetParentRef,
       label:
         candidate.kind === "parent"
           ? candidate.label
           : String(
-              (candidate.value as { parent?: { title?: unknown } }).parent
-                ?.title || candidate.label,
+              (candidate.value as { parentTitle?: string }).parentTitle ||
+                candidate.label,
             ),
     });
   }
@@ -1726,7 +1131,7 @@ function groupCandidates(args: {
         order,
         taskName: group.label,
         targetParentIdentity,
-        targetParentID: group.targetParentID,
+        targetParentRef: group.targetParentRef,
       }),
   );
 }
@@ -1899,9 +1304,7 @@ export async function evaluateWorkflowSelection(
   return {
     state: plan.state,
     reasonCode: plan.reasonCode,
-    scopedSelectionContexts: plan.units.map(
-      (unit) => unit.selectionContext,
-    ),
+    scopedSelectionContexts: plan.units.map((unit) => unit.selectionContext),
     stats: {
       totalUnits: plan.stats.candidates.total,
       validUnits: plan.units.length,

@@ -4,7 +4,18 @@ import {
   DEFAULT_BACKEND_TYPE,
 } from "../../config/defaults";
 import { normalizeNativeLocalPath } from "../../utils/path";
-import { buildSkillRunnerUploadRelativePath } from "../../providers/skillrunner/uploadMapping";
+import {
+  buildHostBridgeSelectionBundlePath,
+  buildSkillRunnerUploadMapping,
+  buildSkillRunnerUploadRelativePath,
+} from "../../providers/skillrunner/uploadMapping";
+import { createWorkflowHostApi } from "../../workflows/hostApi";
+import { assertSelectionRef } from "../selectionContext";
+import type {
+  ItemDetailDto,
+  PortableItemRef,
+  WorkflowHostApi,
+} from "../../workflows/types";
 import type { BackendInstance } from "../../backends/types";
 import type {
   AcpSkillRunRequestV1,
@@ -101,6 +112,13 @@ type SkillRunnerWorkspaceFileBinding = {
   target_path: string;
 };
 
+type SequenceHostApi = Pick<WorkflowHostApi, "library">;
+
+type SequenceAttachmentBinding = {
+  token: string;
+  path: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -111,6 +129,202 @@ function cloneRecord(value: unknown) {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function resolveSequenceHostApi(hostApi?: SequenceHostApi): SequenceHostApi {
+  return (
+    hostApi || createWorkflowHostApi({ interactionMode: "non_interactive" })
+  );
+}
+
+function normalizeSequenceAttachmentPath(value: unknown) {
+  return normalizePathForPrefix(normalizeNativeLocalPath(String(value || "")));
+}
+
+function sourceAttachmentRefsFromSequenceRequest(
+  request: SkillRunnerSequenceRequestV1,
+) {
+  const refs = Array.isArray(request.sourceAttachmentRefs)
+    ? request.sourceAttachmentRefs
+    : [];
+  refs.forEach(assertSelectionRef);
+  return refs as PortableItemRef[];
+}
+
+async function resolveSequenceAttachmentBindings(args: {
+  request: SkillRunnerSequenceRequestV1;
+  hostApi?: SequenceHostApi;
+  stepIndex?: number;
+}) {
+  const refs = sourceAttachmentRefsFromSequenceRequest(args.request);
+  if (refs.length === 0) {
+    return [] as SequenceAttachmentBinding[];
+  }
+  const hostApi = resolveSequenceHostApi(args.hostApi);
+  const referencedTokens =
+    typeof args.stepIndex === "number"
+      ? new Set(
+          collectSequenceInputStrings(
+            args.request.steps[args.stepIndex]?.input,
+          ),
+        )
+      : null;
+  const bindings: SequenceAttachmentBinding[] = [];
+  for (const ref of refs) {
+    const token = buildHostBridgeSelectionBundlePath(ref);
+    if (
+      referencedTokens &&
+      !referencedTokens.has(normalizePathForPrefix(token))
+    ) {
+      continue;
+    }
+    const detail: ItemDetailDto = await hostApi.library.getItemDetail({
+      ...ref,
+    });
+    if (
+      detail.kind !== "attachment" ||
+      detail.item.file.state !== "available"
+    ) {
+      throw new Error("Workflow source attachment file is unavailable");
+    }
+    const path = normalizeNativeLocalPath(detail.item.file.path);
+    if (!normalizeSequenceAttachmentPath(path)) {
+      throw new Error("Workflow source attachment file is unavailable");
+    }
+    bindings.push({ token, path });
+  }
+  return bindings;
+}
+
+function collectSequenceInputStrings(value: unknown): string[] {
+  if (typeof value === "string") {
+    return [normalizePathForPrefix(value)];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(collectSequenceInputStrings);
+  }
+  if (isRecord(value)) {
+    return Object.values(value).flatMap(collectSequenceInputStrings);
+  }
+  return [];
+}
+
+function mapSequenceInputValue(
+  value: unknown,
+  mapping: ReadonlyMap<string, string>,
+  normalizeKey: (value: string) => string,
+): unknown {
+  if (typeof value === "string") {
+    return mapping.get(normalizeKey(value)) || value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      mapSequenceInputValue(entry, mapping, normalizeKey),
+    );
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      mapSequenceInputValue(entry, mapping, normalizeKey),
+    ]),
+  );
+}
+
+function mapSequenceRequestInputs(
+  request: SkillRunnerSequenceRequestV1,
+  mapping: ReadonlyMap<string, string>,
+  normalizeKey: (value: string) => string,
+) {
+  if (mapping.size === 0) {
+    return request;
+  }
+  return {
+    ...request,
+    steps: request.steps.map((step) => ({
+      ...step,
+      ...(step.input
+        ? {
+            input: mapSequenceInputValue(
+              step.input,
+              mapping,
+              normalizeKey,
+            ) as Record<string, unknown>,
+          }
+        : {}),
+    })),
+  } satisfies SkillRunnerSequenceRequestV1;
+}
+
+function projectSequenceRequestForDurability(
+  request: SkillRunnerSequenceRequestV1,
+  bindings: SequenceAttachmentBinding[],
+) {
+  if (bindings.length === 0) {
+    return request;
+  }
+  const pathToToken = new Map<string, string>();
+  for (const binding of bindings) {
+    const pathKey = normalizeSequenceAttachmentPath(binding.path);
+    if (!pathToToken.has(pathKey)) {
+      pathToToken.set(pathKey, binding.token);
+    }
+  }
+  return {
+    ...mapSequenceRequestInputs(
+      request,
+      pathToToken,
+      normalizeSequenceAttachmentPath,
+    ),
+    sourceAttachmentRefs: sourceAttachmentRefsFromSequenceRequest(request).map(
+      (ref) => ({ ...ref }),
+    ),
+  } satisfies SkillRunnerSequenceRequestV1;
+}
+
+function resolveSequenceRequestForDispatch(
+  request: SkillRunnerSequenceRequestV1,
+  bindings: SequenceAttachmentBinding[],
+  stepIndex?: number,
+) {
+  if (bindings.length === 0) {
+    return request;
+  }
+  const tokenToPath = new Map(
+    bindings.map((binding) => [
+      normalizePathForPrefix(binding.token),
+      binding.path,
+    ]),
+  );
+  if (typeof stepIndex !== "number") {
+    return mapSequenceRequestInputs(
+      request,
+      tokenToPath,
+      normalizePathForPrefix,
+    );
+  }
+  return {
+    ...request,
+    steps: request.steps.map((step, index) =>
+      index === stepIndex && step.input
+        ? {
+            ...step,
+            input: mapSequenceInputValue(
+              step.input,
+              tokenToPath,
+              normalizePathForPrefix,
+            ) as Record<string, unknown>,
+          }
+        : step,
+    ),
+  } satisfies SkillRunnerSequenceRequestV1;
+}
+
+function isAbsoluteLocalPath(value: string) {
+  const text = normalizeString(value).replace(/\\/g, "/");
+  return /^[A-Za-z]:\//.test(text) || text.startsWith("/");
 }
 
 function buildSequenceStepProgressContext(args: {
@@ -382,11 +596,12 @@ function buildStepRequest(args: {
     ...(args.sequence.taskName
       ? { taskName: `${args.sequence.taskName} / ${args.step.id}` }
       : {}),
-    ...(Array.isArray(args.sequence.sourceAttachmentPaths)
-      ? { sourceAttachmentPaths: [...args.sequence.sourceAttachmentPaths] }
-      : {}),
-    ...(typeof args.sequence.targetParentID !== "undefined"
-      ? { targetParentID: args.sequence.targetParentID }
+    ...(Array.isArray(args.sequence.sourceAttachmentRefs)
+      ? {
+          sourceAttachmentRefs: args.sequence.sourceAttachmentRefs.map(
+            (ref) => ({ ...ref }),
+          ),
+        }
       : {}),
     ...(args.sequence.targetParentRef
       ? { targetParentRef: { ...args.sequence.targetParentRef } }
@@ -435,11 +650,6 @@ function buildStepRequest(args: {
     skill_id: args.step.skill_id,
     ...sharedMeta,
   };
-}
-
-function isAbsoluteLocalPath(value: string) {
-  const text = normalizeString(value).replace(/\\/g, "/");
-  return /^[A-Za-z]:\//.test(text) || text.startsWith("/");
 }
 
 function normalizePathForPrefix(value: string) {
@@ -520,23 +730,6 @@ function normalizeSkillRunnerWorkspaceSourcePath(args: {
     );
   }
   return relative;
-}
-
-function buildSkillRunnerUploadMapping(input: Record<string, unknown>) {
-  const mappedInput = { ...input };
-  const upload_files: Array<{ key: string; path: string }> = [];
-  for (const [key, value] of Object.entries(input)) {
-    if (typeof value !== "string" || !isAbsoluteLocalPath(value)) {
-      continue;
-    }
-    const localPath = normalizeNativeLocalPath(value);
-    mappedInput[key] = buildSkillRunnerUploadRelativePath(key, localPath);
-    upload_files.push({ key, path: localPath });
-  }
-  return {
-    input: mappedInput,
-    upload_files,
-  };
 }
 
 function outputsByStepFromState(state: SequenceRunState) {
@@ -1212,6 +1405,7 @@ type AcceptCompletedSequenceStepArgs = {
   stepIndex: number;
   stepResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
   backend: BackendInstance;
+  hostApi?: SequenceHostApi;
   providerOptions?: Record<string, unknown>;
   executeWithProvider: ExecuteWithProvider;
   applySequenceStepResult?: ApplySequenceStepResult;
@@ -1352,6 +1546,7 @@ async function acceptCompletedSequenceStepNow(
     sequenceRunId: state.sequenceRunId,
     startIndex: args.stepIndex + 1,
     backend: args.backend,
+    hostApi: args.hostApi,
     providerOptions: args.providerOptions || state.providerOptions,
     executeWithProvider: args.executeWithProvider,
     applySequenceStepResult: args.applySequenceStepResult,
@@ -1388,6 +1583,7 @@ async function executeSequenceFromState(args: {
   state: SequenceRunState;
   startIndex: number;
   backend: BackendInstance;
+  hostApi?: SequenceHostApi;
   providerOptions?: Record<string, unknown>;
   executeWithProvider: ExecuteWithProvider;
   applySequenceStepResult?: ApplySequenceStepResult;
@@ -1432,9 +1628,20 @@ async function executeSequenceFromState(args: {
       sequenceRunId: args.state.sequenceRunId,
       stepIndex: index,
     });
+    const sourceBindings = await resolveSequenceAttachmentBindings({
+      request: args.state.request,
+      hostApi: args.hostApi,
+      stepIndex: index,
+    });
+    const requestForDispatch = resolveSequenceRequestForDispatch(
+      args.state.request,
+      sourceBindings,
+      index,
+    );
+    const dispatchStep = requestForDispatch.steps[index] || step;
     const stepRequest = buildStepRequest({
-      sequence: args.state.request,
-      step,
+      sequence: requestForDispatch,
+      step: dispatchStep,
       stepIndex: index,
       workflowRunId: args.state.workflowRunId,
       previousStepId,
@@ -1747,6 +1954,7 @@ async function executeSequenceFromState(args: {
 
 export async function executeSkillRunnerSequence(args: {
   request: SkillRunnerSequenceRequestV1;
+  hostApi?: SequenceHostApi;
   backend: BackendInstance;
   providerOptions?: Record<string, unknown>;
   skillDisplayById?: SkillRunnerSkillDisplayById;
@@ -1765,8 +1973,16 @@ export async function executeSkillRunnerSequence(args: {
   parentWorkflowRunId?: string;
   semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
 }) {
-  const state = initializeSequenceRunState({
+  const sourceBindings = await resolveSequenceAttachmentBindings({
     request: args.request,
+    hostApi: args.hostApi,
+  });
+  const durableRequest = projectSequenceRequestForDurability(
+    args.request,
+    sourceBindings,
+  );
+  const state = initializeSequenceRunState({
+    request: durableRequest,
     backend: args.backend,
     providerOptions: args.providerOptions,
     workflowId: args.workflowId,
@@ -1779,6 +1995,7 @@ export async function executeSkillRunnerSequence(args: {
     state,
     startIndex: 0,
     backend: args.backend,
+    hostApi: args.hostApi,
     providerOptions: args.providerOptions,
     executeWithProvider: args.executeWithProvider,
     applySequenceStepResult: args.applySequenceStepResult,
@@ -1806,6 +2023,7 @@ async function continueSequenceFromIndex(args: {
   sequenceRunId: string;
   startIndex: number;
   backend: BackendInstance;
+  hostApi?: SequenceHostApi;
   providerOptions?: Record<string, unknown>;
   executeWithProvider: ExecuteWithProvider;
   applySequenceStepResult?: ApplySequenceStepResult;
@@ -1839,6 +2057,7 @@ async function continueSequenceFromIndex(args: {
     state,
     startIndex: args.startIndex,
     backend: args.backend,
+    hostApi: args.hostApi,
     providerOptions: args.providerOptions || state.providerOptions,
     executeWithProvider: args.executeWithProvider,
     applySequenceStepResult: args.applySequenceStepResult,

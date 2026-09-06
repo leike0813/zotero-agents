@@ -87,7 +87,12 @@ export type WorkflowPreflightUnitMeta = {
 export type WorkflowPreflightShortCircuitApply = {
   index: number;
   taskLabel: string;
-  parent: Zotero.Item | number | string | null;
+  parent:
+    | import("../../workflows/types").PortableItemRef
+    | Zotero.Item
+    | number
+    | string
+    | null;
   request: unknown;
   runResult: {
     status: "succeeded";

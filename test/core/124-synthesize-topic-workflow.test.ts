@@ -5,6 +5,7 @@ import { pathToFileURL } from "url";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { buildAcpSkillResourceManifest } from "../../src/modules/acpSkillResourceManifest";
 import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
+import { lockSelection } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import {
@@ -26,6 +27,34 @@ function canceledSkillOutputBundle() {
     duplicate_topic_id: "detr-detection-transformer",
     topic_seed: "DETR",
   };
+}
+
+function topicSourceSelection() {
+  const parentRef = { libraryId: 1, key: "PARENT08" };
+  return lockSelection([
+    {
+      kind: "attachment",
+      ref: { libraryId: 1, key: "ATTACHMD" },
+      itemType: "attachment",
+      parentRef,
+      title: "conditional-detr.md",
+      filename: "conditional-detr.md",
+      contentType: "text/markdown",
+      createdAt: "2026-01-01T00:00:00Z",
+      fileState: "available",
+    },
+    {
+      kind: "attachment",
+      ref: { libraryId: 1, key: "ATTACHPDF" },
+      itemType: "attachment",
+      parentRef,
+      title: "conditional-detr.pdf",
+      filename: "conditional-detr.pdf",
+      contentType: "application/pdf",
+      createdAt: "2026-01-02T00:00:00Z",
+      fileState: "available",
+    },
+  ]);
 }
 
 async function collectWorkflowJsonFiles(rootDir: string): Promise<string[]> {
@@ -238,22 +267,7 @@ describe("Synthesize topic workflow contract", function () {
 
     const requests = (await executeBuildRequests({
       workflow: workflow!,
-      selectionContext: {
-        items: {
-          attachments: [
-            {
-              filePath: "D:/papers/conditional-detr.md",
-              mimeType: "text/markdown",
-              parent: { id: 8, title: "Conditional DETR" },
-            },
-            {
-              filePath: "D:/papers/conditional-detr.pdf",
-              mimeType: "application/pdf",
-              parent: { id: 8, title: "Conditional DETR" },
-            },
-          ],
-        },
-      },
+      selectionContext: topicSourceSelection(),
       executionOptions: {
         workflowParams: {
           topicSeed: "DETR",
@@ -262,8 +276,8 @@ describe("Synthesize topic workflow contract", function () {
       },
     })) as Array<{
       taskName?: string;
-      sourceAttachmentPaths?: string[];
-      targetParentID?: number;
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+      targetParentRef?: { libraryId: number; key: string };
       parameter?: Record<string, unknown>;
       kind?: string;
       steps?: Array<{
@@ -283,10 +297,13 @@ describe("Synthesize topic workflow contract", function () {
       (requests[0] as any).runtime_options?.zotero_host_access,
     );
     assert.isUndefined((requests[0] as any).runtime_options?.workflow_mcp);
-    assert.equal(requests[0].targetParentID, 8);
-    assert.deepEqual(requests[0].sourceAttachmentPaths, [
-      "D:/papers/conditional-detr.md",
-      "D:/papers/conditional-detr.pdf",
+    assert.deepEqual(requests[0].targetParentRef, {
+      libraryId: 1,
+      key: "PARENT08",
+    });
+    assert.deepEqual(requests[0].sourceAttachmentRefs, [
+      { libraryId: 1, key: "ATTACHMD" },
+      { libraryId: 1, key: "ATTACHPDF" },
     ]);
     assert.equal(requests[0].parameter?.topicSeed, "DETR");
     assert.equal(requests[0].parameter?.language, "zh-CN");
@@ -324,22 +341,7 @@ describe("Synthesize topic workflow contract", function () {
 
     const requests = (await executeBuildRequests({
       workflow: workflow!,
-      selectionContext: {
-        items: {
-          attachments: [
-            {
-              filePath: "D:/papers/conditional-detr.md",
-              mimeType: "text/markdown",
-              parent: { id: 8, title: "Conditional DETR" },
-            },
-            {
-              filePath: "D:/papers/conditional-detr.pdf",
-              mimeType: "application/pdf",
-              parent: { id: 8, title: "Conditional DETR" },
-            },
-          ],
-        },
-      },
+      selectionContext: topicSourceSelection(),
       executionOptions: {
         workflowParams: {
           topicId: "object-detection",
@@ -347,8 +349,8 @@ describe("Synthesize topic workflow contract", function () {
       },
     })) as Array<{
       taskName?: string;
-      sourceAttachmentPaths?: string[];
-      targetParentID?: number;
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+      targetParentRef?: { libraryId: number; key: string };
       parameter?: Record<string, unknown>;
       kind?: string;
       steps?: Array<{
@@ -364,10 +366,13 @@ describe("Synthesize topic workflow contract", function () {
     assert.lengthOf(requests, 1);
     assert.equal(requests[0].kind, "skillrunner.sequence.v1");
     assert.equal(requests[0].taskName, "Update synthesis: object-detection");
-    assert.equal(requests[0].targetParentID, 8);
-    assert.deepEqual(requests[0].sourceAttachmentPaths, [
-      "D:/papers/conditional-detr.md",
-      "D:/papers/conditional-detr.pdf",
+    assert.deepEqual(requests[0].targetParentRef, {
+      libraryId: 1,
+      key: "PARENT08",
+    });
+    assert.deepEqual(requests[0].sourceAttachmentRefs, [
+      { libraryId: 1, key: "ATTACHMD" },
+      { libraryId: 1, key: "ATTACHPDF" },
     ]);
     assert.equal(requests[0].parameter?.topicId, "object-detection");
     assert.notProperty(requests[0].parameter || {}, "language");

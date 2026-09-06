@@ -1,4 +1,7 @@
-import { resolveSourceAttachment } from "../lib/pdfSplitPlan.mjs";
+import {
+  resolveAttachmentPath,
+  resolveSourceAttachment,
+} from "../lib/pdfSplitPlan.mjs";
 
 function sourceStem(fileName) {
   return String(fileName || "").replace(/\.[^.]+$/, "");
@@ -23,7 +26,8 @@ function buildSteps(fileName, sourcePath, pageRanges) {
       },
       extract: {
         batch_id: "$.data.batch_id",
-        upload_url: "$.data.file_urls[0] || $.data.files[0] || $.data.files[0].url",
+        upload_url:
+          "$.data.file_urls[0] || $.data.files[0] || $.data.files[0].url",
       },
     },
     {
@@ -47,10 +51,12 @@ function buildSteps(fileName, sourcePath, pageRanges) {
       fail_when: {
         json_path: "$.data.extract_result[0].state || $.data.state",
         equals: "failed",
-        message_path: "$.data.extract_result[0].err_msg || $.data.err_msg || $.msg",
+        message_path:
+          "$.data.extract_result[0].err_msg || $.data.err_msg || $.msg",
       },
       extract: {
-        full_zip_url: "$.data.extract_result[0].full_zip_url || $.data.full_zip_url",
+        full_zip_url:
+          "$.data.extract_result[0].full_zip_url || $.data.full_zip_url",
       },
     },
     {
@@ -64,13 +70,22 @@ function buildSteps(fileName, sourcePath, pageRanges) {
   ];
 }
 
-export async function buildRequest({ selectionContext, preflight, manifest }) {
+export async function buildRequest({
+  selectionContext,
+  preflight,
+  manifest,
+  runtime,
+}) {
   const source = resolveSourceAttachment(selectionContext);
   const context = {
     ...(preflight?.context || {}),
   };
-  const sourcePath =
-    String(context.source_attachment_path || "").trim() || source?.filePath;
+  delete context.source_attachment_path;
+  delete context.source_attachment_item_id;
+  delete context.source_attachment_item_key;
+  const sourcePath = source?.ref
+    ? await resolveAttachmentPath(source.ref, runtime)
+    : "";
   const fileName =
     String(context.source_attachment_name || "").trim() || source?.fileName;
   if (!sourcePath || !fileName) {
@@ -82,17 +97,13 @@ export async function buildRequest({ selectionContext, preflight, manifest }) {
     taskName: pageRanges
       ? `${fileName} (${context.partIndex || "?"}/${context.partCount || "?"}: ${pageRanges})`
       : fileName,
-    sourceAttachmentPaths: [sourcePath],
+    sourceAttachmentRefs: source?.ref ? [source.ref] : [],
     context: {
       source_attachment_path: sourcePath,
       source_attachment_name: fileName,
       source_attachment_stem: sourceStem(fileName),
-      source_attachment_item_id:
-        context.source_attachment_item_id || source?.itemId || null,
-      source_attachment_item_key:
-        context.source_attachment_item_key || source?.itemKey || "",
       source_attachment_ref:
-        context.source_attachment_ref || source?.itemRef || null,
+        context.source_attachment_ref || source?.ref || null,
       workflow_id: manifest?.id || "mineru",
       workflow_label: manifest?.label || "MinerU",
       ...context,

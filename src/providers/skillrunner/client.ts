@@ -1277,9 +1277,9 @@ export class SkillRunnerClient {
     );
     return {
       kind: "http.steps",
-      targetParentID: request.targetParentID,
+      targetParentRef: request.targetParentRef,
       taskName: request.taskName,
-      sourceAttachmentPaths: request.sourceAttachmentPaths,
+      sourceAttachmentRefs: request.sourceAttachmentRefs,
       steps,
       poll: {
         interval_ms: request.poll?.interval_ms,

@@ -44,9 +44,10 @@ import type {
   WorkflowQueueEntryId,
   WorkflowSubmissionId,
 } from "../jobQueue/workflowSubmissionQueueContracts";
-import { buildSelectionContext } from "./selectionContext";
+import { assertSelectionRef, buildSelectionContext } from "./selectionContext";
 import {
   buildHostBridgeWorkflowAgentRunHandoff,
+  prepareHostBridgeWorkflowAgentRunHandoff,
   type HostBridgeWorkflowAgentRunApplyStatus,
   type HostBridgeWorkflowAgentRunResult,
 } from "./hostBridgeWorkflowAgentRun";
@@ -58,6 +59,7 @@ import {
   getExpiredHostBridgeAgentRunRecord,
   getHostBridgeAgentRunApplyReceipt,
   getHostBridgeAgentRunRecord,
+  hasCompleteHostBridgeWorkflowSelection,
   recordHostBridgeAgentRunApplyReceipt,
   releaseHostBridgeAgentRunApplyLease,
   renewHostBridgeAgentRunRecord,
@@ -67,6 +69,7 @@ import {
 import type { SelectionContext } from "./selectionContext";
 import type {
   LoadedWorkflow,
+  PortableItemRef,
   WorkflowResourceBindings,
   WorkflowResourceOutputDescriptor,
 } from "../workflows/types";
@@ -97,7 +100,7 @@ import {
 } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
 import {
-  resolveTargetParentIDFromRequest,
+  resolveTargetParentRefFromRequest,
   resolveTaskNameFromRequest,
 } from "./workflowExecution/requestMeta";
 import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
@@ -175,7 +178,7 @@ export type HostBridgeWorkflowSummary = {
 export type HostBridgeWorkflowSelection =
   | {
       kind: "items";
-      items: HostBridgeWorkflowItemRef[];
+      items: PortableItemRef[];
     }
   | {
       kind: "none";
@@ -183,11 +186,7 @@ export type HostBridgeWorkflowSelection =
 
 export type HostBridgeWorkflowInput = HostBridgeWorkflowSelection;
 
-export type HostBridgeWorkflowItemRef = {
-  key?: string;
-  id?: number;
-  libraryId?: number;
-};
+export type HostBridgeWorkflowItemRef = PortableItemRef;
 
 export type HostBridgeProviderProfileInput = {
   schema?: unknown;
@@ -567,19 +566,6 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-function normalizeNumber(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.floor(value);
-  }
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return Math.floor(parsed);
-    }
-  }
-  return undefined;
-}
-
 export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowControlManifest {
   return {
     supported: true,
@@ -650,10 +636,14 @@ function getWorkflowById(workflowId: string) {
   );
 }
 
-function createBridgeWindow(selectedItems: Zotero.Item[]) {
+function createBridgeWindow() {
   return {
     ZoteroPane: {
-      getSelectedItems: () => selectedItems,
+      getSelectedItems: () => {
+        throw new Error(
+          "Host Bridge workflow preparation cannot read the Zotero UI selection",
+        );
+      },
     },
     alert: () => undefined,
     confirm: () => {
@@ -663,20 +653,12 @@ function createBridgeWindow(selectedItems: Zotero.Item[]) {
 }
 
 function parseItemRef(raw: unknown): HostBridgeWorkflowItemRef | null {
-  if (!isObject(raw)) {
+  try {
+    assertSelectionRef(raw);
+    return { libraryId: raw.libraryId, key: raw.key.trim() };
+  } catch {
     return null;
   }
-  const key = normalizeString(raw.key);
-  const id = normalizeNumber(raw.id);
-  const libraryId = normalizeNumber(raw.libraryId ?? raw.library_id);
-  if ((key && id !== undefined) || (!key && id === undefined)) {
-    return null;
-  }
-  return {
-    ...(key ? { key } : {}),
-    ...(id !== undefined ? { id } : {}),
-    ...(libraryId !== undefined ? { libraryId } : {}),
-  };
 }
 
 function codedWorkflowValidationError(code: string, message: string) {
@@ -810,19 +792,33 @@ function parseWorkflowSelection(
   if (!isObject(raw)) {
     throw codedWorkflowValidationError(errorCode, "selection is required");
   }
-  if (normalizeString(raw.kind) === "none") {
+  if (
+    raw.kind === "none" &&
+    Object.keys(raw).length === 1 &&
+    Object.prototype.hasOwnProperty.call(raw, "kind")
+  ) {
     return { kind: "none" };
   }
-  if (normalizeString(raw.kind) && normalizeString(raw.kind) !== "items") {
+  if (raw.kind !== undefined && raw.kind !== "items") {
     throw codedWorkflowValidationError(
       errorCode,
       "selection.kind must be items or none",
     );
   }
+  const hasKind = Object.prototype.hasOwnProperty.call(raw, "kind");
+  if (
+    Object.keys(raw).length !== (hasKind ? 2 : 1) ||
+    !Object.prototype.hasOwnProperty.call(raw, "items")
+  ) {
+    throw codedWorkflowValidationError(
+      errorCode,
+      "selection.items must contain only complete portable refs",
+    );
+  }
   if (!Array.isArray(raw.items)) {
     throw codedWorkflowValidationError(
       errorCode,
-      "selection.items must contain explicit Zotero item refs",
+      "selection.items must contain complete portable refs",
     );
   }
   const items = raw.items
@@ -831,7 +827,7 @@ function parseWorkflowSelection(
   if (items.length !== raw.items.length || items.length === 0) {
     throw codedWorkflowValidationError(
       errorCode,
-      "selection.items must contain explicit Zotero item refs",
+      "selection.items must contain complete portable refs",
     );
   }
   return {
@@ -1295,57 +1291,10 @@ export async function refreshHostBridgeProviderProfile(payload: {
   };
 }
 
-function resolveZoteroItemRef(ref: HostBridgeWorkflowItemRef) {
-  const runtime = globalThis as {
-    Zotero?: {
-      Libraries?: { userLibraryID?: number };
-      Items?: {
-        get?: (id: number) => Zotero.Item | false | null | undefined;
-        getByLibraryAndKey?: (
-          libraryId: number,
-          key: string,
-        ) => Zotero.Item | false | null | undefined;
-      };
-    };
-  };
-  const items = runtime.Zotero?.Items;
-  if (!items) {
-    throw new Error("Zotero Items API is unavailable");
-  }
-  if (typeof ref.id === "number") {
-    const item = items.get?.(ref.id);
-    if (item) {
-      return item;
-    }
-    throw new Error(`Zotero item not found: id=${ref.id}`);
-  }
-  const key = normalizeString(ref.key);
-  const libraryId =
-    ref.libraryId ||
-    (typeof runtime.Zotero?.Libraries?.userLibraryID === "number"
-      ? runtime.Zotero.Libraries.userLibraryID
-      : 0);
-  if (!key || !libraryId) {
-    throw new Error("Zotero item key and libraryId are required");
-  }
-  const item = items.getByLibraryAndKey?.(libraryId, key);
-  if (item) {
-    return item;
-  }
-  throw new Error(`Zotero item not found: key=${key}`);
-}
-
-function resolveSelectedItemsForSelection(
+function selectionRefsForSelection(
   selection: HostBridgeWorkflowSelection,
-) {
-  if (selection.kind === "none") {
-    return [];
-  }
-  return selection.items.map(resolveZoteroItemRef);
-}
-
-function resolveSelectedItemsForPlan(plan: HostBridgeWorkflowSubmitPlan) {
-  return resolveSelectedItemsForSelection(plan.selection);
+): PortableItemRef[] {
+  return selection.kind === "none" ? [] : [...selection.items];
 }
 
 export async function prepareHostBridgeWorkflowSubmit(
@@ -1545,8 +1494,9 @@ export async function buildHostBridgeWorkflowAgentRun(args: {
   const { plan, workflow } = await prepareHostBridgeWorkflowAgentRun(
     args.payload,
   );
-  const selectedItems = resolveSelectedItemsForSelection(plan.selection);
-  const selectionContext = await buildSelectionContext(selectedItems);
+  const selectionContext = await buildSelectionContext(
+    selectionRefsForSelection(plan.selection),
+  );
   const applyStatus = await evaluateAgentRunApplyStatus({
     workflow,
     selectionContext,
@@ -1560,10 +1510,14 @@ export async function buildHostBridgeWorkflowAgentRun(args: {
     workflow,
     requests: rawRequests,
   });
+  const preparedHandoff = await prepareHostBridgeWorkflowAgentRunHandoff({
+    selectionContext,
+    preparedRequests,
+  });
   const record = createHostBridgeAgentRunRecord({
     workflowId: workflow.manifest.id,
     selection: plan.selection,
-    requests: preparedRequests,
+    requests: preparedHandoff.preparedRequests,
   });
   return buildHostBridgeWorkflowAgentRunHandoff({
     agentRunId: record.agentRunId,
@@ -1572,7 +1526,9 @@ export async function buildHostBridgeWorkflowAgentRun(args: {
     selection: plan.selection,
     selectionContext,
     applyStatus,
-    preparedRequests,
+    preparedRequests: preparedHandoff.preparedRequests,
+    selectedFiles: preparedHandoff.selectedFiles,
+    bundleFiles: preparedHandoff.bundleFiles,
   });
 }
 
@@ -1746,6 +1702,13 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
       { agentRunId },
     );
   }
+  if (!hasCompleteHostBridgeWorkflowSelection(record.selection)) {
+    throw codedAgentApplyError(
+      "agent_run_selection_incomplete",
+      "agent-run selection does not contain complete portable refs",
+      { agentRunId },
+    );
+  }
   const workflow = getWorkflowById(record.workflowId);
   if (!workflow) {
     throw codedAgentApplyError("workflow_not_found", "workflow not found", {
@@ -1784,8 +1747,9 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
   }>;
   let permission: HostBridgePermissionDecision;
   try {
-    const selectedItems = resolveSelectedItemsForSelection(record.selection);
-    const selectionContext = await buildSelectionContext(selectedItems);
+    const selectionContext = await buildSelectionContext(
+      selectionRefsForSelection(record.selection),
+    );
     const applyStatus = await evaluateAgentRunApplyStatus({
       workflow,
       selectionContext,
@@ -1870,7 +1834,7 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
         bundleReader,
         manifest: workflow.manifest,
       });
-      const parent = resolveTargetParentIDFromRequest(prepared.request);
+      const parent = resolveTargetParentRefFromRequest(prepared.request);
       await executeApplyResult({
         workflow,
         parent,
@@ -2157,9 +2121,11 @@ export async function submitHostBridgeWorkflow(args: {
         researchBundles,
       }),
     };
-    const selectedItems = resolveSelectedItemsForPlan(plan);
+    const selectionContext = await buildSelectionContext(
+      selectionRefsForSelection(plan.selection),
+    );
     const messageFormatter = createLocalizedMessageFormatter();
-    const win = createBridgeWindow(selectedItems);
+    const win = createBridgeWindow();
     const preparation = await runWorkflowPreparationSeam({
       win,
       workflow,
@@ -2167,7 +2133,7 @@ export async function submitHostBridgeWorkflow(args: {
       executionOptionsOverride:
         plan.executionOptions as unknown as WorkflowExecutionOptions,
       ignoreSavedWorkflowSettings: true,
-      selectedItemsOverride: selectedItems,
+      selectionContextOverride: selectionContext,
       suppressUiFeedback: true,
       runtime,
     });

@@ -455,7 +455,7 @@ describe`、`workflow validate-input`、`workflow profile describe` 与
 - 请求由 runtime/compiler 自动补全，包含：
   - 完整 `selectionContext`
   - `parameter`（workflow 参数）
-  - `targetParentID/taskName/sourceAttachmentPaths`
+  - `targetParentRef/taskName/sourceAttachmentRefs`；上传所需本地路径只在准备阶段从 canonical attachment file descriptor 解析
 - pass-through 不再隐式推断或拆分输入单元；它与其他 provider 共同消费 v2 planner 产出的顶层执行单元。
 - `inputs.grouping.mode` 决定顶层单元：`each` 逐候选、`all` 聚合全部候选、`parent` 按稳定 parent identity 分组。
 

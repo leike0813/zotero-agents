@@ -1,10 +1,9 @@
 import type { SkillRunnerProviderState } from "../modules/skillRunnerProviderStateMachine";
 
 export type ProviderExecutionRequestMeta = {
-  targetParentID?: number;
   targetParentRef?: { libraryId: number; key: string };
   taskName?: string;
-  sourceAttachmentPaths?: string[];
+  sourceAttachmentRefs?: { libraryId: number; key: string }[];
 };
 
 export type SkillRunnerHttpStepDefinition = {

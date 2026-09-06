@@ -9,7 +9,8 @@ export type LiteratureAnalysisFixtureCase = {
   context: unknown;
   expectedFilteredPaths: string[];
   expectedRequests: Array<{
-    targetParentID: number;
+    targetParentRef: { libraryId: number; key: string };
+    sourceAttachmentRef: { libraryId: number; key: string };
     uploadPath: string;
   }>;
 };
@@ -24,7 +25,8 @@ export const LITERATURE_ANALYSIS_FIXTURE_CASES: LiteratureAnalysisFixtureCase[] 
       ],
       expectedRequests: [
         {
-          targetParentID: 76,
+          targetParentRef: { libraryId: 1, key: "VI9JURUB" },
+          sourceAttachmentRef: { libraryId: 1, key: "LVBBEES6" },
           uploadPath:
             "attachments/LVBBEES6/Xiao 等 - 2025 - Rethinking detection based table structure recognition for visually rich document images.md",
         },
@@ -38,7 +40,8 @@ export const LITERATURE_ANALYSIS_FIXTURE_CASES: LiteratureAnalysisFixtureCase[] 
       ],
       expectedRequests: [
         {
-          targetParentID: 249,
+          targetParentRef: { libraryId: 1, key: "Y6YSGD3K" },
+          sourceAttachmentRef: { libraryId: 1, key: "FKYDC77R" },
           uploadPath:
             "attachments/FKYDC77R/Li 等 - 2022 - Panoptic SegFormer Delving Deeper Into Panoptic Segmentation With Transformers_noPDF.md",
         },
@@ -52,7 +55,8 @@ export const LITERATURE_ANALYSIS_FIXTURE_CASES: LiteratureAnalysisFixtureCase[] 
       ],
       expectedRequests: [
         {
-          targetParentID: 57,
+          targetParentRef: { libraryId: 1, key: "RPRBE2QN" },
+          sourceAttachmentRef: { libraryId: 1, key: "NWU22TPK" },
           uploadPath:
             "attachments/NWU22TPK/Li 等 - 2022 - Panoptic SegFormer Delving Deeper Into Panoptic Segmentation With Transformers.md",
         },
@@ -66,7 +70,8 @@ export const LITERATURE_ANALYSIS_FIXTURE_CASES: LiteratureAnalysisFixtureCase[] 
       ],
       expectedRequests: [
         {
-          targetParentID: 57,
+          targetParentRef: { libraryId: 1, key: "RPRBE2QN" },
+          sourceAttachmentRef: { libraryId: 1, key: "NWU22TPK" },
           uploadPath:
             "attachments/NWU22TPK/Li 等 - 2022 - Panoptic SegFormer Delving Deeper Into Panoptic Segmentation With Transformers.md",
         },
@@ -80,7 +85,8 @@ export const LITERATURE_ANALYSIS_FIXTURE_CASES: LiteratureAnalysisFixtureCase[] 
       ],
       expectedRequests: [
         {
-          targetParentID: 2,
+          targetParentRef: { libraryId: 1, key: "S86GB385" },
+          sourceAttachmentRef: { libraryId: 1, key: "EXKUYHMH" },
           uploadPath:
             "attachments/EXKUYHMH/Zhang 等 - 2022 - Accelerating DETR Convergence via Semantic-Aligned Matching.pdf",
         },

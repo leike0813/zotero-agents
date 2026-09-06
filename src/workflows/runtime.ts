@@ -1,5 +1,5 @@
 import { handlers } from "../handlers";
-import { getBaseName } from "../utils/path";
+import { selectionTargetRef } from "../modules/selectionContext";
 import { createHookHelpers } from "./helpers";
 import { compileDeclarativeRequest } from "./declarativeRequestCompiler";
 import {
@@ -69,27 +69,6 @@ import type {
 import { resolveWorkflowDisplayLocale } from "./localization";
 import { createCancellationController } from "../utils/wait";
 
-type AttachmentLike = {
-  item?: {
-    id?: number;
-    title?: string;
-    parentItemID?: number | null;
-    data?: { contentType?: string };
-  };
-  filePath?: string | null;
-  mimeType?: string | null;
-  parent?: { id?: number | null; title?: string } | null;
-};
-
-type ParentLike = {
-  item?: { id?: number; title?: string };
-};
-
-type NoteLike = {
-  item?: { id?: number; title?: string };
-  parent?: { id?: number | null; title?: string } | null;
-};
-
 type SelectionLike = WorkflowScopedSelectionContext;
 
 type ResolvedSelectionContexts = {
@@ -117,7 +96,12 @@ type BuildRequestsResult = unknown[] & {
     shortCircuitApplies: Array<{
       index: number;
       taskLabel: string;
-      parent: Zotero.Item | number | string | null;
+      parent:
+        | import("./types").PortableItemRef
+        | Zotero.Item
+        | number
+        | string
+        | null;
       request: unknown;
       runResult: {
         status: "succeeded";
@@ -190,71 +174,20 @@ function createNoValidInputUnitsError(args: {
   return error;
 }
 
-function resolveTargetParentIDFromSelection(selectionContext: SelectionLike) {
-  const attachmentParentID =
-    selectionContext?.items?.attachments?.[0]?.parent?.id;
-  if (attachmentParentID) {
-    return attachmentParentID;
-  }
-  const selectedParentID = selectionContext?.items?.parents?.[0]?.item?.id;
-  if (selectedParentID) {
-    return selectedParentID;
-  }
-  const childParentID = selectionContext?.items?.children?.[0]?.parent?.id;
-  if (childParentID) {
-    return childParentID;
-  }
-  const childID = selectionContext?.items?.children?.[0]?.item?.id;
-  if (childID) {
-    return childID;
-  }
-  const noteParentID = selectionContext?.items?.notes?.[0]?.parent?.id;
-  if (noteParentID) {
-    return noteParentID;
-  }
-  const noteID = selectionContext?.items?.notes?.[0]?.item?.id;
-  if (noteID) {
-    return noteID;
-  }
-  return null;
-}
-
-function resolveSourceAttachmentPathsFromSelection(
-  selectionContext: SelectionLike,
-) {
-  const paths = collectAttachmentCandidates(selectionContext)
-    .map((entry) => String(entry.filePath || "").trim())
-    .filter(Boolean);
-  return Array.from(new Set(paths));
-}
-
 export function resolveTaskNameFromSelection(args: {
   selectionContext: SelectionLike;
-  targetParentID: number | null;
-  sourceAttachmentPaths: string[];
   workflowLabel?: string;
 }) {
-  if (args.sourceAttachmentPaths.length > 0) {
-    return getBaseName(args.sourceAttachmentPaths[0]);
-  }
-  const parentTitle =
-    args.selectionContext?.items?.attachments?.[0]?.parent?.title ||
-    args.selectionContext?.items?.parents?.[0]?.item?.title ||
-    args.selectionContext?.items?.children?.[0]?.parent?.title ||
-    args.selectionContext?.items?.children?.[0]?.item?.title ||
-    args.selectionContext?.items?.notes?.[0]?.parent?.title ||
-    args.selectionContext?.items?.notes?.[0]?.item?.title ||
-    "";
-  if (String(parentTitle || "").trim()) {
-    return String(parentTitle).trim();
-  }
-  if (args.targetParentID) {
-    return `item-${args.targetParentID}`;
-  }
-  if (args.workflowLabel) {
-    return `Workflow: ${args.workflowLabel}`;
-  }
-  return "Task";
+  const item = args.selectionContext.items[0];
+  return (
+    item?.filename ||
+    item?.title ||
+    (item
+      ? `item-${item.ref.key}`
+      : args.workflowLabel
+        ? `Workflow: ${args.workflowLabel}`
+        : "Task")
+  );
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -356,39 +289,21 @@ function enrichRequestWithSelectionMeta(
   const normalized = {
     ...(request as Record<string, unknown>),
   };
-  const targetParentID = resolveTargetParentIDFromSelection(selectionContext);
-  if (typeof normalized.targetParentID !== "number" && targetParentID) {
-    normalized.targetParentID = targetParentID;
+  const targetParentRef = selectionTargetRef(selectionContext);
+  if (!isObjectRecord(normalized.targetParentRef) && targetParentRef) {
+    normalized.targetParentRef = targetParentRef;
   }
-  if (!isObjectRecord(normalized.targetParentRef) && targetParentID) {
-    const parent = Zotero.Items.get(targetParentID);
-    if (parent?.key && Number.isSafeInteger(parent.libraryID)) {
-      normalized.targetParentRef = {
-        libraryId: parent.libraryID,
-        key: parent.key,
-      };
-    }
+  if (!Array.isArray(normalized.sourceAttachmentRefs)) {
+    normalized.sourceAttachmentRefs = selectionContext.items
+      .filter((item) => item.kind === "attachment")
+      .map((item) => item.ref);
   }
-
-  const sourceAttachmentPaths =
-    Array.isArray(normalized.sourceAttachmentPaths) &&
-    normalized.sourceAttachmentPaths.length > 0
-      ? normalized.sourceAttachmentPaths
-          .map((entry) => String(entry || "").trim())
-          .filter(Boolean)
-      : resolveSourceAttachmentPathsFromSelection(selectionContext);
-  normalized.sourceAttachmentPaths = sourceAttachmentPaths;
 
   const taskName =
     typeof normalized.taskName === "string" ? normalized.taskName.trim() : "";
   if (!taskName) {
     normalized.taskName = resolveTaskNameFromSelection({
       selectionContext,
-      targetParentID:
-        typeof normalized.targetParentID === "number"
-          ? normalized.targetParentID
-          : targetParentID,
-      sourceAttachmentPaths,
       workflowLabel,
     });
   }
@@ -909,50 +824,6 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
   }
 }
 
-function flattenAttachments(selection: SelectionLike) {
-  const items = selection.items || {};
-  const direct = Array.isArray(items.attachments) ? items.attachments : [];
-  const fromParents = (Array.isArray(items.parents) ? items.parents : [])
-    .flatMap((entry) => entry.attachments || [])
-    .filter(Boolean);
-  const fromChildren = (Array.isArray(items.children) ? items.children : [])
-    .flatMap((entry) => entry.attachments || [])
-    .filter(Boolean);
-  const merged = [...direct, ...fromParents, ...fromChildren];
-  const seen = new Set<string>();
-  const deduped: AttachmentLike[] = [];
-  for (const entry of merged) {
-    const key =
-      typeof entry.item?.id === "number"
-        ? `id:${entry.item.id}`
-        : `file:${entry.filePath || ""}|parent:${getAttachmentParentId(entry) || ""}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    deduped.push(entry);
-  }
-  return deduped;
-}
-
-function collectAttachmentCandidates(selection: SelectionLike) {
-  const direct = selection.items?.attachments || [];
-  if (direct.length > 0) {
-    return flattenAttachments({
-      items: {
-        attachments: direct,
-        parents: [],
-        children: [],
-      },
-    });
-  }
-  return flattenAttachments(selection);
-}
-
-function getAttachmentParentId(entry: AttachmentLike) {
-  return entry.parent?.id || entry.item?.parentItemID || null;
-}
-
 async function resolveSelectionContexts(args: {
   workflow: LoadedWorkflow;
   selectionContext: unknown;
@@ -1135,10 +1006,12 @@ export async function executeBuildRequests(args: {
         }
 
         const compiledRequest = enrichRequestWithSelectionMeta(
-          compileDeclarativeRequest({
+          await compileDeclarativeRequest({
+            hostApi: runtime.hostApi,
             kind: requestKindFromManifest,
             selectionContext: buildArgs.selectionContext,
             manifest: args.workflow.manifest,
+            handoff: args.validationMode === "handoff",
             executionOptions: args.executionOptions,
           }),
           buildArgs.selectionContext,
@@ -1157,7 +1030,11 @@ export async function executeBuildRequests(args: {
         return finalCompiledRequest;
       };
 
-      for (let selectionIndex = 0; selectionIndex < resolvedSelections.length; selectionIndex++) {
+      for (
+        let selectionIndex = 0;
+        selectionIndex < resolvedSelections.length;
+        selectionIndex++
+      ) {
         const selectionContext = resolvedSelections[selectionIndex];
         if (!args.workflow.hooks.preflight) {
           const request = await buildProviderRequest({ selectionContext });
@@ -1204,9 +1081,6 @@ export async function executeBuildRequests(args: {
               kind: "workflow.preflight.short-circuit.v1",
               taskName: resolveTaskNameFromSelection({
                 selectionContext,
-                targetParentID: resolveTargetParentIDFromSelection(selectionContext),
-                sourceAttachmentPaths:
-                  resolveSourceAttachmentPathsFromSelection(selectionContext),
                 workflowLabel: args.workflow.manifest.label,
               }),
             } satisfies Record<string, unknown>);
@@ -1227,15 +1101,12 @@ export async function executeBuildRequests(args: {
             index: requests.length + preflightState.shortCircuitApplies.length,
             taskLabel: resolveTaskNameFromSelection({
               selectionContext,
-              targetParentID: resolveTargetParentIDFromSelection(selectionContext),
-              sourceAttachmentPaths:
-                resolveSourceAttachmentPathsFromSelection(selectionContext),
               workflowLabel: args.workflow.manifest.label,
             }),
             parent:
               typeof apply.parent !== "undefined"
                 ? apply.parent
-                : resolveTargetParentIDFromSelection(selectionContext) || null,
+                : selectionTargetRef(selectionContext) || null,
             request,
             runResult,
             preflight,
@@ -1302,12 +1173,13 @@ export async function executeBuildRequests(args: {
           });
         }
       }
-      const skippedUnits = Math.max(
-        0,
-        resolved.totalUnits -
-          requests.length -
-          preflightState.shortCircuitApplies.length,
-      ) + preflightState.skippedUnits;
+      const skippedUnits =
+        Math.max(
+          0,
+          resolved.totalUnits -
+            requests.length -
+            preflightState.shortCircuitApplies.length,
+        ) + preflightState.skippedUnits;
       Object.defineProperty(requests, "__stats", {
         value: {
           totalUnits: resolved.totalUnits,
@@ -1341,7 +1213,12 @@ export async function executeBuildRequests(args: {
 
 export async function executeApplyResult(args: {
   workflow: LoadedWorkflow;
-  parent: Zotero.Item | number | string | null;
+  parent:
+    | import("./types").PortableItemRef
+    | Zotero.Item
+    | number
+    | string
+    | null;
   bundleReader: {
     readText: (entryPath: string) => Promise<string>;
     getExtractedDir?: () => Promise<string>;

@@ -663,7 +663,7 @@ describe("host bridge server phase 1", function () {
         }),
       );
       assert.strictEqual(current.status, 200);
-      assert.strictEqual(current.json.result.selectedItems[0].key, item.key);
+      assert.strictEqual(current.json.result.currentItem.ref.key, item.key);
 
       const selection = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({
@@ -673,7 +673,7 @@ describe("host bridge server phase 1", function () {
         }),
       );
       assert.strictEqual(selection.status, 200);
-      assert.strictEqual(selection.json.result.items[0].key, item.key);
+      assert.strictEqual(selection.json.result.items[0].ref.key, item.key);
 
       const openedItem = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({

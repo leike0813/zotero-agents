@@ -36,7 +36,8 @@ import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPol
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { getString } from "../utils/locale";
 import { localizeWorkflowLabel } from "../workflows/localization";
-import { buildSelectionContext } from "./selectionContext";
+import { readSelectionContext } from "./selectionContext";
+import { createZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 
 function stripRunOptionsForPersistence(
   options: WorkflowExecutionOptions,
@@ -92,16 +93,12 @@ export async function executeWorkflowFromCurrentSelection(args: {
       };
   const workflowSource = getLoadedWorkflowSourceById(args.workflow.manifest.id);
   const workflowLabel = localizeWorkflowLabel(args.workflow);
-  let selectedItemsSnapshot: Zotero.Item[];
   let selectionContextSnapshot: Awaited<
-    ReturnType<typeof buildSelectionContext>
+    ReturnType<typeof readSelectionContext>
   >;
   try {
-    selectedItemsSnapshot = [
-      ...(args.win.ZoteroPane?.getSelectedItems?.() || []),
-    ];
-    selectionContextSnapshot = await buildSelectionContext(
-      selectedItemsSnapshot,
+    selectionContextSnapshot = await readSelectionContext(
+      createZoteroHostCapabilityBroker({}, () => args.win),
     );
   } catch (error) {
     const reason =
@@ -170,7 +167,6 @@ export async function executeWorkflowFromCurrentSelection(args: {
         win: args.win,
         workflow: args.workflow,
         executionOptionsOverride: args.settingsGateInitialOptions,
-        selectedItemsOverride: selectedItemsSnapshot,
         selectionContextOverride: selectionContextSnapshot,
       });
       const dialogResult = await openWorkflowSettingsWebDialog({
@@ -255,7 +251,6 @@ export async function executeWorkflowFromCurrentSelection(args: {
     workflow: args.workflow,
     messageFormatter,
     executionOptionsOverride,
-    selectedItemsOverride: selectedItemsSnapshot,
     selectionContextOverride: selectionContextSnapshot,
   });
   if (preparation.status !== "ready") {

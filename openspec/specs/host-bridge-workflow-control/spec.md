@@ -14,7 +14,7 @@ The system SHALL expose loaded workflow summaries through the Host Bridge.
   the public workflow metadata needed for submission.
 
 ### Requirement: Host Bridge submits workflows with explicit input
-The system SHALL allow authenticated clients to submit workflow runs only when an explicit raw selection is provided and the provider profile is either explicitly supplied, resolved from `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` by the CLI, or intentionally absent after the profile contract has been evaluated. Host Bridge SHALL additionally validate any `resourceBindings` against the workflow's declared resource requirements and non-interactive support before requesting approval or dispatching execution. When no environment default exists, a Host-saved workflow default or discovered candidate SHALL remain unconfirmed until the Agent reports user confirmation; Host Bridge SHALL distinguish that Agent confirmation from Zotero workflow approval and ACP permission approval. Host Bridge SHALL perform confirmed Input Planning v2 locally and SHALL route ACP/SkillRunner prepared units through the native Host submission queue after Zotero-side approval. Queue state SHALL retain resource handle leases rather than resolved local paths.
+The system SHALL allow authenticated clients to submit workflow runs only when an explicit items/none selection containing only complete portable libraryId/key refs is provided and the provider profile is either explicitly supplied, resolved from `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` by the CLI, or intentionally absent after the profile contract has been evaluated. Host Bridge SHALL additionally validate any `resourceBindings` against the workflow's declared resource requirements and non-interactive support before requesting approval or dispatching execution. When no environment default exists, a Host-saved workflow default or discovered candidate SHALL remain unconfirmed until the Agent reports user confirmation; Host Bridge SHALL distinguish that Agent confirmation from Zotero workflow approval and ACP permission approval. Host Bridge SHALL perform confirmed Input Planning v2 locally and SHALL route ACP/SkillRunner prepared units through the native Host submission queue after Zotero-side approval. Queue state SHALL retain resource handle leases rather than resolved local paths.
 
 #### Scenario: Queue-managed workflow submission succeeds
 - **WHEN** an authenticated client submits a valid workflow, explicit selection, optional valid resource bindings, optional workflow/provider options, and optional Host queue options for an ACP or SkillRunner workflow, with a provider profile accepted by the profile contract
@@ -210,16 +210,15 @@ and navigating to Zotero objects.
 
 #### Scenario: Client reads current context
 
-- **WHEN** an authenticated client requests `GET /bridge/v1/context/current`
+- **WHEN** an authenticated client requests `GET /bridge/v2/context/current`
 - **THEN** the bridge SHALL return the current Zotero context summary
 - **AND** the response SHALL be equivalent to the existing current-view host
   context capability.
 
 #### Scenario: Client reads current selection
 
-- **WHEN** an authenticated client requests `GET /bridge/v1/context/selection`
-- **THEN** the bridge SHALL return lightweight summaries for currently selected
-  Zotero items.
+- **WHEN** an authenticated client requests `GET /bridge/v2/context/selection`
+- **THEN** the bridge SHALL return the canonical exact selection page using the requested limit/cursor, with unchanged basis errors and no transport repagination.
 
 #### Scenario: Client opens Zotero objects
 
@@ -580,3 +579,13 @@ is connecting, connected, or prompting, regardless of presentation-layer state.
 - **THEN** the store SHALL reject the mutation
 - **AND** it SHALL instruct the caller to disconnect before archiving.
 
+### Requirement: Durable workflow selection SHALL retain portable identity
+Persisted complete portable selection refs SHALL remain the input identity for agent-run prepare and apply. Records missing complete libraryId/key refs SHALL remain stored but execution SHALL fail explicitly. The Host SHALL NOT repair them from current UI, infer a library, or accept legacy id/string aliases.
+
+#### Scenario: Incomplete old record is applied
+- **WHEN** a stored agent-run selection lacks a complete portable ref
+- **THEN** apply fails before execution and leaves the record intact
+
+#### Scenario: UI selection changes after remote preparation
+- **WHEN** an agent run with complete persisted refs is applied
+- **THEN** its input refs remain those persisted refs and no live selection is acquired

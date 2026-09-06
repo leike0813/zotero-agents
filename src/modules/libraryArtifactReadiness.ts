@@ -493,8 +493,16 @@ export async function evaluateGeneratedNoteReadiness(
   options: LibraryArtifactReadOptions = {},
 ): Promise<WorkflowGeneratedNoteReadinessResult> {
   const childNotes = (await resolveArtifactChildren(parentItem, options)).notes;
+  return evaluateGeneratedNoteFactsReadiness(childNotes, spec, options);
+}
+
+export async function evaluateGeneratedNoteFactsReadiness(
+  childNotes: ReadonlyArray<LibraryArtifactGeneratedNoteFacts>,
+  spec: WorkflowGeneratedNoteReadinessFilter,
+  options: LibraryArtifactReadOptions = {},
+): Promise<WorkflowGeneratedNoteReadinessResult> {
   const notes: Array<{
-    item: LibraryArtifactNoteFacts;
+    item: LibraryArtifactGeneratedNoteFacts;
     kind: string;
   }> = [];
   for (const note of childNotes) {
@@ -543,7 +551,7 @@ export async function evaluateGeneratedNoteReadiness(
 }
 
 async function evaluateGeneratedNoteArtifact(
-  notes: Array<{ item: LibraryArtifactNoteFacts; kind: string }>,
+  notes: Array<{ item: LibraryArtifactGeneratedNoteFacts; kind: string }>,
   spec: WorkflowGeneratedNoteArtifactSpec,
   options: LibraryArtifactReadOptions,
 ): Promise<WorkflowGeneratedNoteReadinessResult["artifacts"][string]> {
@@ -725,7 +733,7 @@ export async function summarizeLibraryGeneratedArtifacts(
 }
 
 async function resolveLiteratureScoreForNote(
-  note: LibraryArtifactNoteFacts,
+  note: LibraryArtifactGeneratedNoteFacts,
   options: LibraryArtifactReadOptions = {},
 ) {
   checkArtifactRead(options);
@@ -740,7 +748,7 @@ async function resolveLiteratureScoreForNote(
 }
 
 async function resolveGeneratedNoteKind(
-  note: LibraryArtifactNoteFacts,
+  note: LibraryArtifactGeneratedNoteFacts,
   options: LibraryArtifactReadOptions = {},
 ) {
   checkArtifactRead(options);
@@ -831,7 +839,7 @@ function readHtmlDataAttribute(html: string, name: string) {
 }
 
 async function resolveGeneratedNoteKindFromEmbeddedPayload(
-  note: LibraryArtifactNoteFacts,
+  note: LibraryArtifactGeneratedNoteFacts,
   expectedKind: "digest" | "references" | "citation-analysis",
   options: LibraryArtifactReadOptions = {},
 ) {

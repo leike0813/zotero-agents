@@ -1,4 +1,3 @@
-import { resolveSourcePathFromRequest } from "../../lib/deepReadingResultTarget.mjs";
 import {
   appendSkillDiagnosticsToResult,
   collectSkillOutputDiagnostics,
@@ -7,6 +6,7 @@ import {
 import {
   portableItemRef,
   requireHostApi,
+  resolveAttachmentPath,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 import {
@@ -99,8 +99,10 @@ async function applyResultImpl({
   let skillOutputDiagnostics = { warnings: [] };
   try {
     const parentRef = portableItemRef(parent);
-    const parentDetail = await requireHostApi(runtime).library.getItemDetail(parentRef);
-    if (!parentDetail || parentDetail.kind !== "regular") throw new Error("translator parent is unavailable");
+    const parentDetail =
+      await requireHostApi(runtime).library.getItemDetail(parentRef);
+    if (!parentDetail || parentDetail.kind !== "regular")
+      throw new Error("translator parent is unavailable");
     const parentItem = parentDetail.item;
     const result = await readResultJson({
       bundleReader,
@@ -110,9 +112,14 @@ async function applyResultImpl({
     skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
 
     stage = "resolve-paths";
-    const sourcePath =
-      resolveSourcePathFromRequest(request) ||
-      normalizeString(result?.provenance?.source_path);
+    const sourceAttachmentRef = request?.sourceAttachmentRefs?.[0];
+    if (!sourceAttachmentRef) {
+      throw new Error("source attachment ref is unavailable");
+    }
+    const sourcePath = await resolveAttachmentPath(
+      sourceAttachmentRef,
+      runtime,
+    );
     const outputPath = normalizeString(result?.output_path);
     const alignmentPath = normalizeString(result?.alignment_path);
     const targetLanguage =

@@ -3,6 +3,8 @@ import type { WorkflowQueueEntryId } from "../jobQueue/workflowSubmissionQueueCo
 import { copyText } from "../utils/ztoolkit";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
 import { buildAcpHostContext } from "./acpContextBuilder";
+import { readSelectionContext } from "./selectionContext";
+import { createZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import { ACP_CHAT_WORKSPACE_ADAPTER } from "./acpChatWorkspaceSurface";
 import {
   ACP_SKILLS_WORKSPACE_ADAPTER,
@@ -694,11 +696,21 @@ const ASSISTANT_WORKSPACE_HOST_ACTION_TABLE: {
     "acp-chat": async ({ host, target, payload }) => {
       const message = String(payload.message || "").trim();
       if (!message) return;
+      const selectionContext =
+        target === "library"
+          ? await readSelectionContext(
+              createZoteroHostCapabilityBroker({}, () => host.win),
+            )
+          : undefined;
       await sendAcpConversationPrompt({
         message,
         backendId: String(payload.backendId || "").trim(),
         conversationId: String(payload.conversationId || "").trim(),
-        hostContext: buildAcpHostContext({ window: host.win, target }),
+        hostContext: buildAcpHostContext({
+          window: host.win,
+          target,
+          selectionContext,
+        }),
       });
     },
   },

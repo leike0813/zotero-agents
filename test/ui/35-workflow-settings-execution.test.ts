@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { config } from "../../package.json";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import { buildSelectionContext } from "../helpers/workflowSelectionContext";
 import {
   clearSkillRunnerModelCache,
   upsertSkillRunnerModelCacheEntry,

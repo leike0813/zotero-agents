@@ -116,6 +116,7 @@ export type WorkflowHostErrorDetailsByCode = {
       | "concurrent_modification"
       | "idempotency_conflict"
       | "operation_in_progress"
+      | "basis_mismatch"
       | "ambiguous_state";
     kind?: WorkflowHostTargetKind;
   };
@@ -265,6 +266,7 @@ const ENUMS = {
     "concurrent_modification",
     "idempotency_conflict",
     "operation_in_progress",
+    "basis_mismatch",
     "ambiguous_state",
   ]),
   unavailableReason: new Set([
@@ -343,7 +345,9 @@ export function assertWorkflowHostStrictJsonValue(
       if (candidate.length > maxCollectionEntries) {
         throw new TypeError(`${path} exceeds the strict-JSON collection limit`);
       }
-      candidate.forEach((entry, index) => visit(entry, `${path}[${index}]`, depth + 1));
+      candidate.forEach((entry, index) =>
+        visit(entry, `${path}[${index}]`, depth + 1),
+      );
       seen.delete(candidate);
       return;
     }
@@ -432,7 +436,9 @@ function sanitizeDetails<Code extends WorkflowHostErrorCode>(
   return output as WorkflowHostErrorDetailsByCode[Code];
 }
 
-export function assertWorkflowHostErrorDetails<Code extends WorkflowHostErrorCode>(
+export function assertWorkflowHostErrorDetails<
+  Code extends WorkflowHostErrorCode,
+>(
   code: Code,
   details: unknown,
 ): asserts details is WorkflowHostErrorDetailsByCode[Code] {
@@ -442,10 +448,17 @@ export function assertWorkflowHostErrorDetails<Code extends WorkflowHostErrorCod
     case "invalid_request":
       assertEnum(details.reason, ENUMS.invalidRequestReason, "reason");
       if (details.field !== undefined && typeof details.field !== "string") {
-        throw new TypeError("Workflow Host invalid_request field must be a string");
+        throw new TypeError(
+          "Workflow Host invalid_request field must be a string",
+        );
       }
-      if (details.operation !== undefined && typeof details.operation !== "string") {
-        throw new TypeError("Workflow Host invalid_request operation must be a string");
+      if (
+        details.operation !== undefined &&
+        typeof details.operation !== "string"
+      ) {
+        throw new TypeError(
+          "Workflow Host invalid_request operation must be a string",
+        );
       }
       return;
     case "invalid_ref":
@@ -454,8 +467,13 @@ export function assertWorkflowHostErrorDetails<Code extends WorkflowHostErrorCod
       return;
     case "not_found":
       assertEnum(details.kind, TARGET_KINDS, "kind");
-      if (details.opaqueKey !== undefined && typeof details.opaqueKey !== "string") {
-        throw new TypeError("Workflow Host not_found opaqueKey must be a string");
+      if (
+        details.opaqueKey !== undefined &&
+        typeof details.opaqueKey !== "string"
+      ) {
+        throw new TypeError(
+          "Workflow Host not_found opaqueKey must be a string",
+        );
       }
       return;
     case "unsupported_operation":
@@ -473,7 +491,8 @@ export function assertWorkflowHostErrorDetails<Code extends WorkflowHostErrorCod
     case "resource_limited":
       assertEnum(details.resource, ENUMS.resource, "resource");
       assertFiniteNonNegative(details.limit, "limit");
-      if (details.observed !== undefined) assertFiniteNonNegative(details.observed, "observed");
+      if (details.observed !== undefined)
+        assertFiniteNonNegative(details.observed, "observed");
       return;
     case "conflict":
       assertEnum(details.reason, ENUMS.conflictReason, "reason");

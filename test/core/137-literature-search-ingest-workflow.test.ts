@@ -16,6 +16,7 @@ import {
   setZoteroLibrarySourcePageQueryAdapterForTests,
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs";
+import { lockSelection } from "../../src/modules/selectionContext";
 
 function completedPayload() {
   return {
@@ -494,7 +495,7 @@ describe("Literature Search Ingest workflow contract", function () {
 
     const requests = (await executeBuildRequests({
       workflow: workflow!,
-      selectionContext: { items: { attachments: [] } },
+      selectionContext: lockSelection([]),
       executionOptions: {
         workflowParams: {
           query: "retrieval augmented generation evaluation",
@@ -520,7 +521,7 @@ describe("Literature Search Ingest workflow contract", function () {
 
     const requests = (await executeBuildRequests({
       workflow: workflow!,
-      selectionContext: { items: { attachments: [] } },
+      selectionContext: lockSelection([]),
       executionOptions: {
         workflowParams: {
           query: "retrieval augmented generation evaluation",
@@ -549,7 +550,7 @@ describe("Literature Search Ingest workflow contract", function () {
 
     const requests = (await executeBuildRequests({
       workflow: workflow!,
-      selectionContext: { items: { attachments: [] } },
+      selectionContext: lockSelection([]),
       executionOptions: {
         workflowParams: {
           query: "retrieval augmented generation evaluation",
@@ -600,7 +601,7 @@ describe("Literature Search Ingest workflow contract", function () {
 
     const requests = (await executeBuildRequests({
       workflow: workflow!,
-      selectionContext: { items: { attachments: [] } },
+      selectionContext: lockSelection([]),
       executionOptions: {
         workflowParams: {
           query: "   ",

@@ -1,9 +1,6 @@
-import Ajv, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020";
-import addFormats from "ajv-formats";
 import { config } from "../../package.json";
-import selectionContextSchema from "../schemas/selectionContextSchema";
 import {
-  buildSelectionContext,
+  readSelectionContext,
   type SelectionContext,
 } from "./selectionContext";
 import { getString } from "../utils/locale";
@@ -19,28 +16,6 @@ import {
   ensureRuntimeDirectoryStrict,
   writeRuntimeTextFileStrict,
 } from "./runtimePersistence";
-import { createZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
-
-const ajvLogger = {
-  log: () => {},
-  warn: () => {},
-  error: () => {},
-};
-let validateSelectionSchema: ValidateFunction<SelectionContext> | null = null;
-
-async function selectedItemsFromBroker() {
-  const snapshot =
-    await createZoteroHostCapabilityBroker().context.getSelectedItems();
-  return snapshot.items.map(({ ref }) => {
-    const item = Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key);
-    if (!item) {
-      throw new Error(
-        `Selected Zotero item is no longer available: ${ref.key}`,
-      );
-    }
-    return item;
-  });
-}
 
 type RuntimeToolkit = {
   Menu?: {
@@ -89,15 +64,6 @@ function showProgress(
     .show();
 }
 
-function getSelectionValidator() {
-  if (!validateSelectionSchema) {
-    const ajv = new Ajv({ allErrors: true, strict: true, logger: ajvLogger });
-    addFormats(ajv);
-    validateSelectionSchema = ajv.compile(selectionContextSchema);
-  }
-  return validateSelectionSchema;
-}
-
 export function registerSelectionSampleMenu() {
   if (!isDebugModeEnabled()) {
     return;
@@ -132,8 +98,7 @@ export async function sampleSelectionContext() {
       return;
     }
 
-    const items = await selectedItemsFromBroker();
-    const context = await buildSelectionContext(items);
+    const context = await readSelectionContext();
     await ensureRuntimeDirectoryStrict(outputDir);
     const filename = `selection-context-${new Date()
       .toISOString()
@@ -162,21 +127,14 @@ function showAlert(message: string) {
 
 async function validateSelectionContext() {
   try {
-    const items = await selectedItemsFromBroker();
-    const context = await buildSelectionContext(items);
-    const validate = getSelectionValidator();
-    const valid = validate(context);
-    if (valid) {
-      showProgress(getString("validate-selection-ok"), "success");
-      return;
+    const context: SelectionContext = await readSelectionContext();
+    if (
+      !Array.isArray(context.items) ||
+      typeof context.sampledAt !== "string"
+    ) {
+      throw new Error("canonical selection context is invalid");
     }
-    const errors = (validate.errors || [])
-      .map(
-        (error: ErrorObject) =>
-          `${error.instancePath || "/"} ${error.message || ""}`,
-      )
-      .join("; ");
-    showAlert(`${getString("validate-selection-failed")}: ${errors}`);
+    showProgress(getString("validate-selection-ok"), "success");
   } catch (error) {
     showAlert(`${config.addonName} validate failed: ${String(error)}`);
   }

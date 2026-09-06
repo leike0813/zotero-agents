@@ -553,18 +553,30 @@ describe("host bridge capability calls", function () {
   it("prepares one capability response without a normalization serialization", async function () {
     const token = configureHostBridgeServerForTests({ token: "once-token" });
     runtimeHttpResponseInternalsForTests.resetMetrics();
-
-    const parsed = await callBridgeCapability({
-      token,
-      capability: "context.get_current_view",
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    (Zotero as any).getMainWindow = () => ({
+      ZoteroPane: {
+        getSelectedItems: () => [],
+        getSelectedLibraryIDs: () => [],
+      },
+      Zotero_Tabs: { selectedID: "" },
     });
 
-    assert.strictEqual(parsed.status, 200);
-    assert.deepEqual(runtimeHttpResponseInternalsForTests.getMetrics(), {
-      jsonSerializations: 1,
-      bodyEncodes: 1,
-      maxWriteChunkBytes: 0,
-    });
+    try {
+      const parsed = await callBridgeCapability({
+        token,
+        capability: "context.get_current_view",
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.deepEqual(runtimeHttpResponseInternalsForTests.getMetrics(), {
+        jsonSerializations: 1,
+        bodyEncodes: 1,
+        maxWriteChunkBytes: 0,
+      });
+    } finally {
+      (Zotero as any).getMainWindow = previousGetMainWindow;
+    }
   });
 
   it("routes library sync snapshots without write approval", async function () {
@@ -2220,8 +2232,9 @@ describe("host bridge capability calls", function () {
         structured.data.currentItem.title,
         "Bridge MCP Compatibility",
       );
-      assert.lengthOf(structured.data.selectedItems, 1);
-      assert.deepEqual(structured.data.libraryIds, ["1", "2"]);
+      assert.strictEqual(structured.data.currentItem.ref.key, item.key);
+      assert.notProperty(structured.data, "selectedItems");
+      assert.deepEqual(structured.data.libraryIds, [1, 2]);
       assert.notProperty(structured.data, "libraryId");
       assert.deepEqual(
         structured.data.selectedSources.map(

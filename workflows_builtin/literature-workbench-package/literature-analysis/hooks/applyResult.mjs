@@ -11,8 +11,8 @@ import {
 import {
   measureWorkflowTestSpan,
   portableItemRef,
-  readHostPages,
   requireHostApi,
+  resolveAttachmentPath,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
@@ -298,7 +298,7 @@ function appendRepresentativeImageApplyLog(args) {
         reason,
         warning,
         locator: args.locator || null,
-        sourceAttachmentPaths: args.sourceAttachmentPaths || [],
+        sourceAttachmentRefs: args.sourceAttachmentRefs || [],
         digestNoteId: args.digestNote?.id || null,
         digestNoteKey: String(args.digestNote?.key || "").trim(),
         attachmentKey: String(args.result?.attachmentKey || "").trim(),
@@ -342,96 +342,31 @@ async function readArtifactText(args) {
   });
 }
 
-function collectSourceAttachmentPathsFromRequest(request) {
+function collectSourceAttachmentRefsFromRequest(request) {
   if (!request || typeof request !== "object") {
     return [];
   }
-
-  const typed = request;
-  const fromSource = Array.isArray(typed.sourceAttachmentPaths)
-    ? typed.sourceAttachmentPaths
+  const refs = Array.isArray(request.sourceAttachmentRefs)
+    ? request.sourceAttachmentRefs
     : [];
-  const fromUploadFiles = Array.isArray(typed.upload_files)
-    ? typed.upload_files.map((entry) => entry?.path)
-    : [];
-  const fromNestedUploadFiles = Array.isArray(
-    typed?.request?.json?.upload_files,
-  )
-    ? typed.request.json.upload_files.map((entry) => entry?.path)
-    : [];
-
-  return Array.from(
-    new Set(
-      [...fromSource, ...fromUploadFiles, ...fromNestedUploadFiles]
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean),
-    ),
-  );
+  const seen = new Set();
+  return refs.reduce((result, value) => {
+    try {
+      const ref = portableItemRef(value);
+      const identity = `${ref.libraryId}:${ref.key}`;
+      if (!seen.has(identity)) {
+        seen.add(identity);
+        result.push(ref);
+      }
+    } catch {
+      // Ignore malformed refs; the final source adapter reports no source.
+    }
+    return result;
+  }, []);
 }
 
-async function resolveSourceAttachmentItemKey({
-  parentItem,
-  request,
-  runtime,
-}) {
-  if (!parentItem) {
-    return "";
-  }
-
-  const sourcePaths = collectSourceAttachmentPathsFromRequest(request);
-  if (sourcePaths.length === 0) {
-    return "";
-  }
-
-  const sourcePathSet = new Set(
-    sourcePaths.map(normalizePathForCompare).filter(Boolean),
-  );
-  const sourcePathInsensitiveSet = new Set(
-    Array.from(sourcePathSet).map((entry) => entry.toLowerCase()),
-  );
-  const sourceBasenames = new Set(
-    sourcePaths.map(getBaseNameFromPath).filter(Boolean),
-  );
-
-  const basenameMatchKeys = new Set();
-  const host = requireHostApi(runtime);
-  const attachments = await readHostPages({
-    readPage: (page) =>
-      host.library.getItemAttachments(portableItemRef(parentItem), page),
-    getItems: (page) => page.attachments,
-    operation: "literature-analysis attachment read",
-  });
-  for (const attachment of attachments) {
-    const attachmentKey = String(attachment.ref.key || "").trim();
-    if (!attachmentKey) {
-      continue;
-    }
-
-    const attachmentPath = attachment.file.state === "available"
-      ? attachment.file.path
-      : "";
-
-    const normalizedAttachmentPath = normalizePathForCompare(attachmentPath);
-    if (
-      normalizedAttachmentPath &&
-      (sourcePathSet.has(normalizedAttachmentPath) ||
-        sourcePathInsensitiveSet.has(normalizedAttachmentPath.toLowerCase()))
-    ) {
-      return attachmentKey;
-    }
-
-    const attachmentBasename =
-      getBaseNameFromPath(attachmentPath) ||
-      getBaseNameFromPath(attachment.title);
-    if (attachmentBasename && sourceBasenames.has(attachmentBasename)) {
-      basenameMatchKeys.add(attachmentKey);
-    }
-  }
-
-  if (basenameMatchKeys.size === 1) {
-    return Array.from(basenameMatchKeys)[0];
-  }
-  return "";
+function resolveSourceAttachmentItemKey(request) {
+  return collectSourceAttachmentRefsFromRequest(request)[0]?.key || "";
 }
 
 async function applyResultImpl({
@@ -453,8 +388,15 @@ async function applyResultImpl({
   );
   const skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
   const scoreOnly = workflowParameter.score_only === true;
-  const sourceAttachmentPaths =
-    collectSourceAttachmentPathsFromRequest(request);
+  const sourceAttachmentRefs = collectSourceAttachmentRefsFromRequest(request);
+  if (sourceAttachmentRefs.length === 0) {
+    throw new Error(
+      "literature-analysis applyResult requires one source attachment ref",
+    );
+  }
+  const sourceAttachmentPaths = await Promise.all(
+    sourceAttachmentRefs.map((ref) => resolveAttachmentPath(ref, runtime)),
+  );
   const representativeImageLocator = extractRepresentativeImageLocator(result);
 
   const literatureScoreResolved = await measureWorkflowTestSpan(
@@ -595,12 +537,7 @@ async function applyResultImpl({
   const sourceAttachmentItemKey = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:resolveSourceAttachment",
     {},
-    () =>
-      resolveSourceAttachmentItemKey({
-        parentItem,
-        request,
-        runtime,
-      }),
+    () => resolveSourceAttachmentItemKey(request),
   );
 
   const applied = await measureWorkflowTestSpan(
@@ -672,7 +609,7 @@ async function applyResultImpl({
     runtime,
     locator: representativeImageLocator,
     result: representativeImage,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     digestNote,
   });
   const appliedWithRepresentativeImage = {

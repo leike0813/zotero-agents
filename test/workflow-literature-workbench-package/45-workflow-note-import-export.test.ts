@@ -2,11 +2,14 @@ import { assert } from "chai";
 import { getSelectedImportCandidateForKind } from "../../workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs";
 import { handlers } from "../../src/handlers";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import { installWorkflowEditorSessionOverrideForTests } from "../../src/modules/workflowEditorHost";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
-  executeApplyResult,
+  executeApplyResult as executeWorkflowApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
 import {
@@ -34,6 +37,11 @@ import {
 import { parseEmbeddedNotePayloadBlock } from "../../src/modules/notePayloadCodec";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { createWorkflowPreparedImageScope } from "../../src/workflows/workflowNoteImagePreparation";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 type LoadedWorkflow = Awaited<
   ReturnType<typeof loadWorkflowManifests>
@@ -42,6 +50,18 @@ type LoadedWorkflow = Awaited<
 const preparedImageScopes = new Set<
   ReturnType<typeof createWorkflowPreparedImageScope>
 >();
+
+async function executeApplyResult(
+  args: Parameters<typeof executeWorkflowApplyResult>[0],
+) {
+  const parent =
+    args.parent &&
+    typeof args.parent === "object" &&
+    "libraryID" in (args.parent as Record<string, unknown>)
+      ? itemRef(args.parent as any)
+      : args.parent;
+  return executeWorkflowApplyResult({ ...args, parent });
+}
 
 function createPreparedImageTestHost(onReadPath?: (path: string) => void) {
   const scope = createWorkflowPreparedImageScope({
@@ -333,6 +353,11 @@ describe("workflow: literature-workbench import/export notes", function () {
   let previousContentDevRootEnv: string | undefined;
 
   beforeEach(function () {
+    if (!isZoteroRuntime()) {
+      setZoteroLibrarySourcePageQueryAdapterForTests(
+        createMockZoteroLibrarySourcePageQueryAdapter(),
+      );
+    }
     const processEnv = (
       globalThis as { process?: { env?: Record<string, string | undefined> } }
     ).process?.env;
@@ -344,6 +369,7 @@ describe("workflow: literature-workbench import/export notes", function () {
   });
 
   afterEach(function () {
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
     for (const scope of preparedImageScopes) scope.dispose();
     preparedImageScopes.clear();
     const processEnv = (
@@ -1002,7 +1028,7 @@ describe("workflow: literature-workbench import/export notes", function () {
       })) as Array<{
         kind: string;
         exportCandidates?: Array<{
-          kind?: string;
+          noteKind?: string;
           parentRef?: { libraryId: number; key: string };
         }>;
       }>;
@@ -1011,16 +1037,16 @@ describe("workflow: literature-workbench import/export notes", function () {
       assert.equal(requests[0].kind, "pass-through.run.v1");
       assert.deepEqual(
         (requests[0].exportCandidates || []).map((entry) => ({
-          kind: entry.kind,
+          noteKind: entry.noteKind,
           parentRef: entry.parentRef,
         })),
         [
           {
-            kind: "digest",
+            noteKind: "digest",
             parentRef: { libraryId: parentA.libraryID, key: parentA.key },
           },
           {
-            kind: "references",
+            noteKind: "references",
             parentRef: { libraryId: parentB.libraryID, key: parentB.key },
           },
         ],

@@ -2,6 +2,8 @@ import {
   portableItemRef,
   readHostPages,
   requireHostApi,
+  resolveAttachmentPath,
+  selectionItems,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 import {
@@ -20,10 +22,7 @@ import { normalizeLiteratureScoreArtifact } from "../../lib/literatureScoreNote.
 const generatedPayloadTypesByNoteKind = {
   digest: ["digest-markdown"],
   references: ["references-json"],
-  "citation-analysis": [
-    "citation-analysis-json",
-    "citation-analysis-markdown",
-  ],
+  "citation-analysis": ["citation-analysis-json", "citation-analysis-markdown"],
   "literature-score": ["literature-score-json"],
 };
 
@@ -31,27 +30,16 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
-function collectAttachments(selectionContext) {
-  const attachments = selectionContext?.items?.attachments;
-  return Array.isArray(attachments) ? attachments : [];
-}
-
-function resolveAttachmentPath(entry, runtime) {
-  void runtime;
-  const direct = entry?.filePath || entry?.path || entry?.item?.filePath;
-  const path = normalizeString(direct);
-  if (!path) {
-    throw new Error("literature-analysis buildRequest cannot resolve source attachment path");
+function resolveSourceAttachmentRef(selectionContext) {
+  const attachment = selectionItems(selectionContext).find(
+    (item) => item?.kind === "attachment",
+  );
+  if (!attachment?.ref) {
+    throw new Error(
+      "literature-analysis buildRequest requires one source attachment",
+    );
   }
-  return path;
-}
-
-function resolveSourceAttachmentPath(selectionContext, runtime) {
-  const attachments = collectAttachments(selectionContext);
-  if (attachments.length === 0) {
-    throw new Error("literature-analysis buildRequest requires one source attachment");
-  }
-  return resolveAttachmentPath(attachments[0], runtime);
+  return portableItemRef(attachment.ref);
 }
 
 function resolveWorkflowParams(executionOptions) {
@@ -66,14 +54,18 @@ function resolveWorkflowParams(executionOptions) {
 
 function resolveSupportedIdentifier(parentItem) {
   const identifier = selectIdentifier(
-    parentItem?.fields ? {
-      fields: parentItem.fields,
-      DOI: parentItem.fields.DOI,
-      ISBN: parentItem.fields.ISBN,
-      url: parentItem.fields.url,
-    } : buildParentSnapshot(parentItem), {
-    allowedTypes: ["DOI", "arXiv"],
-  });
+    parentItem?.fields
+      ? {
+          fields: parentItem.fields,
+          DOI: parentItem.fields.DOI,
+          ISBN: parentItem.fields.ISBN,
+          url: parentItem.fields.url,
+        }
+      : buildParentSnapshot(parentItem),
+    {
+      allowedTypes: ["DOI", "arXiv"],
+    },
+  );
   return normalizeString(identifier?.normalized);
 }
 
@@ -93,10 +85,12 @@ function resolveSchemaGeneratedNoteKind(noteContent) {
   if (!/<(?:div|section)\b[^>]*data-schema-version\s*=/i.test(text)) {
     return "";
   }
-  return parseGeneratedNoteKind(text) ||
+  return (
+    parseGeneratedNoteKind(text) ||
     (/<h1[^>]*>\s*Literature Score\s*<\/h1>/i.test(text)
       ? "literature-score"
-      : "");
+      : "")
+  );
 }
 
 async function resolveReadinessNoteKind(host, note) {
@@ -133,31 +127,52 @@ async function inspectReadiness(parentItem, manifest, runtime) {
   );
   const artifacts = {};
   for (const artifactSpec of spec.artifacts) {
-    const candidates = notes.filter((entry) => artifactSpec.noteKinds.includes(entry.kind));
+    const candidates = notes.filter((entry) =>
+      artifactSpec.noteKinds.includes(entry.kind),
+    );
     let status = candidates.length ? "available" : "missing";
     if (candidates.length && artifactSpec.payload) {
       status = "invalid";
       for (const candidate of candidates) {
         try {
-          const payload = (await host.library.getNotePayload(candidate.note.ref, {
-            payloadType: artifactSpec.payload.type,
-          })).value;
+          const payload = (
+            await host.library.getNotePayload(candidate.note.ref, {
+              payloadType: artifactSpec.payload.type,
+            })
+          ).value;
           if (artifactSpec.payload.type === "literature-score-json") {
             normalizeLiteratureScoreArtifact(payload);
           }
-          if ((artifactSpec.payload.requirements || []).every((rule) => {
-            const value = rule.pointer.split("/").slice(1).reduce(
-              (current, segment) => current?.[segment.replaceAll("~1", "/").replaceAll("~0", "~")],
-              payload,
-            );
-            if (Object.hasOwn(rule, "const") && value !== rule.const) return false;
-            if (rule.type === "array" && !Array.isArray(value)) return false;
-            if (rule.type && rule.type !== "array" && typeof value !== rule.type) return false;
-            if (rule.length !== undefined && value?.length !== rule.length) return false;
-            if (rule.minimum !== undefined && value < rule.minimum) return false;
-            if (rule.maximum !== undefined && value > rule.maximum) return false;
-            return true;
-          })) {
+          if (
+            (artifactSpec.payload.requirements || []).every((rule) => {
+              const value = rule.pointer
+                .split("/")
+                .slice(1)
+                .reduce(
+                  (current, segment) =>
+                    current?.[
+                      segment.replaceAll("~1", "/").replaceAll("~0", "~")
+                    ],
+                  payload,
+                );
+              if (Object.hasOwn(rule, "const") && value !== rule.const)
+                return false;
+              if (rule.type === "array" && !Array.isArray(value)) return false;
+              if (
+                rule.type &&
+                rule.type !== "array" &&
+                typeof value !== rule.type
+              )
+                return false;
+              if (rule.length !== undefined && value?.length !== rule.length)
+                return false;
+              if (rule.minimum !== undefined && value < rule.minimum)
+                return false;
+              if (rule.maximum !== undefined && value > rule.maximum)
+                return false;
+              return true;
+            })
+          ) {
             status = "available";
             break;
           }
@@ -171,18 +186,31 @@ async function inspectReadiness(parentItem, manifest, runtime) {
       noteRefs: candidates.map((entry) => entry.note.ref),
     };
   }
-  const mode = spec.modes.find((candidate) => !candidate.default &&
-    (candidate.allAvailable || []).every((id) => artifacts[id]?.status === "available") &&
-    (candidate.allUnavailable || []).every((id) => artifacts[id]?.status !== "available"))?.id ||
-    spec.modes.find((candidate) => candidate.default)?.id || "";
+  const mode =
+    spec.modes.find(
+      (candidate) =>
+        !candidate.default &&
+        (candidate.allAvailable || []).every(
+          (id) => artifacts[id]?.status === "available",
+        ) &&
+        (candidate.allUnavailable || []).every(
+          (id) => artifacts[id]?.status !== "available",
+        ),
+    )?.id ||
+    spec.modes.find((candidate) => candidate.default)?.id ||
+    "";
   const readiness = {
     mode,
     accepted: spec.acceptModes.includes(mode),
-    evidenceHash: JSON.stringify(spec.artifacts.map(({ id }) => [id, artifacts[id]])),
+    evidenceHash: JSON.stringify(
+      spec.artifacts.map(({ id }) => [id, artifacts[id]]),
+    ),
     artifacts,
   };
   if (!readiness?.accepted) {
-    throw new Error("literature-analysis input already has all generated artifacts");
+    throw new Error(
+      "literature-analysis input already has all generated artifacts",
+    );
   }
   return readiness;
 }
@@ -193,10 +221,17 @@ async function buildRequestImpl({
   manifest,
   runtime,
 }) {
-  const sourcePath = resolveSourceAttachmentPath(selectionContext, runtime);
-  const parentCandidate = resolveParentItemFromSelection(selectionContext, runtime);
-  const parentRef = portableItemRef(parentCandidate);
-  const parentItem = (await requireHostApi(runtime).library.getItemDetail(parentRef)).item;
+  const sourceAttachmentRef = resolveSourceAttachmentRef(selectionContext);
+  const sourcePath = await resolveAttachmentPath(sourceAttachmentRef, runtime);
+  const parentRef = portableItemRef(
+    resolveParentItemFromSelection(selectionContext, runtime),
+  );
+  const parentDetail =
+    await requireHostApi(runtime).library.getItemDetail(parentRef);
+  if (parentDetail?.kind !== "regular") {
+    throw new Error("literature-analysis requires one regular parent item");
+  }
+  const parentItem = parentDetail.item;
   const params = resolveWorkflowParams(executionOptions);
   const identifier = resolveSupportedIdentifier(parentItem);
   const readiness = await inspectReadiness(parentItem, manifest, runtime);
@@ -259,7 +294,11 @@ async function buildRequestImpl({
     finalStepId = "tag-regulator";
   }
 
-  const confirmedReadiness = await inspectReadiness(parentItem, manifest, runtime);
+  const confirmedReadiness = await inspectReadiness(
+    parentItem,
+    manifest,
+    runtime,
+  );
   if (
     confirmedReadiness.mode !== readiness.mode ||
     confirmedReadiness.evidenceHash !== readiness.evidenceHash
@@ -271,7 +310,7 @@ async function buildRequestImpl({
 
   return {
     kind: "skillrunner.sequence.v1",
-    sourceAttachmentPaths: [sourcePath],
+    sourceAttachmentRefs: [sourceAttachmentRef],
     targetParentRef: parentRef,
     steps,
     final_step_id: finalStepId,

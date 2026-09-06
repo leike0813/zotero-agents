@@ -15,7 +15,12 @@ function normalizeString(value: unknown) {
 
 export async function executeSequenceStepApply(args: {
   workflow: LoadedWorkflow;
-  parent: Zotero.Item | number | string | null;
+  parent:
+    | import("../../workflows/types").PortableItemRef
+    | Zotero.Item
+    | number
+    | string
+    | null;
   request: unknown;
   runResult: Extract<ProviderExecutionResult, { status: "succeeded" }> &
     Record<string, unknown>;

@@ -780,7 +780,6 @@ describe("acp session manager", function () {
       libraryId: "1",
       selectionEmpty: false,
       currentItem: {
-        id: 42,
         key: "ITEMKEY",
         title: "Private Item Title",
       },

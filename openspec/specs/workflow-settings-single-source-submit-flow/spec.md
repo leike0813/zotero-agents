@@ -209,7 +209,7 @@ hidden, the control MUST be hidden as well.
 ### Requirement: Submit preview SHALL show declaratively legal execution units
 
 The submit gate MUST evaluate availability-phase declarative selection
-validation against one immutable selection-context snapshot captured when
+validation against one immutable ordered canonical selection acquired completely when
 the user triggers the workflow. When more than one availability-valid
 execution unit exists, the dialog MUST show an ordered, compact,
 one-row-per-unit preview using truncated `taskName` display. The preview
@@ -277,3 +277,7 @@ preflight, request building, provider execution, or apply hooks.
 - **WHEN** declarative validation resolves no more than one legal execution unit
 - **THEN** the multi-unit list region SHALL remain hidden
 - **AND** the maximum-concurrency control SHALL remain hidden
+
+#### Scenario: Selection changes between pages
+- **WHEN** trigger acquisition receives basis_mismatch on a continuation
+- **THEN** it discards every acquired page and halts without automatically retrying or opening a submission with partial input

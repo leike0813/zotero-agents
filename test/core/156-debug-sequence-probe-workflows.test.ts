@@ -7,6 +7,7 @@ import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { buildAcpSharedSkillCatalog } from "../../src/modules/acpSharedSkillCatalog";
 import { isWorkflowVisible } from "../../src/modules/workflowVisibility";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { lockSelection } from "../../src/modules/selectionContext";
 import { mkTempDir } from "./workflow-test-utils";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 
@@ -187,12 +188,12 @@ describe("debug sequence probe workflows", function () {
       workflowSourceKind: "builtin",
     });
 
-    const linear = compileDeclarativeRequest({
+    const linear = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
-      selectionContext: {},
+      selectionContext: lockSelection([]),
       manifest: workflowById(loaded.workflows, "debug-sequence-linear-probe")
         .manifest,
-    }) as any;
+    })) as any;
     assert.equal(linear.kind, "skillrunner.sequence.v1");
     assert.deepEqual(
       linear.steps.map((step: { id: string }) => step.id),
@@ -200,27 +201,27 @@ describe("debug sequence probe workflows", function () {
     );
     assert.equal(linear.final_step_id, "finalize");
 
-    const reuse = compileDeclarativeRequest({
+    const reuse = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
-      selectionContext: {},
+      selectionContext: lockSelection([]),
       manifest: workflowById(
         loaded.workflows,
         "debug-sequence-workspace-reuse-probe",
       ).manifest,
-    }) as any;
+    })) as any;
     assert.deepEqual(
       reuse.steps.map((step: { workspace?: string }) => step.workspace),
       ["new", "reuse-workflow", "reuse-workflow"],
     );
 
-    const fileHandoff = compileDeclarativeRequest({
+    const fileHandoff = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
-      selectionContext: {},
+      selectionContext: lockSelection([]),
       manifest: workflowById(
         loaded.workflows,
         "debug-sequence-file-handoff-probe",
       ).manifest,
-    }) as any;
+    })) as any;
     assert.deepEqual(
       fileHandoff.steps.map((step: { id: string }) => step.id),
       ["emit-file", "check-file"],
@@ -236,14 +237,14 @@ describe("debug sequence probe workflows", function () {
       ],
     });
 
-    const isolated = compileDeclarativeRequest({
+    const isolated = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
-      selectionContext: {},
+      selectionContext: lockSelection([]),
       manifest: workflowById(
         loaded.workflows,
         "debug-sequence-context-isolation-probe",
       ).manifest,
-    }) as any;
+    })) as any;
     assert.equal(isolated.steps[1].workspace, "new");
     assert.deepEqual(isolated.steps[1].handoff, {
       bindings: [
@@ -272,11 +273,11 @@ describe("debug sequence probe workflows", function () {
       required: true,
     });
 
-    const request = compileDeclarativeRequest({
+    const request = (await compileDeclarativeRequest({
       kind: "skillrunner.job.v1",
-      selectionContext: {},
+      selectionContext: lockSelection([]),
       manifest: workflow.manifest,
-    }) as any;
+    })) as any;
 
     assert.deepInclude(request, {
       kind: "skillrunner.job.v1",
@@ -308,11 +309,11 @@ describe("debug sequence probe workflows", function () {
       required: true,
     });
 
-    const request = compileDeclarativeRequest({
+    const request = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
-      selectionContext: {},
+      selectionContext: lockSelection([]),
       manifest: workflow.manifest,
-    }) as any;
+    })) as any;
 
     assert.deepInclude(request, {
       kind: "skillrunner.sequence.v1",
@@ -349,14 +350,14 @@ describe("debug sequence probe workflows", function () {
     const loaded = await loadWorkflowManifests("workflows_builtin", {
       workflowSourceKind: "builtin",
     });
-    const request = compileDeclarativeRequest({
+    const request = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
-      selectionContext: {},
+      selectionContext: lockSelection([]),
       manifest: workflowById(
         loaded.workflows,
         "debug-sequence-context-isolation-probe",
       ).manifest,
-    }) as any;
+    })) as any;
     const launched: Array<Record<string, any>> = [];
 
     await executeSkillRunnerSequence({
@@ -429,14 +430,14 @@ describe("debug sequence probe workflows", function () {
     const loaded = await loadWorkflowManifests("workflows_builtin", {
       workflowSourceKind: "builtin",
     });
-    const request = compileDeclarativeRequest({
+    const request = (await compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
-      selectionContext: {},
+      selectionContext: lockSelection([]),
       manifest: workflowById(
         loaded.workflows,
         "debug-sequence-file-handoff-probe",
       ).manifest,
-    }) as any;
+    })) as any;
     const artifactRoot = await mkTempDir("debug-sequence-file-handoff");
     const artifactPath = `${artifactRoot}\\sequence-file-handoff-artifact.json`;
     await writeFile(artifactPath, JSON.stringify({ probe_id: "file-handoff" }));

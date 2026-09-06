@@ -131,49 +131,22 @@ Required: `false`; condition: Required unless --none is supplied..
 ```json
 {
   "items": {
-    "oneOf": [
-      {
+    "additionalProperties": false,
+    "properties": {
+      "key": {
         "minLength": 1,
         "type": "string"
       },
-      {
+      "libraryId": {
+        "minimum": 1,
         "type": "integer"
-      },
-      {
-        "additionalProperties": false,
-        "anyOf": [
-          {
-            "required": [
-              "key"
-            ]
-          },
-          {
-            "required": [
-              "id"
-            ]
-          }
-        ],
-        "properties": {
-          "id": {
-            "type": [
-              "integer",
-              "string"
-            ]
-          },
-          "key": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "libraryId": {
-            "type": [
-              "integer",
-              "string"
-            ]
-          }
-        },
-        "type": "object"
       }
-    ]
+    },
+    "required": [
+      "libraryId",
+      "key"
+    ],
+    "type": "object"
   },
   "minItems": 1,
   "type": "array"
@@ -276,7 +249,7 @@ zotero-bridge workflow validate --output-resource 'result=bridge-download'
 Minimal JSON shape for --selection.
 
 ```console
-zotero-bridge workflow validate --selection '["example"]'
+zotero-bridge workflow validate --selection '[{"key":"ABC12345","libraryId":1}]'
 ```
 
 Prerequisites:
@@ -325,9 +298,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       ]
     },
     {
-      "aliases": [
-        "items"
-      ],
+      "aliases": [],
       "conflictsWith": [
         "none"
       ],
@@ -549,7 +520,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
           "value": [
-            "example"
+            {
+              "key": "ABC12345",
+              "libraryId": 1
+            }
           ]
         }
       ],
@@ -559,49 +533,22 @@ This closed descriptor is the machine-readable command contract returned by `sur
       ],
       "schema": {
         "items": {
-          "oneOf": [
-            {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
               "minLength": 1,
               "type": "string"
             },
-            {
+            "libraryId": {
+              "minimum": 1,
               "type": "integer"
-            },
-            {
-              "additionalProperties": false,
-              "anyOf": [
-                {
-                  "required": [
-                    "key"
-                  ]
-                },
-                {
-                  "required": [
-                    "id"
-                  ]
-                }
-              ],
-              "properties": {
-                "id": {
-                  "type": [
-                    "integer",
-                    "string"
-                  ]
-                },
-                "key": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "libraryId": {
-                  "type": [
-                    "integer",
-                    "string"
-                  ]
-                }
-              },
-              "type": "object"
             }
-          ]
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
+          "type": "object"
         },
         "minItems": 1,
         "type": "array"

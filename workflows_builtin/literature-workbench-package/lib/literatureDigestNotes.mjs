@@ -186,7 +186,9 @@ export async function collectGeneratedNotesByKind(parentItem, runtime) {
     operation: "literature digest note read",
   });
   for (const summary of summaries) {
-    const detail = await host.library.getNoteDetail(summary.ref, { format: "html" });
+    const detail = await host.library.getNoteDetail(summary.ref, {
+      format: "html",
+    });
     const noteItem = { ...summary, content: detail.content };
     const kind = parseGeneratedNoteKind(detail.content);
     if (!byKind.has(kind)) {
@@ -207,17 +209,23 @@ async function upsertUniqueGeneratedNote(args) {
         noteKind,
         existingCount: 0,
       },
-      async () => requireCommittedMutation(
-        await requireHostApi(args.runtime).notes.create({
-          operationId: `generated-note:create:${noteKind}:${Date.now().toString(36)}`,
-          placement: { kind: "child", parentRef: portableItemRef(args.parentItem) },
-          content: {
-            format: "html",
-            value: args.content,
-            ...(args.embeddedImages?.length ? { embeddedImages: args.embeddedImages } : {}),
-          },
-        }),
-      ).note,
+      async () =>
+        requireCommittedMutation(
+          await requireHostApi(args.runtime).notes.create({
+            operationId: `generated-note:create:${noteKind}:${Date.now().toString(36)}`,
+            placement: {
+              kind: "child",
+              parentRef: portableItemRef(args.parentItem),
+            },
+            content: {
+              format: "html",
+              value: args.content,
+              ...(args.embeddedImages?.length
+                ? { embeddedImages: args.embeddedImages }
+                : {}),
+            },
+          }),
+        ).note,
     );
   }
 
@@ -228,17 +236,20 @@ async function upsertUniqueGeneratedNote(args) {
       noteKind,
       existingCount: existingNotes.length,
     },
-    async () => requireCommittedMutation(
-      await requireHostApi(args.runtime).notes.updateContent({
-        operationId: `generated-note:update:${noteKind}:${Date.now().toString(36)}`,
-        noteRef: portableItemRef(primary),
-        content: {
-          format: "html",
-          value: args.content,
-          ...(args.embeddedImages?.length ? { embeddedImages: args.embeddedImages } : {}),
-        },
-      }),
-    ).note,
+    async () =>
+      requireCommittedMutation(
+        await requireHostApi(args.runtime).notes.updateContent({
+          operationId: `generated-note:update:${noteKind}:${Date.now().toString(36)}`,
+          noteRef: portableItemRef(primary),
+          content: {
+            format: "html",
+            value: args.content,
+            ...(args.embeddedImages?.length
+              ? { embeddedImages: args.embeddedImages }
+              : {}),
+          },
+        }),
+      ).note,
   );
   for (let index = 1; index < existingNotes.length; index += 1) {
     await measureWorkflowTestSpan(
@@ -247,13 +258,14 @@ async function upsertUniqueGeneratedNote(args) {
         noteKind,
         duplicateIndex: index,
       },
-      async () => requireCommittedMutation(
-        await requireHostApi(args.runtime).notes.remove({
-          operationId: `generated-note:remove:${noteKind}:${Date.now().toString(36)}:${index}`,
-          noteRef: portableItemRef(existingNotes[index]),
-          disposition: "trash",
-        }),
-      ),
+      async () =>
+        requireCommittedMutation(
+          await requireHostApi(args.runtime).notes.remove({
+            operationId: `generated-note:remove:${noteKind}:${Date.now().toString(36)}:${index}`,
+            noteRef: portableItemRef(existingNotes[index]),
+            disposition: "trash",
+          }),
+        ),
     );
   }
   return updated;
@@ -269,13 +281,14 @@ async function removeDuplicateGeneratedNotes(args) {
         noteKind,
         duplicateIndex: index,
       },
-      async () => requireCommittedMutation(
-        await requireHostApi(args.runtime).notes.remove({
-          operationId: `generated-note:remove:${noteKind}:${Date.now().toString(36)}:${index}`,
-          noteRef: portableItemRef(existingNotes[index]),
-          disposition: "trash",
-        }),
-      ),
+      async () =>
+        requireCommittedMutation(
+          await requireHostApi(args.runtime).notes.remove({
+            operationId: `generated-note:remove:${noteKind}:${Date.now().toString(36)}:${index}`,
+            noteRef: portableItemRef(existingNotes[index]),
+            disposition: "trash",
+          }),
+        ),
     );
   }
 }
@@ -430,13 +443,17 @@ async function ensureDigestNoteForRepresentativeImage(args) {
       noteKind,
       existingCount: 0,
     },
-    async () => requireCommittedMutation(
-      await requireHostApi(args.runtime).notes.create({
-        operationId: `generated-note:create:digest:${Date.now().toString(36)}`,
-        placement: { kind: "child", parentRef: portableItemRef(args.parentItem) },
-        content: { format: "html", value: args.initialContent },
-      }),
-    ).note,
+    async () =>
+      requireCommittedMutation(
+        await requireHostApi(args.runtime).notes.create({
+          operationId: `generated-note:create:digest:${Date.now().toString(36)}`,
+          placement: {
+            kind: "child",
+            parentRef: portableItemRef(args.parentItem),
+          },
+          content: { format: "html", value: args.initialContent },
+        }),
+      ).note,
   );
 }
 
@@ -504,19 +521,20 @@ async function upsertDigestGeneratedNote(args) {
       noteKind: "digest",
       existingCount: existingNotes.length,
     },
-    async () => requireCommittedMutation(
-      await requireHostApi(args.runtime).notes.updateContent({
-        operationId: `generated-note:update:digest:${Date.now().toString(36)}`,
-        noteRef: portableItemRef(digestNote),
-        content: {
-          format: "html",
-          value: finalContent,
-          ...(representativeImage?.embeddedImages?.length
-            ? { embeddedImages: representativeImage.embeddedImages }
-            : {}),
-        },
-      }),
-    ),
+    async () =>
+      requireCommittedMutation(
+        await requireHostApi(args.runtime).notes.updateContent({
+          operationId: `generated-note:update:digest:${Date.now().toString(36)}`,
+          noteRef: portableItemRef(digestNote),
+          content: {
+            format: "html",
+            value: finalContent,
+            ...(representativeImage?.embeddedImages?.length
+              ? { embeddedImages: representativeImage.embeddedImages }
+              : {}),
+          },
+        }),
+      ),
   );
   await attachWorkbenchPayloadToNote({
     runtime: args.runtime,
@@ -548,10 +566,12 @@ export async function resolveDigestMarkdownPayloadForNote(args) {
   const noteItem = args.noteItem;
   const noteContent = String(
     noteItem?.content ||
-      (await requireHostApi(args.runtime).library.getNoteDetail(
-        portableItemRef(noteItem),
-        { format: "html" },
-      )).content ||
+      (
+        await requireHostApi(args.runtime).library.getNoteDetail(
+          portableItemRef(noteItem),
+          { format: "html" },
+        )
+      ).content ||
       "",
   );
   try {
@@ -583,10 +603,12 @@ export async function updateDigestNoteRepresentativeImage(args) {
   );
   const previousNoteContent = String(
     digestNote?.content ||
-      (await requireHostApi(args.runtime).library.getNoteDetail(
-        portableItemRef(digestNote),
-        { format: "html" },
-      )).content ||
+      (
+        await requireHostApi(args.runtime).library.getNoteDetail(
+          portableItemRef(digestNote),
+          { format: "html" },
+        )
+      ).content ||
       "",
   );
   const representativeImage = await prepareDigestRepresentativeImage({
@@ -607,19 +629,20 @@ export async function updateDigestNoteRepresentativeImage(args) {
     {
       noteKind: "digest",
     },
-    async () => requireCommittedMutation(
-      await requireHostApi(args.runtime).notes.updateContent({
-        operationId: `generated-note:update:digest-image:${Date.now().toString(36)}`,
-        noteRef: portableItemRef(digestNote),
-        content: {
-          format: "html",
-          value: finalContent,
-          ...(representativeImage?.embeddedImages?.length
-            ? { embeddedImages: representativeImage.embeddedImages }
-            : {}),
-        },
-      }),
-    ),
+    async () =>
+      requireCommittedMutation(
+        await requireHostApi(args.runtime).notes.updateContent({
+          operationId: `generated-note:update:digest-image:${Date.now().toString(36)}`,
+          noteRef: portableItemRef(digestNote),
+          content: {
+            format: "html",
+            value: finalContent,
+            ...(representativeImage?.embeddedImages?.length
+              ? { embeddedImages: representativeImage.embeddedImages }
+              : {}),
+          },
+        }),
+      ),
   );
   await attachWorkbenchPayloadToNote({
     runtime: args.runtime,
@@ -686,8 +709,9 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
       if (args.references) {
         const referencesNoteContent = buildLegalGeneratedNoteContent({
           title: "References",
-          bodyHtml: renderReferencesTable(args.references.payload.references || [])
-            .replace(/\sdata-zs-view=(["'])references-table\1/i, ""),
+          bodyHtml: renderReferencesTable(
+            args.references.payload.references || [],
+          ).replace(/\sdata-zs-view=(["'])references-table\1/i, ""),
         });
         const referencesNote = await upsertUniqueGeneratedNote({
           runtime: args.runtime,
@@ -801,13 +825,13 @@ export async function resolveLiteratureMatchingMetadataForParentItem(args) {
 
 export async function exportGeneratedNoteCandidate(args) {
   const host = requireHostApi(args.runtime);
-  const noteRef = portableItemRef(args.noteRef || args.noteItemRef || {
-    libraryId: args.libraryId,
-    key: args.noteItemKey,
+  const noteRef = portableItemRef(args.noteRef || args.noteItemRef || args.ref);
+  const noteItem = await host.library.getNoteDetail(noteRef, {
+    format: "html",
   });
-  const noteItem = await host.library.getNoteDetail(noteRef, { format: "html" });
   const noteContent = String(noteItem.content || "");
-  const kind = String(args.kind || "").trim();
+  const noteKind = String(args.noteKind || "").trim();
+  const kind = noteKind;
   if (kind === "digest") {
     const parsed = await resolveGeneratedPayloadForNote({
       runtime: args.runtime,
@@ -930,7 +954,10 @@ async function resolveRepresentativeImageExportFile(args) {
     const hostApi = requireHostApi(args.runtime);
     const attachments = await readHostPages({
       readPage: (page) =>
-        hostApi.library.getItemAttachments(portableItemRef(args.noteItem), page),
+        hostApi.library.getItemAttachments(
+          portableItemRef(args.noteItem),
+          page,
+        ),
       getItems: (page) => page.attachments,
       operation: "literature digest attachment read",
     });

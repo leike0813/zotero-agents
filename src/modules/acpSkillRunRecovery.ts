@@ -16,7 +16,7 @@ import {
 } from "./workflowRuntime";
 import { createUnavailableBundleReader } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
-import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
+import { resolveTargetParentRefFromRequest } from "./workflowExecution/requestMeta";
 import { executeSequenceStepApply } from "./workflowExecution/sequenceStepApply";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
@@ -302,10 +302,10 @@ async function applyRecoveredAcpSkillResult(args: {
   );
   const request =
     args.record.requestPayload || recoveredContext?.requestPayload;
-  const targetParentID = request
-    ? resolveTargetParentIDFromRequest(request)
+  const targetParentRef = request
+    ? resolveTargetParentRefFromRequest(request)
     : "";
-  const applyParent = targetParentID || null;
+  const applyParent = targetParentRef || null;
   if (!applyParent && !canWorkflowRunWithoutSelection(workflow.manifest)) {
     throw new Error(
       "cannot resolve target parent for recovered ACP skill apply",
@@ -571,7 +571,8 @@ export async function continueRecoveredSequenceStep(args: {
         return executeSequenceStepApply({
           workflow: applyWorkflow,
           parent:
-            resolveTargetParentIDFromRequest(stepApply.sequenceRequest) || null,
+            resolveTargetParentRefFromRequest(stepApply.sequenceRequest) ||
+            null,
           request: stepApply.stepRequest,
           runResult: {
             ...stepApply.stepResult,

@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-09-05T17:19:44.689Z",
+  "generated_at": "2026-09-06T01:15:15.481Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -1237,7 +1237,7 @@
     {
       "id": "workflows/custom/selection-context",
       "locale": "fr",
-      "title": "Contexte de Sélection",
+      "title": "Contexte de sélection",
       "path": "docs/fr/workflows/custom/selection-context.md"
     },
     {
@@ -2581,7 +2581,7 @@
     {
       "id": "workflows/custom/selection-context",
       "locale": "ru",
-      "title": "Контекст выделения",
+      "title": "Контекст выбора",
       "path": "docs/ru/workflows/custom/selection-context.md"
     },
     {
@@ -4008,7 +4008,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/selection-context",
-                "label": "Contexte de Sélection"
+                "label": "Contexte de sélection"
               },
               {
                 "type": "doc",
@@ -5064,7 +5064,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/selection-context",
-                "label": "Контекст выделения"
+                "label": "Контекст выбора"
               },
               {
                 "type": "doc",

@@ -36,7 +36,7 @@ zotero-bridge workflow validate \
   --workflow-options '<reviewed-options>'
 ```
 
-检查精确 selection refs、彼此分离的 `inputs` 与 `validateSelection` contract、workflow ID、必需 options、provider 要求、candidate-production rules、不可变 unit grouping、预期输出和 approval boundary。如果 selection 为空、过时或包含意外对象，更正实时 Zotero selection 并重新校验。不得在本地重建 prepared units，也不得把 cached catalog data 表述为实时校验。
+检查精确 selection refs、彼此分离的 `inputs` 与 `validateSelection` contract、workflow ID、必需 options、provider 要求、candidate-production rules、不可变 unit grouping、预期输出和 approval boundary。空、过时或包含意外对象的 selection 表示调用 scope 尚未解决：操作员更正后的 refs 形成一次新的已审阅调用，原校验失败仍关联原 refs。不得在本地重建 prepared units，也不得把 cached catalog data 表述为实时校验。
 
 操作员对该精确审阅 scope 和有界 concurrency 授权后，仅提交一次：
 

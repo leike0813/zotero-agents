@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
+import { lockSelection } from "../../src/modules/selectionContext";
 import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflowSettings";
@@ -104,7 +105,7 @@ describe("collection collector workflow", function () {
 
     const requests = (await executeBuildRequests({
       workflow: workflow!,
-      selectionContext: { items: { attachments: [] } },
+      selectionContext: lockSelection([]),
       executionOptions: {
         workflowParams: {
           collection: "1:COLL1234",

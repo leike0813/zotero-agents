@@ -8,19 +8,87 @@ function isObjectLike(value) {
 
 export function portableItemRef(value) {
   const source = value?.ref || value || {};
-  const libraryId = Number(source.libraryId || source.libraryID);
-  const key = String(source.key || source.itemKey || "").trim();
-  if (!Number.isSafeInteger(libraryId) || libraryId <= 0 || !key) {
+  const libraryId = source.libraryId;
+  const key = String(source.key || "").trim();
+  if (
+    !Number.isSafeInteger(libraryId) ||
+    libraryId <= 0 ||
+    !key ||
+    Object.keys(source).some(
+      (entry) => entry !== "libraryId" && entry !== "key",
+    )
+  ) {
     throw new Error("portable Zotero item ref is required");
   }
   return { libraryId, key };
 }
 
+export function selectionItems(selectionContext) {
+  return Array.isArray(selectionContext?.items) ? selectionContext.items : [];
+}
+
+export function selectionItemsOfKind(selectionContext, kind) {
+  return selectionItems(selectionContext).filter((item) => item?.kind === kind);
+}
+
+export function resolveSelectionParentRef(selectionContext) {
+  const target = selectionContext?.targetParentRef;
+  if (target) {
+    return portableItemRef(target);
+  }
+  const items = selectionItems(selectionContext);
+  const parent = items.find((item) => item?.kind === "parent");
+  if (parent?.ref) {
+    return portableItemRef(parent.ref);
+  }
+  const related = items.find((item) => item?.parentRef);
+  if (related?.parentRef) {
+    return portableItemRef(related.parentRef);
+  }
+  return null;
+}
+
+export function resolveSelectionAttachmentRefs(selectionContext) {
+  const refs = [];
+  const seen = new Set();
+  for (const item of selectionItems(selectionContext)) {
+    if (item?.kind !== "attachment" || !item.ref) continue;
+    const ref = portableItemRef(item.ref);
+    const identity = `${ref.libraryId}:${ref.key}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    refs.push(ref);
+  }
+  return refs;
+}
+
+export async function resolveAttachmentDescriptor(attachmentRef, runtime) {
+  const ref = portableItemRef(attachmentRef);
+  const detail = await requireHostApi(runtime).library.getItemDetail(ref);
+  if (detail?.kind !== "attachment" || !detail.item) {
+    throw new Error("workflow source attachment is unavailable");
+  }
+  return detail.item;
+}
+
+export async function resolveAttachmentPath(attachmentRef, runtime) {
+  const attachment = await resolveAttachmentDescriptor(attachmentRef, runtime);
+  if (attachment.file?.state !== "available" || !attachment.file.path) {
+    throw new Error("workflow source attachment file is unavailable");
+  }
+  return attachment.file.path;
+}
+
 export function requireCommittedMutation(execution) {
-  if (execution?.outcome === "committed" || execution?.outcome === "unchanged") {
+  if (
+    execution?.outcome === "committed" ||
+    execution?.outcome === "unchanged"
+  ) {
     return execution.result;
   }
-  const error = new Error(execution?.attempt?.error?.message || "Workflow Host mutation failed");
+  const error = new Error(
+    execution?.attempt?.error?.message || "Workflow Host mutation failed",
+  );
   error.attempt = execution?.attempt;
   throw error;
 }
@@ -71,7 +139,10 @@ function resolveDiagnosticContext(runtime) {
 
 function appendDiagnosticLog(runtime, entry) {
   const hostApi = resolveHostApi(runtime);
-  if (hostApi?.logging && typeof hostApi.logging.appendRuntimeLog === "function") {
+  if (
+    hostApi?.logging &&
+    typeof hostApi.logging.appendRuntimeLog === "function"
+  ) {
     hostApi.logging.appendRuntimeLog(entry);
   }
 }
@@ -174,7 +245,12 @@ export function requireHostApi(runtime, message) {
   return hostApi;
 }
 
-export async function readHostPages({ readPage, getItems, limit = 100, operation = "host read" }) {
+export async function readHostPages({
+  readPage,
+  getItems,
+  limit = 100,
+  operation = "host read",
+}) {
   if (typeof readPage !== "function" || typeof getItems !== "function") {
     throw new TypeError(`${operation} page reader is required`);
   }
@@ -209,11 +285,13 @@ export function resolveAddonConfig(runtime) {
       prefsPrefix: "extensions.zotero.zotero-skills",
     };
   }
-  return hostApi.addon?.getConfig?.() || {
-    addonName: "Zotero Agents",
-    addonRef: "",
-    prefsPrefix: "extensions.zotero.zotero-skills",
-  };
+  return (
+    hostApi.addon?.getConfig?.() || {
+      addonName: "Zotero Agents",
+      addonRef: "",
+      prefsPrefix: "extensions.zotero.zotero-skills",
+    }
+  );
 }
 
 export function resolveRuntimeFetch(runtime) {
@@ -229,7 +307,10 @@ export function resolveRuntimeFetch(runtime) {
 
 function resolveRuntimeBuffer(runtime) {
   const scopedRuntime = resolveCurrentWorkflowExecutionRuntime(runtime);
-  if (scopedRuntime?.Buffer && typeof scopedRuntime.Buffer.from === "function") {
+  if (
+    scopedRuntime?.Buffer &&
+    typeof scopedRuntime.Buffer.from === "function"
+  ) {
     return scopedRuntime.Buffer;
   }
   if (globalThis?.Buffer && typeof globalThis.Buffer.from === "function") {
@@ -267,11 +348,12 @@ export function encodeRuntimeBase64Utf8(text, runtime) {
   }
   const btoaImpl = resolveRuntimeBtoa(runtime);
   if (!btoaImpl) {
-    throw createHostContractError(runtime, "runtime base64 encoder is unavailable");
+    throw createHostContractError(
+      runtime,
+      "runtime base64 encoder is unavailable",
+    );
   }
-  return btoaImpl(
-    unescape(encodeURIComponent(String(text || ""))),
-  );
+  return btoaImpl(unescape(encodeURIComponent(String(text || ""))));
 }
 
 export function decodeRuntimeBase64Utf8(text, runtime) {
@@ -281,7 +363,10 @@ export function decodeRuntimeBase64Utf8(text, runtime) {
   }
   const atobImpl = resolveRuntimeAtob(runtime);
   if (!atobImpl) {
-    throw createHostContractError(runtime, "runtime base64 decoder is unavailable");
+    throw createHostContractError(
+      runtime,
+      "runtime base64 decoder is unavailable",
+    );
   }
   return decodeURIComponent(escape(atobImpl(String(text || ""))));
 }

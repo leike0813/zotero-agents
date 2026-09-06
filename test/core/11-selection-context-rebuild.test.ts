@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import { buildSelectionContext as buildSelectionContextFromRefs } from "../../src/modules/selectionContext";
 import dualParent from "../fixtures/selection-context/selection-context-dual-parent.json";
 import mixAll from "../fixtures/selection-context/selection-context-mix-all.json";
 import mixAllTop3Parents from "../fixtures/selection-context/selection-context-mix-all-top3-parents";
@@ -19,6 +19,7 @@ import variousTypeAttachDiffParents from "../fixtures/selection-context/selectio
 import variousTypeAttachSameParent from "../fixtures/selection-context/selection-context-various-type-attach-same-parent.json";
 import { isFullTestMode } from "./testMode";
 import { isZoteroRuntime } from "./workflow-test-utils";
+import { buildSelectionContext as buildExpectedSelectionContext } from "../helpers/workflowSelectionContext";
 
 type ItemBase = {
   id: number;
@@ -79,11 +80,6 @@ type SelectionContext = {
     attachmentCount: number;
     noteCount: number;
   };
-};
-
-type NormalizedContext = {
-  summary: SelectionContext["summary"];
-  signatures: string[];
 };
 
 const FIXTURE_ROOT = "test/fixtures/selection-context";
@@ -186,76 +182,6 @@ async function ensureAttachmentFile(path: string) {
   return file;
 }
 
-function normalizeContext(context: SelectionContext): NormalizedContext {
-  const signatures: string[] = [];
-
-  const pushSignature = (value: string) => {
-    signatures.push(value);
-  };
-
-  const safeTitle = (base: ItemBase | null | undefined) => base?.title || "";
-
-  const noteContent = (base: ItemBase) => {
-    if (typeof base.note === "string" && base.note.length > 0) {
-      return base.note;
-    }
-    const fromData = typeof base.data?.note === "string" ? base.data.note : "";
-    return fromData || base.title || "";
-  };
-
-  const noteSignature = (base: ItemBase, parent?: ItemBase | null) =>
-    `note|${noteContent(base).slice(0, 80)}|parent:${safeTitle(parent)}`;
-
-  const attachmentSignature = (base: ItemBase, parent?: ItemBase | null) =>
-    `attachment|${base.title}|parent:${safeTitle(parent)}`;
-
-  const childSignature = (base: ItemBase, parent?: ItemBase | null) =>
-    `child|${base.itemType}|${base.title}|parent:${safeTitle(parent)}`;
-
-  const parentSignature = (base: ItemBase) =>
-    `parent|${base.itemType}|${base.title}`;
-
-  for (const parentCtx of context.items.parents) {
-    pushSignature(parentSignature(parentCtx.item));
-    for (const attachment of parentCtx.attachments) {
-      pushSignature(attachmentSignature(attachment.item, parentCtx.item));
-    }
-    for (const note of parentCtx.notes) {
-      pushSignature(noteSignature(note, parentCtx.item));
-    }
-    for (const child of parentCtx.children) {
-      pushSignature(childSignature(child, parentCtx.item));
-    }
-  }
-
-  for (const childCtx of context.items.children) {
-    pushSignature(childSignature(childCtx.item, childCtx.parent));
-    for (const attachment of childCtx.attachments) {
-      pushSignature(attachmentSignature(attachment.item, attachment.parent));
-    }
-    for (const note of childCtx.notes) {
-      pushSignature(noteSignature(note, childCtx.item));
-    }
-  }
-
-  for (const attachmentCtx of context.items.attachments) {
-    pushSignature(
-      attachmentSignature(attachmentCtx.item, attachmentCtx.parent),
-    );
-  }
-
-  for (const noteCtx of context.items.notes) {
-    pushSignature(noteSignature(noteCtx.item, noteCtx.parent));
-  }
-
-  signatures.sort();
-
-  return {
-    summary: context.summary,
-    signatures,
-  };
-}
-
 function collectSelectedItems(
   context: SelectionContext,
   created: Map<string, Zotero.Item>,
@@ -278,22 +204,22 @@ function collectSelectedItems(
   return selectionItems;
 }
 
-function assertSelectionContextL2(
-  expected: SelectionContext,
-  actual: SelectionContext,
+async function assertCanonicalSelectionContext(
+  selectedItems: readonly Zotero.Item[],
+  actual: Awaited<ReturnType<typeof buildSelectionContextFromRefs>>,
+  expected?: Awaited<ReturnType<typeof buildExpectedSelectionContext>>,
 ) {
-  assert.equal(actual.summary.parentCount, expected.summary.parentCount);
-  assert.equal(actual.summary.childCount, expected.summary.childCount);
-  assert.equal(
-    actual.summary.attachmentCount,
-    expected.summary.attachmentCount,
+  const expectedContext =
+    expected || (await buildExpectedSelectionContext(selectedItems));
+  const comparable = (item: (typeof expectedContext.items)[number]) => {
+    const { createdAt: _createdAt, ...fact } = item;
+    return fact;
+  };
+  assert.deepEqual(
+    actual.items.map(comparable),
+    expectedContext.items.map(comparable),
   );
-  assert.equal(actual.summary.noteCount, expected.summary.noteCount);
-
-  const expectedNorm = normalizeContext(expected);
-  const actualNorm = normalizeContext(actual);
-
-  assert.deepEqual(actualNorm.signatures, expectedNorm.signatures);
+  assert.isString(actual.sampledAt);
 }
 
 async function applyTags(item: Zotero.Item, tags: TagEntry[]) {
@@ -501,10 +427,19 @@ async function rebuildSelectionContext(context: SelectionContext) {
   assert.equal(created.size, expectedKeys.size);
 
   const selectionItems = collectSelectedItems(context, created);
-  const actualContext = (await buildSelectionContext(
+  const selectedRefs = selectionItems.map((item) => ({
+    libraryId: Number(item.libraryID),
+    key: String(item.key),
+  }));
+  // The expected-facts helper installs the source-page adapter used by the
+  // canonical Broker detail read. Seed it before the production acquisition.
+  const expectedContext = await buildExpectedSelectionContext(selectionItems);
+  const actualContext = await buildSelectionContextFromRefs(selectedRefs);
+  await assertCanonicalSelectionContext(
     selectionItems,
-  )) as SelectionContext;
-  assertSelectionContextL2(context, actualContext);
+    actualContext,
+    expectedContext,
+  );
 
   return { created, collections };
 }

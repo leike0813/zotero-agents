@@ -2,12 +2,13 @@ import {
   buildAggregateId,
   buildPageRangePlan,
   readPdfSplitMetadata,
+  resolveAttachmentPath,
   resolveSourceAttachment,
 } from "../lib/pdfSplitPlan.mjs";
 
 export async function preflight({ selectionContext, runtime }) {
   const source = resolveSourceAttachment(selectionContext);
-  if (!source?.filePath) {
+  if (!source?.ref) {
     return {
       kind: "continue",
       context: {
@@ -19,16 +20,14 @@ export async function preflight({ selectionContext, runtime }) {
     };
   }
 
+  const filePath = await resolveAttachmentPath(source.ref, runtime);
   const metadata = await readPdfSplitMetadata({
-    filePath: source.filePath,
+    filePath,
     runtime,
   });
   const baseContext = {
-    source_attachment_path: source.filePath,
     source_attachment_name: source.fileName,
-    source_attachment_item_id: source.itemId,
-    source_attachment_item_key: source.itemKey,
-    source_attachment_ref: source.itemRef,
+    source_attachment_ref: source.ref,
     mineruSplit: {
       pageCount: metadata.pageCount || null,
       metadataSource: metadata.source,
@@ -79,7 +78,10 @@ export async function preflight({ selectionContext, runtime }) {
       },
     },
     aggregate: {
-      id: buildAggregateId(source),
+      id: buildAggregateId({
+        itemKey: source.ref.key,
+        fileName: source.fileName,
+      }),
       mode: "single-apply",
       applyWhen: "all-succeeded",
       orderBy: "unit.order",

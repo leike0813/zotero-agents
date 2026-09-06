@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   executeApplyResult as executeWorkflowApplyResult,
@@ -98,8 +101,8 @@ function executeApplyResult(
 
 type LiteratureAnalysisSequenceRequest = {
   kind: string;
-  targetParentID?: number;
-  sourceAttachmentPaths?: string[];
+  targetParentRef?: { libraryId: number; key: string };
+  sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
   steps?: Array<{
     id?: string;
     skill_id?: string;
@@ -149,16 +152,22 @@ function assertLiteratureAnalysisDigestStep(
   expected: {
     sourcePath: string;
     language?: string;
-    targetParentID?: number;
+    targetParentRef?: { libraryId: number; key: string };
+    sourceAttachmentRef?: { libraryId: number; key: string };
     autoTagRegulator?: boolean;
     identifier?: string;
   },
 ) {
   assert.equal(request.kind, "skillrunner.sequence.v1");
-  if (typeof expected.targetParentID === "number") {
-    assert.equal(request.targetParentID, expected.targetParentID);
+  if (expected.targetParentRef) {
+    assert.deepEqual(request.targetParentRef, expected.targetParentRef);
   }
-  assert.deepEqual(request.sourceAttachmentPaths, [expected.sourcePath]);
+  assert.deepEqual(
+    request.sourceAttachmentRefs,
+    expected.sourceAttachmentRef
+      ? [expected.sourceAttachmentRef]
+      : [request.sourceAttachmentRefs?.[0]],
+  );
   assert.isArray(request.steps);
   const digestStep = request.steps?.find((step) => step.id === "digest");
   assert.isOk(digestStep, "digest sequence step should exist");
@@ -385,6 +394,19 @@ describe("workflow: literature-analysis", function () {
     return { parent, attachment };
   }
 
+  async function createApplySourceAttachment(
+    parent: Zotero.Item,
+    sourcePath = fixturePath("literature-analysis", "example.md"),
+    mimeType = "text/markdown",
+  ) {
+    return handlers.attachment.createFromPath({
+      parent,
+      path: sourcePath,
+      title: path.basename(sourcePath),
+      mimeType,
+    });
+  }
+
   async function addGeneratedDigestNotes(
     parent: Zotero.Item,
     noteContents: {
@@ -500,7 +522,8 @@ describe("workflow: literature-analysis", function () {
     const request = requests[0];
     assertLiteratureAnalysisDigestStep(request, {
       sourcePath: mdFile,
-      targetParentID: parent.id,
+      targetParentRef: itemRef(parent),
+      sourceAttachmentRef: itemRef(attachment),
       autoTagRegulator: false,
       identifier: "10.1000/workflow.identifier",
     });
@@ -549,7 +572,8 @@ describe("workflow: literature-analysis", function () {
       assert.lengthOf(requests, 1, entry.label);
       assertLiteratureAnalysisDigestStep(requests[0], {
         sourcePath: fixturePath("literature-analysis", "example.md"),
-        targetParentID: parent.id,
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRef: itemRef(attachment),
         autoTagRegulator: false,
         identifier: entry.expected,
       });
@@ -595,6 +619,7 @@ describe("workflow: literature-analysis", function () {
       assert.lengthOf(requests, 1);
       assertLiteratureAnalysisDigestStep(requests[0], {
         sourcePath: pdfFile,
+        sourceAttachmentRef: itemRef(attachment),
         autoTagRegulator: false,
       });
     },
@@ -711,7 +736,7 @@ describe("workflow: literature-analysis", function () {
 
   it("applies score-only output without rewriting the legacy triplet", async function () {
     const workflow = await getLiteratureDigestWorkflow();
-    const { parent } = await createDigestAttachmentParent({
+    const { parent, attachment } = await createDigestAttachmentParent({
       title: "Workflow Score-only Apply Parent",
     });
     await addGeneratedDigestNotes(parent, {
@@ -732,7 +757,7 @@ describe("workflow: literature-analysis", function () {
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         async readText(entryPath: string) {
           if (entryPath === "result/result.json") {
@@ -747,6 +772,8 @@ describe("workflow: literature-analysis", function () {
         },
       },
       request: {
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRefs: [itemRef(attachment)],
         steps: [{ id: "digest", parameter: { score_only: true } }],
       },
       runtime: {
@@ -903,7 +930,8 @@ describe("workflow: literature-analysis", function () {
         );
         assertLiteratureAnalysisDigestStep(requests[0], {
           sourcePath: fixturePath("literature-analysis", "example.md"),
-          targetParentID: parent.id,
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRef: itemRef(attachment),
           autoTagRegulator: false,
         });
       },
@@ -916,6 +944,7 @@ describe("workflow: literature-analysis", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Result Parent" },
     });
+    const attachment = await createApplySourceAttachment(parent);
 
     const currentBundle = new ZipBundleReader(
       fixturePath("literature-analysis", "run_bundle.zip"),
@@ -939,7 +968,11 @@ describe("workflow: literature-analysis", function () {
     try {
       await executeWorkflowApplyResult({
         workflow: workflow!,
-        parent,
+        parent: itemRef(parent),
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
+        },
         bundleReader: legacyBundle,
       });
     } catch (error) {
@@ -955,6 +988,7 @@ describe("workflow: literature-analysis", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Invalid Score Artifact Parent" },
     });
+    const attachment = await createApplySourceAttachment(parent);
     const workflow = await getLiteratureDigestWorkflow();
     const invalidScore = {
       literature_score: {
@@ -972,7 +1006,11 @@ describe("workflow: literature-analysis", function () {
     try {
       await executeWorkflowApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
+        },
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {
@@ -1007,11 +1045,12 @@ describe("workflow: literature-analysis", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Diagnostic Error Parent" },
     });
+    const attachment = await createApplySourceAttachment(parent);
     const workflow = await getLiteratureDigestWorkflow();
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         async readText(entryPath: string) {
           if (entryPath === "result/result.json") {
@@ -1040,6 +1079,10 @@ describe("workflow: literature-analysis", function () {
           }
           throw new Error(`missing bundle entry: ${entryPath}`);
         },
+      },
+      request: {
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRefs: [itemRef(attachment)],
       },
       runtime: {
         hostApi: {
@@ -1097,11 +1140,12 @@ describe("workflow: literature-analysis", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Reference Quality Parent" },
     });
+    const attachment = await createApplySourceAttachment(parent);
     const workflow = await getLiteratureDigestWorkflow();
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         async readText(entryPath: string) {
           if (entryPath === "result/result.json") {
@@ -1151,6 +1195,8 @@ describe("workflow: literature-analysis", function () {
         },
       },
       request: {
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRefs: [itemRef(attachment)],
         parameter: {
           auto_reference_matching: false,
         },
@@ -1209,11 +1255,12 @@ describe("workflow: literature-analysis", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Empty Reference Quality Parent" },
     });
+    const attachment = await createApplySourceAttachment(parent);
     const workflow = await getLiteratureDigestWorkflow();
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         async readText(entryPath: string) {
           if (entryPath === "result/result.json") {
@@ -1242,6 +1289,8 @@ describe("workflow: literature-analysis", function () {
         },
       },
       request: {
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRefs: [itemRef(attachment)],
         parameter: {
           auto_reference_matching: false,
         },
@@ -1270,10 +1319,11 @@ describe("workflow: literature-analysis", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow References Citekey Hidden Parent" },
     });
+    const attachment = await createApplySourceAttachment(parent);
     const workflow = await getLiteratureDigestWorkflow();
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         async readText(entryPath: string) {
           if (entryPath === "result/result.json") {
@@ -1305,6 +1355,10 @@ describe("workflow: literature-analysis", function () {
           throw new Error(`missing bundle entry: ${entryPath}`);
         },
       },
+      request: {
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRefs: [itemRef(attachment)],
+      },
     })) as { notes: Zotero.Item[] };
 
     const referencesNote = applied.notes.find(
@@ -1329,6 +1383,7 @@ describe("workflow: literature-analysis", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Matching Metadata Parent" },
     });
+    const attachment = await createApplySourceAttachment(parent);
     const workflow = await getLiteratureDigestWorkflow();
     const baseHostApi = createWorkflowHostApi();
     const matchingMetadata = {
@@ -1342,7 +1397,7 @@ describe("workflow: literature-analysis", function () {
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         async readText(entryPath: string) {
           if (entryPath === "result/result.json") {
@@ -1373,6 +1428,8 @@ describe("workflow: literature-analysis", function () {
         },
       },
       request: {
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRefs: [itemRef(attachment)],
         parameter: {
           auto_reference_matching: false,
         },
@@ -1423,14 +1480,19 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Auto Matching Parent" },
       });
+      const attachment = await createApplySourceAttachment(parent);
       const workflow = await getLiteratureDigestWorkflow();
 
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: new ZipBundleReader(
           fixturePath("literature-analysis", "run_bundle.zip"),
         ),
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
+        },
       })) as {
         notes: Zotero.Item[];
         auto_reference_matching?: unknown;
@@ -1470,15 +1532,18 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Auto Matching Disabled Parent" },
       });
+      const attachment = await createApplySourceAttachment(parent);
       const workflow = await getLiteratureDigestWorkflow();
 
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: new ZipBundleReader(
           fixturePath("literature-analysis", "run_bundle.zip"),
         ),
         request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
           parameter: {
             auto_reference_matching: false,
           },
@@ -1532,21 +1597,30 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Auto Matching Reapply Parent" },
       });
+      const attachment = await createApplySourceAttachment(parent);
       const workflow = await getLiteratureDigestWorkflow();
 
       await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: new ZipBundleReader(
           fixturePath("literature-analysis", "run_bundle.zip"),
         ),
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
+        },
       });
       const second = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: new ZipBundleReader(
           fixturePath("literature-analysis", "run_bundle.zip"),
         ),
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
+        },
       })) as {
         notes: Zotero.Item[];
         auto_reference_matching?: unknown;
@@ -1577,6 +1651,7 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Uploads-Prefixed Paths Parent" },
       });
+      const attachment = await createApplySourceAttachment(parent);
       const digestPath = "uploads/inputs/source_path/artifacts/digest.md";
       const referencesPath =
         "uploads/inputs/source_path/artifacts/references.json";
@@ -1591,7 +1666,7 @@ describe("workflow: literature-analysis", function () {
 
       const applied = (await executeApplyResult({
         workflow: workflow!,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {
@@ -1615,6 +1690,10 @@ describe("workflow: literature-analysis", function () {
             }
             throw new Error(`missing bundle entry: ${entryPath}`);
           },
+        },
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
         },
       })) as { notes: Zotero.Item[] };
 
@@ -1647,6 +1726,7 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Citation Sidecar Payload Parent" },
       });
+      const attachment = await createApplySourceAttachment(parent);
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
         (entry) => entry.manifest.id === "literature-analysis",
@@ -1657,7 +1737,7 @@ describe("workflow: literature-analysis", function () {
       const baseHostApi = createWorkflowHostApi();
       await executeApplyResult({
         workflow: workflow!,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {
@@ -1686,6 +1766,10 @@ describe("workflow: literature-analysis", function () {
             }
             throw new Error(`missing bundle entry: ${entryPath}`);
           },
+        },
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
         },
         runtime: {
           hostApi: {
@@ -1721,6 +1805,7 @@ describe("workflow: literature-analysis", function () {
           itemType: "journalArticle",
           fields: { title: "Workflow ACP Result Context Parent" },
         });
+        const attachment = await createApplySourceAttachment(parent);
         const resultDir = path.join(root, "result");
         await fs.mkdir(resultDir, { recursive: true });
         const digestPath = path.join(resultDir, "digest.md");
@@ -1770,9 +1855,13 @@ describe("workflow: literature-analysis", function () {
 
         const applied = (await executeApplyResult({
           workflow: workflow!,
-          parent,
+          parent: itemRef(parent),
           bundleReader,
           resultContext,
+          request: {
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
+          },
           runResult: {
             requestId: "acp-local-result",
             resultJson,
@@ -1801,6 +1890,7 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Missing Artifact Path Parent" },
       });
+      const attachment = await createApplySourceAttachment(parent);
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
         (entry) => entry.manifest.id === "literature-analysis",
@@ -1811,7 +1901,11 @@ describe("workflow: literature-analysis", function () {
       try {
         await executeApplyResult({
           workflow: workflow!,
-          parent,
+          parent: itemRef(parent),
+          request: {
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
+          },
           bundleReader: {
             async readText(entryPath: string) {
               if (entryPath === "result/result.json") {
@@ -1872,8 +1966,8 @@ describe("workflow: literature-analysis", function () {
         selectionContext: context,
       })) as Array<{
         kind: string;
-        targetParentID: number;
-        sourceAttachmentPaths?: string[];
+        targetParentRef: { libraryId: number; key: string };
+        sourceAttachmentRefs: Array<{ libraryId: number; key: string }>;
         input?: { source_path?: string };
         upload_files?: Array<{ key: string; path: string }>;
       }>;
@@ -1884,7 +1978,7 @@ describe("workflow: literature-analysis", function () {
       );
       const applied = (await executeApplyResult({
         workflow: workflow!,
-        parent,
+        parent: itemRef(parent),
         bundleReader: bundle,
         request: requests[0],
       })) as { notes: Zotero.Item[] };
@@ -1910,12 +2004,11 @@ describe("workflow: literature-analysis", function () {
   );
 
   itFullOnly(
-    "continues apply when source markdown itemKey cannot be resolved",
+    "applies results with a canonical source attachment ref",
     async function () {
       this.timeout(5000);
-      const parent = await handlers.item.create({
-        itemType: "journalArticle",
-        fields: { title: "Workflow Source Metadata Fallback Parent" },
+      const { parent, attachment } = await createDigestAttachmentParent({
+        title: "Workflow Source Metadata Parent",
       });
 
       const bundle = new ZipBundleReader(
@@ -1929,17 +2022,11 @@ describe("workflow: literature-analysis", function () {
 
       const applied = (await executeApplyResult({
         workflow: workflow!,
-        parent,
+        parent: itemRef(parent),
         bundleReader: bundle,
         request: {
-          targetParentID: parent.id,
-          sourceAttachmentPaths: ["D:/not-found/example.md"],
-          input: {
-            source_path: "inputs/source_path/example.md",
-          },
-          upload_files: [
-            { key: "source_path", path: "D:/not-found/example.md" },
-          ],
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
         },
       })) as { notes: Zotero.Item[] };
 
@@ -1947,9 +2034,9 @@ describe("workflow: literature-analysis", function () {
       const digestNote = Zotero.Items.get(applied.notes[0].id)!;
       const referencesNote = Zotero.Items.get(applied.notes[1].id)!;
       const citationAnalysisNote = Zotero.Items.get(applied.notes[2].id)!;
-      assert.notMatch(
+      assert.notInclude(
         digestNote.getNote(),
-        /data-zs-source_attachment_item_key=/,
+        "data-zs-source_attachment_item_key",
       );
       await assertStoredPayloadExists(digestNote, "digest-markdown");
       await assertStoredPayloadExists(referencesNote, "references-json");
@@ -1986,6 +2073,7 @@ describe("workflow: literature-analysis", function () {
           itemType: "journalArticle",
           fields: { title: "Workflow Representative Image Parent" },
         });
+        const attachment = await createApplySourceAttachment(parent, mdPath);
         const workflow = await getLiteratureDigestWorkflow();
         const representativeLogs: any[] = [];
         let preparedPath = "";
@@ -2000,7 +2088,7 @@ describe("workflow: literature-analysis", function () {
 
         const applied = (await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader: createRepresentativeImageBundleReader({
             representativeImage: {
               status: "selected",
@@ -2013,7 +2101,8 @@ describe("workflow: literature-analysis", function () {
             },
           }),
           request: {
-            sourceAttachmentPaths: [mdPath],
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
             parameter: {
               auto_reference_matching: false,
             },
@@ -2094,12 +2183,13 @@ describe("workflow: literature-analysis", function () {
           itemType: "journalArticle",
           fields: { title: "Workflow Representative Stale Note Parent" },
         });
+        const attachment = await createApplySourceAttachment(parent, mdPath);
         const workflow = await getLiteratureDigestWorkflow();
         const preparedHostApi = createPreparedImageTestHost();
 
         const applied = (await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader: createRepresentativeImageBundleReader({
             representativeImage: {
               status: "selected",
@@ -2111,7 +2201,8 @@ describe("workflow: literature-analysis", function () {
             },
           }),
           request: {
-            sourceAttachmentPaths: [mdPath],
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
             parameter: {
               auto_reference_matching: false,
             },
@@ -2153,13 +2244,14 @@ describe("workflow: literature-analysis", function () {
           itemType: "journalArticle",
           fields: { title: "Workflow Representative Unsafe Parent" },
         });
+        const attachment = await createApplySourceAttachment(parent, mdPath);
         const workflow = await getLiteratureDigestWorkflow();
         const baseHostApi = createWorkflowHostApi();
         const representativeLogs: any[] = [];
 
         const applied = (await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader: createRepresentativeImageBundleReader({
             representativeImage: {
               status: "selected",
@@ -2169,7 +2261,8 @@ describe("workflow: literature-analysis", function () {
             },
           }),
           request: {
-            sourceAttachmentPaths: [mdPath],
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
             parameter: {
               auto_reference_matching: false,
             },
@@ -2265,12 +2358,13 @@ describe("workflow: literature-analysis", function () {
           itemType: "journalArticle",
           fields: { title: "Workflow Representative Missing Hint Parent" },
         });
+        const attachment = await createApplySourceAttachment(parent, mdPath);
         const workflow = await getLiteratureDigestWorkflow();
         const baseHostApi = createWorkflowHostApi();
 
         const applied = (await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader: createRepresentativeImageBundleReader({
             representativeImage: {
               status: "selected",
@@ -2281,7 +2375,8 @@ describe("workflow: literature-analysis", function () {
             },
           }),
           request: {
-            sourceAttachmentPaths: [mdPath],
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
             parameter: {
               auto_reference_matching: false,
             },
@@ -2364,6 +2459,7 @@ describe("workflow: literature-analysis", function () {
           itemType: "journalArticle",
           fields: { title: "Workflow Representative Caption Parent" },
         });
+        const attachment = await createApplySourceAttachment(parent, mdPath);
         const workflow = await getLiteratureDigestWorkflow();
         let preparedPath = "";
         const preparedHostApi = createPreparedImageTestHost({
@@ -2377,7 +2473,7 @@ describe("workflow: literature-analysis", function () {
 
         const applied = (await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader: createRepresentativeImageBundleReader({
             representativeImage: {
               status: "selected",
@@ -2389,7 +2485,8 @@ describe("workflow: literature-analysis", function () {
             },
           }),
           request: {
-            sourceAttachmentPaths: [mdPath],
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
             parameter: {
               auto_reference_matching: false,
             },
@@ -2447,12 +2544,13 @@ describe("workflow: literature-analysis", function () {
           itemType: "journalArticle",
           fields: { title: "Workflow Representative Ambiguous Label Parent" },
         });
+        const attachment = await createApplySourceAttachment(parent, mdPath);
         const workflow = await getLiteratureDigestWorkflow();
         const baseHostApi = createWorkflowHostApi();
 
         const applied = (await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader: createRepresentativeImageBundleReader({
             representativeImage: {
               status: "selected",
@@ -2463,7 +2561,8 @@ describe("workflow: literature-analysis", function () {
             },
           }),
           request: {
-            sourceAttachmentPaths: [mdPath],
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
             parameter: {
               auto_reference_matching: false,
             },
@@ -2511,6 +2610,7 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Representative Windows Path Parent" },
       });
+      const attachment = await createApplySourceAttachment(parent);
       const workflow = await getLiteratureDigestWorkflow();
       const mdPath = "C:\\papers\\paper.md";
       const expectedImagePath = "C:\\papers\\figures\\overview.png";
@@ -2523,7 +2623,7 @@ describe("workflow: literature-analysis", function () {
 
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: createRepresentativeImageBundleReader({
           representativeImage: {
             status: "selected",
@@ -2536,7 +2636,8 @@ describe("workflow: literature-analysis", function () {
           },
         }),
         request: {
-          sourceAttachmentPaths: [mdPath],
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
           parameter: {
             auto_reference_matching: false,
           },
@@ -2544,6 +2645,25 @@ describe("workflow: literature-analysis", function () {
         runtime: {
           hostApi: {
             ...preparedHostApi,
+            library: {
+              ...preparedHostApi.library,
+              async getItemDetail(ref: { libraryId: number; key: string }) {
+                if (
+                  ref.libraryId === attachment.libraryID &&
+                  ref.key === attachment.key
+                ) {
+                  return {
+                    kind: "attachment",
+                    item: {
+                      ref,
+                      itemType: "attachment",
+                      file: { state: "available", path: mdPath },
+                    },
+                  };
+                }
+                return preparedHostApi.library.getItemDetail(ref);
+              },
+            },
             file: {
               ...preparedHostApi.file,
               async readText(targetPath: string) {
@@ -2583,13 +2703,21 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Representative PDF Parent" },
       });
+      const attachment = await createApplySourceAttachment(
+        parent,
+        fixturePath(
+          "selection-context",
+          "attachments/EXKUYHMH/Zhang 等 - 2022 - Accelerating DETR Convergence via Semantic-Aligned Matching.pdf",
+        ),
+        "application/pdf",
+      );
       const workflow = await getLiteratureDigestWorkflow();
       const baseHostApi = createWorkflowHostApi();
       const representativeLogs: any[] = [];
 
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: createRepresentativeImageBundleReader({
           representativeImage: {
             status: "selected",
@@ -2600,7 +2728,8 @@ describe("workflow: literature-analysis", function () {
           },
         }),
         request: {
-          sourceAttachmentPaths: ["D:/paper.pdf"],
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
           parameter: {
             auto_reference_matching: false,
           },
@@ -2667,6 +2796,7 @@ describe("workflow: literature-analysis", function () {
         itemType: "journalArticle",
         fields: { title: "Workflow Upsert Parent" },
       });
+      const attachment = await createApplySourceAttachment(parent);
 
       await handlers.parent.addNote(parent, {
         content:
@@ -2688,8 +2818,12 @@ describe("workflow: literature-analysis", function () {
 
       await executeApplyResult({
         workflow: workflow!,
-        parent,
+        parent: itemRef(parent),
         bundleReader: bundle,
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
+        },
       });
 
       const allNoteItems = (parent.getNotes() || [])
@@ -2782,17 +2916,20 @@ describe("workflow: literature-analysis", function () {
       assert.lengthOf(requests, 2);
       const requestsByParent = new Map(
         requests.map((request) => [
-          (request as LiteratureAnalysisSequenceRequest).targetParentID,
+          JSON.stringify(
+            (request as LiteratureAnalysisSequenceRequest).targetParentRef,
+          ),
           request as LiteratureAnalysisSequenceRequest,
         ]),
       );
       assert.equal(
-        requestsByParent.get(parentSkipped.id)?.steps?.[0]?.parameter
-          ?.score_only,
+        requestsByParent.get(JSON.stringify(itemRef(parentSkipped)))?.steps?.[0]
+          ?.parameter?.score_only,
         true,
       );
       assert.equal(
-        requestsByParent.get(parentRun.id)?.steps?.[0]?.parameter?.score_only,
+        requestsByParent.get(JSON.stringify(itemRef(parentRun)))?.steps?.[0]
+          ?.parameter?.score_only,
         false,
       );
       assert.equal(requests.__stats?.totalUnits, 2);
@@ -2932,7 +3069,7 @@ describe("workflow: literature-analysis", function () {
     "builds score-only for a parent-selected item with the legacy triplet",
     async function () {
       const workflow = await getLiteratureDigestWorkflow();
-      const { parent } = await createDigestAttachmentParent({
+      const { parent, attachment } = await createDigestAttachmentParent({
         title: "Workflow Parent Selection Skip",
       });
       await addGeneratedDigestNotes(parent, {
@@ -2950,7 +3087,10 @@ describe("workflow: literature-analysis", function () {
       })) as LiteratureAnalysisSequenceRequest[];
 
       assert.lengthOf(requests, 1);
-      assert.equal(requests[0]?.targetParentID, parent.id);
+      assert.deepEqual(requests[0]?.targetParentRef, itemRef(parent));
+      assert.deepEqual(requests[0]?.sourceAttachmentRefs, [
+        itemRef(attachment),
+      ]);
       assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
     },
   );

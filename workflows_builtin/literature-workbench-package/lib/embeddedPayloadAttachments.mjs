@@ -257,7 +257,11 @@ function indexOfBytes(haystack, needle) {
   if (!haystack.length || !needle.length || needle.length > haystack.length) {
     return -1;
   }
-  outer: for (let index = 0; index <= haystack.length - needle.length; index += 1) {
+  outer: for (
+    let index = 0;
+    index <= haystack.length - needle.length;
+    index += 1
+  ) {
     for (let inner = 0; inner < needle.length; inner += 1) {
       if (haystack[index + inner] !== needle[inner]) {
         continue outer;
@@ -270,11 +274,12 @@ function indexOfBytes(haystack, needle) {
 
 function readUint32BE(bytes, offset) {
   return (
-    ((bytes[offset] || 0) << 24) |
-    ((bytes[offset + 1] || 0) << 16) |
-    ((bytes[offset + 2] || 0) << 8) |
-    (bytes[offset + 3] || 0)
-  ) >>> 0;
+    (((bytes[offset] || 0) << 24) |
+      ((bytes[offset + 1] || 0) << 16) |
+      ((bytes[offset + 2] || 0) << 8) |
+      (bytes[offset + 3] || 0)) >>>
+    0
+  );
 }
 
 function writeUint32BE(value) {
@@ -393,7 +398,11 @@ function buildPayloadEnvelope(args, runtime) {
 async function buildPayloadImageBytes(envelope, runtime) {
   const imageBytes = decodeBase64Bytes(PAYLOAD_BADGE_IMAGE_BASE64, runtime);
   const payloadBytes = encodeUtf8Bytes(JSON.stringify(envelope), runtime);
-  const chunk = buildPngChunk(WORKBENCH_EMBEDDED_PAYLOAD_CHUNK, payloadBytes, runtime);
+  const chunk = buildPngChunk(
+    WORKBENCH_EMBEDDED_PAYLOAD_CHUNK,
+    payloadBytes,
+    runtime,
+  );
   let cursor = PNG_SIGNATURE.length;
   while (cursor + 12 <= imageBytes.length) {
     const length = readUint32BE(imageBytes, cursor);
@@ -405,7 +414,11 @@ async function buildPayloadImageBytes(envelope, runtime) {
     }
     const chunkType = decodeAsciiBytes(imageBytes.slice(typeStart, dataStart));
     if (chunkType === PNG_IEND) {
-      return concatByteArrays([imageBytes.slice(0, cursor), chunk, imageBytes.slice(cursor)]);
+      return concatByteArrays([
+        imageBytes.slice(0, cursor),
+        chunk,
+        imageBytes.slice(cursor),
+      ]);
     }
     cursor = next;
   }
@@ -471,7 +484,8 @@ export function parseWorkbenchEmbeddedPayloadBytes(value, runtime) {
     marker: WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
     schemaVersion: 1,
     payloadStorageVersion:
-      Number(envelope?.payloadStorageVersion) || parsedEnvelope.payloadStorageVersion,
+      Number(envelope?.payloadStorageVersion) ||
+      parsedEnvelope.payloadStorageVersion,
     sourceStorage: parsedEnvelope.sourceStorage,
     payloadHash: normalizeText(envelope?.payloadHash),
     noteKind: normalizeText(envelope?.noteKind),
@@ -484,14 +498,17 @@ export function parseWorkbenchEmbeddedPayloadBytes(value, runtime) {
 function collectPayloadAnchors(note) {
   const html = String(note?.getNote?.() || "");
   const anchors = new Map();
-  const pattern = /<img\b[^>]*\bdata-zs-payload-anchor\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
+  const pattern =
+    /<img\b[^>]*\bdata-zs-payload-anchor\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
   for (const match of html.matchAll(pattern)) {
     const tag = match[0];
     const payloadType = normalizeText(match[1] || match[2] || match[3]);
     const keyMatch = tag.match(
       /\bdata-attachment-key\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
     );
-    const attachmentKey = normalizeText(keyMatch?.[1] || keyMatch?.[2] || keyMatch?.[3]);
+    const attachmentKey = normalizeText(
+      keyMatch?.[1] || keyMatch?.[2] || keyMatch?.[3],
+    );
     if (payloadType) {
       anchors.set(payloadType, attachmentKey);
     }
@@ -533,7 +550,8 @@ function projectPayloadBlock(parsed, attachment, anchors) {
     decodedText,
     estimatedSize: decodedText.length,
     payload,
-    markdown: format === "markdown" ? String(payload?.content || "") : undefined,
+    markdown:
+      format === "markdown" ? String(payload?.content || "") : undefined,
     format,
     attachmentKey: normalizeText(attachment?.key),
     attachmentId: attachment?.id || null,
@@ -542,7 +560,7 @@ function projectPayloadBlock(parsed, attachment, anchors) {
 
 async function readAttachmentBytes(runtime, attachment) {
   const host = requireHostApi(runtime);
-  const filePath = normalizeText(await attachment?.getFilePathAsync?.());
+  const filePath = normalizeText(attachment?.file?.path);
   if (!filePath) {
     throw new Error("embedded payload attachment path is missing");
   }
@@ -553,10 +571,7 @@ async function readAttachmentBytes(runtime, attachment) {
 }
 
 function portableNoteRef(note) {
-  const ref = note?.ref || {
-    libraryId: Number(note?.libraryId || note?.libraryID),
-    key: normalizeText(note?.key),
-  };
+  const ref = note?.ref;
   if (!Number.isSafeInteger(ref.libraryId) || ref.libraryId <= 0 || !ref.key) {
     throw new Error("workbench payload requires a portable note ref");
   }
@@ -573,31 +588,42 @@ export async function listWorkbenchEmbeddedPayloadBlocksForNote(args) {
     getItems: (page) => page.payloads,
     operation: "embedded payload read",
   });
-  const available = summaries.filter((summary) => summary.state === "available");
-  return Promise.all(available.map(async (summary) => {
-    const payload = await host.library.getNotePayload(noteRef, {
-      payloadType: summary.payloadType,
-    });
-    return {
-      source: summary.source.kind === "inline" ? "inline" : "embedded-image-attachment",
-      payloadType: summary.payloadType,
-      noteKind: summary.noteKind,
-      version: summary.version,
-      encoding: summary.encoding,
-      estimatedSize: summary.estimatedBytes,
-      payload: payload.value,
-      format: summary.format,
-      markdown: summary.format === "markdown"
-        ? String(payload.value?.content || payload.value || "")
-        : undefined,
-      anchorStatus: "present",
-      errors: summary.issues,
-    };
-  }));
+  const available = summaries.filter(
+    (summary) => summary.state === "available",
+  );
+  return Promise.all(
+    available.map(async (summary) => {
+      const payload = await host.library.getNotePayload(noteRef, {
+        payloadType: summary.payloadType,
+      });
+      return {
+        source:
+          summary.source.kind === "inline"
+            ? "inline"
+            : "embedded-image-attachment",
+        payloadType: summary.payloadType,
+        noteKind: summary.noteKind,
+        version: summary.version,
+        encoding: summary.encoding,
+        estimatedSize: summary.estimatedBytes,
+        payload: payload.value,
+        format: summary.format,
+        markdown:
+          summary.format === "markdown"
+            ? String(payload.value?.content || payload.value || "")
+            : undefined,
+        anchorStatus: "present",
+        errors: summary.issues,
+      };
+    }),
+  );
 }
 
 function stripPayloadAnchorForType(noteContent, payloadType) {
-  const escaped = String(payloadType || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = String(payloadType || "").replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
   return String(noteContent || "").replace(
     new RegExp(
       `<img\\b(?=[^>]*\\bdata-zs-payload-anchor\\s*=\\s*(?:"${escaped}"|'${escaped}'|${escaped}))(?:[^>]*?)>`,
@@ -657,7 +683,9 @@ export async function attachWorkbenchPayloadToNote(args) {
     },
   });
   if (mutation.outcome !== "committed" && mutation.outcome !== "unchanged") {
-    throw new Error(mutation.attempt?.error?.message || "workbench payload upsert failed");
+    throw new Error(
+      mutation.attempt?.error?.message || "workbench payload upsert failed",
+    );
   }
   return {
     status: "attached",

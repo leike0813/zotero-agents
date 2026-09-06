@@ -1,217 +1,65 @@
 # 選択コンテキスト
 
-ユーザーが Zotero でアイテムを選択すると、プラグインは構造化された**選択コンテキスト（SelectionContext）**を構築する。これはユーザーが何を選択したか、および各選択アイテムがどの種別に属するかを記述する。このコンテキストは `buildRequest` フックの入力基盤として機能する。
+ワークフローの起動時に選択を元の順序で取得し、Broker の全ページを読み終えてから固定します。ページ間で選択が変わった場合は取得に失敗します。設定プレビューと実行は同じ入力を使い、明示的入力と永続化された入力には完全な `{libraryId, key}` 参照を使います。
 
-## 選択種別
+## 構造
 
-選択されたアイテム種別の組み合わせに基づき、`selectionContext.selectionType` は以下のいずれかの値を返す。
-
-| 種別 | 説明 |
-|------|------|
-| `"parent"` | すべての選択アイテムが親アイテム（トップレベルアイテム） |
-| `"child"` | すべての選択アイテムが子アイテム（非トップレベルアイテム） |
-| `"attachment"` | すべての選択アイテムが添付ファイル |
-| `"note"` | すべての選択アイテムがノート |
-| `"mixed"` | 選択アイテムが複数の種別の混在 |
-| `"none"` | アイテムが選択されていない |
-
-## コンテキストの構造
+`items` は `kind`、`ref`、`itemType` を持つ順序付き配列です。`title`、`parentRef` は任意です。添付ファイルには `filename`、`contentType`、`createdAt`、`fileState` が含まれる場合があります。ネイティブオブジェクト、数値アイテム ID、ローカルパスは含みません。空の選択は `items: []` です。
 
 ```ts
-selectionContext = {
-  selectionType: "parent",       // 選択種別
-  items: {
-    parents: [ /* 親アイテムのリスト */ ],
-    children: [ /* 子アイテムのリスト */ ],
-    attachments: [ /* 添付ファイルのリスト */ ],
-    notes: [ /* ノートのリスト */ ],
-  },
-  summary: {
-    parentCount: 2,
-    childCount: 0,
-    attachmentCount: 0,
-    noteCount: 0,
-  },
-  warnings: [],                  // 警告メッセージ
-  sampledAt: "2026-01-15T...",   // コンテキスト作成日時
-}
-```
-
-各アイテム種別には豊富なコンテキスト情報が含まれる。
-
-### 親アイテム（ParentContext）
-
-親アイテムは Zotero ライブラリ内のトップレベルアイテムである（例：学術論文、書籍、ウェブページなど）。各親アイテムコンテキストには以下が含まれる。
-
-```ts
-{
-  item: Zotero.Item,         // アイテムオブジェクト
-  id: number,                // アイテム ID
-  title: string,             // タイトル
-  attachments: [             // このアイテムの子添付ファイル
-    { type, filePath, mimeType, dateAdded, ... }
+const selectionContext = {
+  items: [
+    {
+      kind: "attachment",
+      ref: { libraryId: 1, key: "ATTACH01" },
+      itemType: "attachment",
+      title: "Paper.pdf",
+      parentRef: { libraryId: 1, key: "PARENT01" },
+    },
   ],
-  notes: [                   // このアイテムの子ノート
-    { id, content, ... }
-  ],
-  tags: string[],            // タグリスト
-  collections: string[],     // 含まれるコレクション
-  children: [                // その他の子アイテム
-    { id, type, ... }
-  ],
-}
+  sampledAt: "2026-09-06T00:00:00.000Z",
+};
 ```
 
-### 添付ファイル（AttachmentContext）
+## Hook での読み取り
 
-添付ファイルはアイテムのファイル添付である（PDF、Markdown など）。各添付ファイルコンテキストには以下が含まれる。
-
-```ts
-{
-  item: Zotero.Item,         // 添付ファイルアイテムオブジェクト
-  id: number,                // アイテム ID
-  filePath: string,          // ローカルファイルパス
-  fileName: string,          // ファイル名
-  mimeType: string,          // MIME タイプ（例："application/pdf"）
-  dateAdded: Date,           // 追加日
-  parentItem: {              // 所有者の親アイテム
-    id: number,
-    key: string,
-    libraryID: number,
-  },
-  tags: string[],
-  collections: string[],
-}
-```
-
-### ノート（NoteContext）
-
-```ts
-{
-  item: Zotero.Item,
-  id: number,
-  content: string,           // ノート内容（HTML）
-  parentItem: { id, key, libraryID },
-  tags: string[],
-}
-```
-
-## フックでの選択コンテキストの利用
-
-### 選択された添付ファイルの取得
+Hook は準備済みの入力単位を処理します。固定された参照を使い、`runtime.hostApi.library` から追加情報を読み取ります。`hasMore` が true の間は `nextCursor` を使って続け、現在の選択を再取得しないでください。
 
 ```js
-export function buildRequest({ selectionContext, runtime }) {
-  const attachments = selectionContext.items.attachments;
-
+export async function buildRequest({ selectionContext, runtime }) {
+  const refs = selectionContext.items.map((item) => item.ref);
+  const details = [];
+  for (const ref of refs) {
+    details.push(await runtime.hostApi.library.getItemDetail(ref));
+  }
   return {
-    kind: "skillrunner.job.v1",
-    create: { skill_id: "my-skill" },
-    input: {
-      files: attachments.map((attachment) => ({
-        path: runtime.helpers.getAttachmentFilePath(attachment),
-        name: runtime.helpers.getAttachmentFileName(attachment),
-      })),
-    },
+    kind: "pass-through.run.v1",
+    selectionContext,
+    parameter: { titles: details.map((detail) => detail.item.title || "") },
   };
 }
 ```
 
-### 選択された親アイテムとその子コンテンツの取得
+## ファイルと選択規則
 
-```js
-export function buildRequest({ selectionContext, runtime }) {
-  const parents = selectionContext.items.parents;
+ローカル入力の準備では `library.getItemDetail(ref)` を解決し、`file.state === "available"` の場合だけ `file.path` を使います。選択、タスク、永続化データには参照を保持します。ファイルを利用できない場合は準備に失敗します。
 
-  for (const parent of parents) {
-    const title = parent.item.getField("title");
-    const attachments = parent.attachments;  // この親アイテム配下の添付ファイル
-    const notes = parent.notes;              // この親アイテム配下のノート
-  }
-
-  // ...
-}
-```
-
-### 選択種別を確認して動作を決定する
-
-```js
-export function preflight({ selectionContext }) {
-  const { selectionType } = selectionContext;
-
-  if (selectionType === "none") {
-    // アイテムが選択されていない。スキップ
-    return { kind: "skip", reason: "no selected items" };
-  }
-
-  if (selectionType === "attachment") {
-    // ユーザーが添付ファイルのみを選択。添付ファイル処理ロジックを使用
-  } else if (selectionType === "parent") {
-    // ユーザーが親アイテムのみを選択。最初の該当添付ファイルを展開
-  }
-
-  return { kind: "continue", context: { selectionType } };
-}
-```
-
-### Attachment Candidate Planning
+親への昇格、重複排除、Markdown/PDF の優先順位は `validateSelection` の名前付きセレクターが担当します。MinerU は直接選択した PDF のみを処理し、親を選択した場合に限り適切な PDF をすべて展開します。入力単位は `inputs.member` と `inputs.grouping` で定義します。
 
 ```json
 {
   "inputs": {
-    "member": {
-      "kind": "attachment",
-      "accepts": { "mime": ["application/pdf"] }
-    },
+    "member": { "kind": "attachment", "accepts": { "mime": ["application/pdf"] } },
     "grouping": { "mode": "each" }
   },
   "validateSelection": {
-    "require": {
-      "selection": {
-        "counts": { "attachments": { "min": 1 } },
-        "allowMixed": false
-      }
-    },
     "select": { "policy": "input-member", "source": "selected" },
-    "filters": [
-      { "kind": "source-file-exists", "phase": "availability" }
-    ]
+    "filters": [{ "kind": "source-file-exists", "phase": "availability" }]
   }
 }
 ```
 
-`require.selection` reads the original SelectionContext once. The selector
-produces ordered candidates, attachment MIME compatibility runs before filters,
-and `inputs.grouping` creates immutable top-level units.
+空の入力には `member.kind: "selection"`、`grouping.mode: "all"`、`selection` セレクター、`trigger.requiresSelection: false` を使い、選択条件でも空の入力を許可してください。
 
-### Workflows Without Selected Items
-
-Use `member.kind: "selection"`, `grouping.mode: "all"`, the `selection`
-selector, and `trigger.requiresSelection: false`. The selector then produces
-the complete empty SelectionContext as the single member. Selection
-requirements remain active and must not make the empty selection impossible.
-
-## Declarative Candidate Filters
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "generated-note-candidates" },
-    "filters": [
-      {
-        "kind": "generated-note-kinds-absent",
-        "phase": "availability",
-        "noteKinds": ["digest"]
-      }
-    ]
-  }
-}
-```
-
-`validateSelection` owns candidate production and filtering. `inputs` owns
-the execution member and grouping. Hooks consume the prepared unit and must not
-reconstruct selection planning.
-## 次のステップ
-
-- [ホスト API リファレンス](host-api) — フックで Zotero データを操作する完全な API
-- [マニフェストの作成](manifest) — Workflow の入力ユニット種別を定義する
+- [Host API](host-api)
+- [Manifest](manifest#selection-validation)

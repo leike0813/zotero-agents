@@ -27,7 +27,7 @@ import {
 import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import { openRunResultBundleReader } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
-import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
+import { resolveTargetParentRefFromRequest } from "./workflowExecution/requestMeta";
 import {
   acceptCompletedSequenceStep,
   sequenceTerminalStepOwnsApply,
@@ -185,13 +185,13 @@ function resolveContinuationProviderOptions(args: {
   };
 }
 
-function resolveContinuationTargetParentID(args: {
+function resolveContinuationTargetParentRef(args: {
   record: SkillRunnerRunRecord;
   sequenceState: SequenceRunState;
 }) {
   return (
-    resolveTargetParentIDFromRequest(args.record.requestPayload) ??
-    resolveTargetParentIDFromRequest(args.sequenceState.request) ??
+    resolveTargetParentRefFromRequest(args.record.requestPayload) ??
+    resolveTargetParentRefFromRequest(args.sequenceState.request) ??
     undefined
   );
 }
@@ -210,7 +210,7 @@ function buildContinuationBaseMeta(args: {
     engine: normalizeString(providerOptions?.engine) || undefined,
     inputUnitIdentity:
       normalizeString(requestPayload.inputUnitIdentity) || undefined,
-    targetParentID: resolveContinuationTargetParentID(args),
+    targetParentRef: resolveContinuationTargetParentRef(args),
   };
 }
 
@@ -284,7 +284,12 @@ function buildTerminalRunResult(args: {
 
 async function applyWorkflowResult(args: {
   workflow: LoadedWorkflow;
-  parent: Zotero.Item | number | string | null;
+  parent:
+    | import("../workflows/types").PortableItemRef
+    | Zotero.Item
+    | number
+    | string
+    | null;
   request: unknown;
   runResult: Extract<ProviderExecutionResult, { status: "succeeded" }> &
     Record<string, unknown>;
@@ -352,10 +357,10 @@ async function applySingleTerminalSuccess(args: {
   const request = isRecord(args.record.requestPayload)
     ? args.record.requestPayload
     : {};
-  const targetParentID =
-    resolveTargetParentIDFromRequest(args.record.requestPayload) ||
-    resolveTargetParentIDFromRequest(request);
-  const parent = targetParentID || null;
+  const targetParentRef =
+    resolveTargetParentRefFromRequest(args.record.requestPayload) ||
+    resolveTargetParentRefFromRequest(request);
+  const parent = targetParentRef || null;
   if (!parent && !canWorkflowRunWithoutSelection(workflow.manifest)) {
     throw new Error(
       `workflow '${workflow.manifest.id}' requires a selection for applyResult`,
@@ -808,7 +813,7 @@ async function applySequenceRootResultIfNeeded(args: {
       );
     }
     const parent =
-      resolveTargetParentIDFromRequest(args.sequenceState.request) || null;
+      resolveTargetParentRefFromRequest(args.sequenceState.request) || null;
     if (!parent && !canWorkflowRunWithoutSelection(workflow.manifest)) {
       throw new Error(
         `workflow '${workflow.manifest.id}' requires a selection for applyResult`,
@@ -894,7 +899,7 @@ async function applySequenceTerminalStep(args: {
     return executeSequenceStepApply({
       workflow: applyWorkflow,
       parent:
-        resolveTargetParentIDFromRequest(stepApply.sequenceRequest) || null,
+        resolveTargetParentRefFromRequest(stepApply.sequenceRequest) || null,
       request: stepApply.stepRequest,
       runResult: {
         ...stepApply.stepResult,

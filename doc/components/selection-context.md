@@ -1,22 +1,39 @@
 # Selection/Context 组件说明
 
-## 目标
+SelectionContext 保存一次触发时锁定的有序 Zotero 事实，供 settings preview、Input Planning v2 和请求构建共用。类型定义位于 `src/modules/selectionContext.ts`，JSON Schema 位于 `src/schemas/selectionContextSchema.ts` 和本目录的 `selection-context.schema.json`。
 
-准确识别用户当前选择的对象类型与范围，并生成完整上下文（Metadata、注释、标签、集合、附件、父/子条目），为后续 Job 构建提供统一输入。
+## 获取与身份
 
-## Schema 引用
+`readSelectionContext(api, control?)` 消费 Broker 的精确选择页。每页默认 25、最多 100 项；cursor 绑定当前有序 refs 的 digest 与 after-index，仅当前页物化详情。attachment、note、annotation 保留自身 ref 和 parentRef，Broker 不提升、去重或排序，也不维护选择缓存、TTL 或持久化快照。
 
-- JSON Schema: `doc/components/selection-context.schema.json`
+全部页成功后锁定 `items` 与其中的 refs；`sampledAt` 只记录采样时间。分页遇到 `conflict.details.reason = basis_mismatch`、取消或读取失败时，丢弃整次获取并沿现有失败路径返回，不自动换成另一份选择。不可用 context 与有效空选择分别处理。
 
-## 职责
+显式远程输入、durable agent-run 和调用方指定输入使用 `buildSelectionContext(refs, api, control?)`，只接受完整 `{ libraryId, key }`。它通过 canonical library detail 读取事实，不采样 UI，不把 refs 还原成 raw item 再调用旧 builder。缺少完整 refs 的历史记录保留，但不能执行。
 
-- 识别选中对象类型：父条目、子条目、附件条目、笔记条目（含多选）
-- 构建按类型分支的上下文结构
-- 聚合父/子条目与附件信息，形成完整数据快照
-- 统一输出上下文结构供 Job/Workflow 使用
+## 数据结构
 
-SelectionContext 只描述原始 Zotero 选择与稳定关系，不负责决定 workflow
-执行单元。v2 input planner 按固定顺序消费它：
+```typescript
+SelectionContext {
+  items: readonly {
+    kind: "parent" | "child" | "attachment" | "note";
+    ref: { libraryId: number; key: string };
+    itemType: string;
+    title?: string;
+    parentRef?: { libraryId: number; key: string };
+    filename?: string | null;
+    contentType?: string | null;
+    createdAt?: string;
+    fileState?: "available" | "missing" | "not_applicable";
+  }[];
+  sampledAt: string;
+}
+```
+
+数组保留精确输入顺序和重复项；`selectionCounts` 从当前数组计算类型数量。metadata、notes、payload、附件拓扑等按任务需要通过 canonical library API 获取，不放入通用 rich tree。路径和 native numeric ID 不属于选择事实。
+
+## 任务投影
+
+Input Planning v2 按固定顺序消费锁定事实：
 
 ```text
 trigger.requiresSelection
@@ -29,164 +46,12 @@ trigger.requiresSelection
   -> immutable prepared units
 ```
 
-`require.selection` 每次 confirmed planning 只读取原始 SelectionContext
-一次；selector 生成的 candidate 会携带 scoped context，grouping 再将这些
-context 合并为 request/preflight 实际消费的顶层执行单元。SelectionContext
-本身不是候选列表或执行单元的事实源。
+命名 selector 持有 paper promotion、去重和来源优先级。Literature source 每 paper 一个 source，parent 优先于同 paper 的直接附件，Markdown 优先，按最早 PDF 同名 stem 和创建时间选择。MinerU 的直接 PDF 保持自身；parent 展开所有符合条件 PDF。Metadata selector 解析 regular parent；note export 保留直接 note 并展开 parent 的 generated notes；digest image 要求唯一 digest；bundle selection 只接收 top-level regular refs。
 
-## 输入
+每个 candidate 只携带所属 member 的 scoped facts 和 portable parent identity；grouping 生成不可变 prepared unit。preview 固定输入，确认后的执行模式可根据参数重新过滤，但已准入的 units 不得重新选择或分组。generated-note 与 digest-image selector 可附加各自最小 task target，不能恢复通用树形投影。
 
-- Zotero 当前选中对象列表（可能为空、单选、多选）
-- Zotero APIs：条目、附件、注释、标签、集合、文件元信息
+## 本地文件与结果
 
-## 输出（按类型分支）
+请求元数据使用 `targetParentRef` 和 `sourceAttachmentRefs`。本地准备上传时通过 `library.getItemDetail(ref)` 的 attachment file descriptor 取路径，只有 `state: available` 可以进入既有 materialization/upload mapping。文件消失时明确失败，不猜路径或数字 ID。Apply、sequence 和 recovery 保留请求中的 portable refs。
 
-### A. 选中父条目（Parent Item）
-
-输出包含：
-- `item`: 父条目 Metadata
-- `attachments`: 父条目的附件列表（AttachmentContext）
-- `notes`: 父条目的笔记列表（NoteLite，包含 `note` 文本）
-- `tags`: 父条目标签
-- `collections`: 父条目所属集合
-- `children`: 子条目列表（仅 ItemBase，非附件/非笔记）
-
-### B. 选中子条目（Child Item）
-
-输出包含：
-- `item`: 子条目 Metadata
-- `parent`: 对应父条目 Metadata
-- `attachments`: 子条目相关附件（AttachmentContext）
-- `notes`: 子条目笔记（NoteLite）
-- `tags`: 子条目标签
-- `collections`: 子条目所属集合
-
-### C. 选中附件条目（Attachment Item）
-
-输出包含：
-- `item`: 附件 Metadata（AttachmentContext.item）
-- `parent`: 对应父条目 Metadata
-- `filePath`: 附件路径（可能为 null）
-- `mimeType`: MIME 类型（可能为 null）
-
-### D. 多选混合（Mixed Selection）
-
-输出包含：
-- `items`: 按类型分组的结果集合（parent/child/attachment/note）
-- `summary`: 统计信息（数量、类型分布）
-- `warnings`: 异常情况（缺失父条目、附件路径不可用等）
- 
-### E. 选中笔记（Note）
-
-输出包含：
-- `item`: 笔记 Metadata
-- `parent`: 对应父条目 Metadata（可能为 null）
-- `tags`: 笔记标签
-- `collections`: 笔记所属集合
-
-说明：
-- 笔记内容不直接挂在 NoteContext 上，但 `item.data.note` 会包含原始笔记内容
-
-## 数据结构（建议）
-
-```
-SelectionContext {
-  selectionType: "parent" | "child" | "attachment" | "note" | "mixed" | "none"
-  items: {
-    parents: ParentContext[]
-    children: ChildContext[]
-    attachments: AttachmentContext[]
-    notes: NoteContext[]
-  }
-  summary: {
-    parentCount: number
-    childCount: number
-    attachmentCount: number
-    noteCount: number
-  }
-  warnings: string[]
-  sampledAt: string
-}
-```
-
-## Schema（固定）
-
-SelectionContext:
-
-- selectionType: "parent" | "child" | "attachment" | "note" | "mixed" | "none"
-- items.parents: ParentContext[]
-- items.children: ChildContext[]
-- items.attachments: AttachmentContext[]
-- items.notes: NoteContext[]
-- summary.parentCount: number
-- summary.childCount: number
-- summary.attachmentCount: number
-- summary.noteCount: number
-- warnings: string[]
-- sampledAt: ISO-8601 string
-
-ParentContext:
-- item: ItemBase
-- attachments: AttachmentContext[]
-- notes: NoteLite[]
-- tags: Tag[]
-- collections: string[]
-- children: ItemBase[]
-
-ChildContext:
-- item: ItemBase
-- parent: ItemBase | null
-- attachments: AttachmentContext[]
-- notes: NoteLite[]
-- tags: Tag[]
-- collections: string[]
-
-AttachmentContext:
-- item: ItemBase
-- parent: ItemBase | null
-- filePath: string | null
-- mimeType: string | null
-
-NoteContext:
-- item: ItemBase
-- parent: ItemBase | null
-- tags: Tag[]
-- collections: string[]
-
-ItemBase:
-- id: number
-- key: string
-- itemType: string
-- title: string
-- libraryID: number
-- parentItemID: number | null
-- data: object | null
-
-NoteLite:
-- ItemBase fields
-- note: string (HTML)  // 仅在 parent/child 的 notes 列表中提供
-
-Tag:
-- tag: string
-- type?: number
-
-## 行为与边界
-
-- 空选择时返回 `selectionType = "none"` 与空集合
-- 缺失父条目时记录 `warnings`
-- 附件路径不可读时不抛错，记录 `warnings` 并保留元数据
-- `children` 仅包含非附件/非笔记的子条目
-- 仅负责“读取与聚合”，不做修改与写回
-
-## 失败模式
-
-- Zotero API 读取失败：返回空结构并记录错误信息
-- 附件文件丢失：仅记录警告，不终止流程
-
-## 测试点（TDD）
-
-- 单选父条目，输出包含完整 Metadata、附件、注释、标签、集合、子条目
-- 单选子条目，输出包含父条目信息
-- 单选附件，输出包含父条目与父条目附件
-- 多选混合，输出类型分组与 summary
-- 缺失父条目/附件路径不可读时的 warnings
+`context.getCurrentView()` 是独立同步轻量读取：返回 `libraryIds/selectedSources` 等视图事实，多选树行保留顺序，Saved Search 使用 portable ref，不嵌入 selected items。

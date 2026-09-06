@@ -4156,11 +4156,20 @@ describe("zotero host broker capability api", function () {
       const broker = createZoteroHostCapabilityBroker();
       const parentRef = { libraryId: parent.libraryID, key: parent.key };
       const noteRef = { libraryId: note.libraryID, key: note.key };
-      const snapshot = await broker.context.getSelectedItems();
+      const attachmentRef = {
+        libraryId: attachment.libraryID,
+        key: attachment.key,
+      };
+      const snapshot = await broker.context.getSelectedItems({ limit: 25 });
       assert.deepEqual(
         snapshot.items.map((item) => item.ref),
-        [noteRef, parentRef],
+        [noteRef, attachmentRef],
       );
+      assert.deepEqual(snapshot.items[1].parentRef, parentRef);
+      assert.strictEqual(snapshot.returned, 2);
+      assert.strictEqual(snapshot.total, 2);
+      assert.isFalse(snapshot.hasMore);
+      assert.isNull(snapshot.nextCursor);
 
       const opened = await broker.navigation.openSelection({
         itemRefs: [parentRef, noteRef],
@@ -4213,6 +4222,129 @@ describe("zotero host broker capability api", function () {
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }
+  });
+
+  it("does not infer a collection from a library row id collision", async function () {
+    const collection = await createCollection("Current View Collision");
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    (Zotero as any).getMainWindow = () => ({
+      ZoteroPane: {
+        getSelectedItems: () => [],
+        getCollectionTreeRows: () => [
+          {
+            type: "library",
+            ref: {
+              id: collection.id,
+              libraryID: libraryId,
+              name: "My Library",
+            },
+            isLibrary: () => true,
+            isCollection: () => false,
+            isSearch: () => false,
+          },
+        ],
+      },
+    });
+
+    try {
+      const broker = createZoteroHostCapabilityBroker();
+      assert.deepEqual(broker.context.getCurrentView().selectedSources, [
+        { kind: "library", libraryId, name: "My Library" },
+      ]);
+    } finally {
+      (Zotero as any).getMainWindow = previousGetMainWindow;
+    }
+  });
+
+  it("pages the exact ordered selection with the bounded defaults and no snapshot cap", async function () {
+    const selectedItems = Array.from({ length: 10_001 }, (_, index) => ({
+      id: index + 1,
+      key: `SEL${String(index).padStart(5, "0")}`,
+      libraryID: 1,
+      itemType: "journalArticle",
+      getField(field: string) {
+        return field === "title" ? `Selected ${index}` : "";
+      },
+    }));
+    const broker = createZoteroHostCapabilityBroker(
+      {},
+      () =>
+        ({
+          ZoteroPane: { getSelectedItems: () => selectedItems },
+        }) as unknown as _ZoteroTypes.MainWindow,
+    );
+
+    const defaultPage = await broker.context.getSelectedItems();
+    assert.strictEqual(defaultPage.returned, 25);
+    assert.strictEqual(defaultPage.total, 10_001);
+    assert.isTrue(defaultPage.hasMore);
+    assert.isString(defaultPage.nextCursor);
+    assert.deepEqual(
+      defaultPage.items.map((item) => item.ref.key),
+      Array.from(
+        { length: 25 },
+        (_, index) => `SEL${String(index).padStart(5, "0")}`,
+      ),
+    );
+
+    const maximumPage = await broker.context.getSelectedItems({ limit: 100 });
+    assert.strictEqual(maximumPage.returned, 100);
+    assert.strictEqual(maximumPage.total, 10_001);
+    assert.isTrue(maximumPage.hasMore);
+    assert.strictEqual(maximumPage.items[99]?.ref.key, "SEL00099");
+  });
+
+  it("rejects selection continuation after order or content changes and honors cancellation", async function () {
+    const makeItem = (
+      index: number,
+      key = `SEL${String(index).padStart(5, "0")}`,
+    ) => ({
+      id: index + 1,
+      key,
+      libraryID: 1,
+      itemType: "journalArticle",
+    });
+    const first = [makeItem(0), makeItem(1), makeItem(2)];
+    let selectedItems = first;
+    const broker = createZoteroHostCapabilityBroker(
+      {},
+      () =>
+        ({
+          ZoteroPane: { getSelectedItems: () => selectedItems },
+        }) as unknown as _ZoteroTypes.MainWindow,
+    );
+
+    const firstPage = await broker.context.getSelectedItems({ limit: 1 });
+    assert.isString(firstPage.nextCursor);
+    selectedItems = [first[1], first[0], first[2]];
+    const orderError = await expectBrokerError(
+      broker.context.getSelectedItems({
+        limit: 1,
+        cursor: firstPage.nextCursor!,
+      }),
+      "conflict",
+    );
+    assert.deepInclude(orderError.details, { reason: "basis_mismatch" });
+
+    const secondPage = await broker.context.getSelectedItems({ limit: 1 });
+    selectedItems = [first[0], makeItem(1, "CHANGED1"), first[2]];
+    const contentError = await expectBrokerError(
+      broker.context.getSelectedItems({
+        limit: 1,
+        cursor: secondPage.nextCursor!,
+      }),
+      "conflict",
+    );
+    assert.deepInclude(contentError.details, { reason: "basis_mismatch" });
+
+    const controller = new AbortController();
+    const canceled = broker.context.getSelectedItems(
+      { limit: 1 },
+      { signal: controller.signal },
+    );
+    controller.abort();
+    await expectBrokerError(canceled, "canceled");
   });
 
   it("builds bounded strict-JSON errors from the closed public taxonomy", function () {
@@ -4319,17 +4451,18 @@ describe("zotero host broker capability api", function () {
     const broker = createFailClosedZoteroHostCapabilityBroker({
       context: {
         getCurrentView: () => ({
+          target: "library",
           libraryId: 1,
-          libraryName: "Test",
-          collectionId: null,
-          collectionKey: null,
-          collectionName: null,
-          view: "library",
+          libraryIds: [1],
+          selectedSources: [{ kind: "library", libraryId: 1, name: "Test" }],
+          selectionEmpty: true,
         }),
       },
     });
 
-    assert.strictEqual(broker.context.getCurrentView().libraryName, "Test");
+    assert.deepEqual(broker.context.getCurrentView().selectedSources, [
+      { kind: "library", libraryId: 1, name: "Test" },
+    ]);
     try {
       await broker.library.getItemDetail({ libraryId: 1, key: "ABC12345" });
       assert.fail("expected unconfigured capability to fail closed");
@@ -4888,7 +5021,8 @@ describe("zotero host broker capability api", function () {
         structured.capability,
         HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW,
       );
-      assert.lengthOf(structured.data.selectedItems, 1);
+      assert.deepEqual(structured.data.libraryIds, [1]);
+      assert.isFalse(structured.data.selectionEmpty);
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }

@@ -2,7 +2,10 @@ import { assert } from "chai";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import { handlers } from "../../src/handlers";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
@@ -295,7 +298,8 @@ describe("workflow: literature-deep-reading", function () {
       },
     })) as Array<{
       kind: string;
-      targetParentID: number;
+      targetParentRef: { libraryId: number; key: string };
+      sourceAttachmentRefs: Array<{ libraryId: number; key: string }>;
       steps: Array<{
         id: string;
         skill_id: string;
@@ -320,7 +324,10 @@ describe("workflow: literature-deep-reading", function () {
     assert.lengthOf(requests, 1);
     const request = requests[0];
     assert.equal(request.kind, "skillrunner.sequence.v1");
-    assert.equal(request.targetParentID, parent.id);
+    assert.deepEqual(request.targetParentRef, itemRef(parent));
+    assert.deepEqual(request.sourceAttachmentRefs, [
+      itemRef(markdownAttachment),
+    ]);
     assert.deepEqual(request.parameter, { target_language: "zh-CN" });
     assert.equal(request.final_step_id, "deep_reading");
     assert.lengthOf(request.steps, 2);
@@ -385,7 +392,7 @@ describe("workflow: literature-deep-reading", function () {
     const manifest = JSON.parse(await bundle.readText("source-manifest.json"));
     assert.equal(manifest.source.kind, "markdown");
     assert.equal(manifest.source.source_markdown_path, "source.md");
-    assert.equal(manifest.paper.item_key, parent.key);
+    assert.equal(manifest.paper.paper_ref, `1:${parent.key}`);
     assert.deepEqual(manifest.paper.creators, [
       { firstName: "Jane", lastName: "Doe", name: "", creatorType: "author" },
     ]);
@@ -579,7 +586,7 @@ describe("workflow: literature-deep-reading", function () {
       workflow,
       selectionContext: await buildSelectionContext([parent]),
     })) as Array<{
-      sourceAttachmentPaths?: string[];
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
       steps: Array<{
         id: string;
         skill_id: string;
@@ -591,7 +598,7 @@ describe("workflow: literature-deep-reading", function () {
     }>;
 
     assert.lengthOf(requests, 1);
-    assert.deepEqual(requests[0].sourceAttachmentPaths, [markdownPath]);
+    assert.lengthOf(requests[0].sourceAttachmentRefs || [], 1);
     assert.equal(requests[0].context?.translator_alignment_status, "available");
     assert.lengthOf(requests[0].steps, 1);
     assert.equal(requests[0].steps[0].id, "deep_reading");
@@ -679,7 +686,9 @@ describe("workflow: literature-deep-reading", function () {
     const requests = (await executeBuildRequests({
       workflow,
       selectionContext: await buildSelectionContext([keepParent, skipParent]),
-    })) as Array<{ sourceAttachmentPaths?: string[] }> & {
+    })) as Array<{
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+    }> & {
       __stats?: {
         totalUnits?: number;
         skippedUnits?: number;
@@ -688,7 +697,7 @@ describe("workflow: literature-deep-reading", function () {
     };
 
     assert.lengthOf(requests, 1);
-    assert.equal(requests[0].sourceAttachmentPaths?.[0], keepPath);
+    assert.lengthOf(requests[0].sourceAttachmentRefs || [], 1);
     assert.equal(requests.__stats?.totalUnits, 1);
     assert.equal(requests.__stats?.skippedUnits, 0);
     assert.equal(requests.__stats?.candidateStats?.total, 2);
@@ -713,10 +722,12 @@ describe("workflow: literature-deep-reading", function () {
     const requests = (await executeBuildRequests({
       workflow,
       selectionContext: await buildSelectionContext([parent]),
-    })) as Array<{ sourceAttachmentPaths?: string[] }>;
+    })) as Array<{
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
+    }>;
 
     assert.lengthOf(requests, 1);
-    assert.equal(requests[0].sourceAttachmentPaths?.[0], markdownPath);
+    assert.lengthOf(requests[0].sourceAttachmentRefs || [], 1);
   });
 
   it("attaches the final HTML result next to the source attachment", async function () {
@@ -725,15 +736,15 @@ describe("workflow: literature-deep-reading", function () {
     const sourcePath = joinPath(tempDir, "paper.md");
     await writeUtf8(sourcePath, "# Source Paper\n");
     const parent = await createParent("Attach Deep Reading Paper");
-    await handlers.attachment.createFromPath({
+    const sourceAttachment = await handlers.attachment.createFromPath({
       parent,
       path: sourcePath,
       title: "paper.md",
       mimeType: "text/markdown",
     });
     const request = {
-      targetParentID: parent.id,
-      sourceAttachmentPaths: [sourcePath],
+      targetParentRef: itemRef(parent),
+      sourceAttachmentRefs: [itemRef(sourceAttachment)],
       input: {
         source_bundle_path: "inputs/source_bundle_path/source_bundle.zip",
       },
@@ -753,7 +764,7 @@ describe("workflow: literature-deep-reading", function () {
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       request,
       bundleReader: createDeepReadingResultBundleReader(html) as any,
       runtime: {
@@ -810,7 +821,7 @@ describe("workflow: literature-deep-reading", function () {
     const sourcePath = joinPath(tempDir, "paper.md");
     await writeUtf8(sourcePath, "# Source Paper\n");
     const parent = await createParent("Attach Diagnostic Deep Reading Paper");
-    await handlers.attachment.createFromPath({
+    const sourceAttachment = await handlers.attachment.createFromPath({
       parent,
       path: sourcePath,
       title: "paper.md",
@@ -820,10 +831,10 @@ describe("workflow: literature-deep-reading", function () {
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       request: {
-        targetParentID: parent.id,
-        sourceAttachmentPaths: [sourcePath],
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRefs: [itemRef(sourceAttachment)],
       },
       bundleReader: {
         async readText(entryPath: string) {
@@ -898,15 +909,15 @@ describe("workflow: literature-deep-reading", function () {
     const sourcePath = joinPath(tempDir, "dedupe.pdf");
     await writeBytes(sourcePath, new Uint8Array([37, 80, 68, 70]));
     const parent = await createParent("Deep Reading Dedupe");
-    await handlers.attachment.createFromPath({
+    const sourceAttachment = await handlers.attachment.createFromPath({
       parent,
       path: sourcePath,
       title: "dedupe.pdf",
       mimeType: "application/pdf",
     });
     const request = {
-      targetParentID: parent.id,
-      sourceAttachmentPaths: [sourcePath],
+      targetParentRef: itemRef(parent),
+      sourceAttachmentRefs: [itemRef(sourceAttachment)],
       context: {
         source_manifest: {
           source: {
@@ -919,14 +930,14 @@ describe("workflow: literature-deep-reading", function () {
 
     await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       request,
       bundleReader: createDeepReadingResultBundleReader(html) as any,
       runtime: { hostApi: createWorkflowHostApi() },
     });
     await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       request,
       bundleReader: createDeepReadingResultBundleReader(html) as any,
       runtime: { hostApi: createWorkflowHostApi() },

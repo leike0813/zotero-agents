@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import { createZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
 import {
   resetZoteroLibrarySourcePageQueryAdapterForTests,
@@ -149,7 +152,8 @@ describe("workflow: literature-explainer", function () {
     })) as Array<{
       kind: string;
       skill_id: string;
-      targetParentID?: number;
+      targetParentRef?: { libraryId: number; key: string };
+      sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
       taskName?: string;
       runtime_options?: { execution_mode?: string };
       input?: { source_path?: string };
@@ -159,7 +163,8 @@ describe("workflow: literature-explainer", function () {
     assert.lengthOf(requests, 1);
     assert.equal(requests[0].kind, "skillrunner.job.v1");
     assert.equal(requests[0].skill_id, "literature-explainer");
-    assert.equal(requests[0].targetParentID, parent.id);
+    assert.deepEqual(requests[0].targetParentRef, itemRef(parent));
+    assert.deepEqual(requests[0].sourceAttachmentRefs, [itemRef(attachment)]);
     assert.equal(requests[0].taskName, "paper.md");
     assert.equal(requests[0].runtime_options?.execution_mode, "interactive");
     assert.equal(requests[0].upload_files?.[0]?.key, "source_path");
@@ -194,14 +199,16 @@ describe("workflow: literature-explainer", function () {
         workflow,
         selectionContext: context,
       })) as Array<{
-        targetParentID?: number;
+        targetParentRef?: { libraryId: number; key: string };
+        sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
         taskName?: string;
         upload_files?: Array<{ key: string; path: string }>;
         input?: { source_path?: string };
       }>;
 
       assert.lengthOf(requests, 1);
-      assert.equal(requests[0].targetParentID, parent.id);
+      assert.deepEqual(requests[0].targetParentRef, itemRef(parent));
+      assert.deepEqual(requests[0].sourceAttachmentRefs, [itemRef(attachment)]);
       assert.equal(requests[0].taskName, "paper.pdf");
       assert.equal(requests[0].upload_files?.[0]?.key, "source_path");
       assert.equal(requests[0].upload_files?.[0]?.path, pdfPath);
@@ -224,7 +231,7 @@ describe("workflow: literature-explainer", function () {
     const notesBefore = parent.getNotes().length;
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         async readText(entryPath: string) {
           if (entryPath === "result/result.json") {
@@ -282,7 +289,7 @@ describe("workflow: literature-explainer", function () {
       const workflow = await getWorkflow();
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {
@@ -358,7 +365,7 @@ describe("workflow: literature-explainer", function () {
 
         const applied = (await executeApplyResult({
           workflow,
-          parent,
+          parent: itemRef(parent),
           bundleReader,
           resultContext,
           runResult: {
@@ -445,7 +452,7 @@ describe("workflow: literature-explainer", function () {
       const notesBefore = parent.getNotes().length;
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {
@@ -565,7 +572,7 @@ describe("workflow: literature-explainer", function () {
       const notesBefore = parent.getNotes().length;
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {
@@ -616,7 +623,7 @@ describe("workflow: literature-explainer", function () {
       const workflow = await getWorkflow();
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {
@@ -655,7 +662,7 @@ describe("workflow: literature-explainer", function () {
       const workflow = await getWorkflow();
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {
@@ -688,7 +695,7 @@ describe("workflow: literature-explainer", function () {
 
     const applied = (await executeApplyResult({
       workflow,
-      parent,
+      parent: itemRef(parent),
       bundleReader: {
         async readText(entryPath: string) {
           if (entryPath === "result/result.json") {
@@ -717,7 +724,7 @@ describe("workflow: literature-explainer", function () {
 
       const applied = (await executeApplyResult({
         workflow,
-        parent,
+        parent: itemRef(parent),
         bundleReader: {
           async readText(entryPath: string) {
             if (entryPath === "result/result.json") {

@@ -200,7 +200,7 @@ pub fn annotation(config: &BridgeConfig, args: AnnotationArgs) -> Result<Value, 
 
 pub fn context(config: &BridgeConfig, args: ContextArgs) -> Result<Value, CliError> {
     match args.command {
-        ContextCommand::Current(args) => client::get(config, &page_path("/context/current", args)),
+        ContextCommand::Current => client::get(config, "/context/current"),
         ContextCommand::Selection(args) => match args.command {
             ContextSelectionCommand::Get(args) => {
                 client::get(config, &page_path("/context/selection", args))
@@ -1651,9 +1651,58 @@ fn workflow_selection_from(
             "Workflow --selection must be a JSON array",
         ));
     }
+    let mut normalized = Vec::with_capacity(items.as_array().map_or(0, Vec::len));
+    for (index, value) in items
+        .as_array()
+        .expect("workflow selection array checked above")
+        .iter()
+        .enumerate()
+    {
+        let Some(object) = value.as_object() else {
+            return Err(CliError::validation(
+                "invalid_workflow_items",
+                format!(
+                    "Workflow --selection item {index} must contain only libraryId and key"
+                ),
+            ));
+        };
+        if object.len() != 2 || !object.contains_key("libraryId") || !object.contains_key("key") {
+            return Err(CliError::validation(
+                "invalid_workflow_items",
+                format!(
+                    "Workflow --selection item {index} requires complete libraryId/key ref"
+                ),
+            ));
+        }
+        let library_id = object
+            .get("libraryId")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                CliError::validation(
+                    "invalid_workflow_items",
+                    format!("Workflow --selection item {index}.libraryId must be a positive integer"),
+                )
+            })?;
+        let key = object
+            .get("key")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CliError::validation(
+                    "invalid_workflow_items",
+                    format!("Workflow --selection item {index}.key must be a non-empty string"),
+                )
+            })?;
+        normalized.push(json!({
+            "libraryId": library_id,
+            "key": key,
+        }));
+    }
     Ok(json!({
         "kind": "items",
-        "items": items
+        "items": normalized
     }))
 }
 
@@ -3439,7 +3488,7 @@ mod tests {
             "zotero-bridge-agent-run-items-{}.json",
             std::process::id()
         ));
-        fs::write(&path, "[{\"id\":123}]").unwrap();
+        fs::write(&path, "[{\"libraryId\":1,\"key\":\"ABC12345\"}]").unwrap();
         let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
             workflow: "topic-synthesis".to_string(),
             selection: Some(format!("@{}", path.display())),
@@ -3447,8 +3496,34 @@ mod tests {
             output_dir: None,
         })
         .unwrap();
-        assert_eq!(input.pointer("/selection/items/0/id"), Some(&json!(123)));
+        assert_eq!(
+            input.pointer("/selection/items/0"),
+            Some(&json!({ "libraryId": 1, "key": "ABC12345" }))
+        );
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_legacy_workflow_selection_refs() {
+        contract::set_current_command("workflow agent-run");
+        for raw in [
+            "[\"ABC12345\"]",
+            "[123]",
+            "[{\"id\":123}]",
+            "[{\"key\":\"ABC12345\"}]",
+            "[{\"libraryId\":1,\"key\":\"ABC12345\",\"id\":123}]",
+        ] {
+            let error = workflow_agent_run_input(&WorkflowAgentRunArgs {
+                workflow: "topic-synthesis".to_string(),
+                selection: Some(raw.to_string()),
+                none: false,
+                output_dir: None,
+            })
+            .unwrap_err();
+            assert!(
+                error.code == "command_input_invalid" || error.code == "invalid_workflow_items"
+            );
+        }
     }
 
     #[test]

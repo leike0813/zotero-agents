@@ -12,10 +12,6 @@ import {
 import { parseWorkbenchNoteKind } from "./noteCodecs.mjs";
 import { normalizeReferencesPayload } from "./referenceModel.mjs";
 
-export function cloneSelectionContext(selectionContext) {
-  return JSON.parse(JSON.stringify(selectionContext || {}));
-}
-
 export function parseNoteKind(noteContent) {
   const text = String(noteContent || "");
   const payloadKind = text.match(
@@ -85,27 +81,6 @@ export function parseGeneratedNoteKind(noteContent) {
   }
 
   return "";
-}
-
-export function collectCandidateNotesFromParents(selectionContext) {
-  const parents = Array.isArray(selectionContext?.items?.parents)
-    ? selectionContext.items.parents
-    : [];
-  const notes = [];
-  for (const parentEntry of parents) {
-    const parentNotes = Array.isArray(parentEntry?.notes) ? parentEntry.notes : [];
-    for (const noteEntry of parentNotes) {
-      notes.push(noteEntry);
-    }
-  }
-  return notes;
-}
-
-export function collectCandidateNotes(selectionContext) {
-  const directNotes = Array.isArray(selectionContext?.items?.notes)
-    ? selectionContext.items.notes
-    : [];
-  return [...directNotes, ...collectCandidateNotesFromParents(selectionContext)];
 }
 
 export function parseReferencesPayload(noteContent, runtime) {
@@ -194,7 +169,12 @@ export function replaceReferencesTable(noteContent, tableHtml) {
   return `${String(noteContent || "")}\n${tableHtml}`;
 }
 
-export function updatePayloadBlock(noteContent, payloadTag, nextPayload, runtime) {
+export function updatePayloadBlock(
+  noteContent,
+  payloadTag,
+  nextPayload,
+  runtime,
+) {
   const nextEncoded = encodeBase64Utf8(JSON.stringify(nextPayload), runtime);
   let nextTag = setTagAttribute(payloadTag, "data-zs-encoding", "base64");
   nextTag = setTagAttribute(nextTag, "data-zs-value", nextEncoded);

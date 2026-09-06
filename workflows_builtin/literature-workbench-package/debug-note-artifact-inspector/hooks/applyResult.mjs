@@ -47,7 +47,11 @@ function indexOfBytes(haystack, needle) {
   if (!haystack.length || !needle.length || needle.length > haystack.length) {
     return -1;
   }
-  outer: for (let index = 0; index <= haystack.length - needle.length; index += 1) {
+  outer: for (
+    let index = 0;
+    index <= haystack.length - needle.length;
+    index += 1
+  ) {
     for (let inner = 0; inner < needle.length; inner += 1) {
       if (haystack[index + inner] !== needle[inner]) {
         continue outer;
@@ -172,7 +176,10 @@ function summarizeWorkbenchEmbeddedPayloadForDebug(parsed) {
 }
 
 function collectAttributeValues(html, attributeName) {
-  const escaped = String(attributeName || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = String(attributeName || "").replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
   const pattern = new RegExp(
     `${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`,
     "gi",
@@ -190,12 +197,12 @@ function uniqueRefs(values) {
   const refs = [];
   const seen = new Set();
   for (const value of values || []) {
-    const normalized =
-      typeof value === "number" ? value : normalizeText(value);
+    const normalized = typeof value === "number" ? value : normalizeText(value);
     if (!normalized) {
       continue;
     }
-    const key = typeof normalized === "number" ? `id:${normalized}` : `key:${normalized}`;
+    const key =
+      typeof normalized === "number" ? `id:${normalized}` : `key:${normalized}`;
     if (seen.has(key)) {
       continue;
     }
@@ -217,7 +224,9 @@ export function analyzeNoteHtmlForDebug(noteContent) {
   const html = String(noteContent || "");
   const payloadTypes = unique(collectAttributeValues(html, "data-zs-payload"));
   const noteKinds = unique(collectAttributeValues(html, "data-zs-note-kind"));
-  const attachmentKeys = unique(collectAttributeValues(html, "data-attachment-key"));
+  const attachmentKeys = unique(
+    collectAttributeValues(html, "data-attachment-key"),
+  );
   const representativeImageAttachmentKeys = unique([
     ...attachmentKeys,
     ...collectAttributeValues(
@@ -286,7 +295,7 @@ function resolveSelectionContext(args) {
 
 function addRef(refs, ref) {
   try {
-    refs.push(portableItemRef(ref?.ref || ref?.item?.ref || ref));
+    refs.push(portableItemRef(ref?.ref || ref));
   } catch {
     // Ignore entries without portable identity.
   }
@@ -294,33 +303,26 @@ function addRef(refs, ref) {
 
 function collectSelectionRefs(selectionContext) {
   const refs = [];
-  const items = selectionContext?.items || {};
-  for (const entry of Array.isArray(items.parents) ? items.parents : []) {
-    addRef(refs, entry);
-  }
-  for (const entry of Array.isArray(items.notes) ? items.notes : []) {
-    addRef(refs, entry);
-  }
-  for (const entry of Array.isArray(items.attachments) ? items.attachments : []) {
-    addRef(
-      refs,
-      entry?.parent?.ref || entry?.item?.parentRef,
-    );
-  }
-  for (const entry of Array.isArray(items.children) ? items.children : []) {
-    addRef(
-      refs,
-      entry?.parent?.ref || entry?.item?.parentRef,
-    );
+  for (const item of Array.isArray(selectionContext?.items)
+    ? selectionContext.items
+    : []) {
+    if (item?.kind === "parent" || item?.kind === "note") {
+      addRef(refs, item.ref);
+    } else if (item?.parentRef) {
+      addRef(refs, item.parentRef);
+    }
   }
   return uniqueRefs(refs);
 }
 
 async function collectNotesFromItem(host, detail) {
   if (detail.kind === "note") {
-    return [await host.library.getNoteDetail(detail.item.ref, { format: "html" })];
+    return [
+      await host.library.getNoteDetail(detail.item.ref, { format: "html" }),
+    ];
   }
-  const parentRef = detail.kind === "regular" ? detail.item.ref : detail.item.parentRef;
+  const parentRef =
+    detail.kind === "regular" ? detail.item.ref : detail.item.parentRef;
   if (!parentRef) return [];
   const notes = await readHostPages({
     readPage: (page) => host.library.getItemNotes(parentRef, page),
@@ -328,7 +330,9 @@ async function collectNotesFromItem(host, detail) {
     operation: "debug note inspector read",
   });
   return Promise.all(
-    notes.map((note) => host.library.getNoteDetail(note.ref, { format: "html" })),
+    notes.map((note) =>
+      host.library.getNoteDetail(note.ref, { format: "html" }),
+    ),
   );
 }
 
@@ -382,7 +386,8 @@ async function resolveAttachmentDetail(host, noteItem, attachmentRef, runtime) {
   detail.contentType = normalizeText(attachment.contentType);
   detail.linkMode = attachment.linkMode;
   detail.isEmbeddedImage = attachment.role === "note_image";
-  detail.path = attachment.file.state === "available" ? attachment.file.path : "";
+  detail.path =
+    attachment.file.state === "available" ? attachment.file.path : "";
   detail.pseudoEmbeddedPayload = await tryReadPseudoEmbeddedPayload(
     host,
     runtime,
@@ -428,14 +433,14 @@ function summarizePseudoDigestPayload(payload) {
 }
 
 async function tryExportNote(args) {
-  if (!args.kind) {
+  if (!args.noteKind) {
     return {
       attempted: false,
     };
   }
   try {
     const exported = await exportGeneratedNoteCandidate({
-      kind: args.kind,
+      noteKind: args.noteKind,
       noteItemRef: args.noteItem.ref,
       runtime: args.runtime,
     });
@@ -481,7 +486,8 @@ export async function analyzeNoteItemForDebug(args) {
     attachmentDetails.push(detail);
   }
   const attachments = await readHostPages({
-    readPage: (page) => args.host.library.getItemAttachments(noteItem.ref, page),
+    readPage: (page) =>
+      args.host.library.getItemAttachments(noteItem.ref, page),
     getItems: (page) => page.attachments,
     operation: "debug note inspector attachment read",
   });
@@ -511,7 +517,7 @@ export async function analyzeNoteItemForDebug(args) {
     ...html.payloadTypes,
     ...embeddedPayloadTypes,
   ]);
-  const effectiveKind =
+  const noteKind =
     normalizeText(embeddedPayloads[0]?.noteKind) || html.currentExportKindGuess;
   const embeddedDigestPayload = embeddedPayloads.find(
     (payload) => payload.payloadType === "digest-markdown",
@@ -527,7 +533,7 @@ export async function analyzeNoteItemForDebug(args) {
       ? "payload_attachment_backed_note"
       : html.diagnosis;
   const exportAttempt = await tryExportNote({
-    kind: effectiveKind,
+    noteKind,
     noteItem,
     runtime: args.runtime,
   });
@@ -536,7 +542,7 @@ export async function analyzeNoteItemForDebug(args) {
     parentRef: noteItem.parentRef,
     title: noteItem.title,
     html,
-    effectiveExportKindGuess: effectiveKind,
+    effectiveExportKindGuess: noteKind,
     effectivePayloadTypes,
     effectiveDiagnosis,
     digestPayload: effectiveDigestPayload,
@@ -553,11 +559,6 @@ async function applyResultImpl(args) {
   const refs = collectSelectionRefs(selectionContext);
   if (args?.parent) {
     addRef(refs, args.parent);
-  }
-  if (refs.length === 0) {
-    for (const selected of await host.context.getSelectedItems()) {
-      addRef(refs, selected.ref);
-    }
   }
 
   const notes = [];

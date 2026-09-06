@@ -1,5 +1,4 @@
 import { appendRuntimeLog } from "../runtimeLogManager";
-import { buildSelectionContext } from "../selectionContext";
 import { emitVerboseConsole } from "../diagnosticVerbosity";
 import {
   buildWorkflowFinishMessage,
@@ -334,7 +333,6 @@ type PreparationDeps = {
   appendRuntimeLog: typeof appendRuntimeLog;
   resolveWorkflowExecutionContext: typeof resolveWorkflowExecutionContext;
   resolveWorkflowExecutionOptionsPreview: typeof resolveWorkflowExecutionOptionsPreview;
-  buildSelectionContext: typeof buildSelectionContext;
   executeBuildRequests: typeof executeBuildRequests;
   planWorkflowExecutionUnits: typeof planWorkflowExecutionUnits;
   buildSkillRunnerHostBridgeEnv: typeof buildSkillRunnerHostBridgeRuntimeEnv;
@@ -346,7 +344,6 @@ const defaultPreparationDeps: PreparationDeps = {
   appendRuntimeLog,
   resolveWorkflowExecutionContext,
   resolveWorkflowExecutionOptionsPreview,
-  buildSelectionContext,
   executeBuildRequests,
   planWorkflowExecutionUnits,
   buildSkillRunnerHostBridgeEnv: buildSkillRunnerHostBridgeRuntimeEnv,
@@ -361,7 +358,6 @@ export async function runWorkflowPreparationSeam(
     messageFormatter: WorkflowMessageFormatter;
     executionOptionsOverride?: WorkflowExecutionOptions;
     ignoreSavedWorkflowSettings?: boolean;
-    selectedItemsOverride?: Zotero.Item[];
     selectionContextOverride?: WorkflowScopedSelectionContext;
     suppressUiFeedback?: boolean;
     runtime?: Partial<WorkflowRuntimeContext>;
@@ -372,14 +368,23 @@ export async function runWorkflowPreparationSeam(
     ...defaultPreparationDeps,
     ...deps,
   };
-  const selectedItems = Array.isArray(args.selectedItemsOverride)
-    ? args.selectedItemsOverride
-    : args.selectionContextOverride !== undefined
-      ? []
-      : args.win.ZoteroPane?.getSelectedItems?.() || [];
   const workflowLabel = localizeWorkflowLabel(args.workflow);
+  const selectionContextSnapshot = args.selectionContextOverride;
+  if (!selectionContextSnapshot) {
+    resolved.appendRuntimeLog({
+      level: "error",
+      scope: "workflow-trigger",
+      workflowId: args.workflow.manifest.id,
+      stage: "selection-context-missing",
+      message: "workflow preparation requires locked selection context",
+    });
+    return {
+      status: "halted",
+    };
+  }
+  const selectedItemCount = selectionContextSnapshot.items.length;
   if (
-    selectedItems.length === 0 &&
+    selectedItemCount === 0 &&
     !canWorkflowRunWithoutSelection(args.workflow.manifest)
   ) {
     resolved.appendRuntimeLog({
@@ -413,7 +418,7 @@ export async function runWorkflowPreparationSeam(
     message: "workflow trigger started",
     details: {
       workflowLabel,
-      selectedItems: selectedItems.length,
+      selectedItems: selectedItemCount,
     },
   });
 
@@ -465,12 +470,7 @@ export async function runWorkflowPreparationSeam(
         error: previewError,
       });
     }
-    selectionContext =
-      args.selectionContextOverride !== undefined
-        ? args.selectionContextOverride
-        : ((await resolved.buildSelectionContext(
-            selectedItems,
-          )) as PreparedWorkflowExecution["selectionContext"]);
+    selectionContext = selectionContextSnapshot;
     plan = await resolved.planWorkflowExecutionUnits({
       workflow: args.workflow,
       selectionContext,
@@ -731,7 +731,6 @@ export async function buildWorkflowExecutionUnitPreview(
     win: _ZoteroTypes.MainWindow;
     workflow: LoadedWorkflow;
     executionOptionsOverride?: WorkflowExecutionOptions;
-    selectedItemsOverride?: Zotero.Item[];
     selectionContextOverride?: WorkflowScopedSelectionContext;
   },
   deps: Partial<PreparationDeps> = {},
@@ -741,14 +740,13 @@ export async function buildWorkflowExecutionUnitPreview(
     ...deps,
   };
   try {
-    const selectionContext =
-      args.selectionContextOverride !== undefined
-        ? args.selectionContextOverride
-        : await resolved.buildSelectionContext(
-            Array.isArray(args.selectedItemsOverride)
-              ? args.selectedItemsOverride
-              : args.win.ZoteroPane?.getSelectedItems?.() || [],
-          );
+    const selectionContext = args.selectionContextOverride;
+    if (!selectionContext) {
+      return Object.freeze({
+        status: "failure",
+        reasonCode: "selection-context-missing",
+      });
+    }
     const preview = resolved.resolveWorkflowExecutionOptionsPreview({
       workflow: args.workflow,
       executionOptionsOverride: args.executionOptionsOverride,

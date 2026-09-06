@@ -7,7 +7,11 @@ import {
   protectOriginalScriptMetadata,
   resolveCanonicalResult,
 } from "../../lib/metadataCurator.mjs";
-import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
 
 const BLOCKED_FIELD_KEYS = new Set([
@@ -21,12 +25,7 @@ const BLOCKED_FIELD_KEYS = new Set([
 ]);
 
 function portableRef(item) {
-  const libraryId = Number(item?.libraryId || item?.libraryID);
-  const key = normalizeString(item?.key);
-  if (!Number.isSafeInteger(libraryId) || libraryId <= 0 || !key) {
-    throw new Error("metadata curator requires a portable parent ref");
-  }
-  return { libraryId, key };
+  return portableItemRef(item);
 }
 
 function operationId(member, ref) {
@@ -37,7 +36,9 @@ function confirmed(result) {
   if (result?.outcome === "committed" || result?.outcome === "unchanged") {
     return result.result;
   }
-  const error = new Error(result?.attempt?.error?.message || "metadata mutation failed");
+  const error = new Error(
+    result?.attempt?.error?.message || "metadata mutation failed",
+  );
   error.attempt = result?.attempt;
   throw error;
 }
@@ -58,14 +59,20 @@ async function updateMetadata(host, itemRef, fields, creators) {
         ...(creators.length ? { creators } : {}),
       },
     });
-    if (execution?.outcome === "committed" || execution?.outcome === "unchanged") {
+    if (
+      execution?.outcome === "committed" ||
+      execution?.outcome === "unchanged"
+    ) {
       return execution.result.item;
     }
     const field = normalizeString(execution?.attempt?.error?.details?.field);
     const name = field.startsWith("patch.fields.")
       ? field.slice("patch.fields.".length)
       : "";
-    if (execution?.attempt?.error?.code !== "invalid_request" || !(name in remaining)) {
+    if (
+      execution?.attempt?.error?.code !== "invalid_request" ||
+      !(name in remaining)
+    ) {
       confirmed(execution);
     }
     delete remaining[name];
@@ -115,11 +122,15 @@ function normalizeApplyPayload(output, parent) {
     metadata: { ...metadata, fields },
     warnings: output.warnings,
   });
-  const protectedFields = normalizeMetadataFields(protectedResult.metadata.fields);
+  const protectedFields = normalizeMetadataFields(
+    protectedResult.metadata.fields,
+  );
   const creatorCompleteness = normalizeString(
     protectedResult.metadata.creatorCompleteness,
   );
-  const candidateCreators = normalizeCreators(protectedResult.metadata.creators);
+  const candidateCreators = normalizeCreators(
+    protectedResult.metadata.creators,
+  );
   const creators =
     creatorCompleteness && creatorCompleteness !== "complete"
       ? []
@@ -140,7 +151,9 @@ function normalizeApplyPayload(output, parent) {
   const itemType = normalizeString(metadata.itemType);
   return {
     ok:
-      !!itemType || Object.keys(protectedFields).length > 0 || creators.length > 0,
+      !!itemType ||
+      Object.keys(protectedFields).length > 0 ||
+      creators.length > 0,
     status,
     reason: "metadata curator output contains no applicable metadata",
     itemType,
@@ -191,8 +204,15 @@ async function cleanupResult(runtime, parent) {
 }
 
 async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
+  const host = requireHostApi(runtime);
+  const itemRef = portableRef(parent);
+  const parentDetail = await host.library.getItemDetail(itemRef);
+  if (parentDetail?.kind !== "regular") {
+    throw new Error("metadata curator parent is unavailable");
+  }
+  const parentItem = parentDetail.item;
   const output = resolveCanonicalResult({ resultContext, runResult });
-  const normalized = normalizeApplyPayload(output, parent);
+  const normalized = normalizeApplyPayload(output, parentItem);
   if (!normalized.ok) {
     return {
       applied: false,
@@ -202,7 +222,7 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     };
   }
   if (normalized.verifiedNoChange) {
-    const cleanup = await cleanupResult(runtime, parent);
+    const cleanup = await cleanupResult(runtime, parentItem);
     return {
       applied: false,
       skipped: false,
@@ -211,9 +231,7 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       ...cleanup,
     };
   }
-  const host = requireHostApi(runtime);
-  const itemRef = portableRef(parent);
-  const originalItemType = normalizeString(parent?.itemType);
+  const originalItemType = normalizeString(parentItem?.itemType);
   let itemTypeChanged = false;
   if (normalized.itemType && normalized.itemType !== originalItemType) {
     try {
@@ -223,15 +241,17 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
         targetItemType: normalized.itemType,
         incompatibleData: "move_to_extra",
       });
-      confirmed(await host.mutations.execute({
-        operation: "item.changeType",
-        operationId: operationId("change-type", itemRef),
-        itemRef,
-        expectedRevision: preview.plan.sourceRevision,
-        targetItemType: normalized.itemType,
-        incompatibleData: "move_to_extra",
-        previewToken: preview.token.value,
-      }));
+      confirmed(
+        await host.mutations.execute({
+          operation: "item.changeType",
+          operationId: operationId("change-type", itemRef),
+          itemRef,
+          expectedRevision: preview.plan.sourceRevision,
+          targetItemType: normalized.itemType,
+          incompatibleData: "move_to_extra",
+          previewToken: preview.token.value,
+        }),
+      );
       itemTypeChanged = true;
     } catch (error) {
       if (error?.code !== "invalid_request") throw error;
@@ -243,13 +263,12 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     normalized.fields,
     normalized.creators,
   );
-  const cleanup = await cleanupResult(runtime, parent);
+  const cleanup = await cleanupResult(runtime, parentItem);
   return {
     applied: true,
     skipped: false,
     item: {
-      key: updated?.ref?.key || "",
-      libraryID: updated?.ref?.libraryId || null,
+      ref: updated?.ref || itemRef,
     },
     itemTypeChanged,
     fieldCount: Object.keys(normalized.fields).length,
@@ -260,7 +279,9 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
 }
 
 export async function applyResult(args) {
-  return withPackageRuntimeScope(args?.runtime, () => applyResultImpl(args || {}));
+  return withPackageRuntimeScope(args?.runtime, () =>
+    applyResultImpl(args || {}),
+  );
 }
 
 export const __metadataCuratorApplyResultTestOnly = {

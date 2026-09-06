@@ -163,7 +163,7 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 
 ## 6. Sequence (Interactive Trigger)
 
-1. user trigger workflow and capture the selected item snapshot
+1. user triggers workflow and completes one basis-consistent acquisition of exact Broker selection pages, then locks the ordered canonical facts; a basis failure discards the acquisition and stops without automatic retry
 2. build one serialized `SelectionContext` from that snapshot
 3. resolve `isWorkflowConfigurable`
 4. if false -> execute directly with the captured context

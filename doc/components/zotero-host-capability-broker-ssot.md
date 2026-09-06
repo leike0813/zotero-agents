@@ -38,7 +38,7 @@ separate policies owned by their respective adapters.
 
 `WorkflowHostApi` explicitly projects a subset of the broker for workflow packages:
 
-- `context`: current Zotero view and selected items as DTOs
+- `context`: small current Zotero view and exact selected-item pages as DTOs; selection preserves order and child refs, defaults to 25 and permits at most 100 entries per page. The opaque cursor binds the ordered selection ref digest and after-index; a changed basis fails with `conflict.details.reason = basis_mismatch`. Selection has no TTL, persistence, aggregate snapshot cap, promotion or deduplication.
 - `library`: bounded item search, item detail, notes, and attachments as DTOs
 - `metadata`: controlled read-only metadata translation facade as DTOs
 - `mutations`: preview/execute command API for controlled Zotero writes

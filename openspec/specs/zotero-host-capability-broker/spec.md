@@ -200,11 +200,11 @@ The Host SHALL expose generic operations to export complete Zotero item JSON, cr
 
 ### Requirement: Workflow Host API v12 current view SHALL identify selected library-tree sources
 
-The current-view DTO SHALL include ordered JSON-safe source refs for the selected library-tree rows and all distinct selected library ids. It SHALL include the scalar library id only when exactly one library is represented, and the optional normalized current collection only when the entire selection represents one real Zotero collection. Zotero host-version differences SHALL be contained inside the broker.
+The current-view DTO SHALL include ordered JSON-safe source refs for the selected library-tree rows and all distinct selected library ids. It SHALL include the scalar library id only when exactly one library is represented, and the optional normalized current collection only when the entire selection represents one real Zotero collection. Zotero host-version differences SHALL be contained inside the broker. Sources SHALL use libraryIds/selectedSources in the canonical small current-view DTO, Saved Search identity SHALL be a portable libraryId/key ref, and item selection arrays SHALL NOT be embedded.
 
 #### Scenario: One real collection row is selected
 - **WHEN** the current Zotero library view contains exactly one selected real collection
-- **THEN** `context.getCurrentView()` SHALL include one collection source with its normalized id, key, name, and library id
+- **THEN** `context.getCurrentView()` SHALL include one collection source with its portable ref, name, and library id
 - **AND** it SHALL include that collection as the current collection
 - **AND** it SHALL report the unique library id
 

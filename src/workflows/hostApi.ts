@@ -21,10 +21,7 @@ import {
   type WorkflowInteractionMember,
 } from "./workflowHostErrorContract";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
-import type {
-  WorkflowCallControl,
-  WorkflowHostApiV12,
-} from "./types";
+import type { WorkflowCallControl, WorkflowHostApiV12 } from "./types";
 
 export * from "./workflowHostOwners";
 export { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
@@ -128,7 +125,11 @@ export function createWorkflowHostApi(
     environment: { getInfo: environment.getInfo },
     context: {
       getCurrentView: liveReads.context.getCurrentView,
-      getSelectedItems: liveReads.context.getSelectedItems,
+      getSelectedItems: (request, control) =>
+        liveReads.context.getSelectedItems(
+          request,
+          withDefaultControl(control),
+        ),
     },
     navigation: {
       openItem: liveReads.navigation.openItem,
@@ -153,11 +154,7 @@ export function createWorkflowHostApi(
       getItemDetail: (ref, control) =>
         liveReads.library.getItemDetail(ref, withDefaultControl(control)),
       getItemNotes: (ref, page, control) =>
-        liveReads.library.getItemNotes(
-          ref,
-          page,
-          withDefaultControl(control),
-        ),
+        liveReads.library.getItemNotes(ref, page, withDefaultControl(control)),
       getNoteDetail: (ref, options, control) =>
         liveReads.library.getNoteDetail(
           ref,
@@ -205,34 +202,63 @@ export function createWorkflowHostApi(
     },
     mutations: {
       preview: ((input) =>
-        broker.mutations.preview(input, callerScope)) as WorkflowHostApiV12["mutations"]["preview"],
+        broker.mutations.preview(
+          input,
+          callerScope,
+        )) as WorkflowHostApiV12["mutations"]["preview"],
       execute: ((input, control?: WorkflowCallControl) =>
-        broker.mutations.execute(input, callerScope, control)) as WorkflowHostApiV12["mutations"]["execute"],
+        broker.mutations.execute(
+          input,
+          callerScope,
+          control,
+        )) as WorkflowHostApiV12["mutations"]["execute"],
     },
     notes: {
       create: (input, control) =>
-        broker.notes.create(input, callerScope, control) as ReturnType<WorkflowHostApiV12["notes"]["create"]>,
+        broker.notes.create(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["notes"]["create"]
+        >,
       updateContent: (input, control) =>
-        broker.notes.updateContent(input, callerScope, control) as ReturnType<WorkflowHostApiV12["notes"]["updateContent"]>,
+        broker.notes.updateContent(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["notes"]["updateContent"]
+        >,
       remove: (input, control) =>
-        broker.notes.remove(input, callerScope, control) as ReturnType<WorkflowHostApiV12["notes"]["remove"]>,
+        broker.notes.remove(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["notes"]["remove"]
+        >,
       upsertPayload: (input, control) =>
-        broker.notes.upsertPayload(input, callerScope, control) as ReturnType<WorkflowHostApiV12["notes"]["upsertPayload"]>,
+        broker.notes.upsertPayload(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["notes"]["upsertPayload"]
+        >,
     },
     images: {
       prepareForNoteEmbedding: images.prepareForNoteEmbedding,
     },
     attachments: {
       create: (input, control) =>
-        broker.attachments.create(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["create"]>,
+        broker.attachments.create(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["attachments"]["create"]
+        >,
       updateMetadata: (input, control) =>
-        broker.attachments.updateMetadata(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["updateMetadata"]>,
+        broker.attachments.updateMetadata(
+          input,
+          callerScope,
+          control,
+        ) as ReturnType<WorkflowHostApiV12["attachments"]["updateMetadata"]>,
       replaceFile: (input, control) =>
-        broker.attachments.replaceFile(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["replaceFile"]>,
+        broker.attachments.replaceFile(
+          input,
+          callerScope,
+          control,
+        ) as ReturnType<WorkflowHostApiV12["attachments"]["replaceFile"]>,
       move: (input, control) =>
-        broker.attachments.move(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["move"]>,
+        broker.attachments.move(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["attachments"]["move"]
+        >,
       remove: (input, control) =>
-        broker.attachments.remove(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["remove"]>,
+        broker.attachments.remove(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["attachments"]["remove"]
+        >,
     },
     bibliography: {
       listFormats: bibliography.listFormats,
@@ -312,7 +338,8 @@ export function createWorkflowHostApi(
       clear: clipboard.clear,
     },
     editor: {
-      openSession: editor.openSession as WorkflowHostApiV12["editor"]["openSession"],
+      openSession:
+        editor.openSession as WorkflowHostApiV12["editor"]["openSession"],
     },
     notifications: { toast: notifications.toast },
     logging: { appendRuntimeLog: logging.appendRuntimeLog },

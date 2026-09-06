@@ -7,6 +7,7 @@ import {
 } from "../../lib/bindings.mjs";
 import {
   appendWorkflowRuntimeLog,
+  portableItemRef,
   requireHostEditor,
   requireHostApi,
   measureWorkflowTestSpan,
@@ -439,8 +440,7 @@ function appendTagRegulatorRuntimeLog(args) {
       message:
         "tag-regulator suggest tags reconciled against current local state",
       details: {
-        parentItemID: Number(args?.parentItemID || 0) || undefined,
-        parentItemKey: asString(args?.parentItemKey),
+        parentRef: args?.parentRef || null,
         reclassified_add_count: Number(args?.reclassifiedAddCount || 0),
         reclassified_staged_count: Number(args?.reclassifiedStagedCount || 0),
         remaining_suggest_count: Number(args?.remainingSuggestCount || 0),
@@ -660,8 +660,8 @@ function buildStagedEntryFromSuggestTag(
 }
 
 function stableParentRef(parentItem) {
-  const libraryId = Number(parentItem?.libraryID ?? parentItem?.libraryId);
-  const itemKey = asString(parentItem?.key ?? parentItem?.itemKey);
+  const libraryId = Number(parentItem?.ref?.libraryId);
+  const itemKey = asString(parentItem?.ref?.key);
   if (
     !Number.isSafeInteger(libraryId) ||
     libraryId <= 0 ||
@@ -1296,7 +1296,8 @@ async function intakeSuggestTagsToVocabulary(args) {
         new Set(
           (Array.isArray(promoted?.applied_parent_tags)
             ? promoted.applied_parent_tags
-            : [])
+            : []
+          )
             .filter(
               (entry) =>
                 currentParentRef &&
@@ -1455,10 +1456,7 @@ function sameNormalizedParentBindings(left, right) {
     return false;
   }
   for (let i = 0; i < a.length; i++) {
-    if (
-      a[i].libraryId !== b[i].libraryId ||
-      a[i].itemKey !== b[i].itemKey
-    ) {
+    if (a[i].libraryId !== b[i].libraryId || a[i].itemKey !== b[i].itemKey) {
       return false;
     }
   }
@@ -1816,13 +1814,14 @@ async function applyTagMutations(host, item, removeTags, addTags) {
       removeCount: removed.length,
       addCount: added.length,
     },
-    () => host.mutations.execute({
-      operation: "item.updateTags",
-      operationId: `tag-regulator:${item.ref.libraryId}:${item.ref.key}:${Date.now().toString(36)}`,
-      itemRef: item.ref,
-      add: added,
-      remove: removed,
-    }),
+    () =>
+      host.mutations.execute({
+        operation: "item.updateTags",
+        operationId: `tag-regulator:${item.ref.libraryId}:${item.ref.key}:${Date.now().toString(36)}`,
+        itemRef: item.ref,
+        add: added,
+        remove: removed,
+      }),
   );
   if (execution.outcome !== "committed" && execution.outcome !== "unchanged") {
     throw new Error(execution.attempt?.error?.message || "tag mutation failed");
@@ -1840,17 +1839,12 @@ async function applyTagMutations(host, item, removeTags, addTags) {
 
 async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
   const host = requireHostApi(runtime);
-  const parentRef = parent?.ref || {
-    libraryId: Number(parent?.libraryId || parent?.libraryID),
-    key: asString(parent?.key),
-  };
+  const parentRef = portableItemRef(parent);
   const detail = await host.library.getItemDetail(parentRef);
-  if (!detail || detail.kind !== "regular") throw new Error("tag-regulator parent is unavailable");
+  if (!detail || detail.kind !== "regular")
+    throw new Error("tag-regulator parent is unavailable");
   const parentItem = {
     ref: detail.item.ref,
-    libraryId: detail.item.ref.libraryId,
-    key: detail.item.ref.key,
-    itemKey: detail.item.ref.key,
     title: detail.item.title,
     tags: detail.item.tags,
   };
@@ -1982,8 +1976,8 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
   const reclassifiedStaged = collectUniqueSuggestTagNames(
     reconciledSuggest.nowStaged,
   );
-  const remainingSuggest = reconciledSuggest.remainingSuggest.filter((entry) =>
-    filterBuiltinStatusChanges([entry.tag], "suggest").length > 0,
+  const remainingSuggest = reconciledSuggest.remainingSuggest.filter(
+    (entry) => filterBuiltinStatusChanges([entry.tag], "suggest").length > 0,
   );
   const effectiveAddTags = mergeUniqueStringArrays(
     filterBuiltinStatusChanges(addTags.values, "add"),
@@ -2002,11 +1996,7 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     },
     async () =>
       appendTagRegulatorRuntimeLog({
-        parentItemID:
-          typeof parentItem?.id === "number" && Number.isFinite(parentItem.id)
-            ? parentItem.id
-            : 0,
-        parentItemKey: asString(parentItem?.key),
+        parentRef: parentItem?.ref || null,
         reclassifiedAddCount: reclassifiedAddTags.length,
         reclassifiedStagedCount: reclassifiedStaged.length,
         remainingSuggestCount: remainingSuggest.length,
@@ -2019,7 +2009,13 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       removeCount: effectiveRemoveTags.length,
       addCount: effectiveAddTags.length,
     },
-    () => applyTagMutations(host, parentItem, effectiveRemoveTags, effectiveAddTags),
+    () =>
+      applyTagMutations(
+        host,
+        parentItem,
+        effectiveRemoveTags,
+        effectiveAddTags,
+      ),
   );
 
   const suggestIntake = await measureWorkflowTestSpan(
@@ -2039,7 +2035,9 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     {},
     async () => {
       const refreshed = await host.library.getItemDetail(parentItem.ref);
-      return refreshed?.kind === "regular" ? refreshed.item.tags : mutation.next;
+      return refreshed?.kind === "regular"
+        ? refreshed.item.tags
+        : mutation.next;
     },
   );
   const finalAdded = mergeUniqueStringArrays(

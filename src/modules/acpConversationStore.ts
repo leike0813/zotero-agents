@@ -243,15 +243,9 @@ function parseHostContext(value: unknown): AcpHostContext | null {
     normalizeString(value.target) === "reader" ? "reader" : "library";
   const currentItem =
     isRecord(value.currentItem) &&
-    (Number(value.currentItem.id || 0) > 0 ||
-      normalizeString(value.currentItem.key) ||
+    (normalizeString(value.currentItem.key) ||
       normalizeString(value.currentItem.title))
       ? {
-          id:
-            Number.isFinite(Number(value.currentItem.id || 0)) &&
-            Number(value.currentItem.id || 0) > 0
-              ? Math.floor(Number(value.currentItem.id || 0))
-              : undefined,
           key: normalizeString(value.currentItem.key) || undefined,
           title: normalizeString(value.currentItem.title) || undefined,
         }

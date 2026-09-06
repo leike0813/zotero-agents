@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.5",
     "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-    "commandCatalogChecksum": "c090483961bdade316a636e965bcd0d24c501372c2f1cfdfdc46e99761455722"
+    "commandCatalogChecksum": "6d03e1e0cc423ebadfc6f8af726240fb6fedee14ad99f83abcf01b8abf727f00"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 950242,
-      "sha256": "2f2d5abb2b90e8b25da5d46fe8312b609457e4bee0a8760921aa383a8ec3d81b"
+      "bytes": 946258,
+      "sha256": "3f379ea369850bb496f6c99441692c09be8ad6aee4ff1c15a22cc5670c6bf908"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -77,8 +77,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
-      "bytes": 34830,
-      "sha256": "459be7e246c40b4143eca48eaed61060e75242b435a7ad3b4474eca0bf833764"
+      "bytes": 34839,
+      "sha256": "dc3eedfcfd8560fceee97857743cbc782bd61eb07c010cffd9f60867195e4c34"
     },
     {
       "path": "zotero-bridge-cli/references/commands/bridge/backend/list.md",
@@ -122,8 +122,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/context/current.md",
-      "bytes": 11394,
-      "sha256": "d9261db6eb9981e0141aa17423bfdc2f467cd8ec54b42c044bbbebad5f88a381"
+      "bytes": 9284,
+      "sha256": "b3f94a155f6ddf45773b8d2d9fb85cbb166a80752d9efd78720f7fc756b9b4bf"
     },
     {
       "path": "zotero-bridge-cli/references/commands/context/item/open.md",
@@ -137,8 +137,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/context/selection/get.md",
-      "bytes": 11860,
-      "sha256": "ef926fb4a6045deca949d9969c269c44990b8350c688061164cb6a56501450af"
+      "bytes": 11673,
+      "sha256": "1a8da7d90e4e282930d7a07816e19366281a60257bd854aea853d052f4516738"
     },
     {
       "path": "zotero-bridge-cli/references/commands/context/selection/open.md",
@@ -667,8 +667,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/workflow/agent-run.md",
-      "bytes": 19546,
-      "sha256": "7c0f54383af219a2e90a81f9807dba97edffc0992609e0791a248dc4b5c035be"
+      "bytes": 18494,
+      "sha256": "07d2dbc7a8e466eb24d52e5da4b51f3fe7adb90da974c392a80dd48baf8e3341"
     },
     {
       "path": "zotero-bridge-cli/references/commands/workflow/defaults.md",
@@ -727,18 +727,18 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/workflow/submit.md",
-      "bytes": 37778,
-      "sha256": "a579e5ce2ee9eb8fc0ab62300426d69eeb8e0a20e9a7b0ab8e4c65b67e0f4313"
+      "bytes": 36726,
+      "sha256": "b80b8e681114f365d7ba8fdeabbf1b49bfe6349db86615b3b202d8ae5de1a25a"
     },
     {
       "path": "zotero-bridge-cli/references/commands/workflow/validate.md",
-      "bytes": 24112,
-      "sha256": "a7f3786e43ca3fc3e5a8507bdd3cd8678d99ae4fdc5972ded2959882acd3782e"
+      "bytes": 23060,
+      "sha256": "b962171fc95340d3067f76088e0665a2804a71e89c3d9e20c22cde1031331b8c"
     },
     {
       "path": "zotero-bridge-cli/SKILL.md",
-      "bytes": 39127,
-      "sha256": "da11d52b92fc314c99fb606625f5250e342294cb98306fe7c5b67f558753a359"
+      "bytes": 40022,
+      "sha256": "f03b0a443a13e438e862163866a30f2cde6e6b9e469e767dfb0fdca5454c28b1"
     },
     {
       "path": "zotero-library-agent/agents/openai.yaml",
@@ -871,5 +871,5 @@
       "sha256": "48d26f5b33fa8b53f29a67f7c5104917bf4c4d0bbad0e3b6b383c89852956a0b"
     }
   ],
-  "aggregateSha256": "3a2baf925a1914de9987c7b3fb09d19dba7bf4706ca06edf427494e4d2aa3fe7"
+  "aggregateSha256": "d2176c4aeb5ac6e49f234ebd453397f65d6d27850f886e8e0f61ad0c422c16c2"
 }

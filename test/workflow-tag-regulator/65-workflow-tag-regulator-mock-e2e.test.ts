@@ -2,7 +2,10 @@ import { assert } from "chai";
 import { config } from "../../package.json";
 import { handlers } from "../../src/handlers";
 import { installWorkflowEditorSessionOverrideForTests } from "../../src/modules/workflowEditorHost";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import {
   purgeSkillRunnerBackendReconcileState,
   startSkillRunnerTaskReconciler,
@@ -349,15 +352,15 @@ async function runTagRegulatorApplyFixture(args: {
   })) as Array<{
     kind?: string;
     skill_id?: string;
-    targetParentID?: number;
+    targetParentRef?: { libraryId: number; key: string };
   }>;
   assert.lengthOf(requests, 1);
   assert.equal(requests[0].kind, "skillrunner.job.v1");
   assert.equal(requests[0].skill_id, "tag-regulator");
-  assert.equal(requests[0].targetParentID, args.parent.id);
+  assert.deepEqual(requests[0].targetParentRef, itemRef(args.parent));
   return executeApplyResult({
     workflow: args.workflow,
-    parent: args.parent,
+    parent: itemRef(args.parent),
     bundleReader: {
       readText: async () => "",
     },

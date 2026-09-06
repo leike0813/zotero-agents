@@ -88,12 +88,17 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
 **示例：使用 Preflight 单元上下文的请求**
 
 ```js
-export function buildRequest({ selectionContext, preflight, runtime }) {
-  const attachment = selectionContext.items.attachments[0];
+export async function buildRequest({ selectionContext, preflight, runtime }) {
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
   return {
     kind: "generic-http.steps.v1",
     file: {
-      path: runtime.helpers.getAttachmentFilePath(attachment),
+      path: detail.item.file.path,
       page_ranges: preflight?.unit?.context?.page_ranges,
     },
   };
@@ -104,7 +109,13 @@ export function buildRequest({ selectionContext, preflight, runtime }) {
 
 ```js
 export async function buildRequest({ selectionContext, executionOptions, runtime }) {
-  const sourcePath = resolveAttachmentPath(selectionContext, runtime);
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
+  const sourcePath = detail.item.file.path;
   const language = executionOptions?.workflowParams?.language || "zh-CN";
 
   return {
@@ -401,16 +412,7 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 
 | 函数 | 说明 |
 |------|------|
-| `getAttachmentParentId(entry)` | 获取附件的父条目 ID |
-| `getAttachmentFilePath(entry)` | 获取附件的本地文件路径 |
-| `getAttachmentFileName(entry)` | 获取附件文件名 |
-| `getAttachmentDateAdded(entry)` | 获取附件的 `dateAdded` 时间戳 |
 | `basenameOrFallback(path, fallback)` | 提取基名或返回回退字符串 |
-| `isMarkdownAttachment(entry)` | 判断是否为 Markdown 附件 |
-| `isPdfAttachment(entry)` | 判断是否为 PDF 附件 |
-| `pickEarliestPdfAttachment(entries)` | 从附件列表中选最早的 PDF |
-| `cloneSelectionContext(ctx)` | 深拷贝选择上下文 |
-| `withFilteredAttachments(ctx, items)` | 在上下文中保留指定的附件 |
 | `resolveItemRef(ref)` | 将条目引用解析为 Zotero.Item |
 | `toHtmlNote(title, body)` | 将 Markdown 转换为 HTML 笔记内容 |
 | `normalizeReferenceAuthors(value)` | 规范化参考文献作者列表 |

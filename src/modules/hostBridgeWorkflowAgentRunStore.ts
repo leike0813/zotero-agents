@@ -1,4 +1,5 @@
 import type { HostBridgeWorkflowSelection } from "./hostBridgeWorkflowControl";
+import { assertSelectionRef } from "./selectionContext";
 import {
   compareAndSetPluginTaskContextEntry,
   deletePluginTaskContextDomain,
@@ -102,6 +103,43 @@ function parseRecord(payload: string): HostBridgeAgentRunRecord | null {
   } catch {
     return null;
   }
+}
+
+function isCompletePortableItemRef(value: unknown): value is {
+  libraryId: number;
+  key: string;
+} {
+  try {
+    assertSelectionRef(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function hasCompleteHostBridgeWorkflowSelection(
+  selection: unknown,
+): selection is HostBridgeWorkflowSelection {
+  if (!selection || typeof selection !== "object" || Array.isArray(selection)) {
+    return false;
+  }
+  const value = selection as Record<string, unknown>;
+  if (
+    value.kind === "none" &&
+    Object.keys(value).length === 1 &&
+    Object.prototype.hasOwnProperty.call(value, "kind")
+  ) {
+    return true;
+  }
+  return (
+    value.kind === "items" &&
+    Object.keys(value).length === 2 &&
+    Object.prototype.hasOwnProperty.call(value, "kind") &&
+    Object.prototype.hasOwnProperty.call(value, "items") &&
+    Array.isArray(value.items) &&
+    value.items.length > 0 &&
+    value.items.every(isCompletePortableItemRef)
+  );
 }
 
 function entryFor(record: HostBridgeAgentRunRecord) {

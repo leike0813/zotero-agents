@@ -1,4 +1,7 @@
 import { assert } from "chai";
+import { lockSelection } from "../../src/modules/selectionContext";
+import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { parseWorkflowManifestFromText } from "../../src/workflows/loaderContracts";
 import {
   planWorkflowInput,
@@ -47,23 +50,23 @@ function parse(candidate: Record<string, unknown>) {
 }
 
 function parent(id: number, title: string) {
-  return { item: { id, key: `P${id}`, title } };
+  return {
+    kind: "parent" as const,
+    ref: { libraryId: 1, key: `P${id}` },
+    itemType: "journalArticle",
+    title,
+  };
 }
 
 function attachment(id: number, parentId?: number) {
   return {
-    item: {
-      id,
-      key: `A${id}`,
-      title: `Attachment ${id}`,
-      parentItemID: parentId ?? null,
-      data: { contentType: "application/pdf" },
-    },
-    filePath: `/tmp/${id}.pdf`,
-    mimeType: "application/pdf",
-    ...(parentId
-      ? { parent: { id: parentId, title: `Parent ${parentId}` } }
-      : {}),
+    kind: "attachment" as const,
+    ref: { libraryId: 1, key: `A${id}` },
+    itemType: "attachment",
+    title: `Attachment ${id}`,
+    filename: `${id}.pdf`,
+    contentType: "application/pdf",
+    ...(parentId ? { parentRef: { libraryId: 1, key: `P${parentId}` } } : {}),
   };
 }
 
@@ -80,6 +83,36 @@ async function plan(
 
 describe("workflow input planning protocol v2", function () {
   this.timeout(10_000);
+
+  it("plans exact canonical parents without native IDs or rich selection groups", async function () {
+    const refs = [
+      { libraryId: 1, key: "PARENT02" },
+      { libraryId: 1, key: "PARENT01" },
+    ];
+    const result = await plan(manifest(), {
+      items: refs.map((ref) => ({
+        kind: "parent",
+        ref,
+        itemType: "journalArticle",
+        title: ref.key,
+      })),
+      sampledAt: "2026-09-06T00:00:00Z",
+    });
+    assert.equal(result.state, "enabled");
+    assert.deepEqual(
+      result.units.map((unit) => unit.selectionContext.items[0].ref),
+      refs,
+    );
+    assert.deepEqual(
+      result.units.map((unit) => unit.targetParentRef),
+      refs,
+    );
+    assert.isTrue(
+      result.units.every((unit) =>
+        Object.isFrozen(unit.selectionContext.items),
+      ),
+    );
+  });
 
   describe("manifest contract", function () {
     it("requires every explicit v2 planning boundary", function () {
@@ -227,6 +260,108 @@ describe("workflow input planning protocol v2", function () {
   });
 
   describe("confirmed planning", function () {
+    it("preserves repeated refs and order in whole-selection units", async function () {
+      const selection = lockSelection([
+        parent(2, "Second"),
+        parent(1, "First"),
+        parent(2, "Second"),
+      ]);
+      const result = await plan(
+        manifest({
+          inputs: { member: { kind: "selection" }, grouping: { mode: "all" } },
+          validateSelection: { select: { policy: "selection" }, filters: [] },
+        }),
+        selection,
+      );
+      assert.deepEqual(result.units[0].selectionContext.items, selection.items);
+    });
+    it("evaluates generated note readiness from canonical note facts", async function () {
+      const ref = { libraryId: 1, key: "PARENT01" };
+      const noteRef = { libraryId: 1, key: "NOTE0001" };
+      const broker = createFailClosedZoteroHostCapabilityBroker({
+        library: {
+          getItemNotes: async () => ({
+            notes: [
+              {
+                ref: noteRef,
+                parentRef: ref,
+                title: "Digest",
+                textExcerpt: "",
+                textLength: 0,
+                htmlLength: 0,
+                revision: "1",
+              },
+            ],
+            limit: 100,
+            returned: 1,
+            total: 1,
+            hasMore: false,
+            nextCursor: null,
+          }),
+          getNoteDetail: async () => ({
+            ref: noteRef,
+            parentRef: ref,
+            title: "Digest",
+            content: '<div data-zs-note-kind="digest">Digest</div>',
+            format: "html",
+            revision: "1",
+          }),
+          listNotePayloads: async () => ({
+            payloads: [],
+            scanned: 0,
+            limit: 100,
+            returned: 0,
+            total: null,
+            hasMore: false,
+            nextCursor: null,
+          }),
+        },
+      });
+      const result = await planWorkflowInput({
+        manifest: manifest({
+          validateSelection: {
+            select: { policy: "input-member", source: "selected" },
+            filters: [
+              {
+                kind: "generated-note-readiness",
+                phase: "availability",
+                artifacts: [{ id: "digest", noteKinds: ["digest"] }],
+                modes: [
+                  { id: "ready", allAvailable: ["digest"] },
+                  { id: "missing", default: true },
+                ],
+                acceptModes: ["ready"],
+              },
+            ],
+          },
+        }),
+        selectionContext: lockSelection([
+          { kind: "parent", ref, itemType: "journalArticle" },
+        ]),
+        runtime: {
+          hostApi: { ...createWorkflowHostApi(), library: broker.library },
+        },
+        mode: "execute",
+      });
+      assert.equal(result.state, "enabled");
+      assert.lengthOf(result.units, 1);
+    });
+    it("retains a shared portable parent when all-group members use distinct ref objects", async function () {
+      const result = await plan(
+        manifest({
+          inputs: { member: { kind: "attachment" }, grouping: { mode: "all" } },
+          validateSelection: {
+            select: { policy: "input-member", source: "selected" },
+            filters: [],
+          },
+        }),
+        lockSelection([attachment(11, 2), attachment(12, 2)]),
+      );
+      assert.deepEqual(result.units[0].targetParentRef, {
+        libraryId: 1,
+        key: "P2",
+      });
+    });
     it("validates a global parent minimum once before each grouping", async function () {
       const result = await plan(
         manifest({
@@ -241,10 +376,7 @@ describe("workflow input planning protocol v2", function () {
             filters: [],
           },
         }),
-        {
-          items: { parents: [parent(1, "First"), parent(2, "Second")] },
-          summary: { parentCount: 2 },
-        },
+        lockSelection([parent(1, "First"), parent(2, "Second")]),
       );
 
       assert.equal(result.state, "enabled");
@@ -262,8 +394,8 @@ describe("workflow input planning protocol v2", function () {
           label: unit.taskName,
         })),
         [
-          { memberCount: 1, identities: ["parent:P1"], label: "First" },
-          { memberCount: 1, identities: ["parent:P2"], label: "Second" },
+          { memberCount: 1, identities: ["parent:1:P1"], label: "First" },
+          { memberCount: 1, identities: ["parent:1:P2"], label: "Second" },
         ],
       );
     });
@@ -286,17 +418,17 @@ describe("workflow input planning protocol v2", function () {
           applyResult: "hooks/applyResult.js",
         },
       });
-      const selectionContext = {
-        items: { parents: [parent(1, "First"), parent(2, "Second")] },
-        summary: { parentCount: 2 },
-      };
+      const selectionContext = lockSelection([
+        parent(1, "First"),
+        parent(2, "Second"),
+      ]);
       const workflow = {
         rootDir: "/test",
         manifestPath: "/test/workflow.json",
         manifest: workflowManifest,
         hooks: {
           buildRequest: async ({ selectionContext: scoped }: any) => ({
-            selectedParent: scoped.items?.parents?.[0]?.item?.key || "missing",
+            selectedParent: scoped.items[0]?.ref.key || "missing",
           }),
           applyResult: async () => undefined,
         },
@@ -330,16 +462,13 @@ describe("workflow input planning protocol v2", function () {
             grouping: { mode: "all" },
           },
         }),
-        {
-          items: { parents: [parent(1, "First"), parent(2, "Second")] },
-          summary: { parentCount: 2 },
-        },
+        lockSelection([parent(1, "First"), parent(2, "Second")]),
       );
       assert.lengthOf(result.units, 1);
       assert.equal(result.units[0].memberCount, 2);
       assert.deepEqual(result.units[0].memberIdentities, [
-        "parent:P1",
-        "parent:P2",
+        "parent:1:P1",
+        "parent:1:P2",
       ]);
       assert.isFrozen(result);
       assert.isFrozen(result.units);
@@ -365,17 +494,12 @@ describe("workflow input planning protocol v2", function () {
             filters: [],
           },
         }),
-        {
-          items: {
-            attachments: [
-              attachment(11, 2),
-              attachment(12, 1),
-              attachment(13, 2),
-              attachment(14),
-            ],
-          },
-          summary: { attachmentCount: 4 },
-        },
+        lockSelection([
+          attachment(11, 2),
+          attachment(12, 1),
+          attachment(13, 2),
+          attachment(14),
+        ]),
       );
 
       assert.deepEqual(
@@ -385,10 +509,10 @@ describe("workflow input planning protocol v2", function () {
         })),
         [
           {
-            parent: "parent-id:2",
-            members: ["attachment:A11", "attachment:A13"],
+            parent: "parent:1:P2",
+            members: ["attachment:1:A11", "attachment:1:A13"],
           },
-          { parent: "parent-id:1", members: ["attachment:A12"] },
+          { parent: "parent:1:P1", members: ["attachment:1:A12"] },
         ],
       );
       assert.deepInclude(result.stats.candidates, {
@@ -405,19 +529,25 @@ describe("workflow input planning protocol v2", function () {
       const selectedParent = parent(1, "Parent");
       const selectedAttachment = attachment(11, 1);
       const selectedChild = {
-        item: { id: 21, key: "C21", title: "Child" },
-        parent: { id: 1, title: "Parent" },
+        kind: "child" as const,
+        ref: { libraryId: 1, key: "C21" },
+        itemType: "annotation",
+        parentRef: { libraryId: 1, key: "P1" },
+        title: "Child",
       };
       const selectedNote = {
-        item: { id: 31, key: "N31", title: "Note" },
-        parent: { id: 1, title: "Parent" },
+        kind: "note" as const,
+        ref: { libraryId: 1, key: "N31" },
+        itemType: "note",
+        parentRef: { libraryId: 1, key: "P1" },
+        title: "Note",
       };
-      const selectedItems = {
-        parents: [selectedParent],
-        attachments: [selectedAttachment],
-        children: [selectedChild],
-        notes: [selectedNote],
-      };
+      const selectedItems = [
+        selectedParent,
+        selectedAttachment,
+        selectedChild,
+        selectedNote,
+      ];
       const cases = [
         {
           kind: "parent",
@@ -453,37 +583,12 @@ describe("workflow input planning protocol v2", function () {
               filters: [],
             },
           }),
-          {
-            items: selectedItems,
-            summary: {
-              parentCount: 1,
-              attachmentCount: 1,
-              childCount: 1,
-              noteCount: 1,
-            },
-          },
+          lockSelection(selectedItems),
         );
 
         assert.lengthOf(result.units, 1, testCase.kind);
         const scoped = result.units[0].selectionContext;
-        assert.equal(scoped.selectionType, testCase.kind);
-        assert.deepEqual(scoped.items?.[testCase.plural], [testCase.expected]);
-        for (const plural of [
-          "parents",
-          "attachments",
-          "children",
-          "notes",
-        ] as const) {
-          if (plural !== testCase.plural) {
-            assert.deepEqual(scoped.items?.[plural], [], plural);
-          }
-        }
-        assert.deepEqual(scoped.summary, {
-          parentCount: testCase.kind === "parent" ? 1 : 0,
-          attachmentCount: testCase.kind === "attachment" ? 1 : 0,
-          childCount: testCase.kind === "child" ? 1 : 0,
-          noteCount: testCase.kind === "note" ? 1 : 0,
-        });
+        assert.deepEqual(scoped.items, [testCase.expected]);
       }
     });
 
@@ -499,21 +604,19 @@ describe("workflow input planning protocol v2", function () {
             filters: [],
           },
         }),
-        {
-          items: {
-            children: [
-              {
-                item: { id: 31, key: "C31", title: "Child" },
-                parent: { id: 3, title: "Parent" },
-              },
-            ],
+        lockSelection([
+          {
+            kind: "child",
+            ref: { libraryId: 1, key: "C31" },
+            itemType: "annotation",
+            parentRef: { libraryId: 1, key: "P3" },
+            title: "Child",
           },
-          summary: { childCount: 1 },
-        },
+        ]),
       );
       assert.equal(result.candidates[0].kind, "child");
-      assert.equal(result.candidates[0].identity, "child:C31");
-      assert.equal(result.units[0].targetParentIdentity, "parent-id:3");
+      assert.equal(result.candidates[0].identity, "child:1:C31");
+      assert.equal(result.units[0].targetParentIdentity, "parent:1:P3");
     });
   });
 });

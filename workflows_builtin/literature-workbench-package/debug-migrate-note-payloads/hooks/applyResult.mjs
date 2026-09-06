@@ -20,9 +20,7 @@ import {
   listWorkbenchEmbeddedPayloadBlocksForNote,
 } from "../../lib/embeddedPayloadAttachments.mjs";
 import { copyTextToClipboard } from "../../lib/clipboard.mjs";
-import {
-  extractRepresentativeImageExportDescriptor,
-} from "../../lib/representativeImage.mjs";
+import { extractRepresentativeImageExportDescriptor } from "../../lib/representativeImage.mjs";
 import {
   parseGeneratedNoteKind,
   parseReferencesPayload,
@@ -53,7 +51,7 @@ function normalizeText(value) {
 
 function addRef(refs, value) {
   try {
-    refs.push(portableItemRef(value?.ref || value?.item?.ref || value));
+    refs.push(portableItemRef(value?.ref || value));
   } catch {
     // Ignore selection entries without a portable item identity.
   }
@@ -85,17 +83,13 @@ function resolveSelectionContext(args) {
 
 function collectSelectionRefs(selectionContext) {
   const refs = [];
-  const items = selectionContext?.items || {};
-  for (const groupName of [
-    "notes",
-    "parents",
-    "attachments",
-    "children",
-    "regular",
-    "selected",
-  ]) {
-    for (const entry of Array.isArray(items[groupName]) ? items[groupName] : []) {
-      addRef(refs, entry);
+  for (const item of Array.isArray(selectionContext?.items)
+    ? selectionContext.items
+    : []) {
+    if (item?.kind === "parent" || item?.kind === "note") {
+      addRef(refs, item.ref);
+    } else if (item?.parentRef) {
+      addRef(refs, item.parentRef);
     }
   }
   return refs;
@@ -103,11 +97,12 @@ function collectSelectionRefs(selectionContext) {
 
 async function collectNotesFromItem(host, detail) {
   if (detail.kind === "note") {
-    return [await host.library.getNoteDetail(detail.item.ref, { format: "html" })];
+    return [
+      await host.library.getNoteDetail(detail.item.ref, { format: "html" }),
+    ];
   }
-  const parentRef = detail.kind === "regular"
-    ? detail.item.ref
-    : detail.item.parentRef;
+  const parentRef =
+    detail.kind === "regular" ? detail.item.ref : detail.item.parentRef;
   if (!parentRef) return [];
   const notes = await readHostPages({
     readPage: (page) => host.library.getItemNotes(parentRef, page),
@@ -115,7 +110,9 @@ async function collectNotesFromItem(host, detail) {
     operation: "debug note migration read",
   });
   return Promise.all(
-    notes.map((note) => host.library.getNoteDetail(note.ref, { format: "html" })),
+    notes.map((note) =>
+      host.library.getNoteDetail(note.ref, { format: "html" }),
+    ),
   );
 }
 
@@ -351,15 +348,21 @@ function rebuildDigestPayloadFromHtml(noteContent) {
 
 function buildMigratedNoteHtml(migration, noteContent, runtime) {
   if (migration.kind === "digest") {
-    const representativeImageBlock = renderRepresentativeImageAfterTitle(noteContent);
+    const representativeImageBlock =
+      renderRepresentativeImageAfterTitle(noteContent);
     return buildLegalGeneratedMarkdownNoteContent({
       title: "Digest",
       markdown: stripDigestWrapperHeading(migration.payload?.content || ""),
-      afterTitleBlocks: representativeImageBlock ? [representativeImageBlock] : [],
+      afterTitleBlocks: representativeImageBlock
+        ? [representativeImageBlock]
+        : [],
     });
   }
   if (migration.kind === "references") {
-    const references = normalizeReferencesFromPayload(migration.payload, runtime);
+    const references = normalizeReferencesFromPayload(
+      migration.payload,
+      runtime,
+    );
     return buildLegalGeneratedNoteContent({
       title: "References",
       bodyHtml: renderReferencesTable(references, runtime),
@@ -466,11 +469,13 @@ async function migrateNote(args) {
       noteContent,
       runtime,
     );
-    const refreshedNote = requireCommittedMutation(await host.notes.updateContent({
-      operationId: `debug-payload:update:${noteItem.ref.libraryId}:${noteItem.ref.key}:${noteItem.revision}`,
-      noteRef: noteItem.ref,
-      content: { format: "html", value: nextContent },
-    })).note;
+    const refreshedNote = requireCommittedMutation(
+      await host.notes.updateContent({
+        operationId: `debug-payload:update:${noteItem.ref.libraryId}:${noteItem.ref.key}:${noteItem.revision}`,
+        noteRef: noteItem.ref,
+        content: { format: "html", value: nextContent },
+      }),
+    ).note;
     const attached = await attachWorkbenchPayloadToNote({
       runtime,
       note: refreshedNote,
@@ -485,7 +490,8 @@ async function migrateNote(args) {
       kind: digestMigration.kind,
       payloadType: digestMigration.payloadType,
       payloadHash: normalizeText(attached?.payloadHash),
-      contentLength: String(digestMigration.payload?.content || "").length || undefined,
+      contentLength:
+        String(digestMigration.payload?.content || "").length || undefined,
     };
   }
 
@@ -525,11 +531,13 @@ async function migrateNote(args) {
   }
 
   const nextContent = buildMigratedNoteHtml(migration, noteContent, runtime);
-  const refreshedNote = requireCommittedMutation(await host.notes.updateContent({
-    operationId: `debug-payload:update:${noteItem.ref.libraryId}:${noteItem.ref.key}:${noteItem.revision}`,
-    noteRef: noteItem.ref,
-    content: { format: "html", value: nextContent },
-  })).note;
+  const refreshedNote = requireCommittedMutation(
+    await host.notes.updateContent({
+      operationId: `debug-payload:update:${noteItem.ref.libraryId}:${noteItem.ref.key}:${noteItem.revision}`,
+      noteRef: noteItem.ref,
+      content: { format: "html", value: nextContent },
+    }),
+  ).note;
   const attached = await attachWorkbenchPayloadToNote({
     runtime,
     note: refreshedNote,
@@ -554,11 +562,6 @@ async function applyResultImpl(args) {
   const refs = collectSelectionRefs(resolveSelectionContext(args));
   if (args?.parent) {
     addRef(refs, args.parent);
-  }
-  if (refs.length === 0) {
-    for (const selected of await host.context.getSelectedItems()) {
-      addRef(refs, selected.ref);
-    }
   }
 
   const selectedItems = await Promise.all(
@@ -616,7 +619,10 @@ async function applyResultImpl(args) {
   };
   return {
     ...result,
-    clipboard: await copyTextToClipboard(JSON.stringify(result, null, 2), runtime),
+    clipboard: await copyTextToClipboard(
+      JSON.stringify(result, null, 2),
+      runtime,
+    ),
   };
 }
 

@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { setPref } from "../../src/utils/prefs";
+import { lockSelection } from "../../src/modules/selectionContext";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import {
@@ -47,7 +48,7 @@ describe("skill run feedback runtime option", function () {
   it("omits collect_skill_run_feedback while the preference is disabled", async function () {
     const requests = await executeBuildRequests({
       workflow: workflow(),
-      selectionContext: {},
+      selectionContext: lockSelection([]),
     });
     assert.isUndefined(
       (requests[0] as any).runtime_options?.collect_skill_run_feedback,
@@ -58,7 +59,7 @@ describe("skill run feedback runtime option", function () {
     setPref("collectSkillRunFeedbackEnabled", true);
     const requests = await executeBuildRequests({
       workflow: workflow(),
-      selectionContext: {},
+      selectionContext: lockSelection([]),
     });
     assert.equal(
       (requests[0] as any).runtime_options?.collect_skill_run_feedback,

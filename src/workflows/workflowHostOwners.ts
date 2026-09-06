@@ -1,4 +1,7 @@
-import { config as packageConfig, version as packageVersion } from "../../package.json";
+import {
+  config as packageConfig,
+  version as packageVersion,
+} from "../../package.json";
 import { createWorkflowEditorOwner } from "../modules/workflowEditorHost";
 import {
   createWorkflowLoggingOwner,
@@ -134,7 +137,8 @@ export function createWorkflowHostCapabilityBroker(
       | { kind: "resource"; resourceRef: object },
   ) => {
     if (source.kind === "local_path") return source.path;
-    if (!resources) throw new Error("workflow resource resolver is unavailable");
+    if (!resources)
+      throw new Error("workflow resource resolver is unavailable");
     return (await resources.get(source.resourceRef as ResourceRef)).path;
   };
   const fileSetDigest = async (root: string) => {
@@ -150,9 +154,7 @@ export function createWorkflowHostCapabilityBroker(
         await sha256Hex(await readRuntimeBytes(entry.absolutePath)),
       ]);
     }
-    return sha256Hex(
-      new TextEncoder().encode(JSON.stringify(entries)),
-    );
+    return sha256Hex(new TextEncoder().encode(JSON.stringify(entries)));
   };
   const derivedMimeType = (filename: string) => {
     const extension = filename.split(".").at(-1)?.toLowerCase();
@@ -293,7 +295,9 @@ export function createWorkflowHostCapabilityBroker(
           );
         }
         if (normalizeNativeLocalPath(oldPath) === path) return attachment;
-        const oldFilename = String((attachment as any).attachmentFilename || "");
+        const oldFilename = String(
+          (attachment as any).attachmentFilename || "",
+        );
         const oldContentType = String(
           (attachment as any).attachmentContentType || "",
         );
@@ -369,7 +373,10 @@ export function createWorkflowHostCapabilityBroker(
           ref,
         );
       }
-      if ((await fileSetDigest(staged.stagingDirectory)) === (await fileSetDigest(storageRoot))) {
+      if (
+        (await fileSetDigest(staged.stagingDirectory)) ===
+        (await fileSetDigest(storageRoot))
+      ) {
         await staged.cleanup();
         return attachment;
       }
@@ -377,7 +384,10 @@ export function createWorkflowHostCapabilityBroker(
       let oldMoved = false;
       let newMoved = false;
       try {
-        await moveRuntimePath({ sourcePath: storageRoot, targetPath: backupRoot });
+        await moveRuntimePath({
+          sourcePath: storageRoot,
+          targetPath: backupRoot,
+        });
         oldMoved = true;
         await moveRuntimePath({
           sourcePath: staged.stagingDirectory,
@@ -394,7 +404,10 @@ export function createWorkflowHostCapabilityBroker(
         }
         if (oldMoved && !newMoved) {
           try {
-            await moveRuntimePath({ sourcePath: backupRoot, targetPath: storageRoot });
+            await moveRuntimePath({
+              sourcePath: backupRoot,
+              targetPath: storageRoot,
+            });
             await staged.cleanup();
           } catch {
             throw replaceFailure(
@@ -406,7 +419,9 @@ export function createWorkflowHostCapabilityBroker(
           }
         }
         throw replaceFailure(
-          primary instanceof Error ? primary.message : "attachment switch failed",
+          primary instanceof Error
+            ? primary.message
+            : "attachment switch failed",
           "retry_same_operation",
           "failed",
           ref,
@@ -427,8 +442,14 @@ export function createWorkflowHostCapabilityBroker(
         await attachment.saveTx();
       } catch {
         try {
-          await moveRuntimePath({ sourcePath: storageRoot, targetPath: staged.stagingDirectory });
-          await moveRuntimePath({ sourcePath: backupRoot, targetPath: storageRoot });
+          await moveRuntimePath({
+            sourcePath: storageRoot,
+            targetPath: staged.stagingDirectory,
+          });
+          await moveRuntimePath({
+            sourcePath: backupRoot,
+            targetPath: storageRoot,
+          });
           await staged.cleanup();
           (attachment as any).setFilePath(oldPath);
           (attachment as any).attachmentFilename = oldFilename;
@@ -450,7 +471,8 @@ export function createWorkflowHostCapabilityBroker(
       }
       try {
         const removed = await removeRuntimePath(backupRoot);
-        if (removed === false) throw new Error("backup cleanup was not confirmed");
+        if (removed === false)
+          throw new Error("backup cleanup was not confirmed");
       } catch {
         throw replaceFailure(
           "old managed attachment content remains",
@@ -469,7 +491,9 @@ export function createWorkflowHostLeafScope(args: {
   runScopeId: string;
   logBinding: WorkflowRuntimeLogBinding;
   resources?: Pick<WorkflowResourceApi, "get">;
-  imageAdapter?: Parameters<typeof createWorkflowPreparedImageScope>[0]["adapter"];
+  imageAdapter?: Parameters<
+    typeof createWorkflowPreparedImageScope
+  >[0]["adapter"];
 }): WorkflowHostLeafScope {
   const prepared = createWorkflowPreparedImageScope({
     runScopeId: args.runScopeId,
@@ -540,17 +564,26 @@ export function createWorkflowHostLiveReadAdapters(args: {
           : (() => {
               throw interactionRequiredError("context.getCurrentView");
             })(),
-      getSelectedItems: (control?: Parameters<typeof broker.context.getSelectedItems>[0]) =>
+      getSelectedItems: (
+        request?: Parameters<typeof broker.context.getSelectedItems>[0],
+        control?: Parameters<typeof broker.context.getSelectedItems>[1],
+      ) =>
         interactive
-          ? broker.context.getSelectedItems(control)
-          : Promise.reject(interactionRequiredError("context.getSelectedItems")),
+          ? broker.context.getSelectedItems(request, control)
+          : Promise.reject(
+              interactionRequiredError("context.getSelectedItems"),
+            ),
     },
     navigation: {
-      openItem: (...parameters: Parameters<typeof broker.navigation.openItem>) =>
+      openItem: (
+        ...parameters: Parameters<typeof broker.navigation.openItem>
+      ) =>
         interactive
           ? broker.navigation.openItem(...parameters)
           : Promise.reject(interactionRequiredError("navigation.openItem")),
-      openNote: (...parameters: Parameters<typeof broker.navigation.openNote>) =>
+      openNote: (
+        ...parameters: Parameters<typeof broker.navigation.openNote>
+      ) =>
         interactive
           ? broker.navigation.openNote(...parameters)
           : Promise.reject(interactionRequiredError("navigation.openNote")),
@@ -567,7 +600,9 @@ export function createWorkflowHostLiveReadAdapters(args: {
       ) =>
         interactive
           ? broker.navigation.openSelection(...parameters)
-          : Promise.reject(interactionRequiredError("navigation.openSelection")),
+          : Promise.reject(
+              interactionRequiredError("navigation.openSelection"),
+            ),
     },
     library: {
       listItems: broker.library.listItems,
@@ -602,9 +637,7 @@ function workflowSnapshotOwnerId() {
 
 function requireConfirmedMutationResult<
   TResult extends Record<string, unknown>,
->(
-  result: import("./types").MutationExecutionResult<TResult>,
-): TResult {
+>(result: import("./types").MutationExecutionResult<TResult>): TResult {
   if ("result" in result) {
     return result.result;
   }
@@ -822,30 +855,28 @@ export function createWorkflowResearchBundleImportApi(args: {
             })),
           );
           noteResult = requireMutationItemRef(
-            (
-              requireConfirmedMutationResult(
-                await broker.notes.create(
-              {
-                operationId: await researchImportEffectOperationId(
-                  operationId,
-                  consistencyGroupId,
-                  "notes.create",
-                  `${graphId}:${note.noteId}`,
-                ),
-                placement: { kind: "child", parentRef },
-                content: {
-                  format: "html",
-                  value: content,
-                  ...(imageBindings.length
-                    ? { embeddedImages: imageBindings }
-                    : {}),
+            requireConfirmedMutationResult(
+              await broker.notes.create(
+                {
+                  operationId: await researchImportEffectOperationId(
+                    operationId,
+                    consistencyGroupId,
+                    "notes.create",
+                    `${graphId}:${note.noteId}`,
+                  ),
+                  placement: { kind: "child", parentRef },
+                  content: {
+                    format: "html",
+                    value: content,
+                    ...(imageBindings.length
+                      ? { embeddedImages: imageBindings }
+                      : {}),
+                  },
+                  ...(note.tags.length ? { initialTags: note.tags } : {}),
                 },
-                ...(note.tags.length ? { initialTags: note.tags } : {}),
-              },
-              callerScope,
-              control,
+                callerScope,
+                control,
               ),
-              )
             ).note,
           );
 
@@ -1011,12 +1042,7 @@ export function createWorkflowResearchBundleImportApi(args: {
         }
         return detail.item.revision;
       },
-      async removeItem({
-        operationId,
-        consistencyGroupId,
-        itemRef,
-        control,
-      }) {
+      async removeItem({ operationId, consistencyGroupId, itemRef, control }) {
         const detail = await broker.library.getItemDetail(itemRef, control);
         if (!detail) {
           throw new Error("Research import compensation target is missing");
@@ -1058,10 +1084,13 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
   };
 }) {
   const broker = createZoteroHostCapabilityBroker();
-  async function readAllLibraryPages<TPage extends {
-    hasMore: boolean;
-    nextCursor: string | null;
-  }, TItem>(
+  async function readAllLibraryPages<
+    TPage extends {
+      hasMore: boolean;
+      nextCursor: string | null;
+    },
+    TItem,
+  >(
     readPage: (page: { limit: number; cursor?: string }) => Promise<TPage>,
     getItems: (page: TPage) => readonly TItem[],
   ): Promise<TItem[]> {
@@ -1098,120 +1127,121 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       sha256: string;
     }>,
   ) => {
-      const detail = await broker.library.getItemDetail(ref, control);
-      if (!detail || detail.kind !== "regular") return null;
-      const [item] = await broker.library.exportPortableItems([ref], control);
-      if (!item) return null;
-      const noteSummaries = await readAllLibraryPages(
-        (page) => broker.library.getItemNotes(ref, page, control),
-        (page) => page.notes,
-      );
-      const notes = await Promise.all(
-        noteSummaries.map(async (summary) => {
-          const note = await broker.library.getNoteDetail(
-            summary.ref,
-            { format: "html" },
-            control,
-          );
-          const payloadSummaries = await readAllLibraryPages(
-            (page) => broker.library.listNotePayloads(summary.ref, page, control),
-            (page) => page.payloads,
-          );
-          const payloads = await Promise.all(
-            payloadSummaries
-              .filter((payload) => payload.state === "available")
-              .map((payload) =>
-                broker.library.getNotePayload(
-                  summary.ref,
-                  { payloadType: payload.payloadType },
-                  control,
-                ),
+    const detail = await broker.library.getItemDetail(ref, control);
+    if (!detail || detail.kind !== "regular") return null;
+    const [item] = await broker.library.exportPortableItems([ref], control);
+    if (!item) return null;
+    const noteSummaries = await readAllLibraryPages(
+      (page) => broker.library.getItemNotes(ref, page, control),
+      (page) => page.notes,
+    );
+    const notes = await Promise.all(
+      noteSummaries.map(async (summary) => {
+        const note = await broker.library.getNoteDetail(
+          summary.ref,
+          { format: "html" },
+          control,
+        );
+        const payloadSummaries = await readAllLibraryPages(
+          (page) => broker.library.listNotePayloads(summary.ref, page, control),
+          (page) => page.payloads,
+        );
+        const payloads = await Promise.all(
+          payloadSummaries
+            .filter((payload) => payload.state === "available")
+            .map((payload) =>
+              broker.library.getNotePayload(
+                summary.ref,
+                { payloadType: payload.payloadType },
+                control,
               ),
-          );
-          let content = note.content;
-          const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] = [];
-          const imageAttachments = (
-            await readAllLibraryPages(
-              (page) =>
-                broker.library.getItemAttachments(summary.ref, page, control),
-              (page) => page.attachments,
-            )
-          ).filter(
-            (attachment) =>
-              (attachment.role === "note_image" ||
-                attachment.role === "note_payload") &&
-              attachment.file.state === "available" &&
-              (attachment.contentType === "image/jpeg" ||
-                attachment.contentType === "image/png") &&
-              new RegExp(
-                `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
-                "i",
-              ).test(note.content),
-          );
-          for (const attachment of imageAttachments) {
-            if (
-              attachment.file.state !== "available" ||
-              (attachment.contentType !== "image/jpeg" &&
-                attachment.contentType !== "image/png")
-            ) {
-              continue;
-            }
-            const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
-            const staged = await stageFile({
-              slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
-              sourcePath: attachment.file.path,
-              displayName: attachment.filename || `${attachment.ref.key}.png`,
-              contentType: attachment.contentType || undefined,
-            });
-            content = content
-              .replaceAll(
-                `data-attachment-key="${attachment.ref.key}"`,
-                `data-zotero-agents-image-slot="${slot}"`,
-              )
-              .replaceAll(
-                `data-attachment-key='${attachment.ref.key}'`,
-                `data-zotero-agents-image-slot='${slot}'`,
-              );
-            embeddedImages.push({
-              slot,
-              resourceRef: staged.ref,
-              altText: attachment.title || null,
-              mimeType: attachment.contentType,
-              sizeBytes: staged.sizeBytes,
-              sha256: staged.sha256.replace(/^sha256:/, ""),
-            });
+            ),
+        );
+        let content = note.content;
+        const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] =
+          [];
+        const imageAttachments = (
+          await readAllLibraryPages(
+            (page) =>
+              broker.library.getItemAttachments(summary.ref, page, control),
+            (page) => page.attachments,
+          )
+        ).filter(
+          (attachment) =>
+            (attachment.role === "note_image" ||
+              attachment.role === "note_payload") &&
+            attachment.file.state === "available" &&
+            (attachment.contentType === "image/jpeg" ||
+              attachment.contentType === "image/png") &&
+            new RegExp(
+              `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
+              "i",
+            ).test(note.content),
+        );
+        for (const attachment of imageAttachments) {
+          if (
+            attachment.file.state !== "available" ||
+            (attachment.contentType !== "image/jpeg" &&
+              attachment.contentType !== "image/png")
+          ) {
+            continue;
           }
-          return {
-            source: { ref: summary.ref, revision: summary.revision },
-            content: {
-              format: "html" as const,
-              value: content,
-              embeddedImages,
-            },
-            tags: [],
-            payloads,
-          };
-        }),
-      );
-      const attachments = (
-        await readAllLibraryPages(
-          (page) => broker.library.getItemAttachments(ref, page, control),
-          (page) => page.attachments,
-        )
-      ).filter((attachment) => attachment.role === "ordinary");
-      const annotations = await readAllLibraryPages(
-        (page) => broker.library.listAnnotations(ref, page, control),
-        (page) => page.annotations,
-      );
-      return {
-        source: { ref: detail.item.ref, revision: detail.item.revision },
-        item,
-        collectionRefs: detail.item.collectionRefs,
-        relatedRefs: detail.item.relatedRefs,
-        notes,
-        attachments,
-        annotations,
-      };
+          const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
+          const staged = await stageFile({
+            slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
+            sourcePath: attachment.file.path,
+            displayName: attachment.filename || `${attachment.ref.key}.png`,
+            contentType: attachment.contentType || undefined,
+          });
+          content = content
+            .replaceAll(
+              `data-attachment-key="${attachment.ref.key}"`,
+              `data-zotero-agents-image-slot="${slot}"`,
+            )
+            .replaceAll(
+              `data-attachment-key='${attachment.ref.key}'`,
+              `data-zotero-agents-image-slot='${slot}'`,
+            );
+          embeddedImages.push({
+            slot,
+            resourceRef: staged.ref,
+            altText: attachment.title || null,
+            mimeType: attachment.contentType,
+            sizeBytes: staged.sizeBytes,
+            sha256: staged.sha256.replace(/^sha256:/, ""),
+          });
+        }
+        return {
+          source: { ref: summary.ref, revision: summary.revision },
+          content: {
+            format: "html" as const,
+            value: content,
+            embeddedImages,
+          },
+          tags: [],
+          payloads,
+        };
+      }),
+    );
+    const attachments = (
+      await readAllLibraryPages(
+        (page) => broker.library.getItemAttachments(ref, page, control),
+        (page) => page.attachments,
+      )
+    ).filter((attachment) => attachment.role === "ordinary");
+    const annotations = await readAllLibraryPages(
+      (page) => broker.library.listAnnotations(ref, page, control),
+      (page) => page.annotations,
+    );
+    return {
+      source: { ref: detail.item.ref, revision: detail.item.revision },
+      item,
+      collectionRefs: detail.item.collectionRefs,
+      relatedRefs: detail.item.relatedRefs,
+      notes,
+      attachments,
+      annotations,
+    };
   };
   return async (
     request: MaterializePapersRequestDto,
@@ -1247,8 +1277,7 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       };
     };
     const materialize = createCanonicalResearchBundleMaterializer({
-      readPaper: (ref, readControl) =>
-        readPaper(ref, readControl, stageFile),
+      readPaper: (ref, readControl) => readPaper(ref, readControl, stageFile),
       resources: {
         async stageFile(stageArgs) {
           const staged = await stageFile(stageArgs);
@@ -1272,7 +1301,9 @@ export function createBoundWorkflowResearchBundleApi(args: {
   ownerId: string;
   images: WorkflowHostApiV12["images"];
   preparedImages: WorkflowHostLeafScope["preparedImages"];
-  resources: Parameters<typeof createWorkflowResearchBundleMaterializeApi>[0]["resources"] & {
+  resources: Parameters<
+    typeof createWorkflowResearchBundleMaterializeApi
+  >[0]["resources"] & {
     get(ref: ResourceRef): Promise<WorkflowResourceFile>;
   };
 }): WorkflowResearchBundleApi {

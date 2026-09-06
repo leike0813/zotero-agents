@@ -7,14 +7,11 @@ import {
 } from "./hostBridgeFileRegistry";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import {
-  buildCurrentAcpHostContext,
-  resolveSelectedLibraryIds,
-  resolveSelectedLibraryTreeRows,
-} from "./acpContextBuilder";
-import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
   canonicalLogicalNotePayloadHash,
+  decodeBase64Utf8,
+  encodeBase64Utf8,
   ZoteroNotePayloadResourceLimitError,
   type ZoteroNotePayloadBlock,
   type ZoteroNotePayloadDetail,
@@ -29,7 +26,6 @@ import {
   type LibraryArtifactItem,
   type LibraryArtifactReadOptions,
 } from "./libraryArtifactReadiness";
-import type { AcpHostContext } from "./acpTypes";
 import {
   queryZoteroLibraryPage,
   queryZoteroAnnotationPage,
@@ -51,6 +47,7 @@ import type {
   CollectionDto,
   CreatorDto,
   CurrentViewDto,
+  CurrentViewSourceDto,
   ItemDetailDto,
   ItemSummaryDto,
   JsonObject,
@@ -88,7 +85,9 @@ import type {
   PortableSavedSearchRef,
   RegularItemDetailDto,
   RegularItemSummaryDto,
-  SelectedItemsSnapshotDto,
+  SelectedItemSummaryDto,
+  SelectedItemsPageDto,
+  SelectedItemsPageRequestDto,
   PortableRegularItemDto,
   ItemUpdateMetadataRequest,
   MutationChangeDto,
@@ -246,36 +245,6 @@ export type ZoteroHostCollectionDto = {
   path?: string[];
 };
 
-export type ZoteroHostSelectedSourceDto =
-  | ({ kind: "collection" } & ZoteroHostCollectionDto)
-  | {
-      kind: "saved-search";
-      id: number | string;
-      key: string;
-      name: string;
-      libraryId: number;
-    }
-  | {
-      kind: "library";
-      libraryId: number;
-      name?: string;
-    }
-  | {
-      kind: "special";
-      type: string;
-      libraryId?: number;
-      label?: string;
-    };
-
-export type ZoteroHostCurrentViewDto = Omit<AcpHostContext, "libraryIds"> & {
-  libraryIds: string[];
-  currentItem?: AcpHostContext["currentItem"] &
-    Partial<ZoteroHostItemSummaryDto>;
-  selectedItems: ZoteroHostItemSummaryDto[];
-  selectedSources: ZoteroHostSelectedSourceDto[];
-  currentCollection?: ZoteroHostCollectionDto;
-};
-
 export type ZoteroHostNavigationTargetDto =
   | {
       kind: "item" | "note";
@@ -294,7 +263,7 @@ export type ZoteroHostNavigationResultDto = {
   opened: boolean;
   found: boolean;
   target: ZoteroHostNavigationTargetDto;
-  currentView: ZoteroHostCurrentViewDto;
+  currentView: CurrentViewDto;
 };
 
 export type ZoteroHostSelectionOpenArgs = {
@@ -591,8 +560,9 @@ export interface ZoteroHostCapabilityBroker {
   readonly context: {
     getCurrentView(): CurrentViewDto;
     getSelectedItems(
+      request?: SelectedItemsPageRequestDto,
       control?: WorkflowCallControl,
-    ): Promise<SelectedItemsSnapshotDto>;
+    ): Promise<SelectedItemsPageDto>;
   };
   readonly navigation: {
     openItem(
@@ -809,6 +779,123 @@ const LIBRARY_READINESS_CHECKS: ZoteroHostLibraryReadinessCheck[] = [
 const TARGET_LIMIT_MAX = 50;
 const TAG_LIMIT_MAX = 100;
 const TAG_TEXT_LIMIT = 200;
+const SELECTED_ITEMS_CURSOR_VERSION = 1;
+
+export function resolveSelectedLibraryTreeRows(
+  win: _ZoteroTypes.MainWindow,
+): unknown[] {
+  const pane = (win as any).ZoteroPane;
+  for (const getRows of [
+    pane?.getCollectionTreeRows,
+    pane?.collectionsView?.getSelectedRows,
+  ]) {
+    if (typeof getRows !== "function") continue;
+    try {
+      const rows = getRows.call(
+        getRows === pane?.getCollectionTreeRows ? pane : pane?.collectionsView,
+      );
+      if (Array.isArray(rows)) return rows;
+    } catch {
+      // Fall through to the legacy single-row shape.
+    }
+  }
+  const itemViewRows = pane?.itemsView?.collectionTreeRows;
+  if (Array.isArray(itemViewRows)) return itemViewRows;
+  const row = pane?.collectionsView?.selectedTreeRow;
+  return row ? [row] : [];
+}
+
+export function resolveSelectedLibraryIds(
+  win: _ZoteroTypes.MainWindow,
+  rows = resolveSelectedLibraryTreeRows(win),
+): string[] {
+  const pane = (win as any).ZoteroPane;
+  let candidates: unknown[] = [];
+  if (typeof pane?.getSelectedLibraryIDs === "function") {
+    try {
+      const selected = pane.getSelectedLibraryIDs();
+      if (Array.isArray(selected)) candidates = selected;
+    } catch {
+      candidates = [];
+    }
+  }
+  if (candidates.length === 0) {
+    candidates = rows.map(
+      (row: any) => row?.ref?.libraryID ?? row?.ref?.libraryId,
+    );
+  }
+  if (
+    candidates.length === 0 &&
+    typeof pane?.getSelectedLibraryID === "function"
+  ) {
+    try {
+      candidates = [pane.getSelectedLibraryID()];
+    } catch {
+      candidates = [];
+    }
+  }
+  const libraryIds: string[] = [];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    const normalized = String(Math.floor(value));
+    if (!libraryIds.includes(normalized)) libraryIds.push(normalized);
+  }
+  return libraryIds;
+}
+
+type SelectedItemsCursor = Readonly<{
+  version: typeof SELECTED_ITEMS_CURSOR_VERSION;
+  basis: string;
+  afterIndex: number;
+}>;
+
+function encodeSelectedItemsCursor(cursor: SelectedItemsCursor) {
+  return encodeBase64Utf8(JSON.stringify(cursor))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
+function decodeSelectedItemsCursor(value: string): SelectedItemsCursor {
+  if (!value || !/^[A-Za-z0-9_-]+$/u.test(value)) {
+    throw capabilityError("invalid_request", "selection cursor is malformed", {
+      reason: "invalid_value",
+      field: "cursor",
+    });
+  }
+  try {
+    const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+    const decoded = JSON.parse(
+      decodeBase64Utf8(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")),
+    ) as Record<string, unknown>;
+    if (
+      decoded.version !== SELECTED_ITEMS_CURSOR_VERSION ||
+      typeof decoded.basis !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(decoded.basis) ||
+      !Number.isSafeInteger(decoded.afterIndex) ||
+      Number(decoded.afterIndex) < 0
+    ) {
+      throw new Error("invalid selection cursor");
+    }
+    return decoded as unknown as SelectedItemsCursor;
+  } catch {
+    throw capabilityError("invalid_request", "selection cursor is invalid", {
+      reason: "invalid_value",
+      field: "cursor",
+    });
+  }
+}
+
+async function selectedItemsBasis(refs: readonly ZoteroHostItemRefInput[]) {
+  const digest = await sha256Hex(
+    new TextEncoder().encode(
+      JSON.stringify({ schema: "zotero.selection.v1", refs }),
+    ),
+  );
+  if (!digest) throw canonicalReadFailure("item");
+  return digest;
+}
 
 function legacyMutationOperationId(operation: string) {
   const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
@@ -1883,6 +1970,7 @@ async function canonicalAttachmentDetail(
     url: canonicalField(item, "url") || null,
     linkMode: summary.linkMode,
     role,
+    createdAt: canonicalTimestamp(item, "dateAdded"),
     file:
       summary.fileState === "available"
         ? {
@@ -9731,15 +9819,6 @@ async function serializeLibraryReadinessItem(
   };
 }
 
-export function getLegacyZoteroSelectedItems() {
-  const win =
-    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
-  const items = win?.ZoteroPane?.getSelectedItems?.() || [];
-  return (Array.isArray(items) ? items : [])
-    .filter(isRawZoteroItem)
-    .map(serializeZoteroItemSummary);
-}
-
 function selectedRowFlag(row: any, method: string) {
   try {
     return typeof row?.[method] === "function" && row[method]() === true;
@@ -9748,27 +9827,35 @@ function selectedRowFlag(row: any, method: string) {
   }
 }
 
-function serializeSelectedSource(row: any): ZoteroHostSelectedSourceDto {
+function serializeSelectedSource(row: any): CurrentViewSourceDto {
   const ref = row?.ref || {};
+  const rowType = trimText(row?.type).toLowerCase();
+  const isCollection =
+    selectedRowFlag(row, "isCollection") || rowType === "collection";
   const id = parsePositiveInteger(
     ref?.id ?? ref?.collectionID ?? ref?.searchID,
   );
   const libraryId = normalizeLibraryId(ref?.libraryID ?? ref?.libraryId);
-  const collection = id ? resolveZotero().Collections?.get?.(id) : null;
+  const collection =
+    isCollection && id ? resolveZotero().Collections?.get?.(id) : null;
   if (
     collection &&
     trimText((collection as any).key) &&
     !selectedRowFlag(row, "isSearch")
   ) {
-    return { kind: "collection", ...serializeCollection(collection) };
+    const serialized = serializeCollection(collection);
+    return {
+      kind: "collection",
+      ref: { libraryId: serialized.libraryId, key: serialized.key },
+      name: serialized.name,
+      libraryId: serialized.libraryId,
+    };
   }
   if (selectedRowFlag(row, "isSearch")) {
     return {
       kind: "saved-search",
-      id: id || trimText(ref?.key) || "unknown",
-      key: trimText(ref?.key),
+      ref: { libraryId, key: trimText(ref?.key) },
       name: trimText(ref?.name ?? row?.name),
-      libraryId,
     };
   }
   if (
@@ -9795,104 +9882,70 @@ function serializeSelectedSource(row: any): ZoteroHostSelectedSourceDto {
   };
 }
 
-function getSelectedSources() {
-  const win =
-    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
+function getCurrentViewSources(
+  win = (globalThis as any).Zotero?.getMainWindow?.() ||
+    (globalThis as any).window,
+): CurrentViewSourceDto[] {
   if (!win) return [];
   return resolveSelectedLibraryTreeRows(win).map(serializeSelectedSource);
 }
 
-export function getLegacyZoteroCurrentView() {
-  let context: AcpHostContext;
-  try {
-    context = buildCurrentAcpHostContext();
-  } catch {
-    throw capabilityError(
-      "execution_failed",
-      "Zotero view read failed",
-      {
-        phase: "read",
-        recovery: "retry_same_operation",
-      },
-      true,
-    );
-  }
-  const win =
-    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
-  const selectedSources = getSelectedSources();
-  const selectedSourceLibraryIds = selectedSources
-    .map((source) => source.libraryId)
-    .filter(
-      (libraryId): libraryId is number =>
-        typeof libraryId === "number" && libraryId > 0,
-    )
-    .map(String);
-  const libraryIds = [
-    ...new Set([
-      ...(win ? resolveSelectedLibraryIds(win) : []),
-      ...selectedSourceLibraryIds,
-      ...(context.libraryIds || []),
-    ]),
-  ];
-  const uniqueLibraryId = libraryIds.length === 1 ? libraryIds[0] : undefined;
-  const currentItem = context.currentItem
-    ? resolveZotero().Items.get(parsePositiveInteger(context.currentItem.id)) ||
-      (context.currentItem.key && uniqueLibraryId
-        ? resolveZotero().Items.getByLibraryAndKey(
-            parsePositiveInteger(uniqueLibraryId),
-            context.currentItem.key,
-          )
-        : null)
+function buildCurrentViewFacts(win: _ZoteroTypes.MainWindow): {
+  target: "library" | "reader";
+  selectionEmpty: boolean;
+  currentItem?: { ref: ZoteroHostItemRefInput; title?: string };
+} {
+  const selectedTabId = trimText((win as any).Zotero_Tabs?.selectedID);
+  const tabRecord = selectedTabId
+    ? (win as any).Zotero_Tabs?._getTab?.(selectedTabId)
     : null;
-  const selectedCollection =
-    selectedSources.length === 1 && selectedSources[0]?.kind === "collection"
-      ? selectedSources[0]
-      : undefined;
-  const {
-    libraryId: _legacyLibraryId,
-    libraryIds: _legacyLibraryIds,
-    ...rest
-  } = context;
+  const target =
+    trimText(tabRecord?.type).toLowerCase() === "reader" ? "reader" : "library";
+  const itemId = parsePositiveInteger(tabRecord?.tab?.data?.itemID);
+  const readerItem = itemId ? resolveZotero().Items.get(itemId) : null;
+  const selected: unknown =
+    target === "reader"
+      ? readerItem
+      : (win as any).ZoteroPane?.getSelectedItems?.()?.[0];
+  if (!selected) {
+    return { target, selectionEmpty: true };
+  }
+  if (!isRawZoteroItem(selected)) throw canonicalReadFailure("item");
+  const ref = canonicalItemRef(selected);
+  const title = getItemTitle(selected);
   return {
-    ...rest,
-    libraryIds,
-    ...(uniqueLibraryId ? { libraryId: uniqueLibraryId } : {}),
-    currentItem: currentItem
-      ? {
-          ...context.currentItem,
-          ...serializeZoteroItemSummary(currentItem),
-        }
-      : context.currentItem,
-    selectedItems: getLegacyZoteroSelectedItems(),
-    selectedSources,
-    ...(selectedCollection
-      ? {
-          currentCollection: {
-            id: selectedCollection.id,
-            key: selectedCollection.key,
-            name: selectedCollection.name,
-            libraryId: selectedCollection.libraryId,
-            ...(selectedCollection.parentId !== undefined
-              ? { parentId: selectedCollection.parentId }
-              : {}),
-            ...(selectedCollection.parentKey
-              ? { parentKey: selectedCollection.parentKey }
-              : {}),
-            ...(selectedCollection.path
-              ? { path: selectedCollection.path }
-              : {}),
-          },
-        }
-      : {}),
+    target,
+    selectionEmpty: false,
+    currentItem: { ref, ...(title ? { title } : {}) },
   };
 }
 
+function currentViewSourceLibraryId(source: CurrentViewSourceDto) {
+  if (source.kind === "collection" || source.kind === "library") {
+    return source.libraryId;
+  }
+  if (source.kind === "saved-search") return source.ref.libraryId;
+  return source.libraryId;
+}
+
 async function getSelectedItems(
+  request: SelectedItemsPageRequestDto = {},
   control: WorkflowCallControl = {},
-): Promise<SelectedItemsSnapshotDto> {
+  selectionWindow?: _ZoteroTypes.MainWindow,
+): Promise<SelectedItemsPageDto> {
+  const limit = Math.min(
+    LIBRARY_LIST_LIMIT_MAX,
+    Math.max(
+      1,
+      parsePositiveInteger(request.limit) || LIBRARY_LIST_LIMIT_DEFAULT,
+    ),
+  );
+  const cursor = request.cursor
+    ? decodeSelectedItemsCursor(request.cursor)
+    : null;
   const win =
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
-  const pane = win?.ZoteroPane;
+  const pane = (selectionWindow || win)?.ZoteroPane;
   if (!pane || typeof pane.getSelectedItems !== "function") {
     throw capabilityError("unavailable", "Zotero selection is unavailable", {
       reason: "navigation",
@@ -9907,36 +9960,19 @@ async function getSelectedItems(
     }
   });
   if (!Array.isArray(raw)) throw canonicalReadFailure("item");
-  if (raw.length > 10_000) {
-    throw capabilityError("resource_limited", "selection exceeds the limit", {
-      resource: "selection",
-      limit: 10_000,
-      observed: raw.length,
-    });
-  }
-  const items: SelectedItemsSnapshotDto["items"] = [];
+
+  const refs: ZoteroHostItemRefInput[] = [];
   let sliceStartedAt = Date.now();
   let sliceProcessed = 0;
   for (let offset = 0; offset < raw.length; offset += 1) {
     throwIfWorkflowCallCanceled(control);
-    const selected = await withZoteroHostSlice(control, () => {
-      let item = raw[offset];
+    const ref = await withZoteroHostSlice(control, () => {
+      const item = raw[offset];
       if (!isRawZoteroItem(item)) throw canonicalReadFailure("item");
-      if (item.isAttachment?.()) {
-        const parent = canonicalParentRef(item);
-        if (parent) item = requireItem(parent);
-      }
-      const parentRef = canonicalParentRef(item);
-      const title = getItemTitle(item);
-      return {
-        ref: canonicalItemRef(item),
-        itemType: String(item.itemType || ""),
-        ...(title ? { title } : {}),
-        ...(parentRef ? { parentRef } : {}),
-      };
+      return canonicalItemRef(item);
     });
+    refs.push(ref);
     throwIfWorkflowCallCanceled(control);
-    items.push(selected);
     sliceProcessed += 1;
     if (shouldYieldHostSlice(sliceStartedAt, sliceProcessed)) {
       await yieldToEventLoop();
@@ -9944,69 +9980,109 @@ async function getSelectedItems(
       sliceProcessed = 0;
     }
   }
-  return { capturedAt: new Date().toISOString(), items };
+
+  const basis = await selectedItemsBasis(refs);
+  if (cursor && cursor.basis !== basis) {
+    throw capabilityError(
+      "conflict",
+      "selection changed during page acquisition",
+      { reason: "basis_mismatch", kind: "workflow_input" },
+    );
+  }
+  const afterIndex = cursor?.afterIndex || 0;
+  if (afterIndex > refs.length) {
+    throw capabilityError(
+      "invalid_request",
+      "selection cursor is beyond the current selection",
+      { reason: "invalid_value", field: "cursor" },
+    );
+  }
+
+  const pageItems: SelectedItemSummaryDto[] = [];
+  const pageEnd = Math.min(refs.length, afterIndex + limit);
+  sliceStartedAt = Date.now();
+  sliceProcessed = 0;
+  for (let offset = afterIndex; offset < pageEnd; offset += 1) {
+    throwIfWorkflowCallCanceled(control);
+    const selected = await withZoteroHostSlice(control, () => {
+      const item = raw[offset];
+      if (!isRawZoteroItem(item)) throw canonicalReadFailure("item");
+      const parentRef = canonicalParentRef(item);
+      const title = getItemTitle(item);
+      return {
+        ref: refs[offset],
+        itemType: String(item.itemType || ""),
+        ...(title ? { title } : {}),
+        ...(parentRef ? { parentRef } : {}),
+      };
+    });
+    throwIfWorkflowCallCanceled(control);
+    pageItems.push(selected);
+    sliceProcessed += 1;
+    if (shouldYieldHostSlice(sliceStartedAt, sliceProcessed)) {
+      await yieldToEventLoop();
+      sliceStartedAt = Date.now();
+      sliceProcessed = 0;
+    }
+  }
+
+  const hasMore = pageEnd < refs.length;
+  return {
+    items: pageItems,
+    returned: pageItems.length,
+    total: refs.length,
+    hasMore,
+    nextCursor: hasMore
+      ? encodeSelectedItemsCursor({
+          version: SELECTED_ITEMS_CURSOR_VERSION,
+          basis,
+          afterIndex: pageEnd,
+        })
+      : null,
+  };
 }
 
-function getCurrentView(): CurrentViewDto {
+function getCurrentView(viewWindow?: _ZoteroTypes.MainWindow): CurrentViewDto {
   const win =
-    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
+    viewWindow ||
+    (globalThis as any).Zotero?.getMainWindow?.() ||
+    (globalThis as any).window;
   if (!win?.ZoteroPane) {
     throw capabilityError("unavailable", "Zotero view context is unavailable", {
       reason: "navigation",
       kind: "library",
     });
   }
-  const context = buildCurrentAcpHostContext();
-  const selectedSources = getSelectedSources();
-  const libraryIds = [
-    ...new Set([
-      ...resolveSelectedLibraryIds(win),
-      ...(context.libraryIds || []),
-      ...selectedSources
-        .map((source) => source.libraryId)
-        .filter((libraryId): libraryId is number => Boolean(libraryId))
-        .map(String),
-    ]),
-  ];
-  const libraryId =
-    libraryIds.length === 1 ? parsePositiveInteger(libraryIds[0]) : 0;
-  const currentItem = context.currentItem
-    ? (parsePositiveInteger(context.currentItem.id)
-        ? resolveZotero().Items.get(
-            parsePositiveInteger(context.currentItem.id),
-          )
-        : null) ||
-      (context.currentItem.key && libraryId
-        ? resolveZotero().Items.getByLibraryAndKey(
-            libraryId,
-            context.currentItem.key,
-          )
-        : null)
-    : null;
+  const context = buildCurrentViewFacts(win);
+  const selectedSources = getCurrentViewSources(win);
+  const libraryIds = Array.from(
+    new Set(
+      [
+        ...resolveSelectedLibraryIds(win),
+        ...selectedSources.map(currentViewSourceLibraryId),
+      ]
+        .map(parsePositiveInteger)
+        .filter((libraryId): libraryId is number => libraryId > 0),
+    ),
+  );
+  const libraryId = libraryIds.length === 1 ? libraryIds[0] : 0;
   const selectedCollection =
     selectedSources.length === 1 && selectedSources[0]?.kind === "collection"
       ? selectedSources[0]
       : null;
   return {
-    target: context.target === "reader" ? "reader" : "library",
+    target: context.target,
+    libraryIds,
+    selectedSources,
     ...(libraryId ? { libraryId } : {}),
     selectionEmpty: context.selectionEmpty,
-    ...(currentItem
-      ? {
-          currentItem: {
-            ref: canonicalItemRef(currentItem),
-            ...(getItemTitle(currentItem)
-              ? { title: getItemTitle(currentItem) }
-              : {}),
-          },
-        }
-      : {}),
+    ...(context.currentItem ? { currentItem: context.currentItem } : {}),
     ...(selectedCollection
       ? {
           currentCollection: {
             ref: {
-              libraryId: selectedCollection.libraryId,
-              key: selectedCollection.key,
+              libraryId: selectedCollection.ref.libraryId,
+              key: selectedCollection.ref.key,
             },
             name: selectedCollection.name,
           },
@@ -10096,7 +10172,7 @@ export async function openLegacyZoteroItem(
       kind: "item",
       item: serializeZoteroItemSummary(item),
     },
-    currentView: getLegacyZoteroCurrentView(),
+    currentView: getCurrentView(),
   };
 }
 
@@ -10112,7 +10188,7 @@ export async function openLegacyZoteroNote(
       kind: "note",
       item: serializeZoteroItemSummary(note),
     },
-    currentView: getLegacyZoteroCurrentView(),
+    currentView: getCurrentView(),
   };
 }
 
@@ -10132,7 +10208,7 @@ export async function openLegacyZoteroCollection(
       kind: "collection",
       collection: serializeCollection(collection),
     },
-    currentView: getLegacyZoteroCurrentView(),
+    currentView: getCurrentView(),
   };
 }
 
@@ -10155,19 +10231,21 @@ export async function openLegacyZoteroSelection(
       kind: "selection",
       items: items.map(serializeZoteroItemSummary),
     },
-    currentView: getLegacyZoteroCurrentView(),
+    currentView: getCurrentView(),
   };
 }
 
 export function createZoteroHostCapabilityBroker(
   attachmentPrimitives: ZoteroHostAttachmentMutationPrimitives = {},
+  selectionWindow?: () => _ZoteroTypes.MainWindow,
 ): ZoteroHostCapabilityBroker {
   return {
     context: {
       getCurrentView(): CurrentViewDto {
-        return getCurrentView();
+        return getCurrentView(selectionWindow?.());
       },
-      getSelectedItems,
+      getSelectedItems: (request, control) =>
+        getSelectedItems(request, control, selectionWindow?.()),
     },
     navigation: {
       openItem: openZoteroItem,

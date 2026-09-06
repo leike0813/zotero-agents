@@ -472,7 +472,7 @@ export function assertAcpSkillRunRequest(value: unknown): AcpSkillRunRequestV1 {
 export function resolveJobId(request: AcpSkillRunRequestV1) {
   return (
     normalizeString(request.taskName) ||
-    normalizeString(request.targetParentID) ||
+    normalizeString(request.targetParentRef?.key) ||
     normalizeString(request.skill_id) ||
     "job"
   );

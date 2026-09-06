@@ -10,8 +10,8 @@ describe("ACP skill run request adapter", function () {
       kind: "skillrunner.job.v1",
       skill_id: "literature-analysis",
       taskName: "Example",
-      targetParentID: 123,
-      sourceAttachmentPaths: ["D:/real/example.md"],
+      targetParentRef: { libraryId: 1, key: "PARENT01" },
+      sourceAttachmentRefs: [{ libraryId: 1, key: "SOURCE01" }],
       upload_files: [{ key: "source_path", path: "D:/real/example.md" }],
       input: {
         source_path: "inputs/source_path/example.md",
@@ -31,8 +31,13 @@ describe("ACP skill run request adapter", function () {
     });
     assert.deepEqual(adapted.parameter, { language: "zh-CN" });
     assert.deepEqual(adapted.runtime_options, { execution_mode: "auto" });
-    assert.deepEqual(adapted.sourceAttachmentPaths, ["D:/real/example.md"]);
-    assert.equal(adapted.targetParentID, 123);
+    assert.deepEqual(adapted.sourceAttachmentRefs, [
+      { libraryId: 1, key: "SOURCE01" },
+    ]);
+    assert.deepEqual(adapted.targetParentRef, {
+      libraryId: 1,
+      key: "PARENT01",
+    });
     assert.notProperty(
       adapted as unknown as Record<string, unknown>,
       "upload_files",

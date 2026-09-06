@@ -17,10 +17,10 @@ import type {
   HostBridgeCapabilityManifestEntry,
   HostBridgeStatusSnapshot,
 } from "./hostBridgeProtocol";
+import type { CurrentViewDto } from "../workflows/types";
 import type {
   ZoteroHostAttachmentDto,
   ZoteroHostCollectionRefInput,
-  ZoteroHostCurrentViewDto,
   ZoteroHostItemRefInput,
   ZoteroHostItemSummaryDto,
   ZoteroHostLibraryListArgs,
@@ -276,15 +276,20 @@ function validateJsonRpcId(id: unknown) {
 const MCP_LIBRARY_LIST_LIMIT_DEFAULT = 25;
 const MCP_LIBRARY_LIST_LIMIT_MAX = 50;
 
-function summarizeCurrentView(context: ZoteroHostCurrentViewDto) {
+function summarizeCurrentView(context: CurrentViewDto) {
   const parts = [
     `target=${context.target}`,
     context.libraryIds.length > 1
       ? `libraryIds=${context.libraryIds.join(",")}`
       : "",
+    context.selectedSources.length > 0
+      ? `sources=${context.selectedSources.length}`
+      : "",
     context.libraryId ? `libraryId=${context.libraryId}` : "",
     context.selectionEmpty ? "selection=empty" : "selection=present",
-    context.currentItem?.key ? `itemKey=${context.currentItem.key}` : "",
+    context.currentItem?.ref.key
+      ? `itemKey=${context.currentItem.ref.key}`
+      : "",
     context.currentItem?.title ? `title=${context.currentItem.title}` : "",
   ].filter(Boolean);
   return parts.join("; ");
@@ -557,17 +562,22 @@ function formatItemRef(
   value:
     | Partial<ZoteroHostItemSummaryDto>
     | Partial<ZoteroHostItemRefInput & { libraryID?: number | string }>
+    | { ref?: Partial<ZoteroHostItemRefInput> }
     | null
     | undefined,
 ) {
   if (!value || typeof value !== "object") {
     return "ref=unavailable";
   }
-  const key = compactText((value as { key?: unknown }).key);
+  const ref =
+    "ref" in value && value.ref && typeof value.ref === "object"
+      ? value.ref
+      : value;
+  const key = compactText((ref as { key?: unknown }).key);
   const libraryId =
-    (value as { libraryId?: unknown }).libraryId ??
-    (value as { libraryID?: unknown }).libraryID;
-  const id = (value as { id?: unknown }).id;
+    (ref as { libraryId?: unknown }).libraryId ??
+    (ref as { libraryID?: unknown }).libraryID;
+  const id = (ref as { id?: unknown }).id;
   return (
     [
       key ? `key=${key}` : "",
@@ -947,10 +957,7 @@ function summarizeHostBridgeCapabilityResult(
   const payload = isPlainObject(data) ? data : {};
   const parts = [`${capabilityName} Host Bridge capability result.`];
   if (capabilityName === "context.get_current_view" && isPlainObject(data)) {
-    parts.push(summarizeCurrentView(data as ZoteroHostCurrentViewDto));
-    if (Array.isArray(payload.selectedItems)) {
-      parts.push(`selectedItems=${payload.selectedItems.length}`);
-    }
+    parts.push(summarizeCurrentView(data as CurrentViewDto));
   }
   if (
     capabilityName === "context.get_selected_items" &&

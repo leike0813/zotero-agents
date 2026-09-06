@@ -41,7 +41,7 @@ function makePreparedUnit(
     memberIdentities: [inputUnitIdentity],
     memberCount: 1,
     members: [],
-    selectionContext: {},
+    selectionContext: { items: [], sampledAt: "2026-09-06T00:00:00.000Z" },
   };
 }
 
@@ -49,11 +49,11 @@ describe("workflow duplicate guard seam", function () {
   it("allows all requests when no running duplicate exists", async function () {
     const requests = [
       {
-        sourceAttachmentPaths: ["D:/paper-a.pdf"],
+        sourceAttachmentRefs: [{ libraryId: 1, key: "PAPERA01" }],
         taskName: "paper-a.pdf",
       },
       {
-        sourceAttachmentPaths: ["D:/paper-b.pdf"],
+        sourceAttachmentRefs: [{ libraryId: 1, key: "PAPERB01" }],
         taskName: "paper-b.pdf",
       },
     ];
@@ -84,27 +84,27 @@ describe("workflow duplicate guard seam", function () {
   it("asks duplicate requests sequentially and only explicit yes passes", async function () {
     const requests = [
       {
-        sourceAttachmentPaths: ["D:/paper-a.pdf"],
+        sourceAttachmentRefs: [{ libraryId: 1, key: "PAPERA01" }],
         taskName: "paper-a.pdf",
       },
       {
-        sourceAttachmentPaths: ["D:/paper-b.pdf"],
+        sourceAttachmentRefs: [{ libraryId: 1, key: "PAPERB01" }],
         taskName: "paper-b.pdf",
       },
       {
-        sourceAttachmentPaths: ["D:/paper-c.pdf"],
+        sourceAttachmentRefs: [{ libraryId: 1, key: "PAPERC01" }],
         taskName: "paper-c.pdf",
       },
     ];
     const active = [
       makeActiveTask({
         workflowId: "mineru",
-        inputUnitIdentity: "attachment-path:D:/paper-a.pdf",
+        inputUnitIdentity: 'attachments:["1:PAPERA01"]',
         taskName: "running-paper-a.pdf",
       }),
       makeActiveTask({
         workflowId: "mineru",
-        inputUnitIdentity: "attachment-path:D:/paper-c.pdf",
+        inputUnitIdentity: 'attachments:["1:PAPERC01"]',
         taskName: "running-paper-c.pdf",
       }),
     ];
@@ -143,7 +143,7 @@ describe("workflow duplicate guard seam", function () {
       {
         index: 0,
         taskLabel: "paper-a.pdf",
-        inputUnitIdentity: "attachment-path:D:/paper-a.pdf",
+        inputUnitIdentity: 'attachments:["1:PAPERA01"]',
       },
     ]);
   });
@@ -151,14 +151,14 @@ describe("workflow duplicate guard seam", function () {
   it("does not treat different workflow as duplicate", async function () {
     const requests = [
       {
-        sourceAttachmentPaths: ["D:/paper-a.pdf"],
+        sourceAttachmentRefs: [{ libraryId: 1, key: "PAPERA01" }],
         taskName: "paper-a.pdf",
       },
     ];
     const active = [
       makeActiveTask({
         workflowId: "literature-analysis",
-        inputUnitIdentity: "attachment-path:D:/paper-a.pdf",
+        inputUnitIdentity: 'attachments:["1:PAPERA01"]',
         taskName: "running-paper-a.pdf",
       }),
     ];
@@ -188,7 +188,7 @@ describe("workflow duplicate guard seam", function () {
 
   it("uses queued unit identities without fabricating active tasks", async function () {
     let confirmCalls = 0;
-    const unit = makePreparedUnit("attachment-path:D:/paper-a.pdf");
+    const unit = makePreparedUnit('attachments:["1:PAPERA01"]');
     const result = await runWorkflowUnitDuplicateGuardSeam(
       {
         win: {} as _ZoteroTypes.MainWindow,
@@ -215,7 +215,7 @@ describe("workflow duplicate guard seam", function () {
 
   it("drops a stale queued conflict during the final recheck", async function () {
     let queued = true;
-    const unit = makePreparedUnit("attachment-path:D:/paper-a.pdf");
+    const unit = makePreparedUnit('attachments:["1:PAPERA01"]');
     const result = await runWorkflowUnitDuplicateGuardSeam(
       {
         win: {} as _ZoteroTypes.MainWindow,
@@ -241,7 +241,7 @@ describe("workflow duplicate guard seam", function () {
   it("rechecks an admitted conflict through the active task identity", async function () {
     let queued = true;
     let active: WorkflowTaskRecord[] = [];
-    const unit = makePreparedUnit("attachment-path:D:/paper-a.pdf");
+    const unit = makePreparedUnit('attachments:["1:PAPERA01"]');
     const result = await runWorkflowUnitDuplicateGuardSeam(
       {
         win: {} as _ZoteroTypes.MainWindow,
@@ -275,8 +275,8 @@ describe("workflow duplicate guard seam", function () {
     const unit = {
       ...makePreparedUnit("group:paper-a+paper-b", "Two papers"),
       memberIdentities: [
-        "attachment-path:D:/paper-a.pdf",
-        "attachment-path:D:/paper-b.pdf",
+        'attachments:["1:PAPERA01"]',
+        'attachments:["1:PAPERB01"]',
       ],
       memberCount: 2,
       members: [],
@@ -295,8 +295,8 @@ describe("workflow duplicate guard seam", function () {
             workflowId: "mineru",
             inputUnitIdentity: "group:another-pair",
             inputMemberIdentities: [
-              "attachment-path:D:/paper-b.pdf",
-              "attachment-path:D:/paper-c.pdf",
+              'attachments:["1:PAPERB01"]',
+              'attachments:["1:PAPERC01"]',
             ],
             taskName: "Another pair",
           }),
@@ -314,8 +314,8 @@ describe("workflow duplicate guard seam", function () {
     assert.deepEqual(result.allowedUnits, []);
     assert.equal(result.skippedByDuplicate, 1);
     assert.deepEqual(unit.memberIdentities, [
-      "attachment-path:D:/paper-a.pdf",
-      "attachment-path:D:/paper-b.pdf",
+      'attachments:["1:PAPERA01"]',
+      'attachments:["1:PAPERB01"]',
     ]);
   });
 });

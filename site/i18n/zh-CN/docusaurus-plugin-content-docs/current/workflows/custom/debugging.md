@@ -98,7 +98,7 @@ export function applyResult({ parent, bundleReader, runtime }) {
 
 ```js
 hostApi.notifications.toast({
-  text: `buildRequest 收到 ${selectionContext.items.parents.length} 个父条目`,
+  text: `buildRequest 收到 ${selectionContext.items.filter((item) => item.kind === "parent").length} 个父条目`,
   type: "default",
 });
 ```

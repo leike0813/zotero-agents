@@ -1,7 +1,10 @@
 import { assert } from "chai";
 import { config } from "../../package.json";
 import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
+import {
+  buildSelectionContext,
+  itemRef,
+} from "../helpers/workflowSelectionContext";
 import { measureAsyncTestPerformanceSpan } from "../../src/modules/testPerformanceProbeBridge";
 import { installWorkflowEditorSessionOverrideForTests } from "../../src/modules/workflowEditorHost";
 import { syncBuiltinWorkflowsOnStartup } from "../../src/modules/builtinWorkflowSync";
@@ -14,7 +17,7 @@ import {
 } from "../../src/workflows/hostApi";
 import { resetRuntimeBridgeOverrideForTests } from "../../src/utils/runtimeBridge";
 import {
-  executeApplyResult,
+  executeApplyResult as executeWorkflowApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
 import { __tagRegulatorApplyResultTestOnly } from "../../workflows_builtin/literature-workbench-package/tag-regulator/hooks/applyResult.mjs";
@@ -62,17 +65,20 @@ type PersistedVocabularyState = {
 type TagRegulatorRequest = {
   kind: string;
   skill_id: string;
-  targetParentID?: number;
+  targetParentRef?: { libraryId: number; key: string };
   runtime_options?: {
     execution_mode?: string;
   };
   input?: {
     metadata?: {
-      id?: number;
-      key?: string;
       title?: string;
       itemType?: string;
-      libraryID?: number;
+      abstract?: string;
+      publication_title?: string;
+      conference_name?: string;
+      university?: string;
+      date?: string;
+      creators?: unknown[];
     };
     input_tags?: string[];
     valid_tags?: string;
@@ -88,6 +94,33 @@ type TagRegulatorRequest = {
     path: string;
   }>;
 };
+
+/**
+ * Apply hooks consume canonical refs. Keep the native Zotero item conversion
+ * at this test boundary so these intake cases exercise the production
+ * canonical contract without restoring a rich production DTO.
+ */
+async function executeApplyResult(
+  args: Parameters<typeof executeWorkflowApplyResult>[0],
+) {
+  const parentRef = itemRef(args.parent as any);
+  const request =
+    args.request && typeof args.request === "object"
+      ? {
+          ...(args.request as Record<string, unknown>),
+          targetParentRef:
+            (args.request as Record<string, unknown>).targetParentRef ||
+            parentRef,
+        }
+      : {
+          targetParentRef: parentRef,
+        };
+  return executeWorkflowApplyResult({
+    ...args,
+    parent: parentRef,
+    request,
+  });
+}
 
 type SuggestTagEntry = {
   tag: string;
@@ -847,13 +880,24 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
     })) as TagRegulatorRequest[];
 
     assert.lengthOf(requests, 2);
-    const targetParentIds = requests
-      .map((request) => request.targetParentID)
-      .filter((value): value is number => typeof value === "number")
-      .sort((left, right) => left - right);
+    const targetParentRefs = requests
+      .map((request) => request.targetParentRef)
+      .filter(
+        (value): value is { libraryId: number; key: string } =>
+          !!value && typeof value.libraryId === "number" && !!value.key,
+      )
+      .sort((left, right) =>
+        `${left.libraryId}:${left.key}`.localeCompare(
+          `${right.libraryId}:${right.key}`,
+        ),
+      );
     assert.deepEqual(
-      targetParentIds,
-      [parentA.id, parentB.id].sort((left, right) => left - right),
+      targetParentRefs,
+      [itemRef(parentA), itemRef(parentB)].sort((left, right) =>
+        `${left.libraryId}:${left.key}`.localeCompare(
+          `${right.libraryId}:${right.key}`,
+        ),
+      ),
     );
 
     for (const request of requests) {
@@ -869,7 +913,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
       assert.match(String(request.input?.valid_tags || ""), /^inputs\//);
       assert.notMatch(String(request.input?.valid_tags || ""), /^uploads\//);
       assert.isArray(request.input?.input_tags);
-      assert.isString(request.input?.metadata?.key);
+      assert.isString(request.input?.metadata?.title);
     }
 
     const firstUploadPath = String(requests[0].upload_files?.[0].path || "");
@@ -940,7 +984,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
           TextDecoder,
           Buffer,
         },
-        note,
+        note: { ref: itemRef(note) },
         noteKind: "digest",
         payloadType: "digest-markdown",
         payload: {
