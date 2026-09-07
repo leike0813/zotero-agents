@@ -908,7 +908,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         };
       };
       const surface = document.querySelector(
-        '[data-synthesis-persistent-surface="graph"]',
+        '[data-region-content="synthesis-graph"]',
       );
       const stage = surface?.querySelector(".sigma-stage");
       const canvases = Array.from(stage?.querySelectorAll("canvas") || []);
@@ -967,45 +967,40 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     const htmlPath = path.join(tempRoot, "index.html");
     const debugHtmlPath = path.join(tempRoot, "index-debug.html");
     const esbuildBin = path.resolve("node_modules", ".bin", "esbuild");
-    const synthesisEntry = path.resolve("src", "synthesisWorkbenchApp.ts");
     await build({
-      entryPoints: [synthesisEntry],
+      stdin: {
+        contents: `
+          import { bootstrapSynthesisWorkbench } from "./src/synthesis/synthesisWorkbenchApp";
+          import { mountStandaloneGraph } from "./src/synthesis/standaloneGraphApp";
+          import { synthesisGraphVendors } from "./src/shared/synthesisGraphVendors";
+          import { updateStandaloneGraph } from "./src/synthesis/standaloneGraphState";
+          class ObservedSigma extends synthesisGraphVendors.Sigma {
+            constructor(...args) {
+              super(...args);
+              window.__citationGraphTestSigma = this;
+              window.__citationGraphTestDrawNodeHover = args[2].defaultDrawNodeHover;
+            }
+          }
+          const vendors = { ...synthesisGraphVendors, Sigma: ObservedSigma };
+          const page = bootstrapSynthesisWorkbench({ vendors });
+          let disposeStandalone;
+          window.__citationGraphTestApplyStandalone = (envelope) => {
+            page.dispose();
+            disposeStandalone?.();
+            disposeStandalone = mountStandaloneGraph(document.getElementById("app"), envelope, vendors);
+          };
+          window.__citationGraphTestProjectFilters = (graph, filters) => updateStandaloneGraph(graph, {}, filters);
+        `,
+        resolveDir: process.cwd(),
+        loader: "ts",
+      },
       bundle: true,
+      jsx: "automatic",
+      jsxImportSource: "preact",
       format: "iife",
       target: "es2020",
       define: { __debug_mode__: "false" },
       outfile: bundlePath,
-      plugins: [
-        {
-          name: "citation-graph-test-renderer",
-          setup(buildApi) {
-            buildApi.onLoad(
-              { filter: /synthesisWorkbenchApp\.ts$/ },
-              async () => {
-                const source = await fs.readFile(synthesisEntry, "utf8");
-                const assignment = "state.sigma = renderer;";
-                assert.include(source, assignment);
-                const standaloneBootstrap =
-                  "if (\n  !applyStandaloneGraphExportEnvelope(";
-                assert.include(source, standaloneBootstrap);
-                return {
-                  contents: source
-                    .replace(
-                      assignment,
-                      `${assignment}\n  (window as Window & { __citationGraphTestSigma?: Sigma }).__citationGraphTestSigma = renderer;`,
-                    )
-                    .replace(
-                      standaloneBootstrap,
-                      `(window as Window & { __citationGraphTestApplyStandalone?: typeof applyStandaloneGraphExportEnvelope; __citationGraphTestSendAction?: typeof sendAction; __citationGraphTestDrawNodeHover?: typeof drawGraphNodeHover }).__citationGraphTestApplyStandalone = applyStandaloneGraphExportEnvelope;\n(window as Window & { __citationGraphTestSendAction?: typeof sendAction }).__citationGraphTestSendAction = sendAction;\n(window as Window & { __citationGraphTestDrawNodeHover?: typeof drawGraphNodeHover }).__citationGraphTestDrawNodeHover = drawGraphNodeHover;\n\n${standaloneBootstrap}`,
-                    ),
-                  loader: "ts",
-                  resolveDir: path.dirname(synthesisEntry),
-                };
-              },
-            );
-          },
-        },
-      ],
     });
     await execFileAsync(esbuildBin, [
       path.resolve("src", "synthesisWorkbenchApp.ts"),
@@ -1013,6 +1008,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       "--format=iife",
       "--target=es2020",
       "--define:__debug_mode__=true",
+      "--jsx=automatic",
+      "--jsx-import-source=preact",
       `--outfile=${debugBundlePath}`,
     ]);
     const stylesheetUrl = pathToFileURL(
@@ -1050,6 +1047,11 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  beforeEach(async function () {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.mouse.move(0, 0);
   });
 
   it("preserves canvas and WebGL context identity across routine updates", async function () {
@@ -1245,20 +1247,116 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       singleEdgePresent: false,
     });
 
-    await page.evaluate(() => {
-      const testWindow = window as Window & {
-        __citationGraphTestSendAction?: (
-          action: string,
-          payload: Record<string, unknown>,
-        ) => void;
-      };
-      testWindow.__citationGraphTestSendAction?.("setGraphView", {
-        showLowSignalReferences: true,
-      });
-    });
+    const noOpGraph = await page.evaluate(
+      (graph) =>
+        (
+          window as Window & {
+            __citationGraphTestProjectFilters: (
+              graph: unknown,
+              filters: unknown,
+            ) => unknown;
+          }
+        ).__citationGraphTestProjectFilters(graph, {
+          showLowSignalReferences: true,
+        }),
+      rawGraph,
+    );
+    await page.evaluate(
+      (snapshot) =>
+        (
+          window as Window & {
+            __citationGraphTestApplyStandalone: (envelope: unknown) => void;
+          }
+        ).__citationGraphTestApplyStandalone({ version: 1, snapshot }),
+      { ...base, graph: noOpGraph },
+    );
     await page.waitForTimeout(100);
     assert.deepEqual(await readProjection(), initial);
     assert.deepEqual(pageErrors, []);
+  });
+
+  it("opens the independent topic export with local report and graph navigation", async function () {
+    const topicBundle = path.join(tempRoot, "topic-export.js");
+    await build({
+      entryPoints: [path.resolve("src/synthesis/standaloneTopicApp.ts")],
+      bundle: true,
+      jsx: "automatic",
+      jsxImportSource: "preact",
+      format: "iife",
+      target: "es2020",
+      outfile: topicBundle,
+    });
+    const exported = await browser.newPage({
+      viewport: { width: 1200, height: 800 },
+    });
+    const errors: string[] = [];
+    exported.on("pageerror", (error) => errors.push(error.message));
+    try {
+      await exported.setContent(
+        '<html><body><div id="app" class="synthesis-root"></div></body></html>',
+      );
+      await exported.addStyleTag({
+        path: path.resolve("addon/content/synthesis/styles.css"),
+      });
+      await exported.evaluate(
+        (snapshot) => {
+          Object.assign(window, {
+            __zoteroSkillsSynthesisTopicExport: {
+              version: 1,
+              snapshot,
+              topicDetail: {
+                topicId: "topic-export-test",
+                title: "Offline topic",
+                paper_count: 2,
+                topic: { definition: "Offline overview" },
+                source_papers: [],
+                synthesis_report: {
+                  title: "Offline topic",
+                  body: "# Exported report\n\nOffline report body",
+                },
+              },
+            },
+          });
+        },
+        lifecycleSnapshot({ expanded: true }),
+      );
+      await exported.addScriptTag({
+        path: path.resolve(
+          "addon/content/shared/vendor/markdown-it/markdown-it.min.js",
+        ),
+      });
+      await exported.addScriptTag({
+        path: path.resolve("addon/content/shared/markdown-renderer.js"),
+      });
+      await exported.addScriptTag({ path: topicBundle });
+      await exported.locator(".topic-detail-tabs").waitFor();
+      const rootBounds = await exported.locator("#app").boundingBox();
+      const readerBounds = await exported
+        .locator(".topic-detail-shell")
+        .boundingBox();
+      assert.isAtLeast(readerBounds!.width, rootBounds!.width * 0.9);
+      await exported
+        .locator(".topic-detail-tabs")
+        .getByRole("button", { name: "Report", exact: true })
+        .click();
+      assert.include(
+        await exported.locator(".topic-reading-surface").innerText(),
+        "Offline report body",
+      );
+      await exported
+        .locator(".topic-detail-tabs")
+        .getByRole("button", { name: "Citation Graph", exact: true })
+        .click();
+      await exported.waitForSelector(".sigma-stage canvas");
+      await exported
+        .locator(".topic-detail-tabs")
+        .getByRole("button", { name: "Overview", exact: true })
+        .click();
+      assert.equal(await exported.locator(".sigma-stage canvas").count(), 0);
+      assert.deepEqual(errors, []);
+    } finally {
+      await exported.close();
+    }
   });
 
   it("projects SVG fallback nodes and draws only the active neighborhood", async function () {
@@ -1759,6 +1857,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
 
   it("draws a pointer-hover title after drawing an importance halo", async function () {
     await page.reload({ waitUntil: "load" });
+    await sendSnapshot(lifecycleSnapshot());
+    await page.waitForSelector(".sigma-stage canvas");
     const result = await page.evaluate(() => {
       const draw = (
         window as Window & {
@@ -1810,6 +1910,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
   });
 
   it("keeps layout failures visible with redraw and debug details", async function () {
+    await page.reload({ waitUntil: "load" });
+    await sendSnapshot(lifecycleSnapshot({ layoutFailure: true }));
     await sendSurface(lifecycleSnapshot({ layoutFailure: true }), 100);
     const warning = page.locator(".graph-layout-failure");
     await warning.waitFor({ state: "visible" });

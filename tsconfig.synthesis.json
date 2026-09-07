@@ -1,0 +1,17 @@
+{
+  "extends": "zotero-types/entries/sandbox/",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "noEmit": true
+  },
+  "include": [
+    "src/synthesis/**/*.ts",
+    "src/synthesis/**/*.tsx",
+    "src/synthesisWorkbenchApp.ts",
+    "src/shared/**/*.ts",
+    "src/synthesisWorkbenchI18n.ts",
+    "packages/synthesis-contracts/src/**/*.ts"
+  ]
+}

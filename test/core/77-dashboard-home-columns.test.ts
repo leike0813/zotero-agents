@@ -12,7 +12,12 @@ async function readProjectFile(relativePath: string) {
 
 describe("dashboard home columns", function () {
   it("renders home running table with backend column and row-click routing", async function () {
-    const js = await readProjectFile("addon/content/dashboard/app.js");
+    const panelModel = await readProjectFile(
+      "src/dashboard/dashboardPanelModel.ts",
+    );
+    const homeRegion = await readProjectFile(
+      "src/dashboard/components/HomeRegion.tsx",
+    );
     const html = await readProjectFile("addon/content/dashboard/index.html");
     const css = await readProjectFile("addon/content/dashboard/styles.css");
     const customSelectCss = await readProjectFile(
@@ -25,28 +30,27 @@ describe("dashboard home columns", function () {
     assert.include(css, "background: var(--zs-bg-gradient)");
     assert.include(customSelectCss, "--zs-input-bg");
     assert.include(customSelectCss, "--zs-border-strong");
-    assert.notInclude(js, 'labels.colBackend || "Backend"');
-    assert.include(
-      js,
-      'columns: [\n          labels.colTask,\n          labels.colWorkflow,\n          labelText(labels, "colBackend"),\n          labels.colStatus,\n          labels.colUpdatedAt,\n        ]',
+    const runningColumnsBlock = /runningColumns: \[[\s\S]*?\]/.exec(panelModel);
+    assert.ok(runningColumnsBlock, "panel model defines runningColumns");
+    assert.deepEqual(
+      [
+        ...runningColumnsBlock![0].matchAll(/labelText\(labels, "([^"]+)"\)/g),
+      ].map((match) => match[1]),
+      ["colTask", "colWorkflow", "colBackend", "colStatus", "colUpdatedAt"],
     );
-    assert.include(js, "onRowClick: (row) => {");
-    assert.include(js, 'sendAction("open-running-task", {');
-    assert.include(js, "taskId: row.id,");
-    assert.include(js, 'backendId: row.backendId || "",');
-    assert.include(js, 'backendType: row.backendType || "",');
-    assert.include(js, 'requestId: row.requestId || "",');
-    assert.notInclude(
-      js,
-      'columns: [\n      labels.colTask,\n      labels.colWorkflow,\n      labels.colStatus,\n      labels.colRequestId,\n      labels.colUpdatedAt,\n      labels.colActions || "Actions",\n    ]',
-    );
+    assert.include(homeRegion, 'onAction("open-running-task", {');
+    assert.include(homeRegion, "taskId: row.taskId,");
+    assert.include(homeRegion, "backendId: row.backendId,");
+    assert.include(homeRegion, "backendType: row.backendType,");
+    assert.include(homeRegion, "requestId: row.requestId,");
   });
 
   it("maps backend label into dashboard running rows", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
-    assert.include(ts, "backendId: string;");
-    assert.include(ts, "backendType: string;");
-    assert.include(ts, "backendLabel: string;");
+    const wire = await readProjectFile("src/shared/dashboardWireContract.ts");
+    assert.include(wire, "backendId: string;");
+    assert.include(wire, "backendType: string;");
+    assert.include(wire, "backendLabel: string;");
     assert.include(ts, "const backendDisplayName = backendId");
     assert.include(ts, "backendId,");
     assert.include(ts, "backendType,");
@@ -60,7 +64,9 @@ describe("dashboard home columns", function () {
   });
 
   it("keeps dashboard chrome, product, and log affordances behind labels", async function () {
-    const js = await readProjectFile("addon/content/dashboard/app.js");
+    const panelModel = await readProjectFile(
+      "src/dashboard/dashboardPanelModel.ts",
+    );
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
     const harness = await readProjectFile(
       "src/modules/harness/dashboardReadonlyModel.ts",
@@ -74,10 +80,8 @@ describe("dashboard home columns", function () {
       'labelText(labels, "runtimeLogsFilterBackend")',
       'labelText(labels, "logsDetailClose")',
     ]) {
-      assert.include(js, token);
+      assert.include(panelModel, token);
     }
-    assert.notInclude(js, 'labels.homeWorkflowTitle || "Workflows"');
-    assert.notInclude(js, 'labels.runtimeLogsFilterBackend || "Backend"');
     assert.include(ts, "loadingDashboard: localize(");
     assert.include(ts, '"task-dashboard-products-no-files"');
     assert.include(harness, 'productsNoFiles: "No product files."');

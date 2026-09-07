@@ -168,6 +168,16 @@
 - 新增 transcript cold-load / hydrate / mirror cache 逻辑时，不得把分页缓存设计成正确性 SSOT，也不得改写历史 transcript store 格式来满足 UI 首屏性能。
 - toolbar/banner/reply 区域折叠（`src/sidebar/assistantRegionCollapse.ts`）是容器 class 驱动的纯 chrome 表现态：只能切换区域容器上的 `is-region-collapsed` class 与 root 上的 `data-collapse-stage` 属性，不得进入任何区域的 signature/render key 或 panel DTO，不得触发 transcript 或其它区域的重渲染；折叠把手必须挂在区域容器上（Preact managed mount 之外）。
 
+# Dashboard / Synthesis 页面约束
+
+- 页面源码分别由 `src/dashboard/` 与 `src/synthesis/` 持有，HTML 提供固定区域容器；构建产物不得恢复为 `addon/` 下的手写页面实现。
+- 各 Preact 区域仅以自己的可见数据和交互状态比较 signature。日志、trace、graph-page 和 surface 更新不得进入无关 chrome 区域的比较输入。
+- Sigma 实例、camera 与 graph page 累积由 Graph 区域和页面 controller 持有；chrome 更新不得重建 graph 容器。页面卸载必须清理所属监听、observer 和计时器。
+- Dashboard 与 Synthesis 的跨边界 DTO 以 `src/shared/*WireContract.ts` 为唯一来源；页面重构不得改变宿主 action、snapshot 或消息语义。
+- standalone graph/topic 入口仅组合所需区域，不得导入完整 hosted renderer；文案在 projection/render 阶段解析，Markdown 使用共享 sanitize profile。
+- Synthesis surface 刷新失败必须保留对应 owner 已成功加载的内容与交互状态，错误诊断由 chrome 展示；仅无可用旧数据时显示错误占位符，切换标签后的 shell snapshot 不得充当该 surface 已加载的证据。
+- Dashboard README 使用共享 Markdown renderer 的 document profile 和原始 baseFileUri；文档滚动位置属于页面本地状态，不得进入区域 signature 或触发宿主消息。
+
 # ACP Transcript Projection硬约束
 
 - ACP Chat / ACP Skills 的 transcript projection 不得假设后端已经正确整流 assistant message chunks；插件侧必须按协议语义维护稳定的 assistant text segment。

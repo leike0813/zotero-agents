@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { chromium, type Browser, type Page } from "playwright";
-import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { buildDashboardBrowserPage } from "../helpers/dashboardBrowserPage";
 
 type Product = {
   productId: string;
@@ -117,15 +117,16 @@ describe("Dashboard Products scroll stability", function () {
 
   let browser: Browser;
   let page: Page;
+  let dashboardPageUrl: string;
+
+  before(async function () {
+    dashboardPageUrl = pathToFileURL(await buildDashboardBrowserPage()).href;
+  });
 
   beforeEach(async function () {
     browser = await chromium.launch();
     page = await browser.newPage({ viewport: { width: 1200, height: 640 } });
-    await page.goto(
-      pathToFileURL(
-        path.join(process.cwd(), "addon/content/dashboard/index.html"),
-      ).href,
-    );
+    await page.goto(dashboardPageUrl);
   });
 
   afterEach(async function () {

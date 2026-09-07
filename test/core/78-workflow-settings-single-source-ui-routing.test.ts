@@ -43,22 +43,17 @@ describe("workflow settings single-source routing", function () {
       assert.equal(result.code, code);
     }
 
-    const [dashboardHtml, dialogHtml, dashboardJs, dialogJs] =
-      await Promise.all([
-        readProjectFile("addon/content/dashboard/index.html"),
-        readProjectFile(
-          "addon/content/dashboard/workflow-settings-dialog.html",
-        ),
-        readProjectFile("addon/content/dashboard/app.js"),
-        readProjectFile("addon/content/dashboard/workflow-settings-dialog.js"),
-      ]);
+    const [dashboardHtml, dialogHtml, dialogTs] = await Promise.all([
+      readProjectFile("addon/content/dashboard/index.html"),
+      readProjectFile("addon/content/dashboard/workflow-settings-dialog.html"),
+      readProjectFile("src/dashboard/components/WorkflowOptionsRegion.tsx"),
+    ]);
     for (const html of [dashboardHtml, dialogHtml]) {
       assert.include(html, "workflow-number-validation.js");
     }
-    for (const renderer of [dashboardJs, dialogJs]) {
-      assert.include(renderer, "zoteroAgentsWorkflowNumberFields.validate");
-      assert.include(renderer, "zoteroAgentsWorkflowNumberFields.formatLabel");
-    }
+    assert.include(dialogTs, "zoteroAgentsWorkflowNumberFields");
+    assert.include(dialogTs, "vendor.validate");
+    assert.include(dialogTs, "vendor.formatLabel");
   });
 
   it("keeps a strict custom select on its canonical fallback across away-and-back changes", async function () {
@@ -231,18 +226,17 @@ describe("workflow settings single-source routing", function () {
     );
   });
 
-  it("emits draft changed metadata and preserves workflow-options scroll on rerender", async function () {
-    const js = await readProjectFile("addon/content/dashboard/app.js");
-    assert.include(js, "workflow-settings-banner");
-    assert.include(js, "workflow-settings-sections-grid");
-    assert.include(js, 'changedSection: "backend"');
-    assert.include(js, 'changedKey: "backendId"');
-    assert.include(js, "changedSection: args.changedSection");
-    assert.include(js, "changedKey:");
-    assert.include(js, "shouldRestoreWorkflowOptionsScroll");
-    assert.include(js, "previousMainScrollTop");
-    assert.include(js, "main.scrollTop = previousMainScrollTop");
-    assert.notInclude(js, "workflow-settings-save-state");
+  it("emits draft changed metadata and preserves workflow-options DOM identity on rerender", async function () {
+    const region = await readProjectFile(
+      "src/dashboard/components/WorkflowOptionsRegion.tsx",
+    );
+    assert.include(region, "workflow-settings-banner");
+    assert.include(region, "workflow-settings-sections-grid");
+    assert.include(region, 'changedSection: "backend"');
+    assert.include(region, 'changedKey: "backendId"');
+    assert.include(region, "changedSection: props.changedSection");
+    assert.include(region, "changedKey:");
+    assert.notInclude(region, "workflow-settings-save-state");
   });
 
   it("aligns skillrunner runtime options by execution mode", async function () {
@@ -270,18 +264,19 @@ describe("workflow settings single-source routing", function () {
     );
     assert.include(providerTs, "normalizeRuntimeOptions");
 
-    const dialogJs = await readProjectFile(
-      "addon/content/dashboard/workflow-settings-dialog.js",
+    const dialogTs = await readProjectFile(
+      "src/dashboard/components/WorkflowSettingsDialogRegion.tsx",
     );
-    const dashboardJs = await readProjectFile("addon/content/dashboard/app.js");
-    assert.include(dialogJs, "form.runSchemaEntries");
-    assert.include(dialogJs, "state.draft.runOptions");
-    assert.include(dialogJs, "form.providerSchemaEntries");
-    assert.include(dialogJs, "state.draft.providerOptions");
-    assert.include(dialogJs, "args.entry.placeholder");
-    assert.include(dashboardJs, "descriptor.providerSchemaEntries");
-    assert.include(dashboardJs, "draft.providerOptions");
-    assert.include(dashboardJs, "args.entry.placeholder");
+    const engineTs = await readProjectFile(
+      "src/dashboard/components/WorkflowOptionsRegion.tsx",
+    );
+    assert.include(dialogTs, "form.runSchemaEntries");
+    assert.include(dialogTs, "draft.runOptions");
+    assert.include(dialogTs, "form.providerSchemaEntries");
+    assert.include(dialogTs, "draft.providerOptions");
+    assert.include(engineTs, "entry.placeholder");
+    assert.include(engineTs, "descriptor.providerSchemaEntries");
+    assert.include(engineTs, "draft.providerOptions");
   });
 
   it("uses default-settings wording in active workflow settings locales", async function () {
@@ -331,46 +326,38 @@ describe("workflow settings single-source routing", function () {
 
   it("keeps submit dialog updates metadata-aware for structural refresh gating", async function () {
     const js = await readProjectFile(
-      "addon/content/dashboard/workflow-settings-dialog.js",
+      "src/dashboard/components/WorkflowSettingsDialogRegion.tsx",
+    );
+    const engine = await readProjectFile(
+      "src/dashboard/components/WorkflowOptionsRegion.tsx",
     );
     assert.include(js, "flushDraftFromControls");
-    assert.include(js, "captureActiveFormState");
-    assert.include(js, "restoreActiveFormState");
-    assert.include(js, "measureDialogContentHeight");
-    assert.include(js, 'root.querySelector(".settings-shell")');
+    assert.include(js, "scheduleResize");
+    assert.include(js, 'onAction("resize-to-content", { contentHeight })');
     assert.notInclude(js, "body && body.offsetHeight");
-    assert.include(js, "sendDialogContentResizeRequest");
-    assert.include(js, "requestDialogContentResize");
-    assert.include(js, 'sendAction("resize-to-content", { contentHeight })');
-    assert.include(js, "shouldResetDraftForSnapshot");
-    assert.include(js, "registerFieldCollector");
-    assert.include(js, "markCustomSelectDisabled");
+    assert.include(js, "workflowSettingsDialogStructureKey");
+    assert.include(js, "registerCommitter");
+    assert.include(engine, "markDisabled");
     assert.include(js, "runSchemaEntries");
     assert.include(js, "runOptions");
     assert.notInclude(js, "No selectable options are available.");
-    assert.include(js, 'control.addEventListener("input"');
-    assert.include(js, 'control.addEventListener("blur"');
+    assert.include(engine, 'input.addEventListener("change"');
+    assert.include(engine, 'input.addEventListener("blur"');
     assert.include(js, 'changedSection: "backend"');
     assert.include(js, 'changedKey: "backendId"');
     assert.include(js, "changedSection:");
     assert.include(js, "changedKey:");
-    assert.include(js, "refreshingAcpRuntimeCache");
-    assert.include(js, "refreshingSkillRunnerModelCache");
-    assert.include(js, "appendRefreshActionButton");
-    assert.include(js, "buildExecutionOptionsPayload");
-    assert.include(js, 'refreshBtn.setAttribute("aria-busy", "true")');
-    assert.include(js, "refreshBtn.disabled = true");
     assert.include(js, "refreshAcpRuntimeCacheRunning");
     assert.include(js, "refreshSkillRunnerModelCacheRunning");
-    assert.include(js, 'action: "refresh-skillrunner-model-cache"');
-    assert.include(js, "state.refreshingAcpRuntimeCache = false");
-    assert.include(js, "state.refreshingSkillRunnerModelCache = false");
+    assert.include(js, "refresh-skillrunner-model-cache");
+    assert.include(js, "buildWorkflowSettingsDialogExecutionOptions");
+    assert.include(js, "aria-busy");
+    assert.include(js, "disabled={isBusy}");
   });
 
   it("marks ACP permission auto-approval option with warning label styling", async function () {
-    const dashboardJs = await readProjectFile("addon/content/dashboard/app.js");
-    const dialogJs = await readProjectFile(
-      "addon/content/dashboard/workflow-settings-dialog.js",
+    const dialogTs = await readProjectFile(
+      "src/dashboard/components/WorkflowOptionsRegion.tsx",
     );
     const dashboardCss = await readProjectFile(
       "addon/content/dashboard/styles.css",
@@ -382,8 +369,7 @@ describe("workflow settings single-source routing", function () {
       "src/modules/workflowSettingsDialog.ts",
     );
 
-    assert.include(dashboardJs, "autoApproveAcpPermissions");
-    assert.include(dialogJs, "autoApproveAcpPermissions");
+    assert.include(dialogTs, "autoApproveAcpPermissions");
     assert.include(legacyDialogTs, "autoApproveAcpPermissions");
     assert.include(dashboardCss, ".workflow-settings-field-label-warning");
     assert.include(dialogCss, ".field-label-warning");
@@ -394,10 +380,12 @@ describe("workflow settings single-source routing", function () {
   });
 
   it("keeps workflow-options field updates input-first but host-sync on change/blur", async function () {
-    const js = await readProjectFile("addon/content/dashboard/app.js");
-    assert.include(js, 'control.addEventListener("input"');
-    assert.include(js, 'control.addEventListener("change"');
-    assert.include(js, 'control.addEventListener("blur"');
-    assert.include(js, "commitControlValue");
+    const region = await readProjectFile(
+      "src/dashboard/components/WorkflowOptionsRegion.tsx",
+    );
+    assert.include(region, "onInput={handleInput}");
+    assert.include(region, 'input.addEventListener("change", commit)');
+    assert.include(region, 'input.addEventListener("blur", commit)');
+    assert.include(region, "commitControlValue");
   });
 });

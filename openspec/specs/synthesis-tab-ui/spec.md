@@ -1,7 +1,7 @@
 # synthesis-tab-ui Specification
 
 ## Purpose
-TBD - created by archiving change add-synthesis-tab-ui. Update Purpose after archive.
+Defines the Synthesis Workbench tab and reader experience, host-owned actions and localization, and standalone topic exports with local reader and graph interactions.
 ## Requirements
 ### Requirement: Synthesis workbench uses host-owned bridge
 
@@ -22,7 +22,7 @@ routing, and its product entry point SHALL be a singleton Zotero main-area tab.
 
 #### Scenario: Workbench entry opens Zotero tab
 
-- **WHEN** the user invokes any Synthesis Workbench entry point
+- **WHEN** the user invokes a hosted Synthesis Workbench entry point in Zotero
 - **THEN** the host SHALL open or select a Zotero tab with type `synthesis-workbench`
 - **AND** repeated invocations SHALL reuse the existing tab rather than opening multiple Workbench dialogs.
 
@@ -401,8 +401,10 @@ The graph snapshot SHALL expose topic scope rows built from real topic artifact 
 
 ### Requirement: Synthesis Workbench SHALL localize fixed UI through host-provided messages
 
-The Synthesis Workbench page SHALL render user-visible fixed UI text through a
-Synthesis i18n message dictionary supplied by the host bridge.
+The hosted Synthesis Workbench page SHALL render user-visible fixed UI text
+through a Synthesis i18n message dictionary supplied by the host bridge.
+Standalone exports SHALL resolve fixed UI text from their embedded export or
+template messages and the shared fallback dictionary without contacting a host.
 
 #### Scenario: Host initializes Workbench locale
 
@@ -532,14 +534,14 @@ whose options come from graph edge role facets.
 
 ### Requirement: Standalone Synthesis topic export mode
 
-The Synthesis Workbench frontend SHALL support an internal standalone topic
-export mode that renders from an embedded export envelope and does not require a
-live Zotero host bridge.
+Standalone topic exports SHALL use an independent entry that renders from an
+embedded export envelope, reuses the required reader and graph modules, and does
+not require the complete hosted Workbench renderer or a live Zotero host bridge.
 
 #### Scenario: Standalone boot uses embedded data
 
 - **GIVEN** a generated HTML file defines a valid Synthesis topic export envelope
-- **WHEN** the Synthesis Workbench app starts
+- **WHEN** the standalone topic export entry starts
 - **THEN** it renders Topic Details from the embedded snapshot and topic detail
 - **AND** it does not send the normal host `ready` action
 - **AND** it does not request data from Zotero or Synthesis storage

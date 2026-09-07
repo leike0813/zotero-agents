@@ -28,7 +28,7 @@
     "start:direct": "tsx scripts/run-zotero-direct.ts",
     "start:direct:build": "tsx scripts/run-zotero-direct.ts --build",
     "start:raw": "zotero-plugin serve",
-    "build": "npm run build:help-docs && npm run check:synthesis-engine && npm run check:synthesis-contracts && npm run check:synthesis-repository && npm run check:synthesis-application && zotero-plugin build && tsc --noEmit && tsc --noEmit -p tsconfig.sidebar.json",
+    "build": "npm run build:help-docs && npm run check:synthesis-engine && npm run check:synthesis-contracts && npm run check:synthesis-repository && npm run check:synthesis-application && zotero-plugin build && tsc --noEmit && tsc --noEmit -p tsconfig.sidebar.json && tsc --noEmit -p tsconfig.dashboard.json && tsc --noEmit -p tsconfig.synthesis.json",
     "build:help-docs": "tsx scripts/build-help-docs.ts",
     "check:help-docs": "tsx scripts/build-help-docs.ts --check",
     "harness:ui": "tsx scripts/ui-harness-serve.ts",

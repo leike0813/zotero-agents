@@ -13,11 +13,12 @@ async function readProjectFile(relativePath: string) {
 describe("dashboard home workflow doc bubbles", function () {
   it("extends dashboard snapshot with home workflow entries and embedded doc view", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
-    assert.include(ts, "homeWorkflows?: Array<{");
-    assert.include(ts, "core: boolean;");
-    assert.include(ts, "quickRunEnabled: boolean;");
-    assert.include(ts, "quickRunDisabledReason?: string;");
-    assert.include(ts, "homeWorkflowDocView?: {");
+    const wire = await readProjectFile("src/shared/dashboardWireContract.ts");
+    assert.include(wire, "homeWorkflows?: DashboardHomeWorkflowEntry[];");
+    assert.include(wire, "core: boolean;");
+    assert.include(wire, "quickRunEnabled: boolean;");
+    assert.include(wire, "quickRunDisabledReason?: string;");
+    assert.include(wire, "homeWorkflowDocView?: DashboardHomeWorkflowDocView;");
     assert.include(ts, "buildHomeWorkflowSummaries");
     assert.include(ts, "buildHomeWorkflowDocView");
     assert.include(
@@ -40,29 +41,49 @@ describe("dashboard home workflow doc bubbles", function () {
   });
 
   it("renders workflow bubbles above summary cards and supports doc subview in home", async function () {
-    const js = await readProjectFile("addon/content/dashboard/app.js");
-    assert.include(js, "workflow-bubbles-section");
-    assert.include(js, 'sendAction("run-home-workflow", {');
-    assert.include(
-      js,
-      "runButton.disabled = workflow.quickRunEnabled !== true;",
+    const region = await readProjectFile(
+      "src/dashboard/components/HomeRegion.tsx",
     );
-    assert.include(js, "workflow.quickRunDisabledReason");
-    assert.include(js, 'sendAction("open-home-workflow-doc", {');
-    assert.include(js, 'sendAction("open-home-workflow-settings", {');
-    assert.include(
-      js,
-      "settingsButton.disabled = workflow.configurable !== true;",
+    const panelModel = await readProjectFile(
+      "src/dashboard/dashboardPanelModel.ts",
     );
-    assert.include(js, "function renderHomeWorkflowDoc(main, snapshot)");
-    assert.include(js, 'sendAction("close-home-workflow-doc", {});');
-    assert.include(js, "if (snapshot.homeWorkflowDocView)");
+    assert.include(region, "workflow-bubbles-section");
+    assert.include(region, 'onAction("run-home-workflow", { workflowId })');
+    assert.include(
+      panelModel,
+      "runDisabled: workflow.quickRunEnabled !== true",
+    );
+    assert.include(panelModel, "workflow.quickRunDisabledReason");
+    assert.include(
+      region,
+      'onAction("open-home-workflow-doc", { workflowId })',
+    );
+    assert.include(
+      region,
+      'onAction("open-home-workflow-settings", { workflowId })',
+    );
+    assert.include(
+      panelModel,
+      "settingsDisabled: workflow.configurable !== true",
+    );
+    assert.include(region, 'selection.kind === "doc" && selection.doc');
+    assert.include(region, 'onAction("close-home-workflow-doc", {})');
+    assert.isBelow(
+      region.indexOf("workflow-bubbles-section"),
+      region.indexOf("{selection.summaryTitle}"),
+      "workflow bubbles render above the summary cards",
+    );
   });
 
   it("marks official workflows and hides marker when same-id user workflow overrides", async function () {
     const runtime = await readProjectFile("src/modules/workflowRuntime.ts");
     const dialog = await readProjectFile("src/modules/taskManagerDialog.ts");
-    const app = await readProjectFile("addon/content/dashboard/app.js");
+    const region = await readProjectFile(
+      "src/dashboard/components/HomeRegion.tsx",
+    );
+    const panelModel = await readProjectFile(
+      "src/dashboard/dashboardPanelModel.ts",
+    );
 
     assert.include(runtime, 'workflowSourceById[workflowId] = "official";');
     assert.include(runtime, 'workflowSourceById[workflowId] = "user";');
@@ -76,22 +97,24 @@ describe("dashboard home workflow doc bubbles", function () {
     assert.include(dialog, "getLoadedWorkflowSourceById(workflow.manifest.id)");
     assert.include(dialog, '"official"');
 
-    assert.include(app, "if (workflow.official === true)");
-    assert.include(app, "workflow-bubble-official-badge");
-    assert.include(app, "if (workflow.core === true)");
-    assert.include(app, "workflow-bubble-core-badge");
+    assert.include(panelModel, "workflow.official === true");
+    assert.include(region, "workflow-bubble-official-badge");
+    assert.include(panelModel, "workflow.core === true");
+    assert.include(region, "workflow-bubble-core-badge");
   });
 
   it("groups core workflows in menu and renders core workflow badges", async function () {
     const menu = await readProjectFile("src/modules/workflowMenu.ts");
-    const app = await readProjectFile("addon/content/dashboard/app.js");
+    const panelModel = await readProjectFile(
+      "src/dashboard/dashboardPanelModel.ts",
+    );
     const css = await readProjectFile("addon/content/dashboard/styles.css");
 
     assert.include(menu, "compareWorkflowDisplayOrder");
     assert.include(menu, "isCoreWorkflow");
     assert.include(menu, "previousWasCore");
     assert.include(menu, 'menuItem.setAttribute("style", "font-weight: 700;")');
-    assert.include(app, 'labelText(labels, "homeWorkflowCoreBadge")');
+    assert.include(panelModel, 'labelText(labels, "homeWorkflowCoreBadge")');
     assert.include(css, ".workflow-bubble-core-badge");
   });
 
@@ -109,7 +132,15 @@ describe("dashboard home workflow doc bubbles", function () {
   });
 
   it("enforces compact horizontal wrapping layout invariants for workflow bubbles", async function () {
-    const app = await readProjectFile("addon/content/dashboard/app.js");
+    const domUtils = await readProjectFile(
+      "src/dashboard/dashboardDomUtils.ts",
+    );
+    const homeRegion = await readProjectFile(
+      "src/dashboard/components/HomeRegion.tsx",
+    );
+    const tabBarRegion = await readProjectFile(
+      "src/dashboard/components/TabBarRegion.tsx",
+    );
     const css = await readProjectFile("addon/content/dashboard/styles.css");
     const iconCss = await readProjectFile("addon/content/shared/icons.css");
     assert.include(css, ".workflow-bubbles-wrap {");
@@ -135,19 +166,22 @@ describe("dashboard home workflow doc bubbles", function () {
     assert.include(css, "-moz-appearance: none");
     assert.include(css, "background-image: none");
     assert.include(css, "box-shadow: var(--dashboard-control-shadow)");
-    assert.include(app, "function dashboardTabIconClass(tabKey)");
-    assert.include(app, 'home: "zs-icon-dashboard"');
-    assert.include(app, '"workflow-options": "zs-icon-settings-applications"');
-    assert.include(app, 'products: "zs-icon-inventory-2"');
-    assert.include(app, '"runtime-logs": "zs-icon-terminal"');
-    assert.include(app, "tab-btn-content");
+    assert.include(domUtils, "function dashboardTabIconClass(tabKey");
+    assert.include(domUtils, 'home: "zs-icon-dashboard"');
+    assert.include(
+      domUtils,
+      '"workflow-options": "zs-icon-settings-applications"',
+    );
+    assert.include(domUtils, 'products: "zs-icon-inventory-2"');
+    assert.include(domUtils, '"runtime-logs": "zs-icon-terminal"');
+    assert.include(tabBarRegion, "tab-btn-content");
     assert.include(css, ".tab-btn-content");
     assert.include(css, ".workflow-bubble-icon {");
-    assert.include(app, "workflow-bubble-icon-run");
+    assert.include(homeRegion, "workflow-bubble-icon-run");
     assert.include(iconCss, "background-color: currentColor");
-    assert.include(app, "zs-icon-play-arrow");
-    assert.include(app, "zs-icon-description");
-    assert.include(app, "zs-icon-settings");
+    assert.include(homeRegion, "zs-icon-play-arrow");
+    assert.include(homeRegion, "zs-icon-description");
+    assert.include(homeRegion, "zs-icon-settings");
     assert.include(iconCss, ".zs-icon-play-arrow");
     assert.include(iconCss, ".zs-icon-description");
     assert.include(iconCss, ".zs-icon-settings");

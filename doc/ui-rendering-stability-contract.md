@@ -9,7 +9,9 @@ interaction state during background updates.
 High-frequency updates must patch only the region they own. They must not
 rebuild the main content area that the user is reading or manipulating.
 
-Separate every live UI surface into three state classes. Current enforcement covers `synthesisWorkbenchApp.ts`; other surfaces are expected to adopt the same contract incrementally:
+Separate every live UI surface into three state classes. Dashboard, Synthesis
+Workbench and Assistant Workspace enforce these boundaries through independent
+Preact regions and their imperative content islands:
 
 - **Content state**: rows, cards, graph nodes, transcript items, form schema, and
   other data that changes the main content.
@@ -64,8 +66,10 @@ must be owned locally or restored by stable keys.
 
 ## Current Application
 
-- Synthesis Workbench uses content signatures for the active tab and a separate
-  chrome signature for action/background job status.
+- `src/synthesis/` owns Workbench message application and component projections;
+  `src/synthesisWorkbenchApp.ts` only assembles the hosted entry and vendors.
+  Independent roots compare their own visible content, while graph topology and
+  interaction updates stay inside the persistent Graph region.
 - Synthesis Citation Graph preserves one Sigma renderer and canvas/context set;
   topology or layout changes use `setGraph()` while shell-only changes preserve
   camera and renderer identity.

@@ -1,7 +1,10 @@
 import { build } from "esbuild";
 import { promises as fs } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { runtimeDiagnosticsSideEffectsPlugin } from "./runtime-diagnostics-esbuild";
+import {
+  dashboardSynthesisSidecarRegionElisionPlugin,
+  runtimeDiagnosticsSideEffectsPlugin,
+} from "./runtime-diagnostics-esbuild";
 import {
   forbiddenProductionRuntimeMarkers,
   forbiddenRuntimeMarkers,
@@ -56,13 +59,16 @@ async function bundleDashboard(
   switches: Pick<Switches, "debug" | "synthesisSidecar">,
 ) {
   return build({
-    entryPoints: ["addon/content/dashboard/app.js"],
+    entryPoints: ["src/dashboard/dashboardApp.ts"],
     bundle: true,
     minifySyntax: true,
     write: false,
     target: "firefox115",
     platform: "browser",
     format: "iife",
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    plugins: [dashboardSynthesisSidecarRegionElisionPlugin],
     define: {
       __debug_mode__: String(switches.debug),
       __synthesis_sidecar_diagnostics_enabled__: String(
@@ -244,7 +250,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
   ) {
     throw new Error("allowlisted static diagnostic Dashboard markers missing");
   }
-  const dashboardMarkers = ["Synthesis Sidecar", "synthesis-sidecar:events"];
+  const dashboardMarkers = [
+    "Synthesis Sidecar",
+    "synthesis-sidecar-span-table",
+  ];
   const releaseDashboardText = outputText(releaseDashboard);
   const sourceDisabledDashboardText = outputText(sourceDisabledDashboard);
   const debugDashboardText = outputText(debugDashboard);

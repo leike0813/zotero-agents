@@ -28,7 +28,7 @@ The Synthesis Workbench citation graph visual and interaction rules SHALL be reu
 
 #### Scenario: Readonly standalone mode omits Host actions
 
-- **GIVEN** the standalone renderer is initialized with `readonly: true`
+- **GIVEN** the graph renderer is running in standalone export mode without a live host bridge
 - **WHEN** a library paper node is selected
 - **THEN** the renderer SHALL show local selection details
 - **AND** it SHALL NOT render Host-only actions such as opening a Zotero item.

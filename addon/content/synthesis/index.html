@@ -15,7 +15,16 @@
     <link rel="stylesheet" href="./styles.css?ui=20260617-taxonomy-axis-v2" />
   </head>
   <body>
-    <div id="app" class="synthesis-root"></div>
+    <div id="app" class="synthesis-root">
+      <aside class="sidebar" data-role="synthesis-shell"></aside>
+      <main class="content" data-role="synthesis-content">
+        <div class="topbar" data-role="synthesis-topbar">
+          <div class="topbar-controls"></div>
+        </div>
+        <section class="main" data-role="synthesis-main"></section>
+        <div data-role="synthesis-chrome"></div>
+      </main>
+    </div>
     <script src="../shared/vendor/markdown-it/markdown-it.min.js"></script>
     <script src="../shared/vendor/katex/katex.min.js"></script>
     <script src="../shared/vendor/markdown-it-texmath/texmath.min.js"></script>

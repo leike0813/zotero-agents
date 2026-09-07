@@ -131,7 +131,7 @@ export const productionRuntimeContractMarkers = [
 
 export const runtimeDiagnosticsStaticAllowances = {
   dashboardRoutesAndTemplates: [
-    "addon/content/dashboard/app.js",
+    "src/dashboard/dashboardPanelModel.ts",
     "addon/content/dashboard/styles.css",
   ],
   locale: ["addon/locale/*/addon.ftl"],

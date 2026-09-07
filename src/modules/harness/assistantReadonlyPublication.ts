@@ -91,7 +91,10 @@ type HarnessChannel = {
   runtime: AssistantWorkspacePublicationRuntime;
 };
 
-type HarnessChannels = Record<AssistantWorkspacePublicationSource, HarnessChannel>;
+type HarnessChannels = Record<
+  AssistantWorkspacePublicationSource,
+  HarnessChannel
+>;
 
 type HarnessSelection = {
   "acp-chat": Extract<AssistantWorkspaceOwner, { source: "acp-chat" }> | null;
@@ -179,7 +182,9 @@ function terminalStatus(status: string) {
 }
 
 function statusToken(value: unknown): string {
-  return cleanString(value).toLowerCase().replace(/[\s_]+/g, "-");
+  return cleanString(value)
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
 }
 
 // ---------------------------------------------------------------------------
@@ -303,10 +308,7 @@ type AcpChatConversationModel = {
 type AcpChatData = {
   backends: BackendInstance[];
   conversations: AcpChatConversationModel[];
-  defaultOwner: Extract<
-    AssistantWorkspaceOwner,
-    { source: "acp-chat" }
-  > | null;
+  defaultOwner: Extract<AssistantWorkspaceOwner, { source: "acp-chat" }> | null;
 };
 
 function acpChatConversationModel(
@@ -325,7 +327,9 @@ function acpChatConversationModel(
   const currentMode = parseJsonObject(payload.currentMode);
   const currentModel = parseJsonObject(payload.currentModel);
   const currentDisplayModel = parseJsonObject(payload.currentDisplayModel);
-  const currentReasoningEffort = parseJsonObject(payload.currentReasoningEffort);
+  const currentReasoningEffort = parseJsonObject(
+    payload.currentReasoningEffort,
+  );
   return {
     backendId,
     conversationId,
@@ -472,8 +476,7 @@ function skillRunnerRunModel(
       ? projectAssistantPendingInteractionFromHints({
           pendingKind:
             requestPayload.pendingKind || requestPayload.pending_kind,
-          uiHints:
-            requestPayload.pendingUiHints || requestPayload.ui_hints,
+          uiHints: requestPayload.pendingUiHints || requestPayload.ui_hints,
           options: requestPayload.pendingOptions || requestPayload.options,
           files: requestPayload.pendingRequiredFields,
         })
@@ -497,22 +500,24 @@ function skillRunnerRunModel(
 }
 
 function skillRunnerTranscriptItems(model: SkillRunnerRunModel) {
-  const items: Array<Record<string, unknown>> = model.messages.map((entry, index) => {
-    const source = entry && typeof entry === "object" ? entry : {};
-    const kind = cleanString(source.kind);
-    return {
-      id:
-        cleanString(source.id) ||
-        `skillrunner-message-${Number(source.seq || index + 1)}`,
-      kind: kind === "thought" ? "thought" : "message",
-      role: cleanString(source.role) || "assistant",
-      text: cleanString(
-        source.displayText || source.text || source.message || source.content,
-      ),
-      state: "complete",
-      createdAt: cleanString(source.ts || source.createdAt),
-    };
-  });
+  const items: Array<Record<string, unknown>> = model.messages.map(
+    (entry, index) => {
+      const source = entry && typeof entry === "object" ? entry : {};
+      const kind = cleanString(source.kind);
+      return {
+        id:
+          cleanString(source.id) ||
+          `skillrunner-message-${Number(source.seq || index + 1)}`,
+        kind: kind === "thought" ? "thought" : "message",
+        role: cleanString(source.role) || "assistant",
+        text: cleanString(
+          source.displayText || source.text || source.message || source.content,
+        ),
+        state: "complete",
+        createdAt: cleanString(source.ts || source.createdAt),
+      };
+    },
+  );
   const permission = projectAssistantWorkspacePermissionRequest(
     model.pendingPermission,
   );
@@ -606,8 +611,9 @@ export async function createAssistantReadonlyPublicationSession(args: {
   workflowsDir?: string;
   builtinWorkflowsDir?: string;
 }) {
-  const store: PluginStateReadonlyStore =
-    await createPluginStateReadonlyStore(args.pluginDbPath);
+  const store: PluginStateReadonlyStore = await createPluginStateReadonlyStore(
+    args.pluginDbPath,
+  );
   const loadedBackends = await loadBackendsRegistryReadonly().catch(() => ({
     backends: [] as BackendInstance[],
   }));
@@ -840,9 +846,7 @@ export async function createAssistantReadonlyPublicationSession(args: {
           composer: () => ({
             reply: {
               status:
-                conversation.busy ||
-                connectionChanging ||
-                pendingPermission
+                conversation.busy || connectionChanging || pendingPermission
                   ? conversation.busy
                     ? ("busy" as const)
                     : ("disabled" as const)
@@ -861,7 +865,9 @@ export async function createAssistantReadonlyPublicationSession(args: {
                 modelConfigurationEditable && modelOptions.length > 0,
               ),
               reasoningEffort: projectAssistantWorkspaceOptionGroup(
-                connected ? optionList(conversation.reasoningEffortOptions) : [],
+                connected
+                  ? optionList(conversation.reasoningEffortOptions)
+                  : [],
                 conversation.currentReasoningEffortId,
                 modelConfigurationEditable &&
                   conversation.reasoningEffortOptions.length > 0,
@@ -1366,9 +1372,7 @@ export async function createAssistantReadonlyPublicationSession(args: {
         groupId,
         label: projection.title || projection.runKey,
         subtitle:
-          cleanString(
-            projection.skillName || projection.workflowLabel,
-          ) || null,
+          cleanString(projection.skillName || projection.workflowLabel) || null,
         description:
           cleanString(projection.error || projection.applyError) || null,
         groupLabel: projection.backendLabel || null,
@@ -1479,9 +1483,7 @@ export async function createAssistantReadonlyPublicationSession(args: {
             createWorkspaceOwnerControl({
               status: model.status,
               busy:
-                !model.terminal &&
-                !model.waiting &&
-                model.status !== "queued",
+                !model.terminal && !model.waiting && model.status !== "queued",
               hint: skillRunnerWorkspaceHint(model),
               interaction: skillRunnerWorkspaceInteraction(model),
               connection: {
@@ -1544,7 +1546,6 @@ export async function createAssistantReadonlyPublicationSession(args: {
     nextScopeKey: string,
   ): HarnessChannel {
     const adapter = adapters[source];
-    let runtime!: AssistantWorkspacePublicationRuntime;
     const coordinator = new AssistantWorkspacePublicationCoordinator({
       scopeKey: `${nextScopeKey}-${source}`,
       getActiveOwner(ownerSource) {
@@ -1582,7 +1583,7 @@ export async function createAssistantReadonlyPublicationSession(args: {
         });
       },
     });
-    runtime = new AssistantWorkspacePublicationRuntime({
+    const runtime = new AssistantWorkspacePublicationRuntime({
       coordinator,
       activity: () => "matching-target",
     });
@@ -1591,11 +1592,7 @@ export async function createAssistantReadonlyPublicationSession(args: {
 
   async function initializeChannels(cause: "initialization" | "owner-switch") {
     if (!channels) return;
-    for (const source of [
-      "acp-chat",
-      "acp-skills",
-      "skillrunner",
-    ] as const) {
+    for (const source of ["acp-chat", "acp-skills", "skillrunner"] as const) {
       const channel = channels[source];
       await channel.runtime.initialize({
         adapter: channel.adapter,
@@ -1717,18 +1714,16 @@ export async function createAssistantReadonlyPublicationSession(args: {
     const reason = cleanString(value.reason);
     runtime.acknowledge({
       publicationId,
-      stage: (
-        ACK_STAGES.includes(stage) ? stage : "render-complete"
-      ) as AssistantWorkspacePublicationAck["stage"],
+      stage: (ACK_STAGES.includes(stage)
+        ? stage
+        : "render-complete") as AssistantWorkspacePublicationAck["stage"],
       outcome: value.outcome === "rejected" ? "rejected" : "accepted",
-      reason: (
-        ACK_REASONS.includes(reason) ? reason : null
-      ) as AssistantWorkspacePublicationAck["reason"],
-      failure: (
-        value.failure && typeof value.failure === "object"
-          ? value.failure
-          : null
-      ) as AssistantWorkspacePublicationAck["failure"],
+      reason: (ACK_REASONS.includes(reason)
+        ? reason
+        : null) as AssistantWorkspacePublicationAck["reason"],
+      failure: (value.failure && typeof value.failure === "object"
+        ? value.failure
+        : null) as AssistantWorkspacePublicationAck["failure"],
     });
   }
 

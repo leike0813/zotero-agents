@@ -70,11 +70,55 @@ export function resetSynthesisSidecarTraceForTests() {}
 const disabledSynthesisSidecarObservabilityModule = `
 export function rebuildSynthesisSidecarTraceContext() { return undefined; }
 export function rebuildSynthesisSidecarObservationEvent() { return undefined; }
+export function safeSynthesisSidecarObservationReason() { return undefined; }
 `;
 
 function moduleBasename(modulePath: string) {
   return path.basename(modulePath).replace(/\.(?:js|ts)$/, "");
 }
+
+// The synthesis sidecar dashboard region is a debug-only surface guarded by
+// compile-time gates in dashboardPanelModel/dashboardChromeRenderer. esbuild
+// scans import usage before folding those gated branches away, so the region
+// module must be substituted at resolve time — mirroring the disabled-module
+// pattern of runtimeDiagnosticsSideEffectsPlugin above. Used by both the
+// production dashboard entry and the release-elision check so the check
+// measures the real release artifact.
+const disabledSynthesisSidecarRegionModule = `
+export function findSynthesisSidecarRawTrace() { return null; }
+export function narrowSynthesisSidecarTraceSnapshot() { return null; }
+export function rankSynthesisSidecarTraces() { return []; }
+export function resolveSynthesisSidecarVisibleTraces() { return { visible: [], selected: null }; }
+export function synthesisSidecarEventDepths() { return []; }
+export function synthesisSidecarTraceDetailSignature() { return ""; }
+export function synthesisSidecarTraceOutcome() { return ""; }
+export function synthesisSidecarTraceRootOperation() { return ""; }
+export function synthesisSidecarTraceRowSignature() { return ""; }
+export function SynthesisSidecarRegion() { return null; }
+`;
+
+export const dashboardSynthesisSidecarRegionElisionPlugin: Plugin = {
+  name: "dashboard-synthesis-sidecar-region-elision",
+  setup(build) {
+    const disabled =
+      build.initialOptions.define?.__debug_mode__ === "false" ||
+      build.initialOptions.define?.__synthesis_sidecar_diagnostics_enabled__ ===
+        "false";
+    if (!disabled) return;
+    build.onResolve({ filter: /SynthesisSidecarRegion(?:\.tsx?)?$/ }, () => ({
+      path: "SynthesisSidecarRegion",
+      namespace: "dashboard-synthesis-sidecar-disabled",
+      sideEffects: false,
+    }));
+    build.onLoad(
+      {
+        filter: /^SynthesisSidecarRegion$/,
+        namespace: "dashboard-synthesis-sidecar-disabled",
+      },
+      () => ({ contents: disabledSynthesisSidecarRegionModule, loader: "js" }),
+    );
+  },
+};
 
 export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
   name: "runtime-diagnostics-side-effects",

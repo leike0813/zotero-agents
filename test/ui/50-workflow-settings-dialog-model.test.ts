@@ -741,8 +741,11 @@ describe("workflow settings dialog model", function () {
     ] = await Promise.all([
       readFile("addon/content/components/custom-select.js", "utf8"),
       readFile("addon/content/components/custom-select.css", "utf8"),
-      readFile("addon/content/dashboard/app.js", "utf8"),
-      readFile("addon/content/dashboard/workflow-settings-dialog.js", "utf8"),
+      readFile("src/dashboard/dashboardApp.ts", "utf8"),
+      readFile(
+        "src/dashboard/components/WorkflowSettingsDialogRegion.tsx",
+        "utf8",
+      ),
       readFile("addon/content/dashboard/workflow-settings-dialog.css", "utf8"),
       readFile("addon/content/dashboard/index.html", "utf8"),
       readFile("addon/content/dashboard/workflow-settings-dialog.html", "utf8"),
@@ -783,25 +786,19 @@ describe("workflow settings dialog model", function () {
     assert.notInclude(pluginDialogSource, "applyTailPreservingChoiceStyle");
     assert.include(pluginDialogSource, "acpModelProvider");
     assert.include(workflowDialogJs, "settings-options-column");
-    assert.include(
-      workflowDialogJs,
-      "Array.isArray(form.runSchemaEntries) && form.runSchemaEntries.length",
-    );
-    assert.include(workflowDialogJs, 'classList.add("settings-card-fill")');
-    assert.include(workflowDialogJs, "createExecutionUnitPreview");
-    assert.include(workflowDialogJs, "createHostQueueOptionsCard");
-    assert.include(
-      workflowDialogJs,
-      'input.className = "field-control numeric"',
-    );
-    assert.include(
-      workflowDialogJs,
-      'controlWrap.className = "field-input-col"',
-    );
-    assert.include(workflowDialogJs, "controlWrap.appendChild(input)");
-    assert.include(workflowDialogJs, "controlWrap.appendChild(error)");
+    assert.include(workflowDialogJs, "runEntries.length > 0");
+    assert.include(workflowDialogJs, 'cardExtraClassName="settings-card-fill"');
+    assert.include(workflowDialogJs, "ExecutionUnitPreviewCard");
+    assert.include(workflowDialogJs, "HostQueueOptionsCard");
+    assert.include(workflowDialogJs, 'class="field-control numeric"');
+    assert.include(workflowDialogJs, 'controlWrapClassName: "field-input-col"');
+    assert.include(workflowDialogJs, '<div class="field-input-col">');
+    assert.include(workflowDialogJs, '<div class="field-error"');
     assert.include(workflowDialogJs, "Number.isSafeInteger");
-    assert.include(workflowDialogJs, "buildExecutionOptionsPayload()");
+    assert.include(
+      workflowDialogJs,
+      "buildWorkflowSettingsDialogExecutionOptions(draft)",
+    );
     assert.notInclude(
       pluginDialogSource,
       "zs-workflow-settings-host-max-concurrency",
@@ -816,11 +813,7 @@ describe("workflow settings dialog model", function () {
     assert.include(workflowDialogJs, "settings-options-region");
     assert.include(
       workflowDialogJs,
-      "multiUnitColumn.appendChild(previewCard)",
-    );
-    assert.include(
-      workflowDialogJs,
-      "multiUnitColumn.appendChild(hostOptionsCard)",
+      '<div class="settings-multi-unit-column">',
     );
     assert.notInclude(workflowDialogJs, "shell.appendChild(previewCard)");
     assert.notInclude(workflowDialogJs, "shell.appendChild(hostOptionsCard)");

@@ -10,26 +10,19 @@ import {
   type SynthesisSidecarObservationSource,
   type SynthesisSidecarTraceContext,
 } from "../../packages/synthesis-contracts/src/sidecarObservability";
+import type {
+  DashboardSynthesisSidecarTrace,
+  DashboardSynthesisSidecarTraceSnapshot,
+} from "../shared/dashboardWireContract";
 import { isSynthesisSidecarDiagnosticsAvailable } from "./debugMode";
 
 export const SYNTHESIS_SIDECAR_TRACE_EVENT_LIMIT = 1_000;
 export const SYNTHESIS_SIDECAR_TRACE_PER_TRACE_LIMIT = 128;
 export const SYNTHESIS_SIDECAR_TRACE_PATCH_INTERVAL_MS = 200;
 
-export type SynthesisSidecarTrace = {
-  traceId: string;
-  events: SynthesisSidecarObservationEvent[];
-  droppedCount: number;
-  active: boolean;
-  startedAtMs: number;
-  updatedAtMs: number;
-};
-
-export type SynthesisSidecarTraceSnapshot = {
-  schema: "synthesis-sidecar-trace-snapshot.v2";
-  traces: SynthesisSidecarTrace[];
-  eventCount: number;
-};
+export type SynthesisSidecarTrace = DashboardSynthesisSidecarTrace;
+export type SynthesisSidecarTraceSnapshot =
+  DashboardSynthesisSidecarTraceSnapshot;
 
 export type SynthesisSidecarTracePatch = {
   schema: "synthesis-sidecar-trace-patch.v2";

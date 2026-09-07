@@ -14,6 +14,8 @@ yarn.lock
 # TSC
 tsconfig.tsbuildinfo
 tsconfig.sidebar.tsbuildinfo
+tsconfig.dashboard.tsbuildinfo
+tsconfig.synthesis.tsbuildinfo
 
 # Rust
 cli/zotero-bridge/target/

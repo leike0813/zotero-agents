@@ -1,84 +1,68 @@
 import { assert } from "chai";
 import fs from "fs/promises";
-
-function functionBody(source: string, name: string) {
-  const start = source.indexOf(`function ${name}`);
-  assert.isAtLeast(start, 0, `${name} should exist`);
-  const next = source.indexOf("\nfunction ", start + 1);
-  return source.slice(start, next > start ? next : undefined);
-}
+import { bootstrapSynthesisWorkbench } from "../../src/synthesis/synthesisWorkbenchApp";
+import {
+  buildSynthesisUiSnapshot,
+  createDefaultSynthesisUiState,
+} from "../../src/modules/synthesis/uiModel";
+import {
+  createSidebarDomEnvironment,
+  installSidebarDomGlobals,
+  restoreSidebarDomGlobals,
+  subtreeNodes,
+} from "../helpers/sidebarDomEnv";
 
 describe("UI render stability contract", function () {
-  it("documents the live UI rendering stability boundary", async function () {
-    const contract = await fs.readFile(
-      "doc/ui-rendering-stability-contract.md",
-      "utf8",
-    );
-
-    assert.include(contract, "Content state");
-    assert.include(contract, "Chrome/status state");
-    assert.include(contract, "Transient interaction state");
-    assert.include(contract, "High-frequency updates must patch only");
-    assert.include(contract, "full `JSON.stringify(snapshot)`");
+  it("preserves active controls, focus and content across chrome updates", function () {
+    const env = createSidebarDomEnvironment();
+    installSidebarDomGlobals(env);
+    const root = document.createElement("div");
+    root.id = "app";
+    document.body.appendChild(root);
+    const page = bootstrapSynthesisWorkbench({ root });
+    try {
+      const snapshot = buildSynthesisUiSnapshot(
+        { libraryId: 1 },
+        createDefaultSynthesisUiState(),
+      );
+      page.handleHostMessage({ type: "synthesis:snapshot", payload: snapshot });
+      const content = root.querySelector(
+        '[data-region-content="synthesis-home"]',
+      )!;
+      const control = content.querySelector<HTMLButtonElement>("button")!;
+      control.focus();
+      const nodes = subtreeNodes(content);
+      page.handleHostMessage({
+        type: "synthesis:chrome",
+        payload: {
+          ...snapshot,
+          actions: {
+            ...snapshot.actions,
+            inFlight: [
+              {
+                key: "refresh",
+                command: "refresh",
+                status: "running",
+                label: "Refreshing",
+              },
+            ],
+          },
+        },
+      });
+      assert.strictEqual(document.activeElement, control);
+      const after = subtreeNodes(content);
+      assert.equal(after.length, nodes.length);
+      after.forEach((node, index) => assert.strictEqual(node, nodes[index]));
+      assert.isTrue(content.isConnected);
+    } finally {
+      page.dispose();
+      restoreSidebarDomGlobals();
+      env.dom.window.close();
+    }
   });
 
-  it("keeps Synthesis Workbench chrome updates out of full content render", async function () {
-    const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
-    const messageHandlerStart = source.indexOf(
-      'data.type === "synthesis:init" || data.type === "synthesis:snapshot"',
-    );
-    assert.isAtLeast(messageHandlerStart, 0);
-    const nextMessageBranch = source.indexOf(
-      'data.type === "synthesis:artifact"',
-      messageHandlerStart,
-    );
-    assert.isAbove(nextMessageBranch, messageHandlerStart);
-    const messageHandler = source.slice(messageHandlerStart, nextMessageBranch);
-
-    assert.include(source, "function snapshotChromeSignature");
-    assert.include(source, "function snapshotContentSignature");
-    assert.include(source, "function renderWorkbenchChrome");
-    assert.include(messageHandler, "contentChanged");
-    assert.include(messageHandler, "chromeChanged");
-    assert.include(messageHandler, "renderWorkbenchChrome()");
-    assert.notInclude(source, "function snapshotPayloadSignature");
-    assert.notInclude(source, "JSON.stringify(snapshot) :");
-  });
-
-  it("keeps one graph renderer across shell, surface, tab, and resize updates", async function () {
-    const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
-    const shell = functionBody(source, "renderShell");
-    const selectedTab = functionBody(source, "renderSelectedTabShell");
-    const surface = functionBody(source, "renderSurface");
-    const resize = functionBody(source, "scheduleSigmaResize");
-
-    assert.include(source, "function ensurePersistentGraphSurface");
-    assert.include(source, "function preserveGraphSurfaceWhileRebuildingRoot");
-    assert.include(source, "state.sigma.setGraph(graph)");
-    assert.include(source, 'toggleAttribute("inert", !active)');
-    assert.include(
-      source,
-      'setAttribute("aria-hidden", active ? "false" : "true")',
-    );
-    assert.include(source, "graphCamera");
-    assert.notInclude(source, "disposeGraphRenderer");
-    assert.notInclude(source, ".kill()");
-    assert.notInclude(shell, "clear(root)");
-    assert.notInclude(selectedTab, "clear(main)");
-    assert.notInclude(surface, "clear(main)");
-    assert.include(resize, "state.sigmaResizeFrame");
-    assert.include(resize, "window.requestAnimationFrame");
-    assert.notInclude(resize, "setTimeout");
-  });
-
-  it("uses stable keys for scroll, focus, expanded details, and workspace mounts", async function () {
-    const synthesis = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+  it("keeps workspace mounts while switching visibility", async function () {
     const workspace = await fs.readFile("src/workspaceApp.ts", "utf8");
-
-    assert.include(synthesis, "dataset.synthesisScrollKey");
-    assert.include(synthesis, "dataset.synthesisControlKey");
-    assert.include(synthesis, "details[data-synthesis-details-key][open]");
-    assert.include(synthesis, 'getAttribute("data-synthesis-details-key")');
     assert.include(workspace, 'root.querySelector(".workspace-panel")');
     assert.include(workspace, "updateWorkspaceVisibility");
     assert.include(workspace, 'if (root.querySelector(".workspace-panel"))');
